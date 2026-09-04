@@ -1240,14 +1240,23 @@ def metrics():
     spawn; nothing to clean). Terminal members are counted present only
     while they are not `removed`: a directory that reappears at a removed
     member's old path is somebody else's, never dead-present. A failed
-    member with a directory present is always counted."""
+    member with a directory present is always counted.
+
+    `blocked` is counted SEPARATELY from `pending_retry` and is a SUBSET of
+    it. A blocked member is still retried — nothing is parked for a person —
+    but the condition it is waiting on is one that waiting cannot clear, and
+    filing it under "pending normal retry" reports a deadlock as a process
+    under control. Thirty members sat that way for a full day on 2026-09-04
+    (the harness lock; reconcile-terminal-worktrees.py
+    _break_own_quarantine_lock), each with a backoff doubling to six hours,
+    and the status line called every one of them a normal retry."""
     out = {"transactions": 0,
            "sealed_native_present": 0, "sealed_native_missing": 0,
            "sealed_external_only_unclaimed": 0, "sealed_no_member": 0,
            "terminal": 0, "removed": 0,
            "terminal_pending_cleanup": 0, "terminal_cleanup_failed": 0,
            "terminal_members": 0, "terminal_members_present": 0,
-           "pending_retry": 0, "failed": 0, "failed_present": 0,
+           "pending_retry": 0, "blocked": 0, "failed": 0, "failed_present": 0,
            "pending_terminals": 0, "pending_terminals_unbindable": 0}
     for _s, _a, rec in iter_pending_terminals():
         out["pending_terminals"] += 1
@@ -1282,6 +1291,8 @@ def metrics():
                     out["failed_present"] += 1
             else:
                 out["pending_retry"] += 1
+                if m.get("blocked"):
+                    out["blocked"] += 1
     out["terminal_pending_cleanup"] = out["pending_retry"]
     out["terminal_cleanup_failed"] = out["failed"]
     return out

@@ -158,6 +158,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -230,12 +231,28 @@ def retry_backoff():
             val("RICHOS_RECONCILE_BACKOFF_MAX", "RECONCILE_RETRY_BACKOFF_MAX_SECONDS", "21600"))
 
 
-def _record_soft_failure(sid, aid, i, attempts, err, base, cap, bump=True):
-    fields = {"last_error": (err or "")[:300], "last_attempt": tx.now_iso()}
+def _record_soft_failure(sid, aid, i, attempts, err, base, cap, bump=True, blocked=False):
+    # `blocked` is persisted on the member so the NEXT process — status(), the
+    # session banner, a person reading the record — can tell a transient
+    # failure from one that waiting cannot clear, without re-deriving it from
+    # the text of an error string. It is cleared on every non-blocked failure,
+    # so a member that stops being blocked stops reporting as blocked.
+    fields = {"last_error": (err or "")[:300], "last_attempt": tx.now_iso(),
+              "blocked": bool(blocked), "blocked_reason": (err or "")[:300] if blocked else None}
     if bump:
         fields["attempts"] = attempts
     if base > 0:
-        delay = min(base * (2 ** max(attempts - 1, 0)), cap)
+        # A BLOCKED MEMBER DOES NOT COMPOUND ITS BACKOFF. Doubling is right
+        # for a transient condition that may be recovering gradually — a
+        # busy disk, a slow repository — because each retry costs something
+        # and each one is a fresh chance. A blocked member is neither: its
+        # retry is a `worktree list` and a refusal, and its condition
+        # changes DISCONTINUOUSLY (a lock released when the session exits, a
+        # repair that lands), so there is no gradient to back off along.
+        # Measured 2026-09-04: thirty blocked members had compounded to
+        # 21600s, so a condition repaired at any moment would go unnoticed
+        # for up to six hours and the repair would read as not working.
+        delay = base if blocked else min(base * (2 ** max(attempts - 1, 0)), cap)
         fields["retry_after_epoch"] = time.time() + delay
         fields["retry_after"] = tx.now_iso() + " + %ds" % int(delay)
     tx.update_member(sid, aid, i, **fields)
@@ -791,6 +808,142 @@ def _ensure_backup_ref(m, repo, ref):
     return "lost"
 
 
+LOCKED_REMOVE_MARKER = "cannot remove a locked working tree"
+
+
+class BlockedFailure(RuntimeError):
+    """A failure that WAITING CANNOT CLEAR. It is retried like any other
+    (nothing is ever parked for a person), but it is counted and reported
+    apart from `pending_retry` — see `_record_soft_failure`'s `blocked`
+    field and status()'s `members_blocked_on_an_unclearable_condition`.
+
+    WHY THE DISTINCTION EARNS ITS KEEP. Between 2026-09-03 and 2026-09-04
+    thirty verified members sat at exactly this failure — the harness lock
+    (below) — and every one of them was reported as
+    `terminal_transactions_pending_normal_retry`, with a backoff doubling to
+    six hours. Retry-with-backoff is the shape of a condition under control.
+    This one could not clear until the session process exited, so the
+    reporting said "being handled" over a deadlock, which is the false-green
+    of richos-hq/wiki/worktree-lifecycle.md §5 wearing a third costume."""
+
+
+def _harness_lock_holder(lock_line):
+    """The agent id named by a Claude Code worktree lock line, or "".
+
+    Measured format, `git worktree list --porcelain`, femcboost 2026-09-04:
+        locked claude agent agent-a0737dce77df4ee6c (pid 27582 start ...)
+    A lock with no reason prints a bare `locked`, and this returns "" for it
+    — which REFUSES the break below, because a lock nobody signed cannot be
+    proven to be the one this member's own agent left behind."""
+    if not lock_line:
+        return ""
+    mm = re.search(r"\bagent-([0-9a-zA-Z]+)\b", lock_line)
+    return mm.group(1) if mm else ""
+
+
+def _break_own_quarantine_lock(t, index, repo, quar, entry):
+    """Release the harness lock on THIS member's own quarantine, or refuse.
+
+    ===================================================================
+    WHY A LOCK IS BROKEN HERE AT ALL, AND WHY ONLY HERE
+    ===================================================================
+    `git worktree remove --force` (one --force) REFUSES a locked worktree;
+    only `-f -f`, or an unlock, gets past it. Until this revision the step
+    took the refusal as a transient failure and retried forever. It is not
+    transient. Measured on this machine, 2026-09-04:
+
+      * 31 lock files under femcboost/.git/worktrees/*/locked, every one
+        naming pid 27582 — the SESSION's pid, one process, every agent
+        (the same fact as platform fact PF6 in the lifecycle wiki, and as
+        lib/agent-liveness.py's docstring, re-derived independently here);
+      * 30 of them held quarantines that a per-agent SubagentStop had
+        already claimed, all of them `verified`, stuck at attempt 4-10 with
+        the backoff at 21600s;
+      * the two PRIOR sessions' quarantines (pids 18202 and 93638, both
+        dead) had no lock file at all and had reached `removed`.
+
+    So the lock is released when the SESSION exits, never when the agent
+    finishes, and inside one session a quarantine can never be removed. That
+    is the whole of what the CEO saw: one directory per dispatch, all day,
+    cleared only by quitting Claude Code.
+
+    ===================================================================
+    THIS IS NOT A NEW AUTHORITY TO REMOVE — AND THAT DISTINCTION IS THE
+    WHOLE SAFETY ARGUMENT
+    ===================================================================
+    richos-hq/wiki/worktree-lifecycle.md §14.3 rules that live-agent
+    eviction is not permitted whatever the git state, and §14.4 leaves
+    "what authorizes a removal" OPEN. Nothing here answers that question.
+    The authority was exercised earlier and elsewhere: a per-agent terminal
+    ingress claimed the transaction and RENAMED this directory out of the
+    agent's path. What is left is the last mechanical step of a decision
+    already made, over a directory that is nobody's workspace, whose bytes
+    are archived and re-verified.
+
+    The lock's author said what it is for (Claude Code docs, quoted in the
+    wiki §12.2): while an agent is running, the lock stops CONCURRENT
+    CLEANUP removing ITS worktree. Both halves are checked below rather
+    than argued: the object is not any agent's worktree (P3), and this is
+    not concurrent cleanup but that same agent's own terminal transaction
+    (P2). A lock signed by any OTHER agent is refused (P4) — never broken
+    on the theory that it is probably stale.
+
+    FIVE PRECONDITIONS, ALL READ AT THE INSTANT OF THE ACT, none taken
+    from a caller and none from a description:
+
+      P1  the member is `verified`: an archive was captured AND re-read
+          digest-by-digest, and its directory is on disk right now.
+      P2  the transaction is terminal with a recorded per-agent ingress.
+      P3  the path is EXACTLY this member's own quarantine — equal to the
+          recorded `quarantine`, equal to the name tx.quarantine_name()
+          builds from this session id and this agent id, and listed by git
+          as that exact registered path, not prunable. A live agent's
+          worktree is never at that name: only a terminal ingress creates
+          it.
+      P4  the lock is signed by THIS member's agent id.
+      P5  the backup ref is present (or was re-created): both preservation
+          layers intact, not one.
+
+    Any refusal raises BlockedFailure. The quarantine stays exactly where
+    it is, the reason is recorded on the member, and it is reported as
+    blocked rather than as a retry that is about to succeed."""
+    m = t["members"][index]
+    sid, aid = t["session_id"], t["agent_id"]
+    lock_line = (entry or {}).get("locked")
+
+    def refuse(why):
+        raise BlockedFailure(
+            "the harness lock on %s was NOT broken (%s); the quarantine is preserved untouched" % (quar, why))
+
+    if m.get("state") != "verified":
+        refuse("P1: the member is %r, not `verified` — an unverified archive is not proof the bytes survive" % m.get("state"))
+    cap = m.get("capture_dir")
+    if not (m.get("verified_ts") and cap and os.path.isdir(cap)):
+        refuse("P1: no verified archive is on disk (verified_ts=%r capture_dir=%r)" % (m.get("verified_ts"), cap))
+    terminal = t.get("terminal")
+    ingress = (terminal or {}).get("ingress") if isinstance(terminal, dict) else None
+    if not ingress:
+        refuse("P2: the transaction records no terminal ingress — nothing witnessed this agent finishing")
+    expected = tx.quarantine_name(m["path"], sid, aid)
+    if tx.norm_path(quar) != tx.norm_path(expected) or tx.norm_path(quar) != tx.norm_path(m.get("quarantine") or ""):
+        refuse("P3: %s is not this member's own quarantine name (expected %s)" % (quar, expected))
+    if entry is None or entry.get("prunable"):
+        refuse("P3: git does not list %s as the exact non-prunable registered path" % quar)
+    holder = _harness_lock_holder(lock_line)
+    if holder != aid:
+        refuse("P4: the lock is signed %r, not by this member's agent %r" % (holder or lock_line, aid))
+    if not (m.get("backup_ref") and _ref_exists(repo, m["backup_ref"])):
+        refuse("P5: the backup ref %r is not present in %s" % (m.get("backup_ref"), repo))
+
+    rc, _, err = git_out(repo, "worktree", "unlock", quar)
+    if rc != 0:
+        raise RuntimeError("git worktree unlock %s failed: %s" % (quar, err.strip()[:200]))
+    tx.update_member(sid, aid, index, lock_broken=True, lock_broken_ts=tx.now_iso(),
+                     lock_broken_line=(lock_line or "")[:300], lock_broken_ingress=ingress)
+    log("member %s of %s/%s: released this agent's own harness lock on its quarantine before removal (%s; ingress %s)"
+        % (m["path"], sid[:8], aid, (lock_line or "").strip()[:120], ingress))
+
+
 def unregister_member(t, index):
     """verified -> unregistered: git no longer lists the worktree. The backup
     ref is never touched; the branch is left alone. Every failure here has
@@ -798,7 +951,9 @@ def unregister_member(t, index):
     repository is read from the quarantine, and if neither exists there is
     no registration to remove; a vanished backup ref is re-created from the
     recorded head or recorded lost; a directory git cannot operate on is
-    left for `git worktree prune` once it is removed."""
+    left for `git worktree prune` once it is removed; and a harness lock on
+    this member's OWN quarantine is released under the five preconditions of
+    _break_own_quarantine_lock, or the member is reported BLOCKED."""
     m = t["members"][index]
     quar = m.get("quarantine")
     sid, aid = t["session_id"], t["agent_id"]
@@ -811,6 +966,13 @@ def unregister_member(t, index):
     reg = tx.registered_worktrees(repo) or {}
     if tx.norm_path(quar) in reg:
         rc, _, err = git_out(repo, "worktree", "remove", "--force", quar)
+        if rc != 0 and LOCKED_REMOVE_MARKER in (err or ""):
+            # The refusal names a lock. Break it only if it is this member's
+            # own, on this member's own quarantine, with the bytes archived
+            # and verified — otherwise BlockedFailure leaves everything as
+            # it stands.
+            _break_own_quarantine_lock(t, index, repo, quar, reg.get(tx.norm_path(quar)))
+            rc, _, err = git_out(repo, "worktree", "remove", "--force", quar)
         if rc != 0 and not m.get("git_unreadable"):
             raise RuntimeError("git worktree remove --force %s failed: %s" % (quar, err.strip()[:200]))
     git_out(repo, "worktree", "prune")
@@ -948,10 +1110,16 @@ def reconcile_transaction(t, deadline=None):
                     t2 = step(t, i)
                 except Exception as e:
                     attempts = int(m.get("attempts") or 0) + 1
-                    _record_soft_failure(sid, aid, i, attempts, str(e), base, cap)
+                    blocked = isinstance(e, BlockedFailure)
+                    _record_soft_failure(sid, aid, i, attempts, str(e), base, cap, blocked=blocked)
                     if attempts == MAX_SOFT_ATTEMPTS_BEFORE_NOTICE:
                         notice_once(t, i, "still failing after %d attempts: %s" % (attempts, e))
-                    log("member %s of %s/%s: %s (attempt %d, retrying with backoff)" % (m.get("path"), sid[:8], aid, e, attempts))
+                    # THE WORD SAYS WHICH KIND OF FAILURE THIS IS. "retrying
+                    # with backoff" over a condition waiting cannot clear is
+                    # the false green of worktree-lifecycle.md §5.
+                    log("member %s of %s/%s: %s (attempt %d, %s)"
+                        % (m.get("path"), sid[:8], aid, e, attempts,
+                           "BLOCKED — waiting cannot clear this; retries continue" if blocked else "retrying with backoff"))
                     break
                 t = t2 if isinstance(t2, dict) else tx.load_tx(sid, aid)
                 if t["members"][i].get("state") == st:
@@ -969,8 +1137,11 @@ def reconcile_transaction(t, deadline=None):
                             notice_once(t, i, "still failing after %d attempts: %s" % (attempts, m2.get("last_error")))
                         log("member %s of %s/%s: %s (attempt %d, retrying with backoff)" % (m2.get("path"), sid[:8], aid, m2.get("last_error"), attempts))
                     break
-                if m.get("retry_after_epoch"):
-                    tx.update_member(sid, aid, i, retry_after_epoch=0)
+                if m.get("retry_after_epoch") or m.get("blocked"):
+                    # The member advanced, so whatever it was blocked on is
+                    # no longer blocking it. A `blocked` flag that outlived
+                    # its condition would report a solved problem forever.
+                    tx.update_member(sid, aid, i, retry_after_epoch=0, blocked=False, blocked_reason=None)
 
 
 def notice_once(t, index, msg):
@@ -1337,7 +1508,15 @@ def status():
     m["pending_terminals_overdue"] = overdue
     m["definition_of_done"] = {
         "terminal_members_with_a_directory_present": m["terminal_members_present"],
-        "terminal_transactions_pending_normal_retry": m["pending_retry"],
+        # THE TWO NUMBERS BELOW SPLIT WHAT USED TO BE ONE. `pending_retry`
+        # counted a genuine transient beside a deadlock, so a stuck fleet
+        # read as a fleet being handled. The blocked count is a subset of
+        # the retry count and is reported apart from it precisely because a
+        # nonzero value is a FINDING, not a footnote — the operational rule
+        # of worktree-lifecycle.md §5: the number that is not allowed to
+        # read as routine goes where it cannot be read past.
+        "terminal_transactions_pending_normal_retry": m["pending_retry"] - m["blocked"],
+        "members_blocked_on_a_condition_waiting_cannot_clear": m["blocked"],
         "hard_failures_counted_as_dead_present": m["failed_present"],
         "sealed_transactions_whose_native_member_is_gone": m["sealed_native_missing"],
         "pending_terminal_events_overdue": overdue,

@@ -120,9 +120,16 @@ else:
     s = d.get("status", {})
     done = s.get("done")
     dd = s.get("definition_of_done", {})
-    print("worktree reconciler: %s — terminal members with a directory present=%s, pending retry=%s, hard failures (dead-present)=%s, sealed transactions whose native member is gone=%s, overdue pending terminal events=%s, live workers positively present=%s, transactions touched=%s%s"
-          % ("DONE (zero dead worktrees)" if done else "PENDING",
+    # BLOCKED LEADS THE VERDICT WORD WHEN IT IS NONZERO. A member that
+    # waiting cannot free is not "pending"; reporting it as pending is how
+    # thirty stuck worktrees read as a fleet under control for a full day
+    # (worktree-lifecycle.md §5, and the 2026-09-04 harness-lock deadlock).
+    blocked = dd.get("members_blocked_on_a_condition_waiting_cannot_clear") or 0
+    verdict = "DONE (zero dead worktrees)" if done else ("BLOCKED (%s member(s) cannot proceed by waiting)" % blocked if blocked else "PENDING")
+    print("worktree reconciler: %s — terminal members with a directory present=%s, pending retry=%s, BLOCKED=%s, hard failures (dead-present)=%s, sealed transactions whose native member is gone=%s, overdue pending terminal events=%s, live workers positively present=%s, transactions touched=%s%s"
+          % (verdict,
              dd.get("terminal_members_with_a_directory_present"), dd.get("terminal_transactions_pending_normal_retry"),
+             blocked,
              dd.get("hard_failures_counted_as_dead_present"), dd.get("sealed_transactions_whose_native_member_is_gone"),
              dd.get("pending_terminal_events_overdue"), s.get("live_workers_positively_present"), d.get("reconciled"),
              ("; " + "; ".join(notes)[:300]) if notes else ""))

@@ -674,6 +674,163 @@ R >/dev/null 2>&1
 S="$(R --status)"; SRC=$?
 [ "$SRC" -eq 0 ] && [ ! -e "$EXT27" ] && [ "$(states "$A27")" = "removed removed " ] && ok "C47c ...and after one reconciler run the backstop has retired it and status is done again" || bad "C47c rc=$SRC states=$(states "$A27")"
 
+# --- 23. THE HARNESS LOCK. Measured on this machine 2026-09-04: 30 verified
+# members could not be removed because `git worktree remove --force` refuses a
+# LOCKED worktree, and the lock names the SESSION pid, so it is released when
+# Claude Code exits and never when an agent finishes. Every one of them was
+# reported as a normal retry with a backoff doubling to six hours.
+#
+# The lock is released HERE, on this member's own quarantine, under five
+# preconditions read at the instant of the act — and refused otherwise. Every
+# refusal below is proven by a POSITIVE PROBE: the same fixture completes once
+# the single refused precondition is repaired, so the case can never pass
+# because the fixture was broken.
+lock_as() { git -C "$ENTITY" worktree lock --reason "claude agent agent-$2 (pid $$ start Fri Sep  4 06:50:17 2026)" "$1"; }
+member_field() { T show --session-id "$SID" --agent-id "$1" | python3 -c "import json,sys; print(json.load(sys.stdin)['members'][0].get('$2'))"; }
+tamper() { python3 - "$TX_PY" "$SID" "$1" "$2" "$3" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
+with tx.tx_lock(sys.argv[2], sys.argv[3]):
+    tx.update_member(sys.argv[2], sys.argv[3], 0, **{sys.argv[4]: sys.argv[5] if sys.argv[5] != "__NONE__" else None})
+PY
+}
+
+# 23a. MUST BE REMOVED: locked by this member's own agent, on its own
+# quarantine, with an unlanded commit and untracked evidence to lose.
+A28="a00000000000rc28"
+seal "$A28" dev-opus-r28
+NAT28="$ENTITY/.claude/worktrees/agent-$A28"; Q28="$(q "$NAT28" "$A28")"
+printf 'unlanded\n' >"$NAT28/work.txt"; git -C "$NAT28" add work.txt; git -C "$NAT28" commit -q -m 'unlanded work'
+printf 'never committed\n' >"$NAT28/scratch.txt"
+HEAD28="$(git -C "$NAT28" rev-parse HEAD)"
+lock_as "$NAT28" "$A28"
+T claim --session-id "$SID" --agent-id "$A28" --ingress SubagentStop >/dev/null
+R --agent "$SID/$A28" >/dev/null 2>&1
+[ "$(states "$A28")" = "removed " ] && [ ! -e "$Q28" ] && [ ! -e "$NAT28" ] \
+    && ok "C48  a quarantine LOCKED by its own agent is removed (before this revision it retried forever: 30 stuck members, backoff at 21600s)" \
+    || bad "C48  states=$(states "$A28") quar=$([ -e "$Q28" ] && echo present || echo gone)"
+[ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A28/worktree-agent-$A28")" = "$HEAD28" ] \
+    && ok "C49  ...and the unlanded commit is still reachable under the backup ref (breaking a lock never costs a commit)" || bad "C49  backup ref"
+X28="$SANDBOX/extract28"; mkdir -p "$X28"; tar -xf "$SANDBOX/captures/$SID/$A28/member-0/tree.tar" -C "$X28" 2>/dev/null
+[ "$(cat "$X28/scratch.txt" 2>/dev/null)" = "never committed" ] \
+    && ok "C50  ...and the never-committed file survives byte-for-byte in the verified archive" || bad "C50  archive missing scratch.txt"
+LB="$(member_field "$A28" lock_broken_line)"
+case "$LB" in *"claude agent agent-$A28"*) ok "C51  ...and the exact lock line that was broken is recorded on the member as evidence" ;; *) bad "C51  lock_broken_line=[$LB]" ;; esac
+
+# 23b. P4 — a lock signed by ANOTHER agent is never broken. The positive probe
+# re-signs the same lock with the right agent and the member completes.
+A29="a00000000000rc29"
+seal "$A29" dev-opus-r29
+NAT29="$ENTITY/.claude/worktrees/agent-$A29"; Q29="$(q "$NAT29" "$A29")"
+lock_as "$NAT29" "a0000000000FOREIGN"
+T claim --session-id "$SID" --agent-id "$A29" --ingress SubagentStop >/dev/null
+R --agent "$SID/$A29" >/dev/null 2>&1
+[ "$(states "$A29")" = "verified " ] && [ -d "$Q29" ] && [ "$(member_field "$A29" blocked)" = "True" ] \
+    && ok "C52  P4: a quarantine locked by ANOTHER agent is NOT removed; the directory stands and the member is recorded blocked" \
+    || bad "C52  states=$(states "$A29") quar=$([ -d "$Q29" ] && echo present || echo gone) blocked=$(member_field "$A29" blocked)"
+case "$(member_field "$A29" blocked_reason)" in *"P4"*) ok "C53  ...and the recorded reason names the precondition that refused (P4), not a generic failure" ;; *) bad "C53  reason=[$(member_field "$A29" blocked_reason)]" ;; esac
+S="$(R --status)"
+printf '%s' "$S" | python3 -c 'import json,sys; d=json.load(sys.stdin); dd=d["definition_of_done"]; sys.exit(0 if dd["members_blocked_on_a_condition_waiting_cannot_clear"] >= 1 and d["done"] is False else 1)' \
+    && ok "C54  ...and --status reports it BLOCKED, counted apart from pending normal retry (the false-green of wiki §5: a deadlock filed as a retry)" || bad "C54  status=$S"
+git -C "$ENTITY" worktree unlock "$Q29" >/dev/null 2>&1; lock_as "$Q29" "$A29"
+R --agent "$SID/$A29" >/dev/null 2>&1
+[ "$(states "$A29")" = "removed " ] && [ ! -e "$Q29" ] && [ "$(member_field "$A29" blocked)" = "False" ] \
+    && ok "C55  POSITIVE PROBE: re-signing that same lock with the right agent completes the member and clears the blocked flag — C52 refused for the reason it names, not because the fixture was broken" \
+    || bad "C55  states=$(states "$A29") blocked=$(member_field "$A29" blocked)"
+
+# 23c. P4 — a lock with NO reason names nobody, so it cannot be proven to be
+# this agent's own. Fail closed.
+A30="a00000000000rc30"
+seal "$A30" dev-opus-r30
+NAT30="$ENTITY/.claude/worktrees/agent-$A30"; Q30="$(q "$NAT30" "$A30")"
+git -C "$ENTITY" worktree lock "$NAT30"
+T claim --session-id "$SID" --agent-id "$A30" --ingress SubagentStop >/dev/null
+R --agent "$SID/$A30" >/dev/null 2>&1
+[ "$(states "$A30")" = "verified " ] && [ -d "$Q30" ] \
+    && ok "C56  P4: an UNSIGNED lock (no reason) is never broken — a lock nobody signed cannot be shown to be this agent's own" \
+    || bad "C56  states=$(states "$A30")"
+git -C "$ENTITY" worktree unlock "$Q30" >/dev/null 2>&1; lock_as "$Q30" "$A30"
+R --agent "$SID/$A30" >/dev/null 2>&1
+[ "$(states "$A30")" = "removed " ] && ok "C57  POSITIVE PROBE: the same fixture, signed, completes" || bad "C57  states=$(states "$A30")"
+
+# 23d. P1 — no verified archive on disk, no lock break. The block itself is the
+# pause that lets the archive be removed between runs.
+A31="a00000000000rc31"
+seal "$A31" dev-opus-r31
+NAT31="$ENTITY/.claude/worktrees/agent-$A31"; Q31="$(q "$NAT31" "$A31")"
+lock_as "$NAT31" "a0000000000FOREIGN"
+T claim --session-id "$SID" --agent-id "$A31" --ingress SubagentStop >/dev/null
+R --agent "$SID/$A31" >/dev/null 2>&1        # parks at verified, blocked on P4
+rm -rf "$SANDBOX/captures/$SID/$A31"
+git -C "$ENTITY" worktree unlock "$Q31" >/dev/null 2>&1; lock_as "$Q31" "$A31"
+R --agent "$SID/$A31" >/dev/null 2>&1
+[ "$(states "$A31")" = "verified " ] && [ -d "$Q31" ] \
+    && case "$(member_field "$A31" blocked_reason)" in *"P1"*) true ;; *) false ;; esac \
+    && ok "C58  P1: with the verified archive gone from disk, the lock is NOT broken — the bytes are no longer provably preserved" \
+    || bad "C58  states=$(states "$A31") reason=[$(member_field "$A31" blocked_reason)]"
+
+# 23e. P5 — one preservation layer is not two.
+A32="a00000000000rc32"
+seal "$A32" dev-opus-r32
+NAT32="$ENTITY/.claude/worktrees/agent-$A32"; Q32="$(q "$NAT32" "$A32")"
+lock_as "$NAT32" "a0000000000FOREIGN"
+T claim --session-id "$SID" --agent-id "$A32" --ingress SubagentStop >/dev/null
+R --agent "$SID/$A32" >/dev/null 2>&1
+tamper "$A32" backup_ref __NONE__
+git -C "$ENTITY" worktree unlock "$Q32" >/dev/null 2>&1; lock_as "$Q32" "$A32"
+R --agent "$SID/$A32" >/dev/null 2>&1
+[ "$(states "$A32")" = "verified " ] && [ -d "$Q32" ] \
+    && case "$(member_field "$A32" blocked_reason)" in *"P5"*) true ;; *) false ;; esac \
+    && ok "C59  P5: with no backup ref, the lock is NOT broken — both preservation layers must be intact, not one" \
+    || bad "C59  states=$(states "$A32") reason=[$(member_field "$A32" blocked_reason)]"
+
+# 23f. P3 — THE ONE THAT MATTERS MOST. The lock break can never be aimed at
+# anything but this member's own canonical quarantine name. Here the member's
+# recorded quarantine is repointed at a DIFFERENT registered, locked worktree
+# — the shape of every live-agent eviction in this record's history — and the
+# name check refuses it even though the lock is correctly signed for this agent.
+A33="a00000000000rc33"
+seal "$A33" dev-opus-r33
+NAT33="$ENTITY/.claude/worktrees/agent-$A33"; Q33="$(q "$NAT33" "$A33")"
+lock_as "$NAT33" "a0000000000FOREIGN"
+T claim --session-id "$SID" --agent-id "$A33" --ingress SubagentStop >/dev/null
+R --agent "$SID/$A33" >/dev/null 2>&1
+DECOY="$ENTITY/.claude/worktrees/agent-$A33.not-a-quarantine"
+# Sign the lock correctly FIRST, so P3 is the only precondition left standing.
+git -C "$ENTITY" worktree unlock "$Q33" >/dev/null 2>&1; lock_as "$Q33" "$A33"
+mv "$Q33" "$DECOY"; git -C "$ENTITY" worktree repair "$DECOY" >/dev/null 2>&1
+tamper "$A33" quarantine "$DECOY"
+R --agent "$SID/$A33" >/dev/null 2>&1
+[ "$(states "$A33")" = "verified " ] && [ -d "$DECOY" ] \
+    && case "$(member_field "$A33" blocked_reason)" in *"P3"*) true ;; *) false ;; esac \
+    && ok "C60  P3: a correctly-signed lock on a path that is NOT this member's canonical quarantine name is refused — the break cannot be aimed anywhere else" \
+    || bad "C60  states=$(states "$A33") dir=$([ -d "$DECOY" ] && echo present || echo gone) reason=[$(member_field "$A33" blocked_reason)]"
+mv "$DECOY" "$Q33"; git -C "$ENTITY" worktree repair "$Q33" >/dev/null 2>&1
+tamper "$A33" quarantine "$Q33"
+R --agent "$SID/$A33" >/dev/null 2>&1
+[ "$(states "$A33")" = "removed " ] && ok "C61  POSITIVE PROBE: restored to its canonical quarantine name, the same locked member completes" || bad "C61  states=$(states "$A33")"
+
+# 23g. A BLOCKED MEMBER DOES NOT COMPOUND ITS BACKOFF. Doubling suits a
+# transient condition recovering gradually; a blocked one changes
+# discontinuously, and compounding means a repair goes unnoticed for hours.
+# Measured 2026-09-04: thirty blocked members had reached 21600s, so the fix
+# for them would have read as not working for most of a working day.
+A34="a00000000000rc34"
+seal "$A34" dev-opus-r34
+NAT34="$ENTITY/.claude/worktrees/agent-$A34"; Q34="$(q "$NAT34" "$A34")"
+lock_as "$NAT34" "a0000000000FOREIGN"
+T claim --session-id "$SID" --agent-id "$A34" --ingress SubagentStop >/dev/null
+RICHOS_RECONCILE_BACKOFF_BASE=60 R --agent "$SID/$A34" >/dev/null 2>&1
+RA1="$(member_field "$A34" retry_after)"
+tamper "$A34" retry_after_epoch 0
+RICHOS_RECONCILE_BACKOFF_BASE=60 R --agent "$SID/$A34" >/dev/null 2>&1
+RA2="$(member_field "$A34" retry_after)"; AT2="$(member_field "$A34" attempts)"
+case "$RA1|$RA2|$AT2" in
+    *"+ 60s|"*"+ 60s|2") ok "C62  a blocked member is retried at the base interval on every attempt (attempt 2 is still + 60s, NOT the + 120s the doubling rule would give); the attempt count still climbs" ;;
+    *) bad "C62  first=[$RA1] second=[$RA2] attempts=$AT2" ;;
+esac
+case "$RA2" in *"+ 120s"*) bad "C63  the doubled value is present: [$RA2]" ;; *) ok "C63  ...and the doubled value the old rule would have written is absent" ;; esac
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="
