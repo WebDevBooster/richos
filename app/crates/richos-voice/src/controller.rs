@@ -436,6 +436,66 @@ pub struct VoiceController {
     threads: Vec<std::thread::JoinHandle<()>>,
 }
 
+/// Consecutive utterances that come back as whisper noise before the CEO is told.
+///
+/// **THE FLOOR THIS PUTS UNDER THE NOTICE, derived rather than felt.** An utterance only
+/// reaches whisper at all after [`crate::endpoint::MIN_SPEECH_FRAMES`] of speech and
+/// [`crate::endpoint::SILENCE_HANGOVER_FRAMES`] of silence to close it:
+///
+/// ```text
+///   minimum speech   19 x 256 / 16000 = 0.304 s
+///   silence hangover 50 x 256 / 16000 = 0.800 s
+///   one utterance                    >= 1.104 s
+///   three in a row                   >= 3.312 s   (+ whisper, measured 0.47-0.74 s each)
+/// ```
+///
+/// So this cannot fire on a cough, a chair or a single stray word, and it CAN fire well
+/// inside the 25+ seconds of silent "listening…" measured on published v1.0.0 on
+/// 2026-09-04 — roughly seven times over. Three is the smallest number with both
+/// properties; `endpoint.rs`'s own test asserts the two frame counts it rests on.
+pub const SILENT_DISCARD_RUN: u32 = 3;
+
+/// **WHAT VOICE MODE REPORTS THAT IS NOT AN ERROR.**
+///
+/// `SttError`, `CaptureError` and `PlayoutError` all carry a `ceo_message`, and every one of
+/// them is a thing that FAILED. This is the other kind: nothing failed, the pipeline is
+/// working exactly as specified, and the CEO still needs to be told something — which is
+/// precisely the condition that shipped silent.
+///
+/// **The method is called `ceo_message` for a second reason, and it is not decoration.**
+/// `app/ui/tests/lib/state-strings.js` scrapes the product's CEO-facing sentences out of
+/// source, and under `app/crates` the only shape it can see is a literal inside a function
+/// with that name (`state-strings.js:469`). A sentence the state registry cannot see is a
+/// sentence nobody has said whether the CEO can act on — the exact defect that left
+/// `LORO_DESK_ABSENT_MESSAGE` invisible and two suites red for a day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoiceNotice {
+    /// Three utterances in a row came back as whisper's documented silence noise. The
+    /// microphone is open, the level meter is moving and `noaudio.rs` is satisfied that
+    /// signal is arriving, so nothing else in this pipeline has anything to report.
+    SoundButNoWords,
+}
+
+impl VoiceNotice {
+    /// The CEO-facing line. No path, no device name, no decibel figure — the operator's
+    /// `eprintln` beside the discard carries the transcript that was thrown away, and this
+    /// carries the sentence.
+    ///
+    /// It states what is true, names the thing that is usually wrong, and INVENTS NO
+    /// CONTROL: the ◉ that ends voice is already on screen with its own footnote two lines
+    /// below this notice, so a sentence pointing at it would be a request wearing a status's
+    /// clothes. It does not offer to switch voice off either — doing that to the CEO
+    /// mid-sentence is not a decision this file gets to make.
+    pub fn ceo_message(&self) -> &'static str {
+        match self {
+            VoiceNotice::SoundButNoWords => {
+                "I can hear sound, but I'm not getting words out of it — the microphone may \
+                 be picking up the room rather than you. Voice is still on."
+            }
+        }
+    }
+}
+
 impl VoiceController {
     /// Bring voice mode up. Every external dependency is resolved HERE, so a missing model or
     /// a missing microphone is one calm message at the toggle rather than a failure in the
@@ -539,14 +599,49 @@ impl VoiceController {
             let scratch = opts.scratch_dir.clone();
             let submit_tx = submit_tx.clone();
             threads.push(std::thread::spawn(move || {
+                // THE SILENT-DISCARD RUN, and why it is counted rather than left alone.
+                //
+                // `is_meaningful` drops whisper's documented silence hallucinations — "you",
+                // "thank you", "bye" — because sending one costs a real turn and puts words
+                // in the CEO's mouth in the durable ledger. Right, and it is the ONLY path
+                // in this thread that produces nothing at all: an utterance goes in, an
+                // `eprintln` comes out, and the panel keeps saying "listening…".
+                //
+                // Measured on published v1.0.0, 2026-09-04 (ray-opus-a1): a talk button
+                // pressed on a machine where the mic was hot and the level meter moved sat
+                // at "listening…" for 25+ seconds, never transcribed and never said it
+                // could not. Whatever the input was, it was ABOVE `noaudio.rs`'s floors —
+                // so the honest "I can't hear anything" row could not fire — and whisper
+                // kept returning noise. To someone standing in front of an audience that
+                // does not read as "not ready yet"; it reads as being ignored.
+                //
+                // ONE utterance discarded is a cough and must stay silent. THREE IN A ROW
+                // is the microphone hearing the room instead of the person, and that is
+                // worth one calm line ([`SILENT_DISCARD_RUN`]). Latched, so it is said once
+                // per voice session and never becomes a drip; the latch clears the moment a
+                // real sentence lands, because that proves the input recovered.
+                let mut discards: u32 = 0;
+                let mut said_it = false;
                 while let Ok(utterance) = utt_rx.recv() {
                     let duration_ms = (utterance.duration_secs() * 1000.0) as u64;
                     match recognizer.transcribe(&utterance.samples, &scratch) {
                         Ok((text, latency_ms)) => {
                             if !stt::is_meaningful(&text) {
                                 eprintln!("[richos-voice] discarded non-speech transcript: {text:?}");
+                                discards += 1;
+                                if discards >= SILENT_DISCARD_RUN && !said_it {
+                                    said_it = true;
+                                    observer.on_voice_event(&VoiceEvent::Error {
+                                        message: VoiceNotice::SoundButNoWords
+                                            .ceo_message()
+                                            .to_string(),
+                                        at: now_millis(),
+                                    });
+                                }
                                 continue;
                             }
+                            discards = 0;
+                            said_it = false;
                             observer.on_voice_event(&VoiceEvent::Transcript {
                                 text: text.clone(),
                                 duration_ms,
@@ -899,6 +994,51 @@ mod tests {
         fn on_voice_event(&self, event: &VoiceEvent) {
             self.events.lock().unwrap().push(event.clone());
         }
+    }
+
+    /// INVARIANT: three discarded utterances cannot happen faster than 3.312 s, so the
+    /// silent-discard notice can never fire on a cough, a chair or one stray word — and it
+    /// fires many times over inside the 25+ seconds of silent "listening…" that this notice
+    /// exists to end.
+    ///
+    /// The two frame counts are `endpoint.rs`'s, and the arithmetic is redone here from the
+    /// constants rather than quoted from its table: a comment that agrees with a number is
+    /// not evidence that the number is right.
+    #[test]
+    fn three_silent_discards_take_at_least_three_and_a_third_seconds() {
+        let min_speech = crate::endpoint::MIN_SPEECH_FRAMES as f32 * crate::vad::VAD_FRAME_SAMPLES as f32
+            / crate::vad::SAMPLE_RATE as f32;
+        let hangover = crate::endpoint::SILENCE_HANGOVER_FRAMES as f32 * crate::vad::VAD_FRAME_SAMPLES as f32
+            / crate::vad::SAMPLE_RATE as f32;
+        assert!((min_speech - 0.304).abs() < 1e-6, "19 x 256 / 16000 = 0.304, got {min_speech}");
+        assert!((hangover - 0.800).abs() < 1e-6, "50 x 256 / 16000 = 0.800, got {hangover}");
+
+        let one_utterance = min_speech + hangover;
+        let floor = SILENT_DISCARD_RUN as f32 * one_utterance;
+        assert!((one_utterance - 1.104).abs() < 1e-6, "one utterance floor: {one_utterance}");
+        assert!((floor - 3.312).abs() < 1e-5, "three in a row: {floor}");
+
+        // Below the run length it says nothing at all, which is the half that keeps a cough
+        // quiet. Above it, one line — and 3.312 s fits inside the measured 25 s seven times.
+        assert!(floor < 25.0);
+        assert_eq!(SILENT_DISCARD_RUN, 3);
+    }
+
+    /// INVARIANT: the notice states a condition and invents no control. The ◉ that ends
+    /// voice is already on screen with its own footnote, so a sentence pointing at a
+    /// control would be a request wearing a status's clothes — and the affordance suite
+    /// classifies this string INFORMATIONAL on exactly that reading.
+    #[test]
+    fn the_silent_discard_notice_names_no_control_and_no_machinery() {
+        let m = VoiceNotice::SoundButNoWords.ceo_message();
+        assert!(!m.contains('/'), "{m}");
+        assert!(!m.chars().any(|c| c.is_ascii_digit()), "{m}");
+        assert!(!m.to_lowercase().contains("whisper"), "{m}");
+        assert!(!m.to_lowercase().contains("transcri"), "{m}");
+        // What it DOES say: sound arrived, words did not, and voice was not switched off
+        // behind his back.
+        assert!(m.contains("hear sound"), "{m}");
+        assert!(m.contains("Voice is still on"), "{m}");
     }
 
     /// INVARIANT: the diagnostics line reports MEASURED device facts and the exact barge-in

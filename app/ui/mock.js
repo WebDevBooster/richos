@@ -1829,8 +1829,9 @@
           }
         case "send_message": {
           if (window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__._notConnected) {
-            // Mirrors main.rs's `lease_ready == false` path: rejects before any turn
-            // starts, so NO rich:// events ever fire for this attempt.
+            // Mirrors main.rs's no-lease path (`send_message`'s `!spine.has_lease()`):
+            // rejects before any turn starts, so NO rich:// events ever fire for this
+            // attempt.
             // VERBATIM from `LEASE_UNAVAILABLE_MESSAGE`, app/src-tauri/src/main.rs. The
             // affordance suite asserts the two are byte-identical, so the preview cannot
             // quietly rehearse a sentence the product no longer says.
@@ -2100,6 +2101,30 @@
         case "update_install":
           mockUpdate.calls.push("update_install");
           return mockUpdateAdvance();
+        // WHETHER THE PREVIEW OFFERS VOICE, answered rather than left to the default reject.
+        //
+        // `main.js` treats every unknown as "not available" and hides the talk button, which
+        // is the right direction for a real machine with no speech model. The preview is not
+        // that: ◉ is part of the shipping composer row the browser harness exists to
+        // exercise, and pressing it here already says exactly what is true —
+        // "Talking out loud needs the desktop app — here in the preview, type to me."
+        // Offered, and honest when pressed, which is the second of the two shapes the
+        // 2026-09-04 voice fix allows.
+        case "voice_readiness":
+          // A CUSTOMER'S MAC, on demand. `voice: "unavailable"` is what a fresh install
+          // reports — the bundle ships no whisper binary and no model — and it is the
+          // preset the first-run suite drives the not-offered affordance from.
+          if (preset.voice === "unavailable")
+            return {
+              available: false,
+              // VERBATIM from `SttError::ceo_message`, crates/richos-voice/src/stt.rs.
+              // The window does not render it (it hides the button instead); it is here so
+              // the preview reports what the product reports.
+              reason:
+                "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
+            };
+          return { available: true, reason: null };
+
         case "update_relaunch":
           // The real command never returns — the process is replaced. Recording the call is
           // the only thing a browser can honestly do with it.

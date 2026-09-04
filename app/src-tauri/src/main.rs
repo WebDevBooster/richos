@@ -151,14 +151,27 @@ impl MachineryObserver for TauriMachineryEmitter {
 /// a context watermark or recover from a mid-turn crash without knowing anything about the
 /// wire — richos-core stays IO-agnostic (continuity §3.3 step 4).
 ///
-/// **`engine_dir` MOVES, and that is deliberate.** Until 2026-09-01 it was a `PathBuf` fixed at
-/// boot, which was correct while nothing could put an engine on the machine. `setup_view::run`
-/// now can (`setup.rs`, Option D), so the directory a lease is started in has to be able to
-/// change without a relaunch — the same property `provision_memory` already establishes for
-/// the corpus, and for the same reason: a customer who has just watched something be installed
-/// must not be told to quit and reopen before it works.
+/// **BOTH FIELDS MOVE, and that is deliberate.** Until 2026-09-01 `engine_dir` was a `PathBuf`
+/// fixed at boot, which was correct while nothing could put an engine on the machine.
+/// `setup_view::run` now can (`setup.rs`, Option D), so the directory a lease is started in has
+/// to be able to change without a relaunch — the same property `provision_memory` already
+/// establishes for the corpus, and for the same reason: a customer who has just watched
+/// something be installed must not be told to quit and reopen before it works.
+///
+/// **`claude_bin` JOINED IT ON 2026-09-04, and the reason is the same defect one layer down.**
+/// It was resolved once in `setup` and frozen here. On a fresh install that resolution happens
+/// BEFORE first-run setup, when `~/.local/bin/claude` does not exist yet, so
+/// [`resolve_claude_bin`] falls through to the bare name `claude` and this factory keeps it for
+/// the life of the process. A Finder launch's `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin` — it
+/// does not contain `~/.local/bin` and never will — so every rotation and every crash recovery
+/// in that customer's whole first session would have failed to spawn, on a machine whose
+/// `claude` was installed, working, and being driven successfully by the lease `run_setup`
+/// attached with a freshly resolved path.
+///
+/// That is the same shape as the `lease_ready` snapshot fixed earlier the same day: an answer
+/// cached before the thing it describes existed. `run_setup` writes both cells.
 struct EngineLeaseFactory {
-    claude_bin: PathBuf,
+    claude_bin: Arc<Mutex<PathBuf>>,
     engine_dir: Arc<Mutex<PathBuf>>,
 }
 
@@ -172,7 +185,16 @@ impl LeaseFactory for EngineLeaseFactory {
             // same sentinel the boot uses, and `native.rs::preflight` reports it as exactly
             // what it is: a working directory that does not exist, NOT a missing binary.
             .unwrap_or_else(|_| PathBuf::from("/nonexistent/richos-engine"));
-        let cog = NativeCognition::start(&self.claude_bin, &dir)?;
+        // Same rule for the binary: a poisoned lock falls back to the bare name, which is
+        // exactly what an unresolvable machine gets at boot, and `native.rs::preflight`
+        // leaves a bare name to the spawn where `ENOENT` is unambiguous because the working
+        // directory above has already been cleared.
+        let bin = self
+            .claude_bin
+            .lock()
+            .map(|b| b.clone())
+            .unwrap_or_else(|_| PathBuf::from("claude"));
+        let cog = NativeCognition::start(&bin, &dir)?;
         Ok(Box::new(cog))
     }
 }
@@ -181,9 +203,6 @@ impl LeaseFactory for EngineLeaseFactory {
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
     spine: Mutex<Spine>,
-    /// Set false when no lease could be attached at boot (e.g. Claude not logged in),
-    /// so the UI can surface a calm, Rich-voiced "not connected" state instead of a crash.
-    lease_ready: bool,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
     /// alongside the ledger in the app data dir, same durability posture.
     config: Mutex<ConfigStore>,
@@ -344,6 +363,11 @@ struct AppState {
     /// meant an app that downloaded, verified and installed an engine and then kept starting
     /// `claude` in the directory it had already failed to find.
     engine_dir: Arc<Mutex<PathBuf>>,
+    /// THE SAME CELL THE LEASE FACTORY HOLDS for the `claude` binary, and held here for the
+    /// one reason `engine_dir` is: `run_setup` can put Claude Code on a machine that had
+    /// none, and the factory must start driving the binary that was just installed rather
+    /// than the bare name a pre-install boot fell back to.
+    claude_bin: Arc<Mutex<PathBuf>>,
     /// The engine the BOOT resolved, when it resolved a real one. Held so `setup_view::detect`
     /// asks the same question the boot asked and gets the same answer — including the
     /// repo-ancestor candidates `engine.rs` searches and `setup.rs` deliberately does not
@@ -421,10 +445,29 @@ fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json:
 /// matter how the rest of the plumbing is written.
 #[tauri::command(async)]
 fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, String> {
-    if !state.lease_ready {
+    let mut spine = state.spine.lock().unwrap();
+    // THE GATE IS THE LIVE LEASE, NOT A BOOT-TIME SNAPSHOT — and that distinction is the
+    // whole of the first-run defect fixed on 2026-09-04.
+    //
+    // What this line used to be: `if !state.lease_ready`, an `AppState` field written once
+    // in `setup` and never again. On a machine that already had Claude Code and the engine
+    // it was `true` at boot and correct for ever, which is every developer's machine and
+    // therefore every machine this was tested on. On a FRESH install it is `false` at boot
+    // — there is no engine directory yet, so `NativeCognition::start` fails on
+    // `WorkingDirMissing` before the CEO has been offered anything — and it STAYED false
+    // after `run_setup` installed both components and successfully attached a real lease.
+    //
+    // So the app held a live `claude` child, correct working directory, healthy account,
+    // and refused the customer's FIRST message with `LEASE_UNAVAILABLE_MESSAGE`; quitting
+    // and reopening then made the boot attach succeed and the app worked for ever after.
+    // Broken on run 1, fine from run 2 — the exact shape of a stale snapshot, and it is not
+    // reachable at all by anyone whose machine was already set up.
+    //
+    // `has_lease()` is the same question `run_setup` already asks before attaching, read at
+    // the moment it is acted on, so there is no second copy of the answer to go stale.
+    if !spine.has_lease() {
         return Err(LEASE_UNAVAILABLE_MESSAGE.into());
     }
-    let mut spine = state.spine.lock().unwrap();
     spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;
     // "no active thread" used to be the whole sentence here, and it went straight onto the
     // CEO's screen through `send()`'s `String(e)`. Machinery, and it named neither an action
@@ -810,9 +853,27 @@ fn main() {
             let window_configs = app.config().app.windows.clone();
             for window_config in &window_configs {
                 let kind = launch_store.next_window_kind();
-                tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                let window = tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
                     .initialization_script(launch_init_script(kind, start_ordinal))
                     .build()?;
+                // COME TO THE FRONT. Measured by ray-opus-a1 on published v1.0.0,
+                // 2026-09-04: the window opened BEHIND other windows, twice, on a first
+                // launch from Finder — an app a stranger has just double-clicked and cannot
+                // see is an app that did not start, as far as he is concerned.
+                //
+                // `set_focus` is `makeKeyAndOrderFront:` plus
+                // `activateIgnoringOtherApps: YES` on macOS
+                // (tao-0.35.3/src/platform_impl/macos/util/async.rs:231-238), which is the
+                // pair that raises the whole application and not just this window. tao
+                // guards it on the window being visible and not miniaturized, and
+                // `tauri.conf.json` declares `"visible": true`, so it runs.
+                //
+                // A FAILURE HERE IS NOT FATAL, and that is deliberate: `?` would turn "the
+                // window did not come forward" into "the app refused to start", which is
+                // strictly worse than the defect being fixed.
+                if let Err(e) = window.set_focus() {
+                    eprintln!("[richos] window did not come to the front: {e}");
+                }
             }
             eprintln!(
                 "[richos] launch: {} (start {}, {} window(s))",
@@ -1058,10 +1119,11 @@ fn main() {
             let memory_status = wired.status;
 
             // Attach the compute lease. A boot with no Claude auth, no `claude` binary, or a
-            // binary that rejects our flags does NOT silently degrade: `lease_ready` goes
-            // false and EVERY send is refused with `LEASE_UNAVAILABLE_MESSAGE` — a calm,
+            // binary that rejects our flags does NOT silently degrade: no lease is attached
+            // and EVERY send is refused with `LEASE_UNAVAILABLE_MESSAGE` — a calm,
             // Rich-voiced "not connected" that the CEO cannot mistake for a working app
-            // (`send_message`, and the voice submit callback, both check it).
+            // (`send_message`, and the voice submit callback, both ask `Spine::has_lease`
+            // at the moment of the send, never a boolean cached here).
             //
             // **The DIAGNOSIS is printed verbatim, and that is the loud half §16 demands.**
             // `NativeError` carries the child's own stderr, so a binary that stopped
@@ -1093,7 +1155,10 @@ fn main() {
             // re-point it without a relaunch (`setup_view::run`).
             let engine_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(engine.clone()));
             let claude_bin = resolve_claude_bin();
-            let lease_ready = match NativeCognition::start(&claude_bin, &engine) {
+            // THE CELL THE LEASE FACTORY READS, beside `engine_cell` and for the same reason
+            // (see `EngineLeaseFactory`). A successful first-run install rewrites it.
+            let claude_bin_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(claude_bin.clone()));
+            match NativeCognition::start(&claude_bin, &engine) {
                 Ok(cog) => {
                     // The POSITIVE half, and it is here because its absence is not evidence:
                     // before this line, a successful boot was silent and a reader had to
@@ -1108,7 +1173,6 @@ fn main() {
                     // line is storage.
                     eprintln!("[richos] compute lease attached over {}", claude_bin.display());
                     spine.attach_lease(Box::new(cog));
-                    true
                 }
                 Err(e) => {
                     eprintln!("[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.");
@@ -1121,15 +1185,14 @@ fn main() {
                     // whichever cause fired, so nobody has to infer it from the message text.
                     eprintln!("[richos]   engine: {}", engine.display());
                     eprintln!("[richos]   cause : {e}");
-                    false
                 }
-            };
+            }
 
             // Attach the rotation/recovery seam REGARDLESS of initial boot success — even
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
             spine.set_lease_factory(Box::new(EngineLeaseFactory {
-                claude_bin,
+                claude_bin: Arc::clone(&claude_bin_cell),
                 engine_dir: Arc::clone(&engine_cell),
             }));
 
@@ -1355,7 +1418,6 @@ fn main() {
 
             app.manage(AppState {
                 spine: Mutex::new(spine),
-                lease_ready,
                 config: Mutex::new(config),
                 machinery_root,
                 entity: Mutex::new(boot.entity),
@@ -1388,6 +1450,7 @@ fn main() {
                 // would let `run_setup` update one and leave the other pointing at the
                 // directory the boot failed to find.
                 engine_dir: engine_cell,
+                claude_bin: claude_bin_cell,
                 boot_engine,
             });
 
@@ -1462,6 +1525,7 @@ fn main() {
             loro_suppressed_records,
             loro_unsuppress_record,
             // --- voice mode (2026-08-24) — appended, never reordered ---
+            voice_readiness,
             start_voice_capture,
             stop_voice_capture,
             voice_speak_delta,
@@ -1689,11 +1753,72 @@ fn ensure_voice_state(app: &AppHandle) {
     app.manage(VoiceHandle::default());
 }
 
+/// **CAN THIS MACHINE TURN SPEECH INTO WORDS?** Asked WITHOUT touching the microphone.
+///
+/// `Recognizer::resolve` is `stt.rs`'s own resolution — `RICHOS_WHISPER_BIN`, then `PATH`,
+/// then the Homebrew prefixes for the binary; `RICHOS_VOICE_WHISPER_MODEL`/
+/// `RICHOS_WHISPER_MODEL`, then `RICHOS_MODEL_DIR`, then three per-user directories for the
+/// model. It reads paths and runs `command -v`; it opens no device, records nothing and
+/// asks macOS for no permission. The resolved recognizer is dropped: this is the question,
+/// not the answer's use.
+///
+/// **ONE RESOLUTION, TWO CALLERS**, deliberately. [`voice_readiness`] answers it so the
+/// window can decide whether to OFFER voice at all, and [`start_voice_capture`] asks it
+/// again before it opens anything, so the two can never disagree about the same machine —
+/// the discipline `wire_company_memory` already establishes for the corpus.
+///
+/// **The shipping bundle carries no whisper binary and no model** (`tauri.conf.json`
+/// declares no `resources` and no `externalBin`), so on a customer's fresh Mac this is
+/// `Err`, and it is `Err` before the microphone is ever asked for.
+fn speech_preflight() -> Result<(), String> {
+    richos_voice::stt::Recognizer::resolve().map(|_| ()).map_err(|e| e.ceo_message())
+}
+
+/// **WHETHER TO OFFER VOICE AT ALL.** Read by the window at launch, once.
+///
+/// THE DEFECT THIS EXISTS TO REMOVE, measured by ray-opus-a1 on published v1.0.0,
+/// 2026-09-04: the talk button asked for the microphone, the panel said *"listening…"*, the
+/// level meter rendered and macOS lit its orange recording indicator — for 25+ seconds. It
+/// never transcribed and it never said it could not. To someone who has never seen this app
+/// that does not read as "not ready yet"; it reads as *"I am listening to you and ignoring
+/// you"*, and the app's own first-run greeting invited it: *"You can type, or tap ◉ to talk
+/// to me."*
+///
+/// So the window asks this before it renders that greeting. `available: false` removes the
+/// talk button and drops the voice half of the greeting, and `start_voice_capture` refuses
+/// with the same sentence for anything that reaches it by another route. An unfinished
+/// feature that is not offered costs a stranger nothing; one that is offered and pretends
+/// costs him the demo.
+///
+/// `reason` is [`richos_voice::stt::SttError::ceo_message`] — *"My ears aren't installed on
+/// this machine yet — whoever set RichOS up adds those. I can still read what you type."*
+/// It names the party, and it is already in the affordance suite's state registry.
+///
+/// `(async)` so the resolution's one `command -v` subprocess never runs on the IPC thread.
+#[tauri::command(async)]
+fn voice_readiness() -> serde_json::Value {
+    match speech_preflight() {
+        Ok(()) => serde_json::json!({ "available": true, "reason": serde_json::Value::Null }),
+        Err(reason) => {
+            eprintln!("[richos] voice: not offered on this machine — {reason}");
+            serde_json::json!({ "available": false, "reason": reason })
+        }
+    }
+}
+
 /// Enter voice mode: open the mic and start listening. Returns the resolved audio
 /// configuration for developer eyes; the CEO-facing UI only renders `rich://voice-state`.
 #[tauri::command]
 fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serde_json::Value, String> {
     let _ = thread_id; // voice rides the ACTIVE thread — there is no per-thread voice.
+    // REFUSE BEFORE THE MICROPHONE, NOT AFTER IT. `VoiceController::start` resolves the
+    // recognizer first today and would raise the same sentence, but it does so eight lines
+    // and one `EchoCanceller` into a function whose next act is `capture::start` — and the
+    // ordering of two lines inside another crate is not a property this command should be
+    // relying on to keep a hot mic off a machine that cannot transcribe. Asked here, the
+    // guarantee is local and structural: no permission dialog, no orange indicator, no
+    // "listening…" panel in a build with no speech model.
+    speech_preflight()?;
     ensure_voice_state(&app);
     let handle = app.state::<VoiceHandle>();
     let mut slot = handle.controller.lock().map_err(|_| "voice state poisoned")?;
@@ -1707,7 +1832,15 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     let submit_app = app.clone();
     let submit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |text: String| {
         let state = submit_app.state::<AppState>();
-        if !state.lease_ready {
+        let mut spine = match state.spine.lock() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        // THE LIVE LEASE, for the reason `send_message` reads it live — a spoken sentence
+        // must not be refused by a boot-time snapshot that a completed first-run setup has
+        // already made false. Same question, same moment, one answer.
+        if !spine.has_lease() {
+            drop(spine);
             let _ = submit_app.emit(
                 richos_voice::event::EVENT_VOICE_ERROR,
                 serde_json::json!({
@@ -1717,10 +1850,6 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
             );
             return;
         }
-        let mut spine = match state.spine.lock() {
-            Ok(s) => s,
-            Err(_) => return,
-        };
         // Source::Jam — voice and text are ONE thread and ONE ledger.
         if let Err(e) = spine.submit_prompt(&text, Source::Jam) {
             eprintln!("[richos] voice turn failed: {e}");
@@ -2424,6 +2553,14 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
     if !spine.has_lease() {
         let engine = state.engine_dir.lock().map(|d| d.clone()).unwrap_or_default();
         let claude_bin = resolve_claude_bin();
+        // RE-POINT THE FACTORY TOO, not just this attach. Before 2026-09-04 the re-resolved
+        // path was used here and thrown away, and every later rotation and crash recovery
+        // went on spawning the boot's answer — the bare name `claude`, which a Finder
+        // launch's `PATH` cannot resolve. Written before the attach so a failed attach still
+        // leaves the factory pointing at the binary that was actually installed.
+        if let Ok(mut cell) = state.claude_bin.lock() {
+            *cell = claude_bin.clone();
+        }
         match NativeCognition::start(&claude_bin, &engine) {
             Ok(cog) => {
                 eprintln!(
@@ -2951,6 +3088,71 @@ fn set_thread_archived(state: State<AppState>, thread_id: String, archived: bool
 #[tauri::command]
 fn rename_thread(state: State<AppState>, thread_id: String, title: String) -> Result<(), String> {
     state.nav.lock().unwrap().rename_thread(&thread_id, &title).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod lease_gate_tests {
+    //! **THE FIRST MESSAGE ON A FRESH INSTALL.** One test, and it reads this file.
+    //!
+    //! The defect, measured on a published v1.0.0 install on an empty machine on
+    //! 2026-09-04: setup ran, Claude Code and the engine were installed, `run_setup`
+    //! attached a real lease over a real `claude` child with the right working directory —
+    //! and the very first message the customer typed was refused with
+    //! [`LEASE_UNAVAILABLE_MESSAGE`]. Quitting and reopening fixed it permanently.
+    //!
+    //! The whole of it was one word: the gate read `state.lease_ready`, an `AppState` field
+    //! written once in `setup`, before there was an engine on the machine to start `claude`
+    //! in. Every developer's machine already had both components, so the snapshot was true
+    //! at boot and correct for ever, and the defect was structurally unreachable by anyone
+    //! who could have found it.
+    //!
+    //! A cached answer to a question that changes is the shape being kept out, not a
+    //! spelling. So this test asserts the SHAPE: no `lease_ready` field, and both gates ask
+    //! `has_lease()`. It scrapes this file because the gates take `State<AppState>` and a
+    //! `tauri::AppHandle`, neither of which a unit test can build — a source assertion that
+    //! runs is worth more than an integration test that does not exist.
+    //!
+    //! NOT IN A CI GATE. `app-spine-ci` runs `cargo test -p richos-core`; the Tauri shell is
+    //! a deliberately detached workspace and nothing runs `cargo test` inside it. Run it with
+    //! `cargo test --manifest-path app/src-tauri/Cargo.toml`.
+
+    use super::LEASE_UNAVAILABLE_MESSAGE;
+
+    const SOURCE: &str = include_str!("main.rs");
+
+    /// INVARIANT: the connectivity gate is asked of the live spine, never of a boot-time
+    /// snapshot — so a lease attached after first-run setup is usable without a relaunch.
+    ///
+    /// **The two needles are assembled rather than written**, because `SOURCE` is this file
+    /// and a literal needle would match itself. The first version of this test failed for
+    /// exactly that reason, which is a small proof that the scrape really does read the
+    /// shipping source and not a copy of it.
+    #[test]
+    fn the_lease_gate_is_never_a_cached_boolean() {
+        // The field is gone, and it does not come back under its own name.
+        let cached_field = concat!("lease_", "ready: bool");
+        assert!(
+            !SOURCE.contains(cached_field),
+            "AppState must not cache whether a lease exists — it changes at runtime \
+             (run_setup attaches one), and the cached copy is what refused a customer's \
+             first message on 2026-09-04"
+        );
+        // THREE SITES ASK THE SPINE, and naming all three is the point of pinning a count
+        // rather than a presence: the two REFUSAL gates — the typed send (`send_message`)
+        // and the spoken one (the voice submit callback) — plus `run_setup`'s guard, which
+        // asks the same question for the opposite reason (do not replace a lease the CEO is
+        // mid-conversation with). A fourth is not forbidden; it is required to come with
+        // someone having read this.
+        let gate = concat!("if !spine.", "has_lease() {");
+        let gates = SOURCE.matches(gate).count();
+        assert_eq!(
+            gates, 3,
+            "expected three live-lease questions — send_message, the voice submit \
+             callback, and run_setup's attach guard; found {gates}"
+        );
+        // And the sentence they refuse with is still the one the CEO was written for.
+        assert!(LEASE_UNAVAILABLE_MESSAGE.starts_with("I'm not connected to my thinking"));
+    }
 }
 
 #[cfg(test)]

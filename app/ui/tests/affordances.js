@@ -626,7 +626,7 @@ const FIXTURES = {
   },
 
   /// The lease is down. The mock's `_notConnected` switch rejects `send_message` before any
-  /// turn starts, which is what main.rs does when `lease_ready` is false — so this is the
+  /// turn starts, which is what main.rs does when the spine holds no lease — so this is the
   /// real refusal path through the real send handler, started by typing and pressing Enter.
   async "not-connected"(browser) {
     const page = await openApp(browser);

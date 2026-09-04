@@ -320,6 +320,21 @@ module.exports = [
       "state owes a party and a next step, not an affordance, and it closes the loop explicitly.",
   },
   {
+    s:
+      "I can hear sound, but I'm not getting words out of it — the microphone may be " +
+      "picking up the room rather than you. Voice is still on.",
+    c: "INFORMATIONAL",
+    why:
+      "`VoiceNotice::SoundButNoWords`, added 2026-09-04. Three utterances in a row came " +
+      "back as whisper's documented silence noise, which is the ONE path in the recognizer " +
+      "thread that used to produce nothing at all: an utterance in, an eprintln out, and " +
+      "the panel still saying \"listening…\". Ray measured 25+ seconds of exactly that on " +
+      "published v1.0.0. It is INFORMATIONAL rather than ACTIONABLE deliberately — it " +
+      "invents no control, because the ◉ that ends voice is already on screen with its own " +
+      "footnote two lines below the notice, and a sentence pointing at a control that is " +
+      "already offered is a request wearing a status's clothes.",
+  },
+  {
     s: "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
@@ -448,11 +463,22 @@ module.exports = [
       "and the sentence does not imply it is.",
   },
   {
-    s: "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there. You can type, or tap ◉ to talk to me.",
+    s: "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there.",
     c: "INFORMATIONAL",
     why:
-      "First-run greeting. An invitation, not a state he could change — and it names both " +
-      "controls anyway (#input and #talk-toggle).",
+      "First-run greeting. An invitation, not a state he could change, and it names the " +
+      "control it invites (#input).",
+  },
+  {
+    s: "You can type, or tap ◉ to talk to me.",
+    c: "INFORMATIONAL",
+    why:
+      "The voice half of the first-run greeting, SPLIT OFF on 2026-09-04 and appended only " +
+      "when `voice_readiness` says this machine can transcribe. It was one sentence with " +
+      "the line above, and on a fresh Mac with no speech model it named a control that " +
+      "opened a hot microphone, said \"listening…\" and never transcribed. A sentence that " +
+      "names a control is a promise the control works, so it is now withheld with the " +
+      "control rather than shipped beside its absence.",
   },
   {
     s: "Talking out loud needs the desktop app — here in the preview, type to me.",
