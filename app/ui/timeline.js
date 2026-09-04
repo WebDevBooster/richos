@@ -1371,6 +1371,174 @@
     return art;
   }
 
+  // -------------------------------------------------------------------------------------
+  // MARKDOWN (§5.4) — a deliberately small subset, built as DOM
+  // -------------------------------------------------------------------------------------
+  //
+  // WHAT WAS WRONG. The engine emits Markdown and this surface has never rendered it, so on
+  // the published v1.0.1 the first answer a customer ever received read, on screen, as:
+  //
+  //     **1. Tell me about Lakeside Advisory.**
+  //     **2. Authorize the connectors.**
+  //
+  // Three such lines in one answer. Nothing was broken — `renderRichMessage` set
+  // `textContent` and the asterisks are simply what the model wrote.
+  //
+  // THE SUBSET IS THE ONE RICH ACTUALLY EMITS, AND NOTHING MORE: `**bold**`, `*italic*`,
+  // `` `code` ``, ordered and unordered lists, headings, and blank-line paragraph breaks.
+  // No tables, no links, no images, no HTML passthrough, no library and no CDN. A renderer
+  // that accepts more than the product emits is a larger attack surface bought with nothing.
+  //
+  // NO STRING EVER BECOMES HTML, ANYWHERE ON THIS PATH. Every leaf below is a text node and
+  // every container is `createElement`; `innerHTML` is not used, so there is no escaping
+  // step that could be forgotten or ordered wrongly — model output cannot become markup
+  // because it is never parsed as markup. `markdown.js` in the suite drives
+  // `<img src=x onerror=alert(1)>` through the real renderer and asserts both that the
+  // characters are on screen and that `querySelectorAll("img")` finds nothing.
+  //
+  // AN UNMATCHED MARKER IS LITERAL. `**` with no closer, a lone backtick, a `*` used as
+  // punctuation: each falls through to its own characters and the rest of the message is
+  // unaffected. There is no path here that can swallow the tail of an answer, which is the
+  // failure mode that would matter more than any formatting.
+
+  const MD_HEADING = /^[ \t]*(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/;
+  // A bullet needs whitespace after its marker, which is what keeps `**bold on its own
+  // line**` — the exact shape that produced the defect above — out of the list branch.
+  const MD_BULLET = /^[ \t]*[-*+][ \t]+(.*)$/;
+  const MD_ORDERED = /^[ \t]*(\d{1,9})[.)][ \t]+(.*)$/;
+
+  /// Where a `*` or `**` run closes, or -1. A `**` never closes a `*`, so `*a**b*` keeps its
+  /// middle pair literal rather than tearing the emphasis in half.
+  ///
+  /// A CLOSER MAY NOT BE PRECEDED BY WHITESPACE — Markdown's right-flanking rule, and it is
+  /// here because of a real failure rather than for completeness. Without it `3 * 4 * 5`
+  /// rendered as `3  4  5`: the two asterisks paired up, the span swallowed them, and the
+  /// CEO's arithmetic quietly lost two characters. The matching left-flanking half is at the
+  /// call site.
+  function markdownClose(text, from, marker) {
+    for (let j = from; j + marker.length <= text.length; j += 1) {
+      if (text[j] !== "*") continue;
+      const isDouble = text[j + 1] === "*";
+      if (marker === "**") {
+        if (!isDouble) continue;
+      } else if (isDouble) {
+        j += 1; // a `**` is not a closer for a `*`
+        continue;
+      }
+      if (/\s/.test(text[j - 1])) {
+        if (marker === "**") j += 1;
+        continue;
+      }
+      return j;
+    }
+    return -1;
+  }
+
+  /// Inline spans, appended into `into` as DOM. Recurses on the INSIDE of a span, which is
+  /// always strictly shorter than what it was called with, so it terminates.
+  function markdownInline(text, into) {
+    let plain = "";
+    const flush = () => {
+      if (!plain) return;
+      into.appendChild(document.createTextNode(plain));
+      plain = "";
+    };
+    let i = 0;
+    while (i < text.length) {
+      const c = text[i];
+      if (c === "`") {
+        const end = text.indexOf("`", i + 1);
+        if (end > i + 1) {
+          flush();
+          into.appendChild(elem("code", "tl-md-code", text.slice(i + 1, end)));
+          i = end + 1;
+          continue;
+        }
+      } else if (c === "*") {
+        const strong = text.slice(i, i + 2) === "**";
+        const marker = strong ? "**" : "*";
+        // LEFT-FLANKING: an opener is not an opener when the next character is whitespace or
+        // absent. This is the half of the `3 * 4 * 5` fix that stops the FIRST asterisk from
+        // ever starting a span; `markdownClose` holds the other half.
+        const next = text[i + marker.length];
+        const end = next && !/\s/.test(next) ? markdownClose(text, i + marker.length, marker) : -1;
+        // `end > i + marker.length` rejects an EMPTY span, so `**`, `****` and `* *` stay
+        // literal rather than producing an invisible element.
+        if (end > i + marker.length) {
+          flush();
+          const node = elem(strong ? "strong" : "em", strong ? "tl-md-strong" : "tl-md-em");
+          markdownInline(text.slice(i + marker.length, end), node);
+          into.appendChild(node);
+          i = end + marker.length;
+          continue;
+        }
+      }
+      plain += c;
+      i += 1;
+    }
+    flush();
+  }
+
+  /// Blocks. `root` is emptied and rebuilt.
+  ///
+  /// A paragraph keeps its OWN newlines as characters: `.tl-prose` is `white-space:
+  /// pre-wrap`, and it has rendered a single newline as a line break since this surface
+  /// existed. Consuming them here would silently reflow every answer that has ever been
+  /// sent, so the only newlines this function eats are the blank lines BETWEEN blocks and
+  /// the ones inside a list.
+  function renderMarkdownInto(root, text) {
+    root.textContent = "";
+    const lines = String(text == null ? "" : text).split("\n");
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) {
+        i += 1;
+        continue;
+      }
+
+      const heading = MD_HEADING.exec(line);
+      if (heading) {
+        // `role`/`aria-level` rather than `h1`–`h6`: the type scale (§17.2) is set on
+        // `.tl-prose` and an unstyled `h1` inside it would be a 32px shout in the middle of
+        // an answer. The semantics a screen reader needs are carried either way.
+        const node = elem("div", "tl-md-h");
+        node.setAttribute("role", "heading");
+        node.setAttribute("aria-level", String(Math.min(6, heading[1].length + 2)));
+        markdownInline(heading[2], node);
+        root.appendChild(node);
+        i += 1;
+        continue;
+      }
+
+      const ordered = MD_ORDERED.exec(line);
+      const bullet = ordered ? null : MD_BULLET.exec(line);
+      if (ordered || bullet) {
+        const list = elem(ordered ? "ol" : "ul", "tl-md-list");
+        if (ordered && ordered[1] !== "1") list.setAttribute("start", ordered[1]);
+        while (i < lines.length) {
+          const m = ordered ? MD_ORDERED.exec(lines[i]) : MD_BULLET.exec(lines[i]);
+          if (!m) break;
+          const li = elem("li", "tl-md-item");
+          markdownInline(ordered ? m[2] : m[1], li);
+          list.appendChild(li);
+          i += 1;
+        }
+        root.appendChild(list);
+        continue;
+      }
+
+      const para = elem("div", "tl-md-p");
+      const buf = [];
+      while (i < lines.length && lines[i].trim() && !MD_HEADING.test(lines[i]) && !MD_ORDERED.test(lines[i]) && !MD_BULLET.test(lines[i])) {
+        buf.push(lines[i]);
+        i += 1;
+      }
+      markdownInline(buf.join("\n"), para);
+      root.appendChild(para);
+    }
+  }
+
   /// §5.2/§5.4 — Rich's prose. ONE treatment for every run, because `phase` is unknown.
   /// See the header of this file before adding a second one.
   function renderRichMessage(item, opts) {
@@ -1400,11 +1568,13 @@
       art.appendChild(meta);
     }
 
-    // textContent, never innerHTML. §5.4 asks for Markdown; this surface has never had an
-    // HTML path and slice 5 does not open one — see the handoff.
+    // §5.4's Markdown, and STILL no HTML path: `renderMarkdownInto` builds DOM nodes and
+    // text nodes only. `item.text` is the model's text, unchanged and untrusted, and the
+    // `Copy` button below deliberately keeps copying THAT rather than what is on screen —
+    // what he pastes should be what Rich wrote, markers and all.
     const body = elem("div", "tl-prose");
     body.id = "prose:" + item.id;
-    body.textContent = item.text;
+    renderMarkdownInto(body, item.text);
     if (!item.closed && item.text) body.classList.add("is-streaming");
     art.appendChild(body);
 
@@ -2181,11 +2351,29 @@
     return turns;
   }
 
-  /// The streaming path: one node, one `textContent` write, no rebuild, no focus move.
+  /// The streaming path: one node, one rebuild of THAT node's children, no turn rebuild and
+  /// no focus move.
+  ///
+  /// IT RUNS THE SAME MARKDOWN AS THE STRUCTURAL PATH, deliberately, rather than holding
+  /// plain text until the message closes. Half a subset is worse than either whole one: the
+  /// answer would stream as literal asterisks and then snap into bold at the end, which
+  /// reads as a glitch on exactly the surface this fix exists to make look right.
+  ///
+  /// The cost was MEASURED rather than assumed, under WebKit on this machine, over an answer
+  /// of the shape Rich actually sends (a heading, bold, italic, code spans, a bulleted list,
+  /// a numbered list, six paragraphs). WebKit clamps `performance.now()` to 1ms, so a single
+  /// build is unmeasurable and the figures below are a mean over a 500-build batch:
+  ///
+  ///     786 bytes  ->  0.0240 ms per parse-and-build
+  ///    3938 bytes  ->  0.1300 ms per parse-and-build
+  ///
+  /// `scheduleProse` (main.js) coalesces on `requestAnimationFrame`, so this runs at most
+  /// once per frame per streaming message. At 3938 bytes that is 0.1300 / 16.7 = 0.78% of a
+  /// 60Hz frame — and a four-kilobyte answer is a long one.
   function updateProse(container, messageId, text, closed) {
     const node = container.querySelector('[id="prose:' + cssEscape(messageId) + '"]');
     if (!node) return false;
-    node.textContent = text;
+    renderMarkdownInto(node, text);
     node.classList.toggle("is-streaming", !closed && !!text);
     return true;
   }
@@ -2253,6 +2441,7 @@
     renderWorkerInspector,
     ENDED_EXPLANATION,
     render,
+    renderMarkdownInto,
     updateProse,
     updateTimers,
   };

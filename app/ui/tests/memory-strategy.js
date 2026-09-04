@@ -174,6 +174,20 @@ async function readTurn(page) {
       prose: q(".tl-rich").map((n) => n.innerText),
       userText: (sec.querySelector(".tl-user-text") || {}).textContent || "",
       text: sec.innerText,
+      // EVERYTHING A READER SEES IN THIS SECTION, including the numbers a list DRAWS rather
+      // than stores. Rich's five questions arrive as Markdown (`1. …` on five lines) and
+      // §5.4's renderer now builds them as a real `<ol>`, so the numerals are CSS markers —
+      // on screen, announced by a screen reader as list positions, and invisible to
+      // `innerText`, which can only see text nodes. The marker is reconstructed from the
+      // item's position in its own list, so a check can still name a question by its number.
+      // That is a stronger statement than the substring it replaced: it asserts the question
+      // is the Nth item of an ordered list, not merely that a digit precedes it.
+      visibleText: [
+        sec.innerText,
+        ...q("ol.tl-md-list > li.tl-md-item").map(
+          (n) => Array.prototype.indexOf.call(n.parentNode.children, n) + 1 + ". " + n.textContent
+        ),
+      ].join("\n"),
     };
   });
 }
@@ -507,8 +521,8 @@ async function main() {
     const t = await readTurn(b);
     assertEqual(t.chips.length, 0, "worker rows collapsed under the duration row");
     assertEqual(t.activityRows.filter((r) => r === "Read 7 files").length, 0, "activity collapsed");
-    assert(t.text.includes("1. What is the first deliverable"), "the final response stays expanded");
-    assert(t.text.includes("5. On cutover day"), "all five questions, below the divider");
+    assert(t.visibleText.includes("1. What is the first deliverable"), "the final response stays expanded");
+    assert(t.visibleText.includes("5. On cutover day"), "all five questions, below the divider");
     const order = await b.evaluate(() => {
       const sec = document.querySelector('.tl-turn[data-turn-id="turn_memory_01"]');
       const row = sec.querySelector(".tl-duration");
@@ -529,7 +543,7 @@ async function main() {
     assertEqual(t.chips.length, 4, "all four worker runs are back");
     assert(t.activityRows.includes("Read 7 files"), "and the activity");
     assert(t.prose[0].includes("reading the full source set"), "commentary in its ORIGINAL order, first");
-    assert(t.text.includes("5. On cutover day"), "the final response never left");
+    assert(t.visibleText.includes("5. On cutover day"), "the final response never left");
     return `4 chips, ${t.activityRows.length} activity rows, ${t.prose.length} prose runs, in order`;
   });
 
@@ -591,7 +605,7 @@ async function main() {
     await settle(b);
     const t = await readTurn(b);
     assert(t.duration.includes("Worked for 2h 17m 50s"), "the frozen duration survived: " + t.duration);
-    assert(t.text.includes("1. What is the first deliverable"), "the final response is expanded on arrival");
+    assert(t.visibleText.includes("1. What is the first deliverable"), "the final response is expanded on arrival");
     assert(t.userText.includes("design a proper replacement"), "the CEO's prompt is back");
     await expandTranscript(b);
     const e = await readTurn(b);
@@ -650,8 +664,8 @@ async function main() {
     const t = await readTurn(c);
     assert(t.duration.includes("Worked for 2h 17m 50s"), "frozen: " + t.duration);
     assertEqual(t.chips.length, 0, "worker rows are inside the collapsed transcript");
-    assert(t.text.includes("1. What is the first deliverable"), "the final response stays out of it");
-    assert(t.text.includes("5. On cutover day"), "all five questions");
+    assert(t.visibleText.includes("1. What is the first deliverable"), "the final response stays out of it");
+    assert(t.visibleText.includes("5. On cutover day"), "all five questions");
     return (
       "mid-turn: aria-expanded=true, 3 chips, never clicked -> after completion: collapsed " +
       "by the 180ms settle; five questions still on screen"

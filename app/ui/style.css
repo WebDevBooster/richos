@@ -2173,6 +2173,78 @@ body.bp-narrow .tl-user-bubble {
   word-wrap: break-word;
 }
 
+/* ---- §5.4 Markdown inside Rich's prose ---------------------------------------------------
+   The subset `timeline.js` builds, and nothing else. A handful of rules, all of them spacing
+   and weight.
+
+   CONTRAST: NO NEW COLOR IS INTRODUCED HERE, deliberately. Every node below inherits
+   `.tl-prose`'s `var(--ink)` on `var(--ground)` — 14.55:1 in dark (#dfe4ee on #0c1322) and
+   14.90:1 in light (#0c1322 on #eae6dd), both computed, both far above the 4.5:1 floor and
+   both already the ratio this surface ships. A tinted code chip is the obvious thing to want
+   here and it is the one thing that could put a number under the floor, so a code span is
+   distinguished by its FACE (`--mono`) rather than by a background it would have to earn.
+
+   Font size is untouched for the same reason: §17.2 sets 18px on `.tl-prose` and
+   `appearance.js` measures it, so nothing here may set `font-size` except the heading, which
+   is above the readable floor at every scale. */
+
+.tl-prose .tl-md-p {
+  margin: 0;
+}
+
+.tl-prose .tl-md-p + .tl-md-p,
+.tl-prose .tl-md-p + .tl-md-list,
+.tl-prose .tl-md-list + .tl-md-p,
+.tl-prose .tl-md-list + .tl-md-list,
+.tl-prose .tl-md-h,
+.tl-prose .tl-md-p + .tl-md-h {
+  margin-top: 0.7em;
+}
+
+.tl-prose .tl-md-h {
+  font-weight: 600;
+  /* 1.06 x 18px = 19.1px — a heading that is a little firmer than the body, not a shout in
+     the middle of an answer. Scales with the CEO's own font-scale because it is relative. */
+  font-size: 1.06em;
+}
+
+.tl-prose .tl-md-h:first-child {
+  margin-top: 0;
+}
+
+.tl-prose .tl-md-list {
+  margin: 0;
+  padding-left: 1.4em;
+  /* The prose is `pre-wrap`, and a list's own newlines are consumed by the renderer rather
+     than drawn — this keeps a marker's line box from inheriting the paragraph's preserved
+     whitespace. */
+  white-space: normal;
+}
+
+.tl-prose .tl-md-item {
+  margin: 0;
+}
+
+.tl-prose .tl-md-item + .tl-md-item {
+  margin-top: 0.25em;
+}
+
+.tl-prose .tl-md-strong {
+  font-weight: 600;
+}
+
+.tl-prose .tl-md-em {
+  font-style: italic;
+}
+
+.tl-prose .tl-md-code {
+  font-family: var(--mono);
+  /* The generic monospace on this machine runs large beside the interface face; 0.94em puts
+     a code span on the same visual line as the words around it and keeps it at 16.9px at
+     100% — above the 16px readable floor. */
+  font-size: 0.94em;
+}
+
 /* Tier-1/2 proactive: the slim accent edge — the ONLY "this is more urgent" signal, and the
    ONE phase that is real. */
 .tl-rich--proactive {
