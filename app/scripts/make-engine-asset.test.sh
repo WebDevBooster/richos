@@ -41,12 +41,32 @@
 #   L10 the real repository has docs/legal/THIRD-PARTY-NOTICES.md
 #   L11 every real bundled directory that has a license file still has one
 #   L12 the real archive builds, is deterministic, and carries the canonical LICENSE
+#   L13 the digest survives a different umask and a different timezone
+#   L14 no member of the real archive is a file git does not track
+#   L15 an ignored file in the source engine does not reach the archive
+#   L16 an archive carrying an untracked member is REFUSED, by name
+#   L17 a missing members check is REFUSED, not skipped
+#   L18 building outside a git checkout is REFUSED
+#
+# THE SECOND DEFECT, found 2026-09-04 by the two cases added that morning failing on main
+# after passing on their author's fresh worktree. The script copied the engine WORKING TREE,
+# so all 119 gitignored files in `engine/` went into the customer's download: fifteen
+# `.claude/state/agent-definitions-*.snapshot` carrying SESSION UUIDs and the operator's home
+# path, 57 `scripts/hooks/*.sha256` sidecars, `__pycache__` bytecode. A fresh worktree has
+# none of that, which is exactly why it looked clean there.
+#
+# L14–L18 exist because L12 and L13 CANNOT be trusted with this. They caught it by accident:
+# a new session minted a new snapshot between two builds, so the digest moved. Measured here
+# before the fix — with 205 ignored files planted and then left alone, all thirteen cases
+# reported green while 208 untracked members sat inside the archive. A determinism check asks
+# whether the bytes are the same twice. Only a CONTENT check asks what the bytes are.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$DIR/.." && pwd)"
 ROOT="$(cd "$APP/.." && pwd)"
 SCRIPT="$DIR/make-engine-asset.sh"
+MEMBERS="$DIR/verify-engine-asset-members.sh"
 
 # The canonical AGPL v3 digest. Written here as a literal on purpose: if the root LICENSE
 # is ever edited, this suite is one of the places that says so out loud. See
@@ -57,7 +77,8 @@ PASS=0; FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n         %s\n' "$1" "${2:-}"; FAIL=$((FAIL + 1)); }
 
-[ -f "$SCRIPT" ] || { echo "make-engine-asset.test.sh: no $SCRIPT — refusing to report a result." >&2; exit 2; }
+[ -f "$SCRIPT" ]  || { echo "make-engine-asset.test.sh: no $SCRIPT — refusing to report a result." >&2; exit 2; }
+[ -f "$MEMBERS" ] || { echo "make-engine-asset.test.sh: no $MEMBERS — refusing to report a result." >&2; exit 2; }
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/engine-asset-test.XXXXXX")" || exit 2
 trap 'rm -rf "$WORK"' EXIT
@@ -67,18 +88,49 @@ trap 'rm -rf "$WORK"' EXIT
 # ---------------------------------------------------------------------------------------
 # $1 = destination root. Builds a minimal but COMPLETE tree: the script's own preconditions
 # are all satisfied, so any refusal in a later case is caused by what that case removed.
+#
+# THE FIXTURE IS A REAL CHECKOUT, and it has to be. The script builds the asset from
+# `git ls-files` rather than from what is on disk, so a fixture that is merely a directory
+# would exercise nothing but the refusal in L18. `fixture_commit` is separate because three
+# cases remove a file and then need the index to say so.
+#
+# AND IT CARRIES AN IGNORED FILE, deliberately, shaped like the one that caused this: a
+# session snapshot under `.claude/state/`. Every fixture build therefore happens with an
+# ignored file sitting in the source engine, which is the condition a real checkout is always
+# in and a fresh worktree never is.
+fixture_commit() {
+    local r="$1"
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        git -C "$r" -c core.excludesFile=/dev/null add -A >/dev/null 2>&1 || return 1
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        git -C "$r" -c user.name=fixture -c user.email=fixture@example.invalid \
+            commit -q --no-gpg-sign --allow-empty -m 'fixture' >/dev/null 2>&1
+}
+
 make_fixture() {
     local r="$1"
     mkdir -p "$r/app/scripts" "$r/docs/legal" \
              "$r/engine/scripts/hooks" "$r/engine/skills/demo-skill" "$r/engine/tools/demo-tool"
     cp "$SCRIPT" "$r/app/scripts/make-engine-asset.sh"
+    cp "$MEMBERS" "$r/app/scripts/verify-engine-asset-members.sh"
     cp "$ROOT/LICENSE" "$r/LICENSE"
     printf 'notices for the fixture\n' > "$r/docs/legal/THIRD-PARTY-NOTICES.md"
     printf '1.0.0\n' > "$r/engine/VERSION"
+    printf '/.claude/state/\n*.sha256\n' > "$r/engine/.gitignore"
     printf '#!/usr/bin/env bash\ntrue\n' > "$r/engine/scripts/hooks/guard-demo.sh"
     printf -- '---\nname: demo-skill\nlicense: MIT\n---\n\nbody\n' > "$r/engine/skills/demo-skill/SKILL.md"
     printf 'MIT License\n\nCopyright (c) 2026 Somebody Else\n' > "$r/engine/skills/demo-skill/LICENSE"
     printf 'MIT License\n\nCopyright (c) 2026 Somebody Else\n' > "$r/engine/tools/demo-tool/LICENSE"
+
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        git -c init.defaultBranch=main init -q "$r" >/dev/null 2>&1
+    fixture_commit "$r"
+
+    # The ignored artifacts, written AFTER the commit so nothing can accidentally track them.
+    mkdir -p "$r/engine/.claude/state"
+    printf '# session=deadbeef-8e71-46f3-92d9-925de910870e generated=2026-09-04T00:00:00Z root=%s/engine\n' \
+        "$r" > "$r/engine/.claude/state/agent-definitions-deadbeef.snapshot"
+    printf 'aaaa\n' > "$r/engine/scripts/hooks/guard-demo.sh.sha256"
 }
 
 # Runs the fixture's copy of the script. Never touches the real tree.
@@ -87,7 +139,7 @@ run_fixture() { bash "$1/app/scripts/make-engine-asset.sh" --out "$1/out" 2>&1; 
 # ---------------------------------------------------------------------------------------
 # L1 / L2 — the two preconditions, each removed on its own
 # ---------------------------------------------------------------------------------------
-F="$WORK/no-license"; make_fixture "$F"; rm -f "$F/LICENSE"
+F="$WORK/no-license"; make_fixture "$F"; rm -f "$F/LICENSE"; fixture_commit "$F"
 OUT="$(run_fixture "$F")"; CODE=$?
 if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'no LICENSE at'; then
     ok "L1 a repository with no root LICENSE is REFUSED, by name"
@@ -95,7 +147,7 @@ else
     bad "L1 a repository with no root LICENSE is REFUSED, by name" "exit $CODE: $(printf '%s' "$OUT" | tail -1)"
 fi
 
-F="$WORK/no-notices"; make_fixture "$F"; rm -f "$F/docs/legal/THIRD-PARTY-NOTICES.md"
+F="$WORK/no-notices"; make_fixture "$F"; rm -f "$F/docs/legal/THIRD-PARTY-NOTICES.md"; fixture_commit "$F"
 OUT="$(run_fixture "$F")"; CODE=$?
 if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'no third-party notices at'; then
     ok "L2 a repository with no third-party notices is REFUSED, by name"
@@ -109,6 +161,9 @@ fi
 F="$WORK/complete"; make_fixture "$F"
 OUT="$(run_fixture "$F")"; CODE=$?
 TARBALL="$F/out/richos-engine-1.0.0.tar.gz"
+# Held under their own names because `F` and `TARBALL` are reassigned by later cases, and
+# L15/L16 come back to this archive.
+F_COMPLETE_ROOT="$F"; F_COMPLETE_TARBALL="$TARBALL"
 if [ "$CODE" -eq 0 ] && [ -s "$TARBALL" ]; then
     ok "L3 a complete fixture builds an archive"
 else
@@ -149,7 +204,9 @@ fi
 # ---------------------------------------------------------------------------------------
 # L8 — a claim with nothing behind it. THE defect the audit found, three times over.
 # ---------------------------------------------------------------------------------------
-F="$WORK/claim-no-text"; make_fixture "$F"; rm -f "$F/engine/skills/demo-skill/LICENSE"
+# The removal is COMMITTED, because the archive is built from the index now: a skill added
+# with a license claim and no license text would never have had one tracked in the first place.
+F="$WORK/claim-no-text"; make_fixture "$F"; rm -f "$F/engine/skills/demo-skill/LICENSE"; fixture_commit "$F"
 OUT="$(run_fixture "$F")"; CODE=$?
 if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'declare a license with no license file'; then
     ok "L8 a skill declaring a license with no license file beside it is REFUSED"
@@ -222,6 +279,97 @@ else
         "umask 077 TZ=UTC gave ${D1:-<none>}; umask 022 TZ=Asia/Tokyo gave ${D2:-<none>}. The pin
          compiled into the app would be a property of whoever built it, and a customer would
          discover that as a DigestMismatch."
+fi
+
+# ---------------------------------------------------------------------------------------
+# L14 — WHAT IS ACTUALLY IN THE REAL ARCHIVE. The check L12 and L13 cannot make.
+# ---------------------------------------------------------------------------------------
+# Computed here rather than by calling `verify-engine-asset-members.sh`, on purpose: a case
+# that runs the checker and reports what the checker says proves the checker ran, not that
+# the archive is clean. This derives the tracked set itself and compares.
+if [ -n "$REAL_TARBALL" ] && [ -d "$RX/engine" ]; then
+    ( cd "$ROOT/engine" && git ls-files ) | LC_ALL=C sort > "$WORK/real-expected"
+    printf 'LICENSE\nTHIRD-PARTY-NOTICES.md\n' >> "$WORK/real-expected"
+    LC_ALL=C sort -u "$WORK/real-expected" -o "$WORK/real-expected"
+    ( cd "$RX/engine" && find . \( -type f -o -type l \) -print ) | sed 's|^\./||' | LC_ALL=C sort > "$WORK/real-actual"
+    LC_ALL=C comm -13 "$WORK/real-expected" "$WORK/real-actual" > "$WORK/real-extra"
+    EXTRA_N="$(wc -l < "$WORK/real-extra" | tr -d ' ')"
+else
+    EXTRA_N="-1"
+fi
+if [ "$EXTRA_N" = "0" ]; then
+    ok "L14 every member of the real archive is a file git tracks ($(wc -l < "$WORK/real-actual" | tr -d ' ') members)"
+else
+    bad "L14 every member of the real archive is a file git tracks" \
+        "$EXTRA_N untracked member(s), starting with: $(head -3 "$WORK/real-extra" 2>/dev/null | tr '\n' ' ')
+         Session snapshots, hook sha256 sidecars and __pycache__ are the known shapes; this
+         case does not look for those names, it looks for anything git does not track."
+fi
+
+# ---------------------------------------------------------------------------------------
+# L15 — END TO END: an ignored file in the source engine, and the archive without it
+# ---------------------------------------------------------------------------------------
+# `make_fixture` leaves a session snapshot and a hook sidecar in the fixture's engine, both
+# matching the fixture's own `.gitignore`. This is the whole defect in miniature.
+if [ -f "$F_COMPLETE_TARBALL" ] \
+   && [ ! -e "$X/engine/.claude/state/agent-definitions-deadbeef.snapshot" ] \
+   && [ ! -e "$X/engine/scripts/hooks/guard-demo.sh.sha256" ]; then
+    ok "L15 gitignored files in the source engine do not reach the archive"
+else
+    bad "L15 gitignored files in the source engine do not reach the archive" \
+        "a session snapshot carrying a UUID and an operator home path, or a regenerated
+         sha256 sidecar, is inside the file a stranger downloads."
+fi
+
+# ---------------------------------------------------------------------------------------
+# L16 — THE REFUSAL, PROVED BY A REAL ARCHIVE THAT DESERVES IT
+# ---------------------------------------------------------------------------------------
+# A negative case has to be able to go red for the right reason, so this poisons a genuine
+# archive: unpack the fixture's own tarball, drop an ignored file into it, repack. If the
+# member check ever stops looking, this case is the one that says so.
+POISON="$WORK/poison"; mkdir -p "$POISON"
+if [ -f "$F_COMPLETE_TARBALL" ]; then
+    /usr/bin/tar -x -z --no-same-owner -f "$F_COMPLETE_TARBALL" -C "$POISON" 2>/dev/null
+    mkdir -p "$POISON/engine/.claude/state"
+    printf '# session=deadbeef-8e71-46f3-92d9-925de910870e root=/Users/somebody/ab/richos/engine\n' \
+        > "$POISON/engine/.claude/state/agent-definitions-deadbeef.snapshot"
+    ( cd "$POISON" && /usr/bin/tar -c -z -f "$WORK/poisoned.tar.gz" engine ) 2>/dev/null
+fi
+OUT="$(bash "$MEMBERS" "$WORK/poisoned.tar.gz" "$F_COMPLETE_ROOT" \
+        LICENSE=LICENSE THIRD-PARTY-NOTICES.md=docs/legal/THIRD-PARTY-NOTICES.md 2>&1)"; CODE=$?
+if [ "$CODE" -ne 0 ] \
+   && printf '%s' "$OUT" | grep -q 'member(s) that git does not track' \
+   && printf '%s' "$OUT" | grep -q 'agent-definitions-deadbeef.snapshot'; then
+    ok "L16 an archive carrying an untracked member is REFUSED, and the member is named"
+else
+    bad "L16 an archive carrying an untracked member is REFUSED, and the member is named" \
+        "exit $CODE: $(printf '%s' "$OUT" | tail -1)"
+fi
+
+# ---------------------------------------------------------------------------------------
+# L17 — the check cannot be quietly deleted
+# ---------------------------------------------------------------------------------------
+# A guard whose absence is a skip is not a guard. Removing the file must stop the build, not
+# the checking.
+F="$WORK/no-members-check"; make_fixture "$F"; rm -f "$F/app/scripts/verify-engine-asset-members.sh"
+OUT="$(run_fixture "$F")"; CODE=$?
+if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'refusing to build an asset nothing will check'; then
+    ok "L17 a missing members check REFUSES the build rather than skipping the check"
+else
+    bad "L17 a missing members check REFUSES the build rather than skipping the check" "exit $CODE: $(printf '%s' "$OUT" | tail -1)"
+fi
+
+# ---------------------------------------------------------------------------------------
+# L18 — no checkout, no tracked set, no asset
+# ---------------------------------------------------------------------------------------
+# The failure direction that matters. Falling back to "copy whatever is on disk" outside a
+# checkout would restore the defect silently, in the one situation where nobody is watching.
+F="$WORK/no-checkout"; make_fixture "$F"; rm -rf "$F/.git"
+OUT="$(run_fixture "$F")"; CODE=$?
+if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'is not inside a git checkout'; then
+    ok "L18 building outside a git checkout is REFUSED, not silently fallen back from"
+else
+    bad "L18 building outside a git checkout is REFUSED, not silently fallen back from" "exit $CODE: $(printf '%s' "$OUT" | tail -1)"
 fi
 
 echo ""
