@@ -130,6 +130,21 @@ PLATFORM_KEY="darwin-$ARCH"
 ENGINE_ASSET="richos-engine-$ENGINE_VERSION.tar.gz"
 UPDATE_ASSET="RichOS.app.tar.gz"
 INSTALL_ASSET="RichOS-$VERSION-macos-$ARCH.zip"
+# THE SAME BYTES UNDER A NAME THAT NEVER CHANGES, so a link can outlive a release.
+#
+# `/releases/latest/download/<name>` only resolves if <name> is identical in every release,
+# and the versioned name above is by construction never identical twice. So the home-page
+# README had to spell out a version, and on 2026-09-04 it still said 1.0.0 while 1.0.1 was
+# the current release: the link worked, then told the reader to download a file that was not
+# there. A copy under a stable name removes the class, and it removes the second half of the
+# problem too -- a stranger landing on the releases page had six files and no way to tell
+# which was the app.
+#
+# It is a COPY, not a rename: the versioned name is what SHA256SUMS, the audit trail and
+# every past link refer to, and provenance is worth more than ten megabytes. Both names are
+# checksummed, because `write_sums` covers everything staged -- so the duplication is stated
+# in the release's own manifest rather than being a thing you have to know.
+STABLE_ASSET="RichOS-macos-$ARCH.zip"
 MANIFEST_ASSET="latest.json"
 SUMS_ASSET="SHA256SUMS"
 
@@ -169,6 +184,8 @@ plan() {
   say "    $UPDATE_ASSET + $UPDATE_ASSET.sig"
   say "        $UPDATE_URL"
   say "    $INSTALL_ASSET      (the first install — a stapled .app, archived with ditto)"
+  say "    $STABLE_ASSET            (the same bytes under a name that never changes)"
+  say "        https://github.com/$REPO/releases/latest/download/$STABLE_ASSET"
   say "        $DOWNLOAD_BASE/$INSTALL_ASSET"
   say "    $MANIFEST_ASSET                      (uploaded LAST)"
   say "        $DOWNLOAD_BASE/$MANIFEST_ASSET"
@@ -438,6 +455,15 @@ $(printf '%s' "$dirty" | sed 's/^/    /')" 1
       "$OUT/$MANIFEST_ASSET" "$OUT/$UPDATE_ASSET" "$OUT/$UPDATE_ASSET.sig" "$UPDATE_URL") \
     || die "the manifest is not publishable — the reasons are above." 1
 
+  # The stable-name copy is made from the archive that just PASSED the checks above, never
+  # from the bundle again -- two archives of one bundle are not guaranteed byte-identical, and
+  # a second archive would be one nothing verified.
+  rm -f "$OUT/$STABLE_ASSET"
+  cp "$OUT/$INSTALL_ASSET" "$OUT/$STABLE_ASSET" || die "could not write the stable-name copy" 1
+  [ "$(sha256_of "$OUT/$INSTALL_ASSET")" = "$(sha256_of "$OUT/$STABLE_ASSET")" ] \
+    || die "the stable-name copy does not match the archive it was copied from" 1
+  say "stable-name copy: $STABLE_ASSET (byte-identical to $INSTALL_ASSET)"
+
   write_sums
   say ""
   rule
@@ -448,7 +474,7 @@ $(printf '%s' "$dirty" | sed 's/^/    /')" 1
   say ""
   say "  gh release upload $TAG --repo $REPO \\"
   say "      '$OUT/$UPDATE_ASSET' '$OUT/$UPDATE_ASSET.sig' \\"
-  say "      '$OUT/$INSTALL_ASSET' '$OUT/$SUMS_ASSET'"
+  say "      '$OUT/$INSTALL_ASSET' '$OUT/$STABLE_ASSET' '$OUT/$SUMS_ASSET'"
   say "  gh release upload $TAG --repo $REPO '$OUT/$MANIFEST_ASSET'"
   say "  app/scripts/make-release.sh verify-release --tag $TAG"
   rule

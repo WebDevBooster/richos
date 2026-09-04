@@ -22,9 +22,9 @@ Using RichOS is as easy as talking to a person.
 
 ## Download
 
-**[RichOS 1.0.0 for macOS](https://github.com/WebDevBooster/richos/releases/latest)** — Apple Silicon
-(M1, M2, M3, M4). Download `RichOS-1.0.0-macos-aarch64.zip`, unzip it, and drag **RichOS.app** to
-your Applications folder.
+**[Download RichOS for macOS](https://github.com/WebDevBooster/richos/releases/latest/download/RichOS-macos-aarch64.zip)**
+— Apple Silicon (M1, M2, M3, M4). Unzip it and drag **RichOS.app** to your Applications folder.
+That link always serves the current release, so it is never out of date.
 
 It is signed by Apple's Developer ID program and notarized, so it opens on a normal double-click —
 no security warning, no right-click.
