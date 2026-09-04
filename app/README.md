@@ -854,7 +854,7 @@ derivation as an unsupported extension, so it cannot recur silently.
 ## Packaging — one command, one line, and it refuses
 
 ```sh
-app/scripts/package-app.sh                       # ad-hoc signed; what this machine can do today
+app/scripts/package-app.sh                       # ad-hoc signed; the default, and all a machine with no certificate can do
 app/scripts/package-app.sh --sign developer-id   # discovers the identity; needs a certificate
 RICHOS_NOTARIZE=1 app/scripts/package-app.sh --sign developer-id   # ...and notarizes and staples
 app/scripts/package-app.sh --sign developer-id --dry-run           # resolve everything, build nothing
@@ -862,7 +862,8 @@ app/scripts/package-app.sh --verify-only path/to/RichOS.app [--expect-notarized]
 app/scripts/package-app.sh --updater             # ...and the signed update artifacts
 ```
 
-The last line is the whole report:
+The last line is the whole report. In the default mode it names what it did not do, and
+the cdhash in it belongs to that one run — it moves with the shipped bytes:
 
 ```
 OK: RichOS.app is bundled, ad-hoc signed and verified — real icons, cdhash
@@ -870,6 +871,11 @@ fc5051ac9ca8e4713ccaec6a7e02dd3b3efb16ce, microphone usage string present; NOT
 notarized, Gatekeeper rejects it, and its permission grants die on the next build
 that changes a shipped byte. Path: …/release/bundle/macos/RichOS.app
 ```
+
+The `--sign developer-id` modes print the same shape with the opposite content —
+`package-app.sh:1279` is the notarized-and-stapled line, `:1287` the signed-but-not-
+notarized one. That is the path v1.0.0, v1.0.1 and v1.0.2 were built through, and what
+those published bytes carry is measured further down rather than asserted here.
 
 Anything else is a refusal that names its reason. Exit codes: `0` success, `1` the
 bundle failed verification, `2` refused before building, `3` a prerequisite is
@@ -889,8 +895,10 @@ and the two bad ones it refused.
 
 - **Placeholder icons.** It exports `RICHOS_REQUIRE_REAL_ICONS=1`, which is what makes
   `build.rs`'s gate fatal, and it pre-checks the same set so the failure arrives in two
-  seconds rather than after a release compile. On the committed placeholder set it
-  refuses with eleven named problems and exits 2.
+  seconds rather than after a release compile. Against the placeholder set this
+  repository used to carry it refused with eleven named problems and exited 2; against
+  the real set committed now the pre-flight passes, which is what lets a bundle be built
+  at all.
 - **A signing configuration that cannot work.** `--sign developer-id` DISCOVERS the
   identity when the machine has exactly one "Developer ID Application"; with none, or
   with more than one, it refuses and names them, because choosing between two signing
@@ -934,7 +942,9 @@ check two things. Both are now measured, on a real bundle:
   it is now a permanent check rather than a one-off observation.
 - **The hardened-runtime entitlement it also asks about** is
   `src-tauri/Entitlements.plist`, applied by the developer-id path as a config overlay
-  only. It has never signed anything — see below.
+  only. It has now signed: `codesign -d --entitlements -` on the published 1.0.2 bundle
+  reads back `com.apple.security.device.audio-input` and nothing else, which is the whole
+  list that file carries.
 
 ### Ad-hoc is not what the bundler does. It is what the bundler skips.
 
@@ -974,37 +984,55 @@ literal moved it to `27a561effd404…`. It is not a tax on rebuilding; it is a t
 every change worth shipping. That is still the whole argument for Developer ID, and it
 is why the number in this paragraph is a measurement and not a warning.
 
-### The Developer ID path is finished, and has still never signed anything
+### The Developer ID path is finished, and it has signed, notarized and stapled a public release
 
 The CEO enrolled in the Apple Developer Program on **2026-08-31**, so decision 1.1 is
-closed and the path is no longer inert prose waiting on a purchase
-(`richos-hq/wiki/packaging-and-signing.md`). What is finished, and what is still not
-true, are two different lists and both are here:
+closed (`richos-hq/wiki/packaging-and-signing.md`), and the certificate has existed on
+this machine since 2026-09-01. `security find-identity -v -p codesigning` reports
+`1 valid identities found` — *Developer ID Application: Alex Booster (TZ33A4QCZJ)*, SHA-1
+`BF4D68E6F858688FDAD63148BD271FCA2D02474F`.
 
 **Finished.** Identity discovery; the hardened runtime; an explicit re-sign carrying
 `--timestamp`; the entitlements overlay; submission to the notary, waiting on it,
 fetching Apple's own log on rejection, stapling and validating the staple; and a
 designated-requirement check that is the only thing the certificate is bought for.
 
-**Still not true, and nothing here should be read as claiming otherwise.**
+**Three facts follow, and they are kept apart because each one can be true while the next
+is not.** Each was measured on 2026-09-04 against the `RichOS.app` inside
+`RichOS-1.0.2-macos-aarch64.zip`, downloaded from its public URL rather than read out of
+this machine's build directory:
 
-- **No certificate exists.** `security find-identity -v -p codesigning` reported
-  `0 valid identities found` on 2026-08-24, on 2026-08-30, and again on 2026-08-31.
-  Nothing here has ever been signed with a real identity, notarized, or stapled.
-  `docs/ceo/developer-id-setup-2026-08-31.md` is the two steps only the CEO can take;
-  `app/scripts/make-signing-csr.sh` has already produced the CSR he uploads.
-- **No bundle can be built on this tree at all.** The icon gate refuses on the
-  placeholder icon set — CEO item 2.6, the artwork — so even the ad-hoc path produces
-  nothing today. The developer-id verification arm is exercised instead against a
-  minimal `.app` built by hand and ad-hoc signed by the real `codesign`, which fires
-  all eight of its failure branches at once. See
-  `docs/verification/developer-id-signing-2026-08-31/mutation-runs.txt`.
-- **The rebuild-survival test has never run.** `app/scripts/rebuild-survival.sh status`
-  reports exit 4 and names what it needs, rather than a pass or a fail. A build that
-  has only ever been installed once has never tested the thing that breaks.
-- The path still **never selects itself** — an identity appearing on the machine does
-  not change what a plain run does; it only makes the run say a signed build is now
-  possible.
+- **It is signed by the real identity, and carries the requirement the certificate is
+  bought for.** `codesign -dvv` reads back `Authority=Developer ID Application: Alex
+  Booster (TZ33A4QCZJ)`, `flags=0x10000(runtime)`, `Timestamp=4 Sep 2026 at 6:09:03 PM`;
+  `codesign -d -r-` gives `identifier "com.richos.app" and anchor apple generic and …
+  certificate leaf[subject.OU] = TZ33A4QCZJ`, with no `cdhash` term anywhere in it. That
+  is the whole point of the certificate: the grants are bound to the identifier and the
+  team, not to the build.
+- **It is notarized, and the ticket is stapled.** `codesign -dvv` prints
+  `Notarization Ticket=stapled`, and `xcrun stapler validate` answers *"The validate
+  action worked!"* — which is the part that matters offline, since a stapled copy is
+  admitted without the Mac reaching Apple over the network.
+- **A stranger can install it.** Three public releases exist, all on 2026-09-04 —
+  v1.0.0 (14:19 UTC), v1.0.1 (16:00 UTC) and v1.0.2 (17:08 UTC) —
+  at <https://github.com/WebDevBooster/richos/releases>. All three first-install zips were
+  downloaded and checked, not just the newest: each carries the same Developer ID
+  authority and a stapled ticket, and on each `spctl -a -vv -t exec` answers `accepted`,
+  `source=Notarized Developer ID`. That verdict was taken on a downloaded bundle rather
+  than on a local build, which carries no quarantine attribute and proves nothing.
+
+**Still true, and nothing above should be read as claiming otherwise.**
+
+- **Rebuild survival is proven at Layer 1 and no higher.** Two Developer ID signed builds
+  differing by one shipped string literal produced different code hashes and
+  character-for-character identical designated requirements, so the mechanism holds
+  (`docs/verification/rebuild-survival-2026-09-01.md`). Layer 2 — a real permission grant
+  surviving a second install — and Layer 3 — no dialog appearing on that second install —
+  have no recorded run. Both need one install-and-grant round done by hand, and neither
+  needs anything bought or waited for.
+- The path still **never selects itself** — `sign_mode` defaults to `adhoc`
+  (`package-app.sh:203`), so an identity being present on the machine does not change what
+  a plain run does; it only makes the run say a signed build is now possible.
 
 **Two measured facts about the bundler, which is why this script does more than it
 looks like it should.** `tauri-bundler` 2.9.4 (`bundle/macos/app.rs:135-148`)
@@ -1022,26 +1050,35 @@ explicit argv, and owns the notary step itself.
 - **Bundle identifier.** Tauri warns on every build that `com.richos.app` ends in
   `.app`, which it does not recommend. It is left as it is deliberately — the identifier
   is pinned and must never change (`packaging-and-signing.md`, "What RichOS
-  specifically needs" item 3) — but it is worth deciding *before* a Developer ID
-  signature makes it load-bearing for grant continuity, not after.
+  specifically needs" item 3). The window for reconsidering it has closed: the identifier
+  is inside the designated requirement of three published releases, so changing it now
+  would abandon the permission grants every installed copy holds.
 - **No sidecars are bundled.** `whisper.cpp` and
-  `ffmpeg` are not in the `.app`; the bundle is 17 MB and assumes them on the host.
+  `ffmpeg` are not in the `.app`; the shipped 1.0.2 bundle is 19 MB (`du -sk` reports
+  19,444 KB on the extracted copy) and assumes them on the host.
   When they land, each must be signed with the same identity and sealed in, or the
   bundle seal breaks and takes the grants with it.
 - **`--bundles app` by default**, not the `"targets": "all"` in `tauri.conf.json`. The
   `.app` is the artefact that matters; DMG creation is a separate, flakier downstream
   step whose failure says nothing about whether the application is correct. Pass
   `--bundles app,dmg` for the installer.
-- **macOS only.** It refuses on any other platform with the reason. No Windows bundle
-  has ever been built and there is no Windows signing certificate.
-- **No auto-update channel.** Not built, not wired, not claimed.
+- **macOS on Apple silicon only.** It refuses on any other platform with the reason. No
+  Windows bundle has ever been built and there is no Windows signing certificate, and
+  every published release asset is `macos-aarch64` — there is no Intel build.
+- **The auto-update channel is wired and published.** `tauri.conf.json` carries the
+  endpoint `https://github.com/WebDevBooster/richos/releases/latest/download/latest.json`
+  and the minisign public key, and v1.0.2 published `RichOS.app.tar.gz`, its `.sig` and
+  `latest.json` beside the first-install zip. `app/UPDATES.md` is the design and the
+  end-to-end run — read it knowing it was written before the certificate existed and
+  still describes the ad-hoc world.
 - **Launched, and talked to.** As of 2026-09-01 the bundle is installed at
   `~/Applications/RichOS.app`, opened with `/usr/bin/open` (working directory `/`, launchd's
   environment), asked which company it is for, answered, and given a sentence that came back
   as a real reply in 5,868 ms. Boot line, ledger and the verbatim exchange:
-  `docs/verification/installed-app-2026-09-01/`. **Not notarized** — there are no notary
-  credentials on this machine, so `spctl` rejects it and a DOWNLOADED copy would be blocked;
-  a locally installed one carries no quarantine attribute and opens.
+  `docs/verification/installed-app-2026-09-01/`. That copy was the ad-hoc build, which
+  `spctl` rejects — it opened only because a locally installed bundle carries no quarantine
+  attribute. The published 1.0.2 bundle is the opposite case and is measured above:
+  notarized, stapled, and `accepted` by `spctl` after being downloaded.
 
 ## Runtime config (env)
 
