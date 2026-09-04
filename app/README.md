@@ -628,7 +628,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 693 tests + 5 doc-tests
+cargo test -p richos-core                       # 694 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests
