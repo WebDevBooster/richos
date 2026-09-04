@@ -73,6 +73,18 @@
 # switched off within a day, and then the rule has no chokepoint again.
 #
 #   PATH-LEVEL (whole write skipped)
+#     * VENDORED THIRD-PARTY MATERIAL, by REGISTRY LOOKUP rather than by path
+#       name — `.richos/vendored-material` records who wrote every piece of
+#       redistributable material in a tree, and an `origin=third-party` entry
+#       covering the file exempts it. This is the only exemption here that
+#       comes from a recorded fact, and it is the one that was missing on
+#       2026-08-30 when this guard Americanized four lines of Corey Haines's
+#       MIT-licensed prose inside `engine/skills/copywriting/`. A path-name
+#       convention could not have caught that: a vendored skill sits at
+#       `engine/skills/<name>/`, exactly where the skills we wrote sit.
+#       Material recorded as `origin=richos` is STILL CHECKED — a registry that
+#       exempted everything it named would be an off switch with an inventory
+#       attached.
 #     * vendor legal text: LICENSE / LICENCE / NOTICE / COPYING / COPYRIGHT /
 #       THIRD-PARTY-NOTICES, in any casing, with or without an extension. NOT
 #       OURS TO EDIT — and note the direction of the `license` trap: American
@@ -287,6 +299,99 @@ fi
 # with a serious face on. Caught by case D1 asserting the silent no-op is
 # SILENT, which is why that case checks stderr rather than just the exit code.
 richos_assert_jurisdiction "scripts/hooks/guard-dialect.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+
+# --- IS THIS SOMEBODY ELSE'S PROSE? ---------------------------------------
+# THE PATH EXEMPTION THIS GUARD DID NOT HAVE, AND THE INCIDENT IT COST.
+#
+# On 2026-08-30, commit 06f4a8221a61, this project's dialect sweep rewrote
+# FOURTEEN lines across TWO vendored skills: four in
+# `engine/skills/copywriting/references/natural-transitions.md` (Corey Haines's,
+# MIT, from `coreyhaines31/marketingskills`) and ten in
+# `engine/skills/landing-page-taste/SKILL.md` (Leonxlnx, MIT). Nothing was
+# hazardous and nothing leaked — but neither is ours to correct, and a future
+# byte comparison against upstream would have shown fourteen unexplained
+# differences with no record of who made them. Found by an audit on 2026-09-04,
+# six weeks later, by accident.
+#
+# AND THE DAMAGE WAS A ONE-WAY DOOR. This guard REFUSES a write whose new
+# content carries a foreign spelling, so re-vendoring either file verbatim from
+# upstream was blocked too — and so was the attempt to QUOTE the two spellings
+# into a notice explaining the divergence, which was refused twice before
+# somebody phrased the prose around it. One missing fact, three failures: the
+# guard caused the divergence, forbade the repair, and forbade the record of it.
+#
+# THE GUARD WAS NOT WRONG. It had no way to be right: it exempts `vendor/`,
+# `third_party/` and `node_modules/` by NAME, and this engine vendors third-
+# party work into `engine/skills/<name>/`, which looks exactly like the skills
+# we wrote. A path-name heuristic cannot answer a provenance question.
+#
+# So the answer comes from the fact itself. `.richos/vendored-material` records
+# who wrote every piece of redistributable material in a tree, and this guard
+# asks it one question: is the file I am about to rewrite recorded as somebody
+# else's? Only `origin=third-party` exempts. Material recorded as `richos` is
+# still checked — and that asymmetry is the whole design, because a registry
+# that exempted everything it named would be an off switch with an inventory
+# attached.
+#
+# It is a LOOKUP, never an inference. This guard does not decide whose work a
+# file is; it reads what somebody wrote down when they knew.
+# AND IT IS DEFERRED UNTIL THERE IS SOMETHING TO SUPPRESS. The lookup was
+# first written above the scan, as a path exemption -- correct, and it cost
+# 250ms of pure bash on EVERY Write and Edit in every repository on this
+# machine, doubling the guard's measured 231ms baseline. The registry can only
+# ever change the answer when the scan has actually FOUND something, and the
+# scan finds nothing on the overwhelming majority of writes. So the clean path
+# pays nothing and the finding path pays once, below, where FOUND and
+# REPORTONLY are handled. A guard that adds half a second to every edit is a
+# guard somebody removes by the end of the week.
+_DG_VM_LIB="$SCRIPT_DIR/../lib/vendored-material.sh"
+if [ ! -f "$_DG_VM_LIB" ]; then
+    # FAIL CLOSED, like every other missing predicate in this engine, and
+    # checked UP HERE rather than at the point of use: a hook that starts fine
+    # and only discovers at decision time that it cannot answer the ownership
+    # question is a hook that ran blind. contract-integrity.test.sh's SC1 starts
+    # every registered hook in a sandbox and reads exactly this refusal.
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-dialect.sh"
+        echo "  scripts/lib/vendored-material.sh is missing at: $_DG_VM_LIB"
+        echo "  Without it this guard cannot tell whose bytes it is about to"
+        echo "  rewrite, and a guard that cannot tell must not answer."
+    } >&2
+    exit 2
+fi
+
+# _dg_is_vendored — rc 0 when the registry records this file as SOMEBODY
+# ELSE'S. Sets DG_VENDOR_MATCH to the entry that covered it. Exits 2 itself on a
+# declared-but-unreadable registry, for seat-jurisdiction.sh's rule: a guard
+# that cannot tell whose bytes these are must not answer, and carrying on is
+# precisely how the 2026-08-30 edit happened.
+DG_VENDOR_MATCH=""
+_dg_is_vendored() {
+    [ -n "$FILE_PATH" ] || return 1
+    # shellcheck source=../lib/vendored-material.sh
+    . "$_DG_VM_LIB"
+    local rc=0 rel
+    vm_load_upward "$(dirname "$FILE_PATH")" || rc=$?
+    case "$rc" in
+      0) ;;
+      1) return 1 ;;   # no repository above this file declares the contract
+      *)
+        {
+            vm_broken_banner "scripts/hooks/guard-dialect.sh" "$VM_BROKEN_REASON"
+            echo "  This guard refuses to judge a word in a file whose ownership it"
+            echo "  cannot establish. Fix the registry, or delete it to stand the"
+            echo "  vendoring contract down deliberately."
+            echo "(hook: scripts/hooks/guard-dialect.sh)"
+        } >&2
+        exit 2 ;;
+    esac
+    rel="${FILE_PATH#"$VM_ROOT"/}"
+    [ "$rel" != "$FILE_PATH" ] || return 1
+    vm_is_third_party "$rel" || return 1
+    DG_VENDOR_MATCH="$VM_MATCH"
+    return 0
+}
 
 export DIALECT_SCAN_ALLOWLIST DIALECT_EXEMPT_PATHS DICT
 
@@ -533,6 +638,9 @@ case "$(printf '%s' "$RESULT" | head -1)" in
     exit 2
     ;;
   REPORTONLY)
+    # WHOSE PROSE IS THIS? Asked here rather than before the scan, so a clean
+    # write never pays for it. See _dg_is_vendored's header.
+    _dg_is_vendored && exit 0
     {
       echo "=== Dialect NOTE (not blocked) ==="
       echo "  '${FILE_PATH:-<unknown file>}' uses 'queue' in a way that MIGHT mean the CEO's list,"
@@ -547,6 +655,7 @@ case "$(printf '%s' "$RESULT" | head -1)" in
     exit 0
     ;;
   FOUND)
+    _dg_is_vendored && exit 0
     {
       echo "=== Dialect check BLOCKED ==="
       echo "  Refusing to write '${FILE_PATH:-<unknown file>}' — this content introduces wording"
@@ -566,6 +675,12 @@ case "$(printf '%s' "$RESULT" | head -1)" in
       echo "    * put it in a code span or fenced block, or a > blockquote if it is a quotation;"
       echo "    * or add 'dialect-exempt: <reason>' to the line (a bare marker does nothing);"
       echo "    * or add the literal substring to DIALECT_SCAN_ALLOWLIST in orchestration.config."
+      echo "  IF THIS FILE IS SOMEBODY ELSE'S WORK, that is not an exemption to declare — it"
+      echo "  is a fact to record. Add an entry with origin=third-party to the repository's"
+      echo "  .vendored-material registry and this guard will leave the whole path alone,"
+      echo "  including a verbatim re-vendoring from upstream. On 2026-08-30 this guard"
+      echo "  rewrote 14 lines across two vendored skills for want of that entry, and then"
+      echo "  refused the commit that tried to quote the difference back."
       echo "  To turn this off for a repository whose product does not speak $DIALECT_TARGET,"
       echo "  blank DIALECT_TARGET in orchestration.config — never weaken the dictionary."
       echo "(hook: scripts/hooks/guard-dialect.sh)"

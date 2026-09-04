@@ -343,6 +343,7 @@ run_layer_R() {
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
     guard-completeness-commits \
     guard-row-currency-commits \
+    guard-vendoring-commits \
     guard-interactive-prompt \
     guard-resume-isolation guard-bash-main-writes guard-inflight-notify guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
@@ -966,6 +967,7 @@ guard-publication-commits.sh|PreToolUse
 guard-ceo-todos-commits.sh|PreToolUse
 guard-completeness-commits.sh|PreToolUse
 guard-row-currency-commits.sh|PreToolUse
+guard-vendoring-commits.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse
@@ -2636,6 +2638,10 @@ CANON = [
     # Same argument, same event, same cost: registered twice it would refuse a
     # landing twice and print the same stale row as two separate defects.
     "guard-row-currency-commits.sh",
+    # Same event, same class, and its cost is a git index read plus a registry
+    # parse: registered twice it would name the same unrecorded vendoring twice,
+    # which reads as two separate unregistered things in one commit.
+    "guard-vendoring-commits.sh",
     "guard-resume-isolation.sh",
     "detect-nonnative-worktree.sh",
     "teammate-idle-handoff.sh",
