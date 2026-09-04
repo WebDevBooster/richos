@@ -112,11 +112,98 @@ in the fixtures would contradict the documented reason they inherit one.
   `/tmp` is already real.
 - Wall-clock: the 24 suites take ~7 min on the dev Mac and are the dominant cost
   of the run. The job's `timeout-minutes: 45` is set with room, not to the mark.
+  **That line stopped being true within a week — see the second execution below.**
 
 ### After the three fixes
 
 **24/24 suites, install.sh, the integrity probe and `demo.sh` (7/7 beats) all
 green on Linux.** See the run linked from the branch that landed this.
+
+## The second execution (2026-09-04), and the fourth instance of the same class
+
+Nothing had run this suite on Linux since 2026-08-29. **There were 24 suites then
+and 60 now**, and the wall clock had gone from ~7 minutes to 69. The engine is
+still developed on macOS, so everything added in between had been proven on
+exactly one operating system.
+
+Re-run in an `ubuntu:24.04` container from a fresh clone with no private sibling.
+The transcript is kept by the repository that HOSTS this engine, under its
+verification record for 2026-09-04, "workflows on a clone" — deliberately not
+linked as a path, because this file travels to adopters who have no such record
+and a citation they cannot follow is worse than a sentence telling them where it
+lives.
+
+### `sed -i ''` — the same shape as `mktemp -t`, and it ABORTED the run
+
+BSD/macOS `sed -i` takes the backup suffix as a **separate argument**, so the
+in-place idiom is `sed -i '' 's/a/b/' file`. GNU takes the suffix **attached**,
+reads that empty string as the SCRIPT, and treats the real script as a FILENAME:
+
+```
+sed: can't read s/^MODEL_TIERS=.*/MODEL_TIERS=""/: No such file or directory
+```
+
+Four sites, all in `scripts/hooks/contract-integrity.test.sh`'s MT and MC
+sections, all added after the 2026-08-29 run. Under `set -e` the suite executed
+139 cases and then **exited 2 with the MT and MC sections never reached** — the
+model-capability-order and cost-ceiling layers, which are the newest hard gates in
+the engine, went unrun on the only platform CI uses.
+
+**Fixed** with a `_sed_inplace` helper that edits through a temp file and writes
+back with `cat >` rather than `mv`, so the target keeps its inode and mode — which
+matters, because the files being edited live in sandboxes this suite hashes. MT
+(9 cases) and MC (9 cases) pass on both hosts after it.
+
+**The audit's original sweep did not miss this; the sweep predates the code.** That
+is the lesson worth keeping: a portability sweep is not a property of the
+repository, it is a property of a moment. Anything added between Linux runs is
+unswept, and this engine currently runs on Linux only when somebody decides to.
+
+### Wall clock, re-measured
+
+| | |
+|---|---|
+| everything except `contract-integrity.test.sh` | 3060 s (51.0 min) |
+| `contract-integrity.test.sh`, full pass | 1089 s (18.2 min) |
+| **the whole of `ci-verify.sh`** | **4149 s (69.2 min)** |
+
+Two suites are 77% of it: `guard-sealed-worktree.test.sh` at 2114 s and
+contract-integrity at 1089 s, both mutation harnesses that run another whole suite
+per mutant. Measured on a heavily contended host (load average 9 to 58 on ten
+cores), so these are upper bounds. `timeout-minutes` is 45 no longer; see the
+arithmetic in the workflow itself.
+
+Worth recording beside it: contract-integrity's full pass is **18.2 min on Linux
+against 49.6 min on macOS** — the macOS figure from the hosting repository's
+integrity-suite cost measurement of 2026-09-04, named rather than linked for the
+reason above. The suite is spawn-bound, and Linux spawns processes faster. **A
+cost measured on the dev Mac is not the cost CI pays**, in either direction.
+
+### Suites red on Linux, and which of them are red on macOS too
+
+Checked one at a time against the same clone, because "Linux broke it" is a claim:
+
+| suite | Linux | macOS | so it is |
+|---|---|---|---|
+| `guard-worktree-isolation.test.sh` | red | red | a defect, not a divergence |
+| `provision-claude-md.test.sh` | red | red | a defect, not a divergence |
+| `reconcile-terminal-worktrees.test.sh` | red | red | a defect, not a divergence |
+| `install-reconciler-schedule.test.sh` | red | **green** | a divergence |
+
+The divergence is honest redness rather than a trip-wire: cases S17-S20 shim
+`launchctl` and assert launchd behavior on a host with no launchd. Section 7 of
+that file already carries a `uname -s` gate for its live-installation cases; those
+four do not. What they should assert off Darwin is a question about what
+`install.sh` ought to DO there, and is left for whoever owns the reconciler
+schedule rather than guessed at.
+
+### And one flake, distinguished from the defects
+
+`CL1.claim-gate-suite-passes` failed in one Linux pass and passed in the next,
+while `guard-unresolved-claims.test.sh` passes standalone in 3 s. That is the
+load-related flake the cost measurement already documents, not a Linux defect.
+`IN2.inflight-notify-mutations` failed in both passes and is **not** dismissed as
+one.
 
 ## What CI cannot cover, named rather than skipped
 

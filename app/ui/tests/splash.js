@@ -1732,10 +1732,45 @@ async function main() {
       //
       // So the identity claim is made about the elements that do not move, which is where
       // the theme would show if the clamp ever failed — the mat, the mark, the rule, the
-      // tagline, the ground, the track and the strap's edge. The moving fill is held to
-      // something stronger instead: its AA floors are asserted in BOTH themes below, not in
-      // one, so a theme that changed it would fail on the ratio rather than on the pixel.
-      const MOVING = ["barFill"];
+      // tagline, the ground and the track. The moving parts are held to something stronger
+      // instead: their AA floors are asserted in BOTH themes below, not in one, so a theme
+      // that changed one of them would fail on the ratio rather than on the pixel.
+      //
+      // `barEdge` JOINED THIS LIST ON 2026-09-04, AND THE PARAGRAPH ABOVE IS WHY. It was
+      // classified as a still element and it is not one. `barFilled` and `barEmpty` are
+      // deliberately offset away from the fill's leading edge — `p - 0.18` and `p + 0.12`,
+      // written that way a few lines up for exactly this reason — while `barEdgeTop` is a
+      // fixed band from 30% to 70% of the bar's width, which at mid-load is the band the
+      // leading edge is INSIDE. So it was the one sample in the list that the moving fill
+      // sweeps through, compared pixel-for-pixel across two separate launches.
+      //
+      // Measured rather than argued, five runs of this suite on 2026-09-04 with `splash.js`,
+      // `splash.css`, `splash-library.js` and this file byte-identical throughout:
+      //
+      //     PASS  PASS  PASS
+      //     FAIL  barEdge #60708e dark vs #657188 light
+      //     FAIL  barEdge #60708e dark vs #64708a light
+      //
+      // The dark reading is the SAME BYTE on both failures and the light reading is not the
+      // same as itself — which is the signature of a moving sample and the opposite of a
+      // theme leak, where both sides would be stable and different. Two failures in five, on
+      // a loaded machine; a CI runner is a shared VM, so `ui-suite-ci` would have been red
+      // roughly half the time it ran, over a difference that is scheduler jitter.
+      //
+      // NOTHING ABOUT THE CONTRAST FLOOR CHANGES. The strap's edge is still asserted at
+      // 3:1 against the ground, in BOTH themes, in the `pairs` loop below — which is the
+      // substitute this paragraph names for a moving element, and it is the assertion that
+      // would actually catch a clamp failure on it. Eight still samples continue to carry
+      // the pixel-identity claim.
+      //
+      // WHAT IT COSTS, stated rather than glossed: `pairs` adds the edge only for a bar that
+      // HAS one, so #1 — `outline: none` — now carries no assertion on that sample at all,
+      // where before it carried the identity one. That is a real loss and it is taken
+      // knowingly, because the geometry above is variant-independent: the band is 30%-70%
+      // of the bar either way, so #1's reading is the same moving mixture #2's is, and an
+      // assertion that cannot fail for the right reason is not coverage. Neither observed
+      // failure was #1.
+      const MOVING = ["barFill", "barEdge"];
       const still = Object.keys(perTheme.dark).filter((k) => MOVING.indexOf(k) < 0);
       for (const k of still) {
         const d = perTheme.dark[k];

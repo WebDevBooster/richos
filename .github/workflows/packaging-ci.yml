@@ -30,32 +30,113 @@ name: packaging-ci
 # credential rules, and every branch of the bundle verification — fired against a
 # real ad-hoc signature made by the runner's own codesign.
 #
-# It also cannot build a bundle: package-app.sh refuses on the placeholder app
-# icons that are still in the tree (CEO item 2.6, the artwork). That is a fact
-# about the tree rather than about this workflow, and when the artwork lands
-# nothing here needs to change.
+# It also cannot build a bundle. `package-app.sh` checks the app icons before it
+# builds, and that gate is now GREEN — `app/scripts/lib/app_icons.py verify` passes
+# against the real `icon.icns`/`icon.ico` in the tree, so the sentence that used to
+# stand here (a refusal on placeholder artwork) described a tree that no longer
+# exists and has been removed rather than left to mislead. What still stops a
+# bundle is that a runner cannot sign one.
+#
+# =========================================================================================
+# THIS WORKFLOW IS DELIBERATELY NOT ENABLED, AND THE REASON IS NOT BILLING
+# =========================================================================================
+#
+# All five workflows in this directory were switched off on 2026-09-01 over a billing
+# block, and `README.md` beside this file says they were "never broken" and that going
+# public re-enables them unchanged. **For the other four that is true. For this one it is
+# not**, and finding that out on the first public run is exactly the outcome the flip
+# cannot afford.
+#
+# MEASURED 2026-09-04, not inferred: `bash app/scripts/run-tests.sh` was run inside a real
+# clone of this tree with no private sibling, under a throwaway `$HOME` and a `CARGO_HOME`
+# holding what the `macos-latest` image holds (Rust, clippy, rustfmt — and no Tauri CLI).
+# Result: **3 of 7 suites failed.** Transcript:
+# `docs/verification/workflows-on-a-clone-2026-09-04/raw/packaging.txt`.
+#
+#   1. `gui-boot.test.sh`, ON A RUNNER — structural, and unfixable from this file. It builds
+#      a machine to boot on, and that machine needs the loro compiler.
+#      `lib/gui-launch.sh::gui_compiler_source` looks in exactly three places, all of them
+#      facts about an operator's workstation: `$RICHOS_LORO_SOURCE`, `~/Library/Application
+#      Support/RichOS/loro-tools`, and the target of the corpus pointer. The compiler itself
+#      (`bin/loro-context.mjs`, `bin/loro-write.mjs`) is not tracked in this repository at
+#      all — it lives in the PRIVATE record repository. A GitHub runner cannot have it, so
+#      the suite exits 2 ("a fact about THIS MACHINE, not a verdict about the code") and
+#      `run-tests.sh`, which has no notion of a host that cannot answer, records it as a
+#      failed suite.
+#   2. `updater-setup.test.sh` — exits 3 at `cargo tauri signer generate`. The runner image
+#      ships no `cargo-tauri`.
+#   3. `package-app.test.sh` case B2 — same cause: `package-app.sh` exits 3 on the missing
+#      Tauri CLI before it can reach the refusal the case is about.
+#
+# A FOURTH WAS FOUND HERE AND IS ALREADY FIXED, and it is recorded because the fix is the
+# best argument in this file for why the suite is worth re-enabling one day.
+#
+# `gui-boot.test.sh` case B2 was RED on `fc56c20`, on the machine that has everything: 17
+# passed, B2 failed, 154 s
+# (`docs/verification/workflows-on-a-clone-2026-09-04/raw/gui-boot-real-home.txt`). It had
+# been called environmental twice that day. It was not. B2 asserts that every `[richos]` line
+# a Finder-condition boot prints is a proof that something resolved, a routine fact, or a
+# DECLARED gap — and its header states the design plainly: a new resolver that cannot find
+# its configuration prints a sentence, that sentence matches no rule, and the check goes red
+# without anyone having remembered to extend it. Drift makes the unaccounted list LONGER.
+#
+# Which is exactly what happened. The entity-registry land added seven boot lines in
+# `app/src-tauri/src/main.rs` — the company registry's absence, its count, a saved company
+# that no longer resolves, an unresolved entity root, the operator hint, and the first-run
+# summary. Not one existed at `07ed1d4`; none had an accounting rule. **The check was
+# working; the rule set was behind the product.** It was left with the author of those lines
+# rather than guessed at here, because classifying a line means saying what it MEANS, and a
+# wrong classification is how a check silently stops checking.
+#
+# RE-CHECKED AT `3de8e1f`, against the artifact rather than against the report: **all 20
+# passed, exit 0, 62 s.** The accounting is level with the boot log again.
+#
+# WHY DISABLED RATHER THAN PATCHED, argued rather than assumed. (2) and (3) are one fix —
+# install a pinned Tauri CLI in a step here. (1) is not fixable from this file at all: no
+# public runner can ever hold that compiler. Making this workflow green would mean teaching
+# `run-tests.sh` a host-cannot-answer allowance it does not have, on flip day, with no
+# runner available to prove it — and a green tick over a runner that quietly stopped running
+# a suite is the precise defect this repository has paid for five times. A red cross on an
+# announced repository is worse than no cross; a green one that means less than it says is
+# worse than both.
+#
+# WHAT WOULD RE-ENABLE IT, so this is a state with an exit and not a shrug:
+#   * the loro compiler reachable from a public checkout (vendored here, or published), or
+#     a public stand-in `gui-boot.test.sh` accepts and still holds its boot log to account;
+#     AND
+#   * a pinned `cargo install tauri-cli` step, and a timeout raised to cover it plus the
+#     cold `src-tauri` build `gui-boot.test.sh` makes (`timeout-minutes: 15` was already
+#     thin against a build the ui-suite workflow measures at roughly a quarter of an hour,
+#     and `package-app.sh` now exports `RUSTFLAGS` with three `--remap-path-prefix` rules,
+#     which is part of cargo's fingerprint and therefore a full recompile the first time).
+#
+# WHAT ALREADY WORKS, recorded so whoever re-enables it is not starting from nothing: the
+# other four suites — `frontend-payload` (8), `make-engine-asset` (12), `rebuild-survival`,
+# and `signing-setup` (28, including its "this suite touched nothing of the operator's"
+# case) — all passed in that clone, on the runner's toolchain, with zero code signing
+# identities present.
+#
+# The mechanism of the disabling is the trigger list below: no `push`, no `pull_request`,
+# so nothing here can put a cross on a commit. `workflow_dispatch` stays so the gate can be
+# demanded on a named SHA the day the blocker clears — until then, DO NOT include this file
+# in the post-flip "dispatch all five" step; it will be red, for the reasons above, and the
+# redness will say nothing about the code.
 
 on:
-  push:
-    paths:
-      - "app/scripts/**"
-      - "app/src-tauri/Entitlements.plist"
-      - "app/src-tauri/Info.plist"
-      - ".github/workflows/packaging-ci.yml"
-  pull_request:
-    paths:
-      - "app/scripts/**"
-      - "app/src-tauri/Entitlements.plist"
-      - "app/src-tauri/Info.plist"
-      - ".github/workflows/packaging-ci.yml"
+  # Deliberately no `push` and no `pull_request` — see the section above. The paths that
+  # SHOULD trigger this, once it can pass, are `app/scripts/**`,
+  # `app/src-tauri/Entitlements.plist`, `app/src-tauri/Info.plist` and this file.
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   packaging:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: what this runner has
         run: |
           sw_vers

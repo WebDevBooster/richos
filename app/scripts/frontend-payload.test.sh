@@ -156,7 +156,14 @@ if [ -d "$DIST_ABS" ]; then
   fi
 else
   echo "  ....  P9/P10 no staged tree at $DIST_ABS — nothing has been built on this machine yet."
-  echo "        Not counted as a pass. Run: cargo build --release --manifest-path app/src-tauri/Cargo.toml"
+  # THE COMMAND THIS LINE USED TO NAME BUILT A DIFFERENT PROGRAM. `cargo build --release`
+  # was correct here until `custom-protocol` became a default feature of richos-tauri on
+  # 2026-09-04: `tauri::generate_context!()` expands into one of two programs depending on
+  # that feature, and without it the binary is the DEVELOPMENT-context one that reads the
+  # frontend off disk. So the staged tree it produced was not the staged tree the shipped
+  # app carries, and a reader following this line would have checked the wrong artifact.
+  echo "        Not counted as a pass. Run the packaging path — app/scripts/package-app.sh"
+  echo "        (or 'cargo tauri build' from app/src-tauri), not a plain 'cargo build'."
 fi
 
 echo ""

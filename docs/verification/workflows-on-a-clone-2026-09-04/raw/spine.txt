@@ -1,0 +1,941 @@
+=== app-spine-ci steps, sibling-free clone of fc56c20, HOME=/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/home ===
+--- Toolchain
+rustc 1.95.0 (59807616e 2026-04-14)
+cargo 1.95.0 (f2d3ce0bd 2026-03-21)
+--- cargo test --locked -p richos-core
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling libc v0.2.189
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling getrandom v0.4.3
+   Compiling zmij v1.0.23
+   Compiling cfg-if v1.0.4
+   Compiling serde_json v1.0.151
+   Compiling thiserror v1.0.69
+   Compiling serde v1.0.229
+   Compiling generic-array v0.14.7
+   Compiling richos-core v0.1.0 (/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/clone2/richos/app/crates/richos-core)
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling syn v2.0.119
+   Compiling syn v3.0.4
+   Compiling cpufeatures v0.2.17
+   Compiling uuid v1.26.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v1.0.69
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.19s
+     Running unittests src/lib.rs (target/debug/deps/richos_core-f3641f3814acf25f)
+
+running 406 tests
+test belief::tests::a_bare_thats_wrong_is_a_known_recall_hole ... ok
+test belief::tests::a_mishearing_is_the_other_desks_and_is_refused_by_name ... ok
+test belief::tests::a_ref_the_writer_cannot_address_is_never_proposed_against ... ok
+test belief::tests::a_number_keeps_the_whole_value_and_not_its_last_word ... ok
+test belief::tests::a_weekday_swap_is_the_vocabularys_change_of_mind_and_this_desks_correction ... ok
+test belief::tests::a_record_that_already_states_both_is_not_corrected ... ok
+test belief::tests::a_belief_correction_resolves_to_its_record_and_composes_nothing ... ok
+test belief::tests::a_pivot_first_belief_correction_states_its_value_in_a_sentence ... ok
+test belief::tests::an_ambiguous_reference_is_dropped_and_never_resolved_by_a_tiebreak ... ok
+test belief::tests::with_no_memory_in_front_of_rich_there_is_nothing_to_correct ... ok
+test belief::tests::the_two_sides_must_be_the_same_kind_of_value ... ok
+test belief::tests::a_nominal_pair_is_aligned_from_the_end_nearest_the_pivot ... ok
+test belief::tests::sharing_a_value_is_not_being_about_the_record ... ok
+test belief::tests::a_question_a_hedge_and_a_report_are_not_assertions ... ok
+test belief::tests::the_one_measured_miss_misses_safely_and_its_mirror_image_is_found ... ok
+test belief::tests::the_new_id_is_deterministic_and_distinct_per_correction ... ok
+test config::tests::a_fresh_install_opens_dark_and_at_100_percent ... ok
+test config::tests::a_config_file_written_before_the_company_choice_existed_still_loads ... ok
+test config::tests::a_config_written_before_techy_mode_existed_still_opens ... ok
+test config::tests::a_corrupt_config_file_keeps_the_stored_output_rather_than_evicting_on_a_guess ... ok
+test config::tests::a_chosen_company_survives_the_next_boot ... ok
+test config::tests::a_scale_off_the_ladder_is_snapped_not_reset ... ok
+test belief::tests::nothing_in_this_module_can_write_anything ... ok
+test config::tests::a_hand_written_window_is_reported_as_itself_and_never_rounded_to_a_button ... ok
+test config::tests::a_config_written_before_theming_existed_reads_as_dark ... ok
+test config::tests::assertiveness_wire_strings_match_the_ui_radio_values ... ok
+test config::tests::a_company_nobody_has_an_opinion_about_shows_on_the_home_screen ... ok
+test config::tests::a_stored_scale_is_always_one_the_control_can_step_from ... ok
+test config::tests::a_label_is_a_mask_and_never_a_rename ... ok
+test config::tests::a_reversed_disable_is_not_reported_as_a_disable ... ok
+test config::tests::an_unreadable_window_keeps_data_and_leaves_every_other_preference_alone ... ok
+test config::tests::blank_company_name_clears_to_fallback ... ok
+test config::tests::company_name_unset_falls_back_honestly ... ok
+test config::tests::an_install_that_has_never_set_the_window_gets_yesterdays_behaviour ... ok
+test config::tests::default_assertiveness_is_quiet ... ok
+test config::tests::every_theme_string_round_trips_through_the_wire_form ... ok
+test config::tests::a_pinned_thread_keeps_its_answer_when_the_global_default_moves_under_it ... ok
+test config::tests::initials_survive_a_name_that_is_not_ascii ... ok
+test config::tests::initials_are_first_and_last_and_never_invented ... ok
+test config::tests::corrupt_config_file_degrades_to_defaults_not_a_boot_failure ... ok
+test config::tests::a_hand_edited_company_value_costs_the_choice_and_nothing_else ... ok
+test config::tests::clearing_the_choice_returns_the_store_to_the_state_that_asks ... ok
+test config::tests::clearing_an_override_hands_the_thread_back_to_the_default ... ok
+test config::tests::techy_mode_is_off_on_a_fresh_install_and_says_it_follows_the_default ... ok
+test config::tests::company_name_and_assertiveness_survive_restart ... ok
+test config::tests::setting_the_switch_to_what_it_already_is_never_moves_the_clock ... ok
+test config::tests::every_answer_to_7_2_is_a_value_the_store_can_hold_and_forever_is_one_of_them ... ok
+test config::tests::pinning_a_thread_to_the_same_value_as_the_default_is_still_a_pin ... ok
+test config::tests::an_unlabelled_company_reads_as_no_override_and_never_as_a_blank ... ok
+test config::tests::the_global_switch_reaches_every_thread_that_has_not_been_pinned ... ok
+test config::tests::switching_the_splash_off_survives_restart_and_stamps_when ... ok
+test config::tests::the_splash_is_on_by_default_and_an_absent_key_is_not_an_opinion ... ok
+test config::tests::the_first_showing_is_recorded_once_and_only_once ... ok
+test config::tests::techy_settings_survive_restart ... ok
+test config::tests::the_font_scale_survives_a_reopen_on_its_own ... ok
+test config::tests::the_theme_survives_a_reopen_on_its_own ... ok
+test config::tests::the_person_is_unset_until_someone_sets_them ... ok
+test config::tests::the_person_survives_a_reopen_and_is_separate_from_the_company ... ok
+test correction::tests::confirm_is_the_only_desk_method_that_reaches_a_write ... ok
+test correction::tests::a_proposal_with_no_stated_reason_is_refused_before_a_process_is_started ... ok
+test config::tests::the_three_menu_entries_round_trip_and_custom_is_never_written_by_one ... ok
+test config::tests::the_label_and_the_visibility_are_independent_and_both_survive_a_reopen ... ok
+test correction::tests::the_write_path_reads_no_configuration_from_the_environment ... ok
+test correction::tests::scope_widening_is_not_reachable_from_this_module ... ok
+test correction::tests::a_crash_between_the_ask_and_the_answer_keeps_the_proposal_and_writes_nothing ... ok
+test correction::tests::a_decline_writes_nothing_and_is_still_offered_again ... ok
+test entity::tests::an_absent_file_is_an_empty_registry_and_not_an_error ... ok
+test correction::tests::proposing_shows_the_writers_own_dry_run_and_touches_nothing ... ok
+test entity::tests::display_names_are_derived_dumbly_and_never_from_a_table ... ok
+test entity::tests::entity_id_rejects_everything_that_could_escape_a_path_component ... ok
+test correction::tests::a_confirmation_from_another_entity_is_refused_and_writes_nothing ... ok
+test correction::tests::a_permanent_decline_suppresses_the_ref_and_the_suppression_is_inspectable_and_liftable ... ok
+test entity::tests::ids_that_already_own_threads_are_restored_without_inventing_a_root ... ok
+test entity::tests::one_entity_may_own_two_roots_and_that_is_not_ambiguity ... ok
+test correction::tests::showing_a_record_needs_no_proposal_because_reading_is_not_correcting ... ok
+test entity::tests::registering_refuses_a_relative_root_instead_of_storing_a_dead_entry ... ok
+test correction::tests::a_writer_refusal_is_recorded_rather_than_swallowed ... ok
+test entity::tests::registering_refuses_an_empty_display_name ... ok
+test entity::tests::an_unreadable_file_is_not_the_same_state_as_no_file ... ok
+test correction::tests::nothing_is_written_until_the_ceo_says_yes_and_then_exactly_once ... ok
+test entity::tests::registering_refuses_an_overlap_in_either_direction ... ok
+test entity::tests::registry_rejects_duplicate_ids ... ok
+test entity::tests::root_resolution_is_by_component_not_string_prefix ... ok
+test entity::tests::the_shipping_default_registry_is_empty_and_belongs_to_nobody ... ok
+test entity::tests::thread_binding_exposes_the_scope_key_and_has_no_mutator ... ok
+test entity::tests::unknown_and_ambiguous_roots_fail_closed_and_never_default ... ok
+test feedback::tests::a_good_rating_cannot_carry_a_report ... ok
+test feedback::tests::a_payload_claiming_another_vocabulary_version_does_not_parse ... ok
+test entity::tests::a_saved_registry_round_trips_byte_for_byte_in_meaning ... ok
+test feedback::tests::a_field_the_vocabulary_does_not_define_is_refused_rather_than_ignored ... ok
+test feedback::tests::a_report_cannot_be_attached_to_a_rating_that_never_invited_one ... ok
+test feedback::tests::a_report_that_disagrees_with_the_rating_the_user_gave_is_refused ... ok
+test entity::tests::the_example_in_the_docs_parses_and_is_what_the_docs_say_it_is ... ok
+test feedback::tests::a_report_with_no_diagnosis_is_refused ... ok
+test feedback::tests::an_empty_condition_list_is_omitted_rather_than_shown_as_an_empty_key ... ok
+test feedback::tests::an_entry_written_before_the_offer_existed_still_reads_back ... ok
+test feedback::tests::declining_records_the_no_and_keeps_nothing_about_the_report ... ok
+test feedback::tests::negative_control_without_a_single_proper_noun_is_disqualified_just_as_hard ... ok
+test feedback::tests::no_term_in_the_vocabulary_names_anybody ... ok
+test feedback::tests::an_approval_is_recorded_locally_and_reads_back_as_what_was_shown ... ok
+test feedback::tests::every_terms_wire_name_is_the_one_serde_actually_writes ... ok
+test feedback::tests::positive_control_the_reference_cases_target_payload_is_expressible ... ok
+test feedback::tests::an_unwritten_store_reads_as_empty_rather_than_failing ... ok
+test feedback::tests::negative_control_with_proper_nouns_is_disqualified ... ok
+test feedback::tests::only_one_and_two_invite_the_report_offer ... ok
+test feedback::tests::the_four_keys_are_the_four_the_prompt_offers_and_nothing_else ... ok
+test feedback::tests::the_heading_tells_the_user_the_truth_about_this_version ... ok
+test feedback::tests::the_prompt_text_is_the_ceos_wording_and_the_keys_agree_with_it ... ok
+test feedback::tests::a_rating_survives_a_restart_because_it_is_read_back_off_disk ... ok
+test feedback::tests::the_reference_case_target_payload_renders_exactly_this ... ok
+test feedback::tests::the_same_terms_in_any_order_produce_the_same_payload ... ok
+test feedback::tests::a_torn_line_costs_that_line_and_not_the_history ... ok
+test feedback::tests::the_reference_payload_round_trips_through_its_own_door ... ok
+test feedback::tests::the_vocabulary_is_pinned_so_a_change_to_it_cannot_be_made_quietly ... ok
+test feedback::tests::what_the_user_sees_is_derived_from_the_payload_and_nothing_else ... ok
+test heard::tests::a_future_stamped_entry_is_out_of_the_window ... ok
+test feedback::tests::recording_produces_exactly_one_file_and_no_second_thing_beside_it ... ok
+test heard::tests::a_casing_or_punctuation_edit_is_explained_rather_than_swallowed ... ok
+test entity::tests::every_way_a_file_can_be_wrong_yields_an_empty_registry_and_says_so ... ok
+test heard::tests::a_change_of_mind_stays_silent ... ok
+test heard::tests::a_missing_journal_is_empty_not_an_error ... ok
+test heard::tests::a_trim_that_collides_with_the_full_stop_is_refused_by_condition_3 ... ok
+test heard::tests::the_diff_is_taken_against_what_was_pasted ... ok
+test heard::tests::a_typo_fix_on_a_grammar_word_is_refused_by_name ... ok
+test heard::tests::a_trim_and_an_afterthought_are_not_substitutions ... ok
+test heard::tests::every_ask_carries_the_silent_edit_frame_and_the_heard_sentence ... ok
+test heard::tests::the_learned_pair_is_the_whole_name_and_the_judged_pair_is_the_delta ... ok
+test heard::tests::an_unrelated_typed_message_matches_nothing ... ok
+test heard::tests::the_heard_side_is_always_the_rejected_side ... ok
+test heard::tests::the_window_and_the_reconciled_flag_are_both_honoured ... ok
+test journal::tests::a_thread_with_no_machinery_reads_back_empty_and_never_panics ... ok
+test journal::tests::a_directory_the_os_refuses_is_unreadable_and_is_never_reported_as_empty ... ok
+test journal::tests::a_raw_shard_inside_the_window_is_not_evicted ... ok
+test journal::tests::a_thread_from_before_the_routing_commit_is_nothing_recorded_not_not_retained ... ok
+test journal::tests::an_install_that_has_never_retained_anything_says_so_and_does_not_say_empty ... ok
+test journal::tests::an_unreadable_window_keeps_data_and_never_becomes_a_number_that_deletes ... ok
+test journal::tests::an_empty_shard_file_is_nothing_recorded_not_recorded_with_zero_rows ... ok
+test journal::tests::day_shard_matches_utc_calendar_dates ... ok
+test journal::tests::day_shard_names_sort_chronologically_as_strings ... ok
+test journal::tests::a_record_survives_a_write_read_round_trip ... ok
+test journal::tests::a_torn_line_is_skipped_not_fatal ... ok
+test journal::tests::a_thread_whose_only_machinery_is_reprime_traffic_reports_nothing_recorded ... ok
+test journal::tests::a_torn_line_is_skipped_not_reported_as_an_unreadable_store ... ok
+test journal::tests::appending_a_tool_call_lifecycle_projects_to_one_row ... ok
+test journal::tests::deleting_a_thread_deletes_its_machinery ... ok
+test journal::tests::a_window_too_large_to_multiply_keeps_everything_instead_of_wrapping_to_delete_everything ... ok
+test journal::tests::evicting_a_raw_shard_keeps_the_record_and_only_drops_the_payload ... ok
+test journal::tests::records_span_day_shards_and_read_back_in_order ... ok
+test journal::tests::the_raw_pane_can_tell_retained_from_evicted_without_knowing_the_window ... ok
+test journal::tests::one_thread_is_one_directory_and_threads_never_bleed_into_each_other ... ok
+test journal::tests::the_window_round_trips_through_json_in_both_shapes ... ok
+test journal::tests::the_byte_ceiling_binds_before_the_age_window_when_it_is_smaller ... ok
+test journal::tests::the_projection_excludes_internal_records ... ok
+test journal::tests::the_shard_is_a_pair_of_files_and_tier_a_omits_the_payload ... ok
+test launch::tests::a_fresh_install_with_no_file_is_start_one ... ok
+test launch::tests::a_live_prior_run_makes_this_a_second_window_not_a_crash_restart ... ok
+test launch::tests::a_record_from_a_future_version_is_never_read_as_a_brand_new_user ... ok
+test launch::tests::a_quit_and_a_relaunch_is_a_second_start ... ok
+test launch::tests::a_record_with_no_version_at_all_is_not_ours_and_is_left_alone ... ok
+test launch::tests::a_record_written_by_this_build_reads_back_as_readable ... ok
+test launch::tests::a_reward_fires_once ... ok
+test journal::tests::forever_evicts_nothing_on_either_axis_including_a_journal_over_the_old_ceiling ... ok
+test journal::tests::zero_days_is_an_honoured_instruction_and_keeps_today ... ok
+test launch::tests::a_crash_restart_takes_the_marker_so_a_second_crash_is_still_a_crash ... ok
+test launch::tests::a_window_asked_for_before_the_run_began_is_a_second_window ... ok
+test launch::tests::an_empty_log_is_all_zeroes_and_that_is_the_only_honest_zero ... ok
+test launch::tests::an_evening_launch_in_california_is_bucketed_on_the_day_he_lived_it ... ok
+test launch::tests::new_years_eve_in_california_belongs_to_the_year_he_spent_it_in ... ok
+test launch::tests::before_begin_run_nobody_can_say ... ok
+test launch::tests::nineteen_seventy_january_first_was_a_thursday ... ok
+test launch::tests::an_unreadable_record_refuses_to_name_an_ordinal ... ok
+test launch::tests::a_run_that_never_said_goodbye_comes_back_as_a_crash_restart_and_is_not_counted ... ok
+test launch::tests::an_unreadable_record_still_classifies_the_launch ... ok
+test launch::tests::the_dst_error_is_bounded_by_one_hour_and_only_at_a_boundary ... ok
+test launch::tests::only_the_first_window_of_a_run_inherits_the_runs_kind ... ok
+test launch::tests::rewards_survive_a_relaunch ... ok
+test launch::tests::the_four_buckets_nest ... ok
+test launch::tests::only_a_start_has_an_ordinal ... ok
+test launch::tests::the_first_launch_of_a_new_install_is_fresh_and_is_counted ... ok
+test launch::tests::the_open_marker_is_what_a_crash_would_leave ... ok
+test launch::tests::the_install_date_is_written_once_and_never_moves ... ok
+test launch::tests::the_record_leaves_no_second_file_behind ... ok
+test launch::tests::the_ring_keeps_repeats_because_a_repeat_is_the_fact_worth_seeing ... ok
+test launch::tests::the_week_bucket_runs_from_monday_and_says_so ... ok
+test launch::tests::the_wire_strings_are_the_ones_the_web_layer_matches ... ok
+test launch::tests::the_first_three_starts_are_one_two_three ... ok
+test launch::tests::the_ring_survives_a_relaunch ... ok
+test ledger::tests::a_legacy_assistant_delta_line_still_replays_and_carries_no_position ... ok
+test ledger::tests::a_gap_in_the_shared_sequence_splits_the_run ... ok
+test ledger::tests::a_positioned_delta_never_merges_with_an_unpositioned_one ... ok
+test launch::tests::there_is_no_stored_counter_anywhere_in_the_record ... ok
+test ledger::tests::consecutive_deltas_fold_into_one_run ... ok
+test ledger::tests::a_turns_active_span_is_measured_and_refuses_to_be_invented ... ok
+test ledger::tests::legacy_deltas_with_no_seq_stay_one_run_with_an_unknown_position ... ok
+test live::tests::a_run_opens_once_and_closes_once_at_the_ledgers_own_boundary ... ok
+test live::tests::a_silent_proactive_message_is_constructed_and_then_refused ... ok
+test launch::tests::the_ring_keeps_the_last_five_most_recent_first_and_no_more ... ok
+test live::tests::an_unmeasured_duration_is_null_and_never_zero ... ok
+test live::tests::every_payload_carries_the_whole_fence ... ok
+test live::tests::streamed_prose_is_never_labelled_final ... ok
+test live::tests::an_internal_turns_messages_are_built_internal_and_stop_at_the_gate ... ok
+test live::tests::the_unknown_phase_is_on_the_wire_explicitly_not_omitted ... ok
+test live::tests::the_gate_refuses_everything_that_is_not_ceo_facing ... ok
+test launch::tests::the_window_counter_never_survives_its_own_process ... ok
+test journal::tests::the_shipping_default_is_exactly_the_two_constants_it_replaced ... ok
+test loro::locate_tests::a_node_on_path_is_returned_as_an_absolute_path ... ok
+test loro::locate_tests::a_corpus_with_no_compiler_is_a_named_state_and_not_a_shrug ... ok
+test loro::locate_tests::a_directory_with_the_right_name_and_the_wrong_shape_is_refused ... ok
+test loro::locate_tests::a_root_with_no_usable_tools_is_an_error_naming_the_root ... ok
+test loro::locate_tests::a_provisioned_corpus_pointer_resolves_to_the_corpus_flag ... ok
+test loro::locate_tests::an_explicit_node_is_taken_verbatim ... ok
+test loro::locate_tests::loro_corpus_outranks_loro_root_which_is_the_contracts_own_precedence ... ok
+test loro::locate_tests::a_resolved_root_carries_its_own_loro_directory_as_the_tools ... ok
+test loro::locate_tests::node_falls_through_launchd_path_to_the_homebrew_prefix_or_names_itself ... ok
+test loro::locate_tests::a_provisioned_corpus_finds_its_compiler_in_the_loro_tools_install ... ok
+test loro::locate_tests::the_gui_launch_with_nothing_set_resolves_nothing_and_says_what_it_tried ... ok
+test loro::tests::a_lane_map_is_explicit_and_a_typo_is_refused_rather_than_dropped ... ok
+test loro::tests::a_slice_carrying_another_companys_memory_is_refused_whole ... ok
+test loro::locate_tests::the_gui_launch_finds_the_app_support_loro_root_pointer ... ok
+test loro::tests::a_refused_slice_leaves_no_provenance_at_all ... ok
+test loro::tests::a_slice_over_its_own_budget_is_refused_because_the_ceo_pays_for_this_string ... ok
+test loro::tests::a_thin_slice_with_no_text_still_says_something_honest_rather_than_falling_silent ... ok
+test loro::tests::a_slice_with_content_is_injected_verbatim ... ok
+test loro::tests::a_truncated_last_line_loses_its_line_and_never_borrows_another ... ok
+test loro::tests::an_accepted_slice_leaves_provenance_a_correction_can_resolve_against ... ok
+test loro::locate_tests::an_explicit_tools_directory_is_exclusive_and_a_bad_one_is_an_error ... ok
+test loro::locate_tests::an_explicit_root_wins_over_a_valid_pointer_and_is_never_validated ... ok
+test loro::tests::an_empty_corpus_yields_loros_own_honest_line_and_never_a_fabricated_slice ... ok
+test loro::tests::an_empty_topic_is_refused_before_a_process_is_ever_started ... ok
+test loro::tests::an_unmapped_entity_refuses_every_company_item_rather_than_accepting_all_of_them ... ok
+test loro::locate_tests::the_roots_own_loro_outranks_the_application_support_install ... ok
+test loro::tests::an_unsupported_schema_version_degrades_rather_than_mis_parsing ... ok
+test loro::tests::only_the_refs_the_writer_can_address_are_supersedable ... ok
+test loro::tests::the_compilers_argv_names_the_read_entry_point_and_carries_no_write_verb ... ok
+test loro::tests::the_ceo_layer_is_always_readable_because_ecs_says_it_is_in_the_default_read_set ... ok
+test loro::tests::unknown_fields_are_ignored_so_a_ranking_change_does_not_break_this_consumer ... ok
+test loro::tests::unparseable_stdout_never_fails_the_turn ... ok
+test machinery::tests::a_mixed_assistant_frame_keeps_arrival_order_between_turns ... ok
+test machinery::tests::a_derived_context_usage_record_yields_the_measured_used_and_size_pair ... ok
+test machinery::tests::a_tool_result_for_an_unseen_id_opens_a_record ... ok
+test machinery::tests::a_tool_progress_heartbeat_keys_on_parent_tool_use_id_and_never_on_its_own ... ok
+test machinery::tests::a_record_round_trips_through_json_in_camel_case ... ok
+test machinery::tests::a_status_less_frame_does_not_erase_a_status_already_seen ... ok
+test machinery::tests::a_tool_result_content_array_is_read_as_well_as_a_bare_string ... ok
+test machinery::tests::a_user_text_block_is_dropped_between_turns_too ... ok
+test machinery::tests::a_zero_window_is_refused_rather_than_divided_by ... ok
+test machinery::tests::a_user_text_block_is_still_the_one_deliberate_drop ... ok
+test machinery::tests::a_truncated_payload_reports_no_measurement ... ok
+test machinery::tests::an_evicted_payload_reports_no_measurement_rather_than_a_stale_one ... ok
+test loro::tests::tools_must_hold_both_entry_points_or_they_are_not_a_loro_checkout ... ok
+test machinery::tests::an_extra_vendor_field_on_the_usage_object_still_yields_the_measurement ... ok
+test machinery::tests::client_fs_calls_route_with_their_path ... ok
+test machinery::tests::between_turn_text_is_retained_as_machinery_and_never_as_a_chunk ... ok
+test machinery::tests::an_open_tool_call_carries_the_tool_name_and_no_arguments ... ok
+test machinery::tests::an_unrecognised_wire_status_is_retained_not_dropped ... ok
+test machinery::tests::locations_are_recovered_from_the_tools_own_input ... ok
+test machinery::tests::only_a_context_usage_record_is_a_measurement ... ok
+test machinery::tests::half_a_measurement_is_no_measurement ... ok
+test machinery::tests::failed_is_carried_through_and_is_terminal ... ok
+test machinery::tests::one_frame_can_be_several_records_and_they_number_consecutively ... ok
+test machinery::tests::merge_keeps_the_arguments_and_the_outcome_and_never_blanks_a_status ... ok
+test machinery::tests::summary_takes_the_first_non_empty_line_capped_at_84_chars ... ok
+test machinery::tests::summary_truncation_is_char_boundary_safe ... ok
+test machinery::tests::the_meta_identity_key_ignores_the_per_frame_uuid ... ok
+test machinery::tests::the_session_meta_family_is_the_repeating_per_turn_traffic ... ok
+test machinery::tests::permission_requests_record_the_auto_approval_as_a_fact ... ok
+test machinery::tests::ordering_is_by_turn_then_seq_never_by_the_clock ... ok
+test machinery::tests::the_clean_output_text_path_is_not_machinery ... ok
+test machinery::tests::the_streaming_envelope_and_the_fragments_are_dropped_and_the_list_is_closed ... ok
+test machinery::tests::thinking_blocks_route_to_thought ... ok
+test machinery::tests::untyped_vendor_frames_are_retained_as_unknown_not_dropped ... ok
+test native::native_driver_tests::a_changed_session_meta_value_is_kept_because_it_is_a_different_statement ... ok
+test native::native_driver_tests::a_binary_that_is_present_but_not_executable_is_not_reported_as_missing ... ok
+test native::native_driver_tests::a_missing_working_directory_is_never_reported_as_a_missing_binary ... ok
+test native::native_driver_tests::a_missing_binary_fails_loudly_and_names_the_path ... ok
+test native::native_driver_tests::a_user_text_frame_is_still_the_one_deliberate_drop ... ok
+test native::native_driver_tests::a_permission_request_parked_between_turns_drains_as_a_permission_record ... ok
+test native::native_driver_tests::an_aborted_turn_is_reported_as_a_cancel_on_terminal_reason_not_stop_reason ... ok
+test machinery::tests::an_over_cap_payload_is_truncated_at_a_char_boundary_and_flagged ... ok
+test native::native_driver_tests::an_engine_path_that_is_a_file_says_so_rather_than_saying_it_is_absent ... ok
+test native::native_driver_tests::args_always_carry_the_permission_flag ... ok
+test native::native_driver_tests::between_turn_text_is_retained_as_machinery_and_never_as_a_chunk ... ok
+test native::native_driver_tests::the_context_numerator_sums_all_three_input_sides ... ok
+test native::native_driver_tests::suppression_survives_the_per_frame_uuid_which_verbatim_comparison_would_not ... ok
+test native::native_driver_tests::the_lane_counter_continues_across_drains_rather_than_restarting ... ok
+test native::native_driver_tests::the_last_value_slot_suppresses_an_identical_session_meta_repeat ... ok
+test native::native_driver_tests::the_permission_seam_allows_today_and_carries_the_agents_proposed_input ... ok
+test native::native_driver_tests::an_overflow_is_a_marker_record_and_never_a_silent_forget ... ok
+test native::native_driver_tests::the_permission_seam_exists_as_a_seam_and_can_answer_no ... ok
+test native::native_driver_tests::with_both_missing_the_binary_is_named_first_and_that_order_is_deliberate ... ok
+test provision::tests::a_blank_target_is_the_same_error_as_no_target ... ok
+test journal::tests::the_survival_counts_at_four_windows ... ok
+test provision::tests::a_corpus_inside_a_loro_checkout_is_refused_with_the_marker_named ... ok
+test provision::tests::a_corpus_inside_the_richos_product_repo_is_refused_by_the_marker_loros_own_detector_cannot_see ... ok
+test provision::tests::a_directory_with_somebody_elses_files_in_it_is_refused ... ok
+test launch::tests::the_civil_date_conversions_round_trip_over_four_centuries ... ok
+test provision::tests::a_relative_target_is_refused_rather_than_resolved_against_a_working_directory_of_slash ... ok
+test provision::tests::an_existing_corpus_is_left_exactly_alone ... ok
+test provision::tests::an_installed_compiler_is_not_reachable_as_a_loro_directory_above_the_corpus ... ok
+test provision::tests::an_unset_target_is_an_error_and_there_is_no_branch_that_picks_one ... ok
+test launch::tests::a_hundred_launches_stay_in_order_and_cost_a_few_kilobytes ... ok
+test provision::tests::a_fresh_provision_has_the_layout_loro_structure_specifies ... ok
+test provision::tests::a_fresh_provision_satisfies_the_apps_own_validity_test_for_a_searched_candidate ... ok
+test provision::tests::the_compiler_install_directory_is_never_named_loro_and_that_is_load_bearing ... ok
+test provision::tests::the_offered_default_is_the_path_the_refusal_itself_names ... ok
+test provision::tests::a_corpus_at_the_offered_default_is_found_with_no_pointer_at_all ... ok
+test provision::tests::the_refusal_walks_up_rather_than_only_checking_the_directory_itself ... ok
+test provision::tests::a_compiler_source_is_copied_in_and_carries_a_stamp_saying_where_it_came_from ... ok
+test spoken::tests::a_contracted_negation_is_not_a_repair_frame ... ok
+test spoken::tests::a_sentence_full_stop_is_not_part_of_the_term ... ok
+test spoken::tests::a_weekday_swap_is_a_change_of_mind_and_is_refused_by_name ... ok
+test spoken::tests::an_enumerator_swap_is_a_distinction_and_never_a_mishearing ... ok
+test spoken::tests::an_unpunctuated_correction_is_a_known_recall_hole ... ok
+test spoken::tests::each_frame_names_itself ... ok
+test spoken::tests::one_utterance_yields_one_ask_per_pair ... ok
+test spoken::tests::only_the_belief_extractor_hears_may_as_a_month ... ok
+test provision::tests::provisioning_makes_a_git_repo_with_one_commit_and_no_remote ... ok
+test spoken::tests::the_anchor_is_evidence_and_never_a_gate ... ok
+test spoken::tests::the_anchor_matches_whole_words_only ... ok
+test spoken::tests::ordinary_contrastive_prose_stays_silent ... ok
+test spoken::tests::the_asserted_width_cap_is_the_other_configured_difference ... ok
+test spoken::tests::the_phonetic_keys_are_the_ones_the_service_documents ... ok
+test spoken::tests::the_look_back_does_not_reach_across_a_pivot_or_a_full_stop ... ok
+test spoken::tests::the_phonetic_leg_catches_what_spelling_alone_misses ... ok
+test spoken::tests::the_span_under_not_is_always_the_rejected_side ... ok
+test spoken::tests::two_different_names_are_a_decision_and_one_name_twice_is_a_correction ... ok
+test staging::tests::a_candidate_that_was_never_staged_cannot_be_confirmed ... ok
+test staging::tests::a_confirm_with_no_vocabulary_fails_loudly_and_keeps_the_candidate ... ok
+test provision::tests::state_is_gitignored_because_it_is_not_the_record ... ok
+test staging::tests::a_decline_is_re_asked_on_the_very_next_repeat_and_says_so ... ok
+test staging::tests::a_permanent_decline_is_inspectable_reported_and_liftable ... ok
+test staging::tests::a_torn_last_line_is_skipped_not_fatal ... ok
+test staging::tests::a_refused_write_is_recorded_rather_than_lost ... ok
+test staging::tests::staging_never_writes_a_vocabulary ... ok
+test staging::tests::an_unanswered_candidate_survives_a_relaunch ... ok
+test staging::tests::only_confirm_writes_and_it_writes_the_pair_the_right_way_round ... ok
+test staging::tests::the_candidate_keeps_the_thread_it_was_spoken_in ... ok
+test steering::tests::a_cancel_that_reached_nothing_is_reported_as_reaching_nothing ... ok
+test steering::tests::a_stop_claim_belongs_to_one_turn_and_never_falls_through_onto_the_next ... ok
+test steering::tests::a_stop_request_is_on_disk_before_the_lease_is_ever_touched ... ok
+test steering::tests::steering_with_nothing_running_is_refused_so_it_never_becomes_a_second_send_path ... ok
+test steering::tests::stopping_nothing_is_an_answer_not_an_error ... ok
+test steering::tests::a_torn_final_line_is_skipped_and_the_rest_of_the_log_still_replays ... ok
+test steering::tests::without_a_durable_intake_a_stop_is_refused_rather_than_faked ... ok
+test timeline::tests::a_delegated_task_tool_call_with_no_joinable_identity_is_still_only_an_activity ... ok
+test timeline::tests::a_failed_turn_shows_the_ceo_a_state_and_keeps_the_reason_technical ... ok
+test timeline::tests::a_semantic_summary_never_carries_command_text ... ok
+test timeline::tests::a_silent_proactive_message_is_internal_not_merely_quiet ... ok
+test steering::tests::undrained_records_survive_a_reopen_and_drained_ones_do_not ... ok
+test timeline::tests::a_superseded_turn_is_evidence_not_a_second_rendering ... ok
+test native::native_driver_tests::a_healthy_handshake_yields_a_client_whose_session_id_is_known_immediately ... ok
+test timeline::tests::a_task_call_whose_agent_id_has_no_stream_row_stays_unjoined ... ok
+test timeline::tests::a_turns_items_carry_the_full_entity_fence ... ok
+test timeline::tests::a_worker_item_joins_by_identity_and_carries_only_witnessed_facts ... ok
+test timeline::tests::a_worker_item_never_carries_a_duration_or_an_outcome ... ok
+test timeline::tests::an_internal_turn_contributes_nothing_visible ... ok
+test timeline::tests::activity_state_never_invents_completion ... ok
+test timeline::tests::an_item_round_trips_through_json_in_the_shape_12_and_13_describe ... ok
+test timeline::tests::an_unfinished_turn_reports_no_duration_at_all ... ok
+test timeline::tests::every_ceo_turns_prose_is_phase_unknown_never_final ... ok
+test timeline::tests::an_unknown_sequence_is_null_and_never_zero ... ok
+test timeline::tests::internal_visibility_renders_in_no_mode ... ok
+test timeline::tests::prose_is_split_at_the_gap_the_shared_counter_records ... ok
+test timeline::tests::the_duration_row_reports_a_measured_span ... ok
+test timeline::tests::run_ended_maps_to_unknown_and_never_to_completed ... ok
+test timeline::tests::the_activity_type_comes_from_the_opening_events_payload ... ok
+test worker_events::tests::a_dead_host_pid_makes_an_open_run_inactive ... ok
+test worker_events::tests::a_missing_stream_file_is_empty_not_an_error ... ok
+test timeline::tests::the_identity_witness_requires_both_the_async_ack_and_an_agent_id ... ok
+test worker_events::tests::a_reopened_run_is_open_again_because_the_stream_is_a_sequence ... ok
+test worker_events::tests::a_row_with_no_host_pid_is_unknown_not_alive ... ok
+test worker_events::tests::a_row_with_no_session_id_is_not_admitted_by_a_prefix_scope ... ok
+test worker_events::tests::an_open_run_is_created_or_started_with_no_later_run_ended ... ok
+test worker_events::tests::latest_state_is_the_last_row_never_a_verdict ... ok
+test worker_events::tests::malformed_and_unattributable_lines_are_skipped_not_fatal ... ok
+test native::native_driver_tests::a_child_that_rejects_the_flag_fails_loudly_and_quotes_its_own_stderr ... ok
+test worker_events::tests::another_sessions_rows_are_not_carried_forward ... ok
+test worker_events::tests::session_scope_is_derived_from_the_team_dir_name ... ok
+test worker_events::tests::run_ended_is_never_serialized_as_a_completion ... ok
+test worker_events::tests::the_four_emitter_spellings_parse_and_nothing_else_does ... ok
+test worker_events::tests::unknown_liveness_is_never_folded_into_alive_or_dead ... ok
+test worker_events::tests::updated_does_not_open_a_run ... ok
+test worker_events::tests::the_real_probe_classifies_this_process_alive_and_a_free_pid_dead ... ok
+test worker_status::tests::a_team_dir_name_is_the_engines_session_first8_and_cannot_escape_the_teams_dir ... ok
+test worker_status::tests::a_dead_host_pid_reduces_active ... ok
+test provision::tests::the_provisioned_corpus_is_not_itself_a_product_checkout ... ok
+test worker_status::tests::active_counts_open_runs_whose_host_is_alive ... ok
+test worker_status::tests::a_previous_sessions_unclosed_created_never_inflates_this_sessions_count ... ok
+test worker_status::tests::a_run_that_ended_is_never_reported_as_done ... ok
+test worker_status::tests::completed_tasks_render_as_done_items_never_fabricated_active ... ok
+test worker_status::tests::empty_task_events_file_is_honest_zero ... ok
+test worker_status::tests::malformed_lines_are_skipped_not_fatal ... ok
+test worker_status::tests::explicit_team_dir_override_is_honored ... ok
+test worker_status::tests::no_lease_means_no_directory_and_a_named_reason ... ok
+test worker_status::tests::explicit_team_dir_override_missing_reports_nothing_and_says_why ... ok
+test worker_status::tests::no_team_dir_is_honest_zero_not_an_error ... ok
+test worker_status::tests::no_worker_events_file_is_still_an_honest_zero ... ok
+test worker_status::tests::recent_window_is_bounded ... ok
+test worker_status::tests::active_is_never_inferred_from_idle_logs_or_the_filesystem ... ok
+test worker_status::tests::the_latest_authored_update_is_shown_and_never_invented ... ok
+test worker_status::tests::unestablished_liveness_is_its_own_number_and_never_active ... ok
+test provision::tests::the_pointer_is_written_into_application_support_and_points_at_the_corpus ... ok
+test provision::tests::with_no_compiler_source_the_corpus_is_still_created_and_the_report_says_what_is_missing ... ok
+test native::native_driver_tests::a_child_that_never_answers_the_handshake_times_out_rather_than_hanging ... ok
+test steering::tests::a_full_drain_compacts_the_file_without_ever_emptying_it ... ok
+test feedback::tests::everything_this_feature_is_capable_of_saying_is_this_finite_set_of_words ... ok
+
+test result: ok. 406 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.37s
+
+     Running tests/action_ledger_tests.rs (target/debug/deps/action_ledger_tests-7b97b4e542a82bfe)
+
+running 15 tests
+test a_pre_visibility_action_record_replays_as_ceo_facing ... ok
+test action_detail_is_truncated_on_a_char_boundary_not_a_byte_boundary ... ok
+test a_silent_tier_proactive_message_is_recorded_as_an_action_its_only_durable_surface ... ok
+test raising_a_proactive_message_writes_a_ceo_facing_action_at_runtime ... ok
+test a_rotation_that_cannot_spawn_a_successor_leaves_a_durable_failed_record ... ok
+test first_lease_priming_is_recorded_as_an_internal_action ... ok
+test the_identity_assertion_states_the_ledgers_partial_coverage_rather_than_overclaiming ... ok
+test record_action_keeps_its_ceo_facing_claim_then_execute_default ... ok
+test the_action_ledger_section_is_always_rendered_so_the_assertion_never_points_at_nothing ... ok
+test a_proactive_turn_in_the_verbatim_tail_carries_no_phantom_ceo_line ... ok
+test a_ceo_facing_action_recorded_by_production_code_reaches_the_successors_priming_prompt ... ok
+test actions_and_their_visibility_survive_a_restart ... ok
+test mid_turn_crash_recovery_is_recorded_as_an_internal_action ... ok
+test rotation_writes_internal_actions_claimed_then_completed ... ok
+test internal_machinery_actions_never_leak_into_a_priming_prompt ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/belief_precision.rs (target/debug/deps/belief_precision-16ceca1370918e01)
+
+running 2 tests
+test the_corpus_is_adversarial_and_says_so ... ok
+test the_trigger_is_measured_and_the_numbers_are_pinned ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/belief_trigger_tests.rs (target/debug/deps/belief_trigger_tests-9f1794201b683f6e)
+
+running 6 tests
+test memory_that_was_refused_at_the_seam_can_never_be_corrected_through_this_trigger ... ok
+test internal_traffic_is_never_mined_for_belief_corrections ... ok
+test the_ui_fixture_is_the_proposal_the_detector_really_files ... ok
+test the_proposal_is_on_disk_before_anything_renders_and_survives_a_reopen ... ok
+test saying_a_record_is_wrong_puts_a_proposal_with_the_right_ref_on_the_desk ... ok
+test ordinary_conversation_about_the_same_records_proposes_nothing ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/between_turn_tests.rs (target/debug/deps/between_turn_tests-097a31917da92213)
+
+running 4 tests
+test traffic_after_the_turn_result_lands_in_the_lane_and_not_in_the_finished_turn ... ok
+test a_drained_lane_is_empty_and_stays_empty ... ok
+test the_second_turn_carries_the_derived_context_measurement ... ok
+test session_start_traffic_reaches_the_lane_instead_of_no_sink_at_all ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+     Running tests/between_turn_thread_tests.rs (target/debug/deps/between_turn_thread_tests-fdde2cbf5fe5014c)
+
+running 6 tests
+test a_lane_row_carries_no_session_id_because_that_is_where_a_rotation_would_show ... ok
+test the_lane_is_gated_by_the_same_visibility_the_items_are ... ok
+test between_turn_records_obey_the_retention_setting_like_every_other_record ... ok
+test a_thread_with_no_between_turn_traffic_has_an_empty_lane_and_that_is_not_a_failure ... ok
+test reprime_machinery_is_recorded_and_can_never_reach_a_rendered_thread ... ok
+test a_real_agents_session_start_frame_reaches_the_journal_and_the_technical_view ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/entity_binding_tests.rs (target/debug/deps/entity_binding_tests-3f84d1910c6706ea)
+
+running 10 tests
+test an_unregistered_entity_can_never_become_a_threads_home ... ok
+test no_event_from_one_entity_renders_in_another_entitys_thread ... ok
+test a_threads_entity_home_is_immutable_and_moving_means_a_new_thread ... ok
+test switching_the_active_context_advances_the_fence_and_stales_the_old_binding ... ok
+test a_binding_captured_before_a_context_switch_is_refused_afterwards ... ok
+test a_pre_entity_thread_is_unbound_and_fails_closed_on_every_read_and_write ... ok
+test a_binding_can_only_be_obtained_from_the_ledger_so_a_write_cannot_name_a_foreign_entity ... ok
+test a_reprime_digest_for_one_entity_never_carries_another_entitys_actions ... ok
+test a_turn_with_no_resolvable_entity_is_refused_loudly_and_never_defaults ... ok
+test bindings_survive_restart_with_state_neither_lost_nor_invented ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/entity_registry_tests.rs (target/debug/deps/entity_registry_tests-f3652b49aaea3275)
+
+running 10 tests
+test a_relative_root_in_the_file_refuses_the_file_rather_than_creating_a_dead_entry ... ok
+test an_empty_registry_answers_and_never_guesses ... ok
+test the_component_matcher_is_what_makes_the_prefix_case_safe ... ok
+test the_shipping_default_registry_is_empty ... ok
+test a_first_run_user_registers_their_own_company_and_their_own_folder_resolves ... ok
+test a_loaded_registry_still_refuses_an_id_it_does_not_hold ... ok
+test overlap_is_refused_at_registration_and_still_fails_closed_when_a_file_carries_it ... ok
+test one_entity_may_own_two_roots_and_both_paths_reach_it_after_a_reload ... ok
+test ids_that_already_own_records_survive_the_registry_leaving_the_binary ... ok
+test a_second_company_joins_the_first_and_file_order_is_preserved ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/feedback_no_outbound_tests.rs (target/debug/deps/feedback_no_outbound_tests-39c0363691a3fdf1)
+
+running 8 tests
+test a_planted_namespace_shaped_url_is_still_caught ... ok
+test an_approved_report_lands_in_one_local_file_and_leaves_nothing_else_behind ... ok
+test the_crate_depends_on_nothing_that_could_open_a_connection ... ok
+test the_command_that_records_an_approval_still_checks_what_the_user_was_shown ... ok
+test the_feedback_module_contains_no_transport_of_any_kind ... ok
+test the_feedback_commands_and_everything_they_call_contain_no_transport ... ok
+test no_other_module_in_the_crate_consumes_the_feedback_feature ... ok
+test the_shipped_web_layer_contains_no_network_primitive_at_all ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/feedback_surface_tests.rs (target/debug/deps/feedback_surface_tests-32f7a0619ba8c40d)
+
+running 3 tests
+test the_ui_fixture_is_the_wording_and_the_vocabulary_this_build_actually_ships ... ok
+test the_ui_fixture_is_the_text_render_disclosure_really_produces ... ok
+test the_ui_fixture_is_the_entry_shape_the_store_really_writes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/heard_precision.rs (target/debug/deps/heard_precision-9bbe3bdd142204c5)
+
+running 5 tests
+test the_window_is_not_what_is_being_measured ... ok
+test the_emitted_side_is_what_he_edited ... ok
+test the_corpus_carries_the_cases_it_is_supposed_to ... ok
+test the_trigger_is_measured_and_the_numbers_are_pinned ... ok
+test the_pairing_condition_is_what_keeps_a_typed_message_silent ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.23s
+
+     Running tests/heard_trigger_tests.rs (target/debug/deps/heard_trigger_tests-42122a321ad1a80d)
+
+running 7 tests
+test a_torn_journal_line_costs_one_dictation_and_nothing_else ... ok
+test a_typed_message_stays_silent ... ok
+test a_silently_edited_dictation_puts_a_candidate_on_the_desk ... ok
+test the_question_is_durable_before_it_is_shown ... ok
+test the_ui_fixture_is_the_candidate_the_detector_really_files ... ok
+test no_journal_means_silent_and_the_turn_still_lands ... ok
+test a_jam_turn_is_never_diffed_against_the_journal ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/launch_no_outbound_tests.rs (target/debug/deps/launch_no_outbound_tests-8684822e037162e4)
+
+running 11 tests
+test the_crate_depends_on_nothing_that_could_open_a_connection ... ok
+test the_record_the_shell_hands_out_is_the_record_and_not_a_wider_one ... ok
+test the_launch_module_contains_no_transport_of_any_kind ... ok
+test a_namespace_shaped_url_is_still_caught_here_too ... ok
+test a_full_run_lands_in_one_local_file_and_leaves_nothing_else_behind ... ok
+test the_window_injection_carries_a_verdict_and_never_a_channel ... ok
+test a_planted_primitive_in_the_web_layer_would_be_caught ... ok
+test the_launch_commands_and_everything_they_call_contain_no_transport ... ok
+test no_other_module_in_the_crate_consumes_the_launch_record ... ok
+test the_offset_is_the_callers_and_the_shell_never_reads_a_timezone ... ok
+test the_web_layer_that_reads_the_record_contains_no_network_primitive ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/live_event_tests.rs (target/debug/deps/live_event_tests-813fe2119d07486a)
+
+running 20 tests
+test a_proactive_message_carries_the_one_phase_that_is_real ... ok
+test a_silent_proactive_message_reaches_the_wire_on_no_family_at_all ... ok
+test an_unbound_legacy_thread_emits_nothing_at_all ... ok
+test a_live_message_id_is_the_id_a_reload_projects ... ok
+test a_crash_with_no_recovery_path_says_failed_and_says_it_once ... ok
+test an_accounting_update_is_not_a_thing_rich_did ... ok
+test a_run_that_ended_crosses_the_live_wire_as_unknown_never_as_a_completion ... ok
+test a_delegation_on_an_internal_turn_is_constructed_and_then_refused ... ok
+test a_delegation_reaches_the_webview_during_the_turn_not_after_it ... ok
+test a_lifecycle_row_that_lands_after_the_tool_result_still_reaches_the_screen_in_the_same_turn ... ok
+test a_deferred_proactive_emit_keeps_the_entity_it_was_written_under ... ok
+test every_streamed_message_is_phase_unknown_and_never_final ... ok
+test the_shared_seq_still_gaps_where_machinery_happened_on_the_old_family ... ok
+test the_wire_and_the_reload_agree_on_every_field ... ok
+test model_reasoning_and_internal_machinery_never_reach_the_calm_family ... ok
+test turn_status_walks_the_states_it_can_actually_observe ... ok
+test no_worker_from_another_session_reaches_the_live_wire ... ok
+test the_live_worker_row_and_the_reloaded_worker_row_are_the_same_row ... ok
+test no_event_ever_carries_one_entitys_content_under_another_entitys_fence ... ok
+test the_four_documented_events_are_byte_identical_with_and_without_the_additive_family ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running tests/loro_gui_launch_tests.rs (target/debug/deps/loro_gui_launch_tests-76bd386d4b56d0ab)
+
+running 15 tests
+test gui_child_reports_every_candidate_it_tried ... ignored
+test gui_child_resolves_a_writer_from_the_real_process ... ignored
+test nothing_is_ever_inferred_from_the_checkout_this_binary_was_built_in ... ok
+test no_corpus_is_a_named_state_that_says_what_it_looked_for ... ok
+test loro_corpus_outranks_loro_root_for_the_writer_exactly_as_it_does_for_the_reader ... ok
+test with_no_home_there_is_no_candidate_and_the_resolver_says_so_instead_of_guessing ... ok
+test a_corpus_with_no_compiler_refuses_the_writer_by_name_rather_than_half_wiring_it ... ok
+test a_launch_with_no_environment_resolves_a_writer_and_not_only_a_reader ... ok
+test half_a_checkout_is_not_a_checkout_because_the_writer_is_the_half_that_would_be_missing ... ok
+test one_install_builds_both_halves_so_a_second_resolution_cannot_disagree ... ok
+test a_provisioned_corpus_reaches_the_writer_through_the_tools_install_beside_it ... ok
+test an_explicit_root_wins_over_a_valid_pointer_and_is_never_validated ... ok
+test the_gui_condition_with_no_corpus_says_what_it_looked_for_and_does_not_panic ... ok
+test the_reader_and_the_writer_resolve_the_same_corpus_and_the_same_binary_directory ... ok
+test the_gui_condition_in_a_real_process_reaches_a_writer ... ok
+
+test result: ok. 13 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/loro_lane_map_tests.rs (target/debug/deps/loro_lane_map_tests-134728418be9547e)
+
+running 11 tests
+test no_corpus_configured_is_not_an_error_and_not_a_crash ... ok
+test a_lane_keyed_by_something_that_is_not_a_registered_entity_is_a_typo_and_is_refused ... ok
+test the_registry_is_what_names_the_owner_of_an_in_repo_corpus ... ok
+test the_default_lane_map_is_the_registered_entities_and_nothing_else ... ok
+test an_entity_left_unmapped_against_a_partitioned_corpus_is_reported_not_hidden ... ok
+test reconciliation_names_every_mapping_it_dropped_and_why ... ok
+test a_lane_the_corpus_does_not_have_is_dropped_and_that_entity_reads_the_ceo_layer ... ok
+test a_lane_the_corpus_does_have_survives_and_narrows_the_compile ... ok
+test a_partitioned_repo_layout_corpus_owes_no_provenance_caveat ... ok
+test the_cross_entity_guard_still_refuses_after_a_lane_is_dropped ... ok
+test a_thread_reading_another_companys_in_repo_record_is_told_whose_it_is ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/loro_reprime_tests.rs (target/debug/deps/loro_reprime_tests-ec7c24750cb54c1d)
+
+running 10 tests
+test a_thread_with_nothing_the_ceo_has_said_is_not_compiled_at_all ... ok
+test a_compiled_slice_is_injected_verbatim_with_no_second_heading ... ok
+test an_empty_corpus_says_nothing_is_recorded_and_never_fabricates_a_slice ... ok
+test an_unanswered_ask_outranks_the_tail_because_that_is_what_current_intent_means ... ok
+test no_compiler_attached_says_so_about_the_install_not_about_the_memory ... ok
+test an_unavailable_compiler_states_the_unknown_instead_of_looking_like_an_empty_loro ... ok
+test the_topic_is_the_ceos_current_intent_and_never_richs_own_reply ... ok
+test a_compiler_that_cannot_answer_never_takes_down_the_turn ... ok
+test priming_a_lease_now_carries_company_memory_and_asks_for_the_right_thing ... ok
+test a_rotation_recompiles_rather_than_reusing_the_slice_the_previous_lease_was_given ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/machinery_tests.rs (target/debug/deps/machinery_tests-0edf8059e80e4acf)
+
+running 15 tests
+test a_thread_from_before_this_commit_shows_the_honest_empty_state ... ok
+test a_journal_write_failure_never_fails_the_turn ... ok
+test a_spine_with_no_journal_still_routes_and_completes_the_turn ... ok
+test a_turns_machinery_is_retained_keyed_to_its_thread_and_turn ... ok
+test no_governance_vocabulary_reaches_the_calm_view ... ok
+test one_tool_call_is_one_row_with_the_real_title_and_a_terminal_status ... ok
+test machinery_never_reaches_the_stream_event_family ... ok
+test no_tool_output_ever_reaches_the_conversation_ledger ... ok
+test an_untyped_vendor_frame_is_retained_as_unknown_rather_than_dropped ... ok
+test machinery_survives_a_restart_and_is_readable_from_a_fresh_process ... ok
+test a_permission_request_is_recorded_as_an_observation_with_no_control_attached ... ok
+test reprime_machinery_is_retained_internal_and_never_projected ... ok
+test text_and_machinery_share_one_sequence_so_the_true_order_is_reconstructible ... ok
+test the_dropped_user_text_frame_consumes_no_position_and_leaves_no_record ... ok
+test the_calm_conversation_is_byte_identical_whether_or_not_machinery_flows ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/native_cancel_tests.rs (target/debug/deps/native_cancel_tests-5f87bd8347e06d18)
+
+running 3 tests
+test cancelling_with_no_turn_in_flight_reports_that_it_reached_nothing ... ok
+test a_compliant_agent_ends_the_turn_as_cancelled_and_the_partial_text_survives ... ok
+test a_deaf_agent_does_not_hold_the_turn_open_and_is_reported_as_deaf ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+     Running tests/rotation_tests.rs (target/debug/deps/rotation_tests-c9e293a9d45607ed)
+
+running 22 tests
+test an_adapter_that_reports_a_zero_window_falls_back_rather_than_dividing_by_it ... ok
+test an_unreported_lease_falls_back_to_the_estimate_and_says_it_is_an_estimate ... ok
+test context_estimate_is_measured_not_asserted ... ok
+test proactive_message_defaults_to_active_thread_when_none_given ... ok
+test mid_turn_crash_without_a_lease_factory_degrades_to_an_honest_error ... ok
+test mid_turn_crash_recovery_is_bounded_to_one_attempt ... ok
+test a_mid_turn_crossing_of_the_hard_limit_is_recorded_and_settled_at_the_boundary_never_inside_it ... ok
+test mid_turn_pressure_without_a_lease_factory_records_the_fact_and_does_not_fail_a_turn_that_succeeded ... ok
+test mid_turn_crash_recovers_and_replays_without_duplicating_the_message ... ok
+test clean_rotation_asks_the_outgoing_lease_for_a_self_authored_handoff_summary ... ok
+test a_lease_that_has_not_reported_yet_still_rotates_sensibly ... ok
+test explicit_rotation_swaps_the_lease_and_the_conversation_survives_it ... ok
+test a_successor_never_inherits_its_predecessors_measurement ... ok
+test proactive_silent_tier_never_renders_but_stays_durable ... ok
+test proactive_tier1_and_tier2_render_as_rich_only_messages_no_preceding_ceo_prompt ... ok
+test proactive_message_raised_mid_turn_is_durable_immediately_but_ui_event_waits_for_the_boundary ... ok
+test staying_under_the_critical_ratio_records_no_pressure_and_no_critical_rotation ... ok
+test the_measured_window_supersedes_the_configured_one_and_the_configured_ratio_survives ... ok
+test rotation_re_primes_the_successor_with_identity_and_the_action_ledger ... ok
+test the_watermark_is_driven_by_the_measured_usage_not_by_the_char_estimate ... ok
+test watermark_triggers_rotation_automatically_at_the_next_turn_boundary ... ok
+test removing_the_measurement_brings_the_defect_back_the_lease_runs_to_the_wall_unrotated ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/setup.rs (target/debug/deps/setup-0b57f9965150a5cf)
+
+running 33 tests
+test a_pin_that_is_not_exactly_right_is_no_pin_at_all ... ok
+test a_customers_mac_is_missing_both_and_says_where_it_looked ... ok
+test a_directory_that_is_not_an_engine_is_not_detected_as_one ... ok
+test a_download_that_is_not_a_script_is_never_executed ... ok
+test a_release_asset_that_is_not_there_is_named_as_one ... ok
+test a_partial_download_is_named_as_one ... ok
+test a_digest_mismatch_stops_before_extraction_and_installs_nothing ... ok
+test a_failed_reinstall_leaves_the_engine_he_already_had ... ok
+test a_panic_during_an_install_removes_the_staging_directory ... ok
+test a_machine_that_already_has_both_is_asked_nothing ... ok
+test an_explicit_override_never_falls_through_to_something_nobody_named ... ok
+test an_installer_that_exits_zero_without_installing_anything_is_still_a_failure ... ok
+test an_engine_installed_into_application_support_is_the_one_detection_finds ... ok
+test a_successful_install_leaves_no_staging_directory_behind ... ok
+test a_repo_engine_passed_in_as_a_candidate_answers_before_the_install_location ... ok
+test an_installer_that_refuses_is_relayed_verbatim_and_changes_nothing ... ok
+test a_pinned_engine_lands_where_the_resolver_looks_and_stamps_itself ... ok
+test every_failure_says_something_a_person_can_act_on ... ok
+test no_home_is_a_named_refusal ... ok
+test an_unpinned_build_reports_it_and_is_blocked_rather_than_guessing ... ok
+test an_archive_without_the_engines_shape_is_refused_and_names_what_is_missing ... ok
+test no_network_installs_nothing_and_leaves_no_residue ... ok
+test the_consent_copy_carries_no_path_no_version_and_no_terminal ... ok
+test the_designated_requirement_names_both_the_identifier_and_the_team ... ok
+test the_digest_is_sha256_and_matches_the_known_vectors ... ok
+test the_requirement_is_passed_to_codesign_as_text_and_not_as_a_filename ... ok
+test the_real_claude_binary_on_this_machine_satisfies_the_requirement ... ok
+test an_engine_whose_version_is_not_the_pinned_one_is_refused ... ok
+test the_only_url_fetched_for_claude_code_is_anthropics_own_installer ... ok
+test a_successful_reinstall_replaces_the_previous_engine_and_removes_it ... ok
+test a_binary_that_is_not_anthropics_is_refused_after_the_installer_succeeds ... ok
+test the_digest_is_correct_across_the_buffer_boundary ... ok
+test the_digest_agrees_with_shasum ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/spine_tests.rs (target/debug/deps/spine_tests-f775b150efd6320b)
+
+running 12 tests
+test default_thread_title_is_running_not_general ... ok
+test prompt_is_persisted_received_before_send ... ok
+test reprime_payload_carries_action_ledger_as_ground_truth ... ok
+test failed_turn_emits_turn_error_and_persists_partial ... ok
+test internal_reprime_turn_is_never_rendered ... ok
+test lease_is_reprimed_before_first_turn ... ok
+test full_roundtrip_persists_and_renders_clean ... ok
+test stream_emits_chunks_in_order_and_ledger_holds_full_reply ... ok
+test history_survives_restart ... ok
+test turn_state_events_bracket_the_turn ... ok
+test queue_not_interrupt_orders_prompts_without_dropping ... ok
+test threads_are_views_over_one_shared_ledger ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/spoken_gate_agreement.rs (target/debug/deps/spoken_gate_agreement-7b6f38b8a51b9118)
+
+running 2 tests
+test the_fixture_carries_the_verdicts_it_is_supposed_to ... ok
+test the_rust_port_gives_the_shipped_javascript_answers ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/spoken_precision.rs (target/debug/deps/spoken_precision-d003372529c25968)
+
+running 2 tests
+test the_corpus_is_adversarial_and_says_so ... ok
+test the_trigger_is_measured_and_the_numbers_are_pinned ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/spoken_trigger_tests.rs (target/debug/deps/spoken_trigger_tests-7775cb7e9802309e)
+
+running 9 tests
+test a_correction_is_recorded_before_the_turn_is_delivered_at_all ... ok
+test a_spine_with_no_desk_is_unchanged ... ok
+test internal_and_proactive_traffic_is_never_mined_for_corrections ... ok
+test the_record_is_on_disk_before_anything_renders ... ok
+test a_typed_correction_is_caught_by_the_same_wire ... ok
+test a_correction_never_anchors_to_its_own_sentence ... ok
+test speaking_a_correction_records_it_with_no_command_typed ... ok
+test the_whole_loop_speak_then_confirm_reaches_the_vocabulary ... ok
+test ordinary_conversation_stages_nothing_and_notifies_nobody ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/steering_tests.rs (target/debug/deps/steering_tests-0a30b18490a14117)
+
+running 16 tests
+test a_stopped_turn_raises_no_system_error_row_because_nothing_went_wrong ... ok
+test a_stopped_turn_is_measured_not_estimated_and_reaches_the_timeline_as_stopped ... ok
+test a_crash_between_the_ledger_write_and_the_drain_marker_files_the_message_once_not_twice ... ok
+test an_ordinary_typed_message_carries_no_intake_id_and_can_never_collide_with_one ... ok
+test a_stop_request_that_outlived_the_process_is_applied_at_startup_not_replayed ... ok
+test a_ceo_stop_and_a_crash_are_different_terminal_states_in_the_log ... ok
+test the_ledger_refuses_to_stop_a_turn_that_already_completed ... ok
+test a_stopped_turn_reaches_the_wire_as_stopped_and_never_as_completed_or_failed ... ok
+test a_turn_the_ceo_stopped_is_never_crash_replayed_even_when_the_lease_dies_with_it ... ok
+test the_distinction_survives_a_reopen_because_it_is_two_events_not_one_reason_string ... ok
+test a_stop_the_lease_actually_honoured_is_still_a_stop ... ok
+test a_turn_that_completed_is_never_rendered_as_one_the_ceo_stopped ... ok
+test a_stop_also_stops_the_work_the_ceo_had_queued_behind_it ... ok
+test the_spine_lock_is_genuinely_held_for_the_whole_turn_and_the_stop_does_not_wait_for_it ... ok
+test the_stop_request_is_still_recorded_as_a_fact_that_did_not_land ... ok
+test steering_written_while_rich_works_is_durable_immediately_and_delivered_at_the_boundary ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+     Running tests/timeline_tests.rs (target/debug/deps/timeline_tests-08dc4f9400f35603)
+
+running 12 tests
+test a_task_call_joined_by_identity_becomes_a_worker_item ... ok
+test an_unbound_legacy_thread_refuses_to_produce_a_timeline_at_all ... ok
+test no_worker_item_is_built_from_a_task_call_belonging_to_another_thread ... ok
+test no_worker_row_from_another_session_attaches_to_this_sessions_task_call ... ok
+test a_session_id_mismatch_is_reported_rather_than_silently_producing_no_worker ... ok
+test the_apps_own_read_path_joins_a_task_call_to_the_worker_it_spawned ... ok
+test a_delegated_task_never_becomes_a_worker_and_a_status_less_call_never_becomes_completed ... ok
+test between_turn_machinery_has_no_render_path_and_is_not_a_violation ... ok
+test no_machinery_from_one_entity_renders_in_another_entitys_thread ... ok
+test a_timeline_survives_a_cold_reopen_neither_losing_nor_inventing_anything ... ok
+test a_ceo_view_carries_no_internal_item_and_no_raw_command ... ok
+test text_machinery_and_timeline_records_share_one_dense_per_turn_sequence ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/watermark_cadence_tests.rs (target/debug/deps/watermark_cadence_tests-9e18b6ffcf5eb22a)
+
+running 8 tests
+test on_mixed_traffic_the_old_trigger_fired_after_the_hard_wall_not_before_it ... ok
+test on_mixed_traffic_rotation_gets_forty_three_percent_more_frequent ... ok
+test the_char_estimate_undercounts_every_single_measured_turn ... ok
+test the_adapter_reported_a_one_million_token_window_in_every_single_event ... ok
+test the_session_starts_over_thirty_thousand_tokens_in_and_the_estimate_cannot_see_it ... ok
+test on_low_tool_traffic_rotation_gets_forty_three_percent_less_frequent_and_that_is_the_cost_side ... ok
+test the_measured_watermark_is_never_on_the_wrong_side_of_the_wall_on_any_measured_mix ... ok
+test on_tool_heavy_traffic_the_old_trigger_was_nearly_six_times_too_late ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/worker_attribution_tests.rs (target/debug/deps/worker_attribution_tests-8b232ed0d7022ec6)
+
+running 10 tests
+test the_source_carries_no_mtime_selection_primitive ... ok
+test the_session_the_app_is_serving_picks_its_own_dir_out_of_four ... ok
+test a_session_id_that_cannot_name_a_directory_reads_nothing_and_never_escapes_teams ... ok
+test an_explicit_override_outranks_the_derivation_and_does_not_fall_back ... ok
+test an_unknown_session_dir_makes_the_priming_prompt_say_so_instead_of_falling_silent ... ok
+test an_unmatched_session_reads_nothing_even_with_a_busy_decoy_dir_present ... ok
+test no_lease_never_puts_another_sessions_workers_in_the_prompt ... ok
+test no_lease_reads_nothing_even_with_a_busy_decoy_dir_present ... ok
+test the_decoys_own_session_still_reads_the_decoys_dir ... ok
+test the_serving_sessions_own_workers_do_reach_the_prompt_and_only_those ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+   Doc-tests richos_core
+
+running 5 tests
+test crates/richos-core/src/feedback.rs - feedback::FeedbackPayload (line 590) - compile fail ... ok
+test crates/richos-core/src/timeline.rs - timeline::Timeline (line 884) - compile fail ... ok
+test crates/richos-core/src/feedback.rs - feedback::FeedbackPayload (line 605) - compile fail ... ok
+test crates/richos-core/src/timeline.rs - timeline::Timeline (line 896) ... ok
+test crates/richos-core/src/feedback.rs - feedback::FeedbackPayload (line 614) ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+--- cargo build --locked -p richos-core --release
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling libc v0.2.189
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling getrandom v0.4.3
+   Compiling cfg-if v1.0.4
+   Compiling serde_json v1.0.151
+   Compiling serde v1.0.229
+   Compiling thiserror v1.0.69
+   Compiling generic-array v0.14.7
+   Compiling richos-core v0.1.0 (/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/clone2/richos/app/crates/richos-core)
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling syn v2.0.119
+   Compiling syn v3.0.4
+   Compiling cpufeatures v0.2.17
+   Compiling uuid v1.26.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v1.0.69
+    Finished `release` profile [optimized] target(s) in 14.90s
+=== test rc=0 (33s)  build rc=0 (15s)  total 48s ===

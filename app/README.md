@@ -687,11 +687,19 @@ here rather than there:
   (`97/97` against 304, `121/121` against 163) while every sentence around them stayed true,
   which is the one thing `engine/scripts/publication-completeness.sh` explicitly cannot
   catch: *"Every path in a document can resolve while the sentence around it is false."*
-- **CI covers the spine and nothing else.** `.github/workflows/app-spine-ci.yml` runs
-  `cargo test -p richos-core` and a release build. As its own header says, that workflow
-  has never executed — so it must not be called CI-verified until a green run exists on a
-  SHA somebody can name. **The browser suites have no runner at all**: they run when
-  someone runs them, on a machine with a WebKit build.
+- **CI covers the spine and the browser suites, and neither has ever run.**
+  `.github/workflows/app-spine-ci.yml` runs `cargo test -p richos-core` and a release
+  build; `.github/workflows/ui-suite-ci.yml` runs every suite under `app/ui/tests` on
+  macOS, under the WebKit that ships in its own `node_modules`. The sentence that stood
+  here until 2026-09-04 — *"the browser suites have no runner at all"* — was written
+  before that second file existed and is simply out of date. What is still true, and is
+  the part that matters, is that **neither workflow has ever executed**: both were
+  authored on the machine that runs the suites locally, and every workflow in this
+  repository was switched off on 2026-09-01 over a billing block. So neither may be
+  called CI-verified until a green run exists on a SHA somebody can name. Both were run
+  verbatim from a fresh clone on 2026-09-04 —
+  `docs/verification/workflows-on-a-clone-2026-09-04/` — which answers a narrower
+  question: that they do not depend on the author's machine.
 
 ## App icon — pipeline built and proven, source art does not exist (BLOCKED ON ARTWORK ONLY)
 
@@ -745,8 +753,11 @@ has yet.
 **`app/scripts/package-app.sh` sets it** (2026-08-30). Two earlier versions of this
 paragraph were wrong in opposite directions: one claimed the variable was "set by
 bundling and CI" when nothing set it, and its correction then said
-`.github/workflows/` contained only `engine-self-verify.yml`. There are three
-workflows — `app-spine-ci.yml`, `engine-self-verify.yml`, `windows-companion-ci.yml`.
+`.github/workflows/` contained only `engine-self-verify.yml`. Its correction's
+correction said three. **There are five** — `app-spine-ci.yml`,
+`engine-self-verify.yml`, `packaging-ci.yml`, `ui-suite-ci.yml` and
+`windows-companion-ci.yml` — and `.github/workflows/README.md` is where their states
+are kept, because a count in a paragraph has now been wrong three times running.
 The **conclusion** that sentence was drawn to support is nonetheless still true, and
 survives the correction: **no CI job builds this crate.** `app-spine-ci.yml`'s own
 header excludes `app/src-tauri` by name as "a deliberately detached workspace with the

@@ -247,6 +247,41 @@ _trec() { # <kind> <start> <end-or-dash> <label>
     printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$CI_TEST_TIMING"
 }
 
+# ---------------------------------------------------------------------------
+# _sed_inplace <script> <file> — because `sed -i` means two different things
+# ---------------------------------------------------------------------------
+# BSD/macOS `sed -i` requires the backup suffix as a SEPARATE ARGUMENT, so the
+# in-place idiom is `sed -i '' 's/a/b/' file`. GNU/Linux `sed -i` takes the
+# suffix ATTACHED, reads that empty string as the SCRIPT, and then treats the
+# real script as a FILENAME:
+#
+#     sed: can't read s/^MODEL_TIERS=.*/MODEL_TIERS=""/: No such file or directory
+#
+# MEASURED, 2026-09-04, on ubuntu:24.04 as an unprivileged user: this suite ran
+# 139 cases and then ABORTED at the MT section on exactly that, under `set -e`,
+# exit 2, with the MT and MC sections never reached. `engine-self-verify.yml`
+# runs on `ubuntu-latest`, so the first public run of this repository would have
+# been red here — and the engine is developed on macOS, where all four sites are
+# correct, which is why nothing local ever saw it.
+#
+# It is the third instance of this class in this file's history:
+# `docs/ci-portability-notes.md` records `mktemp -t` with an X-less template
+# (hard failure on GNU) and `BASH_CMDS` (a reserved name on bash >= 4). Both
+# were found by the engine's first and only Linux execution on 2026-08-29. The
+# four sites below arrived after it, in the MT and MC sections, and nothing has
+# run this suite on Linux since.
+#
+# A temp file means the same thing on every host, and `cat >` rather than `mv`
+# keeps the target's inode and mode — which matters here, because the files
+# being edited live in sandboxes whose contents this suite hashes.
+_sed_inplace() { # <sed-script> <file>
+    local _t
+    _t="$(mktemp "${TMPDIR:-/tmp}/ci-sed.XXXXXX")" || return 1
+    sed "$1" "$2" >"$_t" || { rm -f "$_t"; return 1; }
+    cat "$_t" >"$2" || { rm -f "$_t"; return 1; }
+    rm -f "$_t"
+}
+
 # All canonical hook scripts the probe/install manage — DERIVED FROM
 # hooks/hooks.json, NEVER TYPED.
 #
@@ -2567,7 +2602,7 @@ fi  # _section — WTR
 if _section MT; then
 # MT1 — MODEL_TIERS blank: the order is not declared.
 ROOT="$(make_sandbox)"
-sed -i '' 's/^MODEL_TIERS=.*/MODEL_TIERS=""/' "$ROOT/orchestration.config"
+_sed_inplace 's/^MODEL_TIERS=.*/MODEL_TIERS=""/' "$ROOT/orchestration.config"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MT1.model-tiers-undeclared-fails" 2 "$rc"
 if printf '%s' "$MT_OUT" | grep -q 'MT\. MODEL_TIERS in .*: MODEL_TIERS is blank'; then
@@ -2580,7 +2615,7 @@ rm -rf "$ROOT"
 # MT2 — the alias sets disagree: ALLOWED_MODELS names an alias the order does
 # not rank. A spawn on that alias is one the guard cannot rank.
 ROOT="$(make_sandbox)"
-sed -i '' 's/^MODEL_TIERS=.*/MODEL_TIERS="fable > opus > sonnet"/' "$ROOT/orchestration.config"
+_sed_inplace 's/^MODEL_TIERS=.*/MODEL_TIERS="fable > opus > sonnet"/' "$ROOT/orchestration.config"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MT2.model-tiers-alias-set-drifts-from-allowed-models-fails" 2 "$rc"
 if printf '%s' "$MT_OUT" | grep -q 'MT\. MODEL_TIERS and ALLOWED_MODELS disagree.*haiku'; then
@@ -2653,7 +2688,7 @@ fi  # _section — MT
 if _section MC; then
 # MC1 — the ceiling is not declared: WARN, never a failure, and it says so.
 ROOT="$(make_sandbox)"
-sed -i '' '/^MODEL_CEILING=/d' "$ROOT/orchestration.config"
+_sed_inplace '/^MODEL_CEILING=/d' "$ROOT/orchestration.config"
 set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MC1.no-ceiling-declared-warns-and-does-not-fail" 0 "$rc"
 if printf '%s' "$MC_OUT" | grep -q 'MC\. no MODEL_CEILING declared'; then
@@ -2666,7 +2701,7 @@ rm -rf "$ROOT"
 # MC2 — a ceiling MODEL_TIERS ranks nowhere. It is not a ceiling, and it looks
 # exactly like one.
 ROOT="$(make_sandbox)"
-sed -i '' 's/^MODEL_CEILING=.*/MODEL_CEILING="mythic"/' "$ROOT/orchestration.config"
+_sed_inplace 's/^MODEL_CEILING=.*/MODEL_CEILING="mythic"/' "$ROOT/orchestration.config"
 set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MC2.unrankable-ceiling-fails" 2 "$rc"
 if printf '%s' "$MC_OUT" | grep -q 'MC\. MODEL_CEILING="mythic" is declared .* ranks it NOWHERE'; then

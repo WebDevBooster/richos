@@ -1,0 +1,166 @@
+=== packaging-ci step: bash app/scripts/run-tests.sh ===
+HOME=/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/home  CARGO_HOME=/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/cargo-home
+ProductName:		macOS
+ProductVersion:		15.6
+BuildVersion:		24G84
+     0 valid identities found
+/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/cargo-home/bin/cargo
+error: no such command: `tauri`
+
+--- run-tests.sh
+7 suite(s) discovered under /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/clone/richos/app/scripts
+
+--- frontend-payload.test.sh
+
+=== P. what ships as the frontend ===
+  PASS  P1 tauri.conf.json sets build.frontendDist (../ui-dist)
+  PASS  P2 frontendDist is not the source tree app/ui
+  PASS  P3 the staged frontend directory is git-ignored
+  PASS  P4 build.rs stages the frontend, so a plain cargo build cannot bypass it
+  PASS  P5 the exclusion list names tests
+  PASS  P6 the exclusion list names node_modules
+  PASS  P7 the staging refuses rather than warns
+  PASS  P8 the screenshots are still in the repository (12 shots-* directories)
+  ....  P9/P10 no staged tree at /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/clone/richos/app/ui-dist — nothing has been built on this machine yet.
+        Not counted as a pass. Run: cargo build --release --manifest-path app/src-tauri/Cargo.toml
+
+=== frontend-payload tests: all 8 passed ===
+
+--- gui-boot.test.sh
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+gui-boot.test.sh: could not build the machine to boot on:
+  gui_compiler_source: no loro checkout on this machine to copy from. Looked at
+    $RICHOS_LORO_SOURCE, the loro-tools install, and the corpus pointer's own loro/.
+                  That is a fact about THIS MACHINE, not a verdict about the code.
+
+--- make-engine-asset.test.sh
+  PASS  L1 a repository with no root LICENSE is REFUSED, by name
+  PASS  L2 a repository with no third-party notices is REFUSED, by name
+  PASS  L3 a complete fixture builds an archive
+  PASS  L4 the archive contains engine/LICENSE
+  PASS  L5 the archived LICENSE is byte-identical to the repository's root LICENSE
+  PASS  L6 the archive contains engine/THIRD-PARTY-NOTICES.md
+  PASS  L7 bundled third-party license files survive into the archive
+  PASS  L8 a skill declaring a license with no license file beside it is REFUSED
+  PASS  L9 the real root LICENSE is the canonical AGPL v3 text
+  PASS  L10 the real repository has docs/legal/THIRD-PARTY-NOTICES.md
+  PASS  L11 the real engine carries 16 bundled license files (16 known bundled works)
+  PASS  L12 the real archive builds deterministically and carries the canonical LICENSE
+
+=== make-engine-asset tests: all 12 passed ===
+
+--- package-app.test.sh
+
+=== A. arguments ===
+  PASS  A1 an unknown argument is refused
+  PASS  A2 --sign takes only the two modes
+  PASS  A3 --help shows the notarize form
+
+=== B. identity discovery ===
+  PASS  B1 [shim] no Developer ID identity -> refuse, and name the setup scripts
+  FAIL  B2 a pinned identity the machine does not report -> refuse
+         exit 3, wanted 2. Output: error: the Tauri CLI is not installed for this cargo.    cargo install tauri-cli --version '^2'
+  PASS  B3 [shim] exactly one identity is DISCOVERED
+  PASS  B3b [shim] ...and the dry run says WHERE the identity came from
+  PASS  B4 [shim] two identities -> refuse rather than sort
+  PASS  B5 [shim] an identity on the machine does not make a plain run use it
+
+=== C. notary credentials ===
+  PASS  C1 [shim] notarize with no credentials -> refuse
+  PASS  C2 [shim] half an API key -> refuse, naming the missing halves
+  PASS  C3 [shim] a key path that does not exist -> refuse
+  PASS  C4 [shim] a notary key inside a git worktree -> refuse
+  PASS  C5 [shim] a world-readable notary key -> refuse
+  PASS  C6 [shim] a complete API key resolves
+  PASS  C7 [shim] a keychain profile resolves
+  PASS  C8 [shim] APPLE_ID/PASSWORD/TEAM_ID are NOT a credential path here
+
+=== D. verify_bundle, against a real signed bundle ===
+  PASS  D1 a real ad-hoc bundle verifies in adhoc mode
+  PASS  D2 ...and fails in developer-id mode on all EIGHT grounds, four of them on the requirement
+  PASS  D3 a bundle with no shipped icon fails
+  PASS  D4 a shipped icon this repository did not generate fails
+  PASS  D5 no NSMicrophoneUsageDescription fails
+  PASS  D6 a bundle whose signature was removed fails
+  PASS  D7 --expect-notarized runs the stapled-ticket check
+
+=== Z. this suite touched nothing of the operator's ===
+  PASS  Z the real keychain's codesigning inventory is identical before and after
+
+=== package-app tests: 1 FAILED, 24 passed ===
+
+--- rebuild-survival.test.sh
+
+=== G. the harness ===
+  PASS  G1 an unknown command is refused
+  PASS  G2 record without a label is refused
+  PASS  G3 a record directory inside a git worktree is refused
+  PASS  G4 a real ad-hoc bundle records its cdhash, signature kind and requirement
+  PASS  G5 comparing against a record that does not exist is refused
+  PASS  G6 two ad-hoc builds -> cannot pass, and the certificate is named as the fix
+  PASS  G7 the same bytes twice is INCONCLUSIVE, and says it is not a pass
+  PASS  G8 identical identifier-and-team requirements -> layer 1 passes
+  PASS  G9 ...and refuses to let layer 1 be read as the acceptance test
+  PASS  G10 requirements that differ -> FAIL
+  PASS  G11 a grant held by N and not by N+1 -> FAIL
+  PASS  G12 an unreadable TCC database -> INCOMPLETE, never a guessed pass
+  PASS  G13 layer 3 is always named as not machine-checkable
+  PASS  G14 status with no certificate -> exit 4, naming what the test needs
+  PASS  G15 a requirement printed WITHOUT the leading '# ' is read (the Developer ID form)
+  PASS  G16 a real signature records as 'developer-id', not as 'none'
+  PASS  G17 two unread requirements are INCOMPLETE, never a silent identical
+
+=== rebuild-survival tests: all 17 passed ===
+
+--- signing-setup.test.sh
+
+=== E. make-signing-csr.sh ===
+  PASS  E1 a key directory inside a git worktree is refused
+  PASS  E2 RSA 2048, sha256WithRSAEncryption, key mode 600 in a 700 directory
+  PASS  E3 a second run refuses and leaves the existing key byte-identical
+  PASS  E4 --force does overwrite, so E3's refusal is a decision and not an inability
+  PASS  E5 a country code that is not two upper-case letters is refused
+  PASS  E6 --show on an empty directory says so rather than inventing a state
+  PASS  E7 --show reports the subject of the CSR that exists
+
+=== F. install-signing-cert.sh ===
+  PASS  F1 no argument -> refuse
+  PASS  F2 a .cer that does not exist -> refuse
+  PASS  F3 no private key -> refuse, and say why a .cer alone is useless
+  PASS  F4 a certificate issued against a different key -> refuse on the modulus
+  PASS  F5 a Developer ID INSTALLER certificate is refused, by name
+  PASS  F6 [shim] the matching, correctly-typed certificate reaches 'installed and usable'
+  PASS  F7 [shim] ...and the Team ID is read out of the identity string
+  PASS  F8 the passphrase-less PKCS#12 was removed after the import
+  PASS  F9 [shim] an import that reports success but yields NO identity is a FAILURE
+
+=== G. the defects of 2026-09-01 ===
+  PASS  G1 codesign accepts src-tauri/Entitlements.plist (plutil -lint would accept a broken one)
+  PASS  G1b ...and it is well-formed XML by a strict parser, which is the underlying property
+  PASS  G2 every 'security import' passes -P explicitly, so none of them can prompt
+  PASS  G3 an encrypted private key is refused, non-interactively, before any keychain call
+  PASS  G4 the openssl on PATH is never used; the pinned one is, and the run still succeeds
+  PASS  G5 an openssl that exits 0 and leaves a 0-byte file is caught at that step
+  PASS  G6 a 0-byte .cer is refused as unreadable, at the conversion
+  PASS  G7 an empty --keychain is a FAILURE even when login holds an identity
+  PASS  G8 [shim] --check lists the identity line itself under its own heading
+  PASS  G9 [shim] --check exits NON-ZERO when this machine cannot sign
+  PASS  G10 no PKCS#12 is built, so no passphrase has to travel anywhere
+
+=== Z. this suite touched nothing of the operator's ===
+  PASS  Z the real keychain's codesigning inventory is identical before and after
+
+=== signing-setup tests: all 28 passed ===
+
+--- updater-setup.test.sh
+updater-setup.test.sh: could not generate a test key (is the Tauri CLI installed?)
+
+=== app/scripts: 3 of 7 suite(s) FAILED: gui-boot.test.sh package-app.test.sh updater-setup.test.sh ===
+=== run-tests.sh rc=1 elapsed=75s ===

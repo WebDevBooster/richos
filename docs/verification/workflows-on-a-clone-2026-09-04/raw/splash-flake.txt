@@ -1,0 +1,39 @@
+# splash.js check 23 — five runs BEFORE the barEdge reclassification, six AFTER.
+#
+# One machine, one load, and splash.js, splash.css, splash-library.js and the check
+# itself byte-identical throughout. The only difference between the two blocks is
+# which samples the identity comparison is made over.
+#
+# Read the two failures together: the DARK reading is the same byte both times and
+# the LIGHT reading is not the same as itself. A theme leak would be stable on both
+# sides. A moving sample is stable on neither, and this one is stable on one.
+
+===== BEFORE — inside the full suite, at 07ed1d4 =====
+  FAIL  23  round-11/v2: barEdge differs between themes (#60708e dark vs #657188 light)
+
+===== BEFORE — splash.js alone, three times, at fc56c20 =====
+===== splash.js run 1 =====
+exit=0
+  PASS  23  WCAG AA on the COMPOSITED frame — text 4.5:1, the bar 3:1, both themes
+===== splash.js run 2 =====
+exit=0
+  PASS  23  WCAG AA on the COMPOSITED frame — text 4.5:1, the bar 3:1, both themes
+===== splash.js run 3 =====
+exit=1
+  FAIL  23  WCAG AA on the COMPOSITED frame — text 4.5:1, the bar 3:1, both themes
+          round-11/v2: barEdge differs between themes (#60708e dark vs #64708a light) — §15 says this surface is always dark and splash.js clamps it, so it must not
+
+  (the full-suite run at fc56c20 passed as well, which is four passes and two
+   failures across the five observations of the unmodified check)
+
+===== AFTER — splash.js alone, six times, at fc56c20 =====
+=== splash.js WITH the barEdge reclassification, six runs ===
+run 1: exit=0  PASS=25  FAIL=0
+run 2: exit=0  PASS=25  FAIL=0
+run 3: exit=0  PASS=25  FAIL=0
+run 4: exit=0  PASS=25  FAIL=0
+run 5: exit=0  PASS=25  FAIL=0
+run 6: exit=0  PASS=25  FAIL=0
+--- what check 23 reports on the last run ---
+  PASS  23  WCAG AA on the COMPOSITED frame — text 4.5:1, the bar 3:1, both themes
+          v1 · the tagline, 18px: #93a8ca on #151f38 = 6.77:1 dark / 6.77:1 light (floor 4.5) · v1 · the rule: #c5a862 on #151f38 = 7.12:1 dark / 7.12:1 light (floor 3) · v1 · the wordmark: #e2e6f0 on #152038 = 12.98:1 dark / 12.98:1 light (floor 3) · v1 · the bar's fill on the ground: #bea25d on #0c121e = 7.60:1 dark / 7.60:1 light (floor 3) · v1 · the bar's fill on its own track: #bea25d on #322f29 = 5.41:1 dark / 5.41:1 light (floor 3) · v2 · the tagline, 18px: #95a7c8 on #16213c = 6.56:1 dark / 6.56:1 light (floor 4.5) · v2 · the rule: #c7a860 on #1b2845 = 6.41:1 dark / 6.41:1 light (floor 3) · v2 · the wordmark: #e2e7ef on #1c2845 = 11.75:1 dark / 11.75:1 light (floor 3) · v2 · the bar's fill on the ground: #d1b46f on #090e19 = 9.62:1 dark / 9.62:1 light (floor 3) · v2 · the bar's fill on its own track: #d1b46f on #121b31 = 8.53:1 dark / 8.55:1 light (floor 3) · v2 · the strap's edge on the ground: #657188 on #090e19 = 3.92:1 dark / 3.56:1 light (floor 3) · both color schemes photographed; every ratio met in both, and every element that holds still is pixel-identical across them (§15's always-dark start screen) · DECLARED, with the arithmetic: neither bar's UNFILLED track is asserted against the ground. It is unfilled material, not the state — the boundary that conveys progress is the fill against the track and against the ground, and both are asserted above. For #1 the two cannot both pass at once within this palette: clearing 3:1 on the ground needs a track luminance >= 0.118 and clearing 3:1 against the gold fill needs <= 0.095, and no value is both. For #2 the strap's own EDGE marks the bar's extent and is measured instead.

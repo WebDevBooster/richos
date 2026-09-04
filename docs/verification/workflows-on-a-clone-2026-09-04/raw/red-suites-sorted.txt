@@ -1,0 +1,298 @@
+# SORTING THE REDS: the same suites, one at a time, on macOS, against the same clone.
+#
+# 'Linux broke it' is a claim. Each suite below was run on its own so the claim could
+# be tested rather than assumed, and the answers went four different ways.
+
+===== guard-worktree-isolation.test.sh — macOS =====
+=== guard-worktree-isolation.test.sh on macOS, clone of fc56c20 ===
+=== guard-worktree-isolation tests ===
+  PASS  non-Agent tool (Bash)
+  PASS  non-Agent tool (Read)
+  PASS  no isolation, no marker, well-formed name, dev
+  PASS  block message is self-documenting: names isolation flag
+  PASS  block message is self-documenting: names main-checkout-run fallback
+  PASS  isolation worktree, well-formed name
+  PASS  isolation remote, well-formed name
+  PASS  read-only type Explore, no isolation/name (isolation exemption holds)
+  PASS  read-only type Plan, no isolation/name (isolation exemption holds)
+  PASS  read-only type claude-code-guide
+  PASS  read-only type statusline-setup
+  PASS  deviceqa: no isolation, no marker -> BLOCKED
+  PASS  visualqa: no isolation, no marker -> BLOCKED
+  PASS  funcqa: no isolation, no marker -> BLOCKED
+  PASS  deviceqa: isolation worktree -> exit 0
+  PASS  visualqa: isolation worktree -> exit 0
+  PASS  funcqa: isolation worktree -> exit 0
+  PASS  deviceqa: main-checkout-run marker, no isolation -> exit 0
+  PASS  main-checkout-run marker, well-formed name, no isolation
+  PASS  marker mid-prompt on its own line still matches
+  PASS  bare name with isolation set
+  PASS  run-together name with isolation set
+  PASS  bare name with marker present (not relaxed)
+  PASS  bare name for deviceqa, isolation set (not relaxed)
+  PASS  malformed-name message present
+  PASS  old 2-part name (missing model token), isolation set -> BLOCKED
+  PASS  missing-model-token message names the 3-part form
+  PASS  garbage model token 'gpt' -> BLOCKED
+  PASS  garbage-token message says 'not an allowed model'
+  PASS  correct token via override (fable is an allowed alias, dev-fable-*)
+  PASS  correct token via live frontmatter default (frank->opus)
+  PASS  wrong token vs frontmatter (frank is opus, name says sonnet) -> BLOCKED
+  PASS  frontmatter-mismatch message names BOTH models
+  PASS  frontmatter-mismatch message is labelled 'untruthful model token'
+  PASS  template-named type does NOT resolve from templates/ (undeterminable)
+  PASS  correct token via override (override sonnet beats frontmatter opus)
+  PASS  wrong token vs override (override sonnet, name says opus) -> BLOCKED
+  PASS  override-mismatch message cites the override source
+  PASS  verbose override id 'claude-opus-4-8' normalizes to opus
+  PASS  undeterminable (no live def, no override) accepts valid alias token
+  PASS  undeterminable via model:inherit accepts valid alias token
+  PASS  undeterminable but garbage token still BLOCKED (2a floor holds)
+  PASS  reed (sonnet default) on fable, no reason -> allowed, SILENT (an upgrade)
+  PASS  frank (opus default) on fable, no reason -> allowed, SILENT (same tier; the CEO's own spawn shape)
+  PASS  frank on opus, its own default, explicit -> SILENT
+  PASS  reed upgraded to opus -> SILENT
+  PASS  reed on sonnet, its own default, explicit -> SILENT
+  PASS  frank with NO override -> clause 6 never fires
+  PASS  frank (opus default) on sonnet, no reason -> BLOCKED
+  PASS  the tier refusal names the teammate
+  PASS  the tier refusal names the definition default
+  PASS  the tier refusal names the requested model
+  PASS  the tier refusal names the declaration it read
+  PASS  the tier refusal names the exact line to add
+  PASS  the tier refusal says equal-or-higher never needs it
+  PASS  frank on haiku, no reason -> BLOCKED
+  PASS  reed (sonnet default) on haiku, no reason -> BLOCKED
+  PASS  frank on sonnet WITH a reasoned model-downgrade-ack: -> allowed
+  PASS  a BARE model-downgrade-ack: exempts nothing -> BLOCKED
+  PASS  model-downgrade-ack: tolerates leading whitespace
+  PASS  model-downgrade-ack: does NOT relax clause 2b (untruthful name still BLOCKED)
+  PASS  a verbose lower-tier override id is normalized before ranking -> BLOCKED
+  PASS  an accepted model-downgrade-ack: is logged to .claude/state/model-downgrade-acks.log with both models
+  PASS  a REFUSED downgrade is not logged (a refusal is not a waiver)
+  PASS  an alias MODEL_TIERS does not rank -> allowed (fail-open)
+  PASS  the fail-open skip is announced, naming the unranked alias
+  PASS  the fail-open skip reaches the orchestrator as a systemMessage
+  PASS  a BLANK MODEL_TIERS -> allowed (fail-open), announced as blank
+  PASS  a MALFORMED MODEL_TIERS -> allowed (fail-open), announced as malformed
+  PASS  a broken declaration is NOT announced on a spawn that never needed it (no override)
+  PASS  a broken declaration is NOT announced on model:inherit
+  PASS  parser library missing -> allowed (fail-open), announced
+  PASS  the declared order is obeyed even when it contradicts the alias names: opus-default on haiku -> SILENT
+  PASS  the declared order is obeyed even when it contradicts the alias names: opus-default on fable (same tier) -> SILENT
+  PASS  the declared order is obeyed even when it contradicts the alias names: opus-default on sonnet -> BLOCKED
+  PASS  tool_input is not a dict (tool_name IS Agent)
+  PASS  tool_input is null (tool_name IS Agent)
+  PASS  totally invalid JSON body (no Agent tool_name resolvable)
+  PASS  marker use logged to .claude/state/main-checkout-runs.log
+  PASS  blocked spawn (no marker) must NOT be logged as a marker use
+  PASS  python3 missing from PATH -> BLOCKS (exit 2)
+  PASS  python3-missing stderr names the missing interpreter
+  PASS  reuse: fresh name allowed, and NOT burned into the ledger by this PreToolUse guard
+  PASS  reuse: a name this guard approved but never executed is re-issuable
+  PASS  reuse: ledger-recorded name reused -> block
+  PASS  reuse: active roster name -> block
+  PASS  reuse: completed name (event-log only) -> block
+  PASS  reuse: completed name (idle-log only) -> block
+  PASS  reuse: block message self-documenting (collision + fresh-id fix)
+  PASS  reuse: unrelated fresh name still allowed alongside roster
+  PASS  reuse: clause inert without a resolvable team dir
+  PASS  cwd into a REGISTERED cross-repo worktree, no isolation -> BLOCKED (external-only: no platform lifecycle witness)
+  PASS  external-only refusal names the witness it lacks and the form to use
+  PASS  external-only refusal names the cross-repo-worktree line
+  PASS  cwd into an UNREGISTERED linked worktree -> BLOCKED
+  PASS  unregistered-cwd message names the helper
+  PASS  unregistered-cwd message says the ledger holds no registration
+  PASS  cwd = a main checkout -> BLOCKED
+  PASS  cwd = nonexistent path -> BLOCKED
+  PASS  cwd together with isolation:worktree -> BLOCKED (mutually exclusive)
+  PASS  cwd+isolation message says mutually exclusive
+  PASS  cwd spawn with a bare name -> BLOCKED (name contract not relaxed)
+  PASS  cross-repo-worktree: REGISTERED path + isolation -> allowed
+  PASS  cross-repo-worktree: UNREGISTERED path + isolation -> BLOCKED
+  PASS  prompt instructing 'git -C <repo> worktree add' -> BLOCKED
+  PASS  hand-roll refusal names the helper and the ack
+  PASS  prompt instructing 'git worktree add' with a hand-roll-ack: line -> allowed
+  PASS  an ordinary prompt mentioning neither -> allowed (no false positive)
+  PASS  cwd spawn with the ledger library MISSING -> BLOCKED, naming the missing file (fail-closed)
+  PASS  an isolated spawn without the ledger library still passes (clause 4 is inert for it)
+  PASS  hand-roll-ack use is logged to .claude/state/hand-roll-acks.log
+  PASS  Q01  an allowed native spawn writes a spawn-intent (kind native, exact key, no externals)
+  PASS  Q02  a cwd-only spawn into a prepared tree is REFUSED at clause 7f and writes no spawn-intent (INVERTED: it used to write kind cwd)
+  PASS  Q03  isolation plus a cross-repo-worktree: line writes kind native+external
+  PASS  Q04  cwd into a tree prepared for ANOTHER session -> BLOCKED
+  PASS  Q05  the refusal names the session it WAS prepared for
+  PASS  Q06  cwd into a tree prepared for a DIFFERENT teammate -> BLOCKED
+  PASS  Q07  the refusal names the helper and the exact teammate to prepare for
+  PASS  Q08  prepared tree now on a DIFFERENT branch -> BLOCKED
+  PASS  Q09  the refusal names both branches
+  PASS  Q10  ...and back on the prepared branch -> still BLOCKED, by the external-only rule alone (positive control for Q08)
+  PASS  Q10b ...the branch finding is gone and the external-only refusal is the only one left
+  PASS  Q11  run_in_background: false on a file-capable spawn -> BLOCKED (synchronous runs cannot be bound)
+  PASS  Q12  the refusal explains the PostToolUse-too-late reason
+  PASS  Q13  run_in_background: true -> allowed (positive control for Q11)
+  PASS  Q14  a main-checkout-run spawn writes kind main-checkout-run with no members
+  PASS  Q15  a payload with NO tool_use_id -> BLOCKED (the intent cannot be keyed)
+  PASS  Q16  a read-only type writes no intent and is not refused
+  PASS  Q17  ...and nothing was written to the transaction store for it
+  PASS  Q18  a file-capable spawn with the transaction library MISSING -> BLOCKED, naming it (fail-closed)
+  PASS  Q18b a file-capable spawn with the transaction library PRESENT BUT NOT LOADABLE -> BLOCKED, naming it
+  PASS  Q18c a file-capable spawn with the write barrier NOT EXECUTABLE -> BLOCKED, naming it
+  PASS  Q18d ...and the same sandbox with every component healthy ALLOWS the spawn (positive control)
+  PASS  Q19a reconciler job NOT loaded (launchctl print fails) -> file-writing spawn BLOCKED, naming install.sh from the main checkout as the fix
+  PASS  Q19b reconciler job loaded and naming an EXISTING reconciler -> spawn allowed (positive control)
+  PASS  Q19c reconciler job loaded but pointing at a reconciler that DOES NOT EXIST (a removed checkout) -> BLOCKED, naming the path
+  PASS  Q19d a job under the label that runs something else -> BLOCKED
+  PASS  Q19e ...and with the transaction store redirected (a sandbox) and no explicit ask, the clause is inert: no machine-wide contract applies to a sandbox
+  PASS  Q19f a read-only type is not held to the reconciler contract (it owns no worktree)
+  PASS  Explore with NO generic-agent: line -> BLOCKED
+  PASS  Plan with NO generic-agent: line -> BLOCKED
+  PASS  refusal names the roster teammate as the fix
+  PASS  refusal says a generic agent is invisible in the team display
+  PASS  refusal says a generic agent leaves no commit
+  PASS  refusal names the hatch line by its exact shape
+  PASS  refusal separates the isolation exemption from the staffing question
+  PASS  Explore WITH a well-formed generic-agent: reason -> allowed
+  PASS  the hatch is recognized anywhere in the prompt, not only on line 1
+  PASS  the hatch tolerates leading whitespace
+  PASS  bare 'generic-agent:' with no reason -> BLOCKED
+  PASS  'generic-agent: because' -> BLOCKED
+  PASS  'generic-agent: n/a' -> BLOCKED
+  PASS  'generic-agent: -' -> BLOCKED
+  PASS  a too-short reason is refused BY LENGTH, named
+  PASS  a long-but-empty reason (stopwords only) -> BLOCKED
+  PASS  the filler refusal says so in those terms
+  PASS  reason 'faster to dispatch' -> BLOCKED
+  PASS  reason 'saves time' -> BLOCKED
+  PASS  reason 'more convenient' -> BLOCKED
+  PASS  the speed refusal names create-teammate-worktree.sh as the answer
+  PASS  a genuine reason mentioning worktrees is NOT read as a speed excuse
+  PASS  statusline-setup needs NO hatch (harness utility)
+  PASS  claude-code-guide needs NO hatch (harness utility)
+  PASS  general-purpose, isolated + well-named, NO hatch -> BLOCKED
+  PASS  general-purpose, isolated + well-named, WITH hatch -> allowed
+  PASS  general-purpose WITH hatch but NO isolation -> still BLOCKED (clauses 1-2 hold)
+  PASS  roster-style type, isolated, no hatch -> allowed (clause 5 inert)
+  PASS  roster-style type, isolated, no hatch, second name -> allowed
+  PASS  roster-style type WITHOUT isolation is still blocked by clause 1, not 5
+  PASS  a roster-type refusal is the ISOLATION message, never the staffing one
+  PASS  a type DECLARED in HARNESS_UTILITY_TYPES needs no hatch
+  PASS  a type merely ADDED to READONLY_ALLOWLIST still needs the hatch (default is deny)
+  PASS  an accepted generic-agent: hatch is logged to .claude/state/generic-agent-dispatches.log
+  PASS  a REFUSED generic-agent dispatch is not logged (a refusal is not a waiver)
+
+=== guard-worktree-isolation tests: all 174 passed ===
+=== guard-worktree-isolation clause 7 (spawn-intent): every property, proven load-bearing by removing it ===
+  PASS  intent-not-written — removing it turns "Q01" red
+  FAIL  externals-dropped — the suite still PASSED without this property.
+          a cwd spawn's external member would be missing from the intent; the tree the worker writes in would never be bound or cleaned up.
+  FAIL  prepared-not-required — the suite went red, but NOT at "Q04" (so the red is unrelated).
+            FAIL  Q05  the refusal names the session it WAS prepared for (stderr did not mention "session feedface teammate echo-opus-other1")
+            FAIL  Q07  the refusal names the helper and the exact teammate to prepare for (stderr did not mention "create-teammate-worktree.sh <repo> echo-opus-stranger1")
+  FAIL  branch-drift-ignored — the suite went red, but NOT at "Q08" (so the red is unrelated).
+            FAIL  Q09  the refusal names both branches (stderr did not mention "not the branch it was prepared on ('echo-opus-reg1')")
+  PASS  sync-spawn-allowed — removing it turns "Q11" red
+  PASS  lifecycle-check-removed — removing it turns "Q18" red
+  PASS  refusal-does-not-refuse — removing it turns "Q04" red
+
+=== mutation: 3 property(ies) NOT proven load-bearing, 4 proven ===
+=== rc=1 elapsed=308s ===
+
+===== install-reconciler-schedule.test.sh, provision-claude-md.test.sh,
+===== reconcile-terminal-worktrees.test.sh — macOS, in one pass
+===================== scripts/hooks/install-reconciler-schedule.test.sh
+rc=0
+=== install.sh schedules the reconciler ===
+=== install-reconciler-schedule tests: all 27 passed ===
+=== install-reconciler-schedule (the installer fails closed without its reconciler): every property, proven load-bearing by removing it ===
+=== mutation: all 5 properties proven load-bearing ===
+===================== scripts/provision-claude-md.test.sh
+rc=1
+  FAIL  provisioning: a first run generates CLAUDE.md and exits 0
+  FAIL  provisioning: the generated file names the CEO, so a bare boot knows who it serves
+  FAIL  provisioning: the generated file names the company
+  FAIL  provisioning: the generated file IS the Rich persona, not generic Claude
+  FAIL  provisioning: an unconfigured section says NOT CONFIGURED and forbids inventing a value
+  FAIL  provisioning: the file carries an engine-version provenance stamp
+  FAIL  provisioning: Rich is pointed at loro for company memory
+  FAIL  provisioning: Rich is told to scope a teammate slice with --audience worker
+  FAIL  provisioning: an unconfigured locale refuses to pick a dialect rather than defaulting to one
+  FAIL  provisioning: a configured locale reaches live doctrine verbatim, where an implementer reads it
+  FAIL  provisioning: an unchanged re-run reports up-to-date, not a rewrite
+  FAIL  provisioning: changed identity values REFRESH an unedited file
+===================== scripts/reconcile-terminal-worktrees.test.sh
+rc=0
+=== reconcile-terminal-worktrees tests ===
+  PASS  C19  original AND quarantine present -> resolved AUTOMATICALLY: the residue at the original path is archived and VERIFIED (residue-1.tar + manifest) then removed, the quarantine is captured and removed, nothing is reported as a failure and nobody is asked (INVERTED: it used to park as FAILED for an operator)
+  PASS  C44  a quarantine whose HEAD moved after the backup ref was saved: the moved HEAD is preserved under the drift ref, the original ref is untouched, the drift is recorded and the member is removed (INVERTED: provenance-contradicts-git used to park as FAILED)
+  PASS  C46  a legacy FAILED member is re-derived from what exists on disk, re-enters the state machine and is removed
+=== reconcile-terminal-worktrees tests: all 57 passed ===
+=== reconcile-terminal-worktrees (the persistent reconciler): every property, proven load-bearing by removing it ===
+=== mutation: all 33 properties proven load-bearing ===
+
+===== inflight-notify.mutation.sh — macOS (IN2's subject) =====
+=== inflight-notify.mutation.sh on macOS, clone of fc56c20 ===
+  PASS  handrolled-presumed-dead — removing it turns 2a. red
+  PASS  fires-inside-worktrees — removing it turns 7g. red
+  PASS  ack-any-sha — removing it turns 5m. red
+  PASS  ack-paths-unchecked — removing it turns 5e. red
+  PASS  no-footprint — removing it turns 6c. red
+  PASS  waiver-needs-no-reason — removing it turns 5l. red
+  PASS  no-timeout — removing it turns 8b. red
+  PASS  abspath-not-realpath — removing it turns 5j. red
+  PASS  identity-is-the-role — removing it turns 10c. red
+  PASS  credits-by-role — removing it turns 10d. red
+  PASS  credit-by-tokens-only — removing it turns 10b. red
+  PASS  address-forms-not-expanded — removing it turns 10l. red
+  PASS  teams-dir-single-or-nothing — removing it turns 11a. red
+  PASS  teams-dir-pointer-ignored — removing it turns 11c. red
+  PASS  refusal-points-at-hand-composition — removing it turns 2d. red
+  PASS  refusal-reprints-ack-template — removing it turns 2e. red
+  PASS  generator-asks-for-the-sha — removing it turns 2g. red
+  PASS  generator-drops-the-name — removing it turns 2h. red
+  PASS  generator-drops-paths — removing it turns 2i. red
+  PASS  generator-third-blank-field — removing it turns 2j. red
+  PASS  generator-ignores-operator-fields — removing it turns 2l. red
+  PASS  generator-body-grows — removing it turns 2m. red
+  PASS  generator-detail-unvalidated — removing it turns 2o. red
+
+[32m✓ 27/27 mutants killed — every property is load-bearing.[0m
+=== elapsed=402s ===
+
+===== inflight-notify.mutation.sh — LINUX, standalone, unprivileged =====
+# One mutant survives here and none survives on macOS. The property is
+# 'abspath-not-realpath', and it can only be proven load-bearing on a host where the
+# two differ — macOS, where /tmp is a symlink to /private/tmp. On Linux /tmp is real.
+=== inflight-notify.mutation.sh standalone on Linux, uid 1001 ===
+=== in-flight sweep: every property, proven load-bearing by removing it ===
+  PASS  notice-ignores-sha — removing it turns 3a. red
+  PASS  credit-first-match — removing it turns 9a. red
+  PASS  witness-logs-workers — removing it turns 3d. red
+  PASS  witness-logs-body — removing it turns 4d. red
+  PASS  handrolled-presumed-dead — removing it turns 2a. red
+  PASS  fires-inside-worktrees — removing it turns 7g. red
+  PASS  ack-any-sha — removing it turns 5m. red
+  PASS  ack-paths-unchecked — removing it turns 5e. red
+  PASS  no-footprint — removing it turns 6c. red
+  PASS  waiver-needs-no-reason — removing it turns 5l. red
+  PASS  no-timeout — removing it turns 8b. red
+  FAIL  abspath-not-realpath — the suite still PASSED without this property.
+          The symlinked-tmpdir mismatch would come straight back.
+  PASS  identity-is-the-role — removing it turns 10c. red
+  PASS  credits-by-role — removing it turns 10d. red
+  PASS  credit-by-tokens-only — removing it turns 10b. red
+  PASS  address-forms-not-expanded — removing it turns 10l. red
+  PASS  teams-dir-single-or-nothing — removing it turns 11a. red
+  PASS  teams-dir-pointer-ignored — removing it turns 11c. red
+  PASS  refusal-points-at-hand-composition — removing it turns 2d. red
+  PASS  refusal-reprints-ack-template — removing it turns 2e. red
+  PASS  generator-asks-for-the-sha — removing it turns 2g. red
+  PASS  generator-drops-the-name — removing it turns 2h. red
+  PASS  generator-drops-paths — removing it turns 2i. red
+  PASS  generator-third-blank-field — removing it turns 2j. red
+  PASS  generator-ignores-operator-fields — removing it turns 2l. red
+  PASS  generator-body-grows — removing it turns 2m. red
+  PASS  generator-detail-unvalidated — removing it turns 2o. red
+
+[31m✗ 26 killed, 1 SURVIVED.[0m
+=== elapsed=130s ===

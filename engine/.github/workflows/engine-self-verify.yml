@@ -40,14 +40,35 @@ name: engine-self-verify
 on:
   push:
   pull_request:
+  # So an adopter can demand the gate on a named SHA without touching their tree. The copy
+  # this engine runs for ITSELF carries this trigger and nothing else at the moment, for
+  # reasons that are about this repository's own red suites rather than about the engine —
+  # its header says which, and an adopter's tree is not held to them.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   verify:
+    # 45 MINUTES WAS NOT ENOUGH AND HAD NOT BEEN MEASURED. It was set when
+    # `run-all-tests.sh` was 24 suites taking about seven minutes. The suite is 60 now, and
+    # `contract-integrity.test.sh` alone was measured at 49.6 minutes on macOS and 18.2 on
+    # Linux. A full `ci-verify.sh` on Linux, from a fresh clone, came in at 69 minutes on a
+    # heavily loaded 10-CPU host on 2026-09-04.
+    #
+    # 150 is a little over twice that, because the measurement was taken on a contended
+    # arm64 container and `ubuntu-latest` is a 4-vCPU x86 VM, and this suite's cost is
+    # mostly serial mutation harnesses — bound by single-core speed, not by core count.
+    # Actions is free on a public repository, so a generous ceiling costs nothing and a
+    # tight one kills a green run at 95%. Tighten it against your own first green run.
+    #
+    # THE ENGINE'S SUITE IS SLOW BY DESIGN and this is the number that says so out loud. If
+    # it is too slow for your pipeline, the lever is `--only <section>` on
+    # `contract-integrity.test.sh` for local work — never a shorter timeout, and never
+    # dropping the suite from CI, which is where the full pass has to happen.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 150
     steps:
       - name: Checkout
         uses: actions/checkout@v5

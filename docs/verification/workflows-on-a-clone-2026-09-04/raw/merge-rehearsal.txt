@@ -1,0 +1,35 @@
+# THE MERGE, REHEARSED — because two green measurements of two different files say
+# nothing about the file that results from putting them together.
+#
+# zach-opus-p8 and this branch both edit engine/scripts/hooks/contract-integrity.test.sh:
+# p8 grew the sandbox's registered-hook manifest for guard-vendoring-commits.sh, and this
+# branch added a _sed_inplace helper plus four call sites in the MT and MC sections. p8
+# reports 165/165 on its branch; this branch reports its own Linux pass. Neither number
+# describes the merged file.
+#
+# Rehearsed in a scratch clone. Nothing here touches the real repository, this worktree,
+# or any branch anyone will land — the merge is left uncommitted on purpose, and the
+# identity guard refusing the rehearsal commit is visible below and is correct.
+
+===== the merge =====
+(the rehearsal's console output; the assertions below are the result)
+
+===== the merged file =====
+conflicts (git diff --diff-filter=U):  none
+_sed_inplace present:                  6 occurrences (1 helper + 4 call sites + 1 in prose)
+guard-vendoring-commits present:       1 occurrence
+sed -i '' remaining:                   1, and it is inside the comment that explains why
+bash -n:                               OK
+
+===== the merged suite, over every section either side touched =====
+# manifest / base / config are where p8's registration lands; MT / MC / MC6 are mine.
+# A scoped run exits 3 when green, by design — 0 would be the surprise, not 3.
+--only manifest : exit=3  PASS=10  FAIL=0
+--only base : exit=3  PASS=11  FAIL=0
+--only config : exit=3  PASS=14  FAIL=0
+--only MT : exit=3  PASS=9  FAIL=0
+--only MC : exit=3  PASS=9  FAIL=0
+--only MC6 : exit=3  PASS=1  FAIL=0
+
+# 54 cases, no failures. What this does NOT claim: it is not the full 165-case pass.
+# It is the intersection of the two changes, which is the question the merge raises.
