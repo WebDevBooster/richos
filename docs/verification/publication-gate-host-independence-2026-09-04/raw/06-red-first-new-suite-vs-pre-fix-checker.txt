@@ -1,0 +1,21 @@
+# 06-red-first-new-suite-vs-pre-fix-checker.txt
+#
+# THE SUITE RUN RED, ON PURPOSE, BEFORE IT WAS TRUSTED GREEN.
+#
+# The SHIPPED suite from this branch, run against the checker as it stood at
+# a97df07 -- both of its files restored byte for byte from git.
+# Six cases go red, and the sixth is the defect itself: the pre-fix checker
+# ACCEPTS an INSTANCE_MECHANISMS entry in a tree with no private source on the
+# disk, judges it stale, and returns 1. That is the fresh-clone red, reproduced
+# as a unit test.
+#
+# Only the FAIL lines and the tally are kept; the 47 passing lines are noise.
+
+$ <shipped suite> against a97df07's checker
+  FAIL  an unexcused private mechanism is MISPLACED, and the refusal names the marker (finding did not name 'instance-mechanism: <reason>')
+  FAIL  a BARE 'instance-mechanism:' with no reason exempts nothing (finding did not name 'with no reason')
+  FAIL  an 'instance-mechanism: <reason>' marker in the private file suppresses it (expected exit 0, got 1)
+  FAIL  and passes again with the private tree back — one tree, one verdict (expected exit 0, got 1)
+  FAIL  a marker on a mechanism coupled to nothing public FAILS as a stale exemption (expected exit 1, got 0)
+  FAIL  the RETIRED INSTANCE_MECHANISMS key → exit 2, naming where the concept went (expected exit 2, got 1)
+(exit 1)

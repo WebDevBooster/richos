@@ -1,0 +1,12 @@
+# 07-check-4-really-runs.txt
+#
+# Check 4 is NOT silently inert on the machine that has the private tree:
+# it walks it, 2768 files, and the gate is still green -- because the one
+# file it would otherwise report now carries its own marker.
+#
+# cwd: /Users/alex/ab/richos-wt/zach-opus-p6
+
+$ engine/scripts/publication-completeness.sh --root . --explain 2>&1 | grep -E 'private tree [a-z-]+ \(' ; engine/scripts/publication-completeness.sh --root . >/dev/null 2>&1; echo "gate exit: $?"
+private tree richos-hq (/Users/alex/ab/richos-hq): 2768 files walked
+gate exit: 0
+(exit 0)

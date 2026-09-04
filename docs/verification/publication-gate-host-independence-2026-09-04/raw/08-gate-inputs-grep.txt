@@ -1,0 +1,14 @@
+# 08-gate-inputs-grep.txt
+#
+# No path INTO the private repository survives in the gate's declaration
+# inputs. What remains is the repository's NAME and its ROOT, in the
+# boundary declaration, where the leak guards require both.
+#
+# cwd: /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/proof/clone/richos
+
+$ grep -n 'richos-hq/' .richos/publication-boundary .richos/publication-completeness; echo "--- exit of that grep: $? (1 = zero hits) ---"; grep -n 'richos-hq' .richos/publication-boundary
+--- exit of that grep: 1 (1 = zero hits) ---
+164:PRIVATE_RECORD="richos-hq — the private HQ repository, a sibling checkout of this one"
+168:# ../richos-hq is the private record itself: measured at 0.10s to walk in full,
+170:PRIVATE_SOURCES="docs/reference/local ../richos-hq"
+(exit 0)

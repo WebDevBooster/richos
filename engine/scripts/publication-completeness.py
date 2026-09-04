@@ -590,10 +590,10 @@ def check_workflows(tree, exempt, used, explain):
 # THE JUDGEMENT CALL IS MECHANISM vs INSTANCE DATA, and it is made
 # STRUCTURALLY rather than by opinion:
 #
-#   INSTANCE DATA  is content. `.ceo-todos` in richos-hq is one company's
-#                  declaration; CEO-TODOs.md is one company's TODOs. Correctly
-#                  private, and never a candidate here, because neither has a
-#                  shebang nor an executable extension.
+#   INSTANCE DATA  is content. A `.ceo-todos` in the private tree is one
+#                  company's declaration; CEO-TODOs.md is one company's TODOs.
+#                  Correctly private, and never a candidate here, because
+#                  neither has a shebang nor an executable extension.
 #
 #   MECHANISM      is executable. A shebang, or a .sh/.py/.mjs/.js/.rb/.ps1
 #                  extension. render-ceo-todos.mjs is one.
@@ -608,6 +608,55 @@ def check_workflows(tree, exempt, used, explain):
 # WHERE the private trees are is not guessed: it is read from PRIVATE_SOURCES
 # in .publication-boundary, which the operator already maintains for the
 # boundary guard. One declaration, two contracts, no second copy to drift.
+#
+# ===========================================================================
+# THE EXCUSE TRAVELS WITH THE THING IT EXCUSES
+# ===========================================================================
+# This is the one property of this check a reader must not get wrong, and it
+# was got wrong. `.publication-completeness` carried an INSTANCE_MECHANISMS key
+# naming a file inside a private sibling repository, and the result was a gate
+# whose verdict on the PUBLIC tree depended on what happened to be sitting next
+# to it on disk:
+#
+#   ON THE MACHINE THAT WROTE THE ENTRY the private root resolved, this check
+#   ran, the entry suppressed a real finding, and the gate was green.
+#
+#   IN A CLONE OF THE PUBLIC REPOSITORY ALONE — every CI runner, every reader,
+#   every contributor — no private root resolves, so this check does not run at
+#   all. The entry therefore suppressed nothing, and the "an exemption that
+#   suppresses nothing FAILS" rule at the bottom of this file fired over a file
+#   that is not in the tree being checked.
+#
+# Both verdicts were sincere and only one of them was about the published tree.
+# Note where the asymmetry actually lived: not in a path that failed to
+# resolve, but in a CHECK THAT DID NOT RUN while its exemption was still being
+# judged. The rule is not at fault and is not weakened here.
+#
+#       A VERDICT ON THE PUBLISHED TREE MAY NOT DEPEND ON THE OPERATOR'S
+#       MACHINE.
+#
+# So a private mechanism that is one operator's artifact rather than a withheld
+# capability now says so ON ITSELF:
+#
+#       instance-mechanism: <why this is one operator's artifact>
+#
+# anywhere in its own body. That is the discipline `dialect-exempt: <reason>`
+# and `main-checkout-run: <reason>` already use in this engine, for the same
+# reason — the declaration sits where the reviewer of that file cannot miss it
+# — and a BARE marker with no reason after it exempts nothing.
+#
+# THE MARKER IS ITSELF CHECKED, so it cannot outlive its justification any more
+# than a declaration entry could: a marker on a mechanism that couples to no
+# public contract suppresses nothing and is reported as STALE-EXEMPTION, naming
+# itself for deletion. That check runs wherever the file exists, which is the
+# only place it can mean anything.
+#
+# WHAT THE PUBLISHED TREE GAINS is a property rather than one fixed instance:
+# every key `.publication-completeness` still accepts — CITATION_EXEMPT,
+# DECLARATION_EXEMPT, WORKFLOW_EXEMPT — is a function of `git ls-files` and the
+# tracked bytes, so its staleness verdict is identical in every clone of that
+# tree. There is no key left whose meaning depends on the host, and the retired
+# one is refused BY NAME in the wrapper rather than quietly ignored.
 # ---------------------------------------------------------------------------
 
 EXEC_SUFFIXES = (".sh", ".py", ".mjs", ".js", ".rb", ".ps1", ".bash")
@@ -620,17 +669,30 @@ EXEC_SUFFIXES = (".sh", ".py", ".mjs", ".js", ".rb", ".ps1", ".bash")
 # exempt at its real path, and `guard-completeness-commits.sh` refuses EVERY
 # commit in the public repository until that agent's worktree goes away.
 #
-# Measured 2026-09-01: one isolated worktree at
-# `richos-hq/.worktrees/zach-opus-lo1` re-reported `pubcheck.sh`, which
-# INSTANCE_MECHANISMS has covered since 2026-08-30, and blocked an unrelated
-# commit in `richos`. Declaring the copy would be worse than useless: it names
-# an ephemeral path, and the "an entry that suppresses nothing FAILS" rule
-# would then fire the moment the worktree was reaped.
+# Measured 2026-09-01: one isolated worktree inside the private tree re-reported
+# an already-excused mechanism and blocked an unrelated commit in the public
+# repository. Declaring the copy would have been worse than useless: it names an
+# ephemeral path, and the "an entry that suppresses nothing FAILS" rule would
+# then have fired the moment the worktree was reaped. Under the marker the copy
+# carries the marker too, so it is excused either way — the skip still earns
+# its place by keeping one file from being reported twice.
 #
 # A worktree is a checkout of content that is already being walked at its
 # tracked path, so skipping it removes duplicates and never removes coverage.
 SKIP_DIRS = {".git", ".worktrees", "node_modules", "target", "dist", "build",
              ".venv", "__pycache__"}
+
+# The marker, in this engine's usual shape: at least one alphanumeric after the
+# colon, so a BARE `instance-mechanism:` is not an off switch anybody can type
+# into a file. guard-dialect.sh's DECLARED_EXEMPT_RE is the same regex for the
+# same reason, and its mutation suite proves that the one-character difference
+# between these two patterns is what stands between an escape hatch and an
+# amnesty.
+INSTANCE_MARKER_RE = re.compile(r"instance-mechanism:\s*[A-Za-z0-9]")
+# Matched only to say something USEFUL when a marker was written without a
+# reason. It never exempts anything; it changes the wording of the refusal from
+# "you may declare this" to "you tried to declare this and left the reason out".
+INSTANCE_MARKER_BARE_RE = re.compile(r"instance-mechanism:")
 
 
 def _is_mechanism(path):
@@ -643,7 +705,7 @@ def _is_mechanism(path):
         return False
 
 
-def check_misplacement(tree, private_roots, decl_names, exempt, used, explain):
+def check_misplacement(tree, private_roots, decl_names, explain):
     if not private_roots:
         return
     for label, root in private_roots:
@@ -669,18 +731,38 @@ def check_misplacement(tree, private_roots, decl_names, exempt, used, explain):
                 except OSError:
                     continue
                 coupled = sorted(d for d in decl_names if d in body)
-                if not coupled:
-                    continue
+                marked = bool(INSTANCE_MARKER_RE.search(body))
                 key = "%s/%s" % (label, rel)
-                if key in exempt:
-                    used.setdefault("INSTANCE_MECHANISMS", set()).add(key)
+                if not coupled:
+                    # A marker on a mechanism that couples to nothing public
+                    # excuses a finding that is not there. Same rule as a stale
+                    # declaration entry, evaluated here — beside the file —
+                    # because beside the file is the only place it can mean
+                    # anything.
+                    if marked:
+                        finding("STALE-EXEMPTION", key,
+                                "carries an `instance-mechanism:` marker and couples to no "
+                                "public contract, so the marker suppresses nothing. Either "
+                                "the declaration this file used to read has been renamed — "
+                                "in which case this file is broken and the marker is hiding "
+                                "it — or the coupling is gone and THE MARKER SHOULD BE "
+                                "DELETED. An exemption cannot outlive its own reason.")
                     continue
+                if marked:
+                    continue
+                bare = "" if not INSTANCE_MARKER_BARE_RE.search(body) else (
+                    " This file already carries a BARE `instance-mechanism:` with no reason "
+                    "after it, which exempts nothing — write the reason and it will.")
                 finding("MISPLACED", key,
                         "is an executable mechanism in the PRIVATE tree that reads the "
                         "public contract %s. The public tree ships the enforcement and "
-                        "withholds this. Move it into the published tree, or declare it "
-                        "instance-specific in .publication-completeness "
-                        "(INSTANCE_MECHANISMS)." % ", ".join("`%s`" % c for c in coupled))
+                        "withholds this. Move it into the published tree, or — if it is one "
+                        "operator's artifact rather than a capability a customer could use "
+                        "— write `instance-mechanism: <reason>` in the file itself. The "
+                        "excuse lives with the file because the published tree's verdict "
+                        "must not depend on which private trees this machine happens to "
+                        "have.%s"
+                        % (", ".join("`%s`" % c for c in coupled), bare))
         if explain:
             sys.stderr.write("private tree %s (%s): %d files walked\n" % (label, root, n))
 
@@ -707,8 +789,7 @@ def main():
         check_declarations(tree, set(exempt.get("DECLARATION_EXEMPT", [])), used, explain,
                            cfg.get("declaration_dir", ""))
         check_workflows(tree, set(exempt.get("WORKFLOW_EXEMPT", [])), used, explain)
-        check_misplacement(tree, cfg.get("private_roots", []), set(decls),
-                           set(exempt.get("INSTANCE_MECHANISMS", [])), used, explain)
+        check_misplacement(tree, cfg.get("private_roots", []), set(decls), explain)
     except Broken as e:
         sys.stderr.write("BROKEN: %s\n" % e)
         return 2
