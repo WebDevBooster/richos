@@ -2999,8 +2999,24 @@ function closeMemorySetup() {
 async function provisionMemory() {
   memorySetupGoEl.disabled = true;
   let next;
+  // THE PATH HE WAS ASKED ABOUT, HELD ONCE. It is the argument the command is given and the
+  // string the next screen shows — one variable, not two reads that happen to agree.
+  //
+  // THE DEFECT THIS CLOSES (ray-opus-a1, first run of the installed v1.0.0, 2026-09-04): the
+  // sheet asked about the folder in his home directory, he pressed the button, and the result
+  // named the pointer in Application Support instead — a different location from the one he
+  // agreed to, on the one screen that is explicitly about trusting this app with his data.
+  // Nothing had moved: provision writes a symlink beside the corpus and the re-resolution
+  // finds that symlink first, so the answer comes back under the alias's name. The folder is
+  // right and the SENTENCE was wrong, and a careful person reading it concludes he was
+  // overruled about where his record lives.
+  //
+  // (No path is spelled out in this file. The suite forbids a corpus path in the surface at
+  // all — the location comes from the backend or not at all — and a path in a COMMENT is a
+  // second opinion waiting to drift from the one on screen.)
+  const consented = memoryState.offered_location;
   try {
-    next = await Bridge.invoke("provision_memory", { location: memoryState.offered_location });
+    next = await Bridge.invoke("provision_memory", { location: consented });
   } catch (e) {
     memorySetupNoteEl.textContent = String(e);
     memorySetupGoEl.disabled = false;
@@ -3017,7 +3033,9 @@ async function provisionMemory() {
   // it caches is known to be stale.
   await refreshDesk();
   const readable = next.state === "ready";
-  openMemorySetup(readable ? MEMORY_DONE : MEMORY_NO_READER, next.root, { canProvision: false });
+  // `consented`, and deliberately NOT `next.root`: the two name one directory, and the one he
+  // is owed is the one he answered a question about.
+  openMemorySetup(readable ? MEMORY_DONE : MEMORY_NO_READER, consented, { canProvision: false });
 }
 
 memorySetupGoEl.addEventListener("click", provisionMemory);

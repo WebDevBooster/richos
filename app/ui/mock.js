@@ -1569,7 +1569,20 @@
                 "either way."
             );
           memoryState = memoryCompilerPresent ? "ready" : "no-compiler";
-          memoryRoot = given;
+          // THE ANSWER THE SHIPPED BACKEND ACTUALLY GIVES, which is not the location it was
+          // handed. `provision` creates the corpus at `given` and writes a symlink beside it
+          // at `~/Library/Application Support/RichOS/corpus`; `provision_memory` then
+          // re-resolves through `resolve_corpus`, whose candidate 3 IS that symlink, so the
+          // status it returns names the POINTER. Measured on the installed v1.0.0 by
+          // ray-opus-a1 on 2026-09-04:
+          //
+          //   ~/Library/Application Support/RichOS/corpus -> /Users/alex/RichOS/corpus
+          //
+          // One directory, two names. Until this line the mock echoed `given` straight back,
+          // so the surface was rehearsed against an agreement the real backend does not
+          // supply — and the one screen where the app asks him to trust it with his record
+          // could name a folder he never agreed to with every suite green.
+          memoryRoot = "/Users/you/Library/Application Support/RichOS/corpus";
           // AND THE DESK OPENS, in the same call, because the real one now does
           // (`main.rs::install_correction_desk`, called from `provision_memory`). Until
           // 2026-09-01 the field it writes to was fixed at boot, so a fresh user got a

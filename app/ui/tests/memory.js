@@ -158,12 +158,27 @@ async function main() {
   await run.check("3  one press, and it says the thing is done", async () => {
     const page = await openApp(browser, { memory: "none" });
     await page.waitForSelector("#memory-setup:not([hidden])");
+    const asked = (await page.textContent("#memory-setup-location")).trim();
     await page.click("#memory-setup-go");
     await page.waitForFunction(() =>
       (document.getElementById("memory-setup-note").textContent || "").indexOf("That's set up") === 0
     );
     const text = await dialogText(page);
     assert(text.indexOf("That's set up") >= 0, text);
+    // THE PATH HE AGREED TO IS THE PATH HE IS SHOWN — the second half of ray-opus-a1's
+    // 2026-09-04 first run, where the sheet asked about `/Users/alex/RichOS/corpus` and the
+    // result reported `/Users/alex/Library/Application Support/RichOS/corpus`. Nothing had
+    // moved: `provision` writes a pointer beside the corpus and the backend re-resolves
+    // through it, so the status comes back under the alias's name. The mock returns that
+    // same alias, so this comparison is against the answer the shipped backend gives and not
+    // against a double that agrees by construction.
+    const reported = (await page.textContent("#memory-setup-location")).trim();
+    assertEqual(
+      reported,
+      asked,
+      "the consent sheet asked about one folder and the result named another — on the one " +
+        "screen that is about trusting this app with his record"
+    );
     assert(await page.isHidden("#memory-setup-go"), "nothing left to set up, so nothing offers to");
     assert(await page.isVisible("#memory-setup-close"), "a finished dialog needs a way out");
     // ONE PRESS. Not two, not a wizard.
@@ -171,10 +186,10 @@ async function main() {
       () => window.__calls.filter((c) => c.cmd === "provision_memory").length
     );
     assertEqual(provisionCalls, 1, "his whole part is one click");
-    bump(4);
+    bump(5);
     assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
     await page.close();
-    return "1 click -> 1 command -> \"That's set up.\"";
+    return "1 click -> 1 command -> \"That's set up.\", still naming " + JSON.stringify(asked);
   });
 
   await run.check("4  a refusal reaches the screen, as it stands", async () => {
@@ -244,15 +259,26 @@ async function main() {
     const sites = MAIN_JS.match(/invoke\(\s*"provision_memory"/g) || [];
     assertEqual(sites.length, 1, "one door, or a default has somewhere to hide");
     assert(
-      /invoke\("provision_memory",\s*\{\s*location:\s*memoryState\.offered_location\s*\}\)/.test(MAIN_JS),
+      /const consented = memoryState\.offered_location;/.test(MAIN_JS),
+      "the location the window showed must be held in one variable, not re-read"
+    );
+    assert(
+      /invoke\("provision_memory",\s*\{\s*location:\s*consented\s*\}\)/.test(MAIN_JS),
       "the one call site must pass the location the window showed"
+    );
+    // AND THE SAME VARIABLE IS WHAT THE RESULT RENDERS. Two reads of `offered_location`
+    // would also happen to agree today and would stop agreeing the moment the backend
+    // answered under another name — which is precisely what it does.
+    assert(
+      /openMemorySetup\(readable \? MEMORY_DONE : MEMORY_NO_READER, consented,/.test(MAIN_JS),
+      "the result screen must render the location he consented to, from the same variable"
     );
     // And nothing in the surface composes a path of its own.
     assert(
       !/["'`][^"'`]*\/RichOS\/corpus/.test(MAIN_JS),
       "main.js must not contain a corpus path — the location comes from the backend or not at all"
     );
-    bump(3);
+    bump(5);
     return "1 call site, passing `memoryState.offered_location`, and no path literal in the surface";
   });
 
@@ -290,6 +316,9 @@ main().catch((e) => {
 //        -> the company question is asked never, and the composer stays blocked
 //  2   main.js `provisionMemory`: invoke with { location: "~/RichOS/corpus" }
 //        -> the string sent stops being the string he was shown
+//  3   main.js `provisionMemory`: pass `next.root` to the closing openMemorySetup
+//        -> the result names the pointer in Application Support and not the folder he agreed
+//           to, which is exactly what the installed v1.0.0 did on 2026-09-04
 //  2b  index.html: add an <input> to the dialog
 //        -> the CEO is asked to type a path
 //  3   main.js `provisionMemory`: leave memorySetupGoEl visible after success
