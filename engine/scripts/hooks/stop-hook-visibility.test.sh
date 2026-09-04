@@ -36,13 +36,18 @@
 # ===========================================================================
 # RELATIONSHIP TO engine-status.test.sh's COUNT TRIPWIRE
 # ===========================================================================
-# That suite carries a deliberately hand-typed `REGISTERED_N -eq 27` beside its
-# derived fraction, so that adding a guard is something a human has to
-# acknowledge rather than absorb. THIS CHANGE DOES NOT MOVE IT, and that is the
-# honest outcome rather than an omission: nothing here registers a new hook.
+# That suite carries a deliberately hand-typed ACKNOWLEDGED_SCRIPTS set beside
+# its derived fraction, so that registering a hook is something a human has to
+# acknowledge rather than absorb. It is quoted here BY NAME and with no number:
+# this comment used to say `REGISTERED_N -eq 27` and was still saying it at 51,
+# because a literal copied into a second file is a second inventory that nothing
+# checks -- the exact defect both suites exist to kill, sitting in the sentence
+# describing it. THIS CHANGE DOES NOT MOVE THAT SET, and that is the honest
+# outcome rather than an omission: nothing here registers a new hook.
 # The notice channel is a LIBRARY that existing Stop hooks source, so
 # hooks.json is untouched and the tripwire is untouched. If a later change to
-# this area does wire a hook, that line is the one to update — never to silence.
+# this area does wire a hook, that set is the thing to add the name to — never
+# to silence.
 # It also already carries the caveat that the banner's noun is one wide, since
 # turn-manifest.sh is counted there and renders rather than guards.
 #

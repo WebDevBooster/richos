@@ -151,8 +151,9 @@ echo ""
 # method deliberately unlike the shipped one (a text scan, not a JSON parse):
 # two independent readings of the registration surface must agree.
 # ===========================================================================
-REGISTERED_N="$(grep -o 'scripts/hooks/[A-Za-z0-9._+-]*\.sh' "$HOOKS_JSON" \
-    | sed 's|.*/||' | LC_ALL=C sort -u | grep -c .)"
+REGISTERED_LIST="$(grep -o 'scripts/hooks/[A-Za-z0-9._+-]*\.sh' "$HOOKS_JSON" \
+    | sed 's|.*/||' | LC_ALL=C sort -u)"
+REGISTERED_N="$(printf '%s\n' "$REGISTERED_LIST" | grep -c .)"
 # The announcer is deliberately excluded from a count of GUARDS: it guards
 # nothing, and its own term could never be unsatisfied (no announcer, no
 # banner). engine-status.sh excludes it self-referentially, by its own
@@ -380,10 +381,106 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # a test fixture; never fired for a real agent) and hold no destructive
 # authority any more; the only removal path is the terminal ingress plus the
 # reconciler.
-if [ "$REGISTERED_N" -eq 50 ]; then
-    ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+# 50 -> 51 on 2026-09-03: guard-model-ceiling.sh, wired LAST on
+# PreToolUse[Agent] at b96b1f7 -- the guard that refuses a spawn above the
+# declared MODEL_CEILING. Thirteenth firing, and the FIRST one nobody
+# acknowledged: b96b1f7's own message says "Counted, in every inventory that
+# exists" and names five (Layer R, BR2, Layer C, Layer M, install.sh's managed
+# set). This one is not among them, so case 1b was RED ON MAIN from 19:31 that
+# evening until it was read. The tripwire worked; the list of places to look
+# was the thing that was short.
+#
+# WHY THE THRESHOLD IS NOW A SET AND NOT A NUMBER
+# ===============================================
+# It stays TYPED -- deriving both sides would make this "X == X", true forever
+# and incapable of firing, which is deleting the case rather than fixing it.
+# But an integer was the wrong resolution for the job, in two ways this file
+# had already been bitten by:
+#
+#   * A COUNT CANNOT SEE A SWAP. Remove one registration and add another in the
+#     same land and 51 is still 51: a new guard slips in unacknowledged and a
+#     removed one goes unmourned, with a green tick over both. The line
+#     directly above this block is exactly that shape -- 51 -> 50 was a
+#     REMOVAL, and had an addition ridden along with it nothing here would have
+#     said a word.
+#   * A COUNT MADE THE FAILURE MESSAGE LIE. The threshold counts the
+#     registration surface with the announcer IN; the banner's fraction has it
+#     OUT. They differ by exactly one, so when the true registration was 51 the
+#     message read "hooks.json registers 51 scripts -- the banner should now
+#     read 50/50" at a moment when the banner ALREADY read 50/50 and was
+#     correct. An instruction that looks satisfied on arrival is an instruction
+#     nobody carries out. Both scales are named explicitly below.
+#
+# So the acknowledged thing is the SET, one name per line: a human still has to
+# look, the diff says WHICH script arrived or left instead of leaving the next
+# reader to bisect hooks.json for it, and a merge of two branches that each
+# wired a guard conflicts per-line rather than over one contested integer.
+ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+detect-nonnative-worktree.sh
+engine-status.sh
+guard-agent-state-claims.sh
+guard-bash-main-writes.sh
+guard-ceo-ask-first.sh
+guard-ceo-ruled-ask.sh
+guard-ceo-todos-commits.sh
+guard-completeness-commits.sh
+guard-definition-drift.sh
+guard-dialect.sh
+guard-idle-land.sh
+guard-inflight-notify.sh
+guard-interactive-prompt.sh
+guard-main-checkout-writes.sh
+guard-model-ceiling.sh
+guard-publication-commits.sh
+guard-publication-writes.sh
+guard-resume-isolation.sh
+guard-row-currency-commits.sh
+guard-sealed-worktree.sh
+guard-stated-actions.sh
+guard-unresolved-claims.sh
+guard-workflow-ban.sh
+guard-worktree-isolation.sh
+guard-worktree-removal.sh
+notice-ceo-asks.sh
+notice-ceo-ruled-prose.sh
+notice-ceo-unasked.sh
+notice-hook-staleness.sh
+notice-inflight-acks.sh
+notice-inflight-sends.sh
+notice-mechanical-findings.sh
+notice-unasked-deferral.sh
+notice-unstarted-rows.sh
+notice-waiver-repetition.sh
+reader-teammate-hint.sh
+record-subagent-start.sh
+scan-secrets.sh
+session-start-ceo-ask.sh
+session-start-reap-worktrees.sh
+snapshot-agent-definitions.sh
+snapshot-enforcing-hooks.sh
+task-completed-handoff.sh
+teammate-idle-handoff.sh
+terminalize-agent-worktrees.sh
+turn-manifest.sh
+verify-agent-prompt.sh
+worker-created-handoff.sh
+worker-ended-handoff.sh
+worker-started-handoff.sh
+worker-updated-handoff.sh
+ACK
+)"
+ACKNOWLEDGED_N="$(printf '%s\n' "$ACKNOWLEDGED_SCRIPTS" | grep -c .)"
+NEWLY_REGISTERED="$(comm -13 \
+    <(printf '%s\n' "$ACKNOWLEDGED_SCRIPTS") \
+    <(printf '%s\n' "$REGISTERED_LIST") | tr '\n' ' ')"
+NO_LONGER_REGISTERED="$(comm -23 \
+    <(printf '%s\n' "$ACKNOWLEDGED_SCRIPTS") \
+    <(printf '%s\n' "$REGISTERED_LIST") | tr '\n' ' ')"
+
+if [ -z "${NEWLY_REGISTERED// /}${NO_LONGER_REGISTERED// /}" ]; then
+    ok "1b  sanity: hooks.json registers exactly the $REGISTERED_N scripts acknowledged here (announcer included), so the banner reads ${EXPECT_N}/${EXPECT_N} guards"
 else
-    bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
+    bad "1b  sanity" "the registration surface MOVED and nothing in this file acknowledged it. NEWLY REGISTERED: ${NEWLY_REGISTERED:-none}. NO LONGER REGISTERED: ${NO_LONGER_REGISTERED:-none}. hooks.json registers $REGISTERED_N scripts against $ACKNOWLEDGED_N acknowledged -- that scale COUNTS THE ANNOUNCER; the banner's ${EXPECT_N}/${EXPECT_N} does not, and is already right either way, so do not go looking for a wrong banner. The fix is to add or remove the named script in ACKNOWLEDGED_SCRIPTS in scripts/hooks/engine-status.test.sh and write one line above it saying what it is and why. Never to silence this case."
 fi
 
 case "$OUT" in
