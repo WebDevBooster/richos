@@ -1559,6 +1559,85 @@ async function main() {
     );
   });
 
+  await run.check("a display that will not draw the picture says so AT ONCE, and never shouts", async () => {
+    // THE FAILURE THE RUNNER FOUND, DRIVEN. `ui-suite-ci` run 33879245990 on a GitHub
+    // `macos-latest` runner logged this, three times, in three different suites:
+    //
+    //     console: WebGL: context lost.
+    //     Unhandled Promise Rejection: Error: null
+    //     attribute vec2 a_pos; attribute float a_z; …
+    //
+    // That is `field-engine.js`'s `shader()` throwing `getShaderInfoLog(s) + '\n' + src`
+    // with a NULL info log, because the context had gone — and the throw is inside an async
+    // IIFE, so nobody was holding the promise. `home.js` recovered correctly and it took
+    // eight seconds to do it, because the only way it could learn was to time out.
+    //
+    // The engine now catches its own throw into `window.__loroFailed` and `settled()` reads
+    // it. This check is what makes that a claim rather than a comment: it reproduces the
+    // runner's throw AT ITS OWN SITE — `getShaderParameter` returning false is exactly what
+    // sends `shader()` into that `throw` — and holds the product to three things.
+    //
+    // THIS MACHINE HAS WORKING WEBGL, WHICH IS WHY THE FAILURE IS PLANTED. A check that
+    // passes because the environment lacks the thing that breaks it is not a check; the
+    // environment is given the defect here instead of being trusted not to have it.
+    const p5 = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const noise = [];
+    p5.on("pageerror", (e) => noise.push("pageerror: " + String(e)));
+    p5.on("console", (m) => {
+      if (m.type() === "error") noise.push("console: " + m.text());
+    });
+    await p5.addInitScript(() => {
+      const proto = WebGLRenderingContext.prototype;
+      const orig = proto.getShaderParameter;
+      proto.getShaderParameter = function (sh, pname) {
+        if (pname === this.COMPILE_STATUS) return false;
+        return orig.apply(this, arguments);
+      };
+      // And the null info log the runner really returned, so the message shape matches too.
+      proto.getShaderInfoLog = function () {
+        return null;
+      };
+    });
+    await p5.goto(APP);
+    await p5.waitForFunction("typeof window.RichHome === 'object'");
+    const t0 = Date.now();
+    await p5.waitForFunction("window.RichHome.state.field === 'degraded'", { timeout: 20000 });
+    const took = Date.now() - t0;
+    const r = await p5.evaluate(() => ({
+      field: window.RichHome.state.field,
+      why: window.RichHome.state.fieldError,
+      said: (document.getElementById("home-loading").textContent || "").trim(),
+      loro: !!window.__loro,
+      failed: window.__loroFailed || null,
+      switchReachable: !!document.getElementById("home-enter"),
+      settingsReachable: !!document.querySelector(".setbtn"),
+    }));
+    // 1. IT DEGRADES, and says the true sentence rather than sitting on "waking loro…".
+    assertEqual(r.field, "degraded", "a display that cannot draw the picture left the surface claiming it could");
+    assert(!r.loro, "the engine published itself after failing to start");
+    assert(
+      /I couldn't draw the picture on this display/.test(r.said),
+      "the honest sentence is not on screen — it says: " + JSON.stringify(r.said)
+    );
+    // 2. AT ONCE. The eight-second deadline is the backstop for a failure nothing can be
+    //    told about; a failure the engine KNOWS about must not wait for it. Two seconds is
+    //    generous for a page load on any machine and a third of the deadline it replaces.
+    assert(r.failed, "the engine did not report its own failure — settled() is back on the timeout");
+    assert(took < 2000, `the surface took ${took}ms to admit it — that is the eight-second deadline, not the report`);
+    // 3. AND IT DOES NOT SHOUT. An unhandled rejection is what a crash reporter files, what a
+    //    console fills with, and what made three unrelated splash checks red on that runner.
+    const unhandled = noise.filter((n) => /Unhandled Promise Rejection|pageerror/.test(n));
+    assertEqual(unhandled, [], "the failure reached the console as an unhandled rejection");
+    // ...and the way through is still there, which is the whole point of degrading.
+    assert(r.switchReachable && r.settingsReachable, "degrading took the way out or the settings button with it");
+    await p5.close();
+    return (
+      `the shader refused, the surface admitted it in ${took}ms (was an 8000ms deadline), said ` +
+      `"${r.said}", published no picture, kept the switch and the settings button, and reached ` +
+      `the console with 0 unhandled rejections · the engine's own words: ${JSON.stringify(r.failed)}`
+    );
+  });
+
   await run.check("a launch with NO curtain at all lands on the home screen, dark, and usable", async () => {
     // THE CEO'S OWN MACHINE IS ABOUT TO TAKE THIS PATH. His `launches.json` carries a start
     // this branch's own `open(1)` runs put there, and `splash.js` declines to draw on anything
