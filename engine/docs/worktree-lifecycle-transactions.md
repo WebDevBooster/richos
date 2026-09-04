@@ -66,6 +66,20 @@ the root of its worktree and commit it can still do exactly that; under an
 empty pattern set `git add` would have refused the path. Cheap is not worth a
 broken escalation channel.
 
+**Why not the platform's own setting.** `worktree.sparsePaths` (Claude Code
+2.1.76) checks out only named directories "via git sparse-checkout", and a later
+release fixed `extensions.worktreeConfig` cleanup "after the last
+`worktree.sparsePaths` worktree was removed". The platform therefore creates
+sparse worktrees deliberately and tolerates them by design — which is
+corroboration worth having. It is still the wrong instrument for this: its
+changelog entry names `claude --worktree` only, where the `worktree.baseRef`
+entry explicitly enumerates "`--worktree`, `EnterWorktree`, and agent-isolation
+worktrees", so whether it reaches an agent-isolation worktree is **unproven**;
+and it is repository-wide, so it cannot tell a never-read shell from a plain
+native worker's workspace. Stripping the second is the outcome this design
+exists to avoid. The decision belongs to the transaction, which knows the spawn
+kind.
+
 **What is never removed.** Only tracked files whose content is at HEAD, and
 therefore in the object store, are de-materialized. Untracked files are
 untouched, ignored files are untouched (the `.worktreeinclude`-seeded `.env`

@@ -55,6 +55,26 @@ of a NEW root file succeeds under these patterns, and so does the commit
 "paths ... outside of your sparse-checkout definition". Cheap is not worth a
 broken escalation channel.
 
+THE PLATFORM HAS ITS OWN SPARSE SETTING, AND IT IS THE WRONG TOOL HERE —
+which is worth stating because the first instinct is to reach for it.
+`worktree.sparsePaths` (Claude Code 2.1.76) checks out only named directories
+"via git sparse-checkout", and a later fix cleans up `extensions.worktreeConfig`
+"after the last `worktree.sparsePaths` worktree was removed". So the platform
+creates sparse worktrees deliberately and tolerates them by design — useful
+corroboration for property 1, and the reason this file is not fighting the
+harness.
+
+It still cannot do this job, for two reasons and neither is a preference.
+Its changelog entry names `claude --worktree` only, where the `worktree.baseRef`
+entry explicitly enumerates "`--worktree`, `EnterWorktree`, and agent-isolation
+worktrees" — so whether it reaches an agent-isolation worktree at all is
+UNPROVEN, and it was not tested here because testing it means changing a
+repository-wide setting on a live repository. And repository-wide is the second
+reason: one setting cannot tell a never-read SHELL from a plain native worker's
+WORKSPACE, and stripping the second is the one outcome this whole design exists
+to avoid. The decision belongs to the transaction, which knows the spawn kind;
+it does not belong to a repository.
+
 WHAT IS *NOT* REMOVED, and this is the answer to "is sparse a data-loss
 path": sparse-checkout removes only tracked files whose content is at HEAD
 and recoverable from the object store. It does not touch untracked files, it
