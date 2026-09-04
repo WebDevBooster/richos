@@ -112,33 +112,70 @@ claim worth being able to check.
 | Apple `iconutil` | Apple system tool | `.icns` assembly, same script |
 | Playwright | Apache-2.0 | `app/ui/tests` — a devDependency of the browser acceptance harness. Not part of any bundle; excluded from the shipped frontend by `app/src-tauri/build.rs` and gated by `app/scripts/frontend-payload.test.sh`. |
 
-## Compiled dependency inventory — NOT YET GENERATED, and why
+## Compiled dependency inventory — GENERATED, and where it lives
 
-The pre-publication audit inspected dependency metadata for 108 packages in the
-app workspace, 498 in the Tauri workspace and 11 in the native probe, and found
-no obviously proprietary dependency. It also flagged two things that must be
-recorded accurately rather than rolled into the AGPL claim: the **MPL-2.0**
-packages in the tree, and **`r-efi`**, which offers an LGPL alternative
-alongside permissive ones.
+`docs/legal/THIRD-PARTY-RUST-DEPENDENCIES.md` is the per-package inventory of
+every Rust dependency that resolves in this repository: 498 distinct
+third-party packages across the three workspaces, each with its version, the
+license its publisher declares, and whether it reaches a macOS binary at all.
 
-A per-package inventory is **not** published here yet, and the reason is
-structural rather than an oversight:
+**Every one of them may be distributed as part of an AGPL-3.0-only combined
+work.** Nothing in the tree is proprietary and nothing carries terms that
+conflict with the AGPL.
 
-1. **Neither `Cargo.lock` is tracked.** `app/.gitignore` ignores both. An
-   inventory generated today would be pinned to whatever versions resolved on
-   this machine this morning — and the two untracked lockfiles on the
-   development machine already disagree with each other, carrying `r-efi`
-   5.3.0 and 6.0.0 in the Tauri workspace and 6.0.0 in the app workspace. A
-   license list keyed to versions nobody can reproduce is not evidence; it is a
-   document that looks like evidence.
-2. **There is no release bundle to inventory.** The audit's own wording is "for
-   the actual release bundle", and no release, tag or signed artifact exists.
+The two things the pre-publication audit told us not to round up are answered
+there in full rather than summarized here, because a second copy of a legal
+finding is a second thing that can go stale:
 
-**So this is a gate, not a TODO.** Before any RichOS binary is distributed:
-track and commit both lockfiles, generate the inventory from them with a tool
-that reads the resolved graph rather than the manifests, review the MPL-2.0 and
-`r-efi` entries explicitly, and add the result to this file with the lockfile
-digests it was generated from.
+- **MPL-2.0** — five packages. Reciprocal per file, and section 3.3 expressly
+  permits distributing the Larger Work under the GNU AGPL v3 provided no
+  covered file carries the Exhibit B notice. None does.
+- **`r-efi`** — offered as "MIT OR Apache-2.0 OR LGPL-2.1-or-later". RichOS
+  takes the MIT branch, and the package is a UEFI binding that is never
+  compiled for either Darwin target. Its two coexisting versions are explained
+  there too: the Tauri workspace is deliberately detached and resolves
+  independently, and inside it two semver-major lines of `getrandom` coexist.
+
+### Why it can be trusted, which is the part that took the work
+
+Until 2026-09-04 this section said the inventory did **not** exist, and gave a
+structural reason: `app/.gitignore` ignored both `Cargo.lock` files, so an
+inventory generated on any given morning would have been keyed to whatever
+versions resolved that morning on one machine. A license list keyed to versions
+nobody can reproduce is not evidence; it is a document that looks like evidence.
+
+Both lockfiles are now tracked. The inventory is generated from them by
+`app/scripts/dependency-license-inventory.sh`, which:
+
+- discovers its workspaces as every `Cargo.lock` git tracks, so a fourth Rust
+  workspace appears with no edit to the tool;
+- reads the **resolved graph** via `cargo metadata --locked`, which refuses to
+  run at all if a lockfile would have to change;
+- records the sha256 of each lockfile it read, so the document's identity is
+  the lockfile rather than a date;
+- **refuses to produce a document** if any package declares no license, or
+  declares one that has never been reviewed against AGPL-3.0-only. A new
+  dependency arriving under unreviewed terms is the event this inventory exists
+  to catch, and rendering it as a row saying "unknown" would convert the
+  finding into a line of text.
+
+`app/scripts/dependency-license-inventory.sh --check` fails if the committed
+document no longer describes the committed lockfiles. Run it after any
+dependency change; it is the only way this document can lie.
+
+### What is still open before a binary ships
+
+The audit's wording was "for the actual release bundle", and there is still no
+release, tag or signed artifact. Two things therefore remain, and they belong
+to the release work rather than to this file:
+
+- **Build the release with `--locked`.** `app/scripts/package-app.sh` invokes
+  `cargo tauri build` without it, so a release build would use the committed
+  lockfile but would not be *refused* if it had to deviate from it. CI already
+  passes `--locked` on both of its cargo steps.
+- **Carry these notices inside the artifact.** The engine asset already does
+  this and has a packaging test that opens the archive and refuses it when
+  license material is missing. The application bundle needs the same.
 
 Nothing above blocks publishing the **source**. The AGPL obligations attach to
 what this repository contains, and every bundled work in it is named here with

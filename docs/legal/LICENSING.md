@@ -59,11 +59,20 @@ RichOS bundles skills, tools and fonts written by other people. Each stays under
 the license it arrived with — Apache-2.0, MIT and the SIL Open Font License, all
 compatible with distributing the combined work under the AGPL.
 
-`docs/legal/THIRD-PARTY-NOTICES.md` is the inventory: seven bundled skills and
-tools, four font families, the authoring-time tools that never ship, and the
-compiled-dependency inventory that is deliberately still open with its
-preconditions stated. Each entry names the upstream, a pinned revision or a
-declared version, the copyright holder and the path to the full terms.
+`docs/legal/THIRD-PARTY-NOTICES.md` is the inventory of what is BUNDLED: seven
+skills and tools, four font families, and the authoring-time tools that never
+ship. Each entry names the upstream, a pinned revision or a declared version,
+the copyright holder and the path to the full terms, and each was verified
+against that upstream rather than carried forward.
+
+`docs/legal/THIRD-PARTY-RUST-DEPENDENCIES.md` is the inventory of what is
+COMPILED IN: every Rust package the tracked lockfiles resolve, with its
+version, its declared license and whether it reaches a macOS binary. It is
+generated from the lockfiles by `app/scripts/dependency-license-inventory.sh`
+and keyed to their sha256, so it describes a graph anybody can reproduce. Two
+documents rather than one because provenance is hand-verified and a resolved
+graph is derived, and a file that mixes the two invites the derived half to be
+trusted as far as the hand-checked half.
 
 ## Where the license text appears
 
@@ -87,6 +96,8 @@ any bundled third-party directory has lost its own license file.
 - `LICENSE` — the license itself.
 - `docs/legal/BRAND-ASSETS.md` — the brand exclusion and trademark position.
 - `docs/legal/THIRD-PARTY-NOTICES.md` — bundled third-party work and its terms.
+- `docs/legal/THIRD-PARTY-RUST-DEPENDENCIES.md` — the generated per-package
+  inventory of every compiled Rust dependency, keyed to the lockfile digests.
 - `engine/LICENSING.md` — the same story scoped to the engine, which is
   distributed on its own and therefore has to be able to answer for itself.
 
