@@ -20,8 +20,19 @@ says nothing about scope on its own. That silence was a real gap until
 
 ## What is excluded, exactly
 
-Every path below is excluded from the AGPL grant. Nothing outside this list is
-excluded — if a file is not named here, the AGPL covers it.
+Every path below is excluded from the AGPL grant **as brand material**. This
+list is complete for the brand: if a file is not named here, it is not withheld
+on brand grounds.
+
+**It does not follow that everything else is AGPL.** This repository also carries
+work by other authors, redistributed under the licenses it arrived with — that
+material is neither brand nor AGPL, and it is inventoried separately in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). An earlier version of this
+page said the AGPL covered everything it did not name, which was wrong in a way
+that mattered: it contradicted the notices document, and two shipping legal
+documents disagreeing is worse than either being vague. **Three categories, not
+two** — RichOS-authored software under the AGPL, RichOS brand material listed
+here, and third-party work under its own terms.
 
 ### Image and vector files
 
@@ -48,20 +59,28 @@ here. The exclusion is the artwork, not the prose about the artwork.
 
 ### Artwork embedded in source files
 
-Three constants hold the mark's drawing instructions as data inside JavaScript
+Four places hold the mark's drawing instructions as data inside shipped source
 files. **The files themselves stay under the AGPL as software.** What is
-excluded is the artwork those constants encode — the outline geometry of the
-RichOS mark and wordmark:
+excluded is the artwork those constants and elements encode — the outline
+geometry of the RichOS mark and wordmark:
 
 | File | Constant | What it encodes |
 |---|---|---|
 | `app/ui/splash.js` | `LOGO` | The RichOS mark, `viewBox 0 0 744 744`, two paths |
 | `app/ui/splash.js` | `WORDMARK` | The v3.5 wordmark, `viewBox 0 0 3299.1 754.5`, seven paths |
 | `app/ui/home.js` | `MARK_SVG` | The same v3.5 wordmark, as inline SVG markup |
+| `app/ui/index.html` | `#rail-wordmark` | The same v3.5 wordmark again, as an inline `<svg>` element with `viewBox 0 0 3299.1 754.5` |
 
-They are named by constant rather than by line number because line numbers move
-and a legal boundary that drifts with an unrelated edit is not a boundary. At
-the time of writing they are at `splash.js` 283–301 and `home.js` 173–183.
+They are named by constant or element id rather than by line number because line
+numbers move and a legal boundary that drifts with an unrelated edit is not a
+boundary. At the time of writing they are at `splash.js` 283–301, `home.js`
+173–183 and `index.html` 128.
+
+The `index.html` copy was missing from this table until 2026-09-04. It was found
+by re-running the inventory rather than by reading the list, which is the only
+way a missing entry is ever found — a list cannot report what it does not
+contain. Anyone adding a further copy of the mark adds a row here in the same
+commit.
 
 **What this means in practice for a fork:** take the file, keep the renderer,
 replace the path data with your own mark. Everything around the constants — the
