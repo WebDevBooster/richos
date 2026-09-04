@@ -180,11 +180,26 @@ is quieter than the fact deserves, and a reader comparing that directory against
 American spelling substitutions of the same kind.
 
 Nothing hazardous follows from either. MIT requires only that the notice travel
-with the copy, and it does. What follows is narrower and worth naming: **a guard
-that rewrites vendored files will keep manufacturing "modified" rows**, one
-sweep at a time, until vendored paths are exempt from it. That is a defect with
-a known remedy, it belongs to whoever owns the guard, and it is recorded here
-rather than fixed here.
+with the copy, and it does. What follows is narrower and worth naming, in two
+parts.
+
+**The sweep manufactures "modified" rows.** It will keep doing so, one pass at a
+time, for as long as vendored paths are in its scope — and each pass costs
+somebody the work of establishing that the difference is only spelling.
+
+**The guard now makes the correct repair impossible.** `guard-dialect.sh`
+refuses a write whose new content carries a non-American word. It does not know
+a vendored path either, so **re-vendoring `natural-transitions.md` from upstream
+today would be blocked** — and so is writing upstream's spelling into a notice
+that explains the difference. That is not hypothetical: while this section was
+being written, an attempt to quote the two upstream words was refused, and the
+sentence above is phrased around the block rather than through it. A guard that
+forbids restoring a file to its upstream state has turned a cosmetic drift into
+a one-way door.
+
+The remedy is the same for both and it is small: exempt vendored third-party
+paths. It belongs to whoever owns the guard, and it is recorded here rather than
+fixed here.
 
 Until it is fixed, the rule is the one this file already follows: **do not revert
 the edits to make a row read better.** Record what the tree actually contains.
