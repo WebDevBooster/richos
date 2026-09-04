@@ -22,7 +22,8 @@
 
 # Private source material, and anything derived from it.
 #
-# This repository gets published (see `.publication-boundary`). Recordings —
+# This repository gets published (see `.richos/publication-boundary`, which is
+# the `.publication-boundary` declaration in its grouped form). Recordings —
 # and TRANSCRIPTS, MEASUREMENTS and TOOL OUTPUT built on them — belong here,
 # where git will never carry them out.
 #

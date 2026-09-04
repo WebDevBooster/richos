@@ -629,8 +629,10 @@ the two. On one real day, four rows of one record described work as unbuilt
 hours after it had landed, and every one was found by a person reading the page,
 because a person reading the page was the only detector there was.
 
-Create a **`.row-currency`** file at the root of the repository that owns your
-record and each governed row carries a **warrant** — a status word, and every
+Create a **`.row-currency`** file in the repository that owns your record —
+either at its root, or as `.richos/row-currency`, which is the same declaration
+in the grouped form — and each governed row carries a **warrant**: a status
+word, and every
 path that row describes pinned to the object id it had when the row was written:
 
 ```
@@ -709,8 +711,18 @@ Some repositories go public. If yours does, create a **`.publication-boundary`**
 file at its root. That one committed file is the declaration, and it switches on
 both halves of the split — nothing is inferred, exactly as `orchestration.config`
 declares engine adoption. Its own header documents every key it takes; copy this
-engine's repository-root copy and edit `PRIVATE_RECORD` and `PRIVATE_SOURCES` to
-name where your private material actually lives.
+engine's own copy, at `.richos/publication-boundary`, and edit `PRIVATE_RECORD`
+and `PRIVATE_SOURCES` to name where your private material actually lives.
+
+**Where these declarations live.** Every one of them is read through
+`scripts/lib/declaration-path.sh`, which looks in `.richos/` first and at the
+repository root second, so both forms work and neither has to be migrated. This
+repository groups its own three in `.richos/` because a public repository's root
+listing is the first thing a stranger reads; see
+[`.richos/README.md`](../.richos/README.md). Declaring the same thing in both
+places at once is BROKEN rather than a choice between them, and a file in
+`.richos/` that no contract resolves is BROKEN too — otherwise moving one in
+there would switch its contract off in silence.
 
 **Half one — may this leave?** `guard-publication-writes.sh` (at the write) and
 `guard-publication-commits.sh` (at `git commit`, against the staged index, which
@@ -739,8 +751,9 @@ When a finding is genuinely not a defect — a reference tree whose paths descri
 **`.publication-completeness`** file beside the boundary declaration, with the
 reason in a comment. That escape hatch is safe to have because an entry which
 suppresses nothing FAILS and names itself for deletion, so an exemption cannot
-outlive its reason. The engine's own copy is at the repository root; read it for
-the four keys and for what each exemption is actually buying.
+outlive its reason. The engine's own copy is at
+`.richos/publication-completeness`; read it for the four keys and for what each
+exemption is actually buying.
 
 ## The meta-roles (ship working)
 

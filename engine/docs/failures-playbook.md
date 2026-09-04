@@ -367,8 +367,9 @@ produced the rule" is correct, and it assumes the repository is a private
 workspace. That assumption is false the moment a repository is published, and
 nothing in the writing habit notices.
 
-**The rule:** it has two modes, and `.publication-boundary` at the repository
-root is the signal for which one you are in. Private: unchanged, write it all.
+**The rule:** it has two modes, and `.publication-boundary` — at the repository
+root or at `.richos/publication-boundary` — is the signal for which one you are
+in. Private: unchanged, write it all.
 Published: the file carries the rule and the general reasoning in full; the
 incident that caused it lives in the private record with a one-line pointer.
 The test is **identifying detail**, not "is it an incident" — and it applies to

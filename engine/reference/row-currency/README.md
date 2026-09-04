@@ -118,6 +118,13 @@ argument nobody can inspect is one nobody should believe.
 | `row-currency.example` | `.row-currency` in the repository that owns the record |
 | `row-currency-peer.example` | `.row-currency` in a repository where the work lives and the record does not |
 
+Either one goes at the repository root, or at `.richos/row-currency` — the
+engine resolves the grouped form first and the root form second, so both work
+and neither has to be migrated. Grouping is a preference about what a
+repository's root listing looks like and changes nothing else. Declaring the
+same thing in both places at once is refused as BROKEN rather than resolved to
+one of them.
+
 Copy one, edit it, and run the lint against your own repository before you
 write a single warrant:
 

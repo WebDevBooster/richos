@@ -12,6 +12,45 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **Declarations may be grouped in `.richos/`, and where one lives is now a
+  single question with a single answer** (`scripts/lib/declaration-path.sh`,
+  hashed by `install.sh`) — MINOR.
+
+  Adoption in this engine is PRESENCE: a committed file at the governed
+  repository's root switches a contract on. That is right, and it costs one
+  root entry per contract. `richos` paid three of them, on a repository whose
+  GitHub home page renders the root listing before anything else.
+
+  `.publication-boundary`, `.publication-completeness` and `.row-currency` may
+  now live at `.richos/<stem>` instead. The declaration NAMES are unchanged —
+  `PUBLICATION_DECLARATION` is still `.publication-boundary`, which is what
+  `publication-completeness.sh` derives its own subject list from and what
+  every refusal message names. Only the directory moved, and the leading dot
+  came off on the way in, because a hidden file inside a hidden directory is
+  one nobody browsing `.richos/` would ever see.
+
+  **The root form still resolves, and that is not a courtesy.** The engine is
+  loaded at user scope over every repository on a machine; `femcboost` carries
+  a root `.row-currency` today. A path edit that made a root declaration
+  unfindable would not have failed — it would have STOOD THE GUARD DOWN, and a
+  stood-down publication guard is indistinguishable from a clean one at every
+  place an operator looks. So resolution goes through one file, a missing
+  resolver is BROKEN rather than a quiet fall back, and declaring the same
+  thing in both places at once is BROKEN rather than a choice between them.
+
+  **A file in `.richos/` that nothing resolves is BROKEN too**, and that rule
+  is the point of the directory rather than tidiness: without it, moving
+  `.ceo-todos` in there would switch its contract off in silence. `.richos/`
+  therefore holds only the declarations named in `DECL_ADOPTED_STEMS` and a
+  `README.md`, and a declaration adopting the directory adds its stem in the
+  same edit that makes it call `decl_find`.
+
+  Sixteen new cases prove it by REFUSAL rather than by load — a transcript
+  still blocked, a vanished warrant still refused, a dangling citation still
+  reported, each with its benign counterpart passing silently in the same
+  sandbox. `publication-boundary.test.sh` 121 → 130, `row-currency.test.sh`
+  70 → 76, `publication-completeness.test.sh` 37 → 43.
+
 - **The model COST ceiling is enforced at the spawn** (`MODEL_CEILING` in
   `orchestration.config`, `scripts/hooks/guard-model-ceiling.sh`,
   `scripts/lib/resolve-model.sh`, `contract-integrity-probe.sh` Layer MC) —
