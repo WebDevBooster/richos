@@ -1,0 +1,150 @@
+-------------------------------------------------------------------------------
+building RichOS 0.1.0 for v0.1.0
+  engine pin : 1.0.0  bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96
+             : http://127.0.0.1:8974/richos-engine-1.0.0.tar.gz  (verified published)
+  signing    : adhoc
+  manifest   : https://github.com/WebDevBooster/richos/releases/download/v0.1.0/RichOS.app.tar.gz
+-------------------------------------------------------------------------------
+
+RichOS packaging entrypoint
+  repository app dir : /Users/alex/ab/richos-wt/zach-opus-p13/app
+  signing mode       : adhoc
+  bundle targets     : app
+
+checking the app icons before building (the build gate re-checks independently)...
+OK: every artefact declared in tauri.conf.json bundle.icon is present, correctly sized, and distinct.
+
+SIGNING: ad-hoc. What that costs, every time:
+
+  An ad-hoc bundle embeds no designated requirement, so macOS stores the raw
+  code hash as the identity of every permission it grants — and nothing else.
+  The moment this build differs by one shipped byte from the installed one, it
+  is A DIFFERENT APPLICATION to macOS: microphone and accessibility grants
+  start at zero, and toggling the switch in System Settings provably does not
+  migrate a grant (measured 2026-08-24, richos-hq/wiki/packaging-and-signing.md).
+  Voice mode and paste-at-cursor will need granting again after installing this.
+
+  Measured here 2026-08-30, because the distinction matters: what moves the
+  hash is the BYTES, not the act of rebuilding. Three consecutive runs of this
+  script over an unchanged tree — and one over a tree whose only edit was dead
+  code the optimizer removed — all produced cdhash fc5051ac…, i.e. the same
+  application and a surviving grant. Changing ONE shipped string moved it to
+  27a561ef…. So this is not a tax on rebuilding; it is a tax on every change
+  you would actually ship.
+
+  The fix is a Developer ID certificate. The MEMBERSHIP that gates it exists as
+  of 2026-08-31 (CEO decision 1.1, closed); the certificate is a separate step.
+
+  LOUD NOTE: this machine has 1 Developer ID Application identit(y/ies), so
+  a signed build IS possible now. It was NOT used, because nothing asked for
+  it. Re-run with --sign developer-id (the identity is discovered).
+
+building (release) with RICHOS_REQUIRE_REAL_ICONS=1 — the icon gate is FATAL for this build...
+  build paths remapped out of the binary ($HOME, $CARGO_HOME, /Users/alex/ab/richos-wt/zach-opus-p13/app);
+  the produced bundle is checked for leftovers before it is signed.
+
+        Warn --no-sign flag detected: Signing will be skipped.
+        Info Looking up installed tauri packages to check mismatched versions...
+        Warn The bundle identifier "com.richos.app" set in `"tauri.conf.json" identifier` ends with `.app`. This is not recommended because it conflicts with the application bundle extension on macOS.
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/zach-opus-p13/app/crates/richos-core)
+   Compiling richos-tauri v0.1.0 (/Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri)
+    Finished `release` profile [optimized] target(s) in 29.00s
+       Built application at: /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/richos-tauri
+    Bundling RichOS.app (/Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app)
+        Warn Skipping signing due to --no-sign flag.
+    Bundling /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (/Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz)
+    Finished 1 bundle at:
+        /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app
+        /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (updater)
+
+        Warn Updater signing is skipped due to --no-sign flag.
+
+checking the bundle for build-machine paths...
+no-host-paths: clean — no home-directory path in /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app
+
+ad-hoc signing the bundle (the bundler does not: it signs only with a real identity)...
+/Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app: replacing existing signature
+
+  the designated requirement macOS will store against every grant:
+    cdhash H"2b31e77b68473606099cb986afd65386521e1dc9"
+  — a hash of THIS build. No bundle identifier, no team, nothing a later
+    build can satisfy. That is the whole of the grant problem, in one line.
+
+verifying the artefact that was produced (not the builder's exit code)...
+
+  removed the bundler's own RichOS.app.tar.gz: it was made from the
+  bundle BEFORE this script signed it, so it packaged an unsigned application.
+
+building the update artifacts from the bundle that was just verified...
+  archive : /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz
+  members : 9, all rooted at RichOS.app/
+  bytes   : 9896982
+  sha256  : 16e4ed0643513df2d5b69504c56637f4e1c3259108dc765c793bc129ece11c03
+  OK: 9 member(s), one root, Info.plist present, 1 executable, 0 symlink(s)
+
+signing it with /Users/alex/.richos-signing/richos-updater.key (mode 600)...
+
+verifying that signature against plugins.updater.pubkey in tauri.conf.json...
+VERIFIED: /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (9896982 bytes) is signed by the key in /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/tauri.conf.json
+
+  update artifact : /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz
+  signature       : /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz.sig
+  version         : 0.1.0
+  platform key    : darwin-aarch64
+  bytes           : 9896982
+  sha256          : 16e4ed0643513df2d5b69504c56637f4e1c3259108dc765c793bc129ece11c03
+  manifest        : /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/latest.json
+  announced url   : https://github.com/WebDevBooster/richos/releases/download/v0.1.0/RichOS.app.tar.gz
+
+  Gatekeeper assessment (spctl): rejected
+
+OK: RichOS.app is bundled, ad-hoc signed and verified — real icons, cdhash 2b31e77b68473606099cb986afd65386521e1dc9, microphone usage string present; NOT notarized, Gatekeeper rejects it, and its permission grants die on the next build that changes a shipped byte. Path: /Users/alex/ab/richos-wt/zach-opus-p13/app/src-tauri/target/release/bundle/macos/RichOS.app
+
+  the engine digest IS inside the executable, so the signature covers it.
+
+making the first-install archive from the finished bundle...
+  extracted and checked: codesign OK; stapled ticket: not requested
+  Gatekeeper on the extracted copy: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T//richos-install-check.WZgUaH/RichOS.app: rejected 
+
+checking the manifest with the updater's own RemoteRelease type...
+VERIFIED: /Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0/latest.json
+  version      : 0.1.0
+  platform key : darwin-aarch64
+  url          : https://github.com/WebDevBooster/richos/releases/download/v0.1.0/RichOS.app.tar.gz
+  signature    : matches /Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0/RichOS.app.tar.gz.sig and verifies over /Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0/RichOS.app.tar.gz (9896982 bytes)
+  notes        : A rehearsal of the release chain, not a release.
+
+writing SHA256SUMS over everything that will be published...
+RichOS-0.1.0-macos-aarch64.zip: OK
+RichOS.app.tar.gz: OK
+RichOS.app.tar.gz.sig: OK
+latest.json: OK
+richos-engine-1.0.0.tar.gz: OK
+
+  cedf5ab9db3df4a930179320ce1052b03f381915fbd88a1285f7c96b2e1870e8  RichOS-0.1.0-macos-aarch64.zip
+  16e4ed0643513df2d5b69504c56637f4e1c3259108dc765c793bc129ece11c03  RichOS.app.tar.gz
+  600caf91c9e204b41d70c4275bd6811161717043f3932744dab022fc1813b6eb  RichOS.app.tar.gz.sig
+  23080156e56a2f197383edfafba22d6ef56407407dd9a3f02aff9d691ad541d7  latest.json
+  bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96  richos-engine-1.0.0.tar.gz
+
+-------------------------------------------------------------------------------
+STAGED: /Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0
+  total 42728
+  -rw-r--r--@ 1 alex  staff      656  4 Sep 14:00 engine-pin.env
+  -rw-r--r--  1 alex  staff      337  4 Sep 14:00 engine-published.ok
+  -rw-r--r--@ 1 alex  staff      703  4 Sep 14:01 latest.json
+  -rw-r--r--  1 alex  staff  9928949  4 Sep 14:01 RichOS-0.1.0-macos-aarch64.zip
+  -rw-r--r--  1 alex  staff  2021895  4 Sep 13:59 richos-engine-1.0.0.tar.gz
+  -rw-r--r--@ 1 alex  staff  9896982  4 Sep 14:01 RichOS.app.tar.gz
+  -rw-r--r--  1 alex  staff      404  4 Sep 14:01 RichOS.app.tar.gz.sig
+  -rw-r--r--  1 alex  staff      440  4 Sep 14:01 SHA256SUMS
+-------------------------------------------------------------------------------
+NEXT, and nothing here did it. latest.json goes LAST:
+
+  gh release upload v0.1.0 --repo WebDevBooster/richos \
+      '/Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0/RichOS.app.tar.gz' '/Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0/RichOS.app.tar.gz.sig' \
+      '/Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0/RichOS-0.1.0-macos-aarch64.zip' '/Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0/SHA256SUMS'
+  gh release upload v0.1.0 --repo WebDevBooster/richos '/Users/alex/ab/richos-wt/zach-opus-p13/app/target/release-staging/v0.1.0/latest.json'
+  app/scripts/make-release.sh verify-release --tag v0.1.0
+-------------------------------------------------------------------------------
+EXIT=0

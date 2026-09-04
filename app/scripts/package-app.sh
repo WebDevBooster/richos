@@ -885,6 +885,32 @@ export RICHOS_REQUIRE_REAL_ICONS=1
 richos_cargo_home="${CARGO_HOME:-$HOME/.cargo}"
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$HOME=/build --remap-path-prefix=$richos_cargo_home=/build/cargo --remap-path-prefix=$app_dir=/build/app"
 
+# THE STAGED FRONTEND HAS TO EXIST BEFORE THE CLI LOOKS FOR IT, and on a tree nobody has
+# built yet it does not. `build.rs` fills `app/ui-dist` (see its `stage_frontend`), but
+# build.rs runs during the cargo build and tauri-cli checks the directory BEFORE that:
+# `tauri-cli-2.11.4/src/build.rs:198-207` bails with "Unable to find your web assets" on
+# nothing more than `!web_asset_path.exists()`. So a FRESH CLONE could not be packaged at
+# all — measured 2026-09-04, exit 4 on the first build in a new worktree — while the same
+# command succeeded on this machine's older checkout only because an earlier build had left
+# the directory behind. A release cut from a clean checkout is the normal case, not the odd
+# one.
+#
+# The fix is the DIRECTORY and not its contents, deliberately: the CLI tests existence only,
+# and build.rs then stages the real tree and panics if anything about it is wrong. Copying
+# the frontend here would be a second staging implementation that could drift from the one
+# that decides what ships.
+staged_frontend="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build"]["frontendDist"])' "$src_tauri/tauri.conf.json")"
+case "$staged_frontend" in
+  /*) staged_frontend_abs="$staged_frontend" ;;
+  *)  staged_frontend_abs="$src_tauri/$staged_frontend" ;;
+esac
+if [ ! -d "$staged_frontend_abs" ]; then
+  mkdir -p "$staged_frontend_abs" || { warn "could not create the staged frontend directory $staged_frontend_abs"; exit 3; }
+  say ""
+  say "  created the staged frontend directory $staged_frontend_abs — it did not exist, and"
+  say "  tauri-cli refuses to start a build without one. build.rs fills it during the build."
+fi
+
 say ""
 say "building (release) with RICHOS_REQUIRE_REAL_ICONS=1 — the icon gate is FATAL for this build..."
 say "  build paths remapped out of the binary (\$HOME, \$CARGO_HOME, $app_dir);"

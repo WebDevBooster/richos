@@ -76,23 +76,59 @@ readable by other users of the Mac — the same two rules the Apple notary key a
 leaked updater key cannot be revoked: the public half is compiled into every copy already
 installed, so the only remedy is a new key and a release nobody with the old build can reach.
 
-### THE KEY IN `tauri.conf.json` TODAY IS A TEST KEY
+### THE SHIPPING KEY, AND WHY IT WAS ROTATED BEFORE ANYTHING WAS INSTALLED
 
-minisign key ID **`A6BCB0F9A1ADED42`**, generated 2026-08-31, passwordless, private half at
-`~/.richos-signing/richos-updater-TEST.key` (mode 600 in a 700 directory).
+minisign key ID **`2F218991C928FD0A`**, generated 2026-09-04, private half at
+`~/.richos-signing/richos-updater.key` (mode 600, in a 700 directory, outside every
+repository). The public half is `plugins.updater.pubkey` and is compiled into every build.
 
-**A real release key has not been generated.** Doing so is one command, and it is deliberately
-not done here because the choice that goes with it is not an engineering one: a release key
-should carry a password, and where that password lives (a password manager, the login
-keychain, a CI secret) is a decision about how releases get made. When it is made:
+It replaced key `A6BCB0F9A1ADED42`, whose private half is still on this Mac as
+`richos-updater-TEST.key` and now signs nothing.
+
+**Why it was rotated at all, when the two keys are cryptographically identical.** Because
+the old one was called TEST, and it was the default key of an automated harness that also
+generates deliberately wrong keys to prove refusals. A file with that name and that job gets
+deleted by somebody tidying up, and deleting it is not recoverable: the public half is
+compiled into every installed copy, so the only remedies are never shipping another update
+or reinstalling by hand on every machine that has one. The name was a standing invitation to
+destroy the one thing that can produce a valid update.
+
+**Why now and not later.** Rotating costs a rebuild while RichOS is installed nowhere but
+this Mac, and one manual reinstall per machine after that. Today it was free. Every day it
+is not.
+
+**It has no password, and that is a decision rather than an omission.** A password protects
+the key file at rest — against a backup, a synced home directory, a paste into somewhere it
+should not be — and protects nothing against anybody who can already read a mode 600 file on
+this Mac. Where the password would live is the same question as how releases get made, and
+today they are made by hand, here. When releases move to CI that answer changes and so
+should this. Treat adding a password as a NEW KEY PAIR unless something proves otherwise:
+`cargo tauri signer` has exactly two subcommands, `generate` and `sign`, and neither of them
+re-encrypts an existing key.
+
+**A leaked key cannot be revoked.** There is no revocation list and no expiry; the compiled-in
+public key is the whole of the trust decision. A leak means a new key and a release that
+nobody with an old build can reach.
+
+```
+# generate, OUTSIDE every git worktree
+cargo tauri signer generate -w "$HOME/.richos-signing/richos-updater.key" -p ''
+
+# sign a release
+export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.richos-signing/richos-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=''
+app/scripts/package-app.sh --updater
+```
+
+`package-app.sh` **refuses** a key path inside a git worktree, and **refuses** a key file
+readable by other users of the Mac — the same two rules the Apple notary key already has.
+
+If the pair is ever replaced again:
 
 1. `cargo tauri signer generate -w "$HOME/.richos-signing/richos-updater.key" -p '<password>'`
 2. put the `.pub` contents into `plugins.updater.pubkey`
-3. rebuild — the pubkey is compiled in, so **every installed copy must be replaced by hand
-   once**, because a copy carrying the old key will refuse everything signed by the new one.
-
-Doing the swap before RichOS is installed anywhere but this Mac costs nothing. Doing it after
-costs a manual reinstall for every copy.
+3. rebuild — and **every installed copy must be replaced by hand once**, because a copy
+   carrying the old key refuses everything signed by the new one.
 
 ### One consequence of a `pubkey` existing at all, measured rather than assumed
 
@@ -163,34 +199,70 @@ serves a file tree works without a server.
 
 ---
 
-## Where it would be hosted — NOT AN ENGINEERING DECISION, AND NOT MADE
+## Where updates are hosted — DECIDED 2026-09-04: GitHub Releases
 
 The endpoint committed in `tauri.conf.json` is
 
 ```
-https://updates.richos.invalid/{{target}}/{{arch}}/{{current_version}}
+https://github.com/WebDevBooster/richos/releases/latest/download/latest.json
 ```
 
-`.invalid` is reserved by RFC 2606 and can **never** resolve. That is deliberate: a
-plausible-looking hostname committed now would fail as a DNS error six months from now and
-read as a bug. Instead the app recognises the placeholder and reports `unconfigured` — a third
-state beside "up to date" and "failed" — which says the true thing on screen: *"There is no
-update server yet… Where updates are published has not been decided."*
+One static document, on the host the repository already lives on, reached through GitHub's
+`latest` pointer so the URL compiled into every installed copy never has to change again.
+`app/RELEASING.md` is the procedure; what follows is why this URL and not another.
 
-The options, with the trade-off. **The CEO chooses.**
+**`{{target}}`, `{{arch}}` and `{{current_version}}` are gone from the endpoint, deliberately.**
+The plugin substitutes them into the URL (`updater.rs:475-487`), which is what lets one
+endpoint address a per-platform file tree — and GitHub Releases is a flat asset store that
+templates nothing, so a path built from them would simply 404. The per-platform split moves
+into the document instead: `RemoteRelease` has two shapes, and the STATIC one is a
+`platforms` map keyed by `{os}-{arch}` (`updater.rs:79-86`, `download_url`/`signature`).
+One manifest carries every platform, and an Intel entry is a key beside the Apple silicon
+one rather than a second URL.
 
-| Option | What it costs | What it buys | The catch |
-|---|---|---|---|
-| **GitHub Releases** (the repo is already on GitHub) | nothing | a versioned URL per release, and the artifacts live beside the tag that made them | the repository is private, so release assets need a token — and a token in a shipped app is not a secret. Public releases from a private repo are possible but publish the artifact to anyone with the URL. **Also: GitHub Actions is dead across richos on a billing block, so the release would be uploaded by hand.** |
-| **Cloudflare R2 / S3 + a CDN** | a few dollars a month at this volume; egress on R2 is free | a plain static host, no server, `{{target}}` templating works as a file tree, and the bill does not scale with a customer count we do not have | a domain and a DNS record have to exist first — which is the same decision as the marketing site's |
-| **A tiny endpoint on existing infrastructure** (Railway is already in use elsewhere) | one more service to keep alive | it can answer `204 No Content` for "not yet", and can stage a release to one machine before everyone | it is a server, so it can be down, and an update path that is down is invisible until someone looks |
-| **Nothing, for now** | nothing | honest | the app says `unconfigured` forever, and every release is a manual reinstall — which is exactly the row this work was raised against |
+**The redirect chain resolves, and it was measured rather than assumed.** GitHub answers
+`/releases/latest/download/<asset>` with a 302 to `/releases/download/<tag>/<asset>`, which
+redirects again to its asset CDN. Measured 2026-09-04 against a public Tauri project that
+publishes exactly this file:
 
-The engineering is indifferent between the first three: all of them serve one JSON document and
-one `.tar.gz`, and the app does not care which. What differs is who owns the domain, who pays,
-and whether a release can be staged.
+```
+$ curl -sSL -o /dev/null -w '%{http_code} %{num_redirects} %{content_type}\n' \
+       https://github.com/ayangweb/EcoPaste/releases/latest/download/latest.json
+200 3 application/octet-stream
+```
 
----
+Three redirects, and `reqwest`'s default policy — which the plugin never overrides — follows
+up to ten (`reqwest-0.13.4/src/redirect.rs:160-165`). The `Content-Type` comes back as
+`application/octet-stream` rather than `application/json`, which does not matter: the plugin
+reads the body with `Response::json`, and that deserializes the bytes without ever looking at
+the content type (`reqwest-0.13.4/src/async_impl/response.rs:269-273`). Both of those are the
+kind of thing a copied blog pattern gets right by luck.
+
+**The failure mode this shape has, stated plainly.** `latest/download/<asset>` resolves
+against whatever GitHub currently calls the latest release, and it 404s when that release
+does not carry the asset. The same measurement found two live projects in exactly that
+state — their newest release has no `latest.json`, so their updater endpoint answers 404 for
+every installed copy. So:
+
+* every release that ships an application MUST carry `latest.json`, and it is uploaded LAST,
+  after the archive it names is already reachable;
+* a release that ships something else — an engine asset on its own, say — must be marked
+  pre-release, or it becomes "latest" and takes the manifest away from everybody.
+
+`app/RELEASING.md` enforces both in the script rather than in a person's memory.
+
+**A 404 is not `unconfigured`.** Until a release exists, a check reports a `manifest`
+failure, because that is what the plugin returns (`Error::ReleaseNotFound`, classified in
+`updates.rs`). The `unconfigured` state now only appears when a build is deliberately pointed
+at the `.invalid` host through `RICHOS_UPDATE_ENDPOINT`. Publish the first release and the
+build that carries this endpoint in the same step and nobody ever sees it.
+
+**What was NOT chosen, and why it may still be right later.** A CDN bucket or a small
+endpoint on existing infrastructure both buy things GitHub Releases cannot: a `204 No Content`
+answer for "not yet", and a staged rollout to one machine before everybody. Neither is worth
+a domain, a bill and a second thing to keep alive for a customer count of one. The
+engineering is indifferent between them — all three serve one JSON document and one
+`.tar.gz` — so this is reversible for the price of one config line and one rebuild.
 
 ## What the CEO sees
 
@@ -297,7 +369,7 @@ app/scripts/updater-e2e.sh
 app/scripts/updater-e2e.sh --keep
 
 # just produce signed artifacts from a normal packaging run
-TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.richos-signing/richos-updater-TEST.key \
+TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.richos-signing/richos-updater.key \
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD= \
 RICHOS_UPDATE_BASE_URL=https://<host>/richos/0.1.1 \
 RICHOS_UPDATE_NOTES='What changed, in the CEO's language.' \

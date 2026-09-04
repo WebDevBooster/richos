@@ -2821,6 +2821,7 @@ dependencies = [
  "minisign-verify",
  "richos-core",
  "richos-voice",
+ "semver",
  "serde",
  "serde_json",
  "tauri",

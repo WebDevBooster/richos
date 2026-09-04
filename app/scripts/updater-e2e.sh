@@ -95,14 +95,20 @@ for tool in cargo python3 shasum; do
 done
 cargo tauri --version >/dev/null 2>&1 || { warn "updater-e2e.sh: the Tauri CLI is not installed (cargo install tauri-cli --version '^2')."; exit 2; }
 
-KEY="${TAURI_SIGNING_PRIVATE_KEY_PATH:-$HOME/.richos-signing/richos-updater-TEST.key}"
+# THE RELEASE KEY, and that is deliberate rather than careless. This harness signs an
+# archive and then requires the app to INSTALL it, so the key it signs with has to be the
+# one whose public half `tauri.conf.json` compiles in — a harness on its own key would
+# prove an update path nobody ships. Cases T and K generate their own throwaway keys for
+# exactly the artifacts that must be REFUSED.
+KEY="${TAURI_SIGNING_PRIVATE_KEY_PATH:-$HOME/.richos-signing/richos-updater.key}"
 if [ ! -f "$KEY" ]; then
   warn ""
   warn "updater-e2e.sh: no updater signing key at $KEY"
   warn ""
   warn "  Generate one OUTSIDE every repository:"
-  warn "    cargo tauri signer generate -w \$HOME/.richos-signing/richos-updater-TEST.key -p '' --ci"
+  warn "    cargo tauri signer generate -w \$HOME/.richos-signing/richos-updater.key -p '' --ci"
   warn "  ...and put its .pub contents in tauri.conf.json's plugins.updater.pubkey."
+  warn "  app/RELEASING.md says which key ships and why."
   warn ""
   exit 2
 fi

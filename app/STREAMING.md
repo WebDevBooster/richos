@@ -617,10 +617,12 @@ paints correctly from one read:
 
 Four rules for whoever renders it:
 
-1. **`unconfigured` is not an error and not "up to date".** The shipped `plugins.updater`
-   endpoint is the RFC 2606 `updates.richos.invalid` placeholder, because where RichOS
-   updates are published is the CEO's decision and has not been made. Rendering that as a
-   network failure would report a decision as a defect.
+1. **`unconfigured` is not an error and not "up to date".** It means no update server has
+   been chosen, and rendering that as a network failure would report a decision as a defect.
+   Since 2026-09-04 the shipped `plugins.updater` endpoint is a real one — GitHub Releases,
+   `app/UPDATES.md` — so a shipping build no longer reaches this state; a build pointed at
+   the RFC 2606 `updates.richos.invalid` host through `RICHOS_UPDATE_ENDPOINT` still does,
+   and the state stays for it.
 2. **`totalBytes: null` means DO NOT DRAW A PERCENTAGE.** The server sent no `Content-Length`.
    A determinate bar over an invented denominator is a lie that looks like a measurement;
    show bytes, or an indeterminate bar with no `aria-valuenow`.

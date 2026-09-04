@@ -28,11 +28,19 @@
 #   A6  ...and says NO MANIFEST when RICHOS_UPDATE_BASE_URL is unset
 #   A7  ...and names the URL when it is set
 #   B1  tauri.conf.json declares createUpdaterArtifacts
-#   B2  ...an endpoint, and it is the RFC 2606 placeholder rather than a guessed host
+#   B2  ...exactly one endpoint, and it is the GitHub Releases manifest URL over https
 #   B3  ...a pubkey that is a decodable minisign public key
 #   B4  the webview is granted NO updater permission, and the capability says why
 #   B5  the build always passes --no-sign (the bundler would otherwise sign a tarball of an
 #       unsigned app, and a keyless build would fail outright)
+#   B6  ...and carries no `version`, so src-tauri/Cargo.toml is the one place it is written
+#   B7  package-app.sh creates the staged frontend directory, so a clean checkout can build
+#   G1  a well-formed manifest VERIFIES with the plugin's own RemoteRelease type
+#   G2  ...a manifest with no entry for this platform is REFUSED
+#   G3  ...a manifest whose `signature` is not the .sig file beside the archive is REFUSED
+#   G4  ...a manifest announcing a URL other than the one the artifact will live at is REFUSED
+#   G5  ...an http URL is REFUSED
+#   G6  ...a version that is not strictly greater than the installed one is REFUSED
 #   C1  the archive builder roots every member at one .app
 #   C2  ...preserves the executable bit
 #   C3  ...preserves symlinks rather than dereferencing them
@@ -135,12 +143,29 @@ else
   bad "B1 bundle.createUpdaterArtifacts is on" "it is: '$(conf_get bundle.createUpdaterArtifacts)'"
 fi
 
+# THE ENDPOINT. Until 2026-09-04 this case required the RFC 2606 `.invalid` placeholder,
+# because where updates were hosted had not been decided. It has been: GitHub Releases on
+# WebDevBooster/richos, one static `latest.json` per release, fetched through the `latest`
+# pointer so the compiled-in URL never has to change. `app/RELEASING.md` carries the shape
+# and the evidence for it.
+WANT_ENDPOINT="https://github.com/WebDevBooster/richos/releases/latest/download/latest.json"
+ENDPOINT_COUNT="$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["plugins"]["updater"]["endpoints"]))' "$CONF" 2>/dev/null)"
 ENDPOINT="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plugins"]["updater"]["endpoints"][0])' "$CONF" 2>/dev/null)"
-if printf '%s' "$ENDPOINT" | grep -q '\.invalid/'; then
-  ok "B2 the endpoint is the RFC 2606 .invalid placeholder, not a guessed host"
+if [ "$ENDPOINT" = "$WANT_ENDPOINT" ] && [ "$ENDPOINT_COUNT" = "1" ]; then
+  ok "B2 the endpoint is the one GitHub Releases manifest URL, over https"
 else
-  bad "B2 the endpoint is the RFC 2606 .invalid placeholder, not a guessed host" \
-      "it is '$ENDPOINT' — if a real host has been chosen, this case is what tells you to update app/UPDATES.md too"
+  bad "B2 the endpoint is the one GitHub Releases manifest URL, over https" \
+      "it is '$ENDPOINT' ($ENDPOINT_COUNT endpoint(s)); wanted exactly one: $WANT_ENDPOINT"
+fi
+
+if printf '%s' "$ENDPOINT" | grep -q '\.invalid'; then
+  bad "B2b the endpoint is not the .invalid placeholder any more" \
+      "an installed build would report 'unconfigured' and never check for anything"
+elif printf '%s' "$ENDPOINT" | grep -q '{{'; then
+  bad "B2b the endpoint carries no {{template}} placeholders" \
+      "GitHub Releases is a static asset host and substitutes nothing; a templated path would 404"
+else
+  ok "B2b the endpoint is a real, resolvable shape — no .invalid, no {{templates}} a static host cannot fill"
 fi
 
 PUBKEY="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plugins"]["updater"]["pubkey"])' "$CONF" 2>/dev/null)"
@@ -172,6 +197,34 @@ if grep -q 'build_args=(tauri build --no-sign' "$SCRIPT"; then
 else
   bad "B5 the build always passes --no-sign" \
       "without it, tauri-cli signs the tarball it made BEFORE package-app.sh signed the bundle — and a keyless build fails outright"
+fi
+
+# THE VERSION IS WRITTEN ONCE. `tauri.conf.json`'s `version` overrides the Cargo manifest
+# when it is present, so with both filled in there are two places to edit and one of them
+# silently wins. Removing it makes `src-tauri/Cargo.toml` the source — tauri-utils 2.9.3
+# `config.rs:3612`: "If removed the version number from Cargo.toml is used." Everything
+# downstream already derives: the bundle's CFBundleShortVersionString comes from the build,
+# and package-app.sh reads the manifest's version back off the produced Info.plist.
+if python3 -c 'import json,sys;sys.exit(0 if "version" not in json.load(open(sys.argv[1])) else 1)' "$CONF"; then
+  CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$APP/src-tauri/Cargo.toml" | head -1)"
+  if printf '%s' "$CARGO_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+    ok "B6 tauri.conf.json carries no version, so src-tauri/Cargo.toml ($CARGO_VERSION) is the only place it is written"
+  else
+    bad "B6 src-tauri/Cargo.toml carries a semver version" "it reads '$CARGO_VERSION'"
+  fi
+else
+  bad "B6 tauri.conf.json carries no version" \
+      "it does, and it OVERRIDES Cargo.toml — two places to edit, one of which wins silently"
+fi
+
+# A CLEAN CHECKOUT MUST BUILD. tauri-cli bails on `!frontendDist.exists()` before cargo runs,
+# and build.rs — which creates that directory — runs during the cargo build. On a tree nobody
+# has built, the first packaging run therefore failed outright until this existed.
+if grep -q 'staged_frontend_abs' "$SCRIPT"; then
+  ok "B7 package-app.sh creates the staged frontend directory, so a fresh clone can be packaged"
+else
+  bad "B7 package-app.sh creates the staged frontend directory" \
+      "without it the first build on a clean checkout exits 4 with 'Unable to find your web assets'"
 fi
 
 echo ""
@@ -292,6 +345,75 @@ cp "$TMP/art.bin" "$TMP/otherkey.bin"
 (cd "$APP/src-tauri" && cargo tauri signer sign -f "$OTHER" -p "" "$TMP/otherkey.bin" >/dev/null 2>&1)
 run env -C "$APP/src-tauri" "${VERIFY[@]}" "$TMP/otherkey.bin" "$TMP/otherkey.bin.sig" "$SUITE_CONF"
 expect "E3 a well-formed signature from ANOTHER key is REFUSED" 1 "REFUSED"
+
+echo ""
+echo "=== G. the update manifest, judged by the type that judges it on a customer's Mac ==="
+
+# `verify_update_manifest` deserializes into `tauri_plugin_updater::RemoteRelease` and looks
+# up `tauri_plugin_updater::target()`. Everything below is therefore the vendor's own parse
+# and the vendor's own platform key, not a restatement of either. The cases are the five
+# ways a manifest can be well-formed and still be a release nobody can install.
+MANIFEST_TARGET="$(python3 -c "
+import platform
+m = platform.machine()
+print('darwin-' + ('aarch64' if m in ('arm64','aarch64') else m))
+")"
+ART="$TMP/RichOS.app.tar.gz"
+printf 'not really a bundle, and it does not need to be\n' > "$ART"
+(cd "$APP/src-tauri" && cargo tauri signer sign -f "$KEY" -p "" "$ART" >/dev/null 2>&1)
+GOOD_SIG="$(cat "$ART.sig")"
+GOOD_URL="https://github.com/WebDevBooster/richos/releases/download/v0.1.1/RichOS.app.tar.gz"
+
+write_manifest() {  # write_manifest <path> <version> <target> <signature> <url>
+  python3 -c '
+import json, sys
+path, version, target, signature, url = sys.argv[1:6]
+json.dump({
+    "version": version,
+    "notes": "What changed, in plain language.",
+    "pub_date": "2026-09-04T12:00:00Z",
+    "platforms": {target: {"signature": signature, "url": url}},
+}, open(path, "w"), indent=2)
+' "$@"
+}
+
+VM=(cargo run -q --example verify_update_manifest --)
+
+write_manifest "$TMP/m-good.json" "0.1.1" "$MANIFEST_TARGET" "$GOOD_SIG" "$GOOD_URL"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-good.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G1 a well-formed manifest VERIFIES against the plugin's own RemoteRelease" 0 "VERIFIED"
+
+write_manifest "$TMP/m-platform.json" "0.1.1" "linux-x86_64" "$GOOD_SIG" "$GOOD_URL"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-platform.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G2 no entry for this platform -> REFUSED" 1 "no entry for platform key"
+
+OTHER_SIGNED="$TMP/other-signed.bin"
+cp "$ART" "$OTHER_SIGNED"
+(cd "$APP/src-tauri" && cargo tauri signer sign -f "$OTHER" -p "" "$OTHER_SIGNED" >/dev/null 2>&1)
+write_manifest "$TMP/m-sig.json" "0.1.1" "$MANIFEST_TARGET" "$(cat "$OTHER_SIGNED.sig")" "$GOOD_URL"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-sig.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G3 the manifest's signature is not the .sig beside the archive -> REFUSED" 1 "is NOT the contents of"
+
+write_manifest "$TMP/m-url.json" "0.1.1" "$MANIFEST_TARGET" "$GOOD_SIG" \
+    "https://github.com/WebDevBooster/richos/releases/download/v0.1.0/RichOS.app.tar.gz"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-url.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G4 a manifest announcing the wrong URL -> REFUSED" 1 "the manifest announces"
+
+write_manifest "$TMP/m-http.json" "0.1.1" "$MANIFEST_TARGET" "$GOOD_SIG" \
+    "http://github.com/WebDevBooster/richos/releases/download/v0.1.1/RichOS.app.tar.gz"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-http.json" "$ART" "$ART.sig" \
+        "http://github.com/WebDevBooster/richos/releases/download/v0.1.1/RichOS.app.tar.gz" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G5 an http download URL -> REFUSED" 1 "is not https"
+
+write_manifest "$TMP/m-version.json" "0.1.0" "$MANIFEST_TARGET" "$GOOD_SIG" "$GOOD_URL"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-version.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G6 a version that is not strictly greater -> REFUSED" 1 "only offers a STRICTLY greater version"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

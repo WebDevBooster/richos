@@ -20,12 +20,31 @@
 #   * ORDER    — `find | LC_ALL=C sort`, not the filesystem's directory order.
 #   * TIME     — every mtime pinned to the engine's own commit time (or 0 outside a checkout).
 #   * OWNER    — uid/gid 0, name `root`, via bsdtar's `--uid/--gid/--uname/--gname`.
+#   * MODE     — 755 for directories, 755 for anything the source marks user-executable, 644
+#                for everything else. See below; this one was found by running the script,
+#                not by reading it.
 #   * GZIP     — `gzip -n`, because gzip writes the source filename and an mtime into its own
 #                header by default, which makes two identical tarballs differ.
 #
-# `--check` runs the whole thing twice into scratch directories and requires the two digests to
-# match. A non-deterministic build would otherwise be discovered as a DigestMismatch on a
-# customer's Mac, which is the one place it must never be discovered.
+# MODE, AND WHY IT IS NOT PARANOIA. Measured 2026-09-04, same tree, same machine, same second:
+#
+#     umask 022  ->  2,021,839 B  sha256 cbee8763588469de4f01f04a8f3aeaec1dc7bb1225327119c51dbdd7ebd7afb2
+#     umask 077  ->  2,021,655 B  sha256 fdae7195cf0083426ead2749fb4e3f87678e29c45cf5ac77d7cce3088e073e33
+#
+# All 531 members differed, and they differed ONLY in mode — 0755 became 0700, 0644 became
+# 0600 — because macOS's bsdtar applies the caller's umask when it extracts as a non-root
+# user, so the staging copy inherited the umask of whoever happened to run this. The digest
+# that gets compiled into the app and checked on a customer's Mac was a function of an
+# operator's shell setting. Normalizing here makes the archive a function of CONTENT plus the
+# one permission bit git actually tracks, which is the only determinism boundary that can
+# hold across two machines.
+#
+# `--check` runs the whole thing twice and requires the two digests to match — and the second
+# run is deliberately made in a DIFFERENT ENVIRONMENT (another umask, another TMPDIR, the C
+# locale, UTC), because a second build under identical conditions cannot fail for any reason
+# the first one would not have failed for. That is exactly how the umask defect above survived
+# a green `--check`. A non-deterministic build would otherwise be discovered as a
+# DigestMismatch on a customer's Mac, which is the one place it must never be discovered.
 #
 # WHAT IT DOES NOT DO
 #
@@ -113,14 +132,34 @@ build_into() {
     cp "$LICENSE_SRC" "$staging/engine/LICENSE" || return 1
     cp "$NOTICES_SRC" "$staging/engine/THIRD-PARTY-NOTICES.md" || return 1
 
+    # MODE, fixed. Read the executable bit off the COPY (which preserves the source's u+x
+    # under any sane umask) and then flatten everything to two permissions. `-perm -u+x` is
+    # the discriminant rather than any group/other bit precisely because those are the bits
+    # a umask moves; u+x is also the only permission git records.
+    find "$staging/engine" -type d -exec chmod 755 {} + || return 1
+    find "$staging/engine" -type f -perm -u+x -exec chmod 755 {} + || return 1
+    find "$staging/engine" -type f ! -perm -u+x -exec chmod 644 {} + || return 1
+
     # ORDER, fixed. `-print` then sort, rather than trusting readdir.
     local manifest="$staging/manifest"
     ( cd "$staging" && find engine -print ) | LC_ALL=C sort > "$manifest" || return 1
 
     # TIME, fixed. `touch -h` so a symlink's own timestamp is set rather than its target's.
+    #
+    # TZ IS ON BOTH HALVES AND THAT IS THE WHOLE POINT. `date -u` prints the stamp in UTC,
+    # but `touch -t` READS ITS ARGUMENT IN THE LOCAL ZONE — so on a Mac set to anything but
+    # UTC the two disagreed by the offset and the archive's mtimes, and therefore its digest,
+    # were a function of the operator's timezone. Measured 2026-09-04, same tree, same
+    # machine, one variable:
+    #
+    #     TZ unset (Europe/Berlin)  ->  sha256 cbee8763588469de4f01f04a8f3aeaec1dc7bb12...
+    #     TZ=UTC                    ->  sha256 bdb82559bce916dc8945142a1f85d02a2d831609...
+    #
+    # Pinning both ends to UTC makes the mtime a property of the engine's commit and of
+    # nothing else.
     local stamp
-    stamp="$(date -u -r "$SOURCE_EPOCH" +%Y%m%d%H%M.%S 2>/dev/null || echo 197001010000.00)"
-    ( cd "$staging" && LC_ALL=C xargs -0 -n 200 touch -h -t "$stamp" < <(tr '\n' '\0' < "$manifest") ) || return 1
+    stamp="$(TZ=UTC date -u -r "$SOURCE_EPOCH" +%Y%m%d%H%M.%S 2>/dev/null || echo 197001010000.00)"
+    ( cd "$staging" && LC_ALL=C TZ=UTC xargs -0 -n 200 touch -h -t "$stamp" < <(tr '\n' '\0' < "$manifest") ) || return 1
 
     # OWNER + GZIP, fixed. bsdtar writes the members in the order given on stdin.
     ( cd "$staging" \
@@ -157,19 +196,20 @@ echo
 # DETERMINISM, PROVED RATHER THAN CLAIMED
 # ---------------------------------------------------------------------------------------
 if [ "$CHECK" = "1" ]; then
-    echo "=== --check: building a second time and comparing ==="
-    SECOND="$(mktemp -d "${TMPDIR:-/tmp}/richos-engine-check.XXXXXX")/second.tar.gz"
-    mkdir -p "$(dirname "$SECOND")"
-    build_into "$SECOND" || die "the second build failed"
+    echo "=== --check: building a second time, in a DIFFERENT environment, and comparing ==="
+    CHECK_TMP="$(mktemp -d /tmp/richos-engine-check.XXXXXX)"
+    SECOND="$CHECK_TMP/second.tar.gz"
+    echo "  second build runs under: umask 077, TMPDIR=$CHECK_TMP, LC_ALL=C, TZ=UTC"
+    ( umask 077; TMPDIR="$CHECK_TMP" LC_ALL=C TZ=UTC build_into "$SECOND" ) || die "the second build failed"
     SECOND_DIGEST="$(sha256_of "$SECOND")"
     echo "  first : $DIGEST"
     echo "  second: $SECOND_DIGEST"
     if [ "$DIGEST" != "$SECOND_DIGEST" ]; then
-        rm -rf "$(dirname "$SECOND")"
+        rm -rf "$CHECK_TMP"
         die "THE ARCHIVE IS NOT DETERMINISTIC. A pin over these bytes would fail on a customer's Mac."
     fi
-    echo "  IDENTICAL."
-    rm -rf "$(dirname "$SECOND")"
+    echo "  IDENTICAL, across two environments."
+    rm -rf "$CHECK_TMP"
     echo
 fi
 
