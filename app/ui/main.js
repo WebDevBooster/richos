@@ -1344,10 +1344,58 @@ async function send() {
   // message goes anywhere — step 1 then step 2 of §3.3, in that order.
   if (draftEntityId) {
     const entityId = draftEntityId;
+
+    // HIS WORDS GO UP BEFORE THE THREAD EXISTS, AND THIS IS THE FIRST MESSAGE ANYONE EVER
+    // SENDS. Measured on the published build under WebKit, with every bridge call delayed
+    // to model a cold first run: the composer emptied at 161ms (`inputEl.value = ""` above
+    // is synchronous, before any await) and then, for the whole ten seconds that were
+    // sampled, `#messages` held zero user bubbles and the screen still read the greeting.
+    // His sentence left the box and NOTHING took its place — which is what makes a person
+    // press Send a second time, and two messages is a worse defect than a slow one.
+    //
+    // The cause is the await chain below: `create_thread_in`, then `refreshNavigation`,
+    // then `openThread` (itself `switch_thread` + `active_context` + `get_timeline`), and
+    // only after all of it did the §25 bubble get added. It could not simply be moved
+    // earlier for two reasons, and this block answers both:
+    //
+    //   1. THE SURFACE IS WRONG. Until `openThread` runs he is looking at the entity's
+    //      new-thread screen; `#messages` is hidden, so a bubble put there is invisible.
+    //      So the conversation surface is shown FIRST, which is where the sentence is
+    //      about to live anyway.
+    //   2. THE MODEL IS REPLACED. `openThread` builds a fresh model (one thread, one
+    //      model) and `applySnapshot` clears `items` and `pendingUser` wholesale, so any
+    //      bubble added before it is destroyed by it. This one is therefore deliberately
+    //      DISPOSABLE — it lives in a throwaway model for the seconds before the thread
+    //      exists, and the real §25 bubble is added to the real model below, exactly as it
+    //      always was. Nothing here changes what a live turn renders.
+    //
+    // The throwaway model is UNBOUND, and that is what makes it inert: `accepts()` refuses
+    // every payload while `model.threadId == null`, so no `rich://` event for any other
+    // thread can reach it, adopt it or write into it.
+    //
+    // The one guard this moves past: `openThread` returns early when the thread asked for
+    // is already active AND the view is already `conversation`. The view is now
+    // `conversation` when it reaches there, so only the first half is left holding it —
+    // and `newId` is a thread `create_thread_in` has just minted, so it cannot be the
+    // active one. The early return stays unreachable on this path.
+    timelineModel = window.RichTimeline.createModel();
+    showConversationView(); // clears `draftEntityId`; `entityId` is captured above
+    const optimisticId = window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
+    followBottom = true;
+    scheduleRender();
+
     let newId;
     try {
       newId = await Bridge.invoke("create_thread_in", { entityId, title: provisionalTitle(text) });
     } catch (e) {
+      // THE BUBBLE IS WITHDRAWN BEFORE ANYTHING ELSE. No thread was created, so nothing was
+      // sent; a sentence left on screen looking delivered would be a worse lie than the
+      // blank wait this block exists to fix. Then back to the screen he was on, with his
+      // words in the box — `showEntityView` re-arms `draftEntityId`, so pressing Send again
+      // takes the same path rather than filing the message somewhere he did not choose.
+      window.RichTimeline.dropPendingUserMessage(timelineModel, optimisticId);
+      scheduleRender();
+      showEntityView(entityId, "new");
       // WAS: `composerBlockedEl.textContent = String(e)` — a raw Rust error string dropped
       // straight under the composer. Whatever `create_thread_in` refused with is machinery
       // ("scope mismatch on thread …", "stale binding on thread …"), and §21's own rule for
