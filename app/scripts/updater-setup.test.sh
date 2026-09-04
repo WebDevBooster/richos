@@ -33,6 +33,7 @@
 #   B4  the webview is granted NO updater permission, and the capability says why
 #   B5  the build always passes --no-sign (the bundler would otherwise sign a tarball of an
 #       unsigned app, and a keyless build would fail outright)
+#   B7  package-app.sh creates the staged frontend directory, so a clean checkout can build
 #   C1  the archive builder roots every member at one .app
 #   C2  ...preserves the executable bit
 #   C3  ...preserves symlinks rather than dereferencing them
@@ -172,6 +173,16 @@ if grep -q 'build_args=(tauri build --no-sign' "$SCRIPT"; then
 else
   bad "B5 the build always passes --no-sign" \
       "without it, tauri-cli signs the tarball it made BEFORE package-app.sh signed the bundle — and a keyless build fails outright"
+fi
+
+# A CLEAN CHECKOUT MUST BUILD. tauri-cli bails on `!frontendDist.exists()` before cargo runs,
+# and build.rs — which creates that directory — runs during the cargo build. On a tree nobody
+# has built, the first packaging run therefore failed outright until this existed.
+if grep -q 'staged_frontend_abs' "$SCRIPT"; then
+  ok "B7 package-app.sh creates the staged frontend directory, so a fresh clone can be packaged"
+else
+  bad "B7 package-app.sh creates the staged frontend directory" \
+      "without it the first build on a clean checkout exits 4 with 'Unable to find your web assets'"
 fi
 
 echo ""
