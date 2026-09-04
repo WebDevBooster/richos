@@ -17,10 +17,12 @@
 //! `Ledger::thread_turns` and this test fails.
 
 use richos_core::cognition::MockCognition;
-use richos_core::entity::{EntityId, EntityRegistry, ThreadEntity};
+use richos_core::entity::{EntityId, ThreadEntity};
 use richos_core::ledger::{Ledger, LedgerError, Source};
 use richos_core::reprime::RePrimePayload;
-use richos_core::spine::{Spine, SpineError};
+use richos_core::spine::SpineError;
+
+mod support;
 
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
@@ -267,7 +269,7 @@ fn a_pre_entity_thread_is_unbound_and_fails_closed_on_every_read_and_write() {
 
     // An unbound thread cannot even be activated, so no turn can ever be accepted for it.
     {
-        let mut spine = Spine::new(Ledger::open(&path).unwrap());
+        let mut spine = support::spine(Ledger::open(&path).unwrap());
         assert!(matches!(spine.switch_thread("thr_old"), Err(SpineError::Ledger(LedgerError::UnboundThread(_)))));
         assert!(matches!(spine.submit_prompt("hello", Source::Text), Err(SpineError::NoActiveThread)));
         assert_eq!(spine.ledger().turns().len(), 1, "no new turn was persisted by the refused send");
@@ -306,12 +308,12 @@ fn a_turn_with_no_resolvable_entity_is_refused_loudly_and_never_defaults() {
         // Set the stage: threads in TWO entities, then shut down. On a cold start there is
         // no active context, and "just pick the first thread" would be picking a privacy
         // boundary for the CEO.
-        let mut spine = Spine::new(Ledger::open(&path).unwrap());
+        let mut spine = support::spine(Ledger::open(&path).unwrap());
         fem = spine.create_thread("Avelor release", &femcboost()).unwrap();
         spine.create_thread("Partner book", &deeply()).unwrap();
     }
 
-    let mut fresh = Spine::new(Ledger::open(&path).unwrap());
+    let mut fresh = support::spine(Ledger::open(&path).unwrap());
     fresh.attach_lease(Box::new(MockCognition::new("s2", vec!["ok"])));
     assert!(fresh.active_binding().is_none(), "a cold start has no active context");
     let err = fresh.submit_prompt("which company is this about?", Source::Text).unwrap_err();
@@ -336,9 +338,9 @@ fn a_turn_with_no_resolvable_entity_is_refused_loudly_and_never_defaults() {
 #[test]
 fn an_unregistered_entity_can_never_become_a_threads_home() {
     let (path, ledger) = tmp_ledger("unregistered");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let stranger = EntityId::parse("acme-holdings").unwrap();
-    assert!(!EntityRegistry::ceos_companies().contains(&stranger));
+    assert!(!support::registry().contains(&stranger));
 
     let err = spine.create_thread("Whose is this?", &stranger).unwrap_err();
     assert!(matches!(err, SpineError::UnknownEntity(_)), "got {err:?}");
@@ -354,7 +356,7 @@ fn an_unregistered_entity_can_never_become_a_threads_home() {
 #[test]
 fn switching_the_active_context_advances_the_fence_and_stales_the_old_binding() {
     let (path, ledger) = tmp_ledger("fence");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let fem = spine.create_thread("Avelor release", &femcboost()).unwrap();
     let dee = spine.create_thread("Partner book", &deeply()).unwrap();
 
@@ -388,7 +390,7 @@ fn a_binding_captured_before_a_context_switch_is_refused_afterwards() {
     // outbound command carrying it is refused rather than allowed to write "into a newly
     // switched entity/thread" (ECS §3.4).
     let (path, ledger) = tmp_ledger("stale-fence");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let fem = spine.create_thread("Avelor release", &femcboost()).unwrap();
     let dee = spine.create_thread("Partner book", &deeply()).unwrap();
 
@@ -428,7 +430,7 @@ fn bindings_survive_restart_with_state_neither_lost_nor_invented() {
     let path = tmp_path("restart");
     let (fem, dee, fem_rev, dee_rev);
     {
-        let mut spine = Spine::new(Ledger::open(&path).unwrap());
+        let mut spine = support::spine(Ledger::open(&path).unwrap());
         spine.attach_lease(Box::new(MockCognition::new("s1", vec!["release is on track", "note drafted"])));
         fem = spine.create_thread("Avelor release", &femcboost()).unwrap();
         dee = spine.create_thread("Partner book", &deeply()).unwrap();
@@ -466,7 +468,7 @@ fn bindings_survive_restart_with_state_neither_lost_nor_invented() {
 
     // ...and the fence does not rewind across the restart: a NEW activation issues a
     // revision above everything durably recorded.
-    let mut spine = Spine::new(reopened);
+    let mut spine = support::spine(reopened);
     spine.switch_thread(&fem).unwrap();
     let after = spine.active_binding().unwrap().binding_revision();
     assert!(

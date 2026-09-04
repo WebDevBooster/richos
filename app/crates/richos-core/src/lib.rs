@@ -90,8 +90,9 @@ pub use feedback::{
     PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
 };
 pub use entity::{
-    Entity, EntityError, EntityId, EntityRegistry, EntityResolveError, EntityStatus, PersonId,
-    ThreadBinding, ThreadEntity,
+    app_config_dir, display_name_from_id, entity_registry_path, Entity, EntityError, EntityId, EntityRegistry,
+    EntityResolveError, EntityStatus, PersonId, RegistryLoad, RegistrySource, ThreadBinding,
+    ThreadEntity, ENTITY_REGISTRY_FILENAME, ENTITY_REGISTRY_VERSION, EXAMPLE_ENTITY_REGISTRY_JSON,
 };
 pub use journal::{MachineryJournal, ThreadMachinery};
 pub use ledger::{AttentionTier, Ledger, Message, Source, TextRun, TurnState};

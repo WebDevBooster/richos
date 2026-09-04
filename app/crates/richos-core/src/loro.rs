@@ -208,11 +208,20 @@ impl LoroTools {
 /// OPEN, so the map was empty by default and the seam simply refused to narrow.
 ///
 /// **He ratified it on 2026-09-01** (`wiki/ceo-decisions.md` §5: *"The proposals there make
-/// sense… The only thing I'd change is replace `person/` with `ceo/`"*), so the default is
-/// now [`LaneMap::ceos_companies`] — his six registered entities, each mapped to a lane of
-/// the same name. That is still an enumeration rather than a rule: the map holds six
-/// stated pairs, `lane_for` answers `None` for everything else, and no seventh entity
-/// acquires a lane by looking like one.
+/// sense… The only thing I'd change is replace `person/` with `ceo/`"*), so the default
+/// stopped being empty and became one lane per registered entity, named after it —
+/// [`LaneMap::same_name_lanes`].
+///
+/// # Where the enumeration comes from, since 2026-09-04
+///
+/// It used to be built from `EntityRegistry::CEOS_COMPANIES`, a `const` table of one man's
+/// six companies. The registry is now per-user (`entity.rs` rule 4), so the enumeration is
+/// built from THE REGISTRY IN FORCE and the default is empty on an install that has
+/// registered nothing. It is still an enumeration rather than an inference: the map holds
+/// exactly one pair per registered entity, `lane_for` answers `None` for anything else, and
+/// no unregistered entity acquires a lane by looking like a registered one. What changed is
+/// whose list it enumerates — and it is the same list `provision` creates the partitions
+/// from, so the two halves cannot disagree.
 ///
 /// # And the map is reconciled against the corpus before anything is sent
 ///
@@ -245,36 +254,34 @@ impl LaneMap {
         Ok(LaneMap(map))
     }
 
-    /// The ratified default: each of the CEO's six registered entities mapped to a loro
+    /// The ratified default: **each entity registered on THIS install**, mapped to a loro
     /// company lane of the same name (`wiki/ceo-decisions.md` §5).
     ///
-    /// **Same-name is a STATED pair here, not an inferred rule.** The distinction is the
-    /// whole point of this type and it survives: the map is built by enumerating
-    /// [`crate::entity::EntityRegistry::CEOS_COMPANIES`], so it holds exactly six pairs and
-    /// `lane_for` answers `None` for a seventh id however much it looks like one of the
-    /// six. Nothing binds an entity to a partition because two strings match; six pairs
-    /// were written down, and they are these.
+    /// **Same-name is still a STATED pair, not an inferred rule**, and the statement is the
+    /// registration: somebody put that company in `entities.json` (or answered the picker),
+    /// and `provision` creates the corpus partition from the same list. The map holds one
+    /// pair per registered entity and `lane_for` answers `None` for anything unregistered,
+    /// however much it looks like a registered one.
     ///
-    /// It is also inert until his corpus is partitioned — see
+    /// An install that has registered nothing gets an EMPTY map, which is the same map the
+    /// operator gets from `RICHOS_LORO_LANES=` — no narrowing, and no claim that a partition
+    /// exists.
+    ///
+    /// It is also inert until the corpus is partitioned — see
     /// [`CliContextCompiler::reconcile_lanes`].
-    pub fn ceos_companies() -> Self {
-        LaneMap(
-            crate::entity::EntityRegistry::CEOS_COMPANIES
-                .iter()
-                .map(|(id, _, _)| ((*id).to_string(), (*id).to_string()))
-                .collect(),
-        )
+    pub fn same_name_lanes(registry: &crate::entity::EntityRegistry) -> Self {
+        LaneMap(registry.entities().iter().map(|e| (e.id.to_string(), e.id.to_string())).collect())
     }
 
-    /// `RICHOS_LORO_LANES` when the operator sets it; [`Self::ceos_companies`] otherwise.
+    /// `RICHOS_LORO_LANES` when the operator sets it; [`Self::same_name_lanes`] otherwise.
     ///
     /// An explicit setting still wins outright — including an explicitly EMPTY one, which
     /// is how an operator turns lane narrowing off entirely without editing the binary.
-    pub fn from_env() -> Result<Self, LoroError> {
+    pub fn from_env(registry: &crate::entity::EntityRegistry) -> Result<Self, LoroError> {
         match std::env::var("RICHOS_LORO_LANES") {
             Ok(v) if !v.trim().is_empty() => LaneMap::parse(&v),
             Ok(_) => Ok(LaneMap::default()),
-            Err(_) => Ok(LaneMap::ceos_companies()),
+            Err(_) => Ok(LaneMap::same_name_lanes(registry)),
         }
     }
 
@@ -858,7 +865,7 @@ impl CliContextCompiler {
     /// nothing. It is NOT reconciled here: that needs the corpus, which is a child process
     /// away, and the caller decides what to do when the probe itself fails
     /// ([`Self::reconcile_lanes`]).
-    pub fn from_env() -> Result<Option<Self>, LoroError> {
+    pub fn from_env(registry: &crate::entity::EntityRegistry) -> Result<Option<Self>, LoroError> {
         let Some(root) = LoroRoot::from_env() else { return Ok(None) };
         let Some(tools) = LoroTools::from_env() else {
             return Err(LoroError::ToolsNotFound(
@@ -867,8 +874,8 @@ impl CliContextCompiler {
                     .into(),
             ));
         };
-        let lanes = LaneMap::from_env()?;
-        lanes.validate_against(&crate::entity::EntityRegistry::ceos_companies())?;
+        let lanes = LaneMap::from_env(registry)?;
+        lanes.validate_against(registry)?;
         Ok(Some(CliContextCompiler::new(tools?, root, lanes)))
     }
 
@@ -1530,19 +1537,25 @@ impl CliContextCompiler {
     /// `Ok(None)` = no corpus resolved, which is the ordinary state of an install with no
     /// corpus and is not an error. The [`CorpusResolution::tried`] list travels with it so
     /// the caller can say what was looked for.
-    pub fn locate(p: &CorpusPaths) -> Result<(Option<(Self, CorpusSource)>, Vec<String>), LoroError> {
+    pub fn locate(
+        p: &CorpusPaths,
+        registry: &crate::entity::EntityRegistry,
+    ) -> Result<(Option<(Self, CorpusSource)>, Vec<String>), LoroError> {
         let (install, tried) = LoroInstall::locate(p)?;
         let Some(install) = install else { return Ok((None, tried)) };
         let source = install.source();
-        Ok((Some((CliContextCompiler::from_install(&install)?, source)), tried))
+        Ok((Some((CliContextCompiler::from_install(&install, registry)?, source)), tried))
     }
 
     /// The READ half of a resolved install. The lane map is this half's own configuration —
     /// it narrows what a slice may CONTAIN and has nothing to say about where a write goes —
     /// so it is read here and not in [`LoroInstall`].
-    pub fn from_install(install: &LoroInstall) -> Result<Self, LoroError> {
-        let lanes = LaneMap::from_env()?;
-        lanes.validate_against(&crate::entity::EntityRegistry::ceos_companies())?;
+    pub fn from_install(
+        install: &LoroInstall,
+        registry: &crate::entity::EntityRegistry,
+    ) -> Result<Self, LoroError> {
+        let lanes = LaneMap::from_env(registry)?;
+        lanes.validate_against(registry)?;
         Ok(CliContextCompiler::new(install.tools.clone(), install.root.clone(), lanes))
     }
 }
@@ -1550,6 +1563,18 @@ impl CliContextCompiler {
 #[cfg(test)]
 mod locate_tests {
     use super::*;
+
+    /// `CliContextCompiler::locate` with NO companies registered.
+    ///
+    /// Every test in this module is about finding a corpus, not about lane narrowing, and an
+    /// empty registry yields an empty lane map — which is exactly the "no narrowing" posture
+    /// they were written under, when the map came from a compiled-in company list and these
+    /// tests set no `RICHOS_LORO_LANES`.
+    fn locate_here(
+        p: &CorpusPaths,
+    ) -> Result<(Option<(CliContextCompiler, CorpusSource)>, Vec<String>), LoroError> {
+        CliContextCompiler::locate(p, &crate::entity::EntityRegistry::empty())
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("richos-corpus-{name}-{}", crate::util::now_millis()));
@@ -1699,7 +1724,7 @@ mod locate_tests {
         std::fs::create_dir_all(&support).unwrap();
         provisioned(&support.join("corpus"));
 
-        let msg = match CliContextCompiler::locate(&CorpusPaths { home: Some(home), ..Default::default() }) {
+        let msg = match locate_here(&CorpusPaths { home: Some(home), ..Default::default() }) {
             Err(e) => e.to_string(),
             Ok(_) => panic!("a corpus with no tools must not resolve silently"),
         };
@@ -1715,7 +1740,7 @@ mod locate_tests {
         repo_shaped(&support.join("loro-root"));
 
         let (built, _tried) =
-            CliContextCompiler::locate(&CorpusPaths { home: Some(home), ..Default::default() }).unwrap();
+            locate_here(&CorpusPaths { home: Some(home), ..Default::default() }).unwrap();
         let (compiler, source) = built.expect("a valid pointer resolves");
         assert_eq!(source, CorpusSource::AppSupportRoot);
         assert_eq!(compiler.tools().dir(), support.join("loro-root").join("loro"));
@@ -1738,7 +1763,7 @@ mod locate_tests {
         compiler_at(&crate::provision::compiler_install_dir(&home));
 
         let (built, _tried) =
-            CliContextCompiler::locate(&CorpusPaths { home: Some(home.clone()), ..Default::default() }).unwrap();
+            locate_here(&CorpusPaths { home: Some(home.clone()), ..Default::default() }).unwrap();
         let (compiler, source) = built.expect("a provisioned corpus with an installed compiler resolves");
         assert_eq!(source, CorpusSource::AppSupportCorpus);
         assert_eq!(compiler.tools().dir(), crate::provision::compiler_install_dir(&home));
@@ -1756,7 +1781,7 @@ mod locate_tests {
         compiler_at(&crate::provision::compiler_install_dir(&home));
 
         let (built, _) =
-            CliContextCompiler::locate(&CorpusPaths { home: Some(home.clone()), ..Default::default() }).unwrap();
+            locate_here(&CorpusPaths { home: Some(home.clone()), ..Default::default() }).unwrap();
         let (compiler, _) = built.unwrap();
         assert_eq!(compiler.tools().dir(), support.join("loro-root").join("loro"));
     }
@@ -1769,7 +1794,7 @@ mod locate_tests {
         let support = home.join("Library").join("Application Support").join("RichOS");
         provisioned(&support.join("corpus"));
 
-        match CliContextCompiler::locate(&CorpusPaths { home: Some(home.clone()), ..Default::default() }) {
+        match locate_here(&CorpusPaths { home: Some(home.clone()), ..Default::default() }) {
             Err(LoroError::CompilerNotInstalled { root, tried }) => {
                 assert_eq!(root, support.join("corpus").display().to_string());
                 assert!(tried.contains("loro-tools"), "it names where it looked: {tried}");
@@ -1790,7 +1815,7 @@ mod locate_tests {
 
         let named = tmp("named-tools");
         compiler_at(&named);
-        let (built, _) = CliContextCompiler::locate(&CorpusPaths {
+        let (built, _) = locate_here(&CorpusPaths {
             env_tools: Some(named.display().to_string()),
             home: Some(home.clone()),
             ..Default::default()
@@ -1798,7 +1823,7 @@ mod locate_tests {
         .unwrap();
         assert_eq!(built.unwrap().0.tools().dir(), named);
 
-        let bad = CliContextCompiler::locate(&CorpusPaths {
+        let bad = locate_here(&CorpusPaths {
             env_tools: Some("/nowhere/loro".into()),
             home: Some(home),
             ..Default::default()

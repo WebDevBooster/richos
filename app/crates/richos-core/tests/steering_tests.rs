@@ -25,6 +25,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+mod support;
+
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
 }
@@ -217,7 +219,7 @@ fn tmp_path(tag: &str) -> std::path::PathBuf {
 fn running_spine(tag: &str, chunks: usize) -> (Arc<Mutex<Spine>>, TurnControl, RecordingLive, String) {
     let ledger_path = tmp_path(&format!("{tag}-ledger")).with_extension("jsonl");
     let intake_path = tmp_path(&format!("{tag}-intake")).with_extension("jsonl");
-    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
     let live = RecordingLive::default();
     spine.set_live_observer(Box::new(live.clone()));
     let thread = spine.create_thread("stop me", &femcboost()).unwrap();
@@ -393,7 +395,7 @@ fn a_turn_the_ceo_stopped_is_never_crash_replayed_even_when_the_lease_dies_with_
     // automatic replay, and Rich re-runs the exact work the CEO just told him to stop.
     let ledger_path = tmp_path("replay-ledger").with_extension("jsonl");
     let intake_path = tmp_path("replay-intake").with_extension("jsonl");
-    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
     let thread = spine.create_thread("no replay", &femcboost()).unwrap();
     spine.switch_thread(&thread).unwrap();
     spine.attach_lease(Box::new(DiesOnCancel { flag: Arc::new(AtomicBool::new(false)) }));
@@ -453,7 +455,7 @@ fn a_stop_request_that_outlived_the_process_is_applied_at_startup_not_replayed()
         // ...and the process dies here. Nothing else is written.
     }
 
-    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
     let control = TurnControl::open(&intake_path).unwrap();
     assert_eq!(control.pending_intake().len(), 1, "the stop request survived the crash");
     spine.set_turn_control(control.clone());
@@ -499,7 +501,7 @@ fn a_crash_between_the_ledger_write_and_the_drain_marker_files_the_message_once_
             .unwrap();
     }
 
-    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
     let control = TurnControl::open(&intake_path).unwrap();
     assert_eq!(control.pending_intake().len(), 1, "the record is still undrained, as it must be");
     spine.set_turn_control(control.clone());
@@ -604,7 +606,7 @@ fn a_turn_that_completed_is_never_rendered_as_one_the_ceo_stopped() {
     // fails in the direction where he believes he prevented something he did not.
     let ledger_path = tmp_path("racecomplete-ledger").with_extension("jsonl");
     let intake_path = tmp_path("racecomplete-intake").with_extension("jsonl");
-    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
     let live = RecordingLive::default();
     spine.set_live_observer(Box::new(live.clone()));
     let thread = spine.create_thread("finishes anyway", &femcboost()).unwrap();
@@ -685,7 +687,7 @@ fn the_stop_request_is_still_recorded_as_a_fact_that_did_not_land() {
     let intake_path = tmp_path("racefact-intake").with_extension("jsonl");
     let turn_id;
     {
-        let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+        let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
         let thread = spine.create_thread("recorded", &femcboost()).unwrap();
         spine.switch_thread(&thread).unwrap();
         let lease = FinishesDespiteTheStop::new();

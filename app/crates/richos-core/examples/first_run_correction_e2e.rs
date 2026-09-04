@@ -74,7 +74,7 @@ fn main() {
     let target = offered_corpus_dir(&home);
     println!("\n--- he clicks \"set it up\" ---");
     println!("OFFER  : {}", target.display());
-    let registry = EntityRegistry::ceos_companies();
+    let registry = demo_registry(&home);
     let report = provision(&ProvisionRequest {
         target: target.clone(),
         home: Some(home.clone()),
@@ -152,4 +152,25 @@ fn describe(d: &Option<CorrectionDesk>) -> &'static str {
     } else {
         "CLOSED"
     }
+}
+
+/// THE COMPANY THIS DEMO REGISTERS — invented, and belonging to nobody.
+///
+/// Before 2026-09-04 this was `EntityRegistry::ceos_companies()`: a `const` table of the
+/// CEO's six real companies that shipped inside the binary and was the registry of every
+/// install. The registry is per-user now (`entity.rs` rule 4) and a fresh machine has none,
+/// so a demo that needs a company to exist REGISTERS one, exactly as a first-run user does.
+fn demo_registry(home: &std::path::Path) -> EntityRegistry {
+    let mut registry = EntityRegistry::empty();
+    registry
+        .register(
+            richos_core::entity::Entity::try_new(
+                "northwind",
+                "Northwind Traders",
+                vec![home.join("Projects").join("northwind")],
+            )
+            .expect("a valid demo company"),
+        )
+        .expect("the first registration cannot conflict with anything");
+    registry
 }

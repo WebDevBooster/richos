@@ -21,11 +21,13 @@ use richos_core::entity::EntityId;
 use richos_core::ledger::{AttentionTier, Ledger, Source};
 use richos_core::live::{LiveEvent, LiveObserver};
 use richos_core::machinery::{MachineryObserver, MachineryRecord};
-use richos_core::spine::{Spine, WorkerEventsSource};
+use richos_core::spine::WorkerEventsSource;
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::timeline::{Timeline, ViewMode, Visibility};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
+
+mod support;
 
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
@@ -212,7 +214,7 @@ fn tool_lifecycle(id: &str, tool: &str, command: &str, output: &str) -> Vec<Valu
 /// the four documented events byte-for-byte.
 fn run_turn_capturing_stream(live: Option<RecordingLive>) -> Vec<(String, Value)> {
     let (path, ledger) = tmp_ledger("compat");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["Hello CEO, I'm Rich."])));
     let stream = RecordingStream::default();
@@ -288,7 +290,7 @@ fn the_shared_seq_still_gaps_where_machinery_happened_on_the_old_family() {
     // STREAMING.md: "seq is NOT contiguous ... never treat a gap as a lost chunk". The
     // additive family must not have quietly renumbered anything.
     let (path, ledger) = tmp_ledger("seqgap");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
@@ -320,7 +322,7 @@ fn the_shared_seq_still_gaps_where_machinery_happened_on_the_old_family() {
 #[test]
 fn the_wire_and_the_reload_agree_on_every_field() {
     let (path, ledger) = tmp_ledger("agree");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
@@ -412,7 +414,7 @@ fn the_wire_and_the_reload_agree_on_every_field() {
 #[test]
 fn a_live_message_id_is_the_id_a_reload_projects() {
     let (path, ledger) = tmp_ledger("msgid");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
@@ -470,7 +472,7 @@ fn a_live_message_id_is_the_id_a_reload_projects() {
 #[test]
 fn every_streamed_message_is_phase_unknown_and_never_final() {
     let (path, ledger) = tmp_ledger("phase");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     // The exact shape that makes "the last run is the final answer" false: Rich writes his
     // conclusion, THEN verifies it, THEN says two words. A heuristic would label "Confirmed."
@@ -512,7 +514,7 @@ fn every_streamed_message_is_phase_unknown_and_never_final() {
 #[test]
 fn a_proactive_message_carries_the_one_phase_that_is_real() {
     let (path, ledger) = tmp_ledger("proactive");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     let live = RecordingLive::default();
     spine.set_live_observer(Box::new(live.clone()));
@@ -541,7 +543,7 @@ fn a_proactive_message_carries_the_one_phase_that_is_real() {
 #[test]
 fn a_silent_proactive_message_reaches_the_wire_on_no_family_at_all() {
     let (path, ledger) = tmp_ledger("silent");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     let live = RecordingLive::default();
     let stream = RecordingStream::default();
@@ -564,7 +566,7 @@ fn a_silent_proactive_message_reaches_the_wire_on_no_family_at_all() {
 #[test]
 fn turn_status_walks_the_states_it_can_actually_observe() {
     let (path, ledger) = tmp_ledger("status");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["done"])));
     let live = RecordingLive::default();
@@ -601,7 +603,7 @@ fn turn_status_walks_the_states_it_can_actually_observe() {
 #[test]
 fn a_crash_with_no_recovery_path_says_failed_and_says_it_once() {
     let (path, ledger) = tmp_ledger("failed");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     let mut lease = ScriptedLease::new("sess-1", vec![Beat::Text("I started to say")]);
     lease.die_with = Some("broken pipe".into());
@@ -644,7 +646,7 @@ fn a_crash_with_no_recovery_path_says_failed_and_says_it_once() {
 #[test]
 fn model_reasoning_and_internal_machinery_never_reach_the_calm_family() {
     let (path, ledger) = tmp_ledger("gate");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
@@ -710,7 +712,7 @@ fn an_accounting_update_is_not_a_thing_rich_did() {
     // against ONE "Ran a command". A 6:1 noise ratio on the calm timeline, and the 2026-08-28
     // probe measured 50 usage_updates across five runs, so a longer turn is worse.
     let (path, ledger) = tmp_ledger("accounting");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
@@ -773,7 +775,7 @@ fn no_event_ever_carries_one_entitys_content_under_another_entitys_fence() {
     // TWO entities, TWO threads, ONE spine — the shape slice 1 proved leaks in the
     // re-prime digest and slice 2a proved leaks through a merged machinery row.
     let (path, ledger) = tmp_ledger("crossentity");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let femc_thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
     let deeply_thread = spine.create_thread("Pricing", &deeply()).unwrap();
 
@@ -825,7 +827,7 @@ fn a_deferred_proactive_emit_keeps_the_entity_it_was_written_under() {
     // one-line change, and exactly the kind a future refactor makes to "simplify" the
     // queue struct — and this test fails: deeply's sentence is emitted stamped femcboost.
     let (path, ledger) = tmp_ledger("deferred");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let femc_thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
     let deeply_thread = spine.create_thread("Pricing", &deeply()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["ack"])));
@@ -881,7 +883,7 @@ fn an_unbound_legacy_thread_emits_nothing_at_all() {
     // A thread written before entity scoping existed: no binding, ever.
     std::fs::write(&path, r#"{"event":"ThreadCreated","thread_id":"thr_old","title":"Legacy","at":1}"#.to_string() + "\n")
         .unwrap();
-    let mut spine = Spine::new(Ledger::open(&path).unwrap());
+    let mut spine = support::spine(Ledger::open(&path).unwrap());
     let live = RecordingLive::default();
     spine.set_live_observer(Box::new(live.clone()));
 
@@ -961,7 +963,7 @@ fn a_delegation_reaches_the_webview_during_the_turn_not_after_it() {
         ],
     );
     let (path, ledger) = tmp_ledger("during");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("Memory strategy", &femcboost()).unwrap();
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(
@@ -1044,7 +1046,7 @@ fn the_live_worker_row_and_the_reloaded_worker_row_are_the_same_row() {
         ],
     );
     let (path, ledger) = tmp_ledger("agree-worker");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(
@@ -1113,7 +1115,7 @@ fn a_run_that_ended_crosses_the_live_wire_as_unknown_never_as_a_completion() {
         ],
     );
     let (path, ledger) = tmp_ledger("ended-worker");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("Memory strategy", &femcboost()).unwrap();
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(
@@ -1173,7 +1175,7 @@ fn no_worker_from_another_session_reaches_the_live_wire() {
         ],
     );
     let (path, ledger) = tmp_ledger("clause3");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("Memory strategy", &femcboost()).unwrap();
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(
@@ -1235,7 +1237,7 @@ fn a_lifecycle_row_that_lands_after_the_tool_result_still_reaches_the_screen_in_
     // a second row.
     let stream = write_worker_stream("race", &[]);
     let (path, ledger) = tmp_ledger("race");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
 
@@ -1305,7 +1307,7 @@ fn a_delegation_on_an_internal_turn_is_constructed_and_then_refused() {
         &[worker_line("created", "agt_hidden", "SECRET-WORKER", "internal", "sess-1", "")],
     );
     let (path, ledger) = tmp_ledger("internal-worker");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(

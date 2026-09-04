@@ -237,9 +237,16 @@ pub struct Spine {
     /// bare thread id — holding the full binding is what lets every downstream call be
     /// scoped without re-deriving (or re-guessing) the entity.
     active: Option<ThreadBinding>,
-    /// The entity areas this spine will accept. ECS §10.2's four by default; a caller can
-    /// substitute its own. Membership is checked on thread creation so an unregistered
-    /// entity can never become a thread's immutable home.
+    /// The entity areas this spine will accept. **EMPTY by default** — the registry
+    /// belongs to the person running the app and is loaded from their own configuration
+    /// file (`entity.rs` rule 4), so a spine that nobody has told about any company accepts
+    /// none. Membership is checked on thread creation, so an unregistered entity can never
+    /// become a thread's immutable home; with an empty registry that means every
+    /// `create_thread` is refused, which is the correct and honest state of an install
+    /// whose owner has not said which company they work for yet.
+    ///
+    /// The shell installs the real one with [`Spine::set_entity_registry`] as soon as it
+    /// has read the file.
     registry: EntityRegistry,
     /// The turn-boundary controller state. Keyed on turn-in-progress (NOT workers-live):
     /// a turn can END while engine subagents keep running, so delivery/rotation proceeds
@@ -396,7 +403,7 @@ impl Spine {
             ledger,
             lease: None,
             active: None,
-            registry: EntityRegistry::ceos_companies(),
+            registry: EntityRegistry::empty(),
             turn_in_progress: false,
             control: TurnControl::detached(),
             queue: VecDeque::new(),

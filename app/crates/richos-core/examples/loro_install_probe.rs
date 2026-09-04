@@ -49,7 +49,12 @@ fn main() {
     println!("WRITER : root={}", writer.root().path().display());
     println!("         bin={}", writer.tools().write_bin().display());
 
-    match CliContextCompiler::from_install(&install) {
+    // THE REGISTRY THIS INSTALL ACTUALLY HAS. It used to be a compiled-in constant; it is
+    // read off disk now, and an install that has registered nothing yields an empty lane map
+    // — which is a true statement about that install rather than a claim about a company
+    // list it does not have.
+    let registry = registry_on_this_machine();
+    match CliContextCompiler::from_install(&install, &registry) {
         Ok(reader) => {
             println!("READER : root={}", reader.root().path().display());
             println!("         bin={}", reader.tools().context_bin().display());
@@ -63,4 +68,23 @@ fn main() {
         // A read-scoping failure does not un-resolve the corpus, and the desk stays open.
         Err(e) => println!("READER : unusable — {e} (the writer above is unaffected)"),
     }
+}
+
+/// The registry this install has, read from its own configuration directory.
+///
+/// Empty when nothing has been registered, which is the honest answer and is what an
+/// unconfigured machine gets. The path is named in the output so a reader can see WHICH file
+/// was consulted rather than inferring it.
+fn registry_on_this_machine() -> richos_core::entity::EntityRegistry {
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+        println!("REGISTRY: no HOME — no companies registered");
+        return richos_core::entity::EntityRegistry::empty();
+    };
+    let path = richos_core::entity::entity_registry_path(&richos_core::entity::app_config_dir(&home));
+    let load = richos_core::entity::EntityRegistry::load(&path);
+    println!("REGISTRY: {} ({} compan(ies)) via {}", path.display(), load.registry.len(), load.source.as_str());
+    for note in &load.notes {
+        println!("          {note}");
+    }
+    load.registry
 }

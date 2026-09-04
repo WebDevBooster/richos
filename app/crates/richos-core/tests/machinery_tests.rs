@@ -31,6 +31,8 @@ use richos_core::stream::{StreamEvent, TurnObserver, EVENT_CHUNK, EVENT_PROACTIV
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 // ---------------------------------------------------------------------------
 // fixtures
 // ---------------------------------------------------------------------------
@@ -177,7 +179,7 @@ impl MachineryObserver for RecordingMachineryObserver {
 
 fn spine_with_journal(dir: &std::path::Path) -> (Spine, MachineryJournal) {
     let ledger = Ledger::open(dir.join("conversation-ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.set_machinery_journal(MachineryJournal::new(dir.join("machinery")));
     spine.attach_lease(Box::new(ReplayCognition::new("sess-1", recorded_turn())));
     (spine, MachineryJournal::new(dir.join("machinery")))
@@ -312,7 +314,7 @@ fn the_calm_conversation_is_byte_identical_whether_or_not_machinery_flows() {
 
     let without_dir = tmp_dir("calm-without");
     let ledger = Ledger::open(without_dir.join("conversation-ledger.jsonl")).unwrap();
-    let mut b = Spine::new(ledger);
+    let mut b = support::spine(ledger);
     b.attach_lease(Box::new(ReplayCognition::new("sess-1", recorded_turn())));
     let tb = b.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     b.submit_prompt("what version is the engine?", Source::Text).unwrap();
@@ -372,7 +374,7 @@ fn reprime_machinery_is_retained_internal_and_never_projected() {
     // a thread render — the standing order that Rich never reveals session rotation.
     let dir = tmp_dir("reprime");
     let ledger = Ledger::open(dir.join("conversation-ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.set_machinery_journal(MachineryJournal::new(dir.join("machinery")));
     let mut lease = ReplayCognition::new("sess-1", recorded_turn());
     lease.reprime_machinery = true;
@@ -413,7 +415,7 @@ fn a_journal_write_failure_never_fails_the_turn() {
     std::fs::write(&blocked, b"not a directory").unwrap();
 
     let ledger = Ledger::open(dir.join("conversation-ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.set_machinery_journal(MachineryJournal::new(&blocked));
     spine.attach_lease(Box::new(ReplayCognition::new("sess-1", recorded_turn())));
     let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
@@ -430,7 +432,7 @@ fn a_spine_with_no_journal_still_routes_and_completes_the_turn() {
     // already had. Nothing here silently makes retention optional at runtime.
     let dir = tmp_dir("nojournal");
     let ledger = Ledger::open(dir.join("conversation-ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     assert!(!spine.has_machinery_journal());
     let mach = RecordingMachineryObserver::default();
     spine.set_machinery_observer(Box::new(mach.clone()));

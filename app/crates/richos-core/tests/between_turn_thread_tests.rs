@@ -27,6 +27,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+mod support;
+
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
 }
@@ -104,7 +106,7 @@ fn a_real_agents_session_start_frame_reaches_the_journal_and_the_technical_view(
     let ledger_path = tmp("live", ".jsonl");
     let journal_root = tmp("live-journal", "");
 
-    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
     spine.set_machinery_journal(MachineryJournal::new(&journal_root));
     spine.attach_lease(Box::new(NativeCognition::start(&script, Path::new("/tmp")).unwrap()));
     let thread = spine.create_thread("Avelor release", &femcboost()).unwrap();
@@ -198,7 +200,7 @@ fn spine_with_lease(
     journal_root: &Path,
     lease: Box<dyn Cognition>,
 ) -> (Spine, String) {
-    let mut spine = Spine::new(Ledger::open(ledger_path).unwrap());
+    let mut spine = support::spine(Ledger::open(ledger_path).unwrap());
     spine.set_machinery_journal(MachineryJournal::new(journal_root));
     spine.attach_lease(lease);
     let thread = spine.create_thread("Avelor release", &femcboost()).unwrap();

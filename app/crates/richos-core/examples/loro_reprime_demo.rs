@@ -60,7 +60,11 @@ fn main() {
     // `locate`, not `from_env`, because `locate` is what the SHIPPED APP calls. The two
     // differ only for a launch with no environment — which is the launch the CEO makes —
     // so a demo on `from_env` would prove a path he never takes.
-    let compiler = match CliContextCompiler::locate(&CorpusPaths::from_process()) {
+    // THE REGISTRY THIS INSTALL ACTUALLY HAS — read from its own configuration directory
+    // rather than compiled in, so the lane map this demo runs under is the one the app would
+    // run under on this machine.
+    let registry = registry_on_this_machine();
+    let compiler = match CliContextCompiler::locate(&CorpusPaths::from_process(), &registry) {
         Ok((Some((mut c, source)), _)) => {
             eprintln!("[demo] corpus root: {} (via {})", c.root().path().display(), source.as_str());
             eprintln!("[demo] node: {}", c.tools().node());
@@ -79,7 +83,7 @@ fn main() {
                     eprintln!("[demo] entity->lane map after reconciliation: {} entr(ies)", c.lanes().len());
                     // The same corpus-owner resolution the app does at boot.
                     if let Some(repo) = corpus.repo_layout_root() {
-                        match EntityRegistry::ceos_companies().resolve_root(repo) {
+                        match registry.resolve_root(repo) {
                             Ok(owner) => {
                                 eprintln!("[demo] in-repo corpus owned by entity {}", owner.id);
                                 c.set_repo_corpus_owner(Some(owner.id.to_string()));
@@ -136,4 +140,17 @@ fn main() {
         println!("--------------------------------------------------------------- {} chars", p.len());
     }
     let _ = std::fs::remove_file(&path);
+}
+
+/// The registry this install has, read from its own configuration directory. Empty when
+/// nothing has been registered — the honest answer on an unconfigured machine.
+fn registry_on_this_machine() -> EntityRegistry {
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+        eprintln!("[demo] no HOME — no companies registered");
+        return EntityRegistry::empty();
+    };
+    let path = richos_core::entity::entity_registry_path(&richos_core::entity::app_config_dir(&home));
+    let load = EntityRegistry::load(&path);
+    eprintln!("[demo] registry: {} compan(ies) from {} ({})", load.registry.len(), path.display(), load.source.as_str());
+    load.registry
 }
