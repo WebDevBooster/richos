@@ -30,17 +30,122 @@ name: engine-self-verify
 # scratch and which the suite runner discovers automatically. See
 # `engine/docs/ci-portability-notes.md`.
 
+# =========================================================================================
+# RUN ON LINUX ON 2026-09-04, AND IT IS NOT READY TO BE ENABLED
+# =========================================================================================
+#
+# `README.md` beside this file has said since 2026-09-01 that these workflows were "never
+# broken" and that going public re-enables them unchanged. That was an inference from a
+# billing block, which produces no log to test it against, and for this file it is wrong in
+# two separate ways.
+#
+# So it was run. `ubuntu:24.04` in a container — bash 5.2.21, git 2.43.0, python3 3.12.3 —
+# from a real clone of `fc56c20` in a directory with no private `richos-hq` sibling, as an
+# UNPRIVILEGED user, because a GitHub job is not root and the difference is not cosmetic
+# (the first attempt ran as root, and `create-teammate-worktree.test.sh` case C17 failed in
+# it because `mkdir -p /nonexistent-dir` succeeds for root, so the refusal C17 asserts never
+# came — a verdict about the container, not about the tree). Transcript:
+# `docs/verification/workflows-on-a-clone-2026-09-04/raw/linux-engine.txt`.
+#
+# ONE PORTABILITY DEFECT, FIXED HERE. `contract-integrity.test.sh` used `sed -i ''` at four
+# sites. That is the BSD in-place idiom; GNU sed reads the empty string as the SCRIPT and
+# the real script as a FILENAME, so under `set -e` the suite ran 139 cases and ABORTED, exit
+# 2, with the MT and MC sections never reached. It is the third instance of this class after
+# `mktemp -t` and `BASH_CMDS` (`engine/docs/ci-portability-notes.md`), and it arrived after
+# the engine's only previous Linux execution on 2026-08-29 — 24 suites then, 60 now.
+# Replaced with a `_sed_inplace` helper; MT and MC now run and pass, on both hosts.
+#
+# FOUR SUITES ARE RED, AND THREE OF THEM ARE RED ON macOS TOO. Checked one at a time against
+# the same clone, so "Linux broke it" is a claim rather than an assumption:
+#
+#   guard-worktree-isolation.test.sh        RED on BOTH. Base cases pass; its clause-7
+#                                           mutation harness reports 3 of 7 properties not
+#                                           proven load-bearing, identically on each host.
+#   provision-claude-md.test.sh             RED on BOTH. 12 cases.
+#   reconcile-terminal-worktrees.test.sh    RED on BOTH. Case C16. This is also
+#                                           contract-integrity's `54.reconciler-suite-passes`.
+#   install-reconciler-schedule.test.sh     RED ON LINUX ONLY, and it is honest redness:
+#                                           cases S17-S20 shim `launchctl` and assert launchd
+#                                           behavior on a host that has no launchd. Section 7
+#                                           of that file already carries a macOS-only gate;
+#                                           these four do not. What they should assert off
+#                                           Darwin is a question about what install.sh ought
+#                                           to DO there, which is not this file's to answer.
+#
+# Two more, named because they are the OTHER kind of red: `CL1.claim-gate-suite-passes`
+# failed in one Linux pass and passed in the next, and `guard-unresolved-claims.test.sh`
+# passes standalone in 3 s — so CL1 is the load-related flake its own cost measurement
+# already documents, not a defect. `IN2.inflight-notify-mutations` failed in both passes and
+# is not dismissed as one.
+#
+# NONE OF THIS IS CAUSED BY GOING PUBLIC. Three of the four are red on the machine the engine
+# is developed on, today. The flip does not create them; it publishes them.
+#
+# =========================================================================================
+# WHY THE TRIGGERS ARE GONE, AND EXACTLY WHAT PUTS THEM BACK
+# =========================================================================================
+#
+# This job had `on: push` with NO path filter, so the moment Actions is enabled on a public
+# repository it fires on every commit — and with four suites red it would put a cross on
+# every one of them, from day one, over defects that predate the flip. A cross that always
+# means nothing teaches everyone to ignore the one that will someday mean something; that is
+# this directory's own argument, in `README.md`, and it applies here.
+#
+# `workflow_dispatch` stays, so the gate can be demanded on a named SHA. It did not exist
+# before, which is worth saying plainly: the post-flip checklist says to DISPATCH all five,
+# and this one could not be dispatched at all.
+#
+# TO RE-ENABLE: get the four suites above green, then restore
+#
+#     push:
+#     pull_request:
+#
+# beneath `on:`. That is the whole change. Nothing else in this file is waiting on anything.
+
 on:
-  push:
-  pull_request:
+  # Deliberately no `push` and no `pull_request` — see the section above. They come back
+  # unchanged when the four suites are green.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   verify:
+    # MEASURED, not guessed, and the old value could never have been met.
+    #
+    # `timeout-minutes: 45` was set when `run-all-tests.sh` was 24 suites taking about seven
+    # minutes on the dev Mac. It is 60 suites now, and one of them —
+    # `contract-integrity.test.sh` — was measured at 2977.9 s, 49.6 minutes, ON ITS OWN
+    # (`docs/measurements/integrity-suite-cost-2026-09-04/`). The `--only` scoping that
+    # landed the same day made a DEVELOPER's run fast; `run-all-tests.sh` invokes every suite
+    # with no arguments, so CI has always paid and still pays the full pass. The job could
+    # not have finished inside 45 minutes on any host.
+    #
+    # The number below comes from a full run of exactly these steps on Linux:
+    #
+    #     everything except contract-integrity.test.sh    3060 s   (51.0 min)
+    #     contract-integrity.test.sh, full pass           1089 s   (18.2 min)
+    #     ---------------------------------------------------------------
+    #     the whole of ci-verify.sh                       4149 s   (69.2 min)
+    #
+    # Two suites are 77% of that: `guard-sealed-worktree.test.sh` at 2114 s and
+    # contract-integrity at 1089 s, both mutation harnesses that run another suite per mutant.
+    #
+    # THE MEASUREMENT IS AN UPPER BOUND AND THAT IS DELIBERATE. It was taken on a machine
+    # shared with eleven other agents, at a load average between 9 and 58 on ten cores. So
+    # 69 minutes is what a badly contended host does, not what a quiet one does.
+    #
+    # 150 is 2.2x that. The headroom is for the difference nobody here can measure: this ran
+    # on a 10-CPU arm64 container and `ubuntu-latest` is a 4-vCPU x86 VM, and a suite whose
+    # cost is 77% serial mutation harnesses is bound by single-core speed rather than by
+    # cores. GitHub's own job ceiling is 6 hours and Actions is free on a public repository,
+    # so the cost of being generous here is zero and the cost of being tight is a green run
+    # killed at 95%. If the first real run comes in near 70 minutes, tighten it against THAT
+    # number — a timeout is a promise about the slowest acceptable run, and it should be
+    # re-promised against evidence rather than left at whatever survived.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 150
     defaults:
       run:
         working-directory: engine
