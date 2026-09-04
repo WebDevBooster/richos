@@ -2946,9 +2946,31 @@ async function runSetup() {
 setupGoEl.addEventListener("click", runSetup);
 setupLaterEl.addEventListener("click", closeSetupSheet);
 setupCloseEl.addEventListener("click", closeSetupSheet);
-setupSheetEl.addEventListener("click", (e) => {
-  if (e.target === setupSheetEl) closeSetupSheet();
-});
+// THE BACKDROP DOES NOT DISMISS THIS ONE, and it is the only overlay in the window that
+// refuses to. Every other sheet here closes on a click outside it, which is the right
+// default for a search box or a picker: nothing is lost by closing one.
+//
+// THE DEFECT THIS CLOSES (ray-opus-a2, published v1.0.1, 2026-09-04). This handler read
+// `if (e.target === setupSheetEl) closeSetupSheet()`, and `#setup-sheet` IS the full-screen
+// backdrop — the panel inside it is `.overlay-panel`. So every pixel around a compact
+// centered panel dismissed the ONE step that puts an engine on the machine, and
+// `closeSetupSheet` then handed straight off to the memory question. Measured under WebKit
+// on both `missing-engine` and `missing-both`: sheet hidden=true, `run_setup` called=false,
+// memory question showing=true. The app then looked set up and was not, and every send was
+// refused for the rest of that install.
+//
+// A click that misses "Set it up" by sixty pixels is not consent to skip it. Neither is a
+// click aimed at getting a window out of the way — a stranger dismisses dialogs by clicking
+// beside them, and this is the first thing he ever sees. There is always a NAMED way out:
+// "Not now" when there is something to install, "Close" when there is not, "Close" again
+// once the run has finished. The only moment neither is on screen is during the install
+// itself, and dismissing mid-download is precisely what must not happen either.
+//
+// Escape is already inert here — the global handler (further down this file) lists the
+// overlays it closes and this sheet is deliberately not among them. `setup.js` case 14 holds
+// both halves so neither can be reinstated by accident.
+// (No backdrop listener at all. An empty one is a handler a later reader deletes as dead
+// code; the absence, with this note above it, is the invariant.)
 
 // LIVE PROGRESS. Anthropic's installer downloads the `claude` binary — 197,220,928 B on a
 // Mac with no `zstd`, which macOS 15.6 does not ship (§19 finding 3) — so a sheet that said
