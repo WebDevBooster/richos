@@ -1,0 +1,55 @@
+THIRD-PARTY MATERIAL - playwright-e2e-testing
+
+This directory is somebody else's work, bundled into RichOS. It is not
+RichOS-authored and it is not covered by this repository's AGPL.
+
+  Source     https://github.com/bobmatnyc/claude-mpm-skills
+  Skill      toolchains/javascript/testing/playwright
+  Revision   a0632b527e53d377e186e16b3b8edb8bc2892a98 (2025-12-31)
+  Terms      MIT, from the upstream LICENSE file at that revision, reproduced
+             verbatim below
+
+VERIFIED 2026-09-04. Every revision of the upstream file was fetched and
+compared; this one differs from the bundled SKILL.md by exactly ONE line, and
+the frontmatter - including the name playwright-e2e-testing, which upstream
+chose - matches it exactly.
+
+THE ONE LINE, so that "modified" means something specific here. In the
+form-filling example, upstream writes:
+
+    await page.type('textarea[name="message"]', 'Hello', { delay: 100 });
+
+and the bundled copy writes:
+
+    await page.locator('textarea[name="message"]').fill('Hello');
+
+That is a substitution of a deprecated Playwright API for its replacement.
+Nothing in this repository's surviving history records who made it or when -
+the history predating 2026-08-20 was rewritten - so no cause is asserted.
+
+Upstream also ships a metadata.json beside the skill, declaring
+"license": "MIT". It is not bundled here; it is named because it is a second,
+independent statement of the same grant.
+
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2025 Claude MPM Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
