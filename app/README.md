@@ -357,7 +357,7 @@ app/
     Info.plist               the macOS privacy strings (NSMicrophoneUsageDescription)
     Entitlements.plist       hardened-runtime entitlements — used ONLY by the
                               --sign developer-id path, referenced nowhere in
-                              tauri.conf.json, and never yet used to sign anything
+                              tauri.conf.json, and carried by every published release
     tauri.conf.json, capabilities/, icons/
   scripts/
     package-app.sh           the packaging entrypoint: builds, signs, notarizes,
@@ -1333,11 +1333,11 @@ a magnitude-domain echo DETECTOR for the barge-in decision path (the linear canc
 landed; this is what would make barge-in work on hardware whose echo path is not linear —
 prototyped and measured at 0.7 % false positives / 73.6 % detection on a real recording, but
 not shipped: see `aec.rs`), a live partial transcript, a warm whisper daemon, a Windows
-`SpeechSynth`, and the rest of packaging — a NOTARIZED bundle (blocked on CEO decision
-1.1, no signing identity exists), the bundled Node + adapter + whisper + models (see the
-voice brief's size table), and an auto-update channel. The entrypoint itself now exists
-and produces a verified ad-hoc bundle: "Packaging" above. See the feasibility notes in
-the handoffs.
+`SpeechSynth`, and the rest of packaging — the bundled whisper binary and models (see the
+voice brief's size table), which the `.app` still assumes on the host. Signing,
+notarization, stapling and the update channel have left this list: the entrypoint produces
+a Developer ID signed, notarized and stapled bundle, and three public releases have gone
+out through it — "Packaging" above. See the feasibility notes in the handoffs.
 
 **Delegated workers, live (2026-08-29):** the engine's worker-lifecycle stream now reaches
 the CEO *during* the turn. `rich://worker-upserted` — §13's eleventh event, deferred while
