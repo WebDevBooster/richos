@@ -61,6 +61,7 @@ const entityAddGoEl = el("entity-add-go");
 const chooseCompanyRowEl = el("composer-choose-company");
 const chooseCompanyBtnEl = el("choose-company-btn");
 const memorySetupEl = el("memory-setup");
+const memorySetupTitleEl = el("memory-setup-title");
 const memorySetupNoteEl = el("memory-setup-note");
 const memorySetupLocationEl = el("memory-setup-location");
 const memorySetupGoEl = el("memory-setup-go");
@@ -3081,6 +3082,12 @@ async function provisionMemory() {
   // it caches is known to be stale.
   await refreshDesk();
   const readable = next.state === "ready";
+  // AND THE HEADING STOPS ASKING A QUESTION HE HAS ANSWERED. It is the dialog's accessible
+  // name and it stayed on "Where should I keep what you tell me?" over both endings, so the
+  // screen he actually reaches read as a question above its own answer — the same defect the
+  // setup sheet's heading had two screens earlier (ray-opus-a1, finding 7). One heading for
+  // both endings, because what follows it is about the folder in either case.
+  memorySetupTitleEl.textContent = "Your memory folder.";
   // `consented`, and deliberately NOT `next.root`: the two name one directory, and the one he
   // is owed is the one he answered a question about.
   openMemorySetup(readable ? MEMORY_DONE : MEMORY_NO_READER, consented, { canProvision: false });

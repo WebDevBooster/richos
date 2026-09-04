@@ -181,12 +181,19 @@ async function main() {
     );
     assert(await page.isHidden("#memory-setup-go"), "nothing left to set up, so nothing offers to");
     assert(await page.isVisible("#memory-setup-close"), "a finished dialog needs a way out");
+    // AND THE HEADING IS NOT STILL ASKING. It is the dialog's accessible name, so a question
+    // left standing over its own answer is read out as one too.
+    const heading = (await page.textContent("#memory-setup-title")).trim();
+    assert(
+      !/Where should I keep/.test(heading),
+      "the heading is still asking a question the body has just answered: " + heading
+    );
     // ONE PRESS. Not two, not a wizard.
     const provisionCalls = await page.evaluate(
       () => window.__calls.filter((c) => c.cmd === "provision_memory").length
     );
     assertEqual(provisionCalls, 1, "his whole part is one click");
-    bump(5);
+    bump(6);
     assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
     await page.close();
     return "1 click -> 1 command -> \"That's set up.\", still naming " + JSON.stringify(asked);

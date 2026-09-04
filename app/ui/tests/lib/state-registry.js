@@ -1242,6 +1242,16 @@ module.exports = [
       "exactly the kind this registry exists to keep honest.",
   },
   {
+    s: "Your memory folder.",
+    c: "CONTROL",
+    why:
+      "The same dialog's heading AFTER he has answered it, and it exists because the question " +
+      "used to stay on screen above its own answer: \"Where should I keep what you tell me?\" " +
+      "over \"That's set up.\" — and, on a machine with no compiler, over the sentence saying " +
+      "the folder cannot be read yet. It is the accessible name of the dialog it labels, not a " +
+      "state, which is the same classification the question below carries.",
+  },
+  {
     s: "Where should I keep what you tell me?",
     c: "CONTROL",
     why:
