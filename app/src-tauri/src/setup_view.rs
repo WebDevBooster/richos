@@ -63,6 +63,79 @@ pub const SETUP_UNPINNED_NOTE: &str =
     "This copy of RichOS wasn't built with an engine to install, so I can't fetch one. \
      It needs whoever set RichOS up to publish one and pin it.";
 
+/// **What the CEO is told when he tries to send and the setting up was never done.**
+///
+/// THE DEFECT THIS CLOSES (ray-opus-a2, published v1.0.1, 2026-09-04). Four sends, four
+/// refusals, no restart in between, and every one of them said: *"Quit RichOS and open it
+/// again — that clears it most of the time."* On that machine
+/// `~/Library/Application Support/RichOS/engine` held zero files, so quitting and reopening
+/// was advice that could not work: the boot would look for an engine that was still not
+/// there, fail to attach exactly as before, and hand him the same sentence. He would have
+/// done it, watched it not work, and concluded the product was broken — which, in that
+/// state, it was.
+///
+/// [`crate::LEASE_UNAVAILABLE_MESSAGE`] is not wrong; it is written for the OTHER no-lease
+/// cause, the one where everything is installed and the account is not signed in. Quitting
+/// and reopening genuinely does clear that one. The two causes were sharing a sentence, and
+/// the sentence was true of only one of them.
+///
+/// So this is the arm where the cause is on disk in front of us. It says which piece is
+/// missing, in the same words the consent sheet uses ([`Component::display_name`]), it
+/// offers the one thing that fixes it — the sheet is reopened behind this notice, and
+/// `run_setup` attaches a lease with no relaunch — and it closes the door on the advice that
+/// cannot help: *there's nothing to quit and nothing to reopen*.
+///
+/// THREE ARMS AND THREE WHOLE SENTENCES, not one template with a hole in it. `affordances.js`
+/// scrapes CEO-facing literals out of this source and classifies every one; a `{}` is a
+/// sentence nobody can classify, and the state registry would be carrying a fragment instead
+/// of the thing he reads.
+pub const SETUP_INCOMPLETE_ENGINE: &str =
+    "I can't take that on yet — the RichOS engine isn't on this Mac, and that's the part \
+     of me that knows how I work. I've put the setting up back on your screen: press Set \
+     it up and I'll fetch it. There's nothing to quit and nothing to reopen.";
+
+/// The same state, when what is missing is the program rather than the instructions.
+pub const SETUP_INCOMPLETE_CLAUDE: &str =
+    "I can't take that on yet — Claude Code isn't on this Mac, and that's the program I \
+     think with. I've put the setting up back on your screen: press Set it up and I'll \
+     fetch it. There's nothing to quit and nothing to reopen.";
+
+/// The same state on a Mac that has neither — the customer's, on the day he installs.
+pub const SETUP_INCOMPLETE_BOTH: &str =
+    "I can't take that on yet — this Mac doesn't have Claude Code or the RichOS engine, \
+     and those are what I think with. I've put the setting up back on your screen: press \
+     Set it up and I'll fetch them. There's nothing to quit and nothing to reopen.";
+
+/// Which sentence he is shown, from what the DISK says — not from what a boot once thought.
+///
+/// An empty `needs` has no sentence here BY CONSTRUCTION: nothing is missing, so the no-lease
+/// cause is the other one and [`crate::LEASE_UNAVAILABLE_MESSAGE`] is the honest answer. The
+/// `Option` is what makes that a decision the caller has to make rather than a fallthrough.
+///
+/// A BLOCKED BUILD GETS THE SENTENCE THAT IS TRUE OF IT. Three of these four arms promise
+/// "press Set it up", and on a build with no engine pin there is no such button to press —
+/// `ask_for` hides it and shows [`SETUP_UNPINNED_NOTE`] instead. Promising a control that is
+/// not drawn is the same class of defect as promising a restart that cannot work, so that
+/// arm gets the note the sheet itself is showing, which names the party who can act.
+pub fn incomplete_message(status: &SetupStatus) -> Option<&'static str> {
+    let needs = status.needs();
+    if needs.is_empty() {
+        return None;
+    }
+    if status.blocked() {
+        return Some(SETUP_UNPINNED_NOTE);
+    }
+    match (
+        needs.contains(&Component::ClaudeCode),
+        needs.contains(&Component::Engine),
+    ) {
+        (true, true) => Some(SETUP_INCOMPLETE_BOTH),
+        (true, false) => Some(SETUP_INCOMPLETE_CLAUDE),
+        (false, true) => Some(SETUP_INCOMPLETE_ENGINE),
+        (false, false) => None,
+    }
+}
+
 /// One step of the run, as it happens.
 #[derive(Debug, Clone, Serialize)]
 pub struct SetupProgress {
@@ -352,6 +425,88 @@ mod tests {
         // And it names a party from `affordances.js`'s closed set, so a state he cannot fix
         // never leaves him with a fault and no owner.
         assert!(SETUP_UNPINNED_NOTE.contains("whoever set RichOS up"));
+    }
+
+    /// A status shaped by hand, so each arm of [`incomplete_message`] can be asked for
+    /// directly rather than depending on what this machine happens to have installed.
+    fn status(claude: bool, engine: bool, installable: bool) -> SetupStatus {
+        let mut st = detect(None);
+        st.claude.present = claude;
+        st.engine.present = engine;
+        st.engine_installable = installable;
+        st
+    }
+
+    /// **THE SENTENCE NEVER TELLS HIM TO QUIT AND REOPEN WHEN THAT CANNOT HELP.**
+    ///
+    /// ray-opus-a2, published v1.0.1, 2026-09-04: an engine directory holding zero files, and
+    /// four sends refused with "Quit RichOS and open it again". The next boot would look for
+    /// the same absent engine and fail the same attach, so the only instruction he was given
+    /// was one that could not work.
+    #[test]
+    fn a_machine_missing_something_is_never_told_to_restart() {
+        for (c, e) in [(true, false), (false, true), (false, false)] {
+            let msg = incomplete_message(&status(c, e, true)).expect("something is missing");
+            // The INSTRUCTION, not the word. These sentences end by ruling a restart out —
+            // "there's nothing to quit and nothing to reopen" — so a bare search for "quit"
+            // would flag the fix as the defect.
+            assert!(
+                !msg.contains("Quit RichOS"),
+                "a state a restart cannot clear must not ask for one: {msg}"
+            );
+            assert!(
+                !msg.contains("open it again"),
+                "a state a restart cannot clear must not ask for one: {msg}"
+            );
+            // And it says so out loud, because he has already been told the opposite.
+            assert!(
+                msg.contains("nothing to quit and nothing to reopen"),
+                "the sentence must close the door on the advice that cannot work: {msg}"
+            );
+        }
+        // The sentence LEASE_UNAVAILABLE_MESSAGE carries is the one this arm must not
+        // duplicate, and the two must stay different strings.
+        assert_ne!(
+            incomplete_message(&status(true, false, true)),
+            Some(crate::LEASE_UNAVAILABLE_MESSAGE)
+        );
+    }
+
+    /// **IT NAMES THE MISSING PIECE, AND OFFERS THE THING THAT FIXES IT.** Naming is the
+    /// difference between a status and a diagnosis; the offer is the difference between a
+    /// diagnosis and a way out.
+    #[test]
+    fn it_names_what_is_missing_and_offers_the_setting_up() {
+        let engine = incomplete_message(&status(true, false, true)).unwrap();
+        assert!(engine.contains("the RichOS engine"), "{engine}");
+        let claude = incomplete_message(&status(false, true, true)).unwrap();
+        assert!(claude.contains("Claude Code"), "{claude}");
+        let both = incomplete_message(&status(false, false, true)).unwrap();
+        assert!(both.contains("Claude Code") && both.contains("the RichOS engine"), "{both}");
+        for msg in [engine, claude, both] {
+            assert!(msg.contains("Set it up"), "the offer is missing: {msg}");
+            // The same floor the rest of this surface meets.
+            assert!(!msg.contains('/'), "{msg}");
+            assert!(!msg.chars().any(|c| c.is_ascii_digit()), "{msg}");
+        }
+    }
+
+    /// **A COMPLETE MACHINE FALLS THROUGH TO THE OTHER SENTENCE.** No lease with nothing
+    /// missing is the signed-out case, and for that one quitting and reopening genuinely does
+    /// clear it — which is why the two states must not share a sentence in either direction.
+    #[test]
+    fn a_complete_machine_has_no_setup_sentence() {
+        assert!(incomplete_message(&status(true, true, true)).is_none());
+    }
+
+    /// **A BUILD THAT CANNOT INSTALL DOES NOT PROMISE A BUTTON.** `ask_for` hides "Set it up"
+    /// when the engine is unpinned, so a sentence saying to press it would name a control the
+    /// sheet is not drawing.
+    #[test]
+    fn a_blocked_build_says_what_the_sheet_says() {
+        let msg = incomplete_message(&status(true, false, false)).unwrap();
+        assert_eq!(msg, SETUP_UNPINNED_NOTE);
+        assert!(!msg.contains("Set it up"), "{msg}");
     }
 
     /// A progress line never puts a path or a version in front of him.

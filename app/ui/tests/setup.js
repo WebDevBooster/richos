@@ -506,6 +506,117 @@ async function main() {
     return "backdrop, Escape and the panel body are all inert; only the two buttons dismiss it";
   });
 
+  // =======================================================================================
+  // A SEND WITH NO ENGINE SAYS SO, AND OFFERS THE INSTALL
+  // =======================================================================================
+  //
+  // ray-opus-a2 sent four messages into a machine with no engine and got the same sentence
+  // four times: "I'm not connected to my thinking right now... Quit RichOS and open it again
+  // — that clears it most of the time." He had not restarted between them, and restarting
+  // would not have helped: the next boot looks for the same absent engine, fails the same
+  // attach, and says the same thing. The only instruction the product gave him was one that
+  // could not work.
+  //
+  // That sentence is not wrong — it is written for the OTHER no-lease cause, the signed-out
+  // one, which a restart does clear. The two causes were sharing it. `send_message` now asks
+  // the disk which cause this is (main.rs) and the window puts the setting up back on screen,
+  // so the sentence's promise is kept rather than claimed.
+  //
+  // NOTE THIS STATE IS STILL REACHABLE ON PURPOSE. "Not now" is a real answer. Case 14 stops
+  // an ACCIDENT from skipping the engine; this case is what happens when he skips it
+  // deliberately and then tries to send anyway.
+  await run.check("15  a send with no engine names the engine and offers the install", async () => {
+    const page = await openApp(browser, { setup: "missing-engine", memory: "ready" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.click("#setup-later"); // he defers, which he is entitled to do
+    await page.waitForSelector("#setup-sheet", { state: "hidden" });
+    await page.fill("#input", "book the Acme call for Thursday");
+    await page.click("#send");
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+
+    // WHAT HE IS TOLD. Read off the screen, not off the source — and waited for, because
+    // `scheduleRender` batches: the sheet is shown synchronously and the notice lands on the
+    // next frame, so a read taken the instant the sheet appears catches the greeting.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("#messages .tl-prose")].some((n) =>
+        /take that on yet/.test(n.textContent)
+      )
+    );
+    const notice = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#messages .tl-prose")];
+      const hit = rows.filter((n) => /take that on yet/.test(n.textContent));
+      return hit.length ? hit[hit.length - 1].textContent : rows.map((n) => n.textContent).join(" | ");
+    });
+    assert(/RichOS engine/.test(notice), "the missing piece is not named: " + notice);
+    assert(!/Quit RichOS/.test(notice), "it still tells him to restart: " + notice);
+    assert(!/open it again/.test(notice), "it still tells him to restart: " + notice);
+    assert(
+      /nothing to quit and nothing to reopen/.test(notice),
+      "it must close the door on the advice that cannot work: " + notice
+    );
+    assert(/Set it up/.test(notice), "it names no way forward: " + notice);
+
+    // AND THE CONTROL IT NAMES IS ON SCREEN. A sentence that says "I've put the setting up
+    // back on your screen" and does not is the same defect as "quit and reopen", one layer up.
+    assert(await page.isVisible("#setup-go"), "the sheet must be back, with the button on it");
+    assertEqual(
+      (await page.textContent("#setup-go")).trim(),
+      "Set it up",
+      "the notice names this control by its label, so the label must be that"
+    );
+
+    // HIS WORDS ARE NOT LOST, and the tail does not contradict the notice — telling him to
+    // press Send while a modal covers the composer would be an instruction he cannot follow.
+    assertEqual(
+      await page.inputValue("#input"),
+      "book the Acme call for Thursday",
+      "his words were swallowed"
+    );
+    assert(
+      /when the setting up is done/.test(notice),
+      "the tail must not send him to a control the sheet is covering: " + notice
+    );
+
+    // AND PRESSING IT WORKS FROM HERE. The offer is an offer, not a notice shaped like one.
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-close:not([hidden])");
+    const done = (await page.textContent("#setup-note")).trim();
+    assert(/ready/i.test(done), "the run started from the notice must finish: " + done);
+    bump(10);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "named, offered, his words kept, and the install runs from the offer";
+  });
+
+  await run.check("16  the preview rehearses the product's own refusal, byte for byte", async () => {
+    // The same join `affordances.js` makes on LEASE_UNAVAILABLE_MESSAGE, for the same reason:
+    // a preview that teaches the CEO one sentence while the app says another is two products.
+    const rust = fs.readFileSync(
+      path.join(UI_DIR, "..", "src-tauri", "src", "setup_view.rs"),
+      "utf8"
+    );
+    const mock = fs.readFileSync(path.join(UI_DIR, "mock.js"), "utf8");
+    // Rust's `\` + newline + indent joins to nothing; JS's `" +` + newline + `"` likewise.
+    const joinedMock = mock.replace(/"\s*\+\s*\n\s*"/g, "");
+    let checked = 0;
+    for (const name of ["SETUP_INCOMPLETE_ENGINE", "SETUP_INCOMPLETE_CLAUDE", "SETUP_INCOMPLETE_BOTH"]) {
+      const m = rust.match(new RegExp("pub const " + name + ": &str =\\s*\"([\\s\\S]*?)\";"));
+      assert(m, "the Rust const " + name + " is gone");
+      const sentence = m[1].replace(/\\\n\s*/g, "");
+      // A LITERAL THAT LOST ITS CONTINUATIONS SHIPS DOUBLE SPACES TO HIS SCREEN. This exact
+      // mistake was made and caught by the Rust tests while writing this pass.
+      assert(!/ {2}/.test(sentence), name + " carries a run of spaces: " + sentence);
+      assert(
+        joinedMock.indexOf(sentence) >= 0,
+        "app/ui/mock.js rehearses a refusal the product no longer says: " + sentence
+      );
+      checked++;
+    }
+    assertEqual(checked, 3, "all three arms must be compared");
+    bump(7);
+    return "three sentences, one wording, no stray spaces";
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,

@@ -466,6 +466,24 @@ fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, St
     // `has_lease()` is the same question `run_setup` already asks before attaching, read at
     // the moment it is acted on, so there is no second copy of the answer to go stale.
     if !spine.has_lease() {
+        // WHICH KIND OF NO-LEASE THIS IS, asked here rather than assumed — because the two
+        // kinds need opposite things from him and until 2026-09-04 they shared one sentence.
+        //
+        // ray-opus-a2, published v1.0.1: four sends, four refusals reading "Quit RichOS and
+        // open it again", and an engine directory holding zero files. Quitting would have
+        // done nothing — the next boot looks for the same absent engine, fails the same
+        // attach, and says the same thing. The app told a customer to perform a ritual that
+        // could not work, in the only sentence it gave him.
+        //
+        // Read from DISK, not from a boot flag, for the same reason `has_lease()` above is
+        // read live: `run_setup` can change this answer inside one session, and a snapshot
+        // taken at boot is the exact defect `c2abf1f` removed from the line above.
+        let disk = setup_view::detect(state.boot_engine.as_deref());
+        if let Some(sentence) = setup_view::incomplete_message(&disk) {
+            return Err(sentence.into());
+        }
+        // Everything is installed and there is still no lease — the account is not signed
+        // in, and for THAT cause quitting and reopening genuinely does clear it.
         return Err(LEASE_UNAVAILABLE_MESSAGE.into());
     }
     spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;

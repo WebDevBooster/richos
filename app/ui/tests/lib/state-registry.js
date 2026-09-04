@@ -226,6 +226,45 @@ module.exports = [
     why: "Same structural affordance. Opening the thread reaches §14's card, which has the button.",
   },
 
+  // THE OTHER NO-LEASE CAUSE, and the reason it is ACTIONABLE where the sentence above it is
+  // NEEDS-SOMEONE-ELSE. Nothing is signed out here; something was never installed, and the
+  // app can install it. ray-opus-a2 met this state on published v1.0.1 and was handed the
+  // sentence below instead — "quit and reopen" on a machine with no engine, which the next
+  // boot would fail in exactly the same way.
+  {
+    s: "I can't take that on yet — the RichOS engine isn't on this Mac, and that's the part of me that knows how I work. I've put the setting up back on your screen: press Set it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
+    c: "ACTIONABLE",
+    control: "#setup-go",
+    fixture: "setup-refused-engine",
+    why:
+      "He can fix this himself, in one press, without leaving the window. The sheet is " +
+      "reopened by the same catch that renders the notice, so the control the sentence " +
+      "names is on screen when he reads it.",
+  },
+  {
+    s: "I can't take that on yet — Claude Code isn't on this Mac, and that's the program I think with. I've put the setting up back on your screen: press Set it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
+    c: "ACTIONABLE",
+    control: "#setup-go",
+    fixture: "setup-refused-claude",
+    why: "Same state, other component. A Mac set up once and since had its binary removed.",
+  },
+  {
+    s: "I can't take that on yet — this Mac doesn't have Claude Code or the RichOS engine, and those are what I think with. I've put the setting up back on your screen: press Set it up and I'll fetch them. There's nothing to quit and nothing to reopen.",
+    c: "ACTIONABLE",
+    control: "#setup-go",
+    fixture: "setup-refused-both",
+    why: "The customer's Mac on the day he installs, after he answers the sheet with 'Not now'.",
+  },
+  {
+    s: "Your words are back in the box below, word for word — they'll be there when the setting up is done.",
+    c: "FRAGMENT",
+    why:
+      "Appended to the three sentences above, and only to those. The ordinary tail names " +
+      "Send; this one deliberately does not, because the setup sheet is covering the " +
+      "composer at the moment he reads it and an instruction he cannot follow is worse " +
+      "than none.",
+  },
+
   // -------------------------------------------------------------------------------------
   // NEEDS SOMEONE ELSE
   // -------------------------------------------------------------------------------------
