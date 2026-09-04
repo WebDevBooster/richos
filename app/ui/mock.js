@@ -551,6 +551,8 @@
   //   undefined / "ready"  a machine that has everything (every other fixture's assumption)
   //   "missing-both"       the customer's Mac — no Claude Code, no engine (§19)
   //   "missing-engine"     Claude Code is there and the engine is not
+  //   "missing-claude"     the engine is there and Claude Code is not — a Mac that was set
+  //                        up once and then had the binary removed or replaced
   //   "unpinned"           the engine is missing AND this build cannot install one, which is
   //                        the state that must EXPLAIN rather than offer a button that fails
   //
@@ -559,7 +561,7 @@
   // ---------------------------------------------------------------------------------------
   const setupPreset = preset.setup || "ready";
   let setupClaudePresent = setupPreset === "ready" || setupPreset === "missing-engine";
-  let setupEnginePresent = setupPreset === "ready";
+  let setupEnginePresent = setupPreset === "ready" || setupPreset === "missing-claude";
   const setupPinned = setupPreset !== "unpinned";
   const setupFails = preset.setupFails || null;
 
@@ -575,6 +577,25 @@
   const SETUP_ACCOUNT_NOTE =
     "You'll still need your own Anthropic account, and to sign in to it once. " +
     "I can't do that part for you, and I never see your password.";
+  // WHAT A SEND IS REFUSED WITH WHEN THE SETTING UP WAS NEVER DONE. Verbatim from
+  // `setup_view::SETUP_INCOMPLETE_*` (app/src-tauri/src/setup_view.rs). The preview must
+  // rehearse the sentence the product ships, not a paraphrase of it — the same rule
+  // `_notConnected` follows for `LEASE_UNAVAILABLE_MESSAGE`.
+  const SETUP_INCOMPLETE = {
+    engine:
+      "I can't take that on yet — the RichOS engine isn't on this Mac, and that's the part " +
+      "of me that knows how I work. I've put the setting up back on your screen: press Set " +
+      "it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
+    claude:
+      "I can't take that on yet — Claude Code isn't on this Mac, and that's the program I " +
+      "think with. I've put the setting up back on your screen: press Set it up and I'll " +
+      "fetch it. There's nothing to quit and nothing to reopen.",
+    both:
+      "I can't take that on yet — this Mac doesn't have Claude Code or the RichOS engine, " +
+      "and those are what I think with. I've put the setting up back on your screen: press " +
+      "Set it up and I'll fetch them. There's nothing to quit and nothing to reopen.",
+  };
+
   const SETUP_UNPINNED =
     "This copy of RichOS wasn't built with an engine to install, so I can't fetch one. " +
     "It needs whoever set RichOS up to publish one and pin it.";
@@ -1841,6 +1862,20 @@
             return (messagesByThread[id] || []).map((m) => ({ ...m }));
           }
         case "send_message": {
+          // THE SETTING UP WAS NEVER DONE — main.rs's `send_message` asks the disk before it
+          // reaches for `LEASE_UNAVAILABLE_MESSAGE`, because the two no-lease causes need
+          // opposite things from the CEO. Missing pieces are the arm where a restart cannot
+          // help; the mock takes the same branch in the same order.
+          {
+            const missing = setupNeeds();
+            if (missing.length) {
+              const blocked = !setupEnginePresent && !setupPinned;
+              if (blocked) return Promise.reject(SETUP_UNPINNED);
+              const key =
+                missing.length === 2 ? "both" : missing[0] === "engine" ? "engine" : "claude";
+              return Promise.reject(SETUP_INCOMPLETE[key]);
+            }
+          }
           if (window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__._notConnected) {
             // Mirrors main.rs's no-lease path (`send_message`'s `!spine.has_lease()`):
             // rejects before any turn starts, so NO rich:// events ever fire for this

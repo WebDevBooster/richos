@@ -369,6 +369,26 @@ async function chooseMinimalReport(page) {
   await page.waitForFunction(() => !document.getElementById("feedback-show-preview").disabled);
 }
 
+/// Defer the setting up, then send — the only path a CEO has to the refusal, and therefore
+/// the only honest way to put its sentence on screen. Returns with the notice rendered AND
+/// the sheet reopened, which is the pair the affordance rule is about: the sentence names
+/// "Set it up", so "Set it up" has to be there.
+async function setupRefusal(browser, preset) {
+  const page = await openApp(browser, undefined, { setup: preset, memory: "ready" });
+  await page.waitForSelector("#setup-sheet:not([hidden])");
+  await page.click("#setup-later");
+  await page.waitForSelector("#setup-sheet", { state: "hidden" });
+  await page.fill("#input", "book the Acme call for Thursday");
+  await page.click("#send");
+  await page.waitForSelector("#setup-sheet:not([hidden])");
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("#messages .tl-prose")].some((n) =>
+      /take that on yet/.test(n.textContent)
+    )
+  );
+  return page;
+}
+
 const FIXTURES = {
   /// The app as it opens. Proves the controls that the voice instructions NAME are on the
   /// screen those instructions render on.
@@ -451,6 +471,24 @@ const FIXTURES = {
     await page.click("#setup-go");
     await page.waitForSelector("#setup-close:not([hidden])");
     return page;
+  },
+
+  /// HE DEFERRED THE SETTING UP AND THEN TRIED TO SEND. The three arms of
+  /// `setup_view::incomplete_message`, each driven the only way the CEO can reach it: press
+  /// "Not now", type, press Send.
+  ///
+  /// This is the state ray-opus-a2 was in on published v1.0.1 — except that there the refusal
+  /// read "Quit RichOS and open it again", on a machine where quitting would find the same
+  /// absent engine and fail the same way. The sentence now names the missing piece and puts
+  /// the sheet back, so `#setup-go` is the control it names and the control on screen.
+  async "setup-refused-engine"(browser) {
+    return setupRefusal(browser, "missing-engine");
+  },
+  async "setup-refused-claude"(browser) {
+    return setupRefusal(browser, "missing-claude");
+  },
+  async "setup-refused-both"(browser) {
+    return setupRefusal(browser, "missing-both");
   },
 
   /// The same variable, naming something this build does not have — so it pins the answer
@@ -887,6 +925,12 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "setup-missing-engine",
   "setup-unpinned",
   "setup-finished",
+  // And the three refusals a deferred setting-up produces on a send. Nothing but software
+  // behind them either, and the sentence is the whole point of the fix, so it is the
+  // sentence that is asserted.
+  "setup-refused-engine",
+  "setup-refused-claude",
+  "setup-refused-both",
 ]);
 
 // ---------------------------------------------------------------------------------------

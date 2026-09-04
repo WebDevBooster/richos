@@ -1453,17 +1453,41 @@ async function send() {
     // carried: what happened to his words, and which control sends them again.
     window.RichTimeline.dropPendingUserMessage(timelineModel, pendingId);
     const reason = typeof e === "string" && e.trim() ? e.trim().replace(/\s*$/, "") : null;
+    // IS THE SETTING UP THE REASON? Asked of the disk, at the moment it is acted on — the
+    // same discipline `send_message`'s own gate follows, and for the same reason: this answer
+    // changes inside a session the moment `run_setup` finishes.
+    //
+    // WHY THE WINDOW ASKS AT ALL, rather than matching the sentence it was handed. A refusal
+    // is a string; matching on its text is a second copy of a decision the backend already
+    // made, and the two would drift the first time a word changed. `setup_status` is the same
+    // question `init` asks at boot, so there is one answer and one place it comes from.
+    const setupNow = await refreshSetup();
+    const setupPending = !!(setupNow && setupNow.ask && setupNow.ask.items.length);
     window.RichTimeline.addLocalNotice(
       timelineModel,
       (reason || "I couldn't get that to my desk just now, and nothing is running.") +
-        " Your words are back in the box below, word for word — press Send when you want me" +
-        " to try again.",
+        (setupPending
+          ? " Your words are back in the box below, word for word — they'll be there when the" +
+            " setting up is done."
+          : " Your words are back in the box below, word for word — press Send when you want" +
+            " me to try again."),
       Date.now()
     );
     inputEl.value = text; // never swallow the CEO's words
     autoGrow();
     syncComposerMode();
     scheduleRender();
+    // THE OFFER, ACTUALLY ON SCREEN — and this line is what makes the backend's sentence
+    // true rather than a claim. `setup_view::SETUP_INCOMPLETE_*` says "I've put the setting
+    // up back on your screen: press Set it up"; a notice that named a sheet nobody reopened
+    // would be the same defect as "quit and reopen" on a machine with no engine, one layer
+    // up. `#setup-go` is the control the affordance rule requires that sentence to name.
+    //
+    // WHY THIS STATE IS REACHABLE AT ALL after the backdrop no longer dismisses the sheet:
+    // "Not now" is a real answer and he is entitled to give it. Deferring the setting up and
+    // then trying to send is a legitimate path, not a mistake — so it gets an offer rather
+    // than a refusal, every time, for as long as the pieces are missing.
+    if (setupPending) maybeAskAboutSetup();
   }
 }
 
