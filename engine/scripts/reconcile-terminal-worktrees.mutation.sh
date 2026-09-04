@@ -217,7 +217,6 @@ mutant blocked-reported-as-retry "C54" "$R" \
     '        "members_blocked_on_a_condition_waiting_cannot_clear": 0,' \
     "a deadlock would be reported as a normal retry again — thirty stuck members read as a fleet under control for a full day on 2026-09-04."
 
-\n
 mutant blocked-backoff-compounds "C62" "$R" \
     '        delay = base if blocked else min(base * (2 ** max(attempts - 1, 0)), cap)' \
     '        delay = min(base * (2 ** max(attempts - 1, 0)), cap)' \
