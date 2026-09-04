@@ -1,0 +1,26 @@
+NESTED SUITES INVOKED AS A SINGLE CASE
+total run: 2977.9 s (49.6 min)
+
+case                                                         seconds   % run
+WTI1.staffing-gate-mutations-all-load-bearing                 598.7   20.1%
+IN2.inflight-notify-mutations-all-load-bearing                382.2   12.8%
+MF1.mechanical-findings-mutations-all-load-bearing            179.5    6.0%
+SA2.stated-actions-mutations-all-load-bearing                 163.2    5.5%
+IL7.idle-land-mutations-all-load-bearing                      149.4    5.0%
+MC6.model-ceiling-mutations-all-load-bearing                  118.0    4.0%
+IP7.interactive-prompt-mutations-all-load-bearing             115.5    3.9%
+CL2.claim-gate-mutations-all-load-bearing                     101.4    3.4%
+RI2.resume-isolation-mutations-all-load-bearing                64.8    2.2%
+WTR1.worktree-removal-mutations-all-load-bearing               46.3    1.6%
+54.reconciler-suite-passes                                     45.2    1.5%
+RI1.resume-isolation-suite-passes                              42.5    1.4%
+53.reaper-scope-and-safety-suite-passes                        39.9    1.3%
+IP6.interactive-prompt-guard-suite-passes                       8.8    0.3%
+48.reaper-wrapper-suite-passes                                  8.8    0.3%
+IL6.idle-land-gate-suite-passes                                 8.2    0.3%
+SA1.stated-actions-gate-suite-passes                            5.2    0.2%
+CL1.claim-gate-suite-passes                                     4.9    0.2%
+40.definition-drift-guard-suite-passes                          3.6    0.1%
+--- these cases together ---                                 2086.3   70.1%
+
+everything else (all other cases + setup)                     891.6   29.9%

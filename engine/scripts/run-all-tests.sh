@@ -47,12 +47,27 @@
 #
 #   28 suites, one full sequential run, this machine:   439s  (7m19s)
 #   the two that dominate it:
-#     scripts/hooks/contract-integrity.test.sh          313s   (98 cases, each
-#                                                              building a whole
-#                                                              sandbox repo)
+#     scripts/hooks/contract-integrity.test.sh          313s   (98 cases)
 #     scripts/hooks/by-reference.test.sh                106s   (48 cases, each
 #                                                              building TWO)
 #   everything else, all 26 suites together:            ~40s
+#
+# RE-MEASURED 2026-09-04, and the arithmetic got worse while the ATTRIBUTION
+# above turned out to be wrong. contract-integrity.test.sh is now 165 cases and
+# 2978s -- 49.6 minutes on its own. The case count grew 1.7x; the wall clock
+# grew 10x. The parenthetical that used to sit on this line said each case
+# builds a whole sandbox repo, as though that were the cost. It is not:
+#
+#   sandbox construction, all 85 builds                  3.8s   (0.1%)
+#   19 cases that are each a WHOLE OTHER SUITE          2348s   (70%)
+#     of which 10 *.mutation.sh harnesses               2168s   (65%)
+#   the probe itself, ~10s x ~80 invocations             ~800s   (~24%)
+#
+# A mutation harness runs a guard's entire behavioral suite once per mutant, so
+# it costs N times that suite. WTI1 alone is 599s. That is not waste -- it is
+# the work that makes a green tick load-bearing -- but it means the suite's cost
+# tracks the number of MUTANTS, not the number of sandboxes.
+# Full account: docs/measurements/integrity-suite-cost-2026-09-04/.
 #
 # A seven-minute pause before every `git commit` is not a guard, it is an
 # outage. The engineer would remove the hook within the hour, and then NOTHING
@@ -80,9 +95,23 @@
 #
 # WHAT WOULD CHANGE THIS ANSWER, so it can be re-decided on evidence rather
 # than re-argued: get contract-integrity.test.sh and by-reference.test.sh under
-# ~10s combined (their cost is sandbox construction, which is cacheable), and
-# the whole runner becomes chokepoint-affordable. Until then it stays in
-# ci-verify.sh step 3, which is where the numbers say it belongs.
+# ~10s combined, and the whole runner becomes chokepoint-affordable. Until then
+# it stays in ci-verify.sh step 3, which is where the numbers say it belongs.
+#
+# This sentence used to end "(their cost is sandbox construction, which is
+# cacheable)". Sandbox construction HAS now been cached -- built once, cloned
+# per case -- and it bought 92 seconds of 3070, because it was 2.9% of the run
+# rather than the whole of it. The distance between ~10s and 2978s is the
+# mutation harnesses, and closing it means running independent mutants
+# concurrently, not copying fewer files. Nobody should re-derive that from the
+# suite's shape: it is measured, and the measurement is on disk.
+#
+# WHAT DID CHANGE, and it is the part a developer feels: the suite now takes
+# --only <section>. A one-line change to one guard costs that guard's section --
+# 21s to 181s, typically about 50s -- instead of 49.6 minutes. A scoped run
+# exits 3, never 0, so nothing in this runner or in any gate can mistake one for
+# a full pass. This runner invokes every suite with no arguments, so what it
+# gets is still, always, the full pass.
 #
 # Usage:
 #   scripts/run-all-tests.sh            run everything, quiet on success

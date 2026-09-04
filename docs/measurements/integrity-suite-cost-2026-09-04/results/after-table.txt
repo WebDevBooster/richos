@@ -1,0 +1,151 @@
+==============================================================================
+WHERE THE WALL CLOCK GOES — perf/after-timing.tsv
+==============================================================================
+total wall clock            2977.9 s  (49.6 min)
+cases emitted                  117
+sandboxes built                 85
+
+--- SETUP vs CHECKS ------------------------------------------------------
+make_sandbox, all builds       2.8 s    0.1% of the run
+everything else             2975.1 s   99.9% of the run
+    (of which unattributed tail after the last case: 0.0 s)
+
+--- THE 12 MOST EXPENSIVE CASE SEGMENTS ----------------------------------
+case                                                            segment  sandbox     body
+WTI1.staffing-gate-mutations-all-load-bearing                    598.7s     0.0s   598.7s
+IN2.inflight-notify-mutations-all-load-bearing                   382.2s     0.0s   382.2s
+MF1.mechanical-findings-mutations-all-load-bearing               179.5s     0.0s   179.5s
+SA2.stated-actions-mutations-all-load-bearing                    163.2s     0.0s   163.2s
+IL7.idle-land-mutations-all-load-bearing                         149.4s     0.0s   149.4s
+MC6.model-ceiling-mutations-all-load-bearing                     118.0s     0.0s   118.0s
+IP7.interactive-prompt-mutations-all-load-bearing                115.5s     0.0s   115.5s
+CL2.claim-gate-mutations-all-load-bearing                        101.4s     0.0s   101.4s
+RI2.resume-isolation-mutations-all-load-bearing                   64.8s     0.0s    64.8s
+WTR1.worktree-removal-mutations-all-load-bearing                  46.3s     0.0s    46.3s
+54.reconciler-suite-passes                                        45.2s     0.0s    45.2s
+RI1.resume-isolation-suite-passes                                 42.5s     0.0s    42.5s
+
+top  5 case segments account for  1473.0 s =  49.5% of the run
+top 10 case segments account for  1919.0 s =  64.4% of the run
+top 20 case segments account for  2151.5 s =  72.2% of the run
+top 30 case segments account for  2265.7 s =  76.1% of the run
+
+--- EVERY CASE, IN RUN ORDER --------------------------------------------
+case                                                            segment  sandbox     body
+1.committed-source-passes                                         10.9s     0.0s    10.9s
+SC1.every-registered-hook-starts-in-a-sandbox                     21.9s     0.0s    21.9s
+SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1                  19.0s     0.0s    19.0s
+2.install-noop-rc-0                                               12.6s     0.0s    12.6s
+2.post-install-probe-rc-0                                          0.0s     0.0s     0.0s
+3.hook-removed-fails                                              10.0s     0.0s     9.9s
+4.wrong-path-fails                                                10.8s     0.0s    10.8s
+5.double-install-probe-still-rc-0                                 12.8s     0.0s    12.7s
+6.install-source-missing-rc-2                                      0.2s     0.0s     0.1s
+M1.duplicated-registration-fails                                  11.9s     0.1s    11.9s
+M2.post-migration-probe-passes                                    12.2s     0.0s    12.2s
+M3.machine-specific-probe-passes                                  13.1s     0.0s    13.1s
+M4.intra-file-duplication-fails                                   10.8s     0.0s    10.7s
+8.shim-at-wrong-path-fails                                        10.7s     0.0s    10.7s
+9.canonical-path-wrong-hash-fails                                 11.0s     0.0s    11.0s
+10.symlink-to-outside-fails                                       10.7s     0.0s    10.6s
+11.canonical-with-trailing-args-passes                            10.7s     0.0s    10.7s
+11b.shim-with-trailing-args-fails                                  9.5s     0.0s     9.5s
+12.canonical-fresh-clone-passes                                   10.9s     0.0s    10.8s
+13.tamper-canonical-guard-fails                                   10.8s     0.0s    10.7s
+14.tamper-canonical-agent-fails                                   10.9s     0.0s    10.9s
+14a.tamper-guard-worktree-isolation-fails                         10.9s     0.0s    10.9s
+14b.tamper-reader-teammate-hint-fails                             10.8s     0.0s    10.8s
+14c.chain-entry-missing-fails                                     10.1s     0.0s    10.0s
+14d.chain-out-of-order-fails                                      10.7s     0.0s    10.6s
+15.inline-shim-replace-fails                                      10.7s     0.0s    10.6s
+16.manifest-missing-fails                                         10.8s     0.0s    10.8s
+17.manifest-wrong-hash-fails                                      10.9s     0.0s    10.8s
+19.git-main-checkout-passes                                       13.1s     0.0s    13.1s
+20.git-worktree-invocation-passes                                  9.7s     0.0s     9.7s
+21.worktree-probe-targets-main-settings                            9.3s     0.0s     9.3s
+32.git-untracked-ignored-settings-local-fails                      9.9s     0.0s     9.9s
+33.git-untracked-not-ignored-warns-rc-0                            9.9s     0.0s     9.9s
+22.install-no-python3-refuses                                      0.1s     0.0s     0.1s
+23.probe-no-python3-refuses                                        0.1s     0.0s     0.1s
+24.install-missing-env-flag-refuses                                0.2s     0.0s     0.2s
+25.install-missing-baseref-refuses                                 0.2s     0.0s     0.1s
+26.probe-catches-env-flag-removed-post-install                    11.7s     0.0s    11.6s
+27.probe-catches-baseref-removed-post-install                     11.7s     0.0s    11.7s
+28.both-keys-correct-probe-passes                                 11.7s     0.0s    11.7s
+29.secrets-scanner-not-wired-fails                                10.3s     0.0s    10.3s
+30.secrets-scanner-tampered-fails                                 10.5s     0.0s    10.4s
+31.secrets-scanner-broken-then-reinstalled-fails                  11.7s     0.0s    11.7s
+31c.dead-secrets-scanner-fails-layer-K                            10.3s     0.0s    10.3s
+34.definition-drift-pair-intact-probe-rc-0                        10.7s     0.0s    10.7s
+35.definition-snapshotter-unwired-fails-layerP                    10.2s     0.0s    10.2s
+36.definition-drift-guard-unwired-fails                           10.0s     0.0s    10.0s
+37.definition-drift-guard-tampered-fails                          10.2s     0.0s    10.2s
+37b.definition-snapshotter-tampered-fails-layerP                  10.4s     0.0s    10.3s
+38.definition-drift-guard-gutted-fails-layerP-canary              10.6s     0.0s    10.6s
+38b.definition-drift-guard-overblocks-fails-layerP-canary         10.6s     0.0s    10.6s
+39.definition-snapshotter-duplicated-fails                        10.2s     0.0s    10.2s
+40.definition-drift-guard-suite-passes                             3.6s     0.0s     3.6s
+41.reaper-chain-intact-probe-rc-0                                 10.7s     0.0s    10.6s
+42.reaper-wrapper-unwired-fails-layerQ                             6.8s     0.0s     6.7s
+43.reaper-wrapper-tampered-fails-layerQ                            7.0s     0.0s     6.9s
+44.reaper-script-tampered-fails-layerQ                             6.9s     0.0s     6.9s
+44b.reaper-sidecar-missing-fails-layerQ                            6.9s     0.0s     6.8s
+45.reaper-gutted-fails-layerQ-canary                               8.6s     0.0s     8.5s
+45c.reaper-overreaches-fails-layerQ-canary                         8.5s     0.0s     8.5s
+46.reaper-wrapper-duplicated-fails                                 6.9s     0.0s     6.9s
+47b.post-install-probe-passes                                     11.7s     0.0s    11.7s
+48.reaper-wrapper-suite-passes                                     8.8s     0.0s     8.8s
+49.agent-finish-trigger-revived-fails-layerQ                       6.9s     0.0s     6.9s
+50.wrapper-with-execute-fails-layerQ                               9.0s     0.0s     8.9s
+50c.wrapper-without-reconciler-fails-layerQ                        8.4s     0.0s     8.3s
+51.owner-liveness-gate-removed-fails-layerQ4                      10.9s     0.0s    10.9s
+52.discovery-removed-fails-layerQ4                                10.5s     0.0s    10.4s
+53.reaper-scope-and-safety-suite-passes                           39.9s     0.0s    39.9s
+54.reconciler-suite-passes                                        45.2s     0.0s    45.2s
+S1.worktree-removal-guard-not-wired-fails                         10.8s     0.0s    10.7s
+S2.worktree-removal-guard-wired-twice-fails                       10.3s     0.0s    10.3s
+S3.gutted-worktree-removal-guard-fails                            10.5s     0.0s    10.5s
+S4.sanctioned-helper-missing-fails                                10.5s     0.0s    10.5s
+IP1.interactive-prompt-guard-not-wired-fails                      10.4s     0.0s    10.4s
+IP2.interactive-prompt-guard-wired-twice-fails                    10.6s     0.0s    10.6s
+IP3.gutted-interactive-prompt-guard-fails                         10.6s     0.0s    10.5s
+IP4.shape-table-missing-fails                                     10.4s     0.0s    10.4s
+IP5.dead-guard-that-refuses-everything-fails-despite-matching-    10.4s     0.0s    10.4s
+IP6.interactive-prompt-guard-suite-passes                          8.8s     0.0s     8.8s
+IP7.interactive-prompt-mutations-all-load-bearing                115.5s     0.0s   115.5s
+IL1.idle-land-gate-not-wired-fails                                10.4s     0.0s    10.4s
+IL2.missing-analyzer-fails                                        10.2s     0.0s    10.2s
+IL3.replaced-analyzer-fails-on-the-hash                           10.3s     0.0s    10.2s
+IL4.gutted-gate-fails-despite-matching-hash                       10.4s     0.0s    10.3s
+IL5.gate-that-refuses-everything-fails-despite-matching-hash      10.5s     0.0s    10.5s
+IL6.idle-land-gate-suite-passes                                    8.2s     0.0s     8.2s
+IL7.idle-land-mutations-all-load-bearing                         149.4s     0.0s   149.4s
+CL1.claim-gate-suite-passes                                        4.9s     0.0s     4.9s
+CL2.claim-gate-mutations-all-load-bearing                        101.4s     0.0s   101.4s
+RI1.resume-isolation-suite-passes                                 42.5s     0.0s    42.5s
+RI2.resume-isolation-mutations-all-load-bearing                   64.8s     0.0s    64.8s
+IN2.inflight-notify-mutations-all-load-bearing                   382.2s     0.0s   382.2s
+WTR1.worktree-removal-mutations-all-load-bearing                  46.3s     0.0s    46.3s
+MT1.model-tiers-undeclared-fails                                  10.7s     0.0s    10.6s
+MT1b.the-refusal-names-the-blank-declaration                       0.0s     0.0s     0.0s
+MT2.model-tiers-alias-set-drifts-from-allowed-models-fails        10.5s     0.0s    10.5s
+MT2b.the-refusal-names-the-unranked-alias                          0.0s     0.0s     0.0s
+MT3.doctrine-quotes-a-different-order-fails                       10.3s     0.0s    10.3s
+MT3b.the-refusal-names-both-orders                                 0.0s     0.0s     0.0s
+MT4.doctrine-says-downgrade-without-quoting-the-data-fails        10.5s     0.0s    10.5s
+MT4b.the-refusal-names-the-missing-quotation                       0.0s     0.0s     0.0s
+MT5.control-declared-and-quoted-passes-the-layer                  10.7s     0.0s    10.7s
+MC1.no-ceiling-declared-warns-and-does-not-fail                   10.7s     0.0s    10.7s
+MC1b.the-warning-names-the-missing-declaration                     0.0s     0.0s     0.0s
+MC2.unrankable-ceiling-fails                                      10.4s     0.0s    10.4s
+MC2b.the-refusal-names-the-unrankable-ceiling                      0.0s     0.0s     0.0s
+MC3.doctrine-quotes-a-different-ceiling-fails                     10.4s     0.0s    10.4s
+MC3b.the-refusal-names-both-ceilings                               0.0s     0.0s     0.0s
+MC4.dead-ceiling-guard-is-caught                                  10.7s     0.0s    10.7s
+MC4b.the-refusal-says-the-guard-did-not-refuse                     0.0s     0.0s     0.0s
+MC5.control-declared-and-quoted-passes-the-layer                  10.8s     0.0s    10.8s
+MC6.model-ceiling-mutations-all-load-bearing                     118.0s     0.0s   118.0s
+WTI1.staffing-gate-mutations-all-load-bearing                    598.7s     0.0s   598.7s
+MF1.mechanical-findings-mutations-all-load-bearing               179.5s     0.0s   179.5s
+SA1.stated-actions-gate-suite-passes                               5.2s     0.0s     5.2s
+SA2.stated-actions-mutations-all-load-bearing                    163.2s     0.0s   163.2s

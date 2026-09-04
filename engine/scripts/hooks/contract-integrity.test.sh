@@ -47,6 +47,158 @@ INSTALL="$SCRIPT_DIR/install.sh"
 PROBE="$SCRIPT_DIR/contract-integrity-probe.sh"
 REAL_REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# ---------------------------------------------------------------------------
+# SCOPED RUNS — a development lever, and never a substitute for a full pass.
+#
+# Every case in this file used to cost a full run: one line changed in one
+# guard, and the developer paid for all of them. That is the cost the CEO named
+# on 2026-09-03 -- "waiting hours for every little fart" -- and it is a cost of
+# the HARNESS, not of the rigor.
+#
+# So the file is divided into SECTIONS, each wrapped in `if _section <id>; then
+# ... fi  # _section`. With no --only, every section runs and the exit code is
+# what it always was. With --only, the unselected sections do not run, and the
+# run is marked as scoped in three independent ways, because a scoped run that
+# can be mistaken for a full pass is worse than no scoped run at all:
+#
+#   * a banner before the first case,
+#   * a banner in the exit summary naming EVERY case that did not run,
+#   * and EXIT CODE 3 when a scoped run is green. Not 0. A land gate, a CI job
+#     or run-all-tests.sh reads exit codes, not banners, and 0 is the one thing
+#     a scoped run must never be able to say.
+#
+# The section list is read from this file's own markers, so it cannot drift
+# from the sections that exist.
+# ---------------------------------------------------------------------------
+SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+SCOPED=0
+SCOPE_RUN=""
+
+# Every section id, in file order, read from the markers themselves.
+_scope_all_sections() {
+    awk '/^if _section [A-Za-z0-9_.-]+; then$/ { s=$3; sub(/;$/, "", s); print s }' "$SELF"
+}
+
+# Every case name a section can emit, read statically from its body. Covers
+# both shapes in this file: emit_case "<name>", and the hand-rolled
+# PASS/FAIL_NAMES pairs (cases 18, 19b, 32b, 33b and friends).
+_scope_cases_of() { # <section-id>
+    awk -v want="$1" '
+        /^if _section [A-Za-z0-9_.-]+; then$/ { cur=$3; sub(/;$/, "", cur); next }
+        /^fi  # _section/ { cur=""; next }
+        cur != want { next }
+        {
+            line = $0
+            while (match(line, /emit_case "[^"]+"/)) {
+                print substr(line, RSTART + 11, RLENGTH - 12)
+                line = substr(line, RSTART + RLENGTH)
+            }
+            line = $0
+            while (match(line, /FAIL_NAMES\+=\("[^"$]+"\)/)) {
+                print substr(line, RSTART + 14, RLENGTH - 16)
+                line = substr(line, RSTART + RLENGTH)
+            }
+        }
+    ' "$SELF" | sort -u
+}
+
+_scope_usage() {
+    cat <<'USAGE'
+usage: contract-integrity.test.sh [--only <selector>[,<selector>...]] [--list]
+
+  (no arguments)   THE FULL PASS. Every section, every case. This is the only
+                   run a land may rely on, and the only one that can exit 0.
+
+  --only <sel>     Run only the named sections. A DEVELOPMENT LEVER: it exists
+                   so a one-line change to one guard does not cost the whole
+                   suite. <sel> is either a section id (see --list) or a case
+                   name / case-name prefix, in which case the section that
+                   CONTAINS that case is selected -- a single case cannot be
+                   run alone, because its section builds the fixtures it needs.
+                   Comma-separated or repeated. Matching is case-insensitive.
+                   An unmatched selector is FATAL: a scoped run that silently
+                   selected nothing would report a green empty suite.
+
+  --list           Print every section id with the cases it carries, and exit.
+
+  --help           This text.
+
+EXIT CODES
+  0   full pass, no failures                 -- the only green a land accepts
+  1   failures (scoped or full)
+  2   bad usage / the harness could not start
+  3   SCOPED run, no failures. Deliberately NOT 0, so no gate, script or CI job
+      can read a partial run as a full one.
+
+ENVIRONMENT
+  CI_TEST_TIMING=<file>  append per-phase and per-case wall-clock records.
+  CI_PROBE_DEBUG=1       echo the probe's own failure lines to stderr.
+USAGE
+}
+
+_SCOPE_ARGS=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --help|-h) _scope_usage; exit 0 ;;
+        --list) _SCOPE_LIST=1; shift ;;
+        --only) [ "$#" -ge 2 ] || { echo "FATAL: --only needs a selector" >&2; exit 2; }
+                _SCOPE_ARGS="$_SCOPE_ARGS,$2"; shift 2 ;;
+        --only=*) _SCOPE_ARGS="$_SCOPE_ARGS,${1#--only=}"; shift ;;
+        *) echo "FATAL: unrecognized argument '$1' — see --help" >&2; exit 2 ;;
+    esac
+done
+
+if [ -n "${_SCOPE_LIST:-}" ]; then
+    for _sid in $(_scope_all_sections); do
+        printf '%s\n' "$_sid"
+        _scope_cases_of "$_sid" | sed 's/^/    /'
+    done
+    exit 0
+fi
+
+if [ -n "$_SCOPE_ARGS" ]; then
+    SCOPED=1
+    _ALL_SECTIONS="$(_scope_all_sections)"
+    [ -n "$_ALL_SECTIONS" ] || { echo "FATAL: no section markers found in $SELF — refusing to run a scoped suite whose sections cannot be enumerated" >&2; exit 2; }
+    _OLD_IFS="$IFS"; IFS=','
+    for _sel in $_SCOPE_ARGS; do
+        IFS="$_OLD_IFS"
+        [ -n "$_sel" ] || continue
+        _sel_lc="$(printf '%s' "$_sel" | tr '[:upper:]' '[:lower:]')"
+        _hit=""
+        for _sid in $_ALL_SECTIONS; do
+            _sid_lc="$(printf '%s' "$_sid" | tr '[:upper:]' '[:lower:]')"
+            if [ "$_sid_lc" = "$_sel_lc" ]; then _hit="$_hit $_sid"; fi
+        done
+        if [ -z "$_hit" ]; then
+            for _sid in $_ALL_SECTIONS; do
+                if _scope_cases_of "$_sid" | tr '[:upper:]' '[:lower:]' | grep -q "^$_sel_lc"; then
+                    _hit="$_hit $_sid"
+                fi
+            done
+        fi
+        if [ -z "$_hit" ]; then
+            echo "FATAL: --only '$_sel' matches no section and no case. Sections are:" >&2
+            printf '%s\n' "$_ALL_SECTIONS" | sed 's/^/  /' >&2
+            echo "  (--list also prints the cases each one carries)" >&2
+            exit 2
+        fi
+        for _sid in $_hit; do
+            case " $SCOPE_RUN " in *" $_sid "*) ;; *) SCOPE_RUN="$SCOPE_RUN $_sid" ;; esac
+        done
+        IFS=','
+    done
+    IFS="$_OLD_IFS"
+    SCOPE_RUN="$(printf '%s' "$SCOPE_RUN" | sed 's/^ *//')"
+fi
+
+# Is this section in scope? Unscoped runs answer yes to everything.
+_section() { # <section-id>
+    [ "$SCOPED" -eq 1 ] || return 0
+    case " $SCOPE_RUN " in *" $1 "*) return 0 ;; esac
+    return 1
+}
+
 # SANDBOX THE OPERATOR CONFIG DIR, for the whole suite, before anything runs.
 # install.sh mints the entity-facing engine pointer into
 # ${CLAUDE_CONFIG_DIR:-$HOME/.claude}, and this suite runs it against ~20
@@ -66,6 +218,34 @@ fi
 PASS=0
 FAIL=0
 FAIL_NAMES=()
+
+# ---------------------------------------------------------------------------
+# TIMING INSTRUMENTATION — opt-in, and a NO-OP unless CI_TEST_TIMING names a
+# file. It exists because the record asserted where this suite's 42 minutes go
+# ("SETUP repeated 81 times") without ever measuring it. An optimization aimed
+# at an unmeasured cost center is a guess with a commit message.
+#
+# It records absolute start/end stamps rather than durations, so the analyzer
+# can attribute a sandbox build to the case whose segment contains it — no call
+# site has to know which case it belongs to. Nothing here touches stdout;
+# make_sandbox's stdout IS its return value.
+# ---------------------------------------------------------------------------
+CI_TEST_TIMING="${CI_TEST_TIMING:-}"
+if [ -n "$CI_TEST_TIMING" ]; then
+    : >"$CI_TEST_TIMING" || { echo "FATAL: cannot write CI_TEST_TIMING=$CI_TEST_TIMING" >&2; exit 1; }
+    export CI_TEST_TIMING
+fi
+# perl, not python3: measured at ~7ms per call against python3's ~20ms, and
+# this is called several hundred times. BSD date has no sub-second format and
+# bash 3.2 has no EPOCHREALTIME.
+_t() {
+    [ -n "$CI_TEST_TIMING" ] || { printf '0\n'; return 0; }
+    perl -MTime::HiRes=time -e 'printf "%.4f\n", time'
+}
+_trec() { # <kind> <start> <end-or-dash> <label>
+    [ -n "$CI_TEST_TIMING" ] || return 0
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$CI_TEST_TIMING"
+}
 
 # All canonical hook scripts the probe/install manage — DERIVED FROM
 # hooks/hooks.json, NEVER TYPED.
@@ -518,9 +698,10 @@ PY
 # all hook scripts + their .sha256 sidecars + orchestration.config, and NO
 # generated settings.json. Returns the absolute path of the new sandbox.
 # ---------------------------------------------------------------------------
-make_sandbox() {
-    local root
-    root="$(mktemp -d -t contract-integrity.XXXXXX)"
+build_sandbox_template() {
+    local root _ts0 _ts1 _ts2 _ts3 _ts4
+    _ts0="$(_t)"
+    root="$(mktemp -d -t contract-integrity-template.XXXXXX)"
     mkdir -p "$root/scripts/hooks" "$root/scripts/lib" "$root/.claude/state"
     cp "$SCRIPT_DIR/install.sh" "$root/scripts/hooks/"
     cp "$SCRIPT_DIR/contract-integrity-probe.sh" "$root/scripts/hooks/"
@@ -539,11 +720,71 @@ make_sandbox() {
     cp "$SCRIPT_DIR/../lib/registered-hooks.sh" "$root/scripts/lib/"
     # The sandbox is its own engine root, so it identifies itself like one.
     cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
+    _ts1="$(_t)"
     copy_root_scripts "$root"
     chmod +x "$root/scripts/hooks/"*.sh 2>/dev/null || true
+    _ts2="$(_t)"
     write_sandbox_config "$root"
     write_sandbox_settings_local "$root" "1" "head"
+    _ts3="$(_t)"
     gen_sidecars "$root"
+    _ts4="$(_t)"
+    _trec template.hooks     "$_ts0" "$_ts1" copy-hooks
+    _trec template.root      "$_ts1" "$_ts2" copy-root-scripts
+    _trec template.settings  "$_ts2" "$_ts3" write-config-and-settings
+    _trec template.sidecars  "$_ts3" "$_ts4" gen-sidecars
+    _trec template           "$_ts0" "$_ts4" TOTAL
+    echo "$root"
+}
+
+# ---------------------------------------------------------------------------
+# ONE assembly, eighty-one clones.
+#
+# Assembling a sandbox costs about 105 subprocess spawns -- one `cp` per hook,
+# one per managed root script, one `shasum` per sidecar -- and it was paid once
+# per case. Measured on 2026-09-03: 1.05 s a sandbox, ~85 s a run, against 24 ms
+# for a copy-on-write clone of the finished article.
+#
+# NOTHING ABOUT WHAT IS TESTED CHANGES. The clone is byte-identical to the
+# template (verified: file hashes, exec bits, the empty .claude/state directory
+# and the directory mode all survive), so every sidecar still matches the file
+# it was minted from, and APFS clones are independent on write -- a case that
+# tampers with its sandbox cannot reach the template or any sibling. That is
+# asserted, not assumed: `cp -c` is TRIED once here and the suite says out loud
+# which mode it got, because a silent fall back to a slow copy is the kind of
+# degradation this repository keeps having to relearn.
+#
+# The template is built at top level rather than lazily inside make_sandbox,
+# because make_sandbox is called in a command substitution -- a subshell -- and
+# a template memoized there would be rebuilt, and leaked, 81 times.
+# ---------------------------------------------------------------------------
+SANDBOX_TEMPLATE="$(build_sandbox_template)"
+[ -d "$SANDBOX_TEMPLATE" ] || { echo "FATAL: the sandbox template was not built — refusing to run a suite whose cases would each verify an empty directory" >&2; exit 1; }
+trap 'rm -rf "$CLAUDE_CONFIG_DIR" "$SANDBOX_TEMPLATE"' EXIT
+
+_CLONE_PROBE="$(mktemp -d -t contract-integrity-clonetest.XXXXXX)"
+if cp -c -R "$SANDBOX_TEMPLATE/." "$_CLONE_PROBE/" 2>/dev/null; then
+    SANDBOX_COPY_FLAGS="-c -R"
+else
+    cp -R "$SANDBOX_TEMPLATE/." "$_CLONE_PROBE/"
+    SANDBOX_COPY_FLAGS="-R"
+    echo "note: copy-on-write clones are unavailable under ${TMPDIR:-/tmp} — using a plain recursive copy. Identical sandboxes, slower run." >&2
+fi
+rm -rf "$_CLONE_PROBE"
+
+# Clone the template into an EXISTING directory (so the caller keeps the
+# mktemp -d name it already holds, and there is no unlink/recreate window).
+clone_sandbox_into() { # <existing-directory>
+    cp $SANDBOX_COPY_FLAGS "$SANDBOX_TEMPLATE/." "$1/"
+}
+
+make_sandbox() {
+    local root _ts0 _ts1
+    _ts0="$(_t)"
+    root="$(mktemp -d -t contract-integrity.XXXXXX)"
+    clone_sandbox_into "$root"
+    _ts1="$(_t)"
+    _trec sandbox "$_ts0" "$_ts1" TOTAL
     echo "$root"
 }
 
@@ -598,6 +839,7 @@ run_probe_in() {
 
 emit_case() {
     local name="$1" expected="$2" actual="$3"
+    _trec case "$(_t)" - "$name"
     if [ "$expected" = "$actual" ]; then
         PASS=$((PASS+1))
         printf '  PASS  %s\n' "$name"
@@ -625,13 +867,22 @@ with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 }
 
+_trec run "$(_t)" - START
 echo "=== contract-integrity.test.sh ==="
+if [ "$SCOPED" -eq 1 ]; then
+    echo "################################################################################"
+    echo "#  SCOPED RUN — THIS IS NOT A FULL PASS AND MUST NOT BE READ AS ONE."
+    echo "#  sections in scope:$([ -n "$SCOPE_RUN" ] && printf ' %s' "$SCOPE_RUN")"
+    echo "#  A land needs the full suite. Run with no arguments for that."
+    echo "################################################################################"
+fi
 echo ""
 
 # ---------------------------------------------------------------------------
 # Canonical-source baseline
 # ---------------------------------------------------------------------------
 
+if _section base; then
 # Case 1 — committed fresh clone with sidecars minted (settings.local.json +
 # hooks + sidecars, NO settings.json, NO install.sh run this case) → probe
 # PASSES. The committed source alone wires enforcement; the sidecars are seeded.
@@ -756,6 +1007,9 @@ rm -rf "$ROOT"
 # Layer M — registration uniqueness (the double-fire root-fix)
 # ---------------------------------------------------------------------------
 
+fi  # _section — base
+
+if _section M; then
 # Case M1 — a stale hook-duplicating settings.json (the OLD broken state) is
 # MERGED with settings.local.json → probe exits 2 (Layer M detects double-fire).
 ROOT="$(make_sandbox)"
@@ -835,6 +1089,9 @@ rm -rf "$ROOT"
 # settings.local.json.
 # ---------------------------------------------------------------------------
 
+fi  # _section — M
+
+if _section shim; then
 # Case 8 — Shim at non-canonical path with matching filename → FAIL.
 ROOT="$(make_sandbox)"
 SHIMDIR="$(mktemp -d -t shim.XXXXXX)"
@@ -903,6 +1160,9 @@ rm -rf "$ROOT"
 # Manifest tampering — sidecar hash closure.
 # ---------------------------------------------------------------------------
 
+fi  # _section — shim
+
+if _section manifest; then
 # Case 13 — tamper the canonical guard hook → Layer B FAILS.
 ROOT="$(make_sandbox)"
 printf '\n' >> "$ROOT/scripts/hooks/guard-main-checkout-writes.sh"
@@ -1008,6 +1268,8 @@ else
 fi
 rm -rf "$ROOT"
 
+fi  # _section — manifest
+
 # ---------------------------------------------------------------------------
 # Worktree-resolution cases — the probe must resolve the TRUE main checkout
 # whether its own copy runs from the main checkout OR from a linked
@@ -1016,29 +1278,11 @@ rm -rf "$ROOT"
 make_git_main() {
     local root
     root="$(cd "$(mktemp -d -t contract-integrity-git.XXXXXX)" && pwd -P)"
-    mkdir -p "$root/scripts/hooks" "$root/scripts/lib" "$root/.claude/state"
-    cp "$SCRIPT_DIR/install.sh" "$root/scripts/hooks/"
-    cp "$SCRIPT_DIR/contract-integrity-probe.sh" "$root/scripts/hooks/"
-    for h in "${ALL_HOOKS[@]}"; do
-        cp "$SCRIPT_DIR/$h" "$root/scripts/hooks/"
-    done
-    cp "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$root/scripts/lib/"
-    # The guard inventory and the table it derives from. Every real engine
-    # ships hooks/hooks.json — a seated engine registers its guards in
-    # .claude/settings.local.json AND publishes the same set here for adopters
-    # loading it as a plugin, which is exactly the pair Layer R's R4 compares.
-    # A sandbox without it was modelling an engine that cannot exist, and it
-    # went unnoticed only while nothing read the file.
-    mkdir -p "$root/hooks"
-    cp "$SCRIPT_DIR/../../hooks/hooks.json" "$root/hooks/hooks.json"
-    cp "$SCRIPT_DIR/../lib/registered-hooks.sh" "$root/scripts/lib/"
-    # The sandbox is its own engine root, so it identifies itself like one.
-    cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
-    copy_root_scripts "$root"
-    chmod +x "$root/scripts/hooks/"*.sh 2>/dev/null || true
-    write_sandbox_config "$root"
-    write_sandbox_settings_local "$root" "1" "head"
-    gen_sidecars "$root"
+    # The same skeleton make_sandbox produces, from the same template. This
+    # function used to carry its own copy of the inventory -- a second hand-
+    # maintained list of the engine's files, in the suite whose entire subject
+    # is lists that fall behind the engine.
+    clone_sandbox_into "$root"
     # Gitignore the generated settings.json + nested worktrees so a linked
     # worktree does NOT receive its own settings.json — mirroring the real repo,
     # where a probe run from a worktree reaches back to the MAIN checkout. The
@@ -1079,6 +1323,7 @@ GI
     echo "$root"
 }
 
+if _section worktree; then
 # Case 19 — probe passes from the MAIN checkout of a real git repo, and Layer N
 # emits its explicit git-tracked PASS line (positive shape).
 MAIN="$(make_git_main)"
@@ -1120,6 +1365,9 @@ rm -rf "$MAIN"
 # and null out the system config, making the "is it ignored?" answer depend ONLY
 # on each case's own repo-local .gitignore, not the test machine.
 # ---------------------------------------------------------------------------
+fi  # _section — worktree
+
+if _section N; then
 NOIGNORE_CFG="$(mktemp -t contract-integrity-noignore.XXXXXX)"
 printf '[core]\n\texcludesFile = /dev/null\n' > "$NOIGNORE_CFG"
 
@@ -1161,6 +1409,8 @@ else
 fi
 rm -rf "$MAIN"
 rm -f "$NOIGNORE_CFG"
+fi  # _section — N
+
 
 # ---------------------------------------------------------------------------
 # python3-missing-from-PATH cases — mirrors the automation QA's fail-open repro. Both
@@ -1183,6 +1433,7 @@ make_fakebin_no_python3() {
 }
 BASH_BIN="$(command -v bash)"
 
+if _section python3; then
 # Case 22 — install.sh with no python3 on PATH -> refuses (non-zero), names
 # python3 in its diagnostic.
 ROOT="$(make_sandbox)"
@@ -1224,6 +1475,9 @@ rm -rf "$FAKEBIN" "$ROOT"
 # install). Case 28 is the required positive-shape probe.
 # ---------------------------------------------------------------------------
 
+fi  # _section — python3
+
+if _section config; then
 # Case 24 — install.sh refuses when settings.local.json is missing the env
 # flag from the start (never migrates/refreshes on a broken source).
 ROOT="$(make_sandbox)"
@@ -1330,6 +1584,9 @@ rm -rf "$ROOT"
 # (only the functional canary can).
 # ---------------------------------------------------------------------------
 
+fi  # _section — config
+
+if _section K; then
 # Case 29 — scan-secrets.sh NOT wired (dropped from the CANONICAL file, guard-
 # main-checkout-writes.sh left alone) -> Layer K fails, names the scanner.
 ROOT="$(make_sandbox)"
@@ -1422,6 +1679,9 @@ rm -rf "$ROOT"
 # when both are intact.
 # ---------------------------------------------------------------------------
 
+fi  # _section — K
+
+if _section P; then
 # Case 34 — POSITIVE probe: an intact sandbox emits the Layer P PASS line.
 ROOT="$(make_sandbox)"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
@@ -1543,6 +1803,9 @@ emit_case "40.definition-drift-guard-suite-passes" 0 "$rc"
 # something it must not.
 # ---------------------------------------------------------------------------
 
+fi  # _section — P
+
+if _section Q; then
 # Case 41 — POSITIVE probe: an intact sandbox emits the Layer Q PASS line.
 ROOT="$(make_sandbox)"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
@@ -1712,6 +1975,9 @@ emit_case "48.reaper-wrapper-suite-passes" 0 "$rc"
 # trigger becomes a corpse, and when it stops sparing a live agent's worktree.
 # ---------------------------------------------------------------------------
 
+fi  # _section — Q
+
+if _section Qscope; then
 # Case 49 — the RETIRED agent-finish trigger wired back onto its two events.
 # Until 2026-09-03 this case asserted the opposite (unregistered -> fail). The
 # sweep it triggered decided liveness from evidence that was never per-agent,
@@ -1903,6 +2169,9 @@ emit_case "54.reconciler-suite-passes" 0 "$rc"
 # positive baseline is already covered by cases 1/2 (the committed source and a
 # post-install sandbox both pass, and both now include Layer S).
 
+fi  # _section — Qscope
+
+if _section S; then
 # S1 — the guard is not wired at all.
 ROOT="$(make_sandbox)"
 python3 - "$ROOT/.claude/settings.local.json" <<'PY'
@@ -1983,6 +2252,9 @@ rm -rf "$ROOT"
 # way Layer K stayed green over a dead secrets scanner. The two-sided canary is
 # what makes IP5 possible, and IP5 is what proves the two-sided canary is real.
 
+fi  # _section — S
+
+if _section IP; then
 # IP1 — the guard is not wired at all.
 ROOT="$(make_sandbox)"
 python3 - "$ROOT/.claude/settings.local.json" <<'PY'
@@ -2095,6 +2367,9 @@ emit_case "IP7.interactive-prompt-mutations-all-load-bearing" 0 "$rc"
 # two-sided canary is what makes IL5 possible, and IL5 is what proves the
 # two-sided canary is real.
 
+fi  # _section — IP
+
+if _section IL; then
 # IL1 — the gate is not wired on Stop at all.
 ROOT="$(make_sandbox)"
 python3 - "$ROOT/.claude/settings.local.json" <<'PY'
@@ -2198,6 +2473,9 @@ emit_case "IL6.idle-land-gate-suite-passes" 0 "$rc"
 set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "IL7.idle-land-mutations-all-load-bearing" 0 "$rc"
 
+fi  # _section — IL
+
+if _section CL; then
 # CL1/CL2 — the CLAIM gate's own behavioral suite and mutation harness, for the
 # reason IL6/IL7 exist, arriving late and after a cost. Both files were in this
 # repository and were run by NOTHING: the only automatic check on
@@ -2225,6 +2503,9 @@ if [ "$rc" -ne 0 ]; then
 fi
 rm -f "$CL2_LOG"
 
+fi  # _section — CL
+
+if _section RI; then
 # RI1/RI2/IN2 — the resume-isolation guard's suite and mutation harness, and the
 # in-flight notify mutations. Registered here for the reason CL1/CL2 are: a
 # harness nothing runs is a harness that rots. IN2 earned its row the hard way —
@@ -2238,6 +2519,9 @@ emit_case "RI2.resume-isolation-mutations-all-load-bearing" 0 "$rc"
 set +e; "$SCRIPT_DIR/inflight-notify.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "IN2.inflight-notify-mutations-all-load-bearing" 0 "$rc"
 
+fi  # _section — RI
+
+if _section WTR; then
 # WTR1 — the worktree-removal guard's mutation harness, for the reason CL1/CL2
 # exist and one step further along the same road. The guard's own behavioral
 # suite IS run, because run-all-tests.sh discovers every *.test.sh from disk.
@@ -2262,6 +2546,9 @@ emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
 # file that quotes it passes the layer, so the four refusals above are refusals
 # and not a layer that fails on everything.
 
+fi  # _section — WTR
+
+if _section MT; then
 # MT1 — MODEL_TIERS blank: the order is not declared.
 ROOT="$(make_sandbox)"
 sed -i '' 's/^MODEL_TIERS=.*/MODEL_TIERS=""/' "$ROOT/orchestration.config"
@@ -2345,6 +2632,9 @@ rm -rf "$ROOT"
 # ceiling guard and a working one look identical to this suite — which is the
 # exact false green this engine has shipped twice.
 
+fi  # _section — MT
+
+if _section MC; then
 # MC1 — the ceiling is not declared: WARN, never a failure, and it says so.
 ROOT="$(make_sandbox)"
 sed -i '' '/^MODEL_CEILING=/d' "$ROOT/orchestration.config"
@@ -2429,6 +2719,9 @@ else
 fi
 rm -rf "$ROOT"
 
+fi  # _section — MC
+
+if _section MC6; then
 # MC6 — the ceiling guard's own suite and its mutation harness, registered here
 # for the reason WTR1 and WTI1 are: run-all-tests.sh discovers *.test.sh from
 # disk, so the behavioral suite IS run, but a *.mutation.sh is invisible to that
@@ -2438,6 +2731,9 @@ rm -rf "$ROOT"
 set +e; "$SCRIPT_DIR/guard-model-ceiling.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "MC6.model-ceiling-mutations-all-load-bearing" 0 "$rc"
 
+fi  # _section — MC6
+
+if _section WTI; then
 # WTI1 — the spawn guard's CLAUSE 5 (staffing) mutation harness, registered for
 # the reason WTR1 is: run-all-tests.sh discovers every *.test.sh from disk, so
 # the guard's behavioral suite IS run, but a *.mutation.sh is invisible to that
@@ -2451,6 +2747,9 @@ emit_case "MC6.model-ceiling-mutations-all-load-bearing" 0 "$rc"
 set +e; "$SCRIPT_DIR/guard-worktree-isolation.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "WTI1.staffing-gate-mutations-all-load-bearing" 0 "$rc"
 
+fi  # _section — WTI
+
+if _section MF; then
 # MF1 — the mechanical-findings mutation harness, registered for the reason
 # WTR1 and WTI1 are: a *.mutation.sh is invisible to run-all-tests.sh's
 # discovery. Unregistered, it is itself an `unrun-harness` finding of the very
@@ -2458,6 +2757,9 @@ emit_case "WTI1.staffing-gate-mutations-all-load-bearing" 0 "$rc"
 set +e; "$SCRIPT_DIR/mechanical-findings.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "MF1.mechanical-findings-mutations-all-load-bearing" 0 "$rc"
 
+fi  # _section — MF
+
+if _section SA; then
 # SA1/SA2 — the stated-actions gate's behavioral suite and its mutation
 # harness, registered here for the reason IL6/IL7 are and with the same
 # two-sided risk: "a stated-but-untaken action is refused" is satisfied by a
@@ -2474,6 +2776,9 @@ if [ "$rc" -ne 0 ]; then
 fi
 rm -f "$SA2_LOG"
 
+fi  # _section — SA
+
+_trec run "$(_t)" - END
 echo ""
 echo "=== summary ==="
 echo "passed: $PASS"
@@ -2481,6 +2786,35 @@ echo "failed: $FAIL"
 if [ "$FAIL" -gt 0 ]; then
     echo "failing cases:"
     for n in "${FAIL_NAMES[@]}"; do echo "  - $n"; done
-    exit 1
 fi
+
+# The scoped banner goes LAST, under the verdict, because that is where an eye
+# leaving a terminal lands. It names every case that did not run: a partial run
+# whose gaps are not enumerated is indistinguishable from a full pass by
+# reading, and this suite has twice shipped green over something that never ran.
+if [ "$SCOPED" -eq 1 ]; then
+    _skipped_total=0
+    _skipped_report=""
+    for _sid in $(_scope_all_sections); do
+        case " $SCOPE_RUN " in *" $_sid "*) continue ;; esac
+        _names="$(_scope_cases_of "$_sid" | tr '\n' ' ')"
+        _n=$(printf '%s' "$_names" | wc -w | tr -d ' ')
+        _skipped_total=$((_skipped_total + _n))
+        _skipped_report="$_skipped_report
+  $_sid ($_n): $_names"
+    done
+    echo ""
+    echo "################################################################################"
+    echo "#  SCOPED RUN — NOT A FULL PASS. $_skipped_total case(s) DID NOT RUN."
+    echo "#  ran:$([ -n "$SCOPE_RUN" ] && printf ' %s' "$SCOPE_RUN")"
+    echo "#  did NOT run:$_skipped_report"
+    echo "#"
+    echo "#  Exit code 3 means scoped-and-green. It is not 0 and must not be treated"
+    echo "#  as one. Re-run with no arguments before landing anything."
+    echo "################################################################################"
+    [ "$FAIL" -gt 0 ] && exit 1
+    exit 3
+fi
+
+[ "$FAIL" -gt 0 ] && exit 1
 exit 0
