@@ -810,6 +810,27 @@ tamper "$A33" quarantine "$Q33"
 R --agent "$SID/$A33" >/dev/null 2>&1
 [ "$(states "$A33")" = "removed " ] && ok "C61  POSITIVE PROBE: restored to its canonical quarantine name, the same locked member completes" || bad "C61  states=$(states "$A33")"
 
+# 23g. A BLOCKED MEMBER DOES NOT COMPOUND ITS BACKOFF. Doubling suits a
+# transient condition recovering gradually; a blocked one changes
+# discontinuously, and compounding means a repair goes unnoticed for hours.
+# Measured 2026-09-04: thirty blocked members had reached 21600s, so the fix
+# for them would have read as not working for most of a working day.
+A34="a00000000000rc34"
+seal "$A34" dev-opus-r34
+NAT34="$ENTITY/.claude/worktrees/agent-$A34"; Q34="$(q "$NAT34" "$A34")"
+lock_as "$NAT34" "a0000000000FOREIGN"
+T claim --session-id "$SID" --agent-id "$A34" --ingress SubagentStop >/dev/null
+RICHOS_RECONCILE_BACKOFF_BASE=60 R --agent "$SID/$A34" >/dev/null 2>&1
+RA1="$(member_field "$A34" retry_after)"
+tamper "$A34" retry_after_epoch 0
+RICHOS_RECONCILE_BACKOFF_BASE=60 R --agent "$SID/$A34" >/dev/null 2>&1
+RA2="$(member_field "$A34" retry_after)"; AT2="$(member_field "$A34" attempts)"
+case "$RA1|$RA2|$AT2" in
+    *"+ 60s|"*"+ 60s|2") ok "C62  a blocked member is retried at the base interval on every attempt (attempt 2 is still + 60s, NOT the + 120s the doubling rule would give); the attempt count still climbs" ;;
+    *) bad "C62  first=[$RA1] second=[$RA2] attempts=$AT2" ;;
+esac
+case "$RA2" in *"+ 120s"*) bad "C63  the doubled value is present: [$RA2]" ;; *) ok "C63  ...and the doubled value the old rule would have written is absent" ;; esac
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="

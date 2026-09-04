@@ -242,7 +242,17 @@ def _record_soft_failure(sid, aid, i, attempts, err, base, cap, bump=True, block
     if bump:
         fields["attempts"] = attempts
     if base > 0:
-        delay = min(base * (2 ** max(attempts - 1, 0)), cap)
+        # A BLOCKED MEMBER DOES NOT COMPOUND ITS BACKOFF. Doubling is right
+        # for a transient condition that may be recovering gradually — a
+        # busy disk, a slow repository — because each retry costs something
+        # and each one is a fresh chance. A blocked member is neither: its
+        # retry is a `worktree list` and a refusal, and its condition
+        # changes DISCONTINUOUSLY (a lock released when the session exits, a
+        # repair that lands), so there is no gradient to back off along.
+        # Measured 2026-09-04: thirty blocked members had compounded to
+        # 21600s, so a condition repaired at any moment would go unnoticed
+        # for up to six hours and the repair would read as not working.
+        delay = base if blocked else min(base * (2 ** max(attempts - 1, 0)), cap)
         fields["retry_after_epoch"] = time.time() + delay
         fields["retry_after"] = tx.now_iso() + " + %ds" % int(delay)
     tx.update_member(sid, aid, i, **fields)
