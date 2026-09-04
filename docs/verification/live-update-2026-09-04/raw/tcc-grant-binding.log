@@ -1,0 +1,24 @@
+$ sqlite3 ~/Library/.../TCC.db "select count(*) from access;"
+123
+
+$ sqlite3 ~/Library/.../TCC.db "select service,client,auth_value,datetime(last_modified,'unixepoch') from access where client=\"com.richos.app\";"
+kTCCServiceMicrophone|com.richos.app|2|2026-09-04 14:53:11
+
+# the requirement blob that grant is bound to, decoded to its readable terms:
+$ sqlite3 ... "select hex(csreq) ..." | xxd -r -p | strings
+com.richos.app
+subject.OU
+TZ33A4QCZJ
+
+# ...and whether it contains a cdhash term (0 = it does not):
+$ sqlite3 ... "select hex(csreq) ..." | grep -ci cdhash
+0
+
+$ sqlite3 /Library/.../TCC.db "select count(*) from access;"
+20
+
+$ sqlite3 /Library/.../TCC.db "select count(*) from access where service='kTCCServiceAccessibility';"
+8
+
+$ sqlite3 /Library/.../TCC.db "select service,client,auth_value from access where client=\"com.richos.app\";"   # no output = no row
+(exit 0)

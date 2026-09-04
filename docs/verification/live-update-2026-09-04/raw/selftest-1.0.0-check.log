@@ -1,0 +1,14 @@
+[richos] launch: crash-restart (start -, 1 window(s))
+[richos] company registry: 6 companies from /Users/alex/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 6 compan(ies), /Users/alex/Library/Application Support/com.richos.app/entities.json (file)
+[richos] company: richos (via RICHOS_ENTITY)
+[richos] loro Tier C: compiling from /Users/alex/Library/Application Support/RichOS/loro-root (via the loro-root pointer in Application Support), node /opt/homebrew/bin/node
+[richos] loro correction desk: writing to /Users/alex/Library/Application Support/RichOS/loro-root via /Users/alex/Library/Application Support/RichOS/loro-root/loro/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] engine directory: /Users/alex/.claude/richos-engine (via engine install pointer)
+[richos] compute lease attached over /Users/alex/.local/bin/claude
+[richos] first-run setup: nothing missing.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] update selftest: check
+[richos] boot complete — every line above is what this launch resolved
+RICHOS-UPDATE-SELFTEST state=available current=1.0.0 available=1.0.2 percent=- failure=- detail=-
+RICHOS-UPDATE-SELFTEST exit=0
