@@ -2,9 +2,9 @@
 //!
 //! # The gap this closes, stated as it was found
 //!
-//! RichOS is installed at `/Users/alex/Applications/RichOS.app`, signed, and it reaches the
+//! RichOS is installed at `~/Applications/RichOS.app`, signed, and it reaches the
 //! CEO's memory. It reaches it because an engineer typed
-//! `ln -sfn /Users/alex/ab/richos-hq "$HOME/Library/Application Support/RichOS/loro-root"`
+//! `ln -sfn ~/ab/richos-hq "$HOME/Library/Application Support/RichOS/loro-root"`
 //! by hand on 2026-09-01 and wrote it down as a gap rather than as a feature
 //! (`docs/verification/installed-app-2026-09-01/README.md` §6). Delete that symlink and the
 //! boot log says so on four lines instead of one — MEASURED, with the pointer removed and
@@ -14,7 +14,7 @@
 //! [richos] loro Tier C: no corpus configured — re-primes carry no company memory
 //! [richos] loro Tier C: tried .../Application Support/RichOS/corpus — not present
 //! [richos] loro Tier C: tried .../Application Support/RichOS/loro-root — not present
-//! [richos] loro Tier C: tried /Users/alex/RichOS/corpus — not present
+//! [richos] loro Tier C: tried ~/RichOS/corpus — not present
 //! ```
 //!
 //! `resolve_corpus` (`loro.rs`) is a good resolver over candidates **nothing creates**. This
@@ -135,7 +135,7 @@ pub enum CheckoutMarker {
     /// `app/crates/richos-core/Cargo.toml` — the RichOS product repo AS IT ACTUALLY IS.
     ///
     /// It is here because loro's marker does not match it: `richos` ships no `loro/`, so
-    /// `isProductCheckout("/Users/alex/ab/richos")` is FALSE and the open-source boundary
+    /// `isProductCheckout("~/ab/richos")` is FALSE and the open-source boundary
     /// that everyone believes protects the product repo does not currently fire for it. A
     /// corpus provisioned inside `~/ab/richos` would be refused by nothing. It is refused
     /// here.
@@ -449,7 +449,7 @@ pub fn provision(req: &ProvisionRequest) -> Result<ProvisionReport, ProvisionErr
 }
 
 /// The pointer, as a symlink, because that is the mechanism already in place and proven on
-/// this machine: `loro-root -> /Users/alex/ab/richos-hq` is a symlink, and `resolve_corpus`
+/// this machine: `loro-root -> ~/ab/richos-hq` is a symlink, and `resolve_corpus`
 /// validates a candidate with `is_dir()`, which follows one.
 ///
 /// `remove_file` first, because `symlink` refuses an existing path and a stale pointer is

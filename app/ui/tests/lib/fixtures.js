@@ -7,7 +7,7 @@
 
 "use strict";
 
-const ENTITY = "femcboost";
+const ENTITY = "northwind";
 const THREAD = "thr_fem";
 const TURN = "turn_ok";
 

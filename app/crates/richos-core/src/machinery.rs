@@ -1455,7 +1455,7 @@ mod tests {
         // Status is a POSITION on this wire, not a string (deviation 3): `is_error` decides.
         let f = json!({"type":"user","message":{"role":"user","content":[
                         {"tool_use_id":"t","type":"tool_result","is_error":true,
-                         "content":"Exit code 1\ncat: /Users/alex/nope: No such file or directory"}]}});
+                         "content":"Exit code 1\ncat: /Users/example/nope: No such file or directory"}]}});
         let r = one(&f, 0);
         assert_eq!(r.status, Some(ToolStatus::Failed));
         assert!(r.status.as_ref().unwrap().is_terminal());

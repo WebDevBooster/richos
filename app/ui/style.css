@@ -1784,6 +1784,86 @@ button {
   color: var(--ink-faint);
 }
 
+/* ---- adding a company (2026-09-04) ------------------------------------------------------
+
+   No new colors. Every rule below uses a token already painted on this same `--surface`
+   panel, and every ratio is COMPUTED in BOTH themes rather than eyeballed — surfaces are
+   `--card`: #182440 dark, #fdfcf8 light.
+
+     .entity-add-label          --ink                        12.06:1 dark   18.07:1 light
+     .entity-add-input (typed)  --ink                        12.06:1 dark   18.07:1 light
+     .entity-add-input::placeholder
+                                --ink-faint (composited)      5.51:1 dark    5.37:1 light
+     .entity-add-optional       --ink-soft (composited)       5.78:1 dark    6.36:1 light
+     .entity-add-hint           --ink-soft (composited)       5.78:1 dark    6.36:1 light
+     #entity-add-lead           --ink-soft via .overlay-note  5.78:1 dark    6.36:1 light
+     #entity-add-error          --danger via .setup-error     5.84:1 dark    8.12:1 light
+     .entity-add-input border   --line-control (indicator)    3.79:1 dark    4.06:1 light
+     Add button label on gold   --on-gold on --gold           7.68:1 dark    4.72:1 light
+     Add button fill vs panel   --gold on --surface (ind.)    6.36:1 dark    3.83:1 light
+
+   NOTHING HERE IS EXEMPT AND NOTHING IS CLAIMED TO BE. The placeholder is an EXAMPLE the
+   person is meant to read — it is what tells him a folder is a full path rather than a
+   name — so it takes the 4.5:1 text floor, not a decorative one, and it is set to
+   `--ink-faint` rather than left to the browser precisely because a default placeholder is
+   an uncontrolled value. Every size below is >= 1rem, so the 16px "meant to be easily read"
+   floor holds too. */
+
+.entity-add {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.entity-add-label {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--ink);
+  margin: 0 0 5px;
+}
+
+.entity-add-label + .entity-add-input {
+  margin-bottom: 12px;
+}
+
+.entity-add-optional {
+  color: var(--ink-soft);
+}
+
+.entity-add-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  /* Indicator grade, not divider grade — a control's boundary is what says "type here",
+     and `--line` is a divider value that does not pay 3:1. Same reasoning as `#input`. */
+  border: 1px solid var(--line-control);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: transparent;
+  outline: none;
+}
+
+.entity-add-input::placeholder {
+  color: var(--ink-faint);
+  opacity: 1; /* Firefox lowers placeholder opacity by default, which would undo the ratio. */
+}
+
+.entity-add-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.entity-add-hint {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
 /* ---- thread overflow menu (§3.1) ------------------------------------------------------- */
 
 .menu {

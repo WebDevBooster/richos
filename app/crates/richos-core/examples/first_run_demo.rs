@@ -39,7 +39,7 @@ fn main() {
     println!("[demo] HOME: {}", home.display());
 
     // WHAT THE APP FINDS BEFORE ANYTHING IS DONE. The same call the boot makes.
-    match CliContextCompiler::locate(&CorpusPaths::from_process()) {
+    match CliContextCompiler::locate(&CorpusPaths::from_process(), &demo_registry(&home)) {
         Ok((Some((c, source)), _)) => {
             println!("[demo] before: a corpus already resolves at {} (via {})", c.root().path().display(), source.as_str());
             println!("[demo] before: nothing below will run — an existing corpus is left alone");
@@ -63,7 +63,7 @@ fn main() {
     // THE SAME LIST THE COMMAND USES — the entity registry, not a name invented here. A
     // partition per company the build knows, so the lane map has something real to reconcile
     // against on the first boot instead of five entities bound to nothing.
-    let companies: Vec<(String, String)> = richos_core::entity::EntityRegistry::ceos_companies()
+    let companies: Vec<(String, String)> = demo_registry(&home)
         .entities()
         .iter()
         .map(|e| (e.id.to_string(), e.display_name.clone()))
@@ -116,7 +116,7 @@ fn main() {
     // AND WHAT THE APP FINDS NOW. Same call as the boot, same process, and — when this is
     // run the documented way — an environment holding nothing but HOME and PATH.
     println!("[demo] --- the app's own resolver, run again ---");
-    match CliContextCompiler::locate(&CorpusPaths::from_process()) {
+    match CliContextCompiler::locate(&CorpusPaths::from_process(), &demo_registry(&home)) {
         Ok((Some((c, source)), _)) => {
             println!(
                 "[demo] after: compiling from {} (via {}), tools {}, node {}",
@@ -135,4 +135,25 @@ fn main() {
         }
         Err(e) => println!("[demo] after: {e}"),
     }
+}
+
+/// THE COMPANY THIS DEMO REGISTERS — invented, and belonging to nobody.
+///
+/// Before 2026-09-04 this was `EntityRegistry::ceos_companies()`: a `const` table of the
+/// CEO's six real companies that shipped inside the binary and was the registry of every
+/// install. The registry is per-user now (`entity.rs` rule 4) and a fresh machine has none,
+/// so a demo that needs a company to exist REGISTERS one, exactly as a first-run user does.
+fn demo_registry(home: &std::path::Path) -> richos_core::entity::EntityRegistry {
+    let mut registry = richos_core::entity::EntityRegistry::empty();
+    registry
+        .register(
+            richos_core::entity::Entity::try_new(
+                "northwind",
+                "Northwind Traders",
+                vec![home.join("Projects").join("northwind")],
+            )
+            .expect("a valid demo company"),
+        )
+        .expect("the first registration cannot conflict with anything");
+    registry
 }

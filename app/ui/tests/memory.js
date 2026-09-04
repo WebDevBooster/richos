@@ -123,7 +123,7 @@ async function main() {
 
   await run.check("2  the location is SHOWN, and is exactly what the command is given", async () => {
     // A LOCATION THE SURFACE COULD NOT HAVE GUESSED. The mock's own offer is
-    // `/Users/alex/RichOS/corpus`, which is also what a hard-coded path would say — so a
+    // `/Users/you/RichOS/corpus`, which is also what a hard-coded path would say — so a
     // build that ignored the backend and wrote the path itself would pass against it. This
     // one comes from nowhere but the command's answer.
     const offered = "/Volumes/Archive/somewhere else/corpus";
@@ -183,7 +183,7 @@ async function main() {
     // would throw the instruction away; swallowing one is what `affordances.js` exists to
     // forbid.
     const refusal =
-      "/Users/alex/RichOS/corpus already exists and has things in it that are not a corpus. " +
+      "/Users/you/RichOS/corpus already exists and has things in it that are not a corpus. " +
       "Refusing to write a record into somebody else's folder.";
     const page = await openApp(browser, { memory: "none" });
     await page.waitForSelector("#memory-setup:not([hidden])");

@@ -10,7 +10,6 @@ use richos_core::ledger::{ActionVisibility, AttentionTier, Ledger, Source, TurnS
 use richos_core::machinery::MachineryRecord;
 use richos_core::spine::ContextSource;
 use richos_core::entity::EntityId;
-use richos_core::spine::Spine;
 
 /// The dogfood entity these tests run under. Every thread now has an immutable entity
 /// home (ECS §3.2) and there is no entity-less path, so the tests NAME one rather than
@@ -21,6 +20,8 @@ fn femcboost() -> EntityId {
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::LeaseFactory;
 use std::sync::{Arc, Mutex};
+
+mod support;
 
 fn tmp_ledger(tag: &str) -> (std::path::PathBuf, Ledger) {
     let path = std::env::temp_dir().join(format!(
@@ -88,7 +89,7 @@ fn explicit_rotation_swaps_the_lease_and_the_conversation_survives_it() {
     // Forces a rotation mid-conversation (the "!rotate equivalent" trigger, §3.2) and
     // shows the conversation continuing seamlessly on the successor — done-criterion (a).
     let (path, ledger) = tmp_ledger("explicit-rotation");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     let factory = MockLeaseFactory::new(vec!["reply from successor lease"]);
@@ -179,7 +180,7 @@ fn the_watermark_is_driven_by_the_measured_usage_not_by_the_char_estimate() {
     // says it is there, so rotation fires — while the char estimate over the same turn is
     // three orders of magnitude smaller and could not have triggered anything.
     let (path, ledger) = tmp_ledger("measured-watermark");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ReportingCognition::new("sess-1", vec![(700_000, 1_000_000)], "ok")));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["post-rotation reply"])));
@@ -198,7 +199,7 @@ fn an_unreported_lease_falls_back_to_the_estimate_and_says_it_is_an_estimate() {
     // The fallback must be honest about being one. A lease that has not reported is in a
     // genuinely different state, and `context_source()` is the type-level way to say so.
     let (path, ledger) = tmp_ledger("fallback-honest");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["short reply"])));
 
@@ -224,7 +225,7 @@ fn a_lease_that_has_not_reported_yet_still_rotates_sensibly() {
     // watermark test, against a lease that never reports. Rotation must still happen -
     // "we have no measurement" may not become "we never rotate".
     let (path, ledger) = tmp_ledger("fallback-rotates");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["short reply"])));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["post-rotation reply"])));
@@ -243,7 +244,7 @@ fn the_measured_window_supersedes_the_configured_one_and_the_configured_ratio_su
     // adapter reported in 50 of 50 measured events. The wire wins on the WINDOW (it knows
     // which model is behind the session); the RATIO is policy and stays ours.
     let (path, ledger) = tmp_ledger("measured-window");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ReportingCognition::new("sess-1", vec![(150_000, 1_000_000)], "ok")));
     spine.set_context_budget(200_000, 0.70);
@@ -272,14 +273,14 @@ fn removing_the_measurement_brings_the_defect_back_the_lease_runs_to_the_wall_un
     // This is the failure that matters: not an early rotation, but a lease that never
     // rotates and then hits the hard limit mid-turn.
     let (path_a, ledger_a) = tmp_ledger("negctl-measured");
-    let mut measured = Spine::new(ledger_a);
+    let mut measured = support::spine(ledger_a);
     measured.create_thread("General", &femcboost()).unwrap();
     measured.attach_lease(Box::new(ReportingCognition::new("sess-m", vec![(990_000, 1_000_000)], "ok")));
     measured.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["successor"])));
     measured.submit_prompt("hello", Source::Text).unwrap();
 
     let (path_b, ledger_b) = tmp_ledger("negctl-blind");
-    let mut blind = Spine::new(ledger_b);
+    let mut blind = support::spine(ledger_b);
     blind.create_thread("General", &femcboost()).unwrap();
     blind.attach_lease(Box::new(MockCognition::new("sess-b", vec!["ok"])));
     blind.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["successor"])));
@@ -309,7 +310,7 @@ fn a_successor_never_inherits_its_predecessors_measurement() {
     // rotation as a loop, which is worse than no rotation at all. `install_lease` is the
     // only place `self.lease` is assigned, so clearing there makes this structural.
     let (path, ledger) = tmp_ledger("no-inherit");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     // 0.90 measured: over the 0.70 watermark, UNDER the 0.95 critical threshold, so this
     // rotates for the ordinary reason and the test stays about inheritance.
@@ -338,7 +339,7 @@ fn a_mid_turn_crossing_of_the_hard_limit_is_recorded_and_settled_at_the_boundary
     // this system does is: finish the turn, write the crossing down against that turn,
     // then rotate at the first legal instant under `context-critical`.
     let (path, ledger) = tmp_ledger("mid-turn-critical");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     // 0.99 configured: an operator ratio that would NOT have rotated at 96%. The critical
     // threshold outranks it, because at 96% measured the policy has been overtaken.
@@ -393,7 +394,7 @@ fn staying_under_the_critical_ratio_records_no_pressure_and_no_critical_rotation
     // The positive probe for the negative test above: the same machinery, below 0.95,
     // must produce nothing. A guard that fires either way proves nothing.
     let (path, ledger) = tmp_ledger("no-critical");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.set_context_budget(1_000_000, 0.99);
     spine.attach_lease(Box::new(ReportingCognition::new("sess-1", vec![(940_000, 1_000_000)], "ok")));
@@ -420,7 +421,7 @@ fn mid_turn_pressure_without_a_lease_factory_records_the_fact_and_does_not_fail_
     // describes completed. Returning NoLeaseFactory here would report a failure for work
     // that succeeded, which is the wrong direction to be wrong in.
     let (path, ledger) = tmp_ledger("pressure-no-factory");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ReportingCognition::new(
         "sess-1",
@@ -452,7 +453,7 @@ fn an_adapter_that_reports_a_zero_window_falls_back_rather_than_dividing_by_it()
     // Never observed on the wire; refused anyway, because a NaN watermark would rotate
     // never or always and there is no way to tell which from the outside.
     let (path, ledger) = tmp_ledger("zero-window");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ReportingCognition::new("sess-1", vec![(500, 0)], "ok")));
     spine.set_context_budget(1000, 0.001); // the fallback WOULD fire
@@ -472,7 +473,7 @@ fn watermark_triggers_rotation_automatically_at_the_next_turn_boundary() {
     // confirm rotation fires WITHOUT any explicit request — proving the scheduled,
     // automatic path (not just the manual one exercised above).
     let (path, ledger) = tmp_ledger("watermark-rotation");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["short reply"])));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["post-rotation reply"])));
@@ -500,7 +501,7 @@ fn context_estimate_is_measured_not_asserted() {
     // depends on exact ledger state at injection time), read the EXACT text the spine
     // actually sent — captured by the mock's `reprimes` log — and measure THAT.
     let (path, ledger) = tmp_ledger("context-math");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
 
     let reply = "exactly forty chars in this canned reply!!"; // length MEASURED below, not assumed
@@ -553,7 +554,7 @@ fn rotation_re_primes_the_successor_with_identity_and_the_action_ledger() {
     let turn = ledger.record_prompt_received(&ledger.thread_binding(&thread).unwrap(), "dispatch a worker", Source::Text).unwrap();
     ledger.record_action(&turn, "dispatch", "spawned worker mark-sonnet-f1").unwrap();
 
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.switch_thread(&thread).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     let factory = MockLeaseFactory::new(vec!["ack2"]);
@@ -585,7 +586,7 @@ fn clean_rotation_asks_the_outgoing_lease_for_a_self_authored_handoff_summary() 
     // successor's re-prime carries (via handoff_summary upgrading rolling_summary), and
     // the internal ask never appears in the CEO-visible conversation.
     let (path, ledger) = tmp_ledger("handoff-summary");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     let outgoing = MockCognition::new("sess-outgoing", vec!["the CEO's own reply", "We discussed the Acme deal and Q4 hiring."]);
@@ -630,7 +631,7 @@ fn mid_turn_crash_recovers_and_replays_without_duplicating_the_message() {
     // "the CEO's prompt is provably never lost." Also verifies the render stays CLEAN:
     // one exchange, not a duplicate of the failed attempt.
     let (path, ledger) = tmp_ledger("crash-recovery");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed".into() }));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["I'm back — here's your answer."])));
@@ -681,7 +682,7 @@ fn mid_turn_crash_without_a_lease_factory_degrades_to_an_honest_error() {
     // than silently vanishing or hanging. (The always-there floor beneath automatic
     // recovery.)
     let (path, ledger) = tmp_ledger("crash-no-factory");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed".into() }));
     // Deliberately NOT calling set_lease_factory.
@@ -698,7 +699,7 @@ fn mid_turn_crash_recovery_is_bounded_to_one_attempt() {
     // recovery attempt, then an honest failure (positive-signal doctrine: never infer,
     // never spin).
     let (path, ledger) = tmp_ledger("crash-loop-bound");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed-1".into() }));
     let spawn_count = Arc::new(Mutex::new(0u64));
@@ -718,7 +719,7 @@ fn mid_turn_crash_recovery_is_bounded_to_one_attempt() {
 #[test]
 fn proactive_tier1_and_tier2_render_as_rich_only_messages_no_preceding_ceo_prompt() {
     let (path, ledger) = tmp_ledger("proactive-render");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     spine
@@ -741,7 +742,7 @@ fn proactive_silent_tier_never_renders_but_stays_durable() {
     // UX §5.1 Tier 3: "Does not appear in the conversation and never notifies." But it
     // must still be durably logged (a CEO who goes looking, or a future activity view).
     let (path, ledger) = tmp_ledger("proactive-silent");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     let observer = RecordingObserver::default();
@@ -767,7 +768,7 @@ fn proactive_message_raised_mid_turn_is_durable_immediately_but_ui_event_waits_f
     // clears. This spine is fully synchronous/single-threaded (module doc), so the test
     // uses the documented test-only seam to force the in-flight state deterministically.
     let (path, ledger) = tmp_ledger("proactive-deferred");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["a reply"])));
 
@@ -798,7 +799,7 @@ fn proactive_message_raised_mid_turn_is_durable_immediately_but_ui_event_waits_f
 #[test]
 fn proactive_message_defaults_to_active_thread_when_none_given() {
     let (path, ledger) = tmp_ledger("proactive-default-thread");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.raise_proactive(None, AttentionTier::Digest, "hello").unwrap();
     assert_eq!(spine.messages(&thread).unwrap().len(), 1);

@@ -53,9 +53,13 @@ app/
                               the auto-approve seam (`decide_permission`), the loud
                               startup handshake, and the between-turn lane
     src/entity.rs            the ENTITY scope + privacy boundary (ECS §3.2-3.4): validated
-                              entity ids, the four-area registry, fail-closed repository-root
-                              resolution, and the IMMUTABLE ThreadBinding (private fields,
-                              crate-private constructor — obtainable only from the ledger)
+                              entity ids, the PER-USER registry (read from `entities.json` in
+                              this install's own config dir — see docs/entity-registry.md;
+                              EMPTY until its owner registers something, and it was a `const`
+                              table of one man's six companies until 2026-09-04), fail-closed
+                              repository-root resolution, and the IMMUTABLE ThreadBinding
+                              (private fields, crate-private constructor — obtainable only
+                              from the ledger)
     src/ledger.rs            append-only conversation + action ledger (crash-safe), now
                               entity-scoped: every thread has one immutable home entity,
                               every turn carries it, and no event from one entity can render
@@ -150,7 +154,9 @@ app/
                               CONTROL (proven failing with the guard removed), immutability,
                               the fail-closed unbound legacy thread + its one-way explicit
                               adoption, the activation fence, and restart
-    tests/entity_registry_tests.rs 5 tests that the registry is the CEO's own six companies
+    tests/entity_registry_tests.rs 10 tests that the registry is the PERSON'S OWN, read from
+                              their own entities.json — empty by default, fail-closed on every
+                              unknown root, and no existing thread orphaned by the migration
                               rather than four directory names, including the multi-root
                               proof (`richos` + `richos-hq` -> one entity id) and the
                               string-prefix trap beside it
@@ -622,7 +628,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 677 tests + 5 doc-tests
+cargo test -p richos-core                       # 693 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

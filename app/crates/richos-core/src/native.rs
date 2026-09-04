@@ -588,7 +588,7 @@ struct ReaderState {
 /// `Command::spawn` raises `std::io::ErrorKind::NotFound` when the executable is missing
 /// AND when `current_dir` names a directory that is not there. One errno, two faults, two
 /// completely different fixes — and the mapping that guessed "missing binary" told the CEO
-/// on 2026-09-01 that `/Users/alex/.local/bin/claude` was not found while it sat on his disk
+/// on 2026-09-01 that `~/.local/bin/claude` was not found while it sat on his disk
 /// and only the engine directory was absent
 /// (`docs/verification/payload-inventory-2026-09-01/README.md` §7). Whoever debugs that on a
 /// customer's machine looks in exactly the wrong place.

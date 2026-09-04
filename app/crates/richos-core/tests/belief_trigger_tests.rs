@@ -37,6 +37,8 @@ use richos_core::spine::Spine;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
 }
@@ -151,7 +153,7 @@ fn rig(
 ) {
     let dir = tmp(tag);
     let ledger = Ledger::open(dir.join("ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", replies)));
 
@@ -287,7 +289,7 @@ fn ordinary_conversation_about_the_same_records_proposes_nothing() {
 fn memory_that_was_refused_at_the_seam_can_never_be_corrected_through_this_trigger() {
     let dir = tmp("refused");
     let ledger = Ledger::open(dir.join("ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["Noted.", "Noted."])));
 

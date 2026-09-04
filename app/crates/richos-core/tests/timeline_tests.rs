@@ -32,6 +32,8 @@ use richos_core::worker_events::{ObservedWorkerState, WorkerEventRow};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
 }
@@ -134,7 +136,7 @@ fn interleaved_script() -> Vec<Step> {
 
 /// A spine wired with a journal, an interleaving lease and a live recorder.
 fn spine_with(script: Vec<Step>, ledger_path: &std::path::Path, journal_root: &std::path::Path) -> (Spine, Live) {
-    let mut spine = Spine::new(Ledger::open(ledger_path).unwrap());
+    let mut spine = support::spine(Ledger::open(ledger_path).unwrap());
     spine.set_machinery_journal(MachineryJournal::new(journal_root));
     let live = Live::default();
     spine.set_observer(Box::new(live.clone()));
@@ -438,7 +440,7 @@ fn a_timeline_survives_a_cold_reopen_neither_losing_nor_inventing_anything() {
 
     // KILL AND RESTART: a cold `Ledger::open` replays the log, a cold journal re-reads the
     // shards. No process state survives.
-    let mut fresh = Spine::new(Ledger::open(&path).unwrap());
+    let mut fresh = support::spine(Ledger::open(&path).unwrap());
     fresh.set_machinery_journal(MachineryJournal::new(&journal_root));
     let after = fresh.timeline(&thread).unwrap();
 
@@ -676,7 +678,7 @@ fn an_unbound_legacy_thread_refuses_to_produce_a_timeline_at_all() {
         ),
     )
     .unwrap();
-    let spine = Spine::new(Ledger::open(&path).unwrap());
+    let spine = support::spine(Ledger::open(&path).unwrap());
     let err = spine.timeline("thr_old").unwrap_err();
     assert!(err.to_string().contains("will not guess"), "the refusal explains itself: {err}");
     let _ = std::fs::remove_file(&path);
@@ -930,7 +932,7 @@ fn spine_with_worker_stream(tag: &str, rows: &str) -> (Spine, std::path::PathBuf
     std::fs::write(&stream_path, rows).unwrap();
 
     let ledger = Ledger::open(&ledger_path).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let journal = MachineryJournal::new(tmp(&format!("{tag}-mach"), ""));
     for r in task_records("thr_fem", "turn_ok", "s1") {
         journal.append(&r).unwrap();

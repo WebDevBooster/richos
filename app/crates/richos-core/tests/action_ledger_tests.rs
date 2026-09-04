@@ -19,7 +19,8 @@ use richos_core::ledger::{
 };
 use richos_core::reprime::RePrimePayload;
 use richos_core::entity::EntityId;
-use richos_core::spine::Spine;
+
+mod support;
 
 /// The dogfood entity these tests run under. Every thread now has an immutable entity
 /// home (ECS §3.2) and there is no entity-less path, so the tests NAME one rather than
@@ -67,7 +68,7 @@ fn raising_a_proactive_message_writes_a_ceo_facing_action_at_runtime() {
     // writer exercised is `Spine::raise_proactive`, the production path behind the
     // `raise_proactive_message` Tauri command (src-tauri/src/main.rs).
     let (path, ledger) = tmp_ledger("proactive-writes-action");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     assert!(
@@ -101,7 +102,7 @@ fn a_silent_tier_proactive_message_is_recorded_as_an_action_its_only_durable_sur
     // learn that Rich already noted this — it would re-raise it, or deny having raised
     // it. This is the sharpest case for wiring the ledger.
     let (path, ledger) = tmp_ledger("silent-recorded");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     spine
@@ -121,7 +122,7 @@ fn rotation_writes_internal_actions_claimed_then_completed() {
     // re-prime injection are both claimed BEFORE they run and settled after, so a crash
     // mid-rotation leaves a durable `claimed` record instead of silence.
     let (path, ledger) = tmp_ledger("rotation-internal-actions");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["ack2"])));
@@ -157,7 +158,7 @@ fn rotation_writes_internal_actions_claimed_then_completed() {
 fn a_rotation_that_cannot_spawn_a_successor_leaves_a_durable_failed_record() {
     // Before this fix a failed rotation vanished into an `Err` return with no trace.
     let (path, ledger) = tmp_ledger("rotation-spawn-fails");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     let factory = MockLeaseFactory::new(vec!["never used"]);
@@ -184,7 +185,7 @@ fn first_lease_priming_is_recorded_as_an_internal_action() {
     // primed" is the single fact the entire anti-false-attribution guarantee rests on,
     // so it is durable on the FIRST lease too, not only on rotated ones.
     let (path, ledger) = tmp_ledger("first-prime");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-boot", vec!["hi"])));
 
@@ -206,7 +207,7 @@ fn mid_turn_crash_recovery_is_recorded_as_an_internal_action() {
     // §5.3. The recovery is claimed BEFORE the respawn and completed after the replay
     // lands, so the durable record exists even if recovery itself dies partway.
     let (path, ledger) = tmp_ledger("crash-recovery-action");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed".into() }));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["recovered reply"])));
@@ -234,7 +235,7 @@ fn a_ceo_facing_action_recorded_by_production_code_reaches_the_successors_primin
     // written ONLY by the production path (`raise_proactive`) is verified on the ACTUAL
     // spawned successor lease's re-prime log — not on a payload object in isolation.
     let (path, ledger) = tmp_ledger("action-survives-rotation");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     let factory = MockLeaseFactory::new(vec!["ack2"]);
@@ -270,7 +271,7 @@ fn internal_machinery_actions_never_leak_into_a_priming_prompt() {
     // under a header calling that section authoritative ground truth for what Rich has
     // DONE would manufacture exactly that leak. Internal actions stay durable and unseen.
     let (path, ledger) = tmp_ledger("no-machinery-leak");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     let factory = MockLeaseFactory::new(vec!["a", "b"]);
@@ -350,7 +351,7 @@ fn a_proactive_turn_in_the_verbatim_tail_carries_no_phantom_ceo_line() {
     // Rich's own initiative to the CEO. Verified against the real rendered prompt text,
     // not just the payload struct.
     let (path, ledger) = tmp_ledger("proactive-tail");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["ok"])));
     spine.submit_prompt("what's on my plate?", Source::Text).unwrap();
@@ -385,7 +386,7 @@ fn actions_and_their_visibility_survive_a_restart() {
     // The ledger is the durable substrate; the in-memory projection is a disposable fold.
     let (path, ledger) = tmp_ledger("actions-survive-restart");
     {
-        let mut spine = Spine::new(ledger);
+        let mut spine = support::spine(ledger);
         let thread = spine.create_thread("General", &femcboost()).unwrap();
         spine.raise_proactive(Some(&thread), AttentionTier::Digest, "durable action").unwrap();
         spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));

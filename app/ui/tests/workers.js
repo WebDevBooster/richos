@@ -417,12 +417,12 @@ async function main() {
     // is the row a leak would be most visible on.
     const r = await page.evaluate(() => {
       const model = window.RichTimeline.createModel();
-      window.RichTimeline.bind(model, "femcboost", "thr_fem", 3);
+      window.RichTimeline.bind(model, "northwind", "thr_fem", 3);
 
       const foreign = {
         kind: "worker_activity",
         id: "m_leak",
-        entityId: "deeply", // <-- another entity
+        entityId: "lumen", // <-- another entity
         threadId: "thr_fem",
         turnId: "turn_ok",
         bindingRevision: 3,
@@ -433,7 +433,7 @@ async function main() {
         worker: {
           agentId: "agt_shared", // the SAME id — agent_id is not globally unique
           workerName: "deeply-analyst",
-          agentType: "deeply",
+          agentType: "lumen",
           observedState: "updated",
           state: "running",
           latestUpdate: "deeply's Q4 term sheet numbers",
@@ -442,7 +442,7 @@ async function main() {
       };
       const mine = Object.assign({}, foreign, {
         id: "m_ok",
-        entityId: "femcboost",
+        entityId: "northwind",
         worker: Object.assign({}, foreign.worker, { workerName: "Sage", agentType: "architecture", latestUpdate: null }),
       });
 
@@ -487,8 +487,8 @@ async function main() {
     // produced it, which legitimately runs ahead of a re-projection's.
     const r = await page.evaluate(() => {
       const model = window.RichTimeline.createModel();
-      window.RichTimeline.bind(model, "femcboost", "thr_fem", 3);
-      const at = (rev) => ({ entityId: "femcboost", threadId: "thr_fem", bindingRevision: rev });
+      window.RichTimeline.bind(model, "northwind", "thr_fem", 3);
+      const at = (rev) => ({ entityId: "northwind", threadId: "thr_fem", bindingRevision: rev });
       return {
         equal: window.RichTimeline.accepts(model, at(3)),
         higher: window.RichTimeline.accepts(model, at(9)),

@@ -16,6 +16,8 @@ use richos_core::reprime::{LoroContextCompiler, LoroTier, RePrimePayload, SliceR
 use richos_core::spine::Spine;
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
 }
@@ -185,7 +187,7 @@ fn a_thread_with_nothing_the_ceo_has_said_is_not_compiled_at_all() {
 #[test]
 fn priming_a_lease_now_carries_company_memory_and_asks_for_the_right_thing() {
     let (path, ledger) = tmp_ledger("e2e");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let b = binding(&mut spine);
     assert!(!spine.has_loro_context_compiler(), "the seam is OFF by default — that is the shipped default");
 
@@ -219,7 +221,7 @@ fn a_compiler_that_cannot_answer_never_takes_down_the_turn() {
     // CONTEXT-CONTRACT.md §3: exit != 0 -> no slice, "never fail the turn on a memory
     // miss". The trait has no error arm, so there is no `?` for a future caller to add.
     let (path, ledger) = tmp_ledger("nofail");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     binding(&mut spine);
     spine.set_loro_context_compiler(Box::new(FakeCompiler::new(LoroTier::Unavailable("node is not installed".into()))));
     let mock = MockCognition::new("s-1", vec!["ok"]);
@@ -238,7 +240,7 @@ fn a_rotation_recompiles_rather_than_reusing_the_slice_the_previous_lease_was_gi
     // boot would ground the successor in whatever the CEO happened to be asking about hours
     // earlier — stale company memory, injected under a header calling it authoritative.
     let (path, ledger) = tmp_ledger("rot");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     binding(&mut spine);
     let fake = FakeCompiler::new(LoroTier::Slice("COMPANY MEMORY (loro) — bearing on: \"x\"\n• [fact] x".into()));
     let asked = fake.asked.clone();

@@ -14,7 +14,7 @@
 
 "use strict";
 
-const ENTITY = "femcboost";
+const ENTITY = "northwind";
 const THREAD = "thr_scale";
 const T0 = 1787000000000;
 const TURN_SPACING_MS = 600000; // 10 minutes between turns — they never overlap by default

@@ -10,6 +10,9 @@
 //!
 //!   1. a fresh config and a fresh ledger — a machine nobody has answered on;
 //!   2. the send is REFUSED, and the refusal is asserted rather than hoped for;
+//!  2b. the company is REGISTERED, the way a first-run user registers one — because since
+//!      2026-09-04 the registry is per-user and a fresh install knows no company at all
+//!      (it used to arrive holding the CEO's six, compiled in, on every machine on earth);
 //!   3. the company is written the way the picker writes it (`ConfigStore::set_entity`);
 //!   4. the store is DROPPED and reopened — the next boot, reading its own bytes off disk;
 //!   5. a thread is activated in the remembered company, no relaunch;
@@ -26,7 +29,7 @@
 //!   cargo run -p richos-core --example company_choice_roundtrip -- <engine_dir> [company]
 
 use richos_core::config::ConfigStore;
-use richos_core::entity::EntityId;
+use richos_core::entity::{Entity, EntityId, EntityRegistry};
 use richos_core::ledger::{Ledger, Source};
 use richos_core::loro::{CliContextCompiler, CorpusPaths};
 use richos_core::native::{resolve_claude_bin, NativeCognition};
@@ -58,6 +61,24 @@ fn main() {
         .expect_err("a send with no company MUST be refused, not filed somewhere");
     println!("2. send refused, as it must be: {refused}");
 
+    // ---- 2b. he registers his own company ----------------------------------------------
+    //
+    // THE STEP THAT DID NOT EXIST BEFORE 2026-09-04, and its absence was the defect: this
+    // example passed on one machine because `Spine::new` arrived carrying a `const` table of
+    // that machine's owner's six companies. On anybody else's machine step 5 below failed
+    // with `UnknownEntity` and there was no way to reach a registered one from inside the
+    // app. The registry is the person's own now, and it starts empty.
+    let registry_path = std::env::temp_dir().join(format!("richos-company-roundtrip-{tag}-entities.json"));
+    let mut registry = EntityRegistry::load(&registry_path).registry;
+    assert!(registry.is_empty(), "a fresh install must know no companies at all");
+    let root = std::env::current_dir().expect("a working directory");
+    registry
+        .register(Entity::try_new(entity.as_str(), &company, vec![root.clone()]).expect("a valid company"))
+        .expect("registering the first company cannot conflict with anything");
+    registry.save(&registry_path).expect("the answer is durable before anything depends on it");
+    spine.set_entity_registry(EntityRegistry::load(&registry_path).registry);
+    println!("2b. registered {company} at {} -> {}", root.display(), registry_path.display());
+
     // ---- 3. he answers the picker ------------------------------------------------------
     {
         let mut store = ConfigStore::open(&config_path).expect("open config");
@@ -81,7 +102,7 @@ fn main() {
     // dead on a Finder launch, so this example proved a first send that reached Rich with
     // no company memory in it and could not have noticed. `locate` is the app's own
     // resolver: run this under `env -i` and it answers the same way the double-click does.
-    match CliContextCompiler::locate(&CorpusPaths::from_process()) {
+    match CliContextCompiler::locate(&CorpusPaths::from_process(), spine.entity_registry()) {
         Ok((Some((compiler, source)), _)) => {
             println!(
                 "5b. company memory: {} (via {}), node {}",
@@ -131,5 +152,6 @@ fn main() {
     eprintln!("[roundtrip] scope      = {}", spine.active_binding().unwrap().scope_key(Some(&turn_id)));
     let _ = std::fs::remove_file(&ledger_path);
     let _ = std::fs::remove_file(&config_path);
+    let _ = std::fs::remove_file(&registry_path);
     eprintln!("[roundtrip] OK");
 }

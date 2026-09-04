@@ -82,7 +82,7 @@ async function main() {
       ([setup, events]) => {
         eval(setup);
         window.RichTimeline.onMessageCompleted(window.__model, {
-          entityId: "femcboost", threadId: "thr_fem", turnId: "turn_ok", bindingRevision: 1,
+          entityId: "northwind", threadId: "thr_fem", turnId: "turn_ok", bindingRevision: 1,
           messageId: "turn_ok:text:0", phase: "unknown", visibility: "ceo",
           text: "Splitting this three ways — architecture, red team and research.", at: 1787948500000,
         });
@@ -280,13 +280,13 @@ async function main() {
           workerEvent("m_leak", 2, {
             agentId: "agt_sage", // the SAME id
             workerName: "deeply-analyst",
-            agentType: "deeply",
+            agentType: "lumen",
             observedState: "updated",
             state: "running",
             latestUpdate: "deeply's Q4 term sheet numbers",
             eventsObserved: 3,
           }),
-          { entityId: "deeply" } // <-- another entity, same thread id
+          { entityId: "lumen" } // <-- another entity, same thread id
         ),
       ]
     );
@@ -308,7 +308,7 @@ async function main() {
     const r = await page.evaluate(
       ([setup, at2, at3, at9]) => {
         eval(setup);
-        window.RichTimeline.bind(window.__model, "femcboost", "thr_fem", 3);
+        window.RichTimeline.bind(window.__model, "northwind", "thr_fem", 3);
         return {
           older: window.RichTimeline.onWorkerUpserted(window.__model, at2).rejected,
           equal: window.RichTimeline.onWorkerUpserted(window.__model, at3).rejected,
@@ -344,7 +344,7 @@ async function main() {
         // applied directly, because the settle timer is the shell's and this page is the
         // renderer in isolation.
         window.RichTimeline.onTurnStatus(window.__model, {
-          entityId: "femcboost", threadId: "thr_fem", turnId: "turn_ok", bindingRevision: 1,
+          entityId: "northwind", threadId: "thr_fem", turnId: "turn_ok", bindingRevision: 1,
           status: "completed", startedAt: 1787948100000, activeDurationMs: 461000, visibility: "ceo",
           at: 1787948561000,
         });
@@ -408,7 +408,7 @@ async function main() {
         const openedByCeo = read();
         const settledAfterOpen = window.__model.settled.has("turn_ok");
         window.RichTimeline.onTurnStatus(window.__model, {
-          entityId: "femcboost", threadId: "thr_fem", turnId: "turn_ok", bindingRevision: 1,
+          entityId: "northwind", threadId: "thr_fem", turnId: "turn_ok", bindingRevision: 1,
           status: "completed", startedAt: 1787948100000, activeDurationMs: 461000, visibility: "ceo",
           at: 1787948561000,
         });
@@ -445,7 +445,7 @@ async function main() {
       window.RichTimeline.toggleTurn(window.__model, "turn_ok"); // the CEO closes the doomed turn
       const closed = window.__model.collapsed.has("turn_ok");
       window.RichTimeline.onTurnStatus(window.__model, {
-        entityId: "femcboost", threadId: "thr_fem", turnId: "turn_new", bindingRevision: 1,
+        entityId: "northwind", threadId: "thr_fem", turnId: "turn_new", bindingRevision: 1,
         supersedesTurnId: "turn_ok", status: "working", startedAt: 1787948200000,
         activeDurationMs: null, visibility: "ceo", at: 1787948200000,
       });
@@ -473,7 +473,7 @@ async function main() {
       ([setup, events]) => {
         eval(setup);
         window.RichTimeline.onMessageCompleted(window.__model, {
-          entityId: "femcboost", threadId: "thr_fem", turnId: "turn_ok", bindingRevision: 1,
+          entityId: "northwind", threadId: "thr_fem", turnId: "turn_ok", bindingRevision: 1,
           messageId: "turn_ok:text:0", phase: "unknown", visibility: "ceo",
           text: "Splitting this three ways — architecture, red team and research.", at: 1787948500000,
         });

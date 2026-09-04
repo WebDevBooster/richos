@@ -22,6 +22,7 @@
 //! Nothing here touches the CEO's corpus. Every fixture is a directory this file creates
 //! under the system temp dir and deletes.
 
+use richos_core::entity::EntityRegistry;
 use richos_core::correction::CliLoroWriter;
 use richos_core::loro::{CliContextCompiler, CorpusPaths, CorpusSource, LoroInstall, LoroRoot};
 use std::path::{Path, PathBuf};
@@ -168,7 +169,7 @@ fn loro_corpus_outranks_loro_root_for_the_writer_exactly_as_it_does_for_the_read
     let (writer, _) = CliLoroWriter::locate(&p).unwrap();
     assert_eq!(writer.unwrap().root(), &LoroRoot::Corpus(PathBuf::from("/named/corpus")));
 
-    let (reader, _) = CliContextCompiler::locate(&p).unwrap();
+    let (reader, _) = CliContextCompiler::locate(&p, &EntityRegistry::empty()).unwrap();
     let (reader, source) = reader.unwrap();
     assert_eq!(reader.root(), &LoroRoot::Corpus(PathBuf::from("/named/corpus")));
     assert_eq!(source, CorpusSource::EnvCorpus);
@@ -245,7 +246,7 @@ fn the_reader_and_the_writer_resolve_the_same_corpus_and_the_same_binary_directo
     repo_shaped_root(&app_support(&home).join("loro-root"));
 
     let p = gui_paths(&home);
-    let (reader, _) = CliContextCompiler::locate(&p).unwrap();
+    let (reader, _) = CliContextCompiler::locate(&p, &EntityRegistry::empty()).unwrap();
     let (reader, _source) = reader.expect("the reader resolves");
     let (writer, _) = CliLoroWriter::locate(&p).unwrap();
     let writer = writer.expect("the writer resolves");
@@ -280,7 +281,7 @@ fn one_install_builds_both_halves_so_a_second_resolution_cannot_disagree() {
 
     let (install, _) = LoroInstall::locate(&gui_paths(&home)).unwrap();
     let install = install.expect("resolves");
-    let reader = CliContextCompiler::from_install(&install).expect("the read half");
+    let reader = CliContextCompiler::from_install(&install, &EntityRegistry::empty()).expect("the read half");
     let writer = CliLoroWriter::from_install(&install);
 
     assert_eq!(reader.root(), install.root());
@@ -395,7 +396,7 @@ fn gui_child_resolves_a_writer_from_the_real_process() {
     let install = install.unwrap_or_else(|| panic!("no corpus resolved; looked in: {}", tried.join("; ")));
 
     let writer = CliLoroWriter::from_install(&install);
-    let reader = CliContextCompiler::from_install(&install).expect("the read half");
+    let reader = CliContextCompiler::from_install(&install, &EntityRegistry::empty()).expect("the read half");
     println!("WRITER ROOT: {}", writer.root().path().display());
     println!("WRITE BIN: {}", writer.tools().write_bin().display());
     println!("NODE: {}", writer.tools().node());

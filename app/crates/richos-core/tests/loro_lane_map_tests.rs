@@ -27,10 +27,34 @@
 //! reads the CEO layer. The moment `companies/femcboost/` exists in his corpus, the same
 //! map narrows to it with no configuration at all.
 
-use richos_core::entity::EntityRegistry;
+use richos_core::entity::{Entity, EntityRegistry};
 use richos_core::loro::{CliContextCompiler, CorpusLanes, LaneMap, LoroRoot, LoroTools};
 use richos_core::reprime::{LoroTier, SliceRequest};
 use std::path::PathBuf;
+
+/// THE REGISTRY THESE TESTS RUN AGAINST — a local fixture, since 2026-09-04.
+///
+/// It used to be `registry()`, a `const` table compiled into the
+/// shipping binary. The registry is per-user now (`entity.rs` rule 4) and there is no
+/// compiled-in company list to reach for, so the six ids this file's assertions were written
+/// against are declared here.
+///
+/// **They keep their names on purpose.** Much of this file is the durable record of a
+/// measurement taken on 2026-09-01 against a real corpus — a `femcboost` thread primed with
+/// `richos`'s own signing decisions — and renaming the subject of a measurement makes the
+/// record wrong. Nothing here reaches the app; it is a test fixture and the paths below
+/// exist on no machine this test runs on.
+fn registry() -> EntityRegistry {
+    EntityRegistry::new(vec![
+        Entity::new("femcboost", "FemcBoost", &["/fixture/ab/femcboost"]).unwrap(),
+        Entity::new("deeply", "Deeply", &["/fixture/ab/deeply"]).unwrap(),
+        Entity::new("prospects", "Prospects", &["/fixture/ab/prospects"]).unwrap(),
+        Entity::new("richos", "RichOS", &["/fixture/ab/richos", "/fixture/ab/richos-hq"]).unwrap(),
+        Entity::new("gpt-exporter", "GPT Exporter", &["/fixture/ab/gpt-exporter"]).unwrap(),
+        Entity::new("webinar-booster", "Webinar Booster", &["/fixture/ab/webinar-booster"]).unwrap(),
+    ])
+    .unwrap()
+}
 
 /// A tools directory that exists on disk (`LoroTools::locate` checks both entry points)
 /// but is never executed — every test here drives `interpret`/`argv`, not a child process.
@@ -52,9 +76,15 @@ fn req<'a>(entity: &'a str, topic: &'a str) -> SliceRequest<'a> {
     SliceRequest { thread_id: "t1", entity_id: entity, topic, budget_chars: 1200 }
 }
 
+/// The default map is ONE LANE PER REGISTERED ENTITY, named after it — and it enumerates
+/// the registry in force rather than a compiled-in list.
 #[test]
-fn the_default_lane_map_is_the_ceos_six_companies_and_nothing_else() {
-    let m = LaneMap::ceos_companies();
+fn the_default_lane_map_is_the_registered_entities_and_nothing_else() {
+    // An install that has registered nothing gets no narrowing at all, which is the same
+    // posture as `RICHOS_LORO_LANES=` and claims no partition exists.
+    assert_eq!(LaneMap::same_name_lanes(&EntityRegistry::empty()).len(), 0);
+
+    let m = LaneMap::same_name_lanes(&registry());
     assert_eq!(m.len(), 6);
     for id in ["femcboost", "deeply", "prospects", "richos", "gpt-exporter", "webinar-booster"] {
         assert_eq!(m.lane_for(id), Some(id), "{id} is mapped to its own lane");
@@ -67,7 +97,7 @@ fn the_default_lane_map_is_the_ceos_six_companies_and_nothing_else() {
 
 #[test]
 fn a_lane_keyed_by_something_that_is_not_a_registered_entity_is_a_typo_and_is_refused() {
-    let reg = EntityRegistry::ceos_companies();
+    let reg = registry();
     assert!(LaneMap::parse("femcboost=fb,richos=rx").unwrap().validate_against(&reg).is_ok());
     // `femcbost` is one keystroke from a real entity and would silently map nothing —
     // looking exactly like a working configuration until the day it mattered.
@@ -80,7 +110,7 @@ fn a_lane_keyed_by_something_that_is_not_a_registered_entity_is_a_typo_and_is_re
 #[test]
 fn a_lane_the_corpus_does_not_have_is_dropped_and_that_entity_reads_the_ceo_layer() {
     // THE REGRESSION GUARD. This is the CEO's corpus today: partitions, none.
-    let (mut c, dir) = compiler("drop", LaneMap::ceos_companies());
+    let (mut c, dir) = compiler("drop", LaneMap::same_name_lanes(&registry()));
     let corpus = CorpusLanes::new(&[], &[]);
     let dropped = c.reconcile_lanes(&corpus);
 
@@ -94,7 +124,7 @@ fn a_lane_the_corpus_does_not_have_is_dropped_and_that_entity_reads_the_ceo_laye
 
 #[test]
 fn a_lane_the_corpus_does_have_survives_and_narrows_the_compile() {
-    let (mut c, dir) = compiler("keep", LaneMap::ceos_companies());
+    let (mut c, dir) = compiler("keep", LaneMap::same_name_lanes(&registry()));
     let corpus = CorpusLanes::new(&["femcboost".into(), "richos".into()], &[]);
     let dropped = c.reconcile_lanes(&corpus);
 
@@ -138,12 +168,12 @@ fn an_entity_left_unmapped_against_a_partitioned_corpus_is_reported_not_hidden()
     let (mut c, dir) = compiler("unmapped", LaneMap::parse("femcboost=femcboost").unwrap());
     let corpus = CorpusLanes::new(&["femcboost".into(), "deeply".into()], &[]);
     c.reconcile_lanes(&corpus);
-    let unmapped = c.entities_with_no_lane(&EntityRegistry::ceos_companies(), &corpus);
+    let unmapped = c.entities_with_no_lane(&registry(), &corpus);
     assert!(unmapped.contains(&"deeply".to_string()), "{unmapped:?}");
     assert!(!unmapped.contains(&"femcboost".to_string()), "{unmapped:?}");
     // Nothing is claimed about an entity when the corpus has no partitions at all —
     // there, reading everything IS reading the CEO layer.
-    assert!(c.entities_with_no_lane(&EntityRegistry::ceos_companies(), &CorpusLanes::new(&[], &[])).is_empty());
+    assert!(c.entities_with_no_lane(&registry(), &CorpusLanes::new(&[], &[])).is_empty());
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -153,7 +183,7 @@ fn the_cross_entity_guard_still_refuses_after_a_lane_is_dropped() {
     // control, not a privacy control (`loro-structure.md`), and the privacy work is done
     // by the re-assertion on the finished slice — which, with no lane, allows the CEO
     // layer and refuses every company item.
-    let (mut c, dir) = compiler("wall", LaneMap::ceos_companies());
+    let (mut c, dir) = compiler("wall", LaneMap::same_name_lanes(&registry()));
     c.reconcile_lanes(&CorpusLanes::new(&[], &[]));
     let json = format!(
         r#"{{"schemaVersion":1,"compiler":"x","thin":false,"coverage":"direct","text":{:?},
@@ -196,7 +226,7 @@ fn no_corpus_configured_is_not_an_error_and_not_a_crash() {
     for (k, _) in &saved {
         unsafe { std::env::remove_var(k) };
     }
-    let got = CliContextCompiler::from_env();
+    let got = CliContextCompiler::from_env(&registry());
     for (k, v) in &saved {
         match v {
             Some(v) => unsafe { std::env::set_var(k, v) },
@@ -225,7 +255,7 @@ fn no_corpus_configured_is_not_an_error_and_not_a_crash() {
 /// holds one company and it is not FemcBoost.
 #[test]
 fn a_thread_reading_another_companys_in_repo_record_is_told_whose_it_is() {
-    let (mut c, dir) = compiler("origin", LaneMap::ceos_companies());
+    let (mut c, dir) = compiler("origin", LaneMap::same_name_lanes(&registry()));
     c.reconcile_lanes(&CorpusLanes::new(&[], &[]));
     c.set_repo_corpus_owner(Some("richos".into()));
 
@@ -257,7 +287,7 @@ fn a_thread_reading_another_companys_in_repo_record_is_told_whose_it_is() {
     }
 
     // A PROVISIONED corpus says nothing at all — there the partitions carry the answer.
-    let (mut clean, dir2) = compiler("origin2", LaneMap::ceos_companies());
+    let (mut clean, dir2) = compiler("origin2", LaneMap::same_name_lanes(&registry()));
     let provisioned = CorpusLanes::with_layout(&["femcboost".into()], &[], "corpus", "/nowhere");
     clean.reconcile_lanes(&provisioned);
     assert_eq!(provisioned.repo_layout_root(), None);
@@ -270,9 +300,9 @@ fn a_thread_reading_another_companys_in_repo_record_is_told_whose_it_is() {
 /// which it could not do for `richos-hq` before the multi-root registry landed today.
 #[test]
 fn the_registry_is_what_names_the_owner_of_an_in_repo_corpus() {
-    let c = CorpusLanes::with_layout(&[], &[], "repo", "/Users/alex/ab/richos-hq");
+    let c = CorpusLanes::with_layout(&[], &[], "repo", "/fixture/ab/richos-hq");
     let repo = c.repo_layout_root().expect("a repo-layout corpus names its root");
-    let registry = EntityRegistry::ceos_companies();
+    let registry = registry();
     let owner = registry.resolve_root(repo).expect("richos-hq is registered");
     assert_eq!(owner.id.as_str(), "richos");
 }
@@ -288,7 +318,7 @@ fn the_registry_is_what_names_the_owner_of_an_in_repo_corpus() {
 #[test]
 fn a_partitioned_repo_layout_corpus_owes_no_provenance_caveat() {
     let partitioned =
-        CorpusLanes::with_layout(&["femcboost".into(), "richos".into()], &[], "repo", "/Users/alex/ab/richos-hq");
+        CorpusLanes::with_layout(&["femcboost".into(), "richos".into()], &[], "repo", "/fixture/ab/richos-hq");
     assert_eq!(partitioned.layout(), "repo");
     assert_eq!(
         partitioned.repo_layout_root(),
@@ -296,7 +326,7 @@ fn a_partitioned_repo_layout_corpus_owes_no_provenance_caveat() {
         "a partitioned corpus answers with its partitions, not with a sentence about not having any"
     );
 
-    let (mut c, dir) = compiler("origin3", LaneMap::ceos_companies());
+    let (mut c, dir) = compiler("origin3", LaneMap::same_name_lanes(&registry()));
     c.reconcile_lanes(&partitioned);
     // The app sets the owner only when `repo_layout_root()` answers, so nothing is set here.
     assert!(c.corpus_provenance_line("femcboost").is_none());

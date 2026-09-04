@@ -61,24 +61,32 @@
   const uid = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}`;
 
   // --- fixture state -------------------------------------------------------
-  // The four dogfood entity areas, mirroring `EntityRegistry::dogfood()` (entity.rs) —
-  // same ids, same display names, same roots — so the rail's grouping is exercised against
-  // the real registry's shape rather than an invented one.
-  // THE CEO'S OWN SIX, mirroring `EntityRegistry::ceos_companies()` in richos-core's
-  // entity.rs:227-238 — id, display name and roots, in registry order. It was four here and
-  // six there; `gpt-exporter` and `webinar-booster` were added to the registry and this
-  // harness was not updated, which is drift of the exact kind a mock exists to avoid.
+  // SIX COMPANIES THAT BELONG TO NOBODY, at paths that exist on no machine.
   //
-  // `richos` HAS TWO ROOTS AND IS ONE ENTITY. That is the property the home screen's company
-  // row would get wrong if anything ever built its list from directories instead of from the
-  // registry, so the harness carries it rather than flattening it.
+  // They were the CEO's own six until 2026-09-04 — real names, bound to absolute roots under
+  // his own home directory — mirroring `EntityRegistry::ceos_companies()`, which was a
+  // `const` table compiled into the binary. THIS FILE SHIPS: `build.rs` stages `app/ui` into
+  // `ui-dist` (excluding `tests/` and `node_modules/`) and Tauri embeds every file under it
+  // in the executable. So that fixture put one man's company list and his home directory's
+  // name inside every copy of RichOS ever built, where `strings` could read it.
+  //
+  // The registry is per-user now and the shipping default is EMPTY, so a harness fixture is
+  // the only place a company list has any business being. These six keep the SHAPE the
+  // surfaces are tested against and none of the identity:
+  //
+  //   * `harbor` HAS TWO ROOTS AND IS ONE ENTITY — the property the home screen's company
+  //     row gets wrong if anything ever builds its list from directories rather than from
+  //     the registry, so the harness carries it rather than flattening it;
+  //   * `harbor-private` is also a STRING prefix match of `harbor`'s first root, which is
+  //     the case component-wise resolution exists for;
+  //   * six of them, because several suites assert positions in a six-long row.
   const entities = [
-    { id: "femcboost", display_name: "FemcBoost", status: "active", roots: ["/Users/alex/ab/femcboost"] },
-    { id: "deeply", display_name: "Deeply", status: "active", roots: ["/Users/alex/ab/deeply"] },
-    { id: "prospects", display_name: "Prospects", status: "active", roots: ["/Users/alex/ab/prospects"] },
-    { id: "richos", display_name: "RichOS", status: "active", roots: ["/Users/alex/ab/richos", "/Users/alex/ab/richos-hq"] },
-    { id: "gpt-exporter", display_name: "GPT Exporter", status: "active", roots: ["/Users/alex/ab/gpt-exporter"] },
-    { id: "webinar-booster", display_name: "Webinar Booster", status: "active", roots: ["/Users/alex/ab/webinar-booster"] },
+    { id: "northwind", display_name: "Northwind Traders", status: "active", roots: ["/Users/you/Projects/northwind"] },
+    { id: "lumen", display_name: "Lumen Labs", status: "active", roots: ["/Users/you/Projects/lumen"] },
+    { id: "meridian", display_name: "Meridian Group", status: "active", roots: ["/Users/you/Projects/meridian"] },
+    { id: "harbor", display_name: "Harbor Analytics", status: "active", roots: ["/Users/you/Projects/harbor", "/Users/you/Projects/harbor-private"] },
+    { id: "tidewater", display_name: "Tidewater Films", status: "active", roots: ["/Users/you/Projects/tidewater"] },
+    { id: "kestrel", display_name: "Kestrel Supply", status: "active", roots: ["/Users/you/Projects/kestrel"] },
   ];
 
   // THE HOME SCREEN'S COMPANY BUTTONS (CEO, 2026-09-01) — his two preferences, mirroring
@@ -113,17 +121,17 @@
   // that exactly, including the ledger's own refusal message, so the binding-failure state
   // (§21) can be exercised without a pre-entity ledger on disk.
   const threads = [
-    { id: "general", title: "Running", entity_id: "richos", created_at: now() - 1000 * 60 * 60 * 24 * 3, message_count: 0, last_activity: now(), last_turn_state: null, has_pending_turn: false },
-    { id: "acme", title: "Acme deal", entity_id: "femcboost", created_at: now() - 1000 * 60 * 60 * 20, message_count: 4, last_activity: now() - 1000 * 60 * 30, last_turn_state: "completed", has_pending_turn: false },
-    { id: "hiring", title: "Q4 hiring", entity_id: "femcboost", created_at: now() - 1000 * 60 * 60 * 40, message_count: 2, last_activity: now() - 1000 * 60 * 60 * 5, last_turn_state: "completed", has_pending_turn: false },
-    { id: "partner", title: "Partner book review", entity_id: "deeply", created_at: now() - 1000 * 60 * 60 * 30, message_count: 2, last_activity: now() - 1000 * 60 * 60 * 9, last_turn_state: "interrupted", has_pending_turn: false },
-    { id: "ecs", title: "ECS architecture", entity_id: "richos", created_at: now() - 1000 * 60 * 60 * 50, message_count: 0, last_activity: now() - 1000 * 60 * 60 * 12, last_turn_state: "in_flight", has_pending_turn: true },
+    { id: "general", title: "Running", entity_id: "harbor", created_at: now() - 1000 * 60 * 60 * 24 * 3, message_count: 0, last_activity: now(), last_turn_state: null, has_pending_turn: false },
+    { id: "acme", title: "Acme deal", entity_id: "northwind", created_at: now() - 1000 * 60 * 60 * 20, message_count: 4, last_activity: now() - 1000 * 60 * 30, last_turn_state: "completed", has_pending_turn: false },
+    { id: "hiring", title: "Q4 hiring", entity_id: "northwind", created_at: now() - 1000 * 60 * 60 * 40, message_count: 2, last_activity: now() - 1000 * 60 * 60 * 5, last_turn_state: "completed", has_pending_turn: false },
+    { id: "partner", title: "Partner book review", entity_id: "lumen", created_at: now() - 1000 * 60 * 60 * 30, message_count: 2, last_activity: now() - 1000 * 60 * 60 * 9, last_turn_state: "interrupted", has_pending_turn: false },
+    { id: "ecs", title: "ECS architecture", entity_id: "harbor", created_at: now() - 1000 * 60 * 60 * 50, message_count: 0, last_activity: now() - 1000 * 60 * 60 * 12, last_turn_state: "in_flight", has_pending_turn: true },
     { id: "legacy", title: "Notes from before", entity_id: null, created_at: now() - 1000 * 60 * 60 * 24 * 40, message_count: 0, last_activity: now() - 1000 * 60 * 60 * 24 * 40, last_turn_state: null, has_pending_turn: false },
     // §10.1's thread, EMPTY until the §26 fixture is driven. It exists at load so the
     // scenario starts from "before send" (§10.1) rather than conjuring a thread as its
     // first act — the CEO's first observable moment is his own message landing in a thread
     // that was already there.
-    { id: "memory", title: "Design RichOS memory strategy", entity_id: "femcboost", created_at: now() - 1000 * 60 * 5, message_count: 0, last_activity: now() - 1000 * 60 * 5, last_turn_state: null, has_pending_turn: false },
+    { id: "memory", title: "Design RichOS memory strategy", entity_id: "northwind", created_at: now() - 1000 * 60 * 5, message_count: 0, last_activity: now() - 1000 * 60 * 5, last_turn_state: null, has_pending_turn: false },
   ];
   // A PRE-BOOT SWITCH, and the only one in this file. The launch state it drives — no
   // company chosen, so the app asks — is decided BEFORE `main.js` runs its `init()`, so a
@@ -391,35 +399,35 @@
   // "Terminal"), an 84-char bounded summary, and `locations` from `[{path}]`.
   turnsById.get(acmeTurn1).activities = [
     { kind: "activity", id: "mach_a1", slot: "stream", sequence: 1, visibility: "ceo",
-      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1000,
+      entityId: "northwind", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1000,
       activityType: "read", state: "completed", summary: "Read a file", detailRef: "mach_a1",
       detail: { title: "Read comparables/q3-acme.csv", summary: "18 rows, 4 columns",
-                locations: ["/Users/alex/ab/acme/comparables/q3-acme.csv"] } },
+                locations: ["/Users/you/Projects/northwind/comparables/q3-acme.csv"] } },
     { kind: "activity", id: "mach_a2", slot: "stream", sequence: 2, visibility: "ceo",
-      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1100,
+      entityId: "northwind", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1100,
       activityType: "read", state: "completed", summary: "Read a file", detailRef: "mach_a2",
       detail: { title: "Read comparables/q3-market.csv", summary: "31 rows, 4 columns",
-                locations: ["/Users/alex/ab/acme/comparables/q3-market.csv"] } },
+                locations: ["/Users/you/Projects/northwind/comparables/q3-market.csv"] } },
     { kind: "activity", id: "mach_a3", slot: "stream", sequence: 3, visibility: "ceo",
-      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1200,
+      entityId: "northwind", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1200,
       activityType: "read", state: "completed", summary: "Read a file", detailRef: "mach_a3",
       detail: { title: "Read notes/hensley-relationship.md", summary: "9 lines",
-                locations: ["/Users/alex/ab/acme/notes/hensley-relationship.md"] } },
+                locations: ["/Users/you/Projects/northwind/notes/hensley-relationship.md"] } },
     // NO STATUS EVER ARRIVED for this one — 34 of the 58 measured tool events carried none.
     // It must read "outcome not recorded" and must NEVER be folded into done.
     { kind: "activity", id: "mach_a4", slot: "stream", sequence: 4, visibility: "ceo",
-      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1400,
+      entityId: "northwind", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1400,
       activityType: "command", state: "unknown", summary: "Ran a command", detailRef: "mach_a4",
       detail: { title: "python3 scripts/counter-model.py --list 4200000 --offer 3864000",
                 summary: "spread 8.0% \u00b7 within comparable range", locations: [] } },
     { kind: "activity", id: "mach_a5", slot: "stream", sequence: 5, visibility: "ceo",
-      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1600,
+      entityId: "northwind", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1600,
       activityType: "search", state: "completed", summary: "Searched", detailRef: "mach_a5",
       detail: { title: "grep -rn \"carry split\" notes/", summary: "4 matches", locations: [] } },
     // A FAILED call. The status dot's other terminal value, and the row the CEO most wants
     // to be able to see the output of.
     { kind: "activity", id: "mach_a6", slot: "stream", sequence: 6, visibility: "ceo",
-      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1700,
+      entityId: "northwind", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1700,
       activityType: "command", state: "failed", summary: "Ran a command", detailRef: "mach_a6",
       detail: { title: "cat comparables/q4-acme.csv", summary: "Exit code 1", locations: [] } },
     // TECHNICAL-ONLY, and therefore ABSENT from the calm view entirely: an untyped vendor
@@ -428,7 +436,7 @@
     // and as nothing at all in the conversation. Slice 3 fixed a live 6:1 noise defect by
     // moving exactly this row out of the CEO view.
     { kind: "activity", id: "mach_a7", slot: "stream", sequence: 7, visibility: "technical",
-      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1800,
+      entityId: "northwind", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1800,
       activityType: "other", state: "unknown", summary: "Worked", detailRef: "mach_a7",
       detail: { title: "stream_event:message_delta", locations: [],
                 vendorKind: "stream_event:message_delta" } },
@@ -437,7 +445,7 @@
     // reading "Requested approval 7 times" until 2026-08-29, which manufactured demand for
     // an approval queue that does not exist.
     { kind: "activity", id: "mach_a8", slot: "stream", sequence: 8, visibility: "technical",
-      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1850,
+      entityId: "northwind", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1850,
       activityType: "approval", state: "completed", summary: "Requested approval", detailRef: "mach_a8",
       detail: { title: "python3 scripts/counter-model.py", summary: "auto-approved: allow", locations: [] } },
   ];
@@ -454,19 +462,19 @@
   // not have.
   turnsById.get(hiringTurn1).activities = [
     { kind: "worker_activity", id: "mach_w1", slot: "stream", sequence: 1, visibility: "ceo",
-      entityId: "femcboost", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 900,
+      entityId: "northwind", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 900,
       detailRef: "mach_w1",
       worker: { agentId: "agt_sage_1", workerName: "Sage", agentType: "architecture",
                 observedState: "created", state: "pending_init", eventsObserved: 1,
                 firstObservedAt: "2026-08-29T04:00:00+00:00", lastObservedAt: "2026-08-29T04:00:00+00:00" } },
     { kind: "worker_activity", id: "mach_w2", slot: "stream", sequence: 2, visibility: "ceo",
-      entityId: "femcboost", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 1000,
+      entityId: "northwind", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 1000,
       detailRef: "mach_w2",
       worker: { agentId: "agt_frank_1", workerName: "Frank", agentType: "red team",
                 observedState: "started", state: "running", eventsObserved: 2,
                 firstObservedAt: "2026-08-29T04:00:01+00:00", lastObservedAt: "2026-08-29T04:01:44+00:00" } },
     { kind: "worker_activity", id: "mach_w3", slot: "stream", sequence: 3, visibility: "ceo",
-      entityId: "femcboost", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 1100,
+      entityId: "northwind", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 1100,
       detailRef: "mach_w3",
       worker: { agentId: "agt_clark_1", workerName: "Clark", agentType: "research",
                 observedState: "run_ended", state: "unknown", eventsObserved: 5,
@@ -483,7 +491,7 @@
   // picker, the composer block and its control can be exercised without a real Finder
   // launch, and `setCompanyPinnedByEnvironment` drives the operator's variant where the
   // answer came from outside the window and there is nothing here to press.
-  let chosenEntityId = "chosenEntity" in preset ? preset.chosenEntity : "richos";
+  let chosenEntityId = "chosenEntity" in preset ? preset.chosenEntity : "harbor";
   let chosenEntitySource = chosenEntityId
     ? preset.pinnedByEnvironment
       ? "environment"
@@ -491,12 +499,31 @@
     : null;
   let entityPinnedByEnvironment = preset.pinnedByEnvironment === true;
 
+  // WHERE THE COMPANY LIST CAME FROM (2026-09-04). `file` by default, for the reason
+  // `chosenEntityId` defaults to a company: every other fixture here is a machine that has
+  // been answered once.
+  //
+  // The two other states are new surfaces and each has its own preset, because neither is
+  // reachable by any other route:
+  //
+  //   `registry: "absent"`      a FIRST LAUNCH — the list is empty, nothing is wrong, and
+  //                             the picker has nothing to offer but the add form. Before
+  //                             today this state could not exist: the registry was compiled
+  //                             into the binary and always held six companies.
+  //   `registry: "unreadable"`  the file is there and could not be parsed. A DIFFERENT
+  //                             sentence from the empty one, because "you haven't told me"
+  //                             and "you told me and I can't read it" call for opposite
+  //                             responses.
+  const registrySource = preset.registry || "file";
+  const registryPath = "/Users/you/Library/Application Support/com.richos.app/entities.json";
+  if (registrySource !== "file") entities.length = 0;
+
   // WHERE HIS MEMORY IS. `ready` by default for the reason the company answer is CHOSEN by
   // default: every other fixture in this harness is a machine that has been set up once.
   // `memory: "none"` is the fresh install — no corpus anywhere, which is the state the
   // installed bundle was measurably in the moment its hand-made pointer was removed.
   let memoryState = preset.memory || "ready";
-  let memoryRoot = memoryState === "none" ? null : "/Users/alex/RichOS/corpus";
+  let memoryRoot = memoryState === "none" ? null : "/Users/you/RichOS/corpus";
   // Whether provisioning here ends `ready` or `no-compiler`. False drives the honest
   // degrade: a corpus is created and the program that reads it is not installed.
   const memoryCompilerPresent = preset.memoryCompiler !== false;
@@ -506,13 +533,13 @@
       state: memoryState,
       root: memoryRoot,
       source: memoryState === "ready" ? "~/RichOS/corpus" : null,
-      compiler: memoryState === "ready" ? "/Users/alex/Library/Application Support/RichOS/loro-tools" : null,
+      compiler: memoryState === "ready" ? "/Users/you/Library/Application Support/RichOS/loro-tools" : null,
       tried: [],
       detail: null,
       // The location the CEO is OFFERED, pre-filled — the whole reason his part is a click
       // and not a path. It comes from the backend in the real app and from here in the
       // preview, and it is the same string in both.
-      offered_location: "/Users/alex/RichOS/corpus",
+      offered_location: "/Users/you/RichOS/corpus",
       provisioned_now: false,
     };
   }
@@ -567,21 +594,21 @@
         claude: {
           component: "claude-code",
           present: setupClaudePresent,
-          at: setupClaudePresent ? "/Users/alex/.local/bin/claude" : null,
+          at: setupClaudePresent ? "/Users/you/.local/bin/claude" : null,
           detail: setupClaudePresent ? "installed at 2.1.257" : null,
-          looked_in: setupClaudePresent ? [] : ["/Users/alex/.local/bin/claude", "/usr/bin/claude"],
+          looked_in: setupClaudePresent ? [] : ["/Users/you/.local/bin/claude", "/usr/bin/claude"],
         },
         engine: {
           component: "engine",
           present: setupEnginePresent,
-          at: setupEnginePresent ? "/Users/alex/.claude/richos-engine" : null,
+          at: setupEnginePresent ? "/Users/you/.claude/richos-engine" : null,
           detail: setupEnginePresent ? "version 1.0.0" : null,
           looked_in: setupEnginePresent
             ? []
             : [
                 "/Applications/RichOS.app/Contents/Resources/engine",
-                "/Users/alex/.claude/richos-engine",
-                "/Users/alex/Library/Application Support/RichOS/engine",
+                "/Users/you/.claude/richos-engine",
+                "/Users/you/Library/Application Support/RichOS/engine",
               ],
         },
         engine_installable: setupPinned,
@@ -668,8 +695,31 @@
         roots: e.roots || [],
         thread_count: threads.filter((t) => t.entity_id === e.id).length,
       })),
+      // The two fields `EntityChoiceView` gained on 2026-09-04. The window renders three
+      // different openings from them, so a harness that omitted them would exercise one.
+      registrySource,
+      registryPath,
       active: activeContextOf(),
     };
+  }
+
+  /// `entity_id_from_name` in `src-tauri/src/main.rs`, mirrored — the id is DERIVED from the
+  /// name he typed and never asked of him. Same character class, same collapse, same bound,
+  /// same suffix on collision, because a harness that derived a different id would let a
+  /// suite pass over a mapping the app does not make.
+  function mockEntityIdFromName(name) {
+    let slug = "";
+    for (const c of String(name).trim().toLowerCase()) {
+      if (/[a-z0-9]/.test(c)) slug += c;
+      else if (!slug.endsWith("-")) slug += "-";
+    }
+    const base = slug.replace(/^-+|-+$/g, "").slice(0, 64).replace(/-+$/, "");
+    if (!base) return null;
+    for (let n = 1; n <= 99; n++) {
+      const candidate = n === 1 ? base : base.slice(0, 64 - String(n).length - 1).replace(/-+$/, "") + "-" + n;
+      if (!entities.some((e) => e.id === candidate)) return candidate;
+    }
+    return null;
   }
 
   function activeContextOf() {
@@ -879,7 +929,7 @@
     {
       id: "prop-1",
       at: now() - 1000 * 60 * 12,
-      entity_id: "femcboost",
+      entity_id: "northwind",
       thread_id: "acme",
       write: {
         op: "supersede",
@@ -1565,6 +1615,44 @@
           else delete homeEntityHidden[id];
           return homeEntityRowOf();
         }
+        // HE ADDS ONE OF HIS OWN COMPANIES (2026-09-04). The refusals below are the
+        // sentences `register_entity` actually returns, not paraphrases — `affordances.js`
+        // scrapes the Rust and would fail on a harness that invented its own wording.
+        //
+        // The folder is NOT checked against a real filesystem here, and that is the one
+        // deliberate divergence: a browser cannot stat a path. The app refuses a folder that
+        // is not absolute or is not there; this harness refuses only the first, and says so
+        // rather than implying it checks both.
+        case "register_entity": {
+          const displayName = String(args.displayName ?? args.display_name ?? "").trim();
+          const folder = args.folder == null ? "" : String(args.folder).trim();
+          if (!displayName)
+            return Promise.reject(
+              "I need a name for the company before I can file anything under it. Anything " +
+                "you'd recognize on a button is fine — you can change it later."
+            );
+          const id = mockEntityIdFromName(displayName);
+          if (!id)
+            return Promise.reject(
+              "That name doesn't have any letters or numbers in it, so I can't make a " +
+                "file-safe label out of it. Try a name with a word in it."
+            );
+          if (folder && !folder.startsWith("/") && !folder.startsWith("~"))
+            return Promise.reject(
+              'I couldn\'t use "' + folder + '" as this company\'s folder: it isn\'t a full ' +
+                "path from the top of the disk. Give me a folder that's already on this Mac, " +
+                "or leave it blank — a company works without one, it just won't be picked " +
+                "automatically when you open RichOS from inside it."
+            );
+          entities.push({ id, display_name: displayName, status: "active", roots: folder ? [folder] : [] });
+          // The real command makes the first company the one in force and opens a thread in
+          // it — only when nothing has been chosen and the environment has not decided.
+          if (!chosenEntityId && !entityPinnedByEnvironment) {
+            chosenEntityId = id;
+            chosenEntitySource = "saved-choice";
+          }
+          return entityChoiceOf();
+        }
         case "choose_entity": {
           const entityId = args.entityId ?? args.entity_id;
           if (entityPinnedByEnvironment)
@@ -1798,7 +1886,7 @@
           const p = {
             id: "prop-" + proposalSeq++,
             at: now(),
-            entity_id: "femcboost",
+            entity_id: "northwind",
             thread_id: args.threadId ?? args.thread_id ?? "",
             write: args.write,
             why,
@@ -2140,10 +2228,10 @@
     "",
     "Sources, in the order I want them read:",
     "",
-    "  /Users/alex/ab/richos/docs/plans/richos-ecs-architecture-2026-08-27.md",
-    "  /Users/alex/ab/richos/wiki/ceo-decisions.md",
-    "  /Users/alex/ab/femcboost/CLAUDE.md",
-    "  /Users/alex/.claude/projects/-Users-alex-ab-femcboost/memory/MEMORY.md",
+    "  /Users/you/Projects/harbor/docs/plans/ecs-architecture-2026-08-27.md",
+    "  /Users/you/Projects/harbor/wiki/decisions.md",
+    "  /Users/you/Projects/northwind/NOTES.md",
+    "  /Users/you/Projects/northwind/memory/MEMORY.md",
     "  https://docs.anthropic.com/en/docs/claude-code/memory",
     "  https://code.claude.com/docs/en/memory",
     "",
@@ -2288,7 +2376,7 @@
 
     const turn = {
       threadId: MEMORY_THREAD_ID,
-      entityId: "femcboost",
+      entityId: "northwind",
       userText: MEMORY_PROMPT,
       runs: [],
       state: "queued",
@@ -2414,7 +2502,7 @@
       3() {
         prose(2000,
           "I'm reading the full source set now — the ECS architecture package, your decisions " +
-          "file, FemcBoost's own record and both vendor memory docs — and tracing where RichOS " +
+          "file, Northwind's own record and both vendor memory docs — and tracing where RichOS " +
           "actually reads and writes memory today rather than where the docs say it does.\n" +
           "Once I can see the seams I'll split the work so the passes run in parallel."
         );
@@ -2454,7 +2542,7 @@
       7() {
         workerUpdate("mach_ms_w_clark_1", {
           observedState: "updated", state: "running", eventsObserved: 4,
-          latestUpdate: "Read both vendor memory docs and the FemcBoost record; three claims in CLAUDE.md contradict what is on disk",
+          latestUpdate: "Read both vendor memory docs and the Northwind record; three claims in CLAUDE.md contradict what is on disk",
           lastObservedAt: iso(at(1320000)),
         });
         return "Clark `updated` -> Working, with the summary he authored";

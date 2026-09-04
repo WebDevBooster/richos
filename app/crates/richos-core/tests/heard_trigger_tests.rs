@@ -24,6 +24,8 @@ use richos_core::staging::{
 use richos_core::util::now_millis;
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
 }
@@ -110,7 +112,7 @@ fn rig(
     let dir = tmp(tag);
     let journal_root = dir.join("dictation-journal");
     let ledger = Ledger::open(dir.join("ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", replies)));
 
@@ -228,7 +230,7 @@ fn a_jam_turn_is_never_diffed_against_the_journal() {
 fn no_journal_means_silent_and_the_turn_still_lands() {
     let dir = tmp("nojournal");
     let ledger = Ledger::open(dir.join("ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("s", vec!["Noted."])));
     let desk = CandidateDesk::open(dir.join("candidates.jsonl")).unwrap().shared();

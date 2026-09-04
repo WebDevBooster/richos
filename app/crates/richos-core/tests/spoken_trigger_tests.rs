@@ -20,6 +20,8 @@ use richos_core::staging::{
 };
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
 }
@@ -64,7 +66,7 @@ fn rig(
 ) -> (Spine, std::path::PathBuf, SharedCandidateDesk, Arc<Mutex<Vec<Staged>>>, Arc<Mutex<Vec<(String, String)>>>) {
     let dir = tmp(tag);
     let ledger = Ledger::open(dir.join("ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", replies)));
 
@@ -145,7 +147,7 @@ fn the_record_is_on_disk_before_anything_renders() {
 fn a_correction_is_recorded_before_the_turn_is_delivered_at_all() {
     let dir = tmp("midturn");
     let ledger = Ledger::open(dir.join("ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     let mut desk = CandidateDesk::open(dir.join("candidates.jsonl")).unwrap();
     desk.set_vocabulary(Box::new(Vocabulary(Arc::new(Mutex::new(Vec::new())))));
@@ -257,7 +259,7 @@ fn the_whole_loop_speak_then_confirm_reaches_the_vocabulary() {
 fn a_spine_with_no_desk_is_unchanged() {
     let dir = tmp("nodesk");
     let ledger = Ledger::open(dir.join("ledger.jsonl")).unwrap();
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["Understood."])));
 

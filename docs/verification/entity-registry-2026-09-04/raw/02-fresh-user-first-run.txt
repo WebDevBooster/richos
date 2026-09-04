@@ -1,0 +1,54 @@
+config dir     : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587
+registry file  : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/entities.json (entities.json)
+his folder     : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/Projects/northwind
+
+--- 0. what the binary ships ---
+EntityRegistry::default() holds 0 compan(ies)
+  -> nobody's companies, and nobody's home directory, in the shipping default
+
+--- 1. first launch ---
+[richos] no company registry at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/entities.json — this install has registered no companies yet
+registry       : 0 compan(ies), source=absent
+resolve_root   : unknown root /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/Projects/northwind: no registered entity owns this path — refusing to guess
+resolve_root(/): unknown root /: no registered entity owns this path — refusing to guess
+send           : REFUSED — no active thread, and no entity was named — Rich will not guess which entity area this belongs to. Choose an entity, or activate an existing thread.
+               (this is the state the app was PERMANENTLY in for anyone but its author)
+
+--- 2. he adds his own company ---
+registered     : Northwind Traders -> /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/Projects/northwind
+wrote          : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/entities.json
+--- entities.json ---
+{
+  "version": 1,
+  "entities": [
+    {
+      "id": "northwind",
+      "display_name": "Northwind Traders",
+      "status": "active",
+      "roots": [
+        "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/Projects/northwind"
+      ]
+    }
+  ]
+}
+--- end of file ---
+
+--- 3. the next launch ---
+[richos] company registry: 1 company from /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/entities.json
+resolve_root   : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/Projects/northwind -> northwind (Northwind Traders)
+               and from deep inside it: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/Projects/northwind/api/src -> northwind
+still closed   : unknown root /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-fresh-user-45050-1788512192587/Projects/something-else: no registered entity owns this path — refusing to guess
+
+--- 4. a thread in his own company, and a send ---
+active         : ceo-default+northwind+thr_76754874968646db98e29b1e906d777a+r3+-
+
+CEO> Can you hear me?
+Rich> Yes — I can hear you, and I'm filing this under Northwind Traders.
+
+turn           : state=Completed stop=Some("end_turn")
+scope          : ceo-default+northwind+thr_76754874968646db98e29b1e906d777a+r3+turn_43d811755b2840ceb016408ddfec1216
+thread home    : northwind (immutable — ECS §3.2)
+
+nothing in entities.json or the ledger names a company he did not enter.
+
+OK — a profile with no configuration reached a working conversation.

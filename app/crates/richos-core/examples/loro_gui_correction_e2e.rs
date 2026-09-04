@@ -51,7 +51,7 @@ fn main() {
 
 /// A corpus on the scratch machine, created the way first-run provisioning creates one.
 fn setup(home: &Path, compiler_source: Option<PathBuf>) {
-    let registry = EntityRegistry::ceos_companies();
+    let registry = demo_registry(home);
     let companies: Vec<(String, String)> =
         registry.entities().iter().map(|e| (e.id.to_string(), e.display_name.clone())).collect();
     let report = provision(&ProvisionRequest {
@@ -139,4 +139,25 @@ fn drive() {
     println!("SHOW   : ref={} file={}", shown.r#ref, shown.file);
     assert_eq!(shown.file, out.file, "the reader and the writer must name one file");
     println!("AGREE  : yes");
+}
+
+/// THE COMPANY THIS DEMO REGISTERS — invented, and belonging to nobody.
+///
+/// Before 2026-09-04 this was `EntityRegistry::ceos_companies()`: a `const` table of the
+/// CEO's six real companies that shipped inside the binary and was the registry of every
+/// install. The registry is per-user now (`entity.rs` rule 4) and a fresh machine has none,
+/// so a demo that needs a company to exist REGISTERS one, exactly as a first-run user does.
+fn demo_registry(home: &std::path::Path) -> EntityRegistry {
+    let mut registry = EntityRegistry::empty();
+    registry
+        .register(
+            richos_core::entity::Entity::try_new(
+                "northwind",
+                "Northwind Traders",
+                vec![home.join("Projects").join("northwind")],
+            )
+            .expect("a valid demo company"),
+        )
+        .expect("the first registration cannot conflict with anything");
+    registry
 }

@@ -569,6 +569,56 @@
                answers once and a question he thinks he will be asked forever. -->
           <p id="entity-picker-note" class="overlay-note" hidden></p>
           <div id="entity-picker-list" class="picker-list" role="listbox" aria-labelledby="entity-picker-title"></div>
+
+          <!-- ADDING A COMPANY (2026-09-04).
+
+               THE DEFECT THIS CLOSES: the rows above WERE the registry, the registry was a
+               fixed list compiled into the app, and there was no door anywhere in the
+               product for a second person to add his own company. He could refuse every
+               send or file his work under somebody else's business.
+
+               It is HIDDEN for the ordinary "which company is this thread for?" question —
+               that one is a choice among companies he already has — and shown when he is
+               being asked which company this COPY of Rich is for, which is the question a
+               first launch asks and the one where "none of these" is the true answer.
+
+               THE FOLDER IS OPTIONAL AND SAYS SO. A company with no folder works
+               completely; the folder only lets RichOS pick it automatically. Making it look
+               required would make a person who does not know the answer stop here. -->
+          <div id="entity-add" class="entity-add" hidden>
+            <p id="entity-add-lead" class="overlay-note"></p>
+            <label class="entity-add-label" for="entity-add-name">What's the company called?</label>
+            <input
+              id="entity-add-name"
+              class="entity-add-input"
+              type="text"
+              autocomplete="off"
+              autocapitalize="words"
+              spellcheck="false"
+              placeholder="Northwind Traders"
+            />
+            <label class="entity-add-label" for="entity-add-folder">
+              Its folder on this Mac <span class="entity-add-optional">— optional</span>
+            </label>
+            <input
+              id="entity-add-folder"
+              class="entity-add-input"
+              type="text"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              placeholder="/Users/you/Projects/northwind"
+            />
+            <p class="entity-add-hint">
+              Give me a folder and I'll pick this company on my own whenever you start RichOS
+              from inside it. Leave it blank and you'll just pick it yourself — everything else
+              works the same.
+            </p>
+            <p id="entity-add-error" class="setup-error" role="alert" hidden></p>
+            <div class="memory-setup-actions">
+              <button id="entity-add-go" class="desk-btn desk-btn--confirm" type="button">Add this company</button>
+            </div>
+          </div>
         </div>
       </div>
 

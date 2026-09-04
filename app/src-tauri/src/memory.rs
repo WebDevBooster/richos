@@ -84,7 +84,11 @@ pub struct WiredMemory {
 /// value, and one extra line in the `no-compiler` case — which used to be indistinguishable
 /// from any other misconfiguration and is now the ordinary state of a provisioned corpus on
 /// a machine where the compiler ships from nowhere (`BLOCKED.md`).
-pub fn wire_company_memory(spine: &mut Spine, loro_provenance: &SharedSliceProvenance) -> WiredMemory {
+pub fn wire_company_memory(
+    spine: &mut Spine,
+    loro_provenance: &SharedSliceProvenance,
+    registry: &EntityRegistry,
+) -> WiredMemory {
     // ONE RESOLUTION. Everything below is built from this value and nothing below looks the
     // corpus up again.
     let (install, tried) = match LoroInstall::locate(&CorpusPaths::from_process()) {
@@ -156,7 +160,7 @@ pub fn wire_company_memory(spine: &mut Spine, loro_provenance: &SharedSliceProve
     // reported as one — it does not un-resolve the corpus, so the writer above survives it.
     // A desk that can still show him what loro believes, and still write a correction he
     // confirms, is strictly better than one switched off by a setting about slice narrowing.
-    let mut compiler = match CliContextCompiler::from_install(&install) {
+    let mut compiler = match CliContextCompiler::from_install(&install, registry) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[richos] loro Tier C: configured but unusable, continuing without it: {e}");
@@ -220,7 +224,7 @@ pub fn wire_company_memory(spine: &mut Spine, loro_provenance: &SharedSliceProve
             for note in compiler.reconcile_lanes(&corpus) {
                 eprintln!("[richos] loro lane: {note}");
             }
-            let unmapped = compiler.entities_with_no_lane(&EntityRegistry::ceos_companies(), &corpus);
+            let unmapped = compiler.entities_with_no_lane(registry, &corpus);
             if !unmapped.is_empty() {
                 // Loud, because the CEO's side of this is a re-prime that
                 // says "loro could not be consulted" every turn: with no
@@ -230,7 +234,8 @@ pub fn wire_company_memory(spine: &mut Spine, loro_provenance: &SharedSliceProve
                 eprintln!(
                     "[richos] loro lane: this corpus has partitions ({}) but {} \
                      {} bound to none of them — every slice for {} will be \
-                     REFUSED by the cross-entity guard. Set RICHOS_LORO_LANES.",
+                     REFUSED by the cross-entity guard. Give the company a partition of \
+                     its own name, or set RICHOS_LORO_LANES.",
                     corpus.companies().join(", "),
                     unmapped.join(", "),
                     if unmapped.len() == 1 { "is" } else { "are" },
@@ -263,7 +268,6 @@ pub fn wire_company_memory(spine: &mut Spine, loro_provenance: &SharedSliceProve
             // `richos` entity in this same pass. An unowned path leaves the
             // owner unstated rather than guessed.
             if let Some(repo) = corpus.repo_layout_root() {
-                let registry = EntityRegistry::ceos_companies();
                 match registry.resolve_root(repo) {
                     Ok(owner) => {
                         eprintln!(

@@ -954,6 +954,150 @@ module.exports = [
       "kept is the difference between one question and a permanent one. The control is the " +
       "list of companies directly beneath it.",
   },
+  // ---- ADDING A COMPANY (2026-09-04) ----------------------------------------------------
+  //
+  // WHY THESE ROWS EXIST. Until today the picker's rows WERE the registry, the registry was
+  // a `const` table of the app author's six companies compiled into the binary, and there
+  // was no door anywhere in the product for a second person to add his own. On any machine
+  // but his the app offered him a choice among businesses that were not his, or a composer
+  // that refused every send. Every string below is part of the door.
+  {
+    s: "I don't know about any of your companies yet. Tell me one and I'll start keeping its work together — you can add the rest whenever you like.",
+    c: "ACTIONABLE",
+    control: "#entity-add-name",
+    fixture: "company-none-registered",
+    why:
+      "The picker's opening line on a FIRST LAUNCH, where the list is empty. It is his to " +
+      "clear and the field that clears it is directly beneath, which is why this is the " +
+      "line rather than a silent empty dialog — a registry-driven picker renders nothing at " +
+      "all when the registry is empty, and nothing is not an answer.",
+  },
+  {
+    s: "Not one of these? Add it here.",
+    c: "ACTIONABLE",
+    control: "#entity-add-name",
+    fixture: "company-unchosen",
+    why:
+      "The same form's lead when he DOES have companies listed. Two sentences rather than " +
+      "one, because 'I don't know about any of your companies' is false on an install that " +
+      "has five of them, and a line that is false in one of its two states is a line nobody " +
+      "reads in either.",
+  },
+  {
+    s: "What's the company called?",
+    c: "CONTROL",
+    why:
+      "The `<label for=\"entity-add-name\">` — the field's accessible name, not a state. It " +
+      "is a question because the control is a text field and the field has nothing else to " +
+      "say what belongs in it.",
+  },
+  {
+    s: "Its folder on this Mac",
+    c: "CONTROL",
+    why:
+      "The `<label for=\"entity-add-folder\">`. The word 'optional' is inside the same " +
+      "label element, so a screen reader announces the field as optional rather than " +
+      "leaving that in a hint below it.",
+  },
+  {
+    s: "Give me a folder and I'll pick this company on my own whenever you start RichOS from inside it. Leave it blank and you'll just pick it yourself — everything else works the same.",
+    c: "INFORMATIONAL",
+    fixture: "company-unchosen",
+    why:
+      "What the folder DOES, beside the field that takes it. It is not a request: it names " +
+      "the consequence of both answers and says plainly that leaving it blank costs him " +
+      "nothing but the automatic pick. A person who does not know his own folder path must " +
+      "not stop here, and without this sentence he would.",
+  },
+  {
+    s: "Add this company",
+    c: "CONTROL",
+    why: "The button's label (`#entity-add-go`). It IS the affordance the two rows above name.",
+  },
+  {
+    s: "I don't know about any of your companies yet, so I've nothing to file this under. Tell me one and I'll take it from there.",
+    c: "ACTIONABLE",
+    control: "#choose-company-btn",
+    fixture: "company-none-registered",
+    why:
+      "The composer's block on a first launch, and a SEPARATE sentence from 'Pick one and " +
+      "I'll take it from there' — because 'pick one' is not an instruction a person with an " +
+      "empty list can follow. The control reopens the picker, where the form that clears it " +
+      "lives.",
+  },
+  {
+    s: "Your list of companies is saved at",
+    c: "FRAGMENT",
+    fixture: "company-registry-unreadable",
+    why:
+      "The opening of the unreadable-registry sentence, composed in `registryUnreadableLine` " +
+      "around the file's own path. Classified against the whole sentence, whose row is " +
+      "below; the path between the halves is a fact about one machine, not a string.",
+  },
+  {
+    s: ", and I couldn't read it just now, so I'm not showing any — rather than showing you a wrong list. That file is fixed by whoever set RichOS up. You can also add a company here in the meantime.",
+    c: "NEEDS-SOMEONE-ELSE",
+    fixture: "company-registry-unreadable",
+    why:
+      "The close of the same sentence, and the state it describes is not his: a file that " +
+      "will not parse is fixed by whoever set RichOS up, and it names that party. It is " +
+      "NOT the empty-list sentence and must never be collapsed into it — telling him he has " +
+      "not named a company, when he has and it is one typo from working, would invite him " +
+      "to enter it twice. The last clause carries the thing he CAN do, which is add one " +
+      "here without waiting.",
+  },
+  // ---- and the Rust refusals the shell relays verbatim ---------------------------------
+  {
+    s: "I need a name for the company before I can file anything under it. Anything you'd recognize on a button is fine — you can change it later.",
+    c: "ACTIONABLE",
+    control: "#entity-add-name",
+    fixture: "company-none-registered",
+    why:
+      "`register_entity`'s refusal of a blank name, rendered into `#entity-add-error` " +
+      "beside the field that fixes it. It says what a good answer looks like rather than " +
+      "only that the answer was wrong.",
+  },
+  {
+    s: "That name doesn't have any letters or numbers in it, so I can't make a file-safe label out of it. Try a name with a word in it.",
+    c: "ACTIONABLE",
+    control: "#entity-add-name",
+    fixture: "company-none-registered",
+    why:
+      "The other way a name is refused: the id is DERIVED from what he typed, and a name " +
+      "with nothing in the id's character class derives nothing. Same field, same place.",
+  },
+  {
+    s: "I already have a lot of companies with names like \"{name}\" and I couldn't make a distinct label for another one. Try a name that's a bit more specific.",
+    c: "UNREACHABLE",
+    why:
+      "`register_entity`'s 99-collision bound. It needs ninety-nine companies whose names " +
+      "all derive to one label; no fixture builds that and no person will. It exists so the " +
+      "suffix loop terminates in a sentence rather than in a panic, and it is listed here " +
+      "so the claim that it is unreachable is on the record rather than assumed.",
+  },
+  {
+    s: "there's nothing at that path on this Mac",
+    c: "FRAGMENT",
+    why:
+      "One of three reasons composed into `company_folder_message`, which wraps them in a " +
+      "sentence naming the folder and the way out ('or leave it blank'). Never rendered " +
+      "alone. This is the common one — a typed path that names nothing — and it is checked " +
+      "rather than assumed precisely because a company registered against a folder that is " +
+      "not there can never be selected by launching from it, and would surface weeks later " +
+      "as 'Rich keeps asking me which company this is'.",
+  },
+  {
+    s: "it isn't a full path from the top of the disk",
+    c: "FRAGMENT",
+    why:
+      "The second reason in the same sentence: resolution is lexical, so a relative root " +
+      "can never match anything and storing one would be a dead entry that looks live.",
+  },
+  {
+    s: "that's a file, not a folder",
+    c: "FRAGMENT",
+    why: "The third reason in the same sentence, kept distinct because the fix differs.",
+  },
   // ---- FIRST-RUN SETUP (Option D) — `setup.rs`, `setup_view.rs` -------------------------
   //
   // §19 states the condition these rows exist for: "today RichOS runs on his Mac and would

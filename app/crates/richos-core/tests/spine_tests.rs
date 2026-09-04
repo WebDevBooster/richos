@@ -18,6 +18,8 @@ fn femcboost() -> EntityId {
 use richos_core::stream::{StreamEvent, TurnObserver};
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 fn tmp_ledger(tag: &str) -> (std::path::PathBuf, Ledger) {
     let path = std::env::temp_dir().join(format!(
         "richos-test-{tag}-{}-{}.jsonl",
@@ -33,7 +35,7 @@ fn tmp_ledger(tag: &str) -> (std::path::PathBuf, Ledger) {
 fn prompt_is_persisted_received_before_send() {
     // Crash-safety: even with NO lease attached, submitting persists the prompt.
     let (path, ledger) = tmp_ledger("crashsafe");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
 
     // No lease attached -> delivery fails, but the prompt MUST already be durable.
@@ -54,7 +56,7 @@ fn prompt_is_persisted_received_before_send() {
 #[test]
 fn full_roundtrip_persists_and_renders_clean() {
     let (path, ledger) = tmp_ledger("roundtrip");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["Hello CEO, I'm Rich."])));
 
@@ -78,7 +80,7 @@ fn lease_is_reprimed_before_first_turn() {
     // Continuity foundation: the re-prime (identity assertion) is injected once,
     // before the first CEO-visible turn.
     let (path, ledger) = tmp_ledger("reprime");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     spine.create_thread("General", &femcboost()).unwrap();
 
     let mock = MockCognition::new("sess-1", vec!["reply"]);
@@ -100,7 +102,7 @@ fn lease_is_reprimed_before_first_turn() {
 #[test]
 fn internal_reprime_turn_is_never_rendered() {
     let (path, ledger) = tmp_ledger("internal");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["ok"])));
     spine.submit_prompt("hey", Source::Text).unwrap();
@@ -121,7 +123,7 @@ fn default_thread_title_is_running_not_general() {
     // value (that relabel in app/ui/main.js is now dead code, kept only as a defensive
     // fallback — this test is the backend-side proof the one-liner landed).
     let (path, ledger) = tmp_ledger("default-title");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread_id = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     let summaries = spine.threads();
     let default = summaries.iter().find(|t| t.id == thread_id).unwrap();
@@ -132,7 +134,7 @@ fn default_thread_title_is_running_not_general() {
 #[test]
 fn threads_are_views_over_one_shared_ledger() {
     let (path, ledger) = tmp_ledger("threads");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let germany = spine.create_thread("Germany", &femcboost()).unwrap();
     let hiring = spine.create_thread("Q4 hiring", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["a", "b"])));
@@ -159,14 +161,14 @@ fn history_survives_restart() {
     let (path, ledger) = tmp_ledger("restart");
     let thread;
     {
-        let mut spine = Spine::new(ledger);
+        let mut spine = support::spine(ledger);
         thread = spine.create_thread("General", &femcboost()).unwrap();
         spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["persisted reply"])));
         spine.submit_prompt("remember me", Source::Text).unwrap();
     } // spine + ledger dropped (app "restart")
 
     let reopened = Ledger::open(&path).unwrap();
-    let spine2 = Spine::new(reopened);
+    let spine2 = support::spine(reopened);
     let msgs = spine2.messages(&thread).unwrap();
     assert_eq!(msgs.len(), 2);
     assert_eq!(msgs[0].text, "remember me");
@@ -196,7 +198,7 @@ fn queue_not_interrupt_orders_prompts_without_dropping() {
     // With the mock, turns complete synchronously, so this asserts the QUEUE PATH is
     // wired and ordered (a mid-turn arrival is journaled + delivered, never dropped).
     let (path, ledger) = tmp_ledger("queue");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["r1", "r2", "r3"])));
 
@@ -254,7 +256,7 @@ fn stream_emits_chunks_in_order_and_ledger_holds_full_reply() {
     // full reply, and carry the right thread + turn ids — while the ledger (source of
     // truth) independently reflects the same full reply.
     let (path, ledger) = tmp_ledger("stream-order");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["Hello CEO, I am Rich and I am here."])));
 
@@ -298,7 +300,7 @@ fn turn_state_events_bracket_the_turn() {
     // turn-started fires first (the "Rich is working" affordance), turn-completed fires
     // last, both keyed to the same thread + turn; chunks live strictly between them.
     let (path, ledger) = tmp_ledger("stream-bracket");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["working then done"])));
 
@@ -339,7 +341,7 @@ fn failed_turn_emits_turn_error_and_persists_partial() {
     // A lease that dies mid-turn: the partial reply is persisted + streamed, and a
     // terminal turn-error is emitted (never a silent hang, never a leaked stack trace).
     let (path, ledger) = tmp_ledger("stream-error");
-    let mut spine = Spine::new(ledger);
+    let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-x".into() }));
 

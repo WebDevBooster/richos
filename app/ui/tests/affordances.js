@@ -258,7 +258,7 @@ function snapshotWithDuration(state, activeMs) {
     Object.assign(
       {
         id,
-        entityId: "femcboost",
+        entityId: "northwind",
         threadId: THREAD,
         turnId: TURN,
         bindingRevision: 1,
@@ -270,7 +270,7 @@ function snapshotWithDuration(state, activeMs) {
       extra || {}
     );
   return {
-    entityId: "femcboost",
+    entityId: "northwind",
     threadId: THREAD,
     mode: "ceo",
     bindingRevision: 1,
@@ -451,6 +451,28 @@ const FIXTURES = {
   /// AND fails to produce one. No picker opens, because every answer would be refused.
   async "company-pinned-unresolved"(browser) {
     return openApp(browser, undefined, { pinnedByEnvironment: true, chosenEntity: null });
+  },
+
+  /// A FIRST LAUNCH ON SOMEBODY ELSE'S MAC (2026-09-04). No company registered anywhere, so
+  /// the picker has nothing to list — and until today that state could not exist: the
+  /// registry was a `const` table of the app author's six companies, compiled into the
+  /// binary, so every install on earth opened this dialog holding six wrong answers.
+  async "company-none-registered"(browser) {
+    const page = await openApp(browser, undefined, { chosenEntity: null, registry: "absent" });
+    await page.waitForSelector("#entity-picker:not([hidden])");
+    await page.waitForSelector("#entity-add:not([hidden])");
+    return page;
+  },
+
+  /// The registry file is there and could not be read. A DIFFERENT state from the one above,
+  /// and it has its own fixture for the reason it has its own sentence: answering "I could
+  /// not read your list" with "you have not given me one" would invite him to re-enter a
+  /// list that is already on disk one typo away from working.
+  async "company-registry-unreadable"(browser) {
+    const page = await openApp(browser, undefined, { chosenEntity: null, registry: "unreadable" });
+    await page.waitForSelector("#entity-picker:not([hidden])");
+    await page.waitForSelector("#entity-add:not([hidden])");
+    return page;
   },
 
   /// §21 entity binding failure: the seeded `legacy` thread has `entity_id: null`, and the
@@ -1066,22 +1088,22 @@ async function main() {
     assert(!before.disabled, "the control is disabled on a launch that has chosen nothing");
     assertEqual(before.value, "", "a company nobody chose must not be pre-selected");
     assert(
-      before.options.indexOf("deeply") >= 0 && before.options.indexOf("richos") >= 0,
+      before.options.indexOf("lumen") >= 0 && before.options.indexOf("harbor") >= 0,
       "the menu does not list the registry: " + JSON.stringify(before.options)
     );
     // THE WRITE, THROUGH THE REAL PATH: the row's host capability calls `choose_entity`,
     // the shell clears the composer's block, and the rail's scope line names the company.
-    await page.selectOption("#set-company", "deeply");
+    await page.selectOption("#set-company", "lumen");
     await page.waitForFunction(() => document.getElementById("composer-blocked").hidden, { timeout: 5000 });
     const after = await page.evaluate(() => ({
       scope: (document.getElementById("scope-entity") || {}).textContent,
       blocked: document.getElementById("composer-blocked").hidden,
       button: document.getElementById("composer-choose-company").hidden,
     }));
-    assertEqual(after.scope, "Deeply", "the scope line does not name the company that was just chosen");
+    assertEqual(after.scope, "Lumen Labs", "the scope line does not name the company that was just chosen");
     assert(after.blocked && after.button, "the block and its control survived an answered question");
     await page.close();
-    return "listed " + before.options.length + " option(s), chose Deeply, block cleared, scope reads Deeply";
+    return "listed " + before.options.length + " option(s), chose Lumen Labs, block cleared, scope reads Lumen Labs";
   });
 
   await run.check("a company pinned outside the window is stated, never offered as a dead control", async () => {
@@ -1097,7 +1119,7 @@ async function main() {
       };
     });
     assert(!r.control, "a pinned company must not render a control that would refuse every answer");
-    assertEqual(r.text, "RichOS", "the row does not state which company is in force");
+    assertEqual(r.text, "Harbor Analytics", "the row does not state which company is in force");
     assert(
       /whoever set RichOS up/.test(r.title),
       "a state he cannot change must name who can — the row says: " + JSON.stringify(r.title)

@@ -575,7 +575,7 @@ body.home-open {
    capsules at about 790px against about 800px of free ground — the gap-filling he ruled out —
    so it wrapped to two lines. Measured here: `All` is a 45px capsule and each disc is 33px, so
    seven controls and six 12px gaps come to 313px inside a 500px cap. An expanded name is the
-   only thing that widens it; his longest, `Webinar Booster`, takes the row to about 428px,
+   only thing that widens it; a fifteen-character name takes the row to about 428px,
    still one line and still inside the cap, so clicking a number does not reflow the
    composition. `tests/home.js` asserts that rather than assuming it.
 
