@@ -1039,7 +1039,15 @@ body.home-open {
 
 #rail-wordmark[role="button"] {
   cursor: pointer;
-  border-radius: 6px;
+  /* NO border-radius HERE, AND THAT IS THE WHOLE POINT.
+     It was `border-radius: 6px`. An <svg> box paints with `overflow: hidden` by default, so a
+     radius on the element CLIPS THE ARTWORK — and the mark's own path starts flush at the box's
+     top-left corner (`M0,400` in a 3299.1x754.5 viewBox), so the R's corner took the entire bite.
+     At `height: 1.375rem` the box is 22px tall and 6px is over a quarter of it: the CEO spotted a
+     visibly rounded R in the rail and asked since when the logo had rounded corners. It never did.
+     The focus ring below is an `outline` with `outline-offset: 4px`, which draws OUTSIDE this box
+     and needs nothing from a radius here. A brand mark is geometry, not a component — nothing
+     decorative may reshape it. */
   transition: opacity 0.18s ease;
 }
 #rail-wordmark[role="button"]:hover {
