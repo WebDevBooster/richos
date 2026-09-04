@@ -20,7 +20,15 @@
 //     a button that invites someone to keep pressing until a security check passes is the
 //     wrong shape of button. It gets an explanation instead.
 //
-// WHERE IT LIVES, AND WHY NOT IN THE RAIL'S PREFERENCES POPOVER. It renders into a row of
+// WHERE IT ANNOUNCES ITSELF (CEO ruling §26, placement paragraph, 2026-09-04). The row below
+// was, until that ruling, the whole surface — and it lives inside a menu, so a waiting update
+// reached only a CEO who happened to open one. His words: *"the user can't be bothered to
+// hunt for some update button somewhere."* So there is now a CUE — see the block above
+// `cue()` for the whole reasoning — a single small element that APPEARS beside the universal
+// settings button when, and only when, something is waiting, and is absent from the document
+// entirely the rest of the time. It announces and leads; the row still decides.
+//
+// WHERE THE ROW LIVES, AND WHY NOT IN THE RAIL'S PREFERENCES POPOVER. It renders into a row of
 // the UNIVERSAL settings menu — the button §15 says is "ALWAYS EVERYWHERE ON EVERY PAGE" —
 // through `RichSettings.registerUpdates`, the same optional-capability seam Techy Mode and
 // the opening-screen switch use. The rail popover was tried first and MEASURED: it went from
@@ -306,12 +314,18 @@ window.RichUpdates = (function () {
     }
 
     marker(v);
+    cue(v);
   }
 
-  /// The mark on the settings button — the only part of this surface visible without opening
-  /// the menu. It exists for exactly two states, something to install and something to
-  /// restart into, and for nothing else: a button that is permanently marked is a button
-  /// nobody reads. It is never the ONLY signal; the row says the same thing in words.
+  /// The mark on the settings button. It exists for exactly two states, something to install
+  /// and something to restart into, and for nothing else: a button that is permanently marked
+  /// is a button nobody reads. It is never the ONLY signal; the row says the same thing in
+  /// words, and since 2026-09-04 the CUE below says it in words WITHOUT the menu being opened.
+  ///
+  /// The mark is kept rather than retired now that the cue exists, and the redundancy is
+  /// deliberate: the mark is painted ON the settings button, so it survives anything that
+  /// suppresses a sibling element, and it is the signal that says "the thing you want is
+  /// inside THIS menu" once the cue has been pressed and the menu is open over it.
   function marker(v) {
     var btn = document.getElementById("set-btn");
     if (!btn) return;
@@ -327,6 +341,154 @@ window.RichUpdates = (function () {
       btn.appendChild(dot);
     }
     btn.setAttribute("data-update-mark", want);
+  }
+
+  // ---- the cue -------------------------------------------------------------------------
+  //
+  // THE ANNOUNCEMENT, IN CHROME THE CEO IS ALREADY LOOKING AT.
+  //
+  // CEO ruling §26, the placement paragraph added 2026-09-04, in his words: *"the user can't
+  // be bothered to hunt for some update button somewhere."* Everything above this line
+  // renders into a row of the universal settings menu, which means a waiting update was
+  // discoverable only by someone who opened that menu — and nothing gave them a reason to.
+  // An update nobody discovers is the same as no updater at all, and worse than none,
+  // because the machinery reports itself healthy.
+  //
+  // THE PROPERTY THAT MATTERS IS THAT IT IS TRANSIENT, NOT THAT IT IS VISIBLE. With nothing
+  // to install there is NO CONTROL AT ALL here — not a dimmed one, not an "up to date" state,
+  // not a placeholder. The element is removed from the document. The signal is the
+  // APPEARANCE of something that was not there a moment ago; a permanent control that
+  // occasionally changes color is one an eye learns to stop seeing. (The reference the CEO
+  // supplied is Codex, captured 2026-09-04 and kept privately in richos-hq: with no update
+  // pending that slot in its bottom bar holds an ordinary help control, and the blue download
+  // circle exists only while an update is waiting.)
+  //
+  // WHERE IT SITS, AND WHY THERE. Inside `.settings` — the wrapper of the universal settings
+  // button, which §15 puts "ALWAYS EVERYWHERE ON EVERY PAGE" and which `settings-button.js`
+  // mounts against `document.body` at a fixed position above every overlay. That single
+  // choice buys every surface at once: the shell, an open thread, the home screen, the
+  // opening screen, and anything added later. The rail's footer was the closer analogue to
+  // the reference's bottom bar and was rejected on two measurements rather than on taste:
+  // the rail is `display: none` under `body.rail-closed`, which is reachable at any width
+  // below 1180px, so the affordance would be behind a toggle — the one thing the ruling
+  // forbids — and the rail's default width is 300px, which cannot hold a label that names a
+  // version without truncating it.
+  //
+  // THIS FILE DOES NOT FORK THE FLOW. The cue carries no state of its own, issues no command,
+  // and writes no sentence: its label is `sentences(v).headline`, the SAME string the row
+  // renders, so the two can never disagree. Pressing it opens the menu the row lives in and
+  // puts the hand on the row's own control. Everything that decides anything — the install,
+  // the restart, the refused signature that is never offered a retry — stays in the row.
+  //
+  // WHICH STATES, AND WHY NOT THE OTHERS. Exactly `available` and `ready`: the two states
+  // where something is waiting on the CEO, which is the same pair `marker()` has always used
+  // and is therefore one rule rather than two that agree most of the time.
+  //   * `downloading` / `installing` — the operation is under way and nothing is waiting on
+  //     him. It can only have been started from the row, which is open in front of him and
+  //     which owns the progress bar. A second progress readout in the chrome would be the
+  //     fork this file exists not to make.
+  //   * `failed` — deliberately NOT announced here, and this is the one gap worth naming
+  //     rather than hiding. The failure headlines `updates.rs` writes are whole sentences
+  //     ("This download was not signed by RichOS, so it was not installed."); a pill wide
+  //     enough to carry one is a banner, and §26 asks for the opposite of a banner. A failure
+  //     is still stated in full in the row, exactly as it was before this cue existed, so
+  //     nothing regressed — but a failure that happens with the menu shut is still quiet, and
+  //     what failure should look like in chrome is one of the things the CEO's reference does
+  //     not answer.
+  //
+  // MODE 1 (install with no click at all) IS NOT PRESUPPOSED ANYWHERE HERE. §26 makes it the
+  // default and the CEO ruled on 2026-09-04 that hands-free updating waits for a design
+  // session of its own. The cue announces and leads; it never starts anything.
+
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
+  /// A stroked glyph in the pill. `stroke: currentColor` so it is the label's own ink and
+  /// cannot drift from it — one value to prove, not two.
+  function glyph(paths) {
+    var svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("class", "update-cue-glyph");
+    for (var i = 0; i < paths.length; i++) {
+      var p = document.createElementNS(SVG_NS, "path");
+      p.setAttribute("d", paths[i]);
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
+  // An arrow coming down into a tray, and the restart arc. Two glyphs because the two states
+  // ask for two different things — but the WORDS carry the difference as well, so a
+  // monochrome display or a reader who does not parse iconography loses nothing.
+  var GLYPH = {
+    available: ["M12 3.5v10.5", "M7.5 10 12 14.5 16.5 10", "M4.5 19.5h15"],
+    ready: ["M20 12a8 8 0 1 1-2.35-5.66", "M20 3.5v5h-5"],
+  };
+
+  function cue(v) {
+    var host = document.getElementById("settings");
+    if (!host) return;
+    var node = document.getElementById("update-cue");
+    var want = v && (v.state === "available" || v.state === "ready") ? v.state : "";
+
+    // NO UPDATE, NO ELEMENT. Removed from the document, not hidden and not disabled.
+    if (!want) {
+      if (node) node.remove();
+      return;
+    }
+
+    if (!node) {
+      node = el("button", "update-cue", {
+        id: "update-cue",
+        type: "button",
+        "aria-haspopup": "true",
+      });
+      node.addEventListener("click", openTheRow);
+      // FIRST child, so the pill grows leftward and the settings button never moves. The
+      // right edge of this cluster is fixed chrome; a control that shifts under the pointer
+      // when an update arrives is a control that gets mis-clicked.
+      host.insertBefore(node, host.firstChild);
+    }
+
+    if (node.getAttribute("data-update-cue") !== want) {
+      node.textContent = "";
+      node.appendChild(glyph(GLYPH[want]));
+      node.appendChild(el("span", "update-cue-label", { id: "update-cue-label" }));
+      node.setAttribute("data-update-cue", want);
+    }
+    // The ROW's own sentence, not a second one. "RichOS 0.1.2 is available." — the version is
+    // named, which is the one place this is deliberately better than the reference, whose
+    // button says only "Update" and never says which.
+    var said = sentences(v).headline;
+    node.lastChild.textContent = said;
+    // A BUTTON'S NAME SHOULD SAY WHAT PRESSING IT DOES, and the visible label is a statement
+    // rather than an act — so the accessible name is the statement PLUS the act. It starts
+    // with the visible text verbatim, which is what WCAG 2.5.3 "Label in Name" asks for: a
+    // voice user who says the words on the screen still reaches this control.
+    node.setAttribute("aria-label", said + " Open the update settings.");
+  }
+
+  /// Press the cue: open the menu the row lives in, and put the hand on the row's control.
+  ///
+  /// The focus is DEFERRED by design. `RichSettings.open()` calls our own `onOpen()`, which
+  /// re-reads `update_state` and marks the surface busy while it is in flight — so for the
+  /// length of that read the row's button is disabled and cannot take focus. One turn of the
+  /// task queue later the answer has landed and the button is live. A synchronous focus here
+  /// would silently do nothing.
+  function openTheRow() {
+    var s = window.RichSettings;
+    if (!s || !s.openMenu) return;
+    s.openMenu();
+    setTimeout(function () {
+      var go = document.getElementById("update-install");
+      if (!go || go.hidden) go = document.getElementById("update-relaunch");
+      if (go && !go.hidden) go.focus();
+    }, 0);
   }
 
   // ---- talking to the shell --------------------------------------------------------------
