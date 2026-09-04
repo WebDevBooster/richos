@@ -2,14 +2,15 @@
 
 The pre-publication audit's §12 said the repository had no release, an updater endpoint that
 could never resolve, and a packaging dry run that "does not create a distributable release".
-This is what was built, what was measured, and the two defects the measuring found.
+This is what was built, what was measured, and the three defects the measuring found — the
+third found by the second one's own new cases failing after they were merged.
 
 Every number below was produced by a command in `raw/`, and every one of those commands can
 be run again.
 
 ---
 
-## Two defects, both found by running the thing rather than reading it
+## Three defects, all found by running the thing rather than reading it
 
 ### 1. The engine asset digest was a function of the operator's umask and timezone
 
@@ -67,6 +68,59 @@ only because an earlier build had left the directory behind — so the failure w
 exactly where releases are not cut, and certain everywhere they are. Fixed in `73ac349` by
 creating the directory and nothing else; `build.rs` still owns its contents, because a second
 staging implementation is one that can drift from the one deciding what ships.
+
+### 3. The asset was built from the operator's disk, not from the repository
+
+Found the same day by defect 1's own new cases. `L12` and `L13` were green on the worktree
+that wrote them at `166e1fd`; merged to main, both went red. **A fresh worktree has none of
+the state a working checkout accumulates, which is exactly why the suite looked clean where it
+was written.** Raw evidence: `raw/engine-asset-untracked-members.txt`.
+
+The cause was one line:
+
+```sh
+( cd "$ENGINE_DIR" && /usr/bin/tar -cf - . ) | ( cd "$staging/engine" && /usr/bin/tar -xf - )
+```
+
+It copied the WORKING TREE, so every gitignored file in `engine/` went into the customer's
+download. On main: **119 of them.** Fifteen `.claude/state/agent-definitions-*.snapshot`, each
+carrying a **session UUID**, a generation timestamp and `/Users/alex/ab/richos/engine`. 57
+`scripts/hooks/*.sha256` sidecars that `install.sh` re-mints on every run. `__pycache__`
+bytecode. Two defects wearing one coat:
+
+* **The digest moved.** A new session mints a new snapshot, so `RICHOS_ENGINE_SHA256` was a
+  property of *when* the build ran. Reproduced with 205 ignored files planted: build, one new
+  snapshot file, build — `4fcb8b46…` became `e30083c5…`. A customer meets that as a
+  `DigestMismatch`.
+* **A privacy leak into a published artifact.** Session identifiers and the builder's home
+  path, to everyone who downloads the engine — the same class the shipped-artifact privacy
+  pass had removed from the executable hours earlier, arriving through a different door into a
+  different artifact, with nothing watching that door.
+
+**Nothing published carried it.** `WebDevBooster/richos` has zero releases and zero tags
+(`gh api repos/WebDevBooster/richos/releases` returns `[]`). A defect, not an incident.
+
+**The fix, and the check that is not the fix.** The asset is built from `git ls-files`, so a
+file that is not tracked is not in it — by construction, with no exclusion list, because an
+allowlist of harmless ignored files drifts from the ignored files that exist. Outside a
+checkout the script REFUSES rather than falling back to the working tree; a silent fallback
+would be a fallback into the leak. Then the finished archive is read back by
+`app/scripts/verify-engine-asset-members.sh`, which compares its members to the tracked set in
+both directions and names every one it refuses.
+
+**Why the members check exists at all, given `--check` caught this one.** It caught it by
+accident — because that particular ignored file changed. **An ignored file that never changes
+passes a determinism check forever**, and that is measured rather than argued: with 205 ignored
+files planted and then left alone, all thirteen cases reported green while 208 untracked
+members sat inside the archive. Determinism asks whether the bytes are the same twice; only a
+content check asks what the bytes are. `L14`–`L18` ask it, and each was run red first — `L14`
+and `L15` by restoring the old copy line (207 untracked members, named), `L16` against a
+deliberately poisoned archive, `L17` by deleting the members check, `L18` by removing the
+fixture's `.git`.
+
+**The pin did not change.** The fixed build produces `bdb82559…` at 2,021,895 bytes — byte for
+byte the archive the independent clone above produced, because a fresh clone never had the
+ignored files in the first place.
 
 ---
 
