@@ -840,8 +840,37 @@ fi
 # ---------------------------------------------------------------------------
 export RICHOS_REQUIRE_REAL_ICONS=1
 
+# KEEP THE BUILDER'S HOME DIRECTORY OUT OF THE BINARY.
+#
+# Rust bakes the compile-time path of every crate into the executable as panic-location
+# and debug metadata: `$CARGO_HOME/registry/src/...` for a registry dependency, and the
+# absolute source path for a path dependency that lives outside the package directory —
+# which `richos-core` and `richos-voice` both do. MEASURED on the release build kept at
+# `~/.richos-signing/rebuild-survival/builds/build-1/RichOS.app`: 657 occurrences of the
+# builder's home directory, including 23 paths naming an internal agent worktree
+# (`.worktrees/zach-opus-c1`). None of it is a file, so no bundle inspection could see
+# it; `strings` reads all of it in a second, on the customer's machine.
+#
+# `--remap-path-prefix` and not cargo's `trim-paths`, because trim-paths is not
+# available: cargo 1.95.0 refuses the key with "that feature is not stabilized in this
+# version of Cargo". Established by running it.
+#
+# ORDER MATTERS AND IS NOT COSMETIC: rustc applies the LAST matching rule, so general
+# comes first and specific comes last. And the replacements must not themselves look
+# like a home directory — remapping $HOME to `/home` produced `/home/.cargo/...`, which
+# is the same disclosure shape wearing a different name, and `no_host_paths.py` correctly
+# refused it.
+#
+# This is exported HERE and not in a committed `.cargo/config.toml` on purpose: an
+# ordinary `cargo build` during development keeps real paths, so a compiler diagnostic
+# still points at a file the engineer can open. Only the release path is sanitized.
+richos_cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$HOME=/build --remap-path-prefix=$richos_cargo_home=/build/cargo --remap-path-prefix=$app_dir=/build/app"
+
 say ""
 say "building (release) with RICHOS_REQUIRE_REAL_ICONS=1 — the icon gate is FATAL for this build..."
+say "  build paths remapped out of the binary (\$HOME, \$CARGO_HOME, $app_dir);"
+say "  the produced bundle is checked for leftovers before it is signed."
 say ""
 
 # `--no-sign` is NOT about codesigning. On macOS it disables exactly one thing:
@@ -887,6 +916,34 @@ if [ -z "$app_bundle" ]; then
   warn "the builder exited 0 but no .app exists under $bundle_dir — refusing to"
   warn "report success for a bundle that is not there."
   exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# The remap above is the fix. THIS is the proof.
+# ---------------------------------------------------------------------------
+# A flag that quietly stops covering everything — a new dependency shape, a vendored C
+# library baking in `__FILE__`, a toolchain that changes what it embeds — puts the
+# builder's home directory straight back with nothing to notice it. So the guarantee is
+# checked on the bundle that was actually produced, and it is checked BEFORE the
+# signature, because a signature over a bundle nobody inspected is confidence rather
+# than evidence.
+#
+# Fatal, in the same posture build.rs takes toward the staged frontend: shipping the
+# builder's account name and repository layout to a stranger is not cosmetic, and there
+# is nothing to wait on. `RICHOS_ALLOW_HOST_PATHS=1` is the deliberate, logged override.
+say ""
+say "checking the bundle for build-machine paths..."
+if ! python3 "$here/lib/no_host_paths.py" "$app_bundle"; then
+  if [ "${RICHOS_ALLOW_HOST_PATHS:-}" = "1" ]; then
+    warn ""
+    warn "  RICHOS_ALLOW_HOST_PATHS=1 — packaging a bundle that carries the above"
+    warn "  anyway. Whoever installs this can read them."
+  else
+    warn ""
+    warn "refusing to sign or package a bundle that carries the build machine's home"
+    warn "directory. Nothing was signed."
+    exit 5
+  fi
 fi
 
 # The bundler signs the bundle ONLY when it has an identity. With none it leaves the
