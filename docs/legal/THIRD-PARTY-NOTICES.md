@@ -10,6 +10,14 @@ the named upstream on that date rather than carried forward from a previous
 document. Where a check could not be completed, this file says so instead of
 rounding up.
 
+**Nine skills were added to this table on 2026-09-04**, on the CEO's express
+exception to his own standing rule that a skill carrying no license gets none
+added. They are third-party, they were established as such by
+`docs/legal/SKILL-PROVENANCE-2026-09-04.md`, and until that day they carried no
+license file at all. Each now carries one, taken from its upstream rather than
+from a template. The other twelve skills in `engine/skills/` are RichOS-authored
+and stay bare, which is correct and deliberate.
+
 The RichOS-authored software around all of this is AGPL-3.0-only — see
 `docs/legal/LICENSING.md`. The RichOS brand material is excluded from both —
 see `docs/legal/BRAND-ASSETS.md`.
@@ -35,6 +43,15 @@ see `docs/legal/BRAND-ASSETS.md`.
 | `engine/skills/landing-page-redesign` | Leonxlnx/taste-skill, `skills/redesign-skill` | `72e299530e2eb31ed8da06181bc19f6c18a00821` | MIT | 2026 Leonxlnx | `engine/skills/landing-page-redesign/LICENSE` | pinned in `SKILL.md`, below a scope pin |
 | `engine/skills/marketing-strategy-pmm` | alirezarezvani/claude-skills, `marketing-skill/skills/marketing-strategy-pmm` | version 1.0.0 (frontmatter, updated 2025-10-20) | MIT | 2025 Alireza Rezvani | `engine/skills/marketing-strategy-pmm/LICENSE` | by version — see the note below |
 | `engine/skills/resend` | resend/resend-skills, `skills/resend` | version 3.5.0 (frontmatter) | MIT | 2026 Resend | `engine/skills/resend/LICENSE` | by version — see the note below |
+| `engine/skills/copywriting` | coreyhaines31/marketingskills, `skills/copywriting` | `68f5eaf64e858438db47e436d7a3bef0e9d69721` (2026-03-04) | MIT | 2025 Corey Haines | `engine/skills/copywriting/LICENSE` | modified — 3 of 4 files byte-identical; the fourth differs in 4 lines of spelling, see the note below |
+| `engine/skills/customer-research` | coreyhaines31/marketingskills, `skills/customer-research` | `cc1a9c106b1030ae2994167d9160bc51e54e8d26` (2026-03-28) | MIT | 2025 Corey Haines | `engine/skills/customer-research/LICENSE` | modified — 1 of 3 files byte-identical; the other two differ only in indentation and a trailing newline, see the note below |
+| `engine/skills/marketing-psychology` | coreyhaines31/marketingskills, `skills/marketing-psychology` | `68f5eaf64e858438db47e436d7a3bef0e9d69721` (2026-03-04) | MIT | 2025 Corey Haines | `engine/skills/marketing-psychology/LICENSE` | byte-identical (both files) |
+| `engine/skills/product-marketing-context` | coreyhaines31/marketingskills, `skills/product-marketing-context` | `68f5eaf64e858438db47e436d7a3bef0e9d69721` (2026-03-04) | MIT | 2025 Corey Haines | `engine/skills/product-marketing-context/LICENSE` | byte-identical (both files) |
+| `engine/skills/playwright-cli` | microsoft/playwright-cli, `skills/playwright-cli` | `4fafcccadd265f959b41ee8bc87eff7cc607e8e7` (2026-02-06) | Apache-2.0 | Microsoft Corporation | `engine/skills/playwright-cli/LICENSE.txt` | modified — see `engine/skills/playwright-cli/MODIFICATIONS.md` |
+| `engine/skills/playwright-e2e-testing` | bobmatnyc/claude-mpm-skills, `toolchains/javascript/testing/playwright` | `a0632b527e53d377e186e16b3b8edb8bc2892a98` (2025-12-31) | MIT | 2025 Claude MPM Contributors | `engine/skills/playwright-e2e-testing/LICENSE` | modified — one line of the single bundled file, see the note below |
+| `engine/skills/svelte-code-writer` | sveltejs/ai-tools, `plugins/claude/svelte/skills/svelte-code-writer` | `0e55ee792d3d72fc413162ec6442a0c436ff1294` (2026-03-12) | MIT | 2026 Svelte Contributors | `engine/skills/svelte-code-writer/LICENSE` | byte-identical (1 file) — but the license text is dated after the copy, see the note below |
+| `engine/skills/svelte-core-bestpractices` | sveltejs/ai-tools, `plugins/claude/svelte/skills/svelte-core-bestpractices` | `0e55ee792d3d72fc413162ec6442a0c436ff1294` (2026-03-12) | MIT | 2026 Svelte Contributors | `engine/skills/svelte-core-bestpractices/LICENSE` | byte-identical (all 10 files) — but the license text is dated after the copy, see the note below |
+| `engine/skills/use-railway` | railwayapp/railway-skills, `plugins/railway/skills/use-railway` | `1b59fd592cd4413f3c325f139bf3f3afa99ee095` (2026-07-09), declaring skill version 1.3.5 | MIT | 2026 Railway Corporation | `engine/skills/use-railway/LICENSE` | modified — 24 lines of roughly 600, enumerated in that file |
 | `engine/tools/gpt-exporter` | WebDevBooster/gpt-exporter | vendored copy | MIT | 2026 Alex Booster | `engine/tools/gpt-exporter/LICENSE` | the repository owner's own separately published project |
 
 ### Notes on the rows that are not byte-identical
@@ -74,12 +91,103 @@ upstream has since extended. The bundled copy is therefore a 3.5.0-era release
 taken through a distribution channel other than that commit, and is recorded by
 version. The directory carried no MIT notice before 2026-09-04.
 
+**`copywriting`.** Three of the four bundled files are byte-identical to the
+pinned revision. The fourth, `references/natural-transitions.md`, differs in four
+lines, and in nothing but spelling: two headings carry the British `-ising` form
+upstream and the American `-izing` form here, each appearing twice. The cause is
+in this repository's own history — commit
+`06f4a8221a61500b90790383c8359d931391fe4f` (2026-08-30), "docs(prose): US
+spelling in engine/scripts, engine/skills and root repo comments". **The
+spellings were left as they are.** MIT does not require a modified copy to
+disclose the change, and reverting an edit to make a table say "byte-identical"
+would be the tail wagging the dog. The row says "modified" because it is.
+
+**`customer-research`.** Word for word identical to the pinned revision; nothing
+a reader would call a difference is a word. `SKILL.md` has eight lines whose
+leading indentation is four spaces here and three upstream, and
+`evals/evals.json` is one byte shorter because the bundled copy has no trailing
+newline. `references/source-guides.md` is byte-identical. It is pinned to a
+different revision from its three siblings because it did not exist upstream at
+theirs: it was created upstream on 2026-03-28 at 06:32 UTC and reached this
+project's source repository at 10:53 UTC the same morning.
+
+**`playwright-cli`.** The Apache-2.0 one, and the only one of the nine where the
+license imposes conditions beyond carrying the notice. All three that apply are
+answered: the license travels (`LICENSE.txt`), the modified file carries a
+notice (`MODIFICATIONS.md`, per section 4(b)), and section 4(d) — carry forward
+an upstream `NOTICE` — is answered by the fact that upstream publishes none, at
+the pinned revision or on `main` today, both listed and checked. The single
+modification is an inserted eighteen-line "Headed browser requirement" section
+that is RichOS doctrine rather than Playwright's; all seven files under
+`references/` are byte-identical. The revision was pinned by fetching all
+twenty-six upstream revisions and comparing: at `4fafccc` the references match
+and `SKILL.md` differs only by the insertion, and one revision later 57 lines
+differ. Upstream's `LICENSE` is CRLF throughout and this repository stores LF,
+so the bundled text is the LF form; no character of the license differs and both
+hashes are recorded at the top of the file.
+
+**`playwright-e2e-testing`.** One line differs from the pinned revision: a
+deprecated `page.type(...)` call replaced by `page.locator(...).fill(...)`.
+Nothing else — the frontmatter matches exactly, including the skill name, which
+is upstream's own at that revision rather than a local rename. Upstream ships a
+`metadata.json` beside the skill declaring `"license": "MIT"`, a second
+independent statement of the same grant; it is not bundled.
+
+**`svelte-code-writer` and `svelte-core-bestpractices`.** Both are byte-identical
+to `0e55ee7` — all ten files of one, the single file of the other. The thing
+worth knowing is about the license rather than the code: **at that revision
+`sveltejs/ai-tools` published no license file at all**, at its root or in the
+plugin directory, and its root `package.json` is private with no license field.
+The `LICENSE` granting MIT was added upstream seven weeks later, on 2026-04-28,
+in `1ce957ac72c9b6d1d6086cc2f38254d802caebf7`. That file is what both
+directories reproduce, and each says so in its own header. It is upstream's only
+statement of its own terms, and it is not a license this project picked on
+upstream's behalf. Upstream's copyright line is a Markdown link and is
+reproduced as written.
+
+**`use-railway`.** Pinned to the upstream revision that declares skill version
+1.3.5 — the version the bundled copy declares in its own text — which is also
+the closest by content of all thirty upstream revisions: 24 differing lines out
+of roughly 600, against 34 for upstream's current `main`. Pinning it makes the
+claim smaller and truer than the provenance document's, which read the skill as
+substantially extended in-house on the strength of a commit message and a diff
+against today's `main`. Against its actual base it is upstream's file with four
+small edits — three punctuation swaps, one added CLI line, one "must" changed to
+"should", and one dropped routing step with the renumbering it forced. All four
+are enumerated in that directory's `LICENSE`.
+
 **`gpt-exporter`.** Its `LICENSE` reads "Copyright (c) 2026 Alex Booster". It is
 the repository owner's own separately published MIT project, vendored here — not
 third-party code in the usual sense. It is listed anyway, because a reader
 deciding what they may reuse needs the same answer either way, and because
 `engine/LICENSING.md` used to describe it as the *only* exception when there are
 seven.
+
+### The reason two rows say "modified" that should not have to
+
+`copywriting` is not byte-identical because **this project edited it**, and not
+on purpose. The dialect guard enforces American spelling on every file written
+in this tree, and it cannot tell a vendored third-party file from one we wrote.
+On 2026-08-30 a sweep under that rule
+(`06f4a8221a61500b90790383c8359d931391fe4f`) changed four lines in
+`engine/skills/copywriting/references/natural-transitions.md`.
+
+**The same sweep changed ten lines in `engine/skills/landing-page-taste/SKILL.md`,
+which is also third-party** (MIT, Leonxlnx) and already in the table above. Its
+row does not claim byte-identity, so nothing in this file is false — but the row
+is quieter than the fact deserves, and a reader comparing that directory against
+`72e2995` will find ten differences with nothing here to explain them. Both are
+American spelling substitutions of the same kind.
+
+Nothing hazardous follows from either. MIT requires only that the notice travel
+with the copy, and it does. What follows is narrower and worth naming: **a guard
+that rewrites vendored files will keep manufacturing "modified" rows**, one
+sweep at a time, until vendored paths are exempt from it. That is a defect with
+a known remedy, it belongs to whoever owns the guard, and it is recorded here
+rather than fixed here.
+
+Until it is fixed, the rule is the one this file already follows: **do not revert
+the edits to make a row read better.** Record what the tree actually contains.
 
 ## Bundled fonts — redistributed inside the application
 
