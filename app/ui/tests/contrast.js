@@ -228,12 +228,18 @@ const SURFACES = [
   },
   {
     name: "memory-no-compiler",
-    what: "a corpus this install cannot read, and the sentence naming who can",
+    what: "a corpus this install cannot read, said once as the answer to his press",
+    // REACHED BY PRESSING THE BUTTON, not by booting into it. This state stopped opening its
+    // own dialog at launch on 2026-09-04 — on a machine whose compiler ships from nowhere
+    // that was every launch forever (ray-opus-a1, finding 4) — so the walk provisions with no
+    // compiler present, which is how a person arrives at it.
     drive: async (p) => {
       await p.waitForSelector("#memory-setup:not([hidden])");
+      await p.click("#memory-setup-go");
+      await p.waitForSelector("#memory-setup-close:not([hidden])");
       await p.waitForTimeout(300);
     },
-    preset: { memory: "no-compiler" },
+    preset: { memory: "none", memoryCompiler: false },
   },
   // FIRST-RUN SETUP, IN TWO STATES, and neither is reachable from any surface above: a
   // machine that has Claude Code and an engine renders neither. §19 says every machine but

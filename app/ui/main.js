@@ -2998,12 +2998,21 @@ function maybeAskAboutMemory() {
     openMemorySetup(MEMORY_ASK, memoryState.offered_location, { canProvision: true });
     return true;
   }
-  if (memoryState.state === "no-compiler") {
-    openMemorySetup(MEMORY_NO_READER, memoryState.root, { canProvision: false });
-    return true;
-  }
-  // `ready`, and `unusable` — which is an operator's problem with its own boot line and no
-  // sentence worth interrupting him with, since nothing in the window can act on it.
+  // `no-compiler` — SAID ONCE, WHEN HE ASKS FOR IT, AND NEVER AS A NAG.
+  //
+  // This branch used to open the dialog at every launch. On a provisioned machine with no
+  // compiler that is EVERY launch forever, so ray-opus-a1's first run found a permanent
+  // interruption rather than a one-time notice (finding 4, 2026-09-04) — and now that the
+  // sentence honestly ends "there's nothing for you to install and nothing for you to fix",
+  // repeating it every time he opens the app is the exact opposite of what it says.
+  //
+  // It is still shown at the moment it is the ANSWER TO SOMETHING HE DID: `provisionMemory`
+  // renders it the instant he presses "Set it up" and the corpus comes back unreadable. What
+  // is gone is the unprompted repeat.
+  //
+  // The same reasoning `unusable` has always had, and `ready`'s: an operator's problem with
+  // its own boot line and no sentence worth interrupting him with, since nothing in the
+  // window can act on it.
   return false;
 }
 

@@ -226,8 +226,10 @@ async function main() {
     // repository, the bundle's Resources hold `icon.icns`, and the engine asset carries
     // `engine/`), so there is nobody to fetch and nothing to press. The sentence therefore
     // owes him three things and no imperative.
-    const page = await openApp(browser, { memory: "no-compiler" });
+    const page = await openApp(browser, { memory: "none", memoryCompiler: false });
     await page.waitForSelector("#memory-setup:not([hidden])");
+    await page.click("#memory-setup-go");
+    await page.waitForSelector("#memory-setup-close:not([hidden])");
     const text = await dialogText(page);
     assert(
       !/whoever set RichOS up|whoever installed RichOS|an operator/i.test(text),
@@ -257,6 +259,28 @@ async function main() {
     bump(7);
     await page.close();
     return "no third party, and the three things he is owed: what is off, what is on, what is asked of him";
+  });
+
+  await run.check("5b a corpus it cannot read is said once, and never nagged about again", async () => {
+    // THE OTHER HALF OF THE DEAD END (ray-opus-a1, finding 4, 2026-09-04): the sheet opened
+    // on EVERY launch, not only the first. On a machine whose compiler ships from nowhere
+    // that is every launch forever — a permanent interruption carrying a sentence that ends
+    // "there's nothing for you to install and nothing for you to fix".
+    const page = await openApp(browser, { memory: "no-compiler" });
+    await page.waitForTimeout(400);
+    assert(
+      await page.isHidden("#memory-setup"),
+      "a launch that can do nothing about the state must not open a dialog about it"
+    );
+    // AND IT IS NOT SILENCE ABOUT A QUESTION HE HAS NOT ANSWERED: the state was still READ,
+    // and a machine with NO corpus at all is still asked, because that one he can clear.
+    const asked = await page.evaluate(() =>
+      window.__calls.some((c) => c.cmd === "memory_status")
+    );
+    assert(asked, "the shell must still ask the backend rather than assuming the state");
+    bump(2);
+    await page.close();
+    return "read at boot, silent on screen — the sentence belongs to the press that caused it";
   });
 
   await run.check("6  an install that is already set up is never asked", async () => {
@@ -349,6 +373,8 @@ main().catch((e) => {
 //        -> first run dead-ends on an instruction to fetch a person who, on a customer's Mac,
 //           is the customer. Also turns affordances.js red: the registry row is INFORMATIONAL
 //           and a sentence naming a party is not
+//  5b  main.js `maybeAskAboutMemory`: restore the `no-compiler` branch that opens the dialog
+//        -> a machine with a corpus and no compiler is interrupted on every launch forever
 //  6   main.js `maybeAskAboutMemory`: return true for every state
 //        -> an install that is already set up is interrupted on every launch
 //  7   main.js: add a second provision_memory call site

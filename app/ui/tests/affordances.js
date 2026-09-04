@@ -402,11 +402,17 @@ const FIXTURES = {
   },
 
   /// A corpus resolved and the program that reads it is not installed — the honest state of
-  /// a provisioned machine until `BLOCKED.md`'s question is answered. Nothing he can press,
-  /// so the dialog names who can.
+  /// a machine whose corpus was just created and whose compiler ships from nowhere.
+  ///
+  /// REACHED BY PRESSING THE BUTTON, not by booting into it. Until 2026-09-04 this state
+  /// opened its dialog at every launch, which on such a machine is every launch forever
+  /// (ray-opus-a1, finding 4); it is now said once, as the answer to the press that produced
+  /// it. So the fixture provisions with no compiler present, exactly as he would.
   async "memory-no-compiler"(browser) {
-    const page = await openApp(browser, undefined, { memory: "no-compiler" });
+    const page = await openApp(browser, undefined, { memory: "none", memoryCompiler: false });
     await page.waitForSelector("#memory-setup:not([hidden])");
+    await page.click("#memory-setup-go");
+    await page.waitForSelector("#memory-setup-close:not([hidden])");
     return page;
   },
 
