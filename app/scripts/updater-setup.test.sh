@@ -34,6 +34,13 @@
 #   B5  the build always passes --no-sign (the bundler would otherwise sign a tarball of an
 #       unsigned app, and a keyless build would fail outright)
 #   B7  package-app.sh creates the staged frontend directory, so a clean checkout can build
+#   G1  a well-formed manifest VERIFIES with the plugin's own RemoteRelease type
+#   G2  ...a manifest with no entry for this platform is REFUSED
+#   G3  ...a manifest whose `signature` is not the .sig file beside the archive is REFUSED
+#   G4  ...a manifest announcing a URL other than the one the artifact will live at is REFUSED
+#   G5  ...an http URL is REFUSED
+#   G6  ...a version that is not strictly greater than the installed one is REFUSED
+#   B7  package-app.sh creates the staged frontend directory, so a clean checkout can build
 #   C1  the archive builder roots every member at one .app
 #   C2  ...preserves the executable bit
 #   C3  ...preserves symlinks rather than dereferencing them
@@ -185,6 +192,16 @@ else
       "without it the first build on a clean checkout exits 4 with 'Unable to find your web assets'"
 fi
 
+# A CLEAN CHECKOUT MUST BUILD. tauri-cli bails on `!frontendDist.exists()` before cargo runs,
+# and build.rs — which creates that directory — runs during the cargo build. On a tree nobody
+# has built, the first packaging run therefore failed outright until this existed.
+if grep -q 'staged_frontend_abs' "$SCRIPT"; then
+  ok "B7 package-app.sh creates the staged frontend directory, so a fresh clone can be packaged"
+else
+  bad "B7 package-app.sh creates the staged frontend directory" \
+      "without it the first build on a clean checkout exits 4 with 'Unable to find your web assets'"
+fi
+
 echo ""
 echo "=== C. the archive builder, against a real bundle skeleton ==="
 
@@ -303,6 +320,74 @@ cp "$TMP/art.bin" "$TMP/otherkey.bin"
 (cd "$APP/src-tauri" && cargo tauri signer sign -f "$OTHER" -p "" "$TMP/otherkey.bin" >/dev/null 2>&1)
 run env -C "$APP/src-tauri" "${VERIFY[@]}" "$TMP/otherkey.bin" "$TMP/otherkey.bin.sig" "$SUITE_CONF"
 expect "E3 a well-formed signature from ANOTHER key is REFUSED" 1 "REFUSED"
+
+echo "=== G. the update manifest, judged by the type that judges it on a customer's Mac ==="
+
+# `verify_update_manifest` deserializes into `tauri_plugin_updater::RemoteRelease` and looks
+# up `tauri_plugin_updater::target()`. Everything below is therefore the vendor's own parse
+# and the vendor's own platform key, not a restatement of either. The cases are the five
+# ways a manifest can be well-formed and still be a release nobody can install.
+MANIFEST_TARGET="$(python3 -c "
+import platform
+m = platform.machine()
+print('darwin-' + ('aarch64' if m in ('arm64','aarch64') else m))
+")"
+ART="$TMP/RichOS.app.tar.gz"
+printf 'not really a bundle, and it does not need to be\n' > "$ART"
+(cd "$APP/src-tauri" && cargo tauri signer sign -f "$KEY" -p "" "$ART" >/dev/null 2>&1)
+GOOD_SIG="$(cat "$ART.sig")"
+GOOD_URL="https://github.com/WebDevBooster/richos/releases/download/v0.1.1/RichOS.app.tar.gz"
+
+write_manifest() {  # write_manifest <path> <version> <target> <signature> <url>
+  python3 -c '
+import json, sys
+path, version, target, signature, url = sys.argv[1:6]
+json.dump({
+    "version": version,
+    "notes": "What changed, in plain language.",
+    "pub_date": "2026-09-04T12:00:00Z",
+    "platforms": {target: {"signature": signature, "url": url}},
+}, open(path, "w"), indent=2)
+' "$@"
+}
+
+VM=(cargo run -q --example verify_update_manifest --)
+
+write_manifest "$TMP/m-good.json" "0.1.1" "$MANIFEST_TARGET" "$GOOD_SIG" "$GOOD_URL"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-good.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G1 a well-formed manifest VERIFIES against the plugin's own RemoteRelease" 0 "VERIFIED"
+
+write_manifest "$TMP/m-platform.json" "0.1.1" "linux-x86_64" "$GOOD_SIG" "$GOOD_URL"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-platform.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G2 no entry for this platform -> REFUSED" 1 "no entry for platform key"
+
+OTHER_SIGNED="$TMP/other-signed.bin"
+cp "$ART" "$OTHER_SIGNED"
+(cd "$APP/src-tauri" && cargo tauri signer sign -f "$OTHER" -p "" "$OTHER_SIGNED" >/dev/null 2>&1)
+write_manifest "$TMP/m-sig.json" "0.1.1" "$MANIFEST_TARGET" "$(cat "$OTHER_SIGNED.sig")" "$GOOD_URL"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-sig.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G3 the manifest's signature is not the .sig beside the archive -> REFUSED" 1 "is NOT the contents of"
+
+write_manifest "$TMP/m-url.json" "0.1.1" "$MANIFEST_TARGET" "$GOOD_SIG" \
+    "https://github.com/WebDevBooster/richos/releases/download/v0.1.0/RichOS.app.tar.gz"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-url.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G4 a manifest announcing the wrong URL -> REFUSED" 1 "the manifest announces"
+
+write_manifest "$TMP/m-http.json" "0.1.1" "$MANIFEST_TARGET" "$GOOD_SIG" \
+    "http://github.com/WebDevBooster/richos/releases/download/v0.1.1/RichOS.app.tar.gz"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-http.json" "$ART" "$ART.sig" \
+        "http://github.com/WebDevBooster/richos/releases/download/v0.1.1/RichOS.app.tar.gz" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G5 an http download URL -> REFUSED" 1 "is not https"
+
+write_manifest "$TMP/m-version.json" "0.1.0" "$MANIFEST_TARGET" "$GOOD_SIG" "$GOOD_URL"
+run env -C "$APP/src-tauri" "${VM[@]}" "$TMP/m-version.json" "$ART" "$ART.sig" "$GOOD_URL" \
+        --current-version 0.1.0 --conf "$SUITE_CONF"
+expect "G6 a version that is not strictly greater -> REFUSED" 1 "only offers a STRICTLY greater version"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

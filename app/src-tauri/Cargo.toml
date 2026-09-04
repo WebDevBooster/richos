@@ -79,3 +79,9 @@ tokio = { version = "1", features = ["time"] }
 # disagree with the one that matters.
 minisign-verify = "0.2"
 base64 = "0.22"
+# `examples/verify_update_manifest.rs` — the same reasoning one level up. It compares an
+# offered version against an installed one with the ORDERING the updater uses
+# (`updater.rs:575`, `release.version > self.current_version`), and `RemoteRelease.version`
+# is already a `semver::Version`. Comparing those two as strings is the defect this avoids:
+# "0.1.10" sorts below "0.1.9" and the release nobody is offered looks perfect.
+semver = "1"
