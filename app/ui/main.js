@@ -61,6 +61,7 @@ const entityAddGoEl = el("entity-add-go");
 const chooseCompanyRowEl = el("composer-choose-company");
 const chooseCompanyBtnEl = el("choose-company-btn");
 const memorySetupEl = el("memory-setup");
+const memorySetupTitleEl = el("memory-setup-title");
 const memorySetupNoteEl = el("memory-setup-note");
 const memorySetupLocationEl = el("memory-setup-location");
 const memorySetupGoEl = el("memory-setup-go");
@@ -2829,12 +2830,18 @@ function maybeAskAboutSetup() {
 function openSetupSheet(ask, opts) {
   // THE TITLE COUNTS WHAT IS MISSING, in words, because "1 item" is a package manager's
   // sentence and this is a conversation.
-  setupTitleEl.textContent =
-    ask.items.length > 1
-      ? "There are a couple of things I need on this Mac."
-      : "There's one thing I need on this Mac.";
+  const several = ask.items.length > 1;
+  setupTitleEl.textContent = several
+    ? "There are a couple of things I need on this Mac."
+    : "There's one thing I need on this Mac.";
+  // AND THE SENTENCE UNDER IT COUNTS THE SAME WAY. It said "I can get them myself" under
+  // both titles, so a machine missing only the engine read "There's one thing I need on this
+  // Mac. I can get them myself" — the first screen a customer ever sees, disagreeing with
+  // itself in the second sentence (ray-opus-a1, finding 7, 2026-09-04).
   setupNoteEl.textContent = opts.canInstall
-    ? "I can get them myself — you just have to say so."
+    ? several
+      ? "I can get them myself — you just have to say so."
+      : "I can get it myself — you just have to say so."
     : "";
   setupNoteEl.hidden = !setupNoteEl.textContent;
 
@@ -2920,6 +2927,14 @@ async function runSetup() {
   // `complete` is the BACKEND'S answer, re-read from disk after the run rather than inferred
   // from "no step threw". A run whose steps all returned Ok and whose disk still says
   // something is missing must not say "I'm ready".
+  // THE HEADING MOVES WITH THE STATE. It kept counting what was missing after the run
+  // finished, so a successful install showed "There's one thing I need on this Mac." over
+  // "That's everything. I'm ready." — two sentences contradicting each other on screen at the
+  // same time (ray-opus-a1, finding 7, 2026-09-04). It is set from the same `next.complete`
+  // the note is, so the two cannot come apart again.
+  setupTitleEl.textContent = next && next.complete
+    ? "That's the setting up done."
+    : "I couldn't finish the setting up.";
   setupNoteEl.textContent = next && next.complete
     ? "That's everything. I'm ready."
     : "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.";
@@ -2980,11 +2995,36 @@ const MEMORY_DONE =
   "That's set up. From now on I'll keep what you tell me in that folder and read it back " +
   "when it matters.";
 /// ONE string for two moments — the boot that finds a corpus it cannot read, and the setup
-/// that finishes without the reader. It names the party, because he cannot fix it: the
-/// compiler ships from nowhere today (`BLOCKED.md`).
+/// that finishes without the reader.
+///
+/// IT NAMES NO PARTY, AND THAT IS THE FIX. Until 2026-09-04 it said *"It needs whoever set
+/// RichOS up to add it"*, which is the standard §21 shape for a state the CEO cannot clear —
+/// and it was written on this machine, where somebody else did set RichOS up. On a customer's
+/// Mac that person IS the reader: Andreas installs RichOS in his lunch break, accepts the
+/// memory folder, and the product's headline promise dead-ends on an instruction to fetch a
+/// third party who does not exist. Pointing a man at himself is worse than saying nothing.
+///
+/// WHY NOTHING IS OFFERED INSTEAD. The missing piece is the loro compiler — `loro-context.mjs`
+/// and `loro-write.mjs`, the read half and the write half. The setup sheet two screens earlier
+/// installs Claude Code and the engine because both have a route onto another machine; this
+/// one has none. `git ls-files` in the public product repo returns zero `loro/` files, the
+/// signed bundle's `Contents/Resources` holds `icon.icns` and nothing else, and the engine
+/// release asset is built from `engine/`, which contains no compiler either. The bytes exist
+/// only in the private `richos-hq` checkout. Publishing them is a decision about what ships
+/// publicly, and it belongs to the CEO — not to a sentence in the window.
+///
+/// SO THE SENTENCE TELLS HIM THREE THINGS, in his own frame: what does not work (this folder
+/// is not read or written), what still does (everything else — the conversations RichOS keeps
+/// in its own store, which is where the thread history, the ledger and the journal live and is
+/// untouched by any of this), and what he can do (nothing, and nothing is required of him).
+/// The last clause is a statement about the app's behavior and not a promise about a date:
+/// `resolve_tools` searches the install directory and the bundle's resources at every launch,
+/// so a compiler that appears is picked up with no action from him.
 const MEMORY_NO_READER =
-  "Your memory is on this Mac, but the part of me that reads it isn't installed here — so I " +
-  "can't read it back yet. It needs whoever set RichOS up to add it.";
+  "Your memory folder is on this Mac, and I can't read or write it yet — the part of me that " +
+  "does isn't in this version. Nothing else is affected: our conversations stay on this Mac " +
+  "and I pick them up when you come back. There's nothing for you to install and nothing for " +
+  "you to fix — I'll start using the folder on my own as soon as that part arrives.";
 
 async function refreshMemory() {
   memoryState = await invokeQuiet("memory_status");
@@ -2999,12 +3039,21 @@ function maybeAskAboutMemory() {
     openMemorySetup(MEMORY_ASK, memoryState.offered_location, { canProvision: true });
     return true;
   }
-  if (memoryState.state === "no-compiler") {
-    openMemorySetup(MEMORY_NO_READER, memoryState.root, { canProvision: false });
-    return true;
-  }
-  // `ready`, and `unusable` — which is an operator's problem with its own boot line and no
-  // sentence worth interrupting him with, since nothing in the window can act on it.
+  // `no-compiler` — SAID ONCE, WHEN HE ASKS FOR IT, AND NEVER AS A NAG.
+  //
+  // This branch used to open the dialog at every launch. On a provisioned machine with no
+  // compiler that is EVERY launch forever, so ray-opus-a1's first run found a permanent
+  // interruption rather than a one-time notice (finding 4, 2026-09-04) — and now that the
+  // sentence honestly ends "there's nothing for you to install and nothing for you to fix",
+  // repeating it every time he opens the app is the exact opposite of what it says.
+  //
+  // It is still shown at the moment it is the ANSWER TO SOMETHING HE DID: `provisionMemory`
+  // renders it the instant he presses "Set it up" and the corpus comes back unreadable. What
+  // is gone is the unprompted repeat.
+  //
+  // The same reasoning `unusable` has always had, and `ready`'s: an operator's problem with
+  // its own boot line and no sentence worth interrupting him with, since nothing in the
+  // window can act on it.
   return false;
 }
 
@@ -3039,8 +3088,24 @@ function closeMemorySetup() {
 async function provisionMemory() {
   memorySetupGoEl.disabled = true;
   let next;
+  // THE PATH HE WAS ASKED ABOUT, HELD ONCE. It is the argument the command is given and the
+  // string the next screen shows — one variable, not two reads that happen to agree.
+  //
+  // THE DEFECT THIS CLOSES (ray-opus-a1, first run of the installed v1.0.0, 2026-09-04): the
+  // sheet asked about the folder in his home directory, he pressed the button, and the result
+  // named the pointer in Application Support instead — a different location from the one he
+  // agreed to, on the one screen that is explicitly about trusting this app with his data.
+  // Nothing had moved: provision writes a symlink beside the corpus and the re-resolution
+  // finds that symlink first, so the answer comes back under the alias's name. The folder is
+  // right and the SENTENCE was wrong, and a careful person reading it concludes he was
+  // overruled about where his record lives.
+  //
+  // (No path is spelled out in this file. The suite forbids a corpus path in the surface at
+  // all — the location comes from the backend or not at all — and a path in a COMMENT is a
+  // second opinion waiting to drift from the one on screen.)
+  const consented = memoryState.offered_location;
   try {
-    next = await Bridge.invoke("provision_memory", { location: memoryState.offered_location });
+    next = await Bridge.invoke("provision_memory", { location: consented });
   } catch (e) {
     memorySetupNoteEl.textContent = String(e);
     memorySetupGoEl.disabled = false;
@@ -3057,7 +3122,15 @@ async function provisionMemory() {
   // it caches is known to be stale.
   await refreshDesk();
   const readable = next.state === "ready";
-  openMemorySetup(readable ? MEMORY_DONE : MEMORY_NO_READER, next.root, { canProvision: false });
+  // AND THE HEADING STOPS ASKING A QUESTION HE HAS ANSWERED. It is the dialog's accessible
+  // name and it stayed on "Where should I keep what you tell me?" over both endings, so the
+  // screen he actually reaches read as a question above its own answer — the same defect the
+  // setup sheet's heading had two screens earlier (ray-opus-a1, finding 7). One heading for
+  // both endings, because what follows it is about the folder in either case.
+  memorySetupTitleEl.textContent = "Your memory folder.";
+  // `consented`, and deliberately NOT `next.root`: the two name one directory, and the one he
+  // is owed is the one he answered a question about.
+  openMemorySetup(readable ? MEMORY_DONE : MEMORY_NO_READER, consented, { canProvision: false });
 }
 
 memorySetupGoEl.addEventListener("click", provisionMemory);

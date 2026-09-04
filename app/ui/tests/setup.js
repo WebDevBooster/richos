@@ -184,17 +184,34 @@ async function main() {
     assert(rows[0].why.length > 20, "a name with no explanation is a package list: " + rows[0].why);
     assert(/Anthropic/.test(rows[0].why), "who it comes from must be said: " + rows[0].why);
     assert(rows[1].why.length > 20, "the engine row explains nothing: " + rows[1].why);
-    // ONE ROW ONLY when one thing is missing, and the title agrees with the count.
-    await page.close();
+    // ONE ROW ONLY when one thing is missing, and the title agrees with the count. The
+    // two-piece page stays open so the singular and plural wordings are compared against each
+    // other rather than each against a memory of the other.
+    const page2 = page;
     const one = await openApp(browser, { setup: "missing-engine" });
     await one.waitForSelector("#setup-sheet:not([hidden])");
     const count = await one.evaluate(() => document.querySelectorAll("#setup-items li").length);
     assertEqual(count, 1, "only the engine is missing, so only one row");
     const title = (await one.textContent("#setup-title")).trim();
     assert(/one thing/.test(title), "the title must agree with the count: " + title);
-    bump(7);
+    // AND SO MUST THE SENTENCE UNDER IT. Until 2026-09-04 the note was plural under both
+    // titles, so this exact screen — the first a customer with Claude Code already installed
+    // ever sees — read "There's one thing I need on this Mac. I can get them myself"
+    // (ray-opus-a1, finding 7).
+    const oneNote = (await one.textContent("#setup-note")).trim();
+    assert(
+      /I can get it myself/.test(oneNote) && !/get them myself/.test(oneNote),
+      "one missing piece is an IT, not a THEM: " + JSON.stringify(title + " " + oneNote)
+    );
+    const bothNote = (await page2.textContent("#setup-note")).trim();
+    assert(
+      /I can get them myself/.test(bothNote),
+      "and two pieces are still a THEM: " + JSON.stringify(bothNote)
+    );
+    await page2.close();
+    bump(10);
     await one.close();
-    return "two rows and a plural title, one row and a singular one";
+    return "two rows and a plural title and note, one row and a singular title and note";
   });
 
   await run.check("5  a build that cannot install EXPLAINS instead of offering a button", async () => {
@@ -273,8 +290,22 @@ async function main() {
     // AND THE END IS THE BACKEND'S ANSWER, re-read from disk, not "no step threw".
     const done = (await page.textContent("#setup-note")).trim();
     assert(/ready/i.test(done), "the finished sheet must say so: " + done);
+    // AND THE HEADING AGREES WITH IT. It went on counting what was missing after the run, so
+    // a successful install showed "There's one thing I need on this Mac." directly above
+    // "That's everything. I'm ready." — two sentences contradicting each other on screen at
+    // the same time (ray-opus-a1, finding 7, 2026-09-04).
+    const heading = (await page.textContent("#setup-title")).trim();
+    assert(
+      !/I need on this Mac/.test(heading),
+      "the heading is still asking for what the body just said it has: " +
+        JSON.stringify(heading + " / " + done)
+    );
+    assert(
+      /done/.test(heading),
+      "the heading must say the state it is in: " + JSON.stringify(heading)
+    );
     assert(await page.isHidden("#setup-go"), "a finished sheet must not offer to do it again");
-    bump(6);
+    bump(8);
     await page.close();
     return "each step announced as it started; the ending came from the backend";
   });
