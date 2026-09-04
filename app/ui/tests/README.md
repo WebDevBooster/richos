@@ -27,6 +27,28 @@ still supported — it is now an opt-out rather than the only way in:
 RICHOS_PLAYWRIGHT=/path/to/node_modules/playwright node run.js
 ```
 
+## Making this machine behave like a runner
+
+The first public `ui-suite-ci` runs, 2026-09-04, were red on nine checks between them, and
+every one was a check that had folded the harness's own latency or the runner's own speed
+into a claim about the product. Two knobs exist so the next one of those can be reproduced
+here instead of argued about:
+
+```
+RICHOS_SPLASH_LAG_MS=2000 node splash.js
+```
+
+`page.goto()` resolves on `load`, and the opening curtain goes up long before that. The gap
+is 51-72 ms on this machine and was ~2,000 ms on a GitHub `macos-latest` runner, which is
+what made six splash checks red at once. This delays the harness's first instruction after
+every launch by that many milliseconds, so a fast machine measures what a slow one measures.
+Zero, and no delay at all, unless it is set.
+
+The other knob is not a variable: `home.js`'s WebGL check PLANTS the failure it is about
+(`getShaderParameter` refusing COMPILE_STATUS), because this machine's WebGL works and a
+check that passes for want of the defect is not a check. Do the same for anything else the
+runner can do and this machine cannot.
+
 `node_modules/` and `.shots/` are gitignored; `package-lock.json` is COMMITTED, because
 `npm ci` is the only install command that refuses to resolve anything not already written
 down and it does not run without one. The tests are the artifact; those PNGs are evidence for
