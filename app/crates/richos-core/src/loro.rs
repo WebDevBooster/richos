@@ -1279,6 +1279,26 @@ pub struct CorpusResolution {
 ///   inference `CONTEXT-CONTRACT.md` §1 names as worse than an error, and no candidate
 ///   above is derived from the executable, the working directory or the engine directory.
 /// - **It resolves a directory. It reads no memory.** Nothing here opens a record.
+/// Follow the product's OWN pointer to the directory it names.
+///
+/// Only ever applied to `~/Library/Application Support/RichOS/corpus`, which nothing but
+/// [`crate::provision::write_pointer`] creates. Anything else — a real directory an operator
+/// put there, a link this fails to read — is returned exactly as it was found, so a
+/// candidate that is not a pointer is never renamed by this function.
+fn through_pointer(candidate: PathBuf) -> PathBuf {
+    let Ok(target) = std::fs::read_link(&candidate) else { return candidate };
+    if target.is_absolute() {
+        return target;
+    }
+    // A relative link is resolved against the pointer's own directory, which is what the
+    // filesystem does with it. `provision` writes absolute targets, so this is the operator
+    // case and not the product's.
+    match candidate.parent() {
+        Some(parent) => parent.join(target),
+        None => target,
+    }
+}
+
 pub fn resolve_corpus(p: &CorpusPaths) -> CorpusResolution {
     let mut tried = Vec::new();
 
@@ -1316,6 +1336,21 @@ pub fn resolve_corpus(p: &CorpusPaths) -> CorpusResolution {
         let wants_repo_shape = matches!(source, CorpusSource::AppSupportRoot);
         let ok = if wants_repo_shape { repo_root_looks_valid(&dir) } else { provisioned_corpus_looks_valid(&dir) };
         if ok {
+            // THE POINTER IS AN ALIAS, AND AN ALIAS IS NOT A SECOND NAME FOR HIS RECORD.
+            // Candidate 3 is the symlink `provision::write_pointer` creates at the location
+            // the CEO agreed to, so resolving THROUGH it and reporting the pointer's own
+            // path renames his corpus behind his back: the consent sheet says
+            // `~/RichOS/corpus`, he presses the button, and the next screen — and every boot
+            // line after it — says `~/Library/Application Support/RichOS/corpus`. One
+            // directory, two names, on the one screen that is about trusting this app with
+            // his record.
+            //
+            // So the pointer is followed to the path it was given. The value below is
+            // therefore the value he consented to, byte for byte (`write_pointer` stores the
+            // absolute target `provision` was handed, and `provision` refuses a relative
+            // one), and it is the value `--corpus` is given, the value the boot line prints,
+            // and the value the window shows. Not two that happen to agree.
+            let dir = if matches!(source, CorpusSource::AppSupportCorpus) { through_pointer(dir) } else { dir };
             let root = if wants_repo_shape { LoroRoot::Root(dir) } else { LoroRoot::Corpus(dir) };
             return CorpusResolution { root: Some(root), source: Some(source), tried };
         }
@@ -1603,6 +1638,58 @@ mod locate_tests {
         assert!(r.source.is_none());
         assert_eq!(r.tried.len(), 3, "three per-user candidates, each named: {:?}", r.tried);
         assert!(r.tried.iter().all(|t| t.contains("not present")), "{:?}", r.tried);
+    }
+
+    /// THE PATH HE CONSENTED TO IS THE PATH HE GETS — the defect Andreas's first run found
+    /// on 2026-09-04.
+    ///
+    /// The consent sheet asked *"Where should I keep what you tell me?"* over
+    /// `~/RichOS/corpus`, he pressed the button, and the result screen reported
+    /// `~/Library/Application Support/RichOS/corpus`: `provision` wrote its pointer at the
+    /// second path, this resolver found the pointer first, and the pointer's OWN path became
+    /// the name of his corpus. Same directory, two names, on the one screen that is about
+    /// trusting the app with his record.
+    ///
+    /// The root below is the path he named. Not a second value that happens to equal it —
+    /// the link's own target.
+    #[test]
+    fn the_pointer_resolves_to_the_corpus_the_ceo_named_not_to_the_pointer() {
+        let home = tmp("pointer-alias");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        std::fs::create_dir_all(&support).unwrap();
+        let consented = home.join("RichOS").join("corpus");
+        provisioned(&consented);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&consented, support.join("corpus")).unwrap();
+
+        let r = resolve_corpus(&CorpusPaths { home: Some(home), ..Default::default() });
+        assert_eq!(
+            r.source,
+            Some(CorpusSource::AppSupportCorpus),
+            "the pointer is still the candidate that answered — following it is not pretending it was not there"
+        );
+        assert_eq!(
+            r.root.as_ref().map(|x| x.path().to_path_buf()),
+            Some(consented.clone()),
+            "the resolved root must be the directory the CEO agreed to, not the alias pointing at it"
+        );
+        assert!(
+            !r.root.unwrap().path().starts_with(&support),
+            "a corpus reported from inside Application Support is a corpus he never agreed to"
+        );
+    }
+
+    /// A REAL DIRECTORY AT THE POINTER'S PLACE IS LEFT ALONE. Following the link must not
+    /// become "rewrite candidate 3", which would be a second guess about where his record is.
+    #[test]
+    fn a_real_directory_at_the_pointer_location_is_reported_as_itself() {
+        let home = tmp("pointer-real-dir");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        provisioned(&support.join("corpus"));
+
+        let r = resolve_corpus(&CorpusPaths { home: Some(home), ..Default::default() });
+        assert_eq!(r.source, Some(CorpusSource::AppSupportCorpus));
+        assert_eq!(r.root.map(|x| x.path().to_path_buf()), Some(support.join("corpus")));
     }
 
     /// THE CASE THAT MAKES THE FIX REAL: the same empty environment, with the pointer the

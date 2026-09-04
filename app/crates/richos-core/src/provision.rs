@@ -896,6 +896,17 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(resolved.source, Some(crate::loro::CorpusSource::AppSupportCorpus));
+        // AND IT REPORTS THE PATH HE WAS ASKED ABOUT, not the pointer's own. End to end,
+        // from the location the consent sheet is given to the value every later screen and
+        // boot line prints: one directory with one name. Andreas's first run on 2026-09-04
+        // showed him `~/RichOS/corpus` on the sheet and
+        // `~/Library/Application Support/RichOS/corpus` on the result, which is this
+        // assertion, failing.
+        assert_eq!(
+            resolved.root.map(|r| r.path().to_path_buf()),
+            Some(corpus),
+            "the corpus the app uses must be named by the path the CEO consented to"
+        );
     }
 
     #[test]
