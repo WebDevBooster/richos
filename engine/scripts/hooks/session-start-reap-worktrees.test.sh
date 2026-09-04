@@ -145,6 +145,28 @@ else
     bad "W10  rc=$RC state=$STATE2 residue=$([ -f "$RES2" ] && echo yes || echo no) ctx=$CTX"
 fi
 
+# W10b A BLOCKED MEMBER LEADS THE VERDICT WORD. A quarantine locked by ANOTHER
+# agent can never be removed by this run and never by waiting; before
+# 2026-09-04 the same state printed the word PENDING with a retry count, which
+# is the shape of a condition under control. Thirty members read that way for a
+# full day. The word is the finding, so the word changes.
+REPO="$(make_repo blocked)"
+AID2B="a000000000ssr02b"
+add_tree "$REPO" "$AID2B"
+git -C "$REPO" worktree lock --reason "claude agent agent-a0000000000FOREIGN (pid 1 start now)" "$REPO/.claude/worktrees/agent-$AID2B"
+printf '{"kind":"native","teammate":"dev-opus-ssr2b","externals":[]}' | T intent --session-id "$SID" --tool-use-id tu-ssr2b >/dev/null
+T bind --session-id "$SID" --tool-use-id tu-ssr2b --agent-id "$AID2B" >/dev/null
+T start --session-id "$SID" --agent-id "$AID2B" --cwd "$REPO/.claude/worktrees/agent-$AID2B" >/dev/null
+T seal --session-id "$SID" --agent-id "$AID2B" >/dev/null
+T claim --session-id "$SID" --agent-id "$AID2B" --ingress SubagentStop >/dev/null
+run_hook "$REPO"; CTX="$(json_context "$OUT_HOOK")"
+if [ "$RC" -eq 0 ] && printf '%s' "$CTX" | grep -q 'worktree reconciler: BLOCKED' && printf '%s' "$CTX" | grep -q 'BLOCKED=1' \
+   && [ -d "$REPO/.claude/worktrees/agent-$AID2B.richos-terminal-${SID:0:8}-$AID2B" ]; then
+    ok "W10b a member blocked on a condition waiting cannot clear leads the verdict word with BLOCKED and carries its own count; the quarantine is untouched (INVERTED: it used to read PENDING with a retry count)"
+else
+    bad "W10b rc=$RC ctx=$CTX"
+fi
+
 # W11 the budget is honored (the hook must never hold a session start)
 REPO="$(make_repo budget)"
 AID3="a0000000000ssr03"
