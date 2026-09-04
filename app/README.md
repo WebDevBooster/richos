@@ -631,7 +631,7 @@ Two limits, stated rather than discovered later:
 cargo test -p richos-core                       # 694 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 163 tests
+cargo test -p richos-voice                      # 165 tests
 RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # + the audible live tests
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 

@@ -328,6 +328,63 @@ async function main() {
     return "one call site; the ordering is explicit in the source";
   });
 
+  // =======================================================================================
+  // VOICE IS NOT OFFERED ON A MACHINE THAT CANNOT TRANSCRIBE
+  // =======================================================================================
+  //
+  // Measured on published v1.0.0 by ray-opus-a1, 2026-09-04: the talk button asked for the
+  // microphone, showed "listening…" with a level meter and lit the orange menu-bar
+  // recording indicator for 25+ seconds. It never transcribed and never said it could not —
+  // and the first-run greeting invited it: "You can type, or tap ◉ to talk to me."
+  //
+  // The shipping bundle carries no whisper binary and no model, so on a customer's Mac the
+  // answer is always "no". This is that Mac.
+  await run.check("12  a customer's Mac is not offered voice, and is not invited to it", async () => {
+    const page = await openApp(browser, { setup: "missing-both", voice: "unavailable" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    // The window ASKED. A surface that decides this without asking is guessing.
+    const asked = await page.evaluate(() =>
+      window.__calls.some((c) => c.cmd === "voice_readiness")
+    );
+    assert(asked, "the window must ask voice_readiness before it decides");
+    // NOT OFFERED. `[hidden]{display:none!important}` is what makes this real — the button
+    // declares its own `display:flex`, which at equal specificity beats the UA rule.
+    assert(
+      await page.isHidden("#talk-toggle"),
+      "the talk button must not be offered on a machine with no speech model"
+    );
+    // AND NOT INVITED. The greeting must not name a control that cannot work.
+    await page.click("#setup-later");
+    const greeting = await page.evaluate(() => {
+      const n = document.querySelector("#messages .tl-prose");
+      return n ? n.textContent : "";
+    });
+    assert(!/tap ◉/.test(greeting), "the greeting still invites voice: " + greeting);
+    assert(!/talk to me/.test(greeting), "the greeting still invites voice: " + greeting);
+    bump(4);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "voice_readiness asked; ◉ absent; the greeting names only the composer";
+  });
+
+  // The OTHER half, and it is the half that proves the first is a decision rather than a
+  // deletion: a machine that can transcribe is still offered voice, and still invited.
+  await run.check("13  a machine that can transcribe keeps the invitation", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    assert(await page.isVisible("#talk-toggle"), "◉ must stay where voice can actually work");
+    await page.click("#setup-later");
+    const greeting = await page.evaluate(() => {
+      const n = document.querySelector("#messages .tl-prose");
+      return n ? n.textContent : "";
+    });
+    assert(/tap ◉ to talk to me/.test(greeting), "the invitation is missing: " + greeting);
+    bump(2);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "◉ present and the greeting invites it";
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,
@@ -385,3 +442,9 @@ main().catch((e) => {
 //  9   main.js `runSetup`: drop `setupGoEl.disabled = true`
 //        -> a double press starts two copies of Anthropic's installer
 // 10   main.js: add a second run_setup call site
+// 12   main.js `refreshVoiceReadiness`: default voiceAvailable to true on an unknown answer
+//        -> ◉ is offered on a machine with no speech model, and the mic goes hot
+// 12b  main.js `renderFirstRun`: append GREETING_VOICE_INVITE unconditionally
+//        -> the first sentence a customer reads names a control that cannot work
+// 13   main.js `refreshVoiceReadiness`: hide ◉ unconditionally
+//        -> voice is deleted rather than withheld, on every machine

@@ -2111,6 +2111,18 @@
         // Offered, and honest when pressed, which is the second of the two shapes the
         // 2026-09-04 voice fix allows.
         case "voice_readiness":
+          // A CUSTOMER'S MAC, on demand. `voice: "unavailable"` is what a fresh install
+          // reports — the bundle ships no whisper binary and no model — and it is the
+          // preset the first-run suite drives the not-offered affordance from.
+          if (preset.voice === "unavailable")
+            return {
+              available: false,
+              // VERBATIM from `SttError::ceo_message`, crates/richos-voice/src/stt.rs.
+              // The window does not render it (it hides the button instead); it is here so
+              // the preview reports what the product reports.
+              reason:
+                "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
+            };
           return { available: true, reason: null };
 
         case "update_relaunch":
