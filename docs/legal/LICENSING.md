@@ -59,7 +59,7 @@ RichOS bundles skills, tools and fonts written by other people. Each stays under
 the license it arrived with — Apache-2.0, MIT and the SIL Open Font License, all
 compatible with distributing the combined work under the AGPL.
 
-`docs/legal/THIRD-PARTY-NOTICES.md` is the inventory of what is BUNDLED: seven
+`docs/legal/THIRD-PARTY-NOTICES.md` is the inventory of what is BUNDLED: sixteen
 skills and tools, four font families, and the authoring-time tools that never
 ship. Each entry names the upstream, a pinned revision or a declared version,
 the copyright holder and the path to the full terms, and each was verified

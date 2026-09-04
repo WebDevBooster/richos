@@ -1,0 +1,61 @@
+THIRD-PARTY MATERIAL - copywriting
+
+This directory is somebody else's work, bundled into RichOS. It is not
+RichOS-authored and it is not covered by this repository's AGPL.
+
+  Source     https://github.com/coreyhaines31/marketingskills
+  Skill      skills/copywriting
+  Revision   68f5eaf64e858438db47e436d7a3bef0e9d69721 (2026-03-04)
+  Terms      MIT, from the upstream LICENSE file at that revision, reproduced
+             verbatim below
+
+VERIFIED 2026-09-04 against that revision. SKILL.md (7,533 bytes),
+evals/evals.json (8,158 bytes) and references/copy-frameworks.md (7,887 bytes)
+are byte-identical to upstream.
+
+ONE FILE IS MODIFIED, and this is the notice of it.
+references/natural-transitions.md differs from upstream in four lines, and in
+nothing but spelling. Two headings - "Emphasizing Key Points" and "Summarizing
+Sections" - carry the British -ising form upstream and the American -izing form
+here, and each appears twice, once in the contents list and once in the heading
+it points at. That is the whole difference: four lines, two words, no change of
+meaning and no change of guidance.
+
+The cause is not guessed; it is in this repository's own history, at commit
+06f4a8221a61500b90790383c8359d931391fe4f (2026-08-30), "docs(prose): US
+spelling in engine/scripts, engine/skills and root repo comments". That sweep
+enforces American spelling across the tree and cannot tell a vendored
+third-party file from one we wrote.
+
+MIT does not require a modified copy to say so. This says so anyway, because
+docs/legal/THIRD-PARTY-NOTICES.md must not call this skill byte-identical when
+it is not, and because a future byte comparison against upstream would
+otherwise look like a mystery.
+
+The four spellings were left as they are rather than reverted. Silently editing
+third-party content to make a provenance claim come true is the failure this
+notice exists to prevent; whoever owns the skill library can revert them with
+the fact in hand.
+
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2025 Corey Haines
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

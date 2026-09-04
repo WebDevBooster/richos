@@ -1,0 +1,56 @@
+THIRD-PARTY MATERIAL - use-railway
+
+This directory started as somebody else's work and has been edited here. It is
+not RichOS-authored and it is not covered by this repository's AGPL.
+
+  Source     https://github.com/railwayapp/railway-skills
+  Skill      plugins/railway/skills/use-railway
+  Revision   1b59fd592cd4413f3c325f139bf3f3afa99ee095 (2026-07-09), the revision
+             that declares skill version 1.3.5 - the version the bundled copy
+             declares in its own text
+  Terms      MIT, from the upstream LICENSE file at that revision, reproduced
+             verbatim below
+
+HOW THE REVISION WAS PINNED. All thirty upstream revisions of the skill were
+fetched and compared on 2026-09-04. This one is the closest: 24 differing lines
+out of roughly 600, against 34 for upstream's current main and 38 for the next
+nearest. It is also the revision whose declared version matches the bundled
+copy's, and it is five days older than the merge recorded in this project's
+source repository at 2026-07-14.
+
+THE DIFFERENCES, so that "modified" means something specific here.
+  - Two hyphens and one semicolon replaced by em dashes in one paragraph on
+    context resolution.
+  - One added command line: railway service status --all --json.
+  - One word: "the exact command the user must run" became "should run".
+  - One dropped step and the renumbering it forced: upstream's first step,
+    which routes deploy-from-cwd and signup-from-cwd straight to railway up,
+    is absent here, and the sub-bullets under the steps that remain are
+    indented four spaces rather than three.
+
+MIT does not require any of that to be disclosed. It is disclosed because
+docs/legal/THIRD-PARTY-NOTICES.md records this skill as modified, and a reader
+who wants to know what was modified should not have to diff it themselves.
+
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2026 Railway Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
