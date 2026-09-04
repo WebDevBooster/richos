@@ -1,0 +1,18 @@
+# Blank issues stay ON. The forms beside this file exist to make a good report
+# easy, not to make a report mandatory — a stranger who found a typo in a
+# document should not have to fill in a form about their operating system, and
+# friction at that moment costs more than a tidy issue tracker is worth.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Security vulnerability — do not open an issue
+    url: https://github.com/WebDevBooster/richos/security/policy
+    about: >-
+      A vulnerability goes through a private route, never a public issue. The
+      security policy has both routes and says what to expect back.
+  - name: Before you build something large
+    url: https://github.com/WebDevBooster/richos/blob/main/.github/CONTRIBUTING.md
+    about: >-
+      RichOS is an early source snapshot with one maintainer. The contribution
+      guide says what lands easily, what the AGPL means for you, and why asking
+      first is worth it.

@@ -1,0 +1,39 @@
+name: Idea or question
+description: A proposal, a design question, or "would you accept a pull request for this?"
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        **Asking before building is the point of this form.** RichOS is an early
+        source snapshot with one maintainer, and a pull request can be declined
+        for direction rather than for quality. Five minutes here can save an
+        evening.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What problem it solves
+      description: >-
+        The concrete situation you were in when you wanted it, rather than the
+        general case. Specific beats general here.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: offer
+    attributes:
+      label: Would you want to build it yourself?
+      options:
+        - "Yes, if the direction is agreed"
+        - "No, I am suggesting it"
+        - "Not sure yet"
+    validations:
+      required: true

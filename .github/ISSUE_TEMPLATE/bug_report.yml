@@ -1,0 +1,75 @@
+name: Bug report
+description: Something behaves differently from what the documentation says it does.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        **If this is a security vulnerability, close this form and use
+        [the security policy](https://github.com/WebDevBooster/richos/security/policy)
+        instead.** A vulnerability in a public issue is disclosed the moment you
+        press the button.
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit SHA
+      description: >-
+        RichOS has no releases and no tags, so the commit is the only way to name
+        a version. `git rev-parse HEAD` in your checkout.
+      placeholder: e.g. 06e7947a627f29f62c28ba350bee98814d57cb30
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - The application (app/)
+        - The engine — hooks, guards, skills (engine/)
+        - The companion tools (tools/)
+        - Packaging, signing or the updater (app/scripts/, src-tauri/)
+        - Documentation
+        - I am not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: >-
+        Include the exact command or the exact click. A short report beats a long
+        one that waits for polish.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+      description: >-
+        If a document told you to expect it, quote the document — a sentence that
+        is wrong is itself a defect worth fixing.
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      placeholder: e.g. macOS 15.6 on Apple Silicon
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output, logs or a stack trace
+      description: >-
+        Paste rather than screenshot where you can — pasted text is searchable
+        by the next person who hits this.
+      render: shell
+    validations:
+      required: false
