@@ -91,13 +91,13 @@ jobs:
         working-directory: tools/richos-service/companion-windows
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # windows-latest preinstalls .NET, but which version is the runner image's
       # business and not ours. Pinning 8.0.x is the whole reason the csproj files
       # can stay two-line-simple.
       - name: Set up .NET 8
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: "8.0.x"
 
