@@ -39,15 +39,25 @@ name: ui-suite-ci
 # The step below prints those counts, so the numbers are in the log rather than in a claim.
 #
 # WHAT IT DELIBERATELY DOES NOT COVER, named rather than skipped:
-#   - realbytes.js, PROBABLY. It shells out to `cargo run --example timeline_payload` in
-#     `app/src-tauri` — the detached workspace with the entire webview dependency tree behind
-#     it, which app-spine-ci.yml also keeps off its test path on purpose. On a cold checkout
-#     that is a 1.3 GB build measured at roughly a quarter of an hour, which is why the job
-#     below is given 45 minutes rather than the 20 the browser suites need. The runner image
-#     may or may not carry cargo; either way the suite is ALLOWED to skip by name, on the
-#     command line below, where it is visible. Allowed is not required: if it runs, it runs,
-#     and the gate says the allowance went unused. An UNANNOUNCED skip, by any suite, fails
-#     the run.
+#   - NOTHING, since 2026-09-04. realbytes.js used to be named here and allowed to skip,
+#     because nobody knew whether a fresh `macos-latest` image could afford the `cargo run
+#     --example timeline_payload` behind it — the detached `app/src-tauri` workspace with the
+#     entire webview dependency tree, estimated at a 1.3 GB build and roughly a quarter of an
+#     hour. The estimate was the reason for the allowance and it was never measured.
+#
+#     RUN 33872963879 MEASURED IT. The image carries cargo, the suite RAN, and the gate said
+#     so in as many words: `NOTE  --allow-skip=realbytes.js was passed and was not needed:
+#     realbytes.js ran here.` It took 2m16s of a 25m10s job against this file's 45-minute
+#     budget — 9% of the run and 5% of the ceiling — and reported 7 checks, 7 declared, 0
+#     failed. Timed off the log's own stamps: the suite before it reported at 12:43:04.737Z
+#     and realbytes reported at 12:45:20.937Z.
+#
+#     So the allowance is gone from the command line below. It cost nothing to keep and it
+#     was worth more than nothing to remove: while it stood, a runner image that dropped Rust
+#     would have taken this suite out silently-by-permission, and the ONE suite that renders
+#     the bytes the backend actually emits is the last one to lose quietly. Any skip by any
+#     suite now fails the run, which is the state the rest of this directory has always been
+#     in. The 45 minutes stay — they were sized for this build and it is still in the job.
 #   - §23 Phase 6, "every acceptance state in the real shell". These suites drive WebKit
 #     through Playwright, not through the Tauri shell, so Phase 6 is exactly as unproven
 #     after this workflow as before it. Nothing here closes it and nothing here should be
@@ -55,15 +65,21 @@ name: ui-suite-ci
 #   - Anything about the backend's own behavior. That is `cargo test -p richos-core`, in the
 #     workflow next to this one.
 #
-# WHAT THIS RUN HAS NEVER DONE. This file has not executed. It was written and exercised on
-# the machine that runs the suites locally — every command below was run against a pristine
-# copy of this tree with RICHOS_PLAYWRIGHT unset, and the transcript is in
-# `docs/verification/ui-suite-ci-2026-08-30/`. But no GitHub runner has ever fetched this
-# repository for it, installed a browser on a fresh macOS image, or opened WebKit there. The
-# first push is its first run and may well be red. It must not be described as "CI-verified"
-# until a run of THIS workflow is green on a SHA somebody can name — the same sentence
-# app-spine-ci.yml and windows-companion-ci.yml each carry, for the same reason, and one of
-# them is still waiting.
+# IT HAS NOW RUN, AND THE FIRST ONE WAS RED. Run 33872963879, on the SHA `richos` went public
+# with, 2026-09-04: 21 suites, 407 checks, 25m10s. `scale.js` failed 1 of 12 and `splash.js`
+# failed 8 of 25 — every one of them a check that measured the RUNNER and reported it as the
+# product, and every one of them green on the machine the suites were written on. The
+# diagnosis and the repairs are in the commits that carry this change; the short version is
+# that splash.js timed the curtain from the moment `page.goto()` returned (~55 ms after the
+# curtain here, ~2,000 ms there) and scale.js asserted an absolute frame budget with nothing
+# to compare it against.
+#
+# That run also showed `home.js` failing two checks and exiting 0, which `run.js` printed as
+# FAIL and counted as fine; both the suite and the gate are fixed.
+#
+# It still must not be described as "CI-verified" until a run of THIS workflow is GREEN on a
+# SHA somebody can name — the same sentence app-spine-ci.yml and windows-companion-ci.yml each
+# carry, for the same reason.
 #
 # RUN FROM A CLONE ON 2026-09-04, AND IT FOUND A FLAKE BEFORE A RUNNER DID. Every step below
 # was run verbatim inside a real `git clone` of `fc56c20`, in a directory holding nothing but
@@ -79,10 +95,14 @@ name: ui-suite-ci
 # edge as an element that holds still while sampling a fixed 30%-70% band of a bar whose fill
 # is inside it. It is reclassified, with the arithmetic, at the `MOVING` list in that file.
 #
-# THE POINT FOR WHOEVER WATCHES THE FIRST PUBLIC RUN: a GitHub runner is a shared VM and this
-# suite has now been shown to be load-sensitive. One flake was found and fixed; a second red
-# on a timing-shaped assertion should be reproduced under load before it is believed, and
-# reproduced a second time before it is dismissed.
+# THE POINT FOR WHOEVER WATCHES THE FIRST PUBLIC RUN, written before there was one and borne
+# out by it: a GitHub runner is a shared VM and this suite has been shown to be load-sensitive.
+# What the run added is that LOAD was not the whole story — the runner is also several times
+# slower, and the failures were not flakes but assertions that had folded the harness's own
+# latency into the product's clock. A timing-shaped red here is reproduced before it is
+# believed and reproduced again before it is dismissed, and `splash.js` now ships the knob for
+# the first half of that: `RICHOS_SPLASH_LAG_MS=2000 node splash.js` makes a fast machine
+# behave like that runner.
 
 on:
   push:
@@ -159,8 +179,8 @@ jobs:
             }).catch((e) => { console.error(e.message); process.exit(1); });
           "
 
-      # The gate. --allow-skip names the one suite that cannot run here, on the command line,
-      # where it is visible in the log and in this file; any OTHER suite that skips, reports
-      # no checks, or reports fewer than its source declares fails the run.
+      # The gate. NO suite is allowed to skip: `--allow-skip=realbytes.js` was removed on
+      # 2026-09-04 after run 33872963879 measured realbytes.js running here in 2m16s. A skip,
+      # no checks, or fewer checks than its source declares, by any suite, fails the run.
       - name: Every browser suite, under WebKit, with its counts
-        run: npm test -- --allow-skip=realbytes.js
+        run: npm test
