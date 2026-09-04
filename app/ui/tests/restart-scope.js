@@ -13,7 +13,7 @@
 //     streaming. It had no caller in any test.
 //   * The per-thread draft and scroll maps (§3.1) had no test, and the draft one is a
 //     PRIVACY control, not a convenience: an entity is a boundary (§1), so a half-written
-//     sentence for FemcBoost sitting in Deeply's composer is one Enter away from filing the
+//     sentence for Northwind Traders sitting in Lumen Labs's composer is one Enter away from filing the
 //     CEO's words in the wrong company.
 //   * The renderer's fence had one test, on ONE of its six entry points (`workers.js`,
 //     through `onActivityUpserted`). A seventh handler added tomorrow would inherit no
@@ -205,19 +205,19 @@ async function main() {
   });
 
   await run.check("§3.1/§9.2 a draft belongs to one thread and never follows the CEO out of its entity", async () => {
-    await open(page, "acme"); // FemcBoost
+    await open(page, "acme"); // Northwind Traders
     await page.fill("#input", "our walk-away number on Acme is");
-    await open(page, "partner"); // Deeply — another entity
-    const inDeeply = await page.inputValue("#input");
+    await open(page, "partner"); // Lumen Labs — another entity
+    const inLumen = await page.inputValue("#input");
     await page.fill("#input", "ask Hensley about the carry split");
     await open(page, "acme");
     const backInAcme = await page.inputValue("#input");
     await open(page, "partner");
-    const backInDeeply = await page.inputValue("#input");
+    const backInLumen = await page.inputValue("#input");
 
-    assertEqual(inDeeply, "", "FemcBoost's half-written sentence appeared in Deeply's composer");
+    assertEqual(inLumen, "", "Northwind Traders's half-written sentence appeared in Lumen Labs's composer");
     assertEqual(backInAcme, "our walk-away number on Acme is", "the draft was lost");
-    assertEqual(backInDeeply, "ask Hensley about the carry split", "the second draft was lost");
+    assertEqual(backInLumen, "ask Hensley about the carry split", "the second draft was lost");
     return "two drafts, two threads, two entities — each restored to its own, neither seen by the other";
   });
 
@@ -425,9 +425,9 @@ async function main() {
   // =====================================================================================
 
   await run.check("SCOPE: a turn streaming in another entity's thread renders nothing here", async () => {
-    await open(page, "partner"); // Deeply
+    await open(page, "partner"); // Lumen Labs
     // `simulateSlowTurn` streams a fixed word list that contains "comparables" — a word
-    // that appears nowhere in Deeply's own seeded conversation, so its presence here would
+    // that appears nowhere in Lumen Labs's own seeded conversation, so its presence here would
     // be unambiguous.
     await page.evaluate(() => window.__RICHOS_MOCK__.simulateSlowTurn("acme", "check the Acme numbers", 40));
     // Let it stream for a while with the wrong thread on screen.
@@ -437,10 +437,10 @@ async function main() {
 
     assert(
       !here.includes("check the Acme numbers"),
-      "FemcBoost's CEO message rendered inside Deeply's thread"
+      "Northwind Traders's CEO message rendered inside Lumen Labs's thread"
     );
-    assert(!here.includes("comparables"), "FemcBoost's streamed reply rendered inside Deeply's thread");
-    assert(here.includes("carry split"), "POSITIVE PROBE: Deeply's own conversation is not on screen either");
+    assert(!here.includes("comparables"), "Northwind Traders's streamed reply rendered inside Lumen Labs's thread");
+    assert(here.includes("carry split"), "POSITIVE PROBE: Lumen Labs's own conversation is not on screen either");
 
     // POSITIVE PROBE, the other half: the very same turn IS rendered in the thread it
     // belongs to. Without this the check above passes on a renderer that draws nothing.
@@ -450,8 +450,8 @@ async function main() {
     assert(there.includes("check the Acme numbers"), "the turn did not render in its OWN thread either: " + there.slice(0, 300));
 
     // AND THE SAME-ENTITY CASE, which is the one the entity clause cannot catch. `hiring`
-    // and `acme` are both FemcBoost, so only the fence's `threadId` clause stands between
-    // one FemcBoost conversation and another. Deleting that clause leaves the cross-ENTITY
+    // and `acme` are both Northwind Traders, so only the fence's `threadId` clause stands between
+    // one Northwind Traders conversation and another. Deleting that clause leaves the cross-ENTITY
     // half of this check passing — measured — which is why both halves are here.
     await open(page, "acme");
     await waitIdle(page); // acme's own turn, from the probe above, must have finished first
@@ -473,7 +473,7 @@ async function main() {
     assert(acmeBefore.ceo.length > 0, "POSITIVE PROBE: this thread had nothing on screen to protect");
     assert(
       !JSON.stringify(acmeDuring).includes("sibling thread, same entity"),
-      "a sibling FemcBoost thread's CEO message rendered in this FemcBoost thread"
+      "a sibling Northwind Traders thread's CEO message rendered in this Northwind Traders thread"
     );
     assertEqual(acmeDuring, acmeBefore, "the sibling thread's stream changed what this thread says");
     return "contained across entities AND across threads inside one entity; present in its own";
@@ -491,7 +491,7 @@ async function main() {
       const handlers = Object.keys(window.RichTimeline)
         .filter((k) => /^on[A-Z]/.test(k) && typeof window.RichTimeline[k] === "function")
         .sort();
-      const MINE = { entityId: "femcboost", threadId: "thr_fem", bindingRevision: 4 };
+      const MINE = { entityId: "northwind", threadId: "thr_fem", bindingRevision: 4 };
       // One payload per handler, shaped as its own event, correctly scoped.
       const ok = {
         onTurnStatus: { turnId: "turn_a", status: "working", startedAt: 1, activeDurationMs: null, visibility: "ceo" },
@@ -519,7 +519,7 @@ async function main() {
           // POSITIVE PROBE: correctly scoped, it is accepted. A handler that refuses
           // everything would otherwise score four perfect rejections.
           accepted: window.RichTimeline[h](model, base).rejected === false,
-          foreignEntity: call(Object.assign({}, base, { entityId: "deeply" })),
+          foreignEntity: call(Object.assign({}, base, { entityId: "lumen" })),
           foreignThread: call(Object.assign({}, base, { threadId: "thr_deeply" })),
           staleRevision: call(Object.assign({}, base, { bindingRevision: 3 })),
           laterRevision: window.RichTimeline[h](model, Object.assign({}, base, { bindingRevision: 9 })).rejected === false,
@@ -549,8 +549,8 @@ async function main() {
   await run.check("§25 duplicate events render once", async () => {
     const r = await page.evaluate(() => {
       const model = window.RichTimeline.createModel();
-      window.RichTimeline.bind(model, "femcboost", "thr_fem", 1);
-      const fence = { entityId: "femcboost", threadId: "thr_fem", turnId: "turn_a", bindingRevision: 1 };
+      window.RichTimeline.bind(model, "northwind", "thr_fem", 1);
+      const fence = { entityId: "northwind", threadId: "thr_fem", turnId: "turn_a", bindingRevision: 1 };
       window.RichTimeline.onTurnStatus(model, Object.assign({}, fence, {
         status: "working", startedAt: 1787948100000, activeDurationMs: null, visibility: "ceo", at: 1787948100000,
       }));

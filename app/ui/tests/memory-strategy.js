@@ -201,7 +201,7 @@ async function main() {
     assert(t.userText.includes("design a proper replacement for Claude auto memory"), "the prompt is the CEO's");
     assert(t.userText.includes("https://docs.anthropic.com/en/docs/claude-code/memory"), "URL 1 present");
     assert(t.userText.includes("https://code.claude.com/docs/en/memory"), "URL 2 present");
-    assert(t.userText.includes("/Users/alex/ab/richos/docs/plans/"), "a file path present");
+    assert(t.userText.includes("/Users/you/Projects/harbor/docs/plans/"), "a file path present");
     const composer = await a.evaluate(() => document.getElementById("input").value);
     assertEqual(composer, "", "§10.2: the composer clears after the message is accepted");
     // The bubble is the SHELL's optimistic one, re-keyed onto the real turn id.

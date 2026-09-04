@@ -52,6 +52,12 @@ const entityPickerEl = el("entity-picker");
 const entityPickerListEl = el("entity-picker-list");
 const entityPickerTitleEl = el("entity-picker-title");
 const entityPickerNoteEl = el("entity-picker-note");
+const entityAddEl = el("entity-add");
+const entityAddLeadEl = el("entity-add-lead");
+const entityAddNameEl = el("entity-add-name");
+const entityAddFolderEl = el("entity-add-folder");
+const entityAddErrorEl = el("entity-add-error");
+const entityAddGoEl = el("entity-add-go");
 const chooseCompanyRowEl = el("composer-choose-company");
 const chooseCompanyBtnEl = el("choose-company-btn");
 const memorySetupEl = el("memory-setup");
@@ -118,7 +124,7 @@ let draftEntityId = null; // §3.3: a draft thread bound to this entity, with NO
 let sendBlockedReason = null; // §21: non-null means send is refused, with this reason
 /// What the composer says when NOTHING is running (§9.1). Held as state because §9.2
 /// replaces it with "Add context or steer Rich…" while Rich works, and the idle text is
-/// view-dependent ("Talk to Rich about FemcBoost…" on an entity overview) — so it has to be
+/// view-dependent ("Talk to Rich about a named company…" on an entity overview) — so it has to be
 /// restored, not re-derived.
 let idlePlaceholder = "Talk to Rich…";
 const expandedEntities = new Set(); // entity ids whose "Show more" has been used
@@ -703,9 +709,17 @@ function showEntityView(entityId, mode) {
 
   // §3.5 also lists "current priorities from ECS" and §3.1's entity overflow lists
   // "Edit entity". Neither is rendered: there is no ECS priorities source wired into this
-  // app, and the entity registry is `EntityRegistry::dogfood()` — hard-coded on purpose so
-  // a missing or edited config file cannot silently move a privacy boundary. Saying so is
-  // better than an empty panel that implies the data is merely missing today.
+  // app, and editing an entity after it exists is not built.
+  //
+  // THE SECOND HALF OF THIS NOTE WAS TRUE AND IS NOT ANY MORE. It read "the entity registry
+  // is `EntityRegistry::dogfood()` — hard-coded on purpose so a missing or edited config
+  // file cannot silently move a privacy boundary". That argument was reasoning about one
+  // machine: on every other machine the hard-coded table published its author's company
+  // list and left the app with no company the person could actually use. The registry is
+  // his own file now (`docs/entity-registry.md`) and ADDING one is built — `register_entity`,
+  // in the picker. What is still absent is EDITING one that exists, which is what this note
+  // now says. Saying so is better than an empty panel that implies the data is merely
+  // missing today.
   // NAMES THE PARTY. It used to read "Priorities and entity editing aren't wired yet —
   // this area is defined in code, not settings." Every clause is true and every clause is
   // addressed to an engineer: "wired", "defined in code" and "settings" all describe a
@@ -2456,12 +2470,54 @@ const PICKER_NOTE_COMPANY =
   "I'll keep everything you tell me under the company you pick, and I'll remember it — " +
   "you won't be asked again. You can change it later in Settings.";
 
+/// The lead line above the add-a-company form, in its two states.
+///
+/// TWO, because the condition has two causes and they are not the same question. An install
+/// with companies already listed is being offered "and one more"; an install with NO
+/// companies has nothing to choose between, and the honest opening is that RichOS has not
+/// been told about any of his businesses yet — not a silent, empty dialog, which is what a
+/// registry-driven picker renders when the registry is empty.
+const ADD_COMPANY_LEAD_FIRST =
+  "I don't know about any of your companies yet. Tell me one and I'll start keeping its " +
+  "work together — you can add the rest whenever you like.";
+const ADD_COMPANY_LEAD_MORE = "Not one of these? Add it here.";
+
+/// What he is told when the registry file exists and could not be read.
+///
+/// A DIFFERENT SENTENCE from the empty one, deliberately. "You haven't told me yet" and "you
+/// told me and I can't read it" call for opposite responses, and answering the second with
+/// the first would invite him to re-enter a list that is already on disk one typo away from
+/// working — while quietly implying the one he wrote is gone.
+function registryUnreadableLine(path) {
+  return (
+    "Your list of companies is saved at " + path + ", and I couldn't read it just now, so " +
+    "I'm not showing any — rather than showing you a wrong list. That file is fixed by " +
+    "whoever set RichOS up. You can also add a company here in the meantime."
+  );
+}
+
 function openEntityPicker(onPick, opts) {
   const forCompany = !!(opts && opts.forCompany);
   entityPickerResolve = onPick;
   entityPickerTitleEl.textContent = forCompany ? PICKER_TITLE_COMPANY : PICKER_TITLE_THREAD;
   entityPickerNoteEl.textContent = forCompany ? PICKER_NOTE_COMPANY : "";
   entityPickerNoteEl.hidden = !forCompany;
+  // THE ADD FORM, and only for the question where "none of these" is a true answer.
+  // Choosing which company ONE thread is for is a choice among companies he has; being
+  // asked which company this COPY of Rich is for is the question a first launch asks, and
+  // before 2026-09-04 it had no answer at all for anyone but the app's author.
+  entityAddEl.hidden = !forCompany;
+  if (forCompany) {
+    const unreadable = entityChoice && entityChoice.registrySource === "unreadable";
+    const path = (entityChoice && entityChoice.registryPath) || "";
+    entityAddLeadEl.textContent = unreadable
+      ? registryUnreadableLine(path)
+      : navTree.groups.length
+        ? ADD_COMPANY_LEAD_MORE
+        : ADD_COMPANY_LEAD_FIRST;
+    entityAddErrorEl.hidden = true;
+    entityAddErrorEl.textContent = "";
+  }
   entityPickerListEl.innerHTML = "";
   for (const group of navTree.groups) {
     const b = document.createElement("button");
@@ -2485,8 +2541,13 @@ function openEntityPicker(onPick, opts) {
     entityPickerListEl.appendChild(b);
   }
   entityPickerEl.hidden = false;
+  // FOCUS GOES WHERE THE ANSWER IS. With companies listed that is the first row; with none
+  // listed the first row does not exist, and focusing nothing would leave a person looking
+  // at a dialog with no obvious way in — which is the same class of defect as the composer
+  // that held focus UNDER this dialog on 2026-09-01.
   const first = entityPickerListEl.querySelector(".picker-item");
   if (first) first.focus();
+  else if (!entityAddEl.hidden) entityAddNameEl.focus();
 }
 
 function closeEntityPicker() {
@@ -2523,14 +2584,17 @@ const COMPANY_UNCHOSEN_BLOCK =
   "and I'll take it from there.";
 
 function showCompanyBlock() {
-  sendBlockedReason = COMPANY_UNCHOSEN_BLOCK;
-  composerBlockedEl.textContent = COMPANY_UNCHOSEN_BLOCK;
+  const line = companyBlockLine();
+  sendBlockedReason = line;
+  composerBlockedEl.textContent = line;
   composerBlockedEl.hidden = false;
   chooseCompanyRowEl.hidden = false;
 }
 
 function clearCompanyBlock() {
-  if (sendBlockedReason === COMPANY_UNCHOSEN_BLOCK) sendBlockedReason = null;
+  if (sendBlockedReason === COMPANY_UNCHOSEN_BLOCK || sendBlockedReason === COMPANY_NONE_KNOWN_BLOCK) {
+    sendBlockedReason = null;
+  }
   composerBlockedEl.hidden = true;
   chooseCompanyRowEl.hidden = true;
 }
@@ -2546,6 +2610,16 @@ const COMPANY_PINNED_BLOCK =
   "outside this window, and I can't make sense of what it was told — so I won't file " +
   "anything until whoever set RichOS up has sorted it out.";
 
+/// What the composer says on a first launch, when there is no company to pick yet.
+///
+/// SEPARATE FROM `COMPANY_UNCHOSEN_BLOCK`, because "pick one" is not an instruction a person
+/// with an empty list can follow. Before 2026-09-04 this state was unreachable — the picker
+/// always had six companies in it, they belonged to the app's author, and for anybody else
+/// they were all wrong answers.
+const COMPANY_NONE_KNOWN_BLOCK =
+  "I don't know about any of your companies yet, so I've nothing to file this under. Tell " +
+  "me one and I'll take it from there.";
+
 function requireCompanyChoice() {
   if (entityChoice && entityChoice.pinnedByEnvironment) {
     sendBlockedReason = COMPANY_PINNED_BLOCK;
@@ -2556,6 +2630,12 @@ function requireCompanyChoice() {
   }
   showCompanyBlock();
   openEntityPicker(chooseCompany, { forCompany: true });
+}
+
+/// The composer's blocked line, in whichever of its two shapes is true right now.
+function companyBlockLine() {
+  const noneKnown = !!(entityChoice && Array.isArray(entityChoice.options) && entityChoice.options.length === 0);
+  return noneKnown ? COMPANY_NONE_KNOWN_BLOCK : COMPANY_UNCHOSEN_BLOCK;
 }
 
 /// The CEO answers. Durable on the Rust side before anything else happens, so he is asked
@@ -2580,6 +2660,59 @@ async function chooseCompany(entityId) {
   if (activeId && threadRow(activeId)) await openThread(activeId);
   syncComposerMode();
   inputEl.focus();
+}
+
+/// HE ADDS ONE OF HIS OWN COMPANIES.
+///
+/// `register_entity` writes the file BEFORE it moves anything in memory, and — when nothing
+/// has been chosen yet — makes the new company the one in force and opens a thread in it. So
+/// the first company a first-run user adds takes him straight from a blocked composer to a
+/// working conversation, with no relaunch, exactly as `chooseCompany` does for an existing
+/// one. This function is the same sequence as that one from `entityChoice = next` on, and
+/// that is on purpose: two paths to one state that refreshed different things would be two
+/// states.
+async function addCompany() {
+  const displayName = entityAddNameEl.value.trim();
+  const folder = entityAddFolderEl.value.trim();
+  entityAddErrorEl.hidden = true;
+  entityAddGoEl.disabled = true;
+  let next;
+  try {
+    next = await Bridge.invoke("register_entity", { displayName, folder: folder || null });
+  } catch (e) {
+    // Whatever the command refused with is written FOR HIM — a blank name, a folder that
+    // isn't there, a folder shared with a company he already has — so it is shown as it
+    // stands rather than replaced with a generic failure.
+    entityAddErrorEl.textContent = String(e);
+    entityAddErrorEl.hidden = false;
+    entityAddGoEl.disabled = false;
+    entityAddNameEl.focus();
+    return;
+  }
+  entityAddGoEl.disabled = false;
+  entityAddNameEl.value = "";
+  entityAddFolderEl.value = "";
+  entityChoice = next;
+  closeEntityPicker();
+  if (next && next.chosen) clearCompanyBlock();
+  refreshCompanySetting();
+  await refreshNavigation();
+  const activeId = next && next.active ? next.active.thread_id : null;
+  if (activeId && threadRow(activeId)) await openThread(activeId);
+  syncComposerMode();
+  inputEl.focus();
+}
+
+entityAddGoEl.addEventListener("click", addCompany);
+// Enter in either field submits, because a two-field form whose only commit is a button is
+// a form people press Enter in and nothing happens.
+for (const field of [entityAddNameEl, entityAddFolderEl]) {
+  field.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addCompany();
+    }
+  });
 }
 
 chooseCompanyBtnEl.addEventListener("click", () => openEntityPicker(chooseCompany, { forCompany: true }));

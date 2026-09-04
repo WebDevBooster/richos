@@ -34,12 +34,12 @@ const APP = "file://" + path.join(UI_DIR, "index.html");
 // `rich_message` text below stops at "part 34".
 // ---------------------------------------------------------------------------------------
 const STOPPED_ON_THE_WIRE = {
-  entityId: "richos",
+  entityId: "harbor",
   items: [
     {
       bindingRevision: 1,
       createdAt: 1787995711820,
-      entityId: "richos",
+      entityId: "harbor",
       id: "turn_ffd7cf12576040cfa1b6cbd188db711f:user",
       kind: "user_message",
       sequence: null,
@@ -53,7 +53,7 @@ const STOPPED_ON_THE_WIRE = {
     {
       bindingRevision: 1,
       createdAt: 1787995711856,
-      entityId: "richos",
+      entityId: "harbor",
       id: "turn_ffd7cf12576040cfa1b6cbd188db711f:text:0",
       kind: "rich_message",
       phase: "unknown",
@@ -73,7 +73,7 @@ const STOPPED_ON_THE_WIRE = {
       bindingRevision: 1,
       createdAt: 1787995711820,
       endedAt: 1787995712883,
-      entityId: "richos",
+      entityId: "harbor",
       id: "turn_ffd7cf12576040cfa1b6cbd188db711f:duration",
       kind: "work_duration",
       sequence: null,
@@ -115,7 +115,7 @@ function steeredOnTheWire() {
   snap.items.push({
     bindingRevision: 1,
     createdAt: 1787995712400,
-    entityId: "richos",
+    entityId: "harbor",
     id: t2 + ":user",
     kind: "user_message",
     sequence: null,
@@ -134,7 +134,7 @@ function steeredOnTheWire() {
     bindingRevision: 1,
     createdAt: 1787995712400,
     endedAt: 1787995712883,
-    entityId: "richos",
+    entityId: "harbor",
     id: t2 + ":duration",
     kind: "work_duration",
     sequence: null,

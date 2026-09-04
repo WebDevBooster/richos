@@ -367,11 +367,12 @@ window.RichHome = (function () {
   // -----------------------------------------------------------------------------------------
   // THE ENTITY ROW
   //
-  // The names come from the REGISTRY (`EntityRegistry::ceos_companies`, reached through the
-  // `entity_choice` command the company picker already uses), never from a list typed here.
-  // That is the requirement and it is the one with a history: a hardcoded copy is wrong the
-  // day he adds a company, and `richos` is ONE entity with two roots, which only the registry
-  // knows.
+  // The names come from the REGISTRY (the `entity_choice` command the company picker already
+  // uses), never from a list typed here. That is the requirement and it is the one with a
+  // history: a hardcoded copy is wrong the day he adds a company — and since 2026-09-04 the
+  // registry is HIS OWN FILE and can be empty, so a list typed here would be wrong on the
+  // first launch of every install. One entity can also own two folders, which only the
+  // registry knows.
   //
   // The row is built EMPTY-BUT-PRESENT at parse time and filled when the backend answers, so
   // the surface never depends on an async call to exist. Until it answers, the default chip is
@@ -414,8 +415,9 @@ window.RichHome = (function () {
       "data-entity": id,
       "aria-pressed": pressed ? "true" : "false",
       // BOTH LABELS IN THE ACCESSIBLE NAME. A screen reader announcing "1, button" tells its
-      // user nothing about which company that is; announcing only "FemcBoost" would leave the
-      // visible label out of the name, which is what SC 2.5.3 is about. `1 FemcBoost` is both.
+      // user nothing about which company that is; announcing only the company's name would
+      // leave the visible label out of the name, which is what SC 2.5.3 is about.
+      // `1 Northwind Traders` is both.
       "aria-label": rest === name ? name : rest + " " + name,
     });
     var track = elem("span", "home-chip-track");

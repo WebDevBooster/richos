@@ -34,7 +34,7 @@
 mod timeline_view;
 
 use richos_core::cognition::{Cognition, CognitionError, TurnItem};
-use richos_core::entity::EntityId;
+use richos_core::entity::{Entity, EntityId, EntityRegistry};
 use richos_core::journal::MachineryJournal;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::machinery::MachineryRecord;
@@ -149,6 +149,18 @@ fn main() {
 
     let ledger = Ledger::open(dir.join("ledger.jsonl")).expect("open ledger");
     let mut spine = Spine::new(ledger);
+    // A SPINE ARRIVES WITH NO COMPANIES since 2026-09-04. The registry is the person's own
+    // file (`docs/entity-registry.md`) and the shell installs it at boot; this fixture
+    // installs one company of its own, which is what the shell does and is one line. Before
+    // today `Spine::new` carried a `const` table of the app author's six real companies, and
+    // this example reached into it for `richos` — so it was, incidentally, a fixture that
+    // could only run on one man's list.
+    spine.set_entity_registry(
+        EntityRegistry::new(vec![
+            Entity::new("harbor", "Harbor Analytics", &["/Users/example/Projects/harbor"]).unwrap()
+        ])
+        .expect("one company is distinct from nothing"),
+    );
     spine.set_machinery_journal(MachineryJournal::new(dir.join("machinery")));
 
     // THE ENGINE'S WORKER-LIFECYCLE STREAM, in the emitters' own format
@@ -178,7 +190,7 @@ fn main() {
     )
     .expect("worker stream");
     spine.set_worker_events(WorkerEventsSource::File(worker_stream.clone()));
-    let entity = EntityId::parse("richos").expect("entity");
+    let entity = EntityId::parse("harbor").expect("entity");
     let thread = spine.create_thread("Timeline payload proof", &entity).expect("thread");
 
     // ---- turn 1: prose, three reads, a status-less command, more prose ------------------

@@ -48,17 +48,23 @@ const contrastLib = require("./lib/contrast");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = path.join(__dirname, "shots-home");
 
-/// His six, as `EntityRegistry::ceos_companies` holds them (richos-core entity.rs:227-238) and
-/// in its order. Written down HERE so the suite can prove the row is the registry's rather than
-/// merely non-empty — a row that had drifted to four, which is what `mock.js` carried until
-/// today, would otherwise pass every other check in this file.
+/// The harness's six companies, as `mock.js` holds them and in its order. Written down HERE
+/// so the suite can prove the row is the registry's rather than merely non-empty — a row that
+/// had drifted to four, which is what `mock.js` carried until 2026-09-01, would otherwise pass
+/// every other check in this file.
+///
+/// THEY BELONG TO NOBODY, and they used to be the CEO's own six. `mock.js` ships — `build.rs`
+/// stages `app/ui` into `ui-dist` and Tauri embeds every file under it in the executable — so
+/// that fixture put one man's company list inside every copy of RichOS ever built. The
+/// registry is per-user since 2026-09-04 and its shipping default is empty; a harness fixture
+/// is the only place a company list belongs.
 const REGISTRY = [
-  ["femcboost", "FemcBoost"],
-  ["deeply", "Deeply"],
-  ["prospects", "Prospects"],
-  ["richos", "RichOS"],
-  ["gpt-exporter", "GPT Exporter"],
-  ["webinar-booster", "Webinar Booster"],
+  ["northwind", "Northwind Traders"],
+  ["lumen", "Lumen Labs"],
+  ["meridian", "Meridian Group"],
+  ["harbor", "Harbor Analytics"],
+  ["tidewater", "Tidewater Films"],
+  ["kestrel", "Kestrel Supply"],
 ];
 
 /// The row as it renders: the ids, what each button SAYS at rest, and the name each one is
@@ -494,7 +500,7 @@ async function main() {
     assertEqual(r.aria.slice(1), REGISTRY.map((e, i) => String(i + 1) + " " + e[1]), "a numbered button does not name its company to assistive technology");
     assertEqual(state.count, 6, "the row is not carrying his six companies");
     // `richos` is ONE entity with TWO roots. A row built from directories would show two.
-    assertEqual(r.ids.filter((i) => i === "richos").length, 1, "richos appeared more than once — two roots became two buttons");
+    assertEqual(r.ids.filter((i) => i === "harbor").length, 1, "richos appeared more than once — two roots became two buttons");
     return `${r.rest.join(" ")} — and behind them, in registry order: ${r.names.slice(1).join(", ")}`;
   });
 
@@ -507,19 +513,19 @@ async function main() {
     assertEqual(before.entity, "", "the default is not recorded as the selection");
     // The buttons do NOTHING to the picture in v1 — but they are real controls, not decoration.
     const framesBefore = await page.evaluate(() => window.__loro.frames);
-    await page.click('.home-chip[data-entity="deeply"]');
+    await page.click('.home-chip[data-entity="lumen"]');
     const after = await page.evaluate(() => ({
       pressed: Array.from(document.querySelectorAll('.home-chip[aria-pressed="true"]')).map((c) => c.querySelector(".home-chip-name").textContent),
       entity: window.RichHome.state.entity,
       disabled: !!document.querySelector(".home-chip[disabled]"),
       N: window.__loro.N,
     }));
-    assertEqual(after.pressed, ["Deeply"], "the selection did not move to the button that was pressed");
-    assertEqual(after.entity, "deeply", "the selection is not carried as the entity id");
+    assertEqual(after.pressed, ["Lumen Labs"], "the selection did not move to the button that was pressed");
+    assertEqual(after.entity, "lumen", "the selection is not carried as the entity id");
     assert(!after.disabled, "a button is disabled — these are real controls with an effect that is not built yet, not dead ones");
     assertEqual(after.N, 7500, "the picture changed — v1 filtering is NOT in scope and must not have shipped");
     await page.click('.home-chip[data-entity=""]');
-    return `default pressed on arrival; pressing Deeply moves the selection and leaves the picture at 7,500 (frames ${framesBefore} -> ${await page.evaluate(() => window.__loro.frames)})`;
+    return `default pressed on arrival; pressing Lumen Labs moves the selection and leaves the picture at 7,500 (frames ${framesBefore} -> ${await page.evaluate(() => window.__loro.frames)})`;
   });
 
   await run.check("the row is ONE line of discs, centered, and does NOT fill the gap between the two columns", async () => {
@@ -570,7 +576,7 @@ async function main() {
   await run.check("every numbered button is a DISC — width equal to height, not a shrunken capsule", async () => {
     // The check before this one leaves a selection moving. A pill measured mid-slide is a
     // lozenge by construction, which is how this first ran: `2` came back 84x33 because
-    // "Deeply" was still collapsing. `--home-chip-slide` is 240ms.
+    // "Lumen Labs" was still collapsing. `--home-chip-slide` is 240ms.
     await page.waitForFunction(
       () => Array.from(document.querySelectorAll('.home-chip:not([aria-pressed="true"])')).every((c) => {
         const b = c.getBoundingClientRect();
@@ -605,7 +611,7 @@ async function main() {
     // implemented, and what this checks, is his sentence and nothing more: THE EXPANSION IS
     // THE SELECTION.
     const before = await page.evaluate(() => {
-      const c = document.querySelector('.home-chip[data-entity="webinar-booster"]');
+      const c = document.querySelector('.home-chip[data-entity="kestrel"]');
       const nm = c.querySelector(".home-chip-name");
       const cs = getComputedStyle(c.querySelector(".home-chip-track"));
       return {
@@ -624,12 +630,12 @@ async function main() {
     assert(before.nameLeft < before.pillLeft, `the hidden name is not parked left of the pill (name at ${before.nameLeft}, pill at ${before.pillLeft})`);
     assertEqual(before.overflow, "hidden", "the pill does not clip its track — the second label would be sitting in the open");
 
-    await page.click('.home-chip[data-entity="webinar-booster"]');
+    await page.click('.home-chip[data-entity="kestrel"]');
     // MID-SLIDE, at about a third of the duration: the name has left its parking position and
     // has not arrived. A reveal that were a swap would show nothing here.
     await page.waitForTimeout(80);
     const mid = await page.evaluate(() => {
-      const c = document.querySelector('.home-chip[data-entity="webinar-booster"]');
+      const c = document.querySelector('.home-chip[data-entity="kestrel"]');
       return {
         pill: Math.round(c.getBoundingClientRect().width),
         nameLeft: Math.round(c.querySelector(".home-chip-name").getBoundingClientRect().left),
@@ -639,7 +645,7 @@ async function main() {
 
     await page.waitForTimeout(400);
     const after = await page.evaluate(() => {
-      const c = document.querySelector('.home-chip[data-entity="webinar-booster"]');
+      const c = document.querySelector('.home-chip[data-entity="kestrel"]');
       const nm = c.querySelector(".home-chip-name");
       const num = c.querySelector(".home-chip-rest");
       return {
@@ -652,7 +658,7 @@ async function main() {
         rowH: Math.round(document.getElementById("home-entities").getBoundingClientRect().height),
         rowRows: new Set(Array.from(document.querySelectorAll(".home-chip")).map((x) => Math.round(x.getBoundingClientRect().top))).size,
         rowW: Math.round(document.getElementById("home-entities").getBoundingClientRect().width),
-        others: Array.from(document.querySelectorAll('.home-chip:not([data-entity="webinar-booster"])')).map((x) => x.querySelector(".home-chip-rest").textContent),
+        others: Array.from(document.querySelectorAll('.home-chip:not([data-entity="kestrel"])')).map((x) => x.querySelector(".home-chip-rest").textContent),
         pressedNames: Array.from(document.querySelectorAll('.home-chip[aria-pressed="true"] .home-chip-name')).map((x) => x.textContent),
       };
     });
@@ -666,7 +672,7 @@ async function main() {
     assert(after.nameLeft >= after.pillLeft && after.nameRight <= after.pillRight + 1, "the revealed name is not inside its pill");
     assert(after.numLeft >= after.pillRight - 1, "the number is still inside the pill it was replaced on");
     // ONE name out, and it is the selected one — the whole of the placeholder rule.
-    assertEqual(after.pressedNames, ["Webinar Booster"], "more or fewer than one company's name is out");
+    assertEqual(after.pressedNames, ["Kestrel Supply"], "more or fewer than one company's name is out");
     assertEqual(after.others, ["All", "1", "2", "3", "4", "5"], "the other buttons did not stay on their numbers");
     // AND THE COMPOSITION DID NOT MOVE. His longest name is the worst case for this.
     assertEqual(after.rowH, before.rowH, "the row got taller when a name came out — the whole composition sits on that height");
@@ -687,24 +693,24 @@ async function main() {
 
   await run.check("clearing a label puts the NUMBER back — a customer's own label is the exception, not the default", async () => {
     await page.evaluate(async () => {
-      await window.RichBridge.invoke("set_home_entity_label", { entityId: "webinar-booster", label: "WB" });
+      await window.RichBridge.invoke("set_home_entity_label", { entityId: "kestrel", label: "WB" });
       await window.RichHome.reloadEntities();
     });
     const typed = await page.evaluate(READ_ROW);
     assertEqual(typed.rest, ["All", "1", "2", "3", "4", "5", "WB"], "a customer's own label did not replace the number on its button");
-    assertEqual(typed.names[6], "Webinar Booster", "the company's real name stopped being what the button reveals");
+    assertEqual(typed.names[6], "Kestrel Supply", "the company's real name stopped being what the button reveals");
     await page.evaluate(async () => {
-      await window.RichBridge.invoke("set_home_entity_label", { entityId: "webinar-booster", label: null });
+      await window.RichBridge.invoke("set_home_entity_label", { entityId: "kestrel", label: null });
       await window.RichHome.reloadEntities();
     });
     const cleared = await page.evaluate(READ_ROW);
     assertEqual(cleared.rest, ["All", "1", "2", "3", "4", "5", "6"], "clearing the override did not put the number back");
-    return `typed "WB" -> All 1 2 3 4 5 WB, still revealing "Webinar Booster"; cleared -> All 1 2 3 4 5 6`;
+    return `typed "WB" -> All 1 2 3 4 5 WB, still revealing "Kestrel Supply"; cleared -> All 1 2 3 4 5 6`;
   });
 
   await run.check("with one company shown the row is ABSENT, and the composition is the round's", async () => {
     await page.evaluate(async () => {
-      for (const id of ["deeply", "prospects", "richos", "gpt-exporter", "webinar-booster"]) {
+      for (const id of ["lumen", "meridian", "harbor", "tidewater", "kestrel"]) {
         await window.RichBridge.invoke("set_home_entity_visible", { entityId: id, visible: false });
       }
       await window.RichHome.reloadEntities();
@@ -722,7 +728,7 @@ async function main() {
     assertEqual(r.brandTop, 30, "the mark is not back at the round's own 30px");
     // ...and back again, so this is not a one-way door either.
     await page.evaluate(async () => {
-      for (const id of ["deeply", "prospects", "richos", "gpt-exporter", "webinar-booster"]) {
+      for (const id of ["lumen", "meridian", "harbor", "tidewater", "kestrel"]) {
         await window.RichBridge.invoke("set_home_entity_visible", { entityId: id, visible: true });
       }
       await window.RichHome.reloadEntities();
@@ -732,14 +738,14 @@ async function main() {
     // AND THE NUMBERING FOLLOWS WHAT IS SHOWN, not the registry. Hide the middle two and the
     // rest close up rather than leaving gaps where they were.
     await page.evaluate(async () => {
-      for (const id of ["prospects", "richos"]) await window.RichBridge.invoke("set_home_entity_visible", { entityId: id, visible: false });
+      for (const id of ["meridian", "harbor"]) await window.RichBridge.invoke("set_home_entity_visible", { entityId: id, visible: false });
       await window.RichHome.reloadEntities();
     });
     const gapped = await page.evaluate(READ_ROW);
     assertEqual(gapped.rest, ["All", "1", "2", "3", "4"], "the numbering left holes where the hidden companies were");
-    assertEqual(gapped.names.slice(1), ["FemcBoost", "Deeply", "GPT Exporter", "Webinar Booster"], "the row is not the shown companies in registry order");
+    assertEqual(gapped.names.slice(1), ["Northwind Traders", "Lumen Labs", "Tidewater Films", "Kestrel Supply"], "the row is not the shown companies in registry order");
     await page.evaluate(async () => {
-      for (const id of ["prospects", "richos"]) await window.RichBridge.invoke("set_home_entity_visible", { entityId: id, visible: true });
+      for (const id of ["meridian", "harbor"]) await window.RichBridge.invoke("set_home_entity_visible", { entityId: id, visible: true });
       await window.RichHome.reloadEntities();
     });
     return `1 company shown -> row absent, inset 0px, mark back at y=30; 6 shown -> All 1..6 again; 4 shown -> All 1 2 3 4 with no holes`;
@@ -918,8 +924,8 @@ async function main() {
       { name: "the live dot", sel: "#home-live li .dot", needs: 3, kind: "paint", ringGap: 9, ringWidth: 4 },
       // The label is in a span now — a chip carries two of them and the button itself has no
       // text node, so measuring the button would measure its box and not its glyphs.
-      { name: "a numbered button", sel: '.home-chip[data-entity="femcboost"] .home-chip-rest', needs: 4.5 },
-      { name: "a numbered button's edge", sel: '.home-chip[data-entity="femcboost"]', needs: 3, kind: "edge" },
+      { name: "a numbered button", sel: '.home-chip[data-entity="northwind"] .home-chip-rest', needs: 4.5 },
+      { name: "a numbered button's edge", sel: '.home-chip[data-entity="northwind"]', needs: 3, kind: "edge" },
       { name: '"All", selected', sel: '.home-chip[data-entity=""] .home-chip-rest', needs: 4.5 },
       // The selected chip's indicator is its FILL — its border is struck in the same tone, so
       // an `edge` measurement would be the fill against itself. What it owes 3:1 to is what
@@ -959,8 +965,8 @@ async function main() {
       { name: "the door's label", sel: "#home-enter .home-enter-label", needs: 4.5 },
       { name: "the door's edge", sel: "#home-enter", needs: 3, kind: "edge", padX: 24 },
       { name: '"Enter" under the door', sel: "#home-door-cap", needs: 4.5 },
-      { name: "a numbered button", sel: '.home-chip[data-entity="femcboost"] .home-chip-rest', needs: 4.5 },
-      { name: "a numbered button's edge", sel: '.home-chip[data-entity="femcboost"]', needs: 3, kind: "edge" },
+      { name: "a numbered button", sel: '.home-chip[data-entity="northwind"] .home-chip-rest', needs: 4.5 },
+      { name: "a numbered button's edge", sel: '.home-chip[data-entity="northwind"]', needs: 3, kind: "edge" },
     ];
     const seen = {};
     for (const theme of ["dark", "light"]) {
@@ -1013,7 +1019,7 @@ async function main() {
     // A numeral a CEO is meant to aim at is not fine print — the discs take §15's 16px reading
     // floor, exactly as the names they hide do.
     const disc = r.find((x) => x.text === "1");
-    const name = r.find((x) => x.text === "FemcBoost");
+    const name = r.find((x) => x.text === "Northwind Traders");
     assertEqual(disc && disc.px, 16, "the numbered buttons are not at §15's 16px reading floor");
     assertEqual(name && name.px, 16, "the names behind them are not at 16px either");
     return `${r.length} rendered strings, sizes ${sizes.join("/")}px, smallest ${sizes[0]}px; the company buttons are 16px, numbered and named alike`;
@@ -1309,7 +1315,7 @@ async function main() {
     await page.waitForFunction(() => !document.getElementById("home").hidden);
     await page.evaluate(() => window.RichHome.openSettings());
     await page.waitForFunction(() => document.querySelectorAll(".home-prefs-row").length > 0);
-    await page.focus('.home-prefs-label[data-entity="femcboost"]');
+    await page.focus('.home-prefs-label[data-entity="northwind"]');
     await page.keyboard.press("Enter");
     await page.waitForTimeout(150);
     const stillHome = await page.evaluate(() => window.RichHome.isOpen());
@@ -1383,11 +1389,11 @@ async function main() {
     await page.evaluate(() => window.RichTheme.setTheme("dark"));
     await page.evaluate(() => window.RichHome.openSettings());
     await page.waitForFunction(() => document.querySelectorAll(".home-prefs-row").length > 0);
-    await page.fill('.home-prefs-label[data-entity="webinar-booster"]', "WB");
-    await page.evaluate(() => document.querySelector('.home-prefs-label[data-entity="webinar-booster"]').blur());
+    await page.fill('.home-prefs-label[data-entity="kestrel"]', "WB");
+    await page.evaluate(() => document.querySelector('.home-prefs-label[data-entity="kestrel"]').blur());
     await page.waitForFunction(() => Array.from(document.querySelectorAll(".home-chip-rest")).some((c) => c.textContent === "WB"));
-    await page.uncheck('.home-prefs-show input[data-entity="gpt-exporter"]');
-    await page.waitForFunction(() => !Array.from(document.querySelectorAll(".home-chip-name")).some((c) => c.textContent === "GPT Exporter"));
+    await page.uncheck('.home-prefs-show input[data-entity="tidewater"]');
+    await page.waitForFunction(() => !Array.from(document.querySelectorAll(".home-chip-name")).some((c) => c.textContent === "Tidewater Films"));
     const r = await page.evaluate(() => ({
       labels: Array.from(document.querySelectorAll(".home-chip-rest")).map((c) => c.textContent),
       names: Array.from(document.querySelectorAll(".home-chip-name")).map((c) => c.textContent),
@@ -1396,18 +1402,18 @@ async function main() {
       panelRows: document.querySelectorAll(".home-prefs-row").length,
     }));
     assert(r.labels.includes("WB"), "the typed label did not reach the home screen");
-    assert(!r.names.includes("GPT Exporter"), "the hidden company is still on the home screen");
+    assert(!r.names.includes("Tidewater Films"), "the hidden company is still on the home screen");
     // With one company off the row the numbering closes up: five shown, numbered 1-5, and the
     // one carrying a label of its own keeps it.
     assertEqual(r.labels, ["All", "1", "2", "3", "4", "WB"], "the numbering did not follow what is shown: " + JSON.stringify(r.labels));
     assertEqual(r.panelRows, 6, "the hidden company vanished from the panel too");
     assert(/5 of 6/.test(r.foot), "the count line does not say what is showing: " + r.foot);
     // put it back
-    await page.check('.home-prefs-show input[data-entity="gpt-exporter"]');
-    await page.fill('.home-prefs-label[data-entity="webinar-booster"]', "");
-    await page.evaluate(() => document.querySelector('.home-prefs-label[data-entity="webinar-booster"]').blur());
+    await page.check('.home-prefs-show input[data-entity="tidewater"]');
+    await page.fill('.home-prefs-label[data-entity="kestrel"]', "");
+    await page.evaluate(() => document.querySelector('.home-prefs-label[data-entity="kestrel"]').blur());
     await page.evaluate(() => window.RichHome.closeSettings());
-    return `typed "WB" -> button says WB; unchecked GPT Exporter -> off the row, still in the panel, "${r.foot}"`;
+    return `typed "WB" -> button says WB; unchecked Tidewater Films -> off the row, still in the panel, "${r.foot}"`;
   });
 
   // -------------------------------------------------------------------------------------

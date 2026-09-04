@@ -352,7 +352,7 @@ async function main() {
     // NOT be flagged — and requires them to agree message for message.
     const r = await page.evaluate(() => {
       const model = window.RichTimeline.createModel();
-      window.RichTimeline.bind(model, "femcboost", "thr_steer", 1);
+      window.RichTimeline.bind(model, "northwind", "thr_steer", 1);
       const T = 1787000000000;
       //
       // THE LIVE TURN IS LAST ON PURPOSE. Its span is open-ended (`to: Infinity`), so every
@@ -382,19 +382,19 @@ async function main() {
       const items = [];
       for (const [id, promptAt, startedAt, activeMs, live] of spec) {
         items.push({
-          kind: "user_message", id: "turn_" + id + ":user", entityId: "femcboost", threadId: "thr_steer",
+          kind: "user_message", id: "turn_" + id + ":user", entityId: "northwind", threadId: "thr_steer",
           turnId: "turn_" + id, bindingRevision: 1, createdAt: promptAt, slot: "opening", sequence: null,
           visibility: "ceo", text: "prompt " + id, source: "text",
         });
         items.push({
-          kind: "work_duration", id: "turn_" + id + ":duration", entityId: "femcboost", threadId: "thr_steer",
+          kind: "work_duration", id: "turn_" + id + ":duration", entityId: "northwind", threadId: "thr_steer",
           turnId: "turn_" + id, bindingRevision: 1, createdAt: promptAt, slot: "terminal", sequence: null,
           visibility: "ceo", state: live ? "working" : "completed", startedAt: startedAt,
           endedAt: activeMs === null ? null : startedAt + activeMs, activeMs: activeMs,
         });
       }
       window.RichTimeline.applySnapshot(model, {
-        entityId: "femcboost", threadId: "thr_steer", mode: "ceo", bindingRevision: 1, items: items,
+        entityId: "northwind", threadId: "thr_steer", mode: "ceo", bindingRevision: 1, items: items,
       });
       for (const [id, , , , live] of spec) if (live) model.turns.get("turn_" + id).live = true;
 
@@ -439,9 +439,9 @@ async function main() {
     // supersede, which drops one turn and re-inserts the replacement in its place.
     const r = await page.evaluate(() => {
       const model = window.RichTimeline.createModel();
-      window.RichTimeline.bind(model, "femcboost", "thr_inv", 1);
+      window.RichTimeline.bind(model, "northwind", "thr_inv", 1);
       const mk = (turnId, id, extra) =>
-        Object.assign({ id, entityId: "femcboost", threadId: "thr_inv", turnId, bindingRevision: 1,
+        Object.assign({ id, entityId: "northwind", threadId: "thr_inv", turnId, bindingRevision: 1,
           createdAt: 1787000000000, slot: "stream", sequence: 0, visibility: "ceo" }, extra);
       const violations = [];
       const everSeen = new Set();
@@ -459,7 +459,7 @@ async function main() {
         }
       };
 
-      window.RichTimeline.applySnapshot(model, { entityId: "femcboost", threadId: "thr_inv", mode: "ceo",
+      window.RichTimeline.applySnapshot(model, { entityId: "northwind", threadId: "thr_inv", mode: "ceo",
         bindingRevision: 1, items: [mk("t1", "t1:a", { kind: "activity", activityType: "read", state: "completed", summary: "x" })] });
       checkpoint("after snapshot");
 
@@ -469,14 +469,14 @@ async function main() {
       checkpoint("after a live activity on a new turn");
 
       window.RichTimeline.addPendingUserMessage(model, "hello", 1787000000001);
-      window.RichTimeline.onTurnStatus(model, { entityId: "femcboost", threadId: "thr_inv", bindingRevision: 1,
+      window.RichTimeline.onTurnStatus(model, { entityId: "northwind", threadId: "thr_inv", bindingRevision: 1,
         turnId: "t3", status: "working", at: 1787000000002 });
       checkpoint("after an optimistic bubble was adopted");
 
       window.RichTimeline.addLocalNotice(model, "a locally authored line", 1787000000003);
       checkpoint("after a local notice (in the order with no record — the legal reverse)");
 
-      window.RichTimeline.onTurnStatus(model, { entityId: "femcboost", threadId: "thr_inv", bindingRevision: 1,
+      window.RichTimeline.onTurnStatus(model, { entityId: "northwind", threadId: "thr_inv", bindingRevision: 1,
         turnId: "t4", status: "queued", supersedesTurnId: "t3", at: 1787000000004 });
       checkpoint("after a supersede dropped one turn and inserted its replacement");
 
