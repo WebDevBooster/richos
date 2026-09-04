@@ -152,6 +152,22 @@ Two things it did turn up, neither of them fixed here:
   behaving differently when the private sibling exists; that is not what is
   measured here — it fails identically either way. A shipped suite that fails is
   worth someone's attention before the flip, and it is not this branch's to fix.
+
+  **Update, same day — fixed, and the diagnosis above was the right one.** The
+  gate was working: it refused with `rc=2` and cited §19, the payload ruling,
+  which answers that question better than the row the case demanded. `row 3.14`
+  had been retired from `open-items.md` on 2026-09-02 in "eight finished rows
+  leave the page". The defect was that §8 asserted against live, mutable content
+  and would have gone red again on the next correct edit to the CEO's record.
+  Section 8 now asserts that each of the three questions is refused, that every
+  locator the refusal prints lands on a line really carrying the title printed
+  above it, that every quoted sentence is findable in the file it was attributed
+  to, and that the monospace question still passes — none of which names a row.
+  41/41 with the sibling, 37/37 without it, where the 37 is the honest count
+  that says §8 did not run rather than passing.
+  `engine/scripts/hooks/ceo-ruled.mutation.sh` renumbers the whole register and
+  requires §8 to stay green while proving the citations moved underneath it.
+
 - Two mentions of interior private paths remain in engine source **prose**
   (`engine/scripts/publication-completeness.sh`,
   `engine/scripts/hooks/guard-completeness-commits.sh`), in incident narration.
