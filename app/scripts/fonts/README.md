@@ -89,8 +89,7 @@ visible place there is. Three Noto subsets close it for **3,080 bytes**, each cu
 to exactly the codepoints it answers for and declared with a `unicode-range` so
 the browser never consults it for anything else.
 
-**Whether to keep them is the CEO's call**, raised in `BLOCKED.md` at the root of
-this branch. They set no text and hold no role in the type system, so they are
+**Whether to keep them is the CEO's call**, and it is open. They set no text and hold no role in the type system, so they are
 glyph coverage rather than a third family — but the cleaner long-term answer may
 be to stop drawing controls with text characters at all.
 
@@ -110,7 +109,7 @@ face, which it does not.
 monospace the machine has, so those ten rules still look different on a different
 computer. They are diagnostic surfaces rather than the product's voice, which is
 why this is a tolerable place to stop — but it is stopping, not finishing.
-`BLOCKED.md` has the options.
+That decision is open and has not been put to him.
 
 ## Coverage limits, stated rather than discovered later
 
