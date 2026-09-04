@@ -359,6 +359,10 @@ cp "$HOOK" "$FAKE_ENGINE/scripts/hooks/"
 cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$FAKE_ENGINE/scripts/lib/"
 cp "$SCRIPT_DIR/../lib/publication-boundary.sh" "$FAKE_ENGINE/scripts/lib/"
 cp "$SCRIPT_DIR/../lib/publication-boundary.py" "$FAKE_ENGINE/scripts/lib/"
+# The declaration resolver publication-boundary.sh sources. Carried so that the
+# ONE thing missing from this copy is the one the case is about — a sandbox
+# short two files proves nothing about which of them the refusal named.
+cp "$SCRIPT_DIR/../lib/declaration-path.sh" "$FAKE_ENGINE/scripts/lib/"
 cp "$ENGINE_ROOT/orchestration.config" "$FAKE_ENGINE/" 2>/dev/null || true
 # ...and NO scripts/publication-completeness.sh.
 rc=0

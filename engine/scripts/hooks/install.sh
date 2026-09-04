@@ -321,6 +321,15 @@ HOOK_FILES+=(
     # on this list.
     "$REPO_ROOT/scripts/lib/publication-boundary.sh"
     "$REPO_ROOT/scripts/lib/publication-boundary.py"
+    # The declaration RESOLVER. Not a hook, and the newest instance of the same
+    # sentence: it is the only code that answers "does this repository declare
+    # X, and which file is it?", and THREE contracts take that answer whole —
+    # the two leak guards through publication-boundary.sh, the completeness
+    # check, and the row-currency guard. A tampered copy that returned "absent"
+    # would leave every one of them wired, hashed, executable and STOOD DOWN,
+    # and a stood-down publication guard is indistinguishable from a clean one
+    # at every place an operator looks. Check the lock, ignore the key.
+    "$REPO_ROOT/scripts/lib/declaration-path.sh"
     # The CEO-TODOs predicate, in both its halves — same argument again:
     # guard-ceo-todos-commits.sh delegates its entire decision to these two
     # files, so hashing the guard and leaving the thing that decides unverified

@@ -256,6 +256,11 @@ DEMO_FILES+=(
     "scripts/lib/row-currency.py"
     "scripts/lib/publication-boundary.sh"
     "scripts/lib/publication-boundary.py"
+    # The declaration resolver both of the pairs above source before they can
+    # answer whether this repository declares anything. Without it every lookup
+    # is BROKEN, which is loud — and a demo that opens with a broken banner
+    # demonstrates the wrong engine.
+    "scripts/lib/declaration-path.sh"
     "scripts/lib/inflight.sh"
     "scripts/lib/inflight.py"
     # The two CEO gates' predicates, and the escape hatch one of them names.

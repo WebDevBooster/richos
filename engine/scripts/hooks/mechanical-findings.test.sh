@@ -66,6 +66,7 @@ cp "$SRC_DIR/notice-mechanical-findings.sh" "$ENG/scripts/hooks/"
 for l in mechanical-findings.sh mechanical-findings.py \
          unstarted-rows.sh unstarted-rows.py \
          row-currency.sh row-currency.py ceo-todos.sh ceo-todos.py \
+         declaration-path.sh \
          resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh \
          stop-hook-notice.sh; do
     cp "$SRC_DIR/../lib/$l" "$ENG/scripts/lib/$l" 2>/dev/null || true
