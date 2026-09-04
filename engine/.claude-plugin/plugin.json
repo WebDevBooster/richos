@@ -6,7 +6,7 @@
   "author": {
     "name": "RichOS"
   },
-  "license": "SEE LICENSE-TODO.md",
+  "license": "AGPL-3.0-only",
   "keywords": [
     "orchestration",
     "hooks",
