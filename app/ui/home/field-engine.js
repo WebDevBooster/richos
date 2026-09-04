@@ -15,6 +15,10 @@
 //   4. `getComputedStyle(ROOT)` instead of `document.body` for `--serif`/`--sans`: the home
 //      screen's type tokens are scoped to `#home` so they cannot leak into the app's own.
 //   5. Nothing else. No tuning, no palette, no geometry, no timing.
+//   6. A `.catch` on the IIFE, added 2026-09-04 — see the foot of this file. The engine
+//      throws on a machine whose WebGL will not serve it, and a throw inside an async IIFE
+//      is a rejected promise nobody is holding. It stays a throw; it now also lands
+//      somewhere `home.js` can see it. No behavior in the picture changes.
 //
 // WHAT IS NOT PORTED, said plainly rather than left to be discovered: the dataset under this is
 // the round's SYNTHETIC one, not the CEO's loro. See the header of field-data.js.
@@ -1097,4 +1101,27 @@ function resume() {
 $('#home-loading').classList.add('gone');
 rafId = requestAnimationFrame(frame);
 window.__loro = { N, L, S, V, snapshot, pause, resume, get running() { return running; }, quietRect, quietAt, get domLabelRects() { return domLabelRects; }, get nodeLabelRects() { return nodeLabelRects; }, landed, get pos() { return pos; }, get hover() { return hover; }, get selected() { return selected; }, get cam() { return cam; }, fade, lit, glow, releaseAll, ingest: () => ingest(performance.now()), get blooming() { return blooming; }, get motionFrames() { return motionFrames; }, get frames() { return frames; }, pushWave, get activeList() { return activeList; } };
-})();
+})().catch((e) => {
+  // THE HONEST FAILURE NEEDS SOMEWHERE TO LAND. Every throw above is inside this async
+  // IIFE — `WebGL unavailable` at the context, a shader that will not compile, a program
+  // that will not link — and a throw inside an async IIFE is a rejected promise nobody
+  // holds. `home.js` knew that and worked around it by polling for `window.__loro` with an
+  // eight-second deadline, so the CEO watched "waking loro…" for eight seconds over a
+  // failure that was known in the first frame, and the console carried an unhandled
+  // rejection either way.
+  //
+  // MEASURED, NOT SUPPOSED. `ui-suite-ci` run 33879245990 on a GitHub `macos-latest` runner:
+  //
+  //     console: WebGL: context lost.
+  //     Unhandled Promise Rejection: Error: null
+  //     attribute vec2 a_pos; attribute float a_z; …
+  //
+  // That is `shader()` above throwing `getShaderInfoLog(s) + '\n' + src` with a null info
+  // log, because the context had gone. The picture's own recovery was correct and it was
+  // eight seconds late and shouting on the way.
+  //
+  // So the failure is recorded where `home.js`'s `settled()` looks, and it degrades on the
+  // spot. The throw is not swallowed — `__loroFailed` IS the report, and `home.js` renders
+  // it as the sentence the CEO reads.
+  window.__loroFailed = (e && e.message) || String(e) || "the picture could not start";
+});

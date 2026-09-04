@@ -780,14 +780,26 @@ window.RichHome = (function () {
       });
   }
 
-  /// Wait for the engine to publish itself, with a ceiling. The ceiling is not politeness: the
-  /// engine throws on a machine with no WebGL, and a throw inside its async IIFE is a rejected
-  /// promise nobody is holding — so without this the "waking loro…" state would be forever.
+  /// Wait for the engine to publish itself — on its own word, with a ceiling behind that.
+  ///
+  /// THE ENGINE NOW REPORTS ITS OWN FAILURE and this reads it, which is the difference
+  /// between degrading in a frame and degrading in eight seconds. Every throw in the engine
+  /// is inside an async IIFE, and a throw there used to be a rejected promise nobody held —
+  /// so the only way to learn about it was to wait out the deadline below, while the CEO
+  /// watched "waking loro…" over a failure that was known immediately. `field-engine.js`
+  /// now catches its own throw into `window.__loroFailed`; the foot of that file carries the
+  /// runner transcript that made it worth doing.
+  ///
+  /// THE DEADLINE STAYS, and it is not redundant. It covers what the flag cannot: a script
+  /// that never loaded, an engine that hangs before it reaches either branch, a future edit
+  /// that throws somewhere outside that catch. A failure this file can be told about is
+  /// fast; a failure it cannot be told about is still bounded.
   function settled() {
     return new Promise(function (resolve, reject) {
       var deadline = Date.now() + 8000;
       (function poll() {
         if (window.__loro) return resolve();
+        if (window.__loroFailed) return reject(new Error(window.__loroFailed));
         if (Date.now() > deadline) return reject(new Error("the picture did not start within 8 seconds"));
         setTimeout(poll, 40);
       })();
