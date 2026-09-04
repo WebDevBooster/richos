@@ -415,6 +415,21 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # look, the diff says WHICH script arrived or left instead of leaving the next
 # reader to bisect hooks.json for it, and a merge of two branches that each
 # wired a guard conflicts per-line rather than over one contested integer.
+#
+# AND IF YOU ARRIVED HERE BECAUSE THIS CASE WENT RED, READ THIS PARAGRAPH.
+# This set is one of SEVERAL inventories a newly registered script has to be
+# added to, and the reason it fell behind on 2026-09-03 is that the engineer
+# who wired the fifty-first knew about five of them and not this one. There is
+# deliberately NO CHECKLIST of the others here -- a typed list of places to
+# look is the same object this whole file exists to refuse, and it would go
+# stale in exactly the way the count did. DERIVE it instead:
+#
+#     grep -rn <an-already-fully-wired-script.sh> engine/
+#
+# Pick a script that is registered on the same event and matcher as yours and
+# has been in place for a while; every file that names it is a file that has to
+# name yours. That answer is computed from the tree at the moment you ask,
+# which is the only kind of answer that cannot rot.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 detect-nonnative-worktree.sh
 engine-status.sh
@@ -480,7 +495,7 @@ NO_LONGER_REGISTERED="$(comm -23 \
 if [ -z "${NEWLY_REGISTERED// /}${NO_LONGER_REGISTERED// /}" ]; then
     ok "1b  sanity: hooks.json registers exactly the $REGISTERED_N scripts acknowledged here (announcer included), so the banner reads ${EXPECT_N}/${EXPECT_N} guards"
 else
-    bad "1b  sanity" "the registration surface MOVED and nothing in this file acknowledged it. NEWLY REGISTERED: ${NEWLY_REGISTERED:-none}. NO LONGER REGISTERED: ${NO_LONGER_REGISTERED:-none}. hooks.json registers $REGISTERED_N scripts against $ACKNOWLEDGED_N acknowledged -- that scale COUNTS THE ANNOUNCER; the banner's ${EXPECT_N}/${EXPECT_N} does not, and is already right either way, so do not go looking for a wrong banner. The fix is to add or remove the named script in ACKNOWLEDGED_SCRIPTS in scripts/hooks/engine-status.test.sh and write one line above it saying what it is and why. Never to silence this case."
+    bad "1b  sanity" "the registration surface MOVED and nothing in this file acknowledged it. NEWLY REGISTERED: ${NEWLY_REGISTERED:-none}. NO LONGER REGISTERED: ${NO_LONGER_REGISTERED:-none}. hooks.json registers $REGISTERED_N scripts against $ACKNOWLEDGED_N acknowledged -- that scale COUNTS THE ANNOUNCER; the banner's ${EXPECT_N}/${EXPECT_N} does not, and is already right either way, so do not go looking for a wrong banner. The fix is to add or remove the named script in ACKNOWLEDGED_SCRIPTS in scripts/hooks/engine-status.test.sh and write one line above it saying what it is and why. This set is NOT the only inventory a registration has to be added to; the comment above ACKNOWLEDGED_SCRIPTS says how to derive the rest rather than listing them. Never silence this case."
 fi
 
 case "$OUT" in
