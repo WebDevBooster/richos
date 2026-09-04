@@ -187,4 +187,34 @@ mutant budget-ignored "C23" "$R" \
     '        if False:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \
     "a SessionStart crash-recovery run could hold a session start for as long as the backlog takes."
 
+# --- THE HARNESS LOCK (2026-09-04). Each mutant here removes ONE precondition
+# on breaking a git worktree lock. The lock is the platform's own signal, and
+# the whole safety of this revision is that it is released only over an object
+# that is provably nobody's workspace with its bytes provably preserved.
+
+mutant lock-never-broken "C48" "$R" \
+    '            _break_own_quarantine_lock(t, index, repo, quar, reg.get(tx.norm_path(quar)))' \
+    '            pass' \
+    "the pre-2026-09-04 behavior returns: a verified quarantine locked by its own agent retries forever, and worktrees accumulate one per dispatch until the session process exits."
+
+mutant foreign-lock-broken "C52" "$R" \
+    '    if holder != aid:{NL}        refuse("P4: the lock is signed %r, not by this member'"'"'s agent %r" % (holder or lock_line, aid))' \
+    '    if False:{NL}        refuse("P4: the lock is signed %r, not by this member'"'"'s agent %r" % (holder or lock_line, aid))' \
+    "a lock left by ANY other agent — including one that is still running — would be broken and its worktree removed. This is the live-agent eviction of wiki 12.1, mechanized."
+
+mutant quarantine-name-not-checked "C60" "$R" \
+    '    if tx.norm_path(quar) != tx.norm_path(expected) or tx.norm_path(quar) != tx.norm_path(m.get("quarantine") or ""):' \
+    '    if False:' \
+    "the lock break could be aimed at any path a transaction record happened to name, instead of only at the canonical quarantine name that ONLY a terminal ingress can create."
+
+mutant archive-not-required "C58" "$R" \
+    '    if not (m.get("verified_ts") and cap and os.path.isdir(cap)):' \
+    '    if False:' \
+    "a lock would be broken and a directory deleted with no verified archive on disk — the bytes would be preserved only by assertion."
+
+mutant blocked-reported-as-retry "C54" "$R" \
+    '        "members_blocked_on_a_condition_waiting_cannot_clear": m["blocked"],' \
+    '        "members_blocked_on_a_condition_waiting_cannot_clear": 0,' \
+    "a deadlock would be reported as a normal retry again — thirty stuck members read as a fleet under control for a full day on 2026-09-04."
+
 mutation_end
