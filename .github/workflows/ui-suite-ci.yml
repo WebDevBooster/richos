@@ -1,6 +1,10 @@
 name: ui-suite-ci
 
-# TWELVE BROWSER SUITES, AND NOTHING HAS EVER RUN THEM BUT A PERSON TYPING THE COMMAND.
+# THE BROWSER SUITES, AND NOTHING HAS EVER RUN THEM BUT A PERSON TYPING THE COMMAND.
+#
+# There were twelve when this file was written and twenty-one on 2026-09-04, which is why
+# the number is no longer in this sentence: `run.js` discovers them from disk, so the count
+# is a fact about the directory and writing it here makes a second copy that goes stale.
 #
 # `app/ui/tests/` is the only coverage the CEO's actual screen has — the timeline renderer,
 # the correction desk, the feedback channel's privacy guarantee, the affordance rule, the
@@ -60,6 +64,25 @@ name: ui-suite-ci
 # until a run of THIS workflow is green on a SHA somebody can name — the same sentence
 # app-spine-ci.yml and windows-companion-ci.yml each carry, for the same reason, and one of
 # them is still waiting.
+#
+# RUN FROM A CLONE ON 2026-09-04, AND IT FOUND A FLAKE BEFORE A RUNNER DID. Every step below
+# was run verbatim inside a real `git clone` of `fc56c20`, in a directory holding nothing but
+# that clone and under a throwaway `$HOME` — so `npm ci` fetched WebKit into an empty cache
+# the way a fresh runner image does, rather than finding one already there. Result: 20 suites
+# ran, 400 checks, `realbytes.js` took the skip named on the command line below, exit 0.
+# `docs/verification/workflows-on-a-clone-2026-09-04/raw/ui-suite.txt`.
+#
+# But the first attempt was RED, on `splash.js` check 23, and the check and the splash were
+# byte-identical between the two runs. Five runs on a loaded machine gave three passes and
+# two failures, with the dark reading the same byte both times and the light reading not the
+# same as itself — a moving sample, not a theme leak. `splash.js` had classified the strap's
+# edge as an element that holds still while sampling a fixed 30%-70% band of a bar whose fill
+# is inside it. It is reclassified, with the arithmetic, at the `MOVING` list in that file.
+#
+# THE POINT FOR WHOEVER WATCHES THE FIRST PUBLIC RUN: a GitHub runner is a shared VM and this
+# suite has now been shown to be load-sensitive. One flake was found and fixed; a second red
+# on a timing-shaped assertion should be reproduced under load before it is believed, and
+# reproduced a second time before it is dismissed.
 
 on:
   push:
