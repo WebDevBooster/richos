@@ -1,0 +1,16 @@
+=== The engine asset digest, across four environments, 2026-09-04 ===
+
+AFTER the fix (166e1fd). The digest is a function of the tree and of nothing else.
+
+  umask 022  TZ=Europe/Berlin   bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96  2021895 bytes
+  umask 077  TZ=UTC             bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96  2021895 bytes
+  umask 027  TZ=Asia/Tokyo      bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96  2021895 bytes
+
+  ...and from an independent clone of the same commit, at a different absolute path:
+  clone at /tmp/ev-clone            bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96  2021895 bytes
+
+The suite's own case, which is the thing that keeps this true:
+  PASS  L12 the real archive builds deterministically and carries the canonical LICENSE
+  PASS  L13 the digest survives a different umask and a different timezone (bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96)
+
+=== make-engine-asset tests: all 13 passed ===

@@ -1,0 +1,15 @@
+=== app/scripts/make-release.test.sh — the release chain's refusals ===
+
+=== R. the release chain refuses out of order ===
+  PASS  R1 plan names the version (0.1.0) and the endpoint, and creates nothing
+  PASS  R2 verify-engine with no pin refuses
+  PASS  R3 verify-engine against a URL that serves nothing refuses
+  PASS  R4 verify-engine against bytes that are not the pinned bytes refuses
+  PASS  R5 verify-engine against the pinned bytes writes a receipt naming that digest
+  PASS  R6 app with no pin refuses
+  PASS  R7 app with a pin and no receipt refuses
+  PASS  R8 app with a receipt for a different digest refuses
+  PASS  R9 app with a good receipt and no signing key refuses
+  PASS  R10 verify-release with nothing staged refuses
+
+=== make-release.test.sh: all 10 passed ===

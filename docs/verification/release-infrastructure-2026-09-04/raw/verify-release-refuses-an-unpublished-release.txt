@@ -1,0 +1,16 @@
+-------------------------------------------------------------------------------
+downloading every published asset and comparing it with SHA256SUMS
+-------------------------------------------------------------------------------
+  MISSING  RichOS-0.1.0-macos-aarch64.zip — HTTP 404 at https://github.com/WebDevBooster/richos/releases/download/v0.1.0/RichOS-0.1.0-macos-aarch64.zip
+  MISSING  RichOS.app.tar.gz — HTTP 404 at https://github.com/WebDevBooster/richos/releases/download/v0.1.0/RichOS.app.tar.gz
+  MISSING  RichOS.app.tar.gz.sig — HTTP 404 at https://github.com/WebDevBooster/richos/releases/download/v0.1.0/RichOS.app.tar.gz.sig
+  MISSING  latest.json — HTTP 404 at https://github.com/WebDevBooster/richos/releases/download/v0.1.0/latest.json
+  MISSING  richos-engine-1.0.0.tar.gz — HTTP 404 at https://github.com/WebDevBooster/richos/releases/download/v0.1.0/richos-engine-1.0.0.tar.gz
+
+fetching the updater endpoint itself:
+  https://github.com/WebDevBooster/richos/releases/latest/download/latest.json
+  HTTP 404 — every installed copy would report a manifest failure.
+  If this release is not the newest one GitHub knows about, `latest` points
+  elsewhere. An engine-only or draft release ahead of this one does exactly that.
+-------------------------------------------------------------------------------
+verify-release: the published release does NOT match what was staged.

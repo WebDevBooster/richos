@@ -1,0 +1,26 @@
+=== The GitHub Releases URL shape, measured 2026-09-04 ===
+
+1. A repository whose newest release CARRIES latest.json — the shape works.
+   $ curl -sSL -A 'tauri-plugin-updater/2.11.0' -H 'Accept: application/json' \
+          https://github.com/ayangweb/EcoPaste/releases/latest/download/latest.json
+   code=200 redirects=3 content_type=application/octet-stream bytes=8829
+
+   the document's own shape, which is the STATIC RemoteRelease form:
+   top-level keys : ['notes', 'platforms', 'pub_date', 'version']
+   platform keys  : ['darwin-aarch64', 'darwin-aarch64-app', 'darwin-x86_64', 'darwin-x86_64-app', 'windows-aarch64', 'windows-aarch64-nsis', 'windows-x86_64', 'windows-x86_64-nsis']
+   per-platform   : ['signature', 'url']
+
+2. A repository whose newest release does NOT carry it — a 404 for every installed copy.
+   lencx/ChatGPT      code=404 redirects=1 final=https://github.com/lencx/ChatGPT/releases/download/v1.1.0/latest.json
+   pot-app/pot-desktop code=404 redirects=1 final=https://github.com/pot-app/pot-desktop/releases/download/3.0.7/latest.json
+
+3. This repository, before any release exists.
+   code=404 redirects=0 body={"error":"Not Found"}
+
+4. `latest` skips a pre-release. neovim/neovim publishes a nightly pre-release daily.
+   nightly	prerelease=true	draft=false	published=2026-09-04T05:25:34Z
+   v0.12.5	prerelease=false	draft=false	published=2026-08-23T18:27:13Z
+   stable	prerelease=false	draft=false	published=2026-08-23T18:27:09Z
+   v0.12.4	prerelease=false	draft=false	published=2026-07-05T13:41:40Z
+   releases/latest ->
+   v0.12.5	prerelease=false	published=2026-08-23T18:27:13Z
