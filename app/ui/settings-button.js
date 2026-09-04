@@ -629,6 +629,19 @@ window.RichSettings = (function () {
   return {
     mount: mount,
     close: close,
+
+    /** OPEN THE MENU FROM OUTSIDE IT. Added 2026-09-04 for the update cue (`updates.js`),
+     *  which sits in this component's own wrapper and whose whole job is to lead to the
+     *  Updates row inside this menu.
+     *
+     *  It exists rather than the caller synthesizing a click on `#set-btn`, because that
+     *  button TOGGLES: a synthetic click on an already-open menu closes it, so "open" and
+     *  "click the opener" are not the same operation and only one of them is what the caller
+     *  means. `open()` is idempotent and also runs the capability's `onOpen()`, which is what
+     *  keeps a claim about an update from being stale on the screen that makes it. */
+    openMenu: function () {
+      open();
+    },
     paint: paint,
     stepFont: stepFont,
     resetFont: resetFont,
