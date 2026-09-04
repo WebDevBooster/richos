@@ -1,0 +1,116 @@
+==============================================================
+published v1.0.0, downloaded from its public release URL  (x100)
+==============================================================
+$ /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' x100/RichOS.app/Contents/Info.plist
+1.0.0
+
+$ spctl -a -vvv -t exec x100/RichOS.app
+x100/RichOS.app: accepted
+source=Notarized Developer ID
+origin=Developer ID Application: Alex Booster (TZ33A4QCZJ)
+
+$ codesign --verify --deep --strict --verbose=2 x100/RichOS.app
+x100/RichOS.app: valid on disk
+x100/RichOS.app: satisfies its Designated Requirement
+
+$ xcrun stapler validate x100/RichOS.app
+The validate action worked!
+
+$ codesign -dv --verbose=4 x100/RichOS.app   # selected lines
+Identifier=com.richos.app
+CDHash=8eea7497a55c906d498457c9e4a39d111e15667f
+Authority=Developer ID Application: Alex Booster (TZ33A4QCZJ)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=TZ33A4QCZJ
+
+$ codesign -d -r- x100/RichOS.app
+designated => identifier "com.richos.app" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TZ33A4QCZJ
+
+==============================================================
+published v1.0.1, downloaded from its public release URL  (x101)
+==============================================================
+$ /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' x101/RichOS.app/Contents/Info.plist
+1.0.1
+
+$ spctl -a -vvv -t exec x101/RichOS.app
+x101/RichOS.app: accepted
+source=Notarized Developer ID
+origin=Developer ID Application: Alex Booster (TZ33A4QCZJ)
+
+$ codesign --verify --deep --strict --verbose=2 x101/RichOS.app
+x101/RichOS.app: valid on disk
+x101/RichOS.app: satisfies its Designated Requirement
+
+$ xcrun stapler validate x101/RichOS.app
+The validate action worked!
+
+$ codesign -dv --verbose=4 x101/RichOS.app   # selected lines
+Identifier=com.richos.app
+CDHash=21c1718c08a531acf7fb027d2737a07e457db017
+Authority=Developer ID Application: Alex Booster (TZ33A4QCZJ)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=TZ33A4QCZJ
+
+$ codesign -d -r- x101/RichOS.app
+designated => identifier "com.richos.app" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TZ33A4QCZJ
+
+==============================================================
+published v1.0.2, downloaded from its public release URL  (x102)
+==============================================================
+$ /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' x102/RichOS.app/Contents/Info.plist
+1.0.2
+
+$ spctl -a -vvv -t exec x102/RichOS.app
+x102/RichOS.app: accepted
+source=Notarized Developer ID
+origin=Developer ID Application: Alex Booster (TZ33A4QCZJ)
+
+$ codesign --verify --deep --strict --verbose=2 x102/RichOS.app
+x102/RichOS.app: valid on disk
+x102/RichOS.app: satisfies its Designated Requirement
+
+$ xcrun stapler validate x102/RichOS.app
+The validate action worked!
+
+$ codesign -dv --verbose=4 x102/RichOS.app   # selected lines
+Identifier=com.richos.app
+CDHash=6afdf4b804ffef3a7cbb1568b2309ebfc130747f
+Authority=Developer ID Application: Alex Booster (TZ33A4QCZJ)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=TZ33A4QCZJ
+
+$ codesign -d -r- x102/RichOS.app
+designated => identifier "com.richos.app" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TZ33A4QCZJ
+
+==============================================================
+the v1.0.1 copy AFTER it updated itself against the live endpoint  (live101)
+==============================================================
+$ /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' live101/RichOS.app/Contents/Info.plist
+1.0.2
+
+$ spctl -a -vvv -t exec live101/RichOS.app
+live101/RichOS.app: accepted
+source=Notarized Developer ID
+origin=Developer ID Application: Alex Booster (TZ33A4QCZJ)
+
+$ codesign --verify --deep --strict --verbose=2 live101/RichOS.app
+live101/RichOS.app: valid on disk
+live101/RichOS.app: satisfies its Designated Requirement
+
+$ xcrun stapler validate live101/RichOS.app
+The validate action worked!
+
+$ codesign -dv --verbose=4 live101/RichOS.app   # selected lines
+Identifier=com.richos.app
+CDHash=6afdf4b804ffef3a7cbb1568b2309ebfc130747f
+Authority=Developer ID Application: Alex Booster (TZ33A4QCZJ)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=TZ33A4QCZJ
+
+$ codesign -d -r- live101/RichOS.app
+designated => identifier "com.richos.app" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TZ33A4QCZJ
+
