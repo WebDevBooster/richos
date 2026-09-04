@@ -22,6 +22,7 @@
 //! |---|---|
 //! | a provisioned corpus at `<home>/RichOS/corpus` + its pointer | `loro Tier C` resolves a corpus and a compiler; without it the boot says `no corpus configured` |
 //! | the loro tools, copied into `<home>/Library/Application Support/RichOS/loro-tools` | `provision` installs them; the READ half and the WRITE half both resolve through them |
+//! | a company registry at `<home>/Library/Application Support/com.richos.app/entities.json` | `EntityRegistry::load`. The registry is a per-user FILE since 2026-09-04; without it every company is unregistered, the saved choice below is refused as stale, and the boot resolves no entity |
 //! | a saved company in `config.json` | `boot_entity` step 2. `cwd=/` owns no entity, so without a saved choice the boot says `no company resolved` |
 //! | `<home>/.claude/richos-engine` (the shell writes it) | `engine.rs` candidate 6 — the one an installed `.app` on a customer Mac reaches |
 //! | `<home>/.local/bin/claude` (the shell writes it) | `resolve_claude_bin` step 2 — without it there is no compute lease |
@@ -129,6 +130,26 @@ fn main() {
         std::process::exit(1);
     }
     println!("partitions      : {}", report.companies.len());
+
+    // ---- the company registry, ON DISK ------------------------------------------------
+    // WITHOUT THIS FILE THE MACHINE IS NOT COMPLETE, and until 2026-09-04 it did not need
+    // to be: the registry was a `const` table compiled into the binary, so inventing a
+    // company here and saving only the CHOICE of it was enough. It is a per-user file now
+    // (`entity.rs` rule 4), and a saved choice naming a company no install has registered
+    // is not a configuration — it is stale data, which `resolve_boot_entity` step 2
+    // correctly refuses. The boot then says `no company is registered on this install yet`
+    // and resolves no entity at all, which is the app telling the truth about a machine
+    // this fixture built wrong.
+    //
+    // Written through `EntityRegistry::save`, for the same reason the config below goes
+    // through `ConfigStore`: the file this fixture leaves behind is byte-for-byte the file
+    // the app writes, and cannot drift from a schema hand-built JSON would only imitate.
+    let registry_path = richos_core::entity::entity_registry_path(&app_data_dir(&home));
+    if let Some(parent) = registry_path.parent() {
+        std::fs::create_dir_all(parent).expect("the app data directory");
+    }
+    registry.save(&registry_path).expect("save the company registry");
+    println!("registry        : {} compan(ies) in {}", registry.entities().len(), registry_path.display());
 
     // ---- the saved company answer -----------------------------------------------------
     // Written through `ConfigStore`, not as hand-built JSON, so the file this fixture leaves

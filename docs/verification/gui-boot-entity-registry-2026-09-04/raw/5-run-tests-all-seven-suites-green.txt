@@ -1,0 +1,254 @@
+7 suite(s) discovered under /Users/alex/ab/richos-wt/echo-opus-r2/app/scripts
+
+--- frontend-payload.test.sh
+
+=== P. what ships as the frontend ===
+  PASS  P1 tauri.conf.json sets build.frontendDist (../ui-dist)
+  PASS  P2 frontendDist is not the source tree app/ui
+  PASS  P3 the staged frontend directory is git-ignored
+  PASS  P4 build.rs stages the frontend, so a plain cargo build cannot bypass it
+  PASS  P5 the exclusion list names tests
+  PASS  P6 the exclusion list names node_modules
+  PASS  P7 the staging refuses rather than warns
+  PASS  P8 the screenshots are still in the repository (12 shots-* directories)
+  PASS  P9 the staged tree on this machine carries no excluded directory
+  PASS  P10 the staged tree carries the product (index.html)
+
+=== frontend-payload tests: all 10 passed ===
+
+--- gui-boot.test.sh
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  A6 all 21 lines declared unaccountable are still unaccounted
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+  PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+         compiler source : /Users/alex/ab/richos-hq/loro
+         corpus          : <TMP>/machine/RichOS/corpus
+         pointer         : Some("<TMP>/machine/Library/Application Support/RichOS/corpus")
+         loro tools      : <TMP>/machine/Library/Application Support/RichOS/loro-tools (37 files)
+         partitions      : 1
+         registry        : 1 compan(ies) in <TMP>/machine/Library/Application Support/com.richos.app/entities.json
+         saved company   : northwind in <TMP>/machine/Library/Application Support/com.richos.app/config.json
+         binary          : <TMP>/machine/Applications/RichOS.app/Contents/MacOS/richos-tauri
+  PASS  B1 the healthy machine boots to completion under launchd's environment
+  --- the boot log, as captured ---
+      [richos] launch: fresh (start 1, 1 window(s))
+      [richos] company registry: 1 company from <TMP>/machine/Library/Application Support/com.richos.app/entities.json
+      [richos] company registry: 1 compan(ies), <TMP>/machine/Library/Application Support/com.richos.app/entities.json (file)
+      [richos] company: northwind (via the saved choice)
+      [richos] loro Tier C: compiling from <TMP>/machine/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+      [richos] loro correction desk: writing to <TMP>/machine/Library/Application Support/RichOS/corpus via <TMP>/machine/Library/Application Support/RichOS/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+      [richos] engine directory: <TMP>/machine/.claude/richos-engine (via engine install pointer)
+      [richos] compute lease attached over <TMP>/machine/.local/bin/claude
+      [richos] first-run setup: nothing missing.
+      [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+      [richos] boot complete — every line above is what this launch resolved
+  --- accounting ---
+    DECLARED GAP  RICHOS_SERVICE_BIN
+                  CliVocabulary::from_env (staging.rs:187) is the same environment-only premise as 
+                  the three defects above, and it is left open ON PURPOSE: nothing installs a 
+                  vocabulary service, so there is no second candidate to fall back TO. Inventing a 
+                  path here would be a fabricated fix. Confirming a spoken correction reports that it 
+                  has nowhere to write, which is the honest behavior. CLOSE THIS by deciding where 
+                  the vocabulary service ships from, then delete this declaration and the check turns 
+                  red until the boot line goes away. 
+  PASS  B2 every line of a healthy Finder-condition boot is accounted for
+  PASS  B3 the engine pointer is removed -> caught
+           UNACCOUNTED  [richos] engine directory: NOT FOUND — 5 place(s) tried
+           UNACCOUNTED  [richos]   looked in <TMP>/broken-B3/Applications/RichOS.app/Contents/Resources/engine (app bundle resources)
+           UNACCOUNTED  [richos]   looked in <TMP>/broken-B3/Applications/RichOS.app/Contents/MacOS (repo layout above the executable)
+           UNACCOUNTED  [richos]   looked in / (repo layout above the working directory)
+  PASS  B4 the corpus pointer is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: no corpus configured — re-primes carry no company memory
+           UNACCOUNTED  [richos] loro Tier C: tried <TMP>/broken-B4/Library/Application Support/RichOS/corpus — not present
+           UNACCOUNTED  [richos] loro Tier C: tried <TMP>/broken-B4/Library/Application Support/RichOS/loro-root — not present
+           UNACCOUNTED  [richos] loro Tier C: tried <TMP>/broken-B4/RichOS/corpus — not present
+  PASS  B5 the loro tools are removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: corpus at <TMP>/broken-B5/Library/Application Support/RichOS/corpus — but the memory compiler is not installed, so re-primes carry no company memory. Looked in: <TMP>/broken-B5/Library/Application Support/RichOS/corpus/loro (the corpus root's own loro/ directory) — loro tools not found: <TMP>/broken-B5/Library/Application Support/RichOS/corpus/loro/bin/loro-context.mjs is not a file; <TMP>/broken-B5/Library/Application Support/RichOS/loro-tools (the loro-tools install in Application Support) — loro tools not found: <TMP>/broken-B5/Library/Application Support/RichOS/loro-tools/bin/loro-context.mjs is not a file
+           UNACCOUNTED  [richos] loro Tier C: the correction desk is unavailable for the same reason — loro-write.mjs is in the same directory that was not found.
+           UNACCOUNTED  [richos] loro correction desk: CLOSED — a corpus resolved but loro-write.mjs is not installed. Confirming a correction will refuse and say so rather than appearing to write.
+           NOT RESOLVED  loro read half — nothing in this boot proved it was found.
+  PASS  B6 the claude stand-in is removed -> caught
+           UNACCOUNTED  [richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+           UNACCOUNTED  [richos]   binary: claude
+           UNACCOUNTED  [richos]   engine: <TMP>/broken-B6/.claude/richos-engine
+           UNACCOUNTED  [richos]   cause : the claude binary was not found at claude — RichOS drives Claude Code directly and cannot run without it
+  PASS  B7 the saved company is removed -> caught
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+           UNACCOUNTED  [richos] no company resolved — RichOS will ask in the window and remember the answer.
+           UNACCOUNTED  [richos] operator: RICHOS_ENTITY (one of northwind) still overrides, as does launching from that entity's repository root.
+           NOT RESOLVED  company — nothing in this boot proved it was found.
+  PASS  B8 the company registry is corrupt -> caught
+           UNACCOUNTED  [richos] company registry at <TMP>/broken-B8/Library/Application Support/com.richos.app/entities.json is not valid: key must be a string at line 1 column 3. Nothing was loaded from it — no company is registered until it parses.
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), <TMP>/broken-B8/Library/Application Support/com.richos.app/entities.json (unreadable)
+           UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+  PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+  PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+  PASS  Z this run launched 7 app(s) and 0 are still running
+
+=== gui-boot.test.sh: all 20 passed ===
+
+--- make-engine-asset.test.sh
+  PASS  L1 a repository with no root LICENSE is REFUSED, by name
+  PASS  L2 a repository with no third-party notices is REFUSED, by name
+  PASS  L3 a complete fixture builds an archive
+  PASS  L4 the archive contains engine/LICENSE
+  PASS  L5 the archived LICENSE is byte-identical to the repository's root LICENSE
+  PASS  L6 the archive contains engine/THIRD-PARTY-NOTICES.md
+  PASS  L7 bundled third-party license files survive into the archive
+  PASS  L8 a skill declaring a license with no license file beside it is REFUSED
+  PASS  L9 the real root LICENSE is the canonical AGPL v3 text
+  PASS  L10 the real repository has docs/legal/THIRD-PARTY-NOTICES.md
+  PASS  L11 the real engine carries 16 bundled license files (16 known bundled works)
+  PASS  L12 the real archive builds deterministically and carries the canonical LICENSE
+
+=== make-engine-asset tests: all 12 passed ===
+
+--- package-app.test.sh
+
+=== A. arguments ===
+  PASS  A1 an unknown argument is refused
+  PASS  A2 --sign takes only the two modes
+  PASS  A3 --help shows the notarize form
+
+=== B. identity discovery ===
+  PASS  B1 [shim] no Developer ID identity -> refuse, and name the setup scripts
+  PASS  B2 a pinned identity the machine does not report -> refuse
+  PASS  B3 [shim] exactly one identity is DISCOVERED
+  PASS  B3b [shim] ...and the dry run says WHERE the identity came from
+  PASS  B4 [shim] two identities -> refuse rather than sort
+  PASS  B5 [shim] an identity on the machine does not make a plain run use it
+
+=== C. notary credentials ===
+  PASS  C1 [shim] notarize with no credentials -> refuse
+  PASS  C2 [shim] half an API key -> refuse, naming the missing halves
+  PASS  C3 [shim] a key path that does not exist -> refuse
+  PASS  C4 [shim] a notary key inside a git worktree -> refuse
+  PASS  C5 [shim] a world-readable notary key -> refuse
+  PASS  C6 [shim] a complete API key resolves
+  PASS  C7 [shim] a keychain profile resolves
+  PASS  C8 [shim] APPLE_ID/PASSWORD/TEAM_ID are NOT a credential path here
+
+=== D. verify_bundle, against a real signed bundle ===
+  PASS  D1 a real ad-hoc bundle verifies in adhoc mode
+  PASS  D2 ...and fails in developer-id mode on all EIGHT grounds, four of them on the requirement
+  PASS  D3 a bundle with no shipped icon fails
+  PASS  D4 a shipped icon this repository did not generate fails
+  PASS  D5 no NSMicrophoneUsageDescription fails
+  PASS  D6 a bundle whose signature was removed fails
+  PASS  D7 --expect-notarized runs the stapled-ticket check
+
+=== Z. this suite touched nothing of the operator's ===
+  PASS  Z the real keychain's codesigning inventory is identical before and after
+
+=== package-app tests: all 25 passed ===
+
+--- rebuild-survival.test.sh
+
+=== G. the harness ===
+  PASS  G1 an unknown command is refused
+  PASS  G2 record without a label is refused
+  PASS  G3 a record directory inside a git worktree is refused
+  PASS  G4 a real ad-hoc bundle records its cdhash, signature kind and requirement
+  PASS  G5 comparing against a record that does not exist is refused
+  PASS  G6 two ad-hoc builds -> cannot pass, and the certificate is named as the fix
+  PASS  G7 the same bytes twice is INCONCLUSIVE, and says it is not a pass
+  PASS  G8 identical identifier-and-team requirements -> layer 1 passes
+  PASS  G9 ...and refuses to let layer 1 be read as the acceptance test
+  PASS  G10 requirements that differ -> FAIL
+  PASS  G11 a grant held by N and not by N+1 -> FAIL
+  PASS  G12 an unreadable TCC database -> INCOMPLETE, never a guessed pass
+  PASS  G13 layer 3 is always named as not machine-checkable
+  PASS  G14 SKIPPED-BY-FACT: this machine now HAS a Developer ID identity, so the no-certificate verdict is not reachable here
+  PASS  G15 a requirement printed WITHOUT the leading '# ' is read (the Developer ID form)
+  PASS  G16 a real signature records as 'developer-id', not as 'none'
+  PASS  G17 two unread requirements are INCOMPLETE, never a silent identical
+
+=== rebuild-survival tests: all 17 passed ===
+
+--- signing-setup.test.sh
+
+=== E. make-signing-csr.sh ===
+  PASS  E1 a key directory inside a git worktree is refused
+  PASS  E2 RSA 2048, sha256WithRSAEncryption, key mode 600 in a 700 directory
+  PASS  E3 a second run refuses and leaves the existing key byte-identical
+  PASS  E4 --force does overwrite, so E3's refusal is a decision and not an inability
+  PASS  E5 a country code that is not two upper-case letters is refused
+  PASS  E6 --show on an empty directory says so rather than inventing a state
+  PASS  E7 --show reports the subject of the CSR that exists
+
+=== F. install-signing-cert.sh ===
+  PASS  F1 no argument -> refuse
+  PASS  F2 a .cer that does not exist -> refuse
+  PASS  F3 no private key -> refuse, and say why a .cer alone is useless
+  PASS  F4 a certificate issued against a different key -> refuse on the modulus
+  PASS  F5 a Developer ID INSTALLER certificate is refused, by name
+  PASS  F6 [shim] the matching, correctly-typed certificate reaches 'installed and usable'
+  PASS  F7 [shim] ...and the Team ID is read out of the identity string
+  PASS  F8 the passphrase-less PKCS#12 was removed after the import
+  PASS  F9 [shim] an import that reports success but yields NO identity is a FAILURE
+
+=== G. the defects of 2026-09-01 ===
+  PASS  G1 codesign accepts src-tauri/Entitlements.plist (plutil -lint would accept a broken one)
+  PASS  G1b ...and it is well-formed XML by a strict parser, which is the underlying property
+  PASS  G2 every 'security import' passes -P explicitly, so none of them can prompt
+  PASS  G3 an encrypted private key is refused, non-interactively, before any keychain call
+  PASS  G4 the openssl on PATH is never used; the pinned one is, and the run still succeeds
+  PASS  G5 an openssl that exits 0 and leaves a 0-byte file is caught at that step
+  PASS  G6 a 0-byte .cer is refused as unreadable, at the conversion
+  PASS  G7 an empty --keychain is a FAILURE even when login holds an identity
+  PASS  G8 [shim] --check lists the identity line itself under its own heading
+  PASS  G9 [shim] --check exits NON-ZERO when this machine cannot sign
+  PASS  G10 no PKCS#12 is built, so no passphrase has to travel anywhere
+
+=== Z. this suite touched nothing of the operator's ===
+  PASS  Z the real keychain's codesigning inventory is identical before and after
+
+=== signing-setup tests: all 28 passed ===
+
+--- updater-setup.test.sh
+
+=== A. the updater signing key, and the refusals ===
+  PASS  A1 --updater with no key refuses, and says there is no fallback
+  PASS  A2 a key path that does not exist refuses
+  PASS  A3 a key inside a git worktree refuses
+  PASS  A4 a world-readable key refuses
+  PASS  A5 a real key, outside a repo, mode 600, resolves
+  PASS  A6 ...and no manifest is written without RICHOS_UPDATE_BASE_URL
+  PASS  A7 ...and names the base URL when it is set
+
+=== B. the shipped configuration ===
+  PASS  B1 bundle.createUpdaterArtifacts is on — without it no update artifact is ever made
+  PASS  B2 the endpoint is the RFC 2606 .invalid placeholder, not a guessed host
+  PASS  B3 the pubkey decodes to a minisign public key
+  PASS  B4 the webview holds NO updater permission, and the capability file says why
+  PASS  B5 the build always passes --no-sign, so the bundler never signs a tarball of an unsigned app
+
+=== C. the archive builder, against a real bundle skeleton ===
+  PASS  C1 every member is rooted at the one .app (the updater DROPS the first component)
+  PASS  C2 the executable bit survives (without it the installed app cannot launch)
+  PASS  C3 symlinks stay symlinks (a framework's Current/ is one, and copying it doubles the bundle)
+  PASS  C4 no AppleDouble members — bsdtar's xattr sidecars are not in here
+  PASS  C5 verify passes its own output
+
+=== D. the archive verifier refuses what it should ===
+  PASS  D1 two roots -> refused (the updater drops only the FIRST component)
+  PASS  D2 no Info.plist -> refused (it would extract into an empty bundle)
+  PASS  D3 an AppleDouble member -> refused
+  PASS  D4 nothing executable -> refused (the installed app cannot launch)
+
+=== E. the signature verifier — the check the signer's exit code does not make ===
+  PASS  E1 a good pair VERIFIES against the pubkey in the config
+  PASS  E2 a TAMPERED artifact is REFUSED
+  PASS  E3 a well-formed signature from ANOTHER key is REFUSED
+
+=== updater-setup.test.sh: all 24 passed ===
+
+=== app/scripts: all 7 suites passed — 136 checks ===
+EXIT=0
