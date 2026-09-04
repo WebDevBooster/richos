@@ -166,13 +166,15 @@ is the WebKitGTK port with a different graphics stack; on macOS it is a build of
 WebKit, the engine family WKWebView renders through. An ubuntu runner would cost a tenth of
 the minutes and would be answering a different question than rule 2 asks.
 
-**`realbytes.js` may not run there**, and the workflow says so out loud with
-`--allow-skip=realbytes.js`. It needs `cargo run --example timeline_payload` from
-`app/src-tauri` — the detached workspace with the whole webview dependency tree behind it,
-which `app-spine-ci.yml` also keeps off its test path on purpose, and which measures 1.3 GB
-and about a quarter of an hour from cold. Allowed is not required: if the runner has cargo
-and the build fits the timeout, the suite runs and the run says the allowance went unused. A
-skip by any OTHER suite fails the run.
+**`realbytes.js` runs there, and that is measured rather than hoped.** It needs `cargo run
+--example timeline_payload` from `app/src-tauri` — the detached workspace with the whole
+webview dependency tree behind it, which `app-spine-ci.yml` keeps off its test path on
+purpose, and which was estimated at 1.3 GB and about a quarter of an hour from cold. The
+estimate bought it an `--allow-skip=realbytes.js` on the workflow's command line, and the
+estimate was never checked. Run 33872963879 checked it: the image carries cargo, the suite
+ran, and the gate reported the allowance as unused. 2m16s of a 25m10s job against a
+45-minute budget. The allowance is gone, and NO suite may skip — which matters most for this
+one, because it is the only suite that renders the bytes the backend actually emits.
 
 **And these suites still drive WebKit through Playwright, not the Tauri shell.** §23 Phase 6
 — every acceptance state in the real shell — is not closed by any of this, and the workflow's
