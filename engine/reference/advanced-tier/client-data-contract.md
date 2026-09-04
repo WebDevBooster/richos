@@ -55,8 +55,9 @@ check. This contract is the machinery that forces the check.
 
 ## What "canonical" means
 
-The single source of truth is
-[`scripts/client-data/canonical-values.sh`](../scripts/client-data/canonical-values.sh).
+The single source of truth is `scripts/client-data/canonical-values.sh` — an
+illustrative adopter path. The genericized copy bundled with this reference is
+[`canonical-values.sh`](canonical-values.sh), beside this file.
 It is POSIX-`sh` sourceable, lives at the shell plane, and is consumed by
 every layer that writes or verifies Marcus's state:
 
@@ -70,8 +71,9 @@ every layer that writes or verifies Marcus's state:
 | iOS HealthKit seeder (future) | same shell source (via xcodebuild `SetEnv` phase) | writes HealthKit samples on Simulator |
 
 Hardcoded duplicates of canonical literals in seed files are a policy
-violation enforced by
-[`scripts/hooks/lint-canonical-literals.sh`](../scripts/hooks/lint-canonical-literals.sh).
+violation enforced in the original project by `scripts/hooks/lint-canonical-literals.sh`.
+That script is **not bundled with this reference**, so there is nothing here to link to;
+an adopter writes their own.
 
 ## What parity checks must ignore
 
