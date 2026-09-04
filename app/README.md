@@ -1062,10 +1062,11 @@ explicit argv, and owns the notary step itself.
   `.app` is the artefact that matters; DMG creation is a separate, flakier downstream
   step whose failure says nothing about whether the application is correct. Pass
   `--bundles app,dmg` for the installer.
-- **macOS on Apple silicon only.** It refuses on any other platform with the reason. No
-  Windows bundle has ever been built and there is no Windows signing certificate, and
-  every published release asset is `macos-aarch64` — there is no Intel build.
-- **The auto-update channel is wired and published.** `tauri.conf.json` carries the
+- **macOS only.** It refuses on any other platform with the reason. No Windows bundle
+  has ever been built and there is no Windows signing certificate. Every published
+  release asset is `macos-aarch64`: no Intel build has been released.
+- **The auto-update channel is live, so this entry is a status and not a gap.**
+  `tauri.conf.json` carries the
   endpoint `https://github.com/WebDevBooster/richos/releases/latest/download/latest.json`
   and the minisign public key, and v1.0.2 published `RichOS.app.tar.gz`, its `.sig` and
   `latest.json` beside the first-install zip. `app/UPDATES.md` is the design and the
