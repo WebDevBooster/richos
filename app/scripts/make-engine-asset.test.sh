@@ -177,8 +177,8 @@ fi
 # license file today. If a vendored skill loses its notice, this count drops and this
 # case says so without anyone having maintained a list.
 REAL_TP="$( ( cd "$ROOT/engine" && find . -type f \( -name 'LICENSE' -o -name 'LICENSE.txt' -o -name 'LICENSE.md' \) ) | wc -l | tr -d ' ')"
-if [ "$REAL_TP" -ge 7 ]; then
-    ok "L11 the real engine carries $REAL_TP bundled license files (7 known bundled works)"
+if [ "$REAL_TP" -ge 16 ]; then
+    ok "L11 the real engine carries $REAL_TP bundled license files (16 known bundled works)"
 else
     bad "L11 the real engine carries at least 7 bundled license files" \
         "found $REAL_TP — a vendored work has lost its notice; see docs/legal/THIRD-PARTY-NOTICES.md"
