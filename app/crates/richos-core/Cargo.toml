@@ -3,7 +3,7 @@ name = "richos-core"
 version = "0.1.0"
 edition = "2021"
 description = "RichOS runtime spine: the native Claude stream-json client, durable conversation + action ledger, thread data model, and session-continuity foundation. UI-agnostic; no GUI, no relay, no npm."
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

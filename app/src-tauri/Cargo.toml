@@ -3,7 +3,7 @@ name = "richos-tauri"
 version = "0.1.0"
 edition = "2021"
 description = "RichOS desktop shell (Tauri) — a thin CEO-facing surface over the richos-core runtime spine."
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
 
 # DETACHED from the parent workspace: the empty [workspace] table keeps the heavy
 # Tauri/webview dependency tree out of `cargo test -p richos-core`. richos-core is a
