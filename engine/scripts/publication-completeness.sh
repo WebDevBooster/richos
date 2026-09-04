@@ -188,6 +188,16 @@ RMC_LIB="$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh"
 # shellcheck source=lib/publication-boundary.sh
 . "$PB_LIB"
 
+# The declaration RESOLVER, which publication-boundary.sh sources. Checked here
+# by name because of what its absence would otherwise look like: this script's
+# stand-down verdict is NOT APPLICABLE, and "no resolver" would arrive as "no
+# declaration" and print the words a reader takes to mean *this tree does not
+# get published*. Refusing is BROKEN (exit 2), never that sentence.
+if ! command -v decl_find_upward >/dev/null 2>&1; then
+    echo "ERROR: publication-completeness.sh: scripts/lib/declaration-path.sh is missing at: $ENGINE_ROOT/scripts/lib/declaration-path.sh — it is the only thing that knows where a declaration lives. This check will not report a tree as unpublished on the strength of a resolver it could not load." >&2
+    exit 2
+fi
+
 START_DIR="$(pb_physical "$START_DIR")"
 ROOT="$(pb_repo_root "$START_DIR" 2>/dev/null || true)"
 [ -n "$ROOT" ] || { echo "ERROR: publication-completeness.sh: $START_DIR is not inside a git repository." >&2; exit 2; }
@@ -196,6 +206,11 @@ ROOT="$(pb_repo_root "$START_DIR" 2>/dev/null || true)"
 # find the declaration wherever it actually lives — and "wherever it lives" is
 # scripts/lib/declaration-path.sh's answer, so this script and the two leak
 # guards can never disagree about which file the repository declared.
+#
+# DECL_ROOT IS decl_find_upward'S OWN OUTPUT VARIABLE, deliberately: the name
+# this script already used and the name the resolver already sets are the same
+# name, so there is one value rather than two that can drift. Note that the
+# later plain decl_find call does NOT touch it — it sets DECL_PATH only.
 DECL_ROOT=""
 DECL_UP_RC=0
 decl_find_upward "$ROOT" "$PUBLICATION_DECLARATION" || DECL_UP_RC=$?

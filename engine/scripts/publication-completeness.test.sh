@@ -627,6 +627,29 @@ commit_all "$T"
 assert_rc "an unresolved file in .richos/ → exit 2, naming the file nothing reads" \
     "$T" 2 "not a declaration anything reads from there"
 
+# A MISSING RESOLVER MUST NOT ARRIVE AS "NOT APPLICABLE". This script's
+# stand-down verdict is the sentence a reader takes to mean *this tree does not
+# get published*, and an engine that could not load declaration-path.sh has no
+# business saying it. Run against a COPY of the engine with exactly that one
+# file removed, so the real one is never disturbed.
+FE="$SCRATCH/fake-engine"
+mkdir -p "$FE/scripts/lib"
+cp "$ENGINE_ROOT/scripts/publication-completeness.sh" "$FE/scripts/"
+cp "$ENGINE_ROOT/scripts/publication-completeness.py" "$FE/scripts/"
+cp "$ENGINE_ROOT/scripts/lib/publication-boundary.sh" "$FE/scripts/lib/"
+cp "$ENGINE_ROOT/scripts/lib/publication-boundary.py" "$FE/scripts/lib/"
+cp "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$FE/scripts/lib/" 2>/dev/null || true
+# ...and NO scripts/lib/declaration-path.sh.
+T="$(mktree no_resolver)"
+FE_OUT="$(bash "$FE/scripts/publication-completeness.sh" --root "$T" 2>&1)"; FE_RC=$?
+if [ "$FE_RC" -eq 2 ] \
+   && grep -q "declaration-path.sh is missing at:" <<<"$FE_OUT" \
+   && ! grep -q "NOT APPLICABLE" <<<"$FE_OUT"; then
+    ok "a missing declaration-path.sh → exit 2 naming the file, never NOT APPLICABLE"
+else
+    bad "a missing resolver must refuse loudly (rc=$FE_RC)"; printf '%s\n' "$FE_OUT" | sed 's/^/        /'
+fi
+
 # ---------------------------------------------------------------------------
 echo ""
 if [ "$FAIL" -eq 0 ]; then
