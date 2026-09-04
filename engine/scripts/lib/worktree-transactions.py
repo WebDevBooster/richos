@@ -519,9 +519,21 @@ def try_seal(session_id, agent_id):
     return sealed, res
 
 
+_SHELL_SPARSE_MOD = "unloaded"    # sentinel: None is a real, cached answer
+
+
 def _load_shell_sparse():
     """The sparsifier, loaded by path like every other sibling here. Returns
-    None if it is absent or unimportable — a seal never depends on it."""
+    None if it is absent or unimportable — a seal never depends on it.
+
+    CACHED PER PROCESS, and the reason is the write barrier: it calls
+    try_seal in a poll loop every 0.25s for up to SEAL_WAIT_SECONDS, so one
+    hook process can reach here twenty times. An absent module is cached as
+    None too; re-deciding that on every poll is the same waste."""
+    global _SHELL_SPARSE_MOD
+    if _SHELL_SPARSE_MOD != "unloaded":
+        return _SHELL_SPARSE_MOD
+    _SHELL_SPARSE_MOD = None
     try:
         import importlib.util
         p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shell-worktree-sparse.py")
@@ -530,9 +542,10 @@ def _load_shell_sparse():
         spec = importlib.util.spec_from_file_location("shell_worktree_sparse", p)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        return mod
+        _SHELL_SPARSE_MOD = mod
     except Exception:
-        return None
+        _SHELL_SPARSE_MOD = None
+    return _SHELL_SPARSE_MOD
 
 
 def _sparsify_shell(session_id, agent_id, tx):
