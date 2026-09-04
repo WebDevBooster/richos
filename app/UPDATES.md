@@ -475,14 +475,21 @@ app/scripts/updater-e2e.sh
 # ...and keep the workspace (bundles, logs, served manifest) for inspection
 app/scripts/updater-e2e.sh --keep
 
-# just produce signed artifacts from a normal packaging run
+# minisign an update archive from an ordinary packaging run.
+# This is a LOCAL build: ad-hoc codesigned, not notarized, not publishable.
 TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.richos-signing/richos-updater.key \
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD= \
 RICHOS_UPDATE_BASE_URL=https://<host>/richos/0.1.1 \
 RICHOS_UPDATE_NOTES='What changed, in the CEO's language.' \
   app/scripts/package-app.sh --updater
+
+# a REAL release — Developer ID signed, notarized, stapled, minisigned, staged.
+# It is a chain of subcommands in a forced order, and app/RELEASING.md is the procedure:
+app/scripts/make-release.sh plan            --tag v1.0.3
+app/scripts/make-release.sh app             --tag v1.0.3 --notes 'What changed, in his language.'
+app/scripts/make-release.sh verify-release  --tag v1.0.3   # after the assets are uploaded
 ```
 
-Without `RICHOS_UPDATE_BASE_URL` the artifacts are still built, verified and signed, and **no
-manifest is written** — a manifest carrying a guessed URL is worse than no manifest, because it
-is a file that looks publishable.
+Without `RICHOS_UPDATE_BASE_URL` the artifacts are still built, verified and minisigned, and
+**no manifest is written** — a manifest carrying a guessed URL is worse than no manifest,
+because it is a file that looks publishable.
