@@ -161,6 +161,43 @@ restart). After `MAX_SOFT_ATTEMPTS_BEFORE_NOTICE` attempts it is reported once
 (`<agent_id>.json.member-N.notice` beside the transaction) and the retries
 continue. When the external condition clears, the next run finishes it.
 
+**Blocked, and reported apart from a retry.** Some conditions do not clear by
+waiting at all, and calling them a retry reports a deadlock as a process under
+control. A blocked member is still retried — nothing is parked for a person —
+but it is retried at the BASE interval rather than a compounding one (its
+condition changes discontinuously, so there is no gradient to back off along),
+it carries `blocked: true` and `blocked_reason` naming the precondition that
+refused, and `--status` counts it separately as
+`members_blocked_on_a_condition_waiting_cannot_clear`. When any member is
+blocked the SessionStart banner's verdict word is BLOCKED, not PENDING.
+
+Measured 2026-09-04, and the reason this class exists: thirty verified members
+sat behind the harness lock (below) for a full day, each reported as a normal
+retry with a backoff compounded to 21600 seconds.
+
+**The harness lock, and the only place a lock is ever broken.** Claude Code
+locks an agent's native worktree, and git refuses to remove a locked working
+tree with a single `--force`. That lock names the SESSION's pid — one process,
+every agent of that session — so it is released when Claude Code exits and
+never when an agent finishes. Inside one long session a quarantine could
+therefore never be removed, and one accumulated per dispatch.
+
+`unregister_member` releases that lock, on this member's own quarantine only,
+under five preconditions read at the instant of the act: the member is
+`verified` with its archive directory on disk; the transaction is terminal
+with a recorded per-agent ingress; the path is exactly the canonical
+quarantine name for this session and agent and git lists it as that exact
+non-prunable registration; the lock is signed by this member's own agent id;
+and the backup ref is present. Any refusal is BLOCKED — the quarantine stands
+untouched and the refused precondition is named on the member. The lock line
+that was broken is recorded (`lock_broken_line`) as evidence.
+
+This is not a new authority to remove. The authority was exercised at the
+terminal ingress that renamed the directory out of the agent's path; what is
+left is the last mechanical step of a decision already on disk, over a
+directory that is nobody's workspace and whose bytes are archived and
+re-verified. A lock signed by any OTHER agent is never broken.
+
 **Archive-and-close, deterministically.** Anything that will never change by
 waiting:
 
