@@ -65,18 +65,20 @@
 #   A3  a declared gap passes AND its reason is printed where a reviewer sees it
 #   A4  a gap declared with no reason is REFUSED — a bare marker declares nothing
 #   A5  an empty log FAILS, never "all 0 lines accounted for"
+#   A6  every line declared UNACCOUNTABLE is still unaccounted  <- the anti-widening case
 #   B1  the healthy machine boots to completion under launchd's environment
 #   B2  ...and every line of that boot is accounted for  <- THE POSITIVE HALF
-#   B3  engine pointer removed          -> RED           <- and five negative halves,
+#   B3  engine pointer removed          -> RED           <- and six negative halves,
 #   B4  corpus pointer removed          -> RED              each proving that the detector
 #   B5  loro tools removed              -> RED              for one seam is alive on this
 #   B6  the claude stand-in removed     -> RED              run and not a corpse
 #   B7  the saved company removed       -> RED
+#   B8  the company registry corrupted  -> RED
 #   Y1  gui_kill ends an ordinary process, verified by pid and not by signal
 #   Y2  ...and escalates to KILL for one that ignores TERM
 #   Z   this run left nothing running, and the count is printed
 #
-# B3-B7 break the MACHINE, not the source, so they run on every invocation in seconds. The
+# B3-B8 break the MACHINE, not the source, so they run on every invocation in seconds. The
 # proof that this check catches the three HISTORICAL defects — the source premises put back
 # one at a time — is a one-off and its red output is committed under
 # `docs/verification/gui-boot-check-2026-09-01/`.
@@ -104,13 +106,23 @@ fi
 # THE RULES
 # =========================================================================================
 #
-# Three classes, and the class is the claim being made about the line.
+# Three classes, and the class is the claim being made about the line. There is a fourth
+# outcome — UNACCOUNTED, which is red — and it is the DEFAULT, deliberately: a line nobody
+# has classified is a line nobody has read.
+#
+# Choosing a class is a decision about what a sentence MEANS, and it is the whole of the
+# work here. `first-run setup: nothing missing.` is a claim about this machine that somebody
+# checked, so it is a PROOF and the boot is held to it. `company registry: 1 compan(ies),
+# <path> (file)` is a report of what is in a file, so it is a ROUTINE FACT. Reading the
+# first one as the second is how a check silently stops checking — and the fourth class
+# below exists so that reading is not merely discouraged but caught.
 
 DECL_ERRORS=0
 
 RESOLVED_ID=(); RESOLVED_RE=(); RESOLVED_WHY=()
 ROUTINE_RE=();  ROUTINE_WHY=()
 GAP_ID=();      GAP_RE=();      GAP_WHY=()
+REFUSED_ID=();  REFUSED_LINE=(); REFUSED_WHY=()
 
 # resolved <id> <extended-regex> <what it proves>
 #
@@ -143,10 +155,26 @@ gap() {
   return 0
 }
 
+# refused <id> <the line, as the boot really prints it> <why it must stay unaccounted>
+#
+# THE FOURTH CLASS, AND THE ONLY ONE THAT IS NOT A RULE. It declares a line the boot can
+# print that is DELIBERATELY not accounted for, so that a boot printing it goes red. The
+# declaration adds nothing to the accounting — `A6` asserts that each of these is STILL
+# unaccounted, and goes red if any rule ever grows wide enough to swallow one.
+#
+# It exists because of the one repair that would make this check useless: widening a rule
+# until B2 passes. A boot line that reports a company registry nobody could read, or a
+# saved company that no longer resolves, is a fact about a BROKEN install; accounting for
+# it would turn the negative halves B3-B8 into cases that pass by classification rather
+# than by working. So each of those sentences is written down HERE, with the reason it may
+# never become a rule, and the reason is checked by a case rather than trusted.
+refused() { REFUSED_ID+=("$1"); REFUSED_LINE+=("$2"); REFUSED_WHY+=("$3"); }
+
 declare_rules() {
   RESOLVED_ID=(); RESOLVED_RE=(); RESOLVED_WHY=()
   ROUTINE_RE=();  ROUTINE_WHY=()
   GAP_ID=();      GAP_RE=();      GAP_WHY=()
+  REFUSED_ID=();  REFUSED_LINE=(); REFUSED_WHY=()
 
   # -- the five things a launch has to find ----------------------------------------------
   # Each regex demands the RESOLVED shape and not merely the topic word: `engine directory:`
@@ -172,9 +200,45 @@ declare_rules() {
     '^\[richos\] company: .+ \(via .+\)$' \
     'the entity this launch files work under (main.rs::boot_entity)'
 
+  # THE REGISTRY IS A FILE ON THIS MACHINE SINCE 2026-09-04, and this is the line that says
+  # it was trusted. `EntityRegistry::load` (entity.rs:734) reaches this note on exactly one
+  # path: the file was read, parsed, version-checked, every row validated and no id
+  # duplicated. Every other path pushes a DIFFERENT note and returns the empty registry, so
+  # the absence of this sentence is the presence of a refusal — which is why it is a PROOF
+  # and not a fact about a file. The line one below it, the summary, IS a fact about a file.
+  resolved 'company registry' \
+    '^\[richos\] company registry: [0-9]+ compan(y|ies) from /.+$' \
+    'the company list this install owns, read and trusted (entity.rs::load, 8dde942/ea91fa2)'
+
+  # A CLAIM ABOUT THE MACHINE, HELD TO. `setup_view::detect` looks for Claude Code and for
+  # the engine and this sentence asserts it found both — it is the boot checking the world
+  # and reporting a verdict, not reporting a setting. Held as a proof, B3 (engine pointer
+  # removed) and B6 (claude removed) each turn it red on top of their own detector, which is
+  # the redundancy a claim of this shape has earned.
+  resolved 'first-run setup' \
+    '^\[richos\] first-run setup: nothing missing\.$' \
+    'Claude Code and the engine are both installed where setup.rs looks (main.rs:1147, 57cd903)'
+
   # -- lines that are facts about the launch, not about configuration ---------------------
-  routine '^\[richos\] launch: [a-z-]+ \((start [0-9]+, )?[0-9]+ window\(s\)\)$' \
+  # `start` is the ORDINAL or `-`, and the dash is not an edge case: `start_ordinal()` is
+  # `None` for every launch that is not a counted start, so a crash-restart prints
+  # `(start -, 1 window(s))` (main.rs:817). The pattern accepted only digits until now and
+  # the dash went unaccounted — invisible in the healthy boot, which is always `fresh`, and
+  # visible in every one of B3-B8, where it was read as noise beside a real failure. Both
+  # shapes are the same routine fact.
+  routine '^\[richos\] launch: [a-z-]+ \(start ([0-9]+|-), [0-9]+ window\(s\)\)$' \
     'which kind of start this is; carries no claim about anything being found'
+
+  # A FACT ABOUT A FILE: how many companies are in it, where it is, and which of the three
+  # load outcomes produced it. It asserts nothing was verified — the verification is the
+  # proof line above — so it is routine.
+  #
+  # ONLY `(file)`, AND THAT IS THE DECISION. `(absent)` and `(unreadable)` are the same
+  # sentence about an install that has no company list it can use, and on a machine this
+  # check calls COMPLETE neither is an ordinary state. They stay unaccounted, declared
+  # below, so B8 fails on the fact rather than on a side effect of it.
+  routine '^\[richos\] company registry: [0-9]+ compan\(ies\), /.+ \(file\)$' \
+    'how many companies are on disk and where; the trusting of the file is the proof above'
   routine '^\[richos\] boot complete' \
     'the terminator, printed by setup as its last act'
   routine '^\[richos\] loro lane: no lane narrowing in force' \
@@ -192,6 +256,139 @@ declare_rules() {
        nowhere to write, which is the honest behavior. CLOSE THIS by deciding where the
        vocabulary service ships from, then delete this declaration and the check turns
        red until the boot line goes away.'
+
+  # -- THE LINES THAT MAY NEVER BECOME RULES ---------------------------------------------
+  #
+  # The entity-registry pass of 2026-09-04 (8dde942 -> ea91fa2) took the CEO's six companies
+  # out of the binary and made the registry a per-user FILE. That gave the boot a new seam,
+  # and a seam speaks: fourteen sentences below, plus three from first-run setup, every one
+  # of which reports a machine that cannot file work somewhere. They are classified HERE, as
+  # unaccountable, rather than left to be discovered by whoever next sees B2 go red and
+  # reaches for the shortest way to make it green.
+  #
+  # `A6` boots none of these — it appends each to the healthy fixture and asserts the
+  # accounting still refuses it. So this list is not documentation about a decision; it is
+  # the decision, executed on every run.
+
+  # --- the registry file itself: the four ways `EntityRegistry::load` refuses one ---------
+  refused 'registry absent' \
+    '[richos] no company registry at /m/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet' \
+    'No registry means no company is registered, which means every send is refused and no
+       thread resolves. It is the ORDINARY state of a fresh install and the app asks in the
+       window — but this check boots a machine it calls COMPLETE, and a complete machine has
+       a company list. Accounting for it would let B8 pass with no registry at all.'
+
+  refused 'registry unreadable (io)' \
+    '[richos] company registry at /m/entities.json could not be read: Permission denied (os error 13)' \
+    'A file that exists and could not be opened. Distinct from absent on purpose (entity.rs
+       RegistrySource) — it calls for a repair, not a question — and neither is routine.'
+
+  refused 'registry unreadable (parse)' \
+    '[richos] company registry at /m/entities.json is not valid: key must be a string at line 1 column 3. Nothing was loaded from it — no company is registered until it parses.' \
+    'One typo in his own file empties the registry whole (a bad row fails the WHOLE file,
+       entity.rs::load, deliberately). This is the sentence B8 is built to produce.'
+
+  refused 'registry version refused' \
+    '[richos] company registry at /m/entities.json is version 2, and this build reads version 1 — refusing it rather than reading it as something it is not' \
+    'A registry this build will not read is a registry this install does not have.'
+
+  refused 'registry row unusable' \
+    '[richos] company registry at /m/entities.json: entry 1 is not usable (id must be lower-case). Nothing was loaded from the file.' \
+    'Same outcome as a parse failure and a different cause; both leave the install with no
+       companies, so neither may be classified as a fact that passes.'
+
+  refused 'registry duplicate id' \
+    '[richos] company registry at /m/entities.json: acme is listed twice. Nothing was loaded from the file.' \
+    'Same outcome again. Listed separately because each of these is a distinct sentence a
+       future widened rule could swallow one at a time.'
+
+  # --- the summary line, on the two sources that are not `file` --------------------------
+  refused 'registry summary absent' \
+    '[richos] company registry: 0 compan(ies), /m/entities.json (absent)' \
+    'The routine rule above deliberately admits `(file)` only. Nothing is registered here.'
+
+  refused 'registry summary unreadable' \
+    '[richos] company registry: 0 compan(ies), /m/entities.json (unreadable)' \
+    'A registry that exists and was refused. The count of 0 is not a measurement of his
+       companies — it is the absence of any measurement, and it must not read as one.'
+
+  # --- the one-time no-orphan migration --------------------------------------------------
+  #
+  # AND THE THING IT DOES TO THIS CHECK, measured rather than assumed: DELETING
+  # `entities.json` on a machine that has already booted DOES NOT BREAK IT. The install has
+  # threads under `northwind`, `registry_load.source == Absent`, the migration re-registers
+  # the ids that already own records and the boot resolves normally — verified on
+  # 2026-09-04, output under `docs/verification/gui-boot-entity-registry-2026-09-04/`. That
+  # is correct product behavior and it is why B8 CORRUPTS the registry instead of removing
+  # it: a negative case a repair path heals is a negative case that proves nothing.
+  refused 'registry migration ran' \
+    '[richos] company registry: this install already had threads under 1 compan(ies) (acme). They have been written to /m/entities.json so they keep resolving. No folder was guessed for any of them — open the company settings to add one.' \
+    'A repair that ran once on an upgrade. It is not the steady state of a complete machine,
+       and a boot under test that prints it is a boot somebody should look at.'
+
+  refused 'registry migration failed' \
+    '[richos] company registry: could not write /m/entities.json (Read-only file system (os error 30)). Existing threads will not resolve until a company is registered in the window.' \
+    'Threads that exist on disk and resolve nowhere. Never routine.'
+
+  # --- resolution: the four ways `resolve_boot_entity` files work nowhere -----------------
+  refused 'entity env refused' \
+    '[richos] RICHOS_ENTITY="acme" is not a registered entity — refusing it' \
+    'An operator named a company deliberately and it does not exist here. Fails closed in
+       the product and must fail red here.'
+
+  refused 'entity saved choice stale' \
+    '[richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess' \
+    'The one state in which the CEO believes he has answered this question and has not.
+       (The run of spaces is verbatim from main.rs:637 — this file quotes the boot, it does
+       not tidy it.)'
+
+  refused 'entity cwd unresolved' \
+    '[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess' \
+    'The last fallback found nothing. Under launchd cwd is ALWAYS `/`, so this sentence is
+       the normal shape of a failed resolution on the only condition that matters.'
+
+  refused 'entity no cwd' \
+    '[richos] no working directory could be read' \
+    'The fallback could not even be attempted.'
+
+  # --- and what the CEO is told when nothing resolved, in both of its shapes --------------
+  refused 'no company registered' \
+    '[richos] no company is registered on this install yet — RichOS will ask in the window and write the answer to /m/entities.json.' \
+    'Printed with its operator line below it. Both are the visible end of a boot that
+       resolved no entity, which the `company` proof already fails on; accounting for them
+       would leave that proof as the only thing standing between this check and a launch
+       that can file nothing.'
+
+  refused 'no company registered (operator)' \
+    '[richos] operator: the file'"'"'s format and an example are in docs/entity-registry.md. RICHOS_ENTITY overrides once a company exists.' \
+    'The second line of the same eprintln!. A separate line in the log is a separate line to
+       account for.'
+
+  refused 'no company resolved' \
+    '[richos] no company resolved — RichOS will ask in the window and remember the answer.' \
+    'The other shape of the same condition: companies ARE registered and none was chosen.
+       This is what B7 produces.'
+
+  refused 'no company resolved (operator)' \
+    '[richos] operator: RICHOS_ENTITY (one of acme) still overrides, as does launching from that entity'"'"'s repository root.' \
+    'The second line of that one.'
+
+  # --- first-run setup, on every path that is not "nothing missing" -----------------------
+  refused 'first-run setup missing' \
+    '[richos] first-run setup: Claude Code is NOT installed — looked in: /a; /b' \
+    'The counterpart of the `first-run setup` proof. §19 says RichOS "would not run on
+       anyone else'"'"'s" Mac; this line is that condition speaking, and a check that accepted
+       it would be certifying a machine the product cannot run on.'
+
+  refused 'first-run setup pinned' \
+    '[richos] first-run setup: this build installs engine 2026.09.04.' \
+    'Only ever printed beside a missing component. It is good news about a bad state, and
+       the bad state is what the accounting is for.'
+
+  refused 'first-run setup unpinned' \
+    '[richos] first-run setup: this build carries NO engine pin, so it cannot install one. Build with RICHOS_ENGINE_VERSION / RICHOS_ENGINE_URL / RICHOS_ENGINE_SHA256 set.' \
+    'A build that cannot repair the machine it is running on. The worst of the three and the
+       one most likely to reach a stranger who downloaded a release.'
 }
 
 # =========================================================================================
@@ -342,14 +539,24 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # A healthy log, written out here so A1/A2 differ from it by exactly one line.
+#
+# IT IS A TRANSCRIPT, NOT A SKETCH. Every line below is the shape the binary really printed
+# on this machine on 2026-09-04, in the order it printed them, with the paths shortened —
+# `docs/verification/gui-boot-entity-registry-2026-09-04/healthy-boot.txt` is the capture.
+# A fixture that drifts from the boot is a fixture that certifies A0-A6 against a log the
+# product no longer produces, which is the same silent-shortening failure this file's header
+# refuses everywhere else.
 healthy_log() {
   cat <<'LOG'
-[richos] launch: fresh (1 window(s))
-[richos] company: femcboost (via the saved choice)
+[richos] launch: fresh (start 1, 1 window(s))
+[richos] company registry: 1 company from /m/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 1 compan(ies), /m/Library/Application Support/com.richos.app/entities.json (file)
+[richos] company: northwind (via the saved choice)
 [richos] loro Tier C: compiling from /m/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
 [richos] loro correction desk: writing to /m/corpus via /m/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
 [richos] engine directory: /m/.claude/richos-engine (via engine install pointer)
 [richos] compute lease attached over /m/.local/bin/claude
+[richos] first-run setup: nothing missing.
 [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked
 [richos] boot complete — every line above is what this launch resolved
 LOG
@@ -413,6 +620,32 @@ if gui_account "$TMP/a5.log" >/dev/null 2>&1; then
   bad "A5 an empty log fails" "it passed"
 else
   ok "A5 an empty log fails, never 'all 0 lines accounted for'"
+fi
+
+# A6 — THE ANTI-WIDENING CASE.
+#
+# The cheapest way to make B2 green is to widen a rule until it swallows whatever is red.
+# That repair is invisible in a passing run and it deletes the check, which is exactly what
+# this suite was written to stop someone doing to the product. So every sentence declared
+# unaccountable by `refused` is appended to the healthy log, one at a time, and the
+# accounting has to refuse each one BY NAME. A rule that grows wide enough to cover one of
+# them turns this red, on the run that widened it.
+UNREFUSED=()
+for i in "${!REFUSED_ID[@]}"; do
+  { healthy_log; printf '%s\n' "${REFUSED_LINE[$i]}"; } > "$TMP/a6.log"
+  OUT="$(gui_account "$TMP/a6.log" 2>&1)"; CODE=$?
+  if [ "$CODE" -eq 0 ] || ! printf '%s\n' "$OUT" | grep -Fq "UNACCOUNTED  ${REFUSED_LINE[$i]}"; then
+    UNREFUSED+=("${REFUSED_ID[$i]}")
+  fi
+done
+if [ "${#REFUSED_ID[@]}" -eq 0 ]; then
+  bad "A6 every line declared unaccountable is still unaccounted" \
+      "nothing is declared — this case cannot pass over an empty list"
+elif [ "${#UNREFUSED[@]}" -eq 0 ]; then
+  ok "A6 all ${#REFUSED_ID[@]} lines declared unaccountable are still unaccounted"
+else
+  bad "A6 every line declared unaccountable is still unaccounted" \
+      "a rule now accounts for: ${UNREFUSED[*]}"
 fi
 
 # =========================================================================================
@@ -493,6 +726,17 @@ break_and_boot "the corpus pointer is removed -> caught"      B4 rm -rf "Library
 break_and_boot "the loro tools are removed -> caught"         B5 rm -rf "Library/Application Support/RichOS/loro-tools"
 break_and_boot "the claude stand-in is removed -> caught"     B6 rm -f  .local/bin/claude
 break_and_boot "the saved company is removed -> caught"       B7 rm -f  "Library/Application Support/com.richos.app/config.json"
+
+# B8 — the seam the entity registry added, and the break is a CORRUPTION rather than a
+# removal. Deleting `entities.json` is HEALED by the no-orphan migration (main.rs:895): the
+# machine has already booted once above, so its ledger holds a thread under `northwind`, the
+# registry loads `Absent`, the ids that already own records are re-registered and the boot
+# resolves normally. Measured on 2026-09-04, capture under
+# `docs/verification/gui-boot-entity-registry-2026-09-04/`. A negative case a repair path
+# heals proves nothing about the detector, so this one leaves a file that exists and cannot
+# be trusted — the state the migration is gated against and the one the product must refuse.
+break_and_boot "the company registry is corrupt -> caught"    B8 \
+  sh -c 'printf "{ not json" > "Library/Application Support/com.richos.app/entities.json"'
 
 # =========================================================================================
 # Y — the reaper, proved on real processes
