@@ -230,7 +230,7 @@ archive.
   "platforms": {
     "darwin-aarch64": {
       "signature": "<the whole contents of RichOS.app.tar.gz.sig>",
-      "url": "https://<host>/richos/0.1.1/RichOS.app.tar.gz"
+      "url": "https://github.com/WebDevBooster/richos/releases/download/v0.1.1/RichOS.app.tar.gz"
     }
   }
 }
@@ -338,7 +338,7 @@ engineering is indifferent between them — all three serve one JSON document an
 ## What the CEO sees
 
 **When an update is waiting, a small pill appears beside the universal settings button reading
-*RichOS 0.1.2 is available*.** It is not there the rest of the time — not dimmed, not saying "up
+*RichOS 1.0.2 is available*.** It is not there the rest of the time — not dimmed, not saying "up
 to date", not there at all — so what the CEO notices is a thing arriving in chrome he is already
 looking at rather than a control he has learned to skip. Pressing it opens the Updates row below
 and puts his hand on that row's own button. It never installs anything itself.
@@ -349,7 +349,9 @@ the whole surface, and the row lives inside a menu — so an available update wa
 by someone who happened to open that menu, and nothing gave them a reason to.
 
 The settings button also carries a **mark** when an update is waiting or installed. Opening it
-shows an Updates row with, in every case, a sentence:
+shows an Updates row with, in every case, a sentence. The version numbers below are the ones
+the interface tests use as fixtures, not the shipping series — the published releases are
+1.0.0, 1.0.1 and 1.0.2:
 
 * *RichOS 0.1.0 is up to date.* / *Checked 8 minutes ago.*
 * *RichOS 0.1.1 is available.* + the release notes + **Download and install**
@@ -357,7 +359,10 @@ shows an Updates row with, in every case, a sentence:
 * *RichOS 0.1.1 is installed.* / *Restart when you are ready — nothing is lost.* + **Restart to finish**
 * every failure in its own words, with the vendor's own error text one click behind it
 
-**RichOS checks by itself, three seconds after launch.** The install is a button, and that is
+**RichOS checks by itself, once, three seconds after launch** (`updates.rs`,
+`spawn_launch_check`). Once per launch, not on a timer, and it downloads nothing — so a
+machine that is never restarted never checks again. **The install is a button the CEO presses,
+and a relaunch is needed after it.** That is
 deliberate: on macOS the installer deletes and replaces the running `.app` in place, and RichOS
 holds a `claude-agent-acp` child process as a compute lease that the session-continuity design
 forbids swapping mid-turn (the session-continuity design record,
@@ -376,16 +381,31 @@ the wrong control.
 
 * **Windows is unproven.** `plugins.updater.windows.installMode` is configured, and no Windows
   bundle has ever been built for RichOS — that needs a .NET toolchain this machine does not
-  have (RICH-TODOs row 8), and there is no Windows code-signing certificate
-  (`richos-hq/wiki/packaging-and-signing.md`). Nothing here says Windows works.
-* **Nothing has been served over HTTPS.** The end-to-end run used http on 127.0.0.1 with the
-  insecure-transport flag; the shipping config keeps https mandatory. The TLS path is unproven
-  because there is no host to prove it against.
-* **No update has crossed a network.** Both ends were this machine.
-* **Grants do not survive an ad-hoc update.** The bundles are ad-hoc signed, so every update
-  changes the app's identity as far as macOS is concerned and the microphone and accessibility
-  grants die — measured 2026-08-24, `richos-hq/wiki/packaging-and-signing.md`. That is a
-  CERTIFICATE problem, not an updater problem, and it is the next paragraph.
+  have (RICH-TODOs row 8), and there is no Windows code-signing certificate (the packaging and
+  signing record, kept privately in richos-hq and not part of this repository). Nothing here
+  says Windows works.
+* **Nothing has relaunched after a REAL update.** The update proven over the internet on
+  2026-09-04 stops at `ready`; the self-test exits there by design. Relaunch is proven only by
+  case D on the local harness, on locally built 0.1.x bundles. Nobody has watched a published
+  bundle replace itself and come back as the new version.
+* **No update has been applied to a translocated copy.** The 2026-09-04 run used a copy in an
+  ordinary directory with no `com.apple.quarantine` attribute.
+  `docs/verification/first-run-as-a-stranger-2026-09-04/` observed a genuinely quarantined
+  1.0.0 running **App-Translocated** from a read-only image, which is where a person's first
+  download actually runs from until they move it. Whether an in-place update succeeds from
+  there is not measured, in either direction.
+* **NO GRANT HAS BEEN WATCHED SURVIVING AN UPDATE.** What is measured is the mechanism, and it
+  is worth stating exactly, because the opposite used to be true and this document said so.
+  Under Developer ID the designated requirement is
+  `identifier "com.richos.app" … certificate leaf[subject.OU] = TZ33A4QCZJ`, character for
+  character identical across v1.0.0, v1.0.1 and v1.0.2, with **no `cdhash` term in it** — so
+  it is not a hash of one build, and a new build signed by the same certificate satisfies it.
+  The microphone row in this Mac's TCC database is bound to that same hash-free requirement.
+  Both facts are in `docs/verification/live-update-2026-09-04/`. **What is missing is the
+  outcome**: nobody has granted the microphone to one version, updated, and used the
+  microphone again without being asked. Accessibility has no row at all, so there is nothing
+  there to survive yet. Ad-hoc bundles, whose requirement *is* a code hash, do still lose both
+  grants on every rebuild — that is why releases are signed with the certificate.
 * **Rollback does not exist.** A bad release is fixed by publishing a newer one. The updater
   compares semver and will not install a lower version.
 * **There is no staged rollout and no channel.** One manifest, everyone gets it.
@@ -404,29 +424,45 @@ the wrong control.
 
 ---
 
-## What is still blocked on the Developer ID certificate
+## The Developer ID certificate — what it closed, and what it did not
 
-The Apple Developer Program membership **exists** as of 2026-08-31 — CEO decision 1.1 is
-closed, and `richos-hq/wiki/packaging-and-signing.md` records it. What does not exist is the
-**Developer ID Application certificate**: `security find-identity -v -p codesigning` on this
-Mac reports **0 valid identities**, measured today.
+**This section used to say the certificate did not exist.** It said
+`security find-identity -v -p codesigning` reported 0 valid identities, that every update
+shipped an ad-hoc bundle, that microphone and accessibility grants died on every update, and
+that nothing was notarized. **Every one of those was true when it was written and none of them
+has been true since 2026-09-01.** It is left named rather than quietly deleted because a
+document that has been wrong should say where.
 
-Until it does:
+What is true now, one claim at a time:
 
-* every update ships an **ad-hoc signed** bundle, whose designated requirement is a hash of
-  that build and nothing else, so **microphone and accessibility grants die on every update**
-  and cannot be migrated (toggling the switch in System Settings provably does not work);
-* Gatekeeper rejects a downloaded copy, so the first install is a right-click-Open — and every
-  *update* after that is silent, because the updater replaces the bundle rather than opening a
-  download;
-* nothing is notarized.
+* **The Apple Developer Program membership exists** (2026-08-31; CEO decision 1.1 closed).
+* **The Developer ID Application certificate exists.** `security find-identity -v -p codesigning`
+  reports **1 valid identity**, `Developer ID Application: Alex Booster (TZ33A4QCZJ)`, valid to
+  2031-09-02.
+* **Releases are signed with it, with the hardened runtime, then notarized and stapled.**
+  `make-release.sh` does all four by default, and `verify-release` re-downloads what was
+  published and checks it again.
+* **Gatekeeper accepts a downloaded copy.** All three published zips assess as
+  `accepted / source=Notarized Developer ID`, and a quarantined 1.0.0 opened from Finder with
+  no prompt at all. There is no right-click-Open step for a person installing RichOS.
+* **The identity no longer changes per build.** The designated requirement names the bundle
+  identifier and the certificate, and carries no `cdhash` term — so macOS treats every build
+  signed with this certificate as the same application. That is the mechanism grants depend
+  on, and it is measured on all three releases.
 
-**None of that blocks the updater**, which is why it is built and proven now. The certificate
-is two commands away and both are already written:
-`app/scripts/make-signing-csr.sh` (already run — the CSR is waiting at
-`~/.richos-signing/developer-id.certSigningRequest`), then the portal, then
+What the certificate did **not** close, and is listed again here so a reader who skipped the
+section above does not leave with the wrong impression:
+
+* **No microphone or accessibility grant has been observed surviving an update.** The
+  mechanism is measured; the outcome is not. Accessibility has never been granted to RichOS at
+  all, so it has nothing to lose yet.
+* **Windows has no certificate and no bundle.** Nothing about this identity touches it.
+
+The two scripts that produced the certificate are still in the tree, for the day it is renewed
+or replaced: `app/scripts/make-signing-csr.sh`, then the Apple portal, then
 `app/scripts/install-signing-cert.sh <the .cer>`. `docs/ceo/developer-id-setup-2026-08-31.md`
-is the middle step in plain language.
+is the middle step in plain language. The rebuild-identity measurement that settled the grant
+mechanism is `docs/verification/rebuild-survival-2026-09-01.md`.
 
 ---
 
