@@ -390,6 +390,16 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # evening until it was read. The tripwire worked; the list of places to look
 # was the thing that was short.
 #
+# 51 -> 52 on 2026-09-04: guard-vendoring-commits.sh, wired last on
+# PreToolUse[Bash] -- it refuses a commit that adds redistributable material
+# with no entry in .richos/vendored-material saying where it came from. The
+# occasion was an audit that found 15 of this engine's 27 skills came from
+# outside the project with exactly ONE of them ever written down, in a commit
+# message. Fourteenth firing, and this time the derivation above was used
+# rather than guessed at: `grep -rn guard-row-currency-commits engine/` named
+# every inventory a Bash-matcher guard has to appear in, and this set was one
+# of them.
+#
 # WHY THE THRESHOLD IS NOW A SET AND NOT A NUMBER
 # ===============================================
 # It stays TYPED -- deriving both sides would make this "X == X", true forever
@@ -453,6 +463,7 @@ guard-row-currency-commits.sh
 guard-sealed-worktree.sh
 guard-stated-actions.sh
 guard-unresolved-claims.sh
+guard-vendoring-commits.sh
 guard-workflow-ban.sh
 guard-worktree-isolation.sh
 guard-worktree-removal.sh

@@ -720,7 +720,7 @@ and `PRIVATE_SOURCES` to name where your private material actually lives.
 **Where these declarations live.** Every one of them is read through
 `scripts/lib/declaration-path.sh`, which looks in `.richos/` first and at the
 repository root second, so both forms work and neither has to be migrated. This
-repository groups its own three in `.richos/` because a public repository's root
+repository groups its own four in `.richos/` because a public repository's root
 listing is the first thing a stranger reads; see
 [`.richos/README.md`](../.richos/README.md). Declaring the same thing in both
 places at once is BROKEN rather than a choice between them, and a DECLARATION
@@ -758,6 +758,40 @@ suppresses nothing FAILS and names itself for deletion, so an exemption cannot
 outlive its reason. The engine's own copy is at
 `.richos/publication-completeness`; read it for the four keys and for what each
 exemption is actually buying.
+
+## If you redistribute other people's work — the vendoring registry
+
+Vendoring is a decision somebody makes in thirty seconds and nobody writes down.
+On 2026-09-04 an audit of this engine found that **15 of its 27 skills came from
+outside the project, and exactly one of those vendorings had ever been recorded —
+in a commit message.** Reconstructing the other fourteen took a full agent doing
+byte comparisons against upstream repositories, and two verdicts came back short
+of certain because by then the evidence had decayed. The same missing fact caused
+a second, unrelated failure the same day: `guard-dialect.sh` Americanized four
+British spellings inside a vendored MIT-licensed file, because nothing in the
+repository could tell it whose bytes those were.
+
+So create a **`.vendored-material`** file (this engine's own is at
+`.richos/vendored-material`). Its presence is the declaration. It names the paths
+that hold redistributable material — `REDISTRIBUTABLE_PATHS` — and carries one
+tab-separated line per thing: path, origin, license, copyright holder, upstream,
+revision, arrival date, confidence, what was modified, and where the evidence
+lives. Read the file's own header for the format; it is data, not prose, so a
+guard can act on it.
+
+**`guard-vendoring-commits.sh`** then refuses, at `git commit`, any commit that
+adds files under a governed path with no entry covering them, naming the path and
+the line to add. It never guesses provenance — a guard that infers origin is
+confidently wrong some of the time, and a wrong provenance claim is worse than an
+absent one. It asks one question: was the fact written down? The escape hatch is a
+`vendoring-ack: <reason>` line in the commit message, logged to
+`.claude/state/vendoring-acks.log`; a bare marker exempts nothing.
+
+**`guard-dialect.sh` reads the same registry** and leaves `third-party` entries
+alone, which is the concrete payoff of the fact being machine-readable rather than
+prose in a document. Material recorded as `richos` is still checked — recording
+your own authorship is what lets the guard tell "we wrote this" from "nobody wrote
+anything down".
 
 ## The meta-roles (ship working)
 

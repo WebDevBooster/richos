@@ -367,6 +367,13 @@ HOOK_FILES+=(
     # guard and not the predicate would check the lock and ignore the key.
     "$REPO_ROOT/scripts/lib/row-currency.sh"
     "$REPO_ROOT/scripts/lib/row-currency.py"
+    # The VENDORED-MATERIAL reader. Same argument again, and here it has a
+    # second edge: TWO mechanisms take their whole answer from this one file.
+    # guard-vendoring-commits.sh asks it whether a vendoring was recorded, and
+    # guard-dialect.sh asks it whose bytes it is about to rewrite. A tampered
+    # copy that answered "third-party" to everything would leave the dialect
+    # guard wired, hashed and silently checking nothing at all.
+    "$REPO_ROOT/scripts/lib/vendored-material.sh"
     # The Stop-hook notice channel. Not a hook, and hashed for the reason above
     # turned inside out: the other entries decide whether to REFUSE something,
     # and this one decides whether the operator is TOLD a guard has stopped

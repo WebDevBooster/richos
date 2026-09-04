@@ -414,6 +414,16 @@ ALL_ROOT_SCRIPTS=(
     # `cd <repo> && git commit` — the form a worktree-isolated agent types by
     # default. SC1 below is what stops this list falling behind it.
     scripts/lib/git-jurisdiction.sh
+    # The VENDORED-MATERIAL reader — whose work is this? On this list for the
+    # FIRST reason twice over: guard-vendoring-commits.sh REFUSES TO START
+    # without it, and so does guard-dialect.sh, which is the more interesting
+    # half. The dialect guard used to have no such dependency, and on 2026-08-30
+    # it rewrote fourteen lines across two vendored MIT-licensed skills because
+    # it could not tell whose bytes they were. A sandbox missing this file would
+    # model precisely that engine — a dialect guard that starts, runs, reports,
+    # and is blind to the only question that stops it editing other people's
+    # prose. It refuses instead.
+    scripts/lib/vendored-material.sh
     # The global-state witness, and it is on this list for the READING reason
     # rather than the running one — stated plainly, because SC1 below cannot see
     # it. No registered hook touches it: it is what the suites that run

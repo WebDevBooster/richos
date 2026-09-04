@@ -216,6 +216,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-row-currency-commits.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-vendoring-commits.sh",
+            "timeout": 20
           }
         ]
       },
