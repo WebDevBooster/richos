@@ -1,0 +1,14 @@
+# 02-post-fix-fresh-clone.txt
+#
+# THE FIX, from a real clone whose directory holds nothing but that clone.
+# 1341 tracked paths, asserted equal to this tree's. Exit 0.
+#
+# cwd: /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/proof/clone/richos
+
+$ engine/scripts/publication-completeness.sh --root .
+=== publication completeness: /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/proof/clone/richos ===
+✓ Every capability this tree claims is delivered: no dangling citation, no
+  declaration-gated mechanism without its declaration and its documentation,
+  no unreachable workflow, no public contract with its mechanism left behind
+  in the private tree.
+(exit 0)

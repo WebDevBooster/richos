@@ -279,9 +279,27 @@ fi
 # It is safe to have ONLY because an exemption that suppresses nothing FAILS —
 # see the analyser. The list cannot outlive its own justification.
 # ---------------------------------------------------------------------------
+#
+# EVERY KEY HERE IS EVALUABLE FROM THE PUBLISHED TREE ALONE, and that is a
+# property of the set rather than a coincidence about its members. Each of the
+# three is a function of `git ls-files` and the tracked bytes, so its verdict —
+# the staleness verdict included — is identical in a clone that has nothing
+# else on the disk beside it. A fourth key once named files inside a PRIVATE
+# tree, and it made this gate answer one way on the machine that wrote the
+# entry and the other way in every clone; see RETIRED_KEYS below, and Check 4's
+# header for what replaced it. Do not add a key whose meaning depends on the
+# host.
+# ---------------------------------------------------------------------------
 COMPLETENESS_DECLARATION=".publication-completeness"
-KNOWN_KEYS="CITATION_EXEMPT DECLARATION_EXEMPT WORKFLOW_EXEMPT INSTANCE_MECHANISMS"
-EX_CITATION=""; EX_DECLARATION=""; EX_WORKFLOW=""; EX_INSTANCE=""
+KNOWN_KEYS="CITATION_EXEMPT DECLARATION_EXEMPT WORKFLOW_EXEMPT"
+# A key this file once accepted and no longer reads. Refused BY NAME, with the
+# migration, and never folded into the generic "unknown key" message: whoever
+# wrote that line did nothing wrong at the time, and a refusal that cannot tell
+# them where the concept went is a refusal that gets worked around. Ignoring it
+# quietly would be worse still — the exemption would stop exempting and nothing
+# would say so.
+RETIRED_KEYS="INSTANCE_MECHANISMS"
+EX_CITATION=""; EX_DECLARATION=""; EX_WORKFLOW=""
 # Resolved the same way as the boundary declaration beside it: the grouped form
 # first, the root form second, both at once refused. An exemption file the
 # checker cannot find is an exemption file that silently stops exempting, and
@@ -306,6 +324,10 @@ if [ -n "$CFILE" ] && [ -f "$CFILE" ]; then
             \'*\') val="${val#\'}"; val="${val%\'}" ;;
             *) val="${val%%#*}"; val="${val%"${val##*[![:space:]]}"}" ;;
         esac
+        case " $RETIRED_KEYS " in
+            *" $key "*)
+                echo "ERROR: $CFILE: '$key' is RETIRED and this file no longer reads it. It named executable files inside a PRIVATE tree, so whether it suppressed anything depended on whether that tree happened to be on the machine running the check — the published tree got one verdict on the author's machine and the opposite one in every clone. A private mechanism now declares ITSELF, in its own body, with 'instance-mechanism: <reason>' (a bare marker exempts nothing). Move the reason into the file and delete this line." >&2; exit 2 ;;
+        esac
         case " $KNOWN_KEYS " in
             *" $key "*) ;;
             *) echo "ERROR: $CFILE: unknown key '$key'. Known keys: $KNOWN_KEYS. A key nothing reads is a setting that silently does nothing — refusing rather than pretending it took effect." >&2; exit 2 ;;
@@ -317,7 +339,6 @@ if [ -n "$CFILE" ] && [ -f "$CFILE" ]; then
             CITATION_EXEMPT)     EX_CITATION="$val" ;;
             DECLARATION_EXEMPT)  EX_DECLARATION="$val" ;;
             WORKFLOW_EXEMPT)     EX_WORKFLOW="$val" ;;
-            INSTANCE_MECHANISMS) EX_INSTANCE="$val" ;;
         esac
     done < "$CFILE"
 fi
@@ -329,7 +350,7 @@ printf '%s=== publication completeness: %s ===%s\n' "$C_BOLD" "$DECL_ROOT" "$C_R
 
 OUT="$(
     ROOT="$DECL_ROOT" EXPLAIN="$EXPLAIN" DECLDIR="$DECLARATION_DIR" \
-    EXC="$EX_CITATION" EXD="$EX_DECLARATION" EXW="$EX_WORKFLOW" EXI="$EX_INSTANCE" \
+    EXC="$EX_CITATION" EXD="$EX_DECLARATION" EXW="$EX_WORKFLOW" \
     PRIV="$PRIVATE_JSON" python3 -c '
 import json, os, sys
 cfg = {
@@ -341,7 +362,7 @@ cfg = {
     "private_roots": json.loads(os.environ["PRIV"]),
     "exempt": {k: os.environ[v].split() for k, v in
                (("CITATION_EXEMPT","EXC"),("DECLARATION_EXEMPT","EXD"),
-                ("WORKFLOW_EXEMPT","EXW"),("INSTANCE_MECHANISMS","EXI"))
+                ("WORKFLOW_EXEMPT","EXW"))
                if os.environ[v].split()},
 }
 sys.stdout.write(json.dumps(cfg))' | python3 "$ANALYSER"

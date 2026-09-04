@@ -1,0 +1,13 @@
+# 09-check-4-stands-down-in-a-clone.txt
+#
+# Check 4 walks nothing here, because nothing resolves -- which is correct,
+# and is exactly why no exemption belonging to it may be judged here.
+# Same tree, same verdict, two very different worlds.
+#
+# cwd: /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/proof/clone/richos
+
+$ engine/scripts/publication-completeness.sh --root . --explain 2>&1 | grep -cE 'private tree [a-z-]+ \(' ; echo '(0 private trees walked -- none resolves here)'; engine/scripts/publication-completeness.sh --root . >/dev/null 2>&1; echo "gate exit: $?"
+0
+(0 private trees walked -- none resolves here)
+gate exit: 0
+(exit 0)

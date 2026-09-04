@@ -63,6 +63,14 @@ It matters before the flip for one specific reason: the audit's "Checks that
 passed" list records `publication-completeness.sh --root .` as passing, and that
 pass is true only on the owner's machine.
 
+**Update, same day — fixed.** `INSTANCE_MECHANISMS` is retired and refused by
+name; the excuse for a private-tree mechanism now lives in that file as an
+`instance-mechanism: <reason>` marker, so no exemption belonging to a check that
+cannot run here is judged here. A clone with no private sibling passes the gate.
+The finding above is otherwise left exactly as it was written, because it was
+true when it was written. Record:
+`docs/verification/publication-gate-host-independence-2026-09-04/README.md`.
+
 ## Environment
 
 ```

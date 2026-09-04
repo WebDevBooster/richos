@@ -1,0 +1,21 @@
+# 01-pre-fix-fresh-clone.txt
+#
+# THE DEFECT. A clone of a97df07 with no richos-hq sibling. One finding,
+# and it is about a file that is not in the tree being checked.
+#
+# cwd: /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/freshclone/richos
+
+$ engine/scripts/publication-completeness.sh --root .
+=== publication completeness: /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/freshclone/richos ===
+
+ 1. [STALE-EXEMPTION] .publication-completeness
+    INSTANCE_MECHANISMS entry 
+    `richos-hq/<interior path redacted here, on purpose>` suppresses 
+    nothing any more. Either the defect it excused is fixed — in which case DELETE THIS LINE — or 
+    the path it names has moved and the exemption is now silently licensing something else.
+
+✗ publication-completeness: 1 finding(s). The public tree claims capabilities it
+  does not deliver. Fix each, or add a reviewed entry to
+  /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/freshclone/richos/.richos/publication-completeness (an entry that suppresses nothing FAILS,
+  so an exemption cannot outlive its reason).
+(exit 1)

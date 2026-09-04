@@ -395,6 +395,41 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Changed
 
+- **The publication completeness gate no longer means one thing on the author's
+  machine and another in a clone** (`scripts/publication-completeness.sh`,
+  `scripts/publication-completeness.py`, `scripts/publication-completeness.test.sh`)
+  — MAJOR-class: the `INSTANCE_MECHANISMS` key of `.publication-completeness`
+  is RETIRED and is refused by name.
+
+  Check 4 walks the trees named in `PRIVATE_SOURCES`, which exist only on the
+  operator's machine, and `INSTANCE_MECHANISMS` excused a file inside one of
+  them. On the machine that wrote the entry the private tree resolved, the
+  check ran, the entry suppressed a real finding and the gate was green. In a
+  clone holding only the public repository — every CI runner, every reader —
+  no private tree resolves, so the check never ran, the entry therefore
+  suppressed nothing, and the "an exemption that suppresses nothing FAILS"
+  rule turned the gate red over a file that was not in the tree being checked.
+  Found from a fresh clone on 2026-09-04, while proving reproducible builds.
+
+  The rule is not weakened and no "unresolvable path means skip" escape was
+  added; what was wrong was judging an exemption belonging to a check that had
+  not run. A private mechanism that is one operator's artifact rather than a
+  withheld capability now declares itself IN ITS OWN BODY with
+  `instance-mechanism: <reason>` — the discipline `dialect-exempt: <reason>`
+  already uses — reviewed in the private repository's own diff. A bare marker
+  exempts nothing, and a marker on a file that couples to no public contract is
+  reported as a stale exemption, so it cannot outlive its reason either.
+
+  What the published tree gains is a property rather than one fixed instance:
+  every key `.publication-completeness` still accepts is a function of
+  `git ls-files` and the tracked bytes, so its verdict — the staleness verdict
+  included — is identical in every clone.
+
+  UPGRADING: delete any `INSTANCE_MECHANISMS` line and write the reason into
+  the file it named. The checker refuses the key with that instruction rather
+  than ignoring it, because an exemption that silently stops exempting is the
+  failure this contract exists to remove.
+
 - **`guard-worktree-isolation.sh` clause 4 — a cross-repository spawn is
   admitted only into a worktree RichOS registered** (MAJOR-class: the guard
   now blocks shapes it previously allowed). A `cwd` spawn passes only when

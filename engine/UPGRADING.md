@@ -197,6 +197,46 @@ If you own both, land them in that order in that sitting. If you are an adopter
 pulling this release, you are already safe: the engine arrives first by
 definition, and your `.ceo-queue` keeps working until you choose to rename it.
 
+## Publication completeness: `INSTANCE_MECHANISMS` is retired (2026-09-04)
+
+If your `.publication-completeness` carries an `INSTANCE_MECHANISMS` line, the
+updated `scripts/publication-completeness.sh` refuses the whole file with
+**exit 2** and names the migration. It is a two-minute change and it is worth
+knowing why it is not optional.
+
+That key excused an executable inside a tree named in `PRIVATE_SOURCES` — a
+tree that exists on the operator's machine and in no clone. So the gate meant
+two different things at once. On the machine that wrote the entry, Check 4 ran,
+the entry suppressed a real finding, and the gate was green. In a clone holding
+only the public repository — every CI runner, every reader, every contributor —
+no private tree resolves, so Check 4 never ran, the entry therefore suppressed
+nothing, and the "an exemption that suppresses nothing FAILS" rule turned the
+gate red over a file that was not in the tree being checked. Both verdicts were
+sincere; only one was about the published tree.
+
+**Migrate by moving the reason into the file it excused.** In the private
+mechanism's own body, anywhere:
+
+```
+# instance-mechanism: <why this is one operator's artifact and not a
+# capability a customer could use>
+```
+
+Then delete the `INSTANCE_MECHANISMS` line. The excuse now lives where a
+reviewer of that file cannot miss it, reviewed in the private repository's own
+diff, and it is checked exactly where it can be: a **bare** marker with no
+reason after it exempts nothing, and a marker on a file that couples to no
+public contract is reported as a stale exemption and named for deletion.
+
+Do not instead delete the private script to make the finding go away unless it
+is genuinely dead — and do not weaken the rule. What was wrong was judging an
+exemption belonging to a check that had not run, not the rule that judges it.
+
+The three keys that remain — `CITATION_EXEMPT`, `DECLARATION_EXEMPT`,
+`WORKFLOW_EXEMPT` — are each a function of `git ls-files` and the tracked
+bytes, so every verdict this gate reaches is the same in every clone of your
+tree. Keep it that way: do not add a key whose meaning depends on the host.
+
 ## Which files are yours, and which are the engine's
 
 The upgrade decision for every file reduces to one question: **who owns it after

@@ -37,6 +37,15 @@
 #   (e) MECHANISM vs INSTANCE DATA is decided structurally, not by opinion.
 #   (f) EXEMPTIONS work, and a STALE exemption FAILS — the property that makes
 #       the escape hatch safe to have at all.
+#   (f2) THE VERDICT ON THE PUBLIC TREE DOES NOT MOVE WITH THE HOST. The excuse
+#       for a private-tree mechanism lives IN THAT FILE (`instance-mechanism:
+#       <reason>`), never in the published declaration, because a declaration
+#       entry naming a private path is judged stale in any clone that does not
+#       have that private tree — which made this gate pass on one machine and
+#       fail on every other. The suite asserts the same public tree passes with
+#       the private tree present AND with it gone, that a bare marker exempts
+#       nothing, that a marker excusing a coupling that no longer exists FAILS,
+#       and that the retired key is refused by name rather than ignored.
 #   (g) NO SILENT DEGRADATION: unknown key, malformed line, empty tree and a
 #       non-repository all exit 2, never 0.
 #
@@ -506,6 +515,17 @@ commit_all "$T"
 assert_finding "an exemption that suppresses NOTHING fails and names itself for deletion" \
     "$T" STALE-EXEMPTION "suppresses nothing"
 
+# ---------------------------------------------------------------------------
+echo "--- (f2) the private-tree excuse lives IN the private file"
+# ---------------------------------------------------------------------------
+# Check 4's subject is a tree that exists only on the operator's machine, so its
+# EXCUSE cannot live in the published declaration: in a clone with no private
+# tree the check never runs, the entry therefore suppresses nothing, and the
+# "an exemption that suppresses nothing FAILS" rule turns the gate red over a
+# file that is not in the repository being checked. That is not the rule going
+# wrong; it is an exemption being judged by a check that did not run. So the
+# marker travels with the file it excuses, and everything below is about the
+# marker being a real escape hatch and not an off switch.
 T="$(mktree exempt_instance)"
 P4="$(mkprivate hq_declared)"
 cat > "$P4/scripts/one-off.sh" <<'EOF'
@@ -514,33 +534,74 @@ cat > "$P4/scripts/one-off.sh" <<'EOF'
 echo .widget
 EOF
 printf 'PRIVATE_RECORD="hq"\nPRIVATE_SOURCES="%s"\n' "$P4" > "$T/.publication-boundary"
-printf 'INSTANCE_MECHANISMS="hq_declared/scripts/one-off.sh"\n' > "$T/.publication-completeness"
 commit_all "$T"
-assert_clean "a declared instance-specific private mechanism is allowed" "$T"
+assert_finding "an unexcused private mechanism is MISPLACED, and the refusal names the marker" \
+    "$T" MISPLACED "instance-mechanism: <reason>"
+
+# A BARE marker is not an off switch anybody can type into a file — the same
+# one-character property guard-dialect.sh's mutation suite pins for
+# `dialect-exempt:`.
+printf '# instance-mechanism:\n' >> "$P4/scripts/one-off.sh"
+assert_finding "a BARE 'instance-mechanism:' with no reason exempts nothing" \
+    "$T" MISPLACED "with no reason"
+
+# With a reason, it does exempt — and the refusal above is what told the author
+# how to write it.
+printf '# instance-mechanism: one operator hand-ran this once, against paths only they have.\n' \
+    >> "$P4/scripts/one-off.sh"
+assert_clean "an 'instance-mechanism: <reason>' marker in the private file suppresses it" "$T"
+
+# THE PROPERTY ALL OF THIS EXISTS FOR, asserted directly: the SAME public tree,
+# byte for byte, gets the SAME verdict whether or not the private tree is on
+# this machine. This is the fresh-clone case as a unit test — under the old
+# declaration-entry form the second assertion here failed with a
+# STALE-EXEMPTION over a path outside the tree.
+mv "$P4" "$P4.away"
+assert_clean "the same public tree passes when the private tree is NOT on this machine" "$T"
+mv "$P4.away" "$P4"
+assert_clean "and passes again with the private tree back — one tree, one verdict" "$T"
+
+# THE MARKER IS ITSELF CHECKED, so it cannot outlive its reason any more than a
+# declaration entry could. A marker on a mechanism that couples to nothing
+# public excuses a finding that is not there, and says so.
+T2="$(mktree marker_stale)"
+P5="$(mkprivate hq_stale_marker)"
+cat > "$P5/scripts/unrelated.sh" <<'EOF'
+#!/usr/bin/env bash
+# instance-mechanism: excuses a coupling this file no longer has.
+echo "one company's own thing, coupled to nothing public"
+EOF
+printf 'PRIVATE_RECORD="hq"\nPRIVATE_SOURCES="%s"\n' "$P5" > "$T2/.publication-boundary"
+commit_all "$T2"
+assert_finding "a marker on a mechanism coupled to nothing public FAILS as a stale exemption" \
+    "$T2" STALE-EXEMPTION "suppresses nothing"
 
 # AN ISOLATED WORKTREE INSIDE THE PRIVATE TREE IS NOT A SECOND MECHANISM.
 # Measured 2026-09-01: an agent's `.worktrees/<branch>/` copy of the private
-# tree re-reported an ALREADY-DECLARED mechanism at a path no declaration could
-# name, and guard-completeness-commits.sh then refused every commit in the
-# public repository until that worktree was moved. Declaring the copy is not the
-# fix — the path is ephemeral, so the "an entry that suppresses nothing FAILS"
-# rule would fire the moment it was reaped. The walk skips `.worktrees`, which
-# removes duplicates and no coverage: the same bytes are still walked at their
-# tracked path, which is why the assertion below is that the declared file is
-# STILL the one being suppressed.
+# tree re-reported an already-excused mechanism, and
+# guard-completeness-commits.sh then refused every commit in the public
+# repository until that worktree was moved. The walk skips `.worktrees`, which
+# removes duplicates and no coverage — the same bytes are still walked at their
+# tracked path. Asserted on an UNEXCUSED file, so the case cannot pass merely
+# because the copy carries the marker too: the finding must appear, and exactly
+# once.
 mkdir -p "$P4/.worktrees/agent-abc123/scripts"
-cp "$P4/scripts/one-off.sh" "$P4/.worktrees/agent-abc123/scripts/one-off.sh"
-assert_clean "an isolated worktree copy of a DECLARED private mechanism is not a second finding" "$T"
-
-# And the skip must not become a blanket amnesty: a mechanism that is genuinely
-# undeclared is still caught at its tracked path while a worktree copy exists.
 cat > "$P4/scripts/undeclared.sh" <<'EOF'
 #!/usr/bin/env bash
-# Reads .widget and nobody declared it.
+# Reads .widget and nobody excused it.
 echo .widget
 EOF
-assert_finding "an UNDECLARED private mechanism is still caught while a worktree exists" \
+cp "$P4/scripts/undeclared.sh" "$P4/.worktrees/agent-abc123/scripts/undeclared.sh"
+assert_finding "an UNEXCUSED private mechanism is still caught while a worktree copy exists" \
     "$T" MISPLACED "undeclared.sh"
+run "$T"
+DUPES="$(grep -c 'undeclared\.sh' <<<"$OUT")"
+if [ "$DUPES" = "1" ]; then
+    ok "the worktree copy is not reported as a SECOND finding (1 mention, not 2)"
+else
+    bad "worktree copy double-reported ($DUPES mentions of undeclared.sh, expected 1)"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
 rm -f "$P4/scripts/undeclared.sh"
 rm -rf "$P4/.worktrees"
 
@@ -552,6 +613,19 @@ printf 'CITATION_EXEMPTIONS="reference/"\n' > "$T/.publication-completeness"
 commit_all "$T"
 assert_rc "an unknown key in .publication-completeness → exit 2, not a quiet pass" \
     "$T" 2 "unknown key"
+
+# THIS IS THE 2026-09-04 DEFECT, REPRODUCED. A published declaration carrying
+# an INSTANCE_MECHANISMS entry, in a tree with no private source on the disk:
+# the pre-fix checker accepted the key, found that Check 4 had not run, judged
+# the entry stale and returned 1 — the fresh-clone red that made every green
+# result on the author's machine prove less than it appeared to. The key is now
+# refused BY NAME with the migration, so the whole class is unexpressible
+# rather than fixed one instance at a time.
+T="$(mktree retired_key)"
+printf 'INSTANCE_MECHANISMS="hq/scripts/one-off.sh"\n' > "$T/.publication-completeness"
+commit_all "$T"
+assert_rc "the RETIRED INSTANCE_MECHANISMS key → exit 2, naming where the concept went" \
+    "$T" 2 "instance-mechanism: <reason>"
 
 T="$(mktree broken_line)"
 printf 'this is not a key value line\n' > "$T/.publication-completeness"

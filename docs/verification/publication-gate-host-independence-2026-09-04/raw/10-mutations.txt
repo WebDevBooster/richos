@@ -1,0 +1,20 @@
+# 10-mutations.txt
+#
+# EACH PROPERTY, REMOVED ONE AT A TIME FROM THE SHIPPED SOURCE, TURNS EXACTLY
+# ONE NAMED CASE RED. A green suite proves nothing until it is shown failing
+# for the right reason.
+#
+# Every mutant is a throwaway copy of engine/scripts; nothing here touches the
+# real tree. A mutation whose target string is absent aborts rather than
+# reporting a green that means the source has drifted.
+
+=== m1-bare-marker (rc 1) ===
+    removes: a bare marker would exempt anything, so the escape hatch becomes an off switch anybody can type into a file
+    FAIL  a BARE 'instance-mechanism:' with no reason exempts nothing (expected exit 1, got 0)
+=== m2-no-stale-marker (rc 1) ===
+    removes: a marker could outlive the coupling it excused, which is the drift the whole exemption rule exists to stop
+    FAIL  a marker on a mechanism coupled to nothing public FAILS as a stale exemption (expected exit 1, got 0)
+=== m4-no-retired-key (rc 1) ===
+    removes: the retired key would fall through to the generic unknown-key message, telling the author nothing about where the concept went
+    FAIL  the RETIRED INSTANCE_MECHANISMS key → exit 2, naming where the concept went (message did not mention 'instance-mechanism: <reason>')
+(runner exit 0 -- 0 means every property was proven load-bearing)

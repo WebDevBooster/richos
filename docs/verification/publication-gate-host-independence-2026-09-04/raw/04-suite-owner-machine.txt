@@ -1,0 +1,74 @@
+# 04-suite-owner-machine.txt
+#
+# The suite on the machine that HAS the private sibling. Same verdict.
+#
+# cwd: /Users/alex/ab/richos-wt/zach-opus-p6
+
+$ engine/scripts/publication-completeness.test.sh
+=== publication-completeness.test.sh ===
+--- (a) stand-down: adoption is DECLARED, never inferred
+  PASS  no .publication-boundary → NOT APPLICABLE, exit 2, never a quiet pass
+  PASS  a directory that is not a git repository → exit 2
+--- (b) the positive control that everything else is measured against
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/base → clean: a complete tree passes
+  PASS  an ordinary commit in a governed tree is unaffected
+  PASS  publication-completeness registers no hook (a command + a CI step, by design)
+--- (c/d) FIXTURE 1 — SHIPPED INERT, and its fixed form
+  PASS  enforcement with no declaration template AND no mention → INERT
+  PASS  ...and the same finding names the missing documentation
+  PASS  a template with no onboarding mention is STILL inert
+  PASS  an onboarding mention with no copyable template is STILL inert
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/inert_fixed_instance → clean: a real committed instance counts as copyable, not just a .example
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/inert_fixed_undotted → clean: a dot-stripped template (widget.example) counts as copyable
+  PASS  a bare stem collision (src/widget) is NOT a template
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/inert_fixed_skill → clean: a SKILL.md counts as onboarding (agents read skills, not just READMEs)
+  PASS  a CHANGELOG mention does NOT satisfy onboarding
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/fixture_decl → clean: a declaration appearing only in a *.test.sh is NOT a shipped capability
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/commented_decl → clean: a declaration quoted only in a COMMENT is documentation, not a capability
+--- (c/d) FIXTURE 4 — A CLAIM WITH NOTHING BEHIND IT, and its neighbors
+  PASS  a README citing a workflow that exists nowhere → CITATION
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/cite_ok → clean: resolving, foreign, gitignored, runtime-relative and placeholder citations are all clean
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/cite_private → clean: a citation that names the private record by prefix is clean
+  PASS  a citation of a file present on disk but never committed → CITATION
+--- (c/d) FIXTURE 3 — UNREACHABLE BY CONSTRUCTION, and its fixed form
+  PASS  a workflow under a subdirectory with NO root workflow → UNREACHABLE
+  PASS  a root workflow running something ELSE does not cover the template
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/wf_fixed → clean: a template covered by a root workflow running the same entry point passes
+--- (c/d/e) FIXTURE 2 — MECHANISM IN THE PRIVATE TREE
+  PASS  an executable in the private tree reading a public contract → MISPLACED
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/instance_data → clean: private INSTANCE DATA naming the same contract is NOT misplaced
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/uncoupled → clean: a private mechanism coupled to nothing public is NOT misplaced
+--- (f) exemptions work, and a STALE exemption FAILS
+  PASS  without the exemption, the reference tree's adopter path is flagged
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/exempt_ok → clean: a committed CITATION_EXEMPT prefix suppresses it
+  PASS  an exemption that suppresses NOTHING fails and names itself for deletion
+--- (f2) the private-tree excuse lives IN the private file
+  PASS  an unexcused private mechanism is MISPLACED, and the refusal names the marker
+  PASS  a BARE 'instance-mechanism:' with no reason exempts nothing
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/exempt_instance → clean: an 'instance-mechanism: <reason>' marker in the private file suppresses it
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/exempt_instance → clean: the same public tree passes when the private tree is NOT on this machine
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/exempt_instance → clean: and passes again with the private tree back — one tree, one verdict
+  PASS  a marker on a mechanism coupled to nothing public FAILS as a stale exemption
+  PASS  an UNEXCUSED private mechanism is still caught while a worktree copy exists
+  PASS  the worktree copy is not reported as a SECOND finding (1 mention, not 2)
+--- (g) no silent degradation
+  PASS  an unknown key in .publication-completeness → exit 2, not a quiet pass
+  PASS  the RETIRED INSTANCE_MECHANISMS key → exit 2, naming where the concept went
+  PASS  a malformed line in .publication-completeness → exit 2
+  PASS  shell substitution in a parsed-never-sourced value → exit 2
+  PASS  a malformed .publication-boundary → exit 2, never a completeness verdict
+  PASS  a declaring repository with NOTHING tracked → exit 2, not '0 findings'
+--- (h) the grouped declaration directory
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/grouped_found → clean: a boundary declared in .richos/ is FOUND and the tree is checked
+  PASS  a dangling citation is still reported under a grouped declaration
+  PASS  without the exemption, the reference tree's dangling citation FAILS
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/grouped_exempt → clean: an exemption file at .richos/publication-completeness is honored
+  PASS  declared in BOTH places → exit 2, never a quiet choice
+  PASS  an unresolved DECLARATION in .richos/ → exit 2, naming it
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/grouped_stray → clean: an unrelated file in .richos/ is left alone (the ECS entity manifest case)
+  PASS  a declaration in NEITHER resolver list → BROKEN, naming it
+  PASS  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pubcomplete.QsQ1E9/unclassified_decl → clean: the same tree with .widget classified is silent
+  PASS  a missing declaration-path.sh → exit 2 naming the file, never NOT APPLICABLE
+
+✓ publication-completeness.test.sh: 53/53 cases passed.
+(exit 0)

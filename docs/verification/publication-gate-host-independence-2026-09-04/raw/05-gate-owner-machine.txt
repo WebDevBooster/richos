@@ -1,0 +1,14 @@
+# 05-gate-owner-machine.txt
+#
+# The gate on the machine that HAS the private sibling. Same verdict, and
+# Check 4 really runs here -- see 07 for the walk count.
+#
+# cwd: /Users/alex/ab/richos-wt/zach-opus-p6
+
+$ engine/scripts/publication-completeness.sh --root .
+=== publication completeness: /Users/alex/ab/richos-wt/zach-opus-p6 ===
+✓ Every capability this tree claims is delivered: no dangling citation, no
+  declaration-gated mechanism without its declaration and its documentation,
+  no unreachable workflow, no public contract with its mechanism left behind
+  in the private tree.
+(exit 0)

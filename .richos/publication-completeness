@@ -56,16 +56,42 @@
 CITATION_EXEMPT="engine/reference/ engine/skills/ engine/.claude/agents/ engine/qa-audits/"
 
 # ---------------------------------------------------------------------------
-# INSTANCE_MECHANISMS — executable files in the PRIVATE tree that read a public
-# contract, and are allowed to stay there.
+# WHAT IS NOT IN THIS FILE, AND WHY IT LEFT
 #
-#   pubcheck.sh  is genuinely instance-specific and belongs where it is. It is
-#                an artifact of one brief, recorded beside that brief: it hard-
-#                codes one operator's absolute worktree path
-#                (/Users/alex/ab/richos-wt/norm-deletion-2026-08-29) to run the
-#                boundary predicate by hand over one branch, because the hooks
-#                were installed mid-session and had not fired on those commits.
-#                It is a record of a one-off verification, not a mechanism a
-#                customer could use.
-
-INSTANCE_MECHANISMS="richos-hq/docs/briefs/norm-deletion-detection-2026-08-29-assets/tools/pubcheck.sh"
+# A fourth key, INSTANCE_MECHANISMS, used to sit here. It named an executable
+# inside the private sibling repository — a one-off verification script that
+# reads a public contract and is correctly not published — so that Check 4
+# would not report it as a capability withheld from the customer.
+#
+# It made this gate mean two different things:
+#
+#   ON THE MACHINE THAT WROTE IT the private tree resolved, Check 4 ran, the
+#   entry suppressed a real finding, and the gate was green.
+#
+#   IN A CLONE OF THIS REPOSITORY ALONE — which is every CI runner, every
+#   contributor and every reader — no private tree resolves, so Check 4 never
+#   ran, the entry therefore suppressed nothing, and the rule directly above
+#   fired and turned the gate red over a file that is not in this repository.
+#
+# The rule was right both times. What was wrong was judging an exemption
+# belonging to a check that had not run — and, secondarily, publishing the
+# interior layout of a private repository in the one file the boundary contract
+# is supposed to keep honest.
+#
+#       A VERDICT ON THIS TREE MAY NOT DEPEND ON WHAT ELSE IS ON THE DISK.
+#
+# So the excuse moved to where the thing it excuses lives. A private mechanism
+# that is one operator's artifact rather than a withheld capability now carries
+#
+#       instance-mechanism: <why this is one operator's artifact>
+#
+# in its own body, in the private repository, reviewed in that repository's own
+# diff — the discipline `dialect-exempt: <reason>` already uses here. A bare
+# marker with no reason after it exempts nothing, and a marker on a file that
+# couples to no public contract is itself reported as a stale exemption, so it
+# cannot outlive its reason either.
+#
+# WHAT THAT LEAVES IS A PROPERTY, not a fixed instance: every key this file
+# still accepts is a function of `git ls-files` and the tracked bytes, so its
+# verdict is the same in every clone. INSTANCE_MECHANISMS is refused by name
+# with the migration if it reappears; it is not quietly ignored.
