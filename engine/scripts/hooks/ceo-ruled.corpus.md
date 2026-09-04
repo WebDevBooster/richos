@@ -177,6 +177,20 @@ and says plainly when it is not rather than passing. Sections 1–7 run against 
 fixture whose statistics are shaped to match, so the suite is deterministic
 anywhere.
 
+**Section 8 asserts the predicate's behavior, never the register's contents.**
+It was written pinned to one citation — case 8a required the refusal to name
+`row 3.14` — and it went red on 2026-09-04 with the gate working perfectly: the
+row had been retired from `open-items.md` on 2026-09-02, and the question is now
+answered by §19, which is the better citation of the two. The record is
+maintained constantly and `guard-row-currency-commits.sh` exists to demand that
+it be, so WHICH ruling answers a question is a fact about a moment, not a
+property of the predicate. What section 8 asserts instead is that each of the
+three questions is refused, that every locator the refusal prints lands on a
+line really carrying the title printed above it, that every quoted sentence is
+findable in the file it was attributed to, and that the monospace question still
+passes. `scripts/hooks/ceo-ruled.mutation.sh` renumbers the whole register and
+requires the section to stay green while proving the citations moved.
+
 To re-measure corpus 1 by hand: flatten every `AskUserQuestion` `tool_use` in
 `~/.claude/projects/**/*.jsonl` and feed each through `ceo-ruled.py` in `check`
 mode with the three live record files as `sources`.
