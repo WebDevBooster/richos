@@ -66,6 +66,22 @@ die() { echo "REFUSING — $*" >&2; exit 1; }
 VERSION="$(tr -d '[:space:]' < "$ENGINE_DIR/VERSION")"
 [ -n "$VERSION" ] || die "$ENGINE_DIR/VERSION is empty"
 
+# ---------------------------------------------------------------------------------------
+# THE LICENSE, WHICH LIVES OUTSIDE THE DIRECTORY BEING PACKAGED
+# ---------------------------------------------------------------------------------------
+#
+# The canonical AGPL text is at the REPOSITORY root, and this script archives `engine/`.
+# So until 2026-09-04 the standalone engine tarball shipped with no license text at all:
+# an AGPL work distributed without its terms, to a customer who has no repository to look
+# in. The fix is a copy made HERE, at packaging time, rather than a second copy committed
+# inside engine/ - because a committed duplicate of a license text is a file that can drift
+# from the canonical one with nothing to catch it. This copy cannot drift; it is made from
+# the canonical file every time and read back out of the finished archive below.
+LICENSE_SRC="$REPO_ROOT/LICENSE"
+NOTICES_SRC="$REPO_ROOT/docs/legal/THIRD-PARTY-NOTICES.md"
+[ -f "$LICENSE_SRC" ] || die "no LICENSE at $LICENSE_SRC - refusing to build an unlicensed asset"
+[ -f "$NOTICES_SRC" ] || die "no third-party notices at $NOTICES_SRC - refusing to build an asset that cannot name what it bundles"
+
 # The engine's own commit time, so the archive's mtimes are a property of the CONTENT and not
 # of when somebody happened to run this. Outside a checkout, 0.
 SOURCE_EPOCH="$(git -C "$REPO_ROOT" log -1 --format=%ct -- engine 2>/dev/null || true)"
@@ -90,6 +106,12 @@ build_into() {
     # rather than following them into a loop.
     mkdir -p "$staging/engine"
     ( cd "$ENGINE_DIR" && /usr/bin/tar -cf - . ) | ( cd "$staging/engine" && /usr/bin/tar -xf - ) || return 1
+
+    # THE TERMS, COPIED IN. Before the manifest is built, so these files are ordered,
+    # timestamped and owned exactly like every other member and the archive stays
+    # reproducible. `cp` without `-p`: the mtime is pinned below for all members alike.
+    cp "$LICENSE_SRC" "$staging/engine/LICENSE" || return 1
+    cp "$NOTICES_SRC" "$staging/engine/THIRD-PARTY-NOTICES.md" || return 1
 
     # ORDER, fixed. `-print` then sort, rather than trusting readdir.
     local manifest="$staging/manifest"
@@ -158,11 +180,66 @@ VERIFY="$(mktemp -d "${TMPDIR:-/tmp}/richos-engine-verify.XXXXXX")"
 [ -d "$VERIFY/engine/scripts/hooks" ] || die "the archive has no engine/scripts/hooks"
 [ -f "$VERIFY/engine/VERSION" ] || die "the archive has no engine/VERSION"
 [ "$(tr -d '[:space:]' < "$VERIFY/engine/VERSION")" = "$VERSION" ] || die "the archive's VERSION is not $VERSION"
+
+# THE LICENSE CHECK IS READ OUT OF THE ARCHIVE, not off the staging directory. `cp` having
+# exited 0 is a claim about a command; the bytes inside the tarball are the artifact, and
+# the artifact is the only thing a customer ever sees.
+[ -f "$VERIFY/engine/LICENSE" ] || die "the archive has no engine/LICENSE - it would ship an AGPL work with no terms"
+[ -f "$VERIFY/engine/THIRD-PARTY-NOTICES.md" ] || die "the archive has no engine/THIRD-PARTY-NOTICES.md"
+LICENSE_CANON="$(sha256_of "$LICENSE_SRC")"
+LICENSE_SHIPPED="$(sha256_of "$VERIFY/engine/LICENSE")"
+[ "$LICENSE_CANON" = "$LICENSE_SHIPPED" ] \
+    || die "the archive's LICENSE is NOT the canonical text ($LICENSE_SHIPPED vs $LICENSE_CANON)"
+
+# EVERY BUNDLED THIRD-PARTY DIRECTORY KEEPS ITS OWN TERMS, and neither half of that rule
+# is a typed list. A hand-written inventory of directories to check is the defect this
+# repository has already paid for five times, so both halves are derived from disk:
+#
+#   (a) NOTHING IS LOST IN PACKAGING. Every license file present under the source engine/
+#       must be present at the same relative path inside the archive. This is the check
+#       that actually catches a packaging change, and it covers all seven bundled items
+#       without naming one of them.
+#   (b) NOTHING ARRIVES WITHOUT ITS TERMS. A skill whose own frontmatter declares a
+#       `license:` must have a license file beside it. This is the check that catches a
+#       NEW vendored skill added with a claim and no text - the exact defect the
+#       2026-09-04 audit found in three directories at once.
+license_files_under() {
+    ( cd "$1" && find . -type f \( -name 'LICENSE' -o -name 'LICENSE.txt' -o -name 'LICENSE.md' \) \
+        ! -path './LICENSE' | LC_ALL=C sort )
+}
+
+MISSING_TERMS=""
+while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -f "$VERIFY/engine/$rel" ] || MISSING_TERMS="$MISSING_TERMS engine/${rel#./}"
+done <<EOF
+$(license_files_under "$ENGINE_DIR")
+EOF
+[ -z "$MISSING_TERMS" ] \
+    || die "packaging DROPPED bundled license file(s) that exist in the source engine:$MISSING_TERMS"
+
+CLAIMED_NO_TEXT=""
+while IFS= read -r sk; do
+    [ -n "$sk" ] || continue
+    d="$(dirname "$sk")"
+    sed -n '1,25p' "$sk" | grep -qi '^license:' || continue
+    if [ ! -f "$d/LICENSE" ] && [ ! -f "$d/LICENSE.txt" ] && [ ! -f "$d/LICENSE.md" ]; then
+        CLAIMED_NO_TEXT="$CLAIMED_NO_TEXT ${d#"$VERIFY"/}"
+    fi
+done <<EOF
+$(find "$VERIFY/engine/skills" -maxdepth 2 -name SKILL.md 2>/dev/null | LC_ALL=C sort)
+EOF
+[ -z "$CLAIMED_NO_TEXT" ] \
+    || die "skill(s) in the archive declare a license with no license file beside it:$CLAIMED_NO_TEXT"
+
+TP_COUNT="$(license_files_under "$VERIFY/engine" | wc -l | tr -d ' ')"
 FILES="$(find "$VERIFY/engine" -type f | wc -l | tr -d ' ')"
 rm -rf "$VERIFY"
 echo "=== it opens, and it is an engine ==="
 echo "  engine/scripts/hooks  present"
 echo "  engine/VERSION        $VERSION"
+echo "  engine/LICENSE        canonical ($LICENSE_CANON)"
+echo "  third-party notices   present, $TP_COUNT bundled license file(s) intact"
 echo "  files                 $FILES"
 echo
 
