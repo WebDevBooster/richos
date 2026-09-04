@@ -274,6 +274,149 @@ DUP="$(grep -rlE '^(colour|behaviour|licence)\b' "$ENGINE_ROOT/scripts" 2>/dev/n
               || bad "E5. the vocabulary lives in exactly one file" "also in: $DUP"
 
 echo
+echo "=== V. VENDORED MATERIAL — whose prose is this? ==="
+#
+# WHY THIS SECTION EXISTS, IN ONE INCIDENT AND THREE DIRECTIONS.
+#
+# On 2026-08-30 this guard rewrote fourteen lines across TWO vendored,
+# MIT-licensed skills — `engine/skills/copywriting/references/natural-
+# transitions.md` (4 lines) and `engine/skills/landing-page-taste/SKILL.md`
+# (10 lines), commit 06f4a8221a61. Neither is ours to correct. It was found by
+# accident, six weeks later, by a publication audit.
+#
+# The guard was not wrong; it had no way to be right. It exempts `vendor/` and
+# `third_party/` by NAME, and this engine vendors into `engine/skills/<name>/`,
+# which looks exactly like the skills we wrote. So the answer now comes from a
+# recorded FACT — `.richos/vendored-material`, read through
+# scripts/lib/vendored-material.sh — and never from a guess.
+#
+# The defect is a ONE-WAY DOOR, which is sharper than "it edits vendored
+# files", and all three directions are pinned here:
+#
+#   1. it must not silently EDIT vendored prose            (V1, V8, V9)
+#   2. RE-VENDORING VERBATIM from upstream must SUCCEED    (V10) — the repair
+#      was blocked by the same guard that caused the damage
+#   3. QUOTING a foreign spelling to DOCUMENT the difference must be possible
+#      (V5, V12) — an engineer was refused twice trying to write exactly that
+#      notice, and had to phrase the prose around the block
+#
+# And the exemption is NARROW, which is the half that keeps it honest: material
+# recorded as `origin=richos` is STILL CHECKED (V2). A registry that exempted
+# everything it named would be an off switch with an inventory attached.
+
+TABX=$'\t'
+mkvendrepo() { # <dir> <registry-line...>
+    local d="$1"; shift
+    mkdir -p "$d/.richos" "$d/engine/skills/vendored/references" \
+             "$d/engine/skills/mine" "$d/engine/skills/unregistered" "$d/docs"
+    printf 'DIALECT_TARGET="en-US"\n' >"$d/orchestration.config"
+    printf '%s\n' "$@" >"$d/.richos/vendored-material"
+}
+
+VS="$SANDBOX/vendrepo"
+mkvendrepo "$VS" \
+    'REDISTRIBUTABLE_PATHS="engine/skills"' \
+    "engine/skills/vendored${TABX}third-party${TABX}MIT${TABX}Someone${TABX}up/stream${TABX}abc123${TABX}2026-01-01 x${TABX}certain${TABX}verbatim${TABX}docs/x.md" \
+    "engine/skills/mine${TABX}richos${TABX}AGPL-3.0-only${TABX}RichOS${TABX}-${TABX}-${TABX}2026-01-01 x${TABX}high${TABX}verbatim${TABX}docs/x.md"
+
+BRITISH="Emphasising the point, and the colour of the behaviour."
+
+case_exit "V1. a file recorded as third-party is left alone"    0 Write "$VS/engine/skills/vendored/references/natural.md" "$BRITISH"
+case_exit "V2. a file recorded as origin=richos is STILL checked" 2 Write "$VS/engine/skills/mine/SKILL.md" "$BRITISH"
+case_exit "V3. an UNRECORDED path under skills/ is still checked" 2 Write "$VS/engine/skills/unregistered/SKILL.md" "$BRITISH"
+case_exit "V4. an ungoverned path is still checked"             2 Write "$VS/docs/note.md" "$BRITISH"
+case_exit "V5. a MODIFICATIONS notice INSIDE a vendored dir is exempt" 0 Write "$VS/engine/skills/vendored/MODIFICATIONS.md" "$BRITISH"
+
+# THE SOFT RULE IS SUPPRESSED TOO, and that is a separate assertion from the
+# blocking one. `the queue` on a line mentioning the CEO is REPORTED, never
+# blocked — so on a vendored file the exit code is 0 either way and only the
+# stderr distinguishes them. Narrating at every write about wording in a
+# document nobody here may change is the cries-wolf half of the same defect.
+SOFTQ="The CEO looked at the queue this morning."
+run_stderr() { # <tool> <path> <text> -> stderr on stdout
+    payload "$@" | "$HOOK" 2>&1 >/dev/null
+}
+[ -z "$(run_stderr Write "$VS/engine/skills/vendored/references/soft.md" "$SOFTQ")" ] \
+    && ok "V13. a vendored file draws no CEO-TODOs note either" \
+    || bad "V13. a vendored file draws no CEO-TODOs note either" "it narrated about somebody else's document"
+[ -n "$(run_stderr Write "$VS/engine/skills/mine/soft.md" "$SOFTQ")" ] \
+    && ok "V14. ...and our own file still draws one (the note is not simply gone)" \
+    || bad "V14. our own file still draws the CEO-TODOs note" "the suppression is unconditional, so V13 proves nothing"
+
+# FAIL CLOSED when the registry is declared and unreadable. A guard that cannot
+# tell whose bytes these are must not answer — carrying on is precisely how the
+# 2026-08-30 edit happened.
+VB="$SANDBOX/vendrepo-broken"
+mkvendrepo "$VB" \
+    'REDISTRIBUTABLE_PATHS="engine/skills"' \
+    "engine/skills/vendored${TABX}third-party${TABX}MIT${TABX}S${TABX}u${TABX}r${TABX}2026${TABX}certain${TABX}verbatim"
+case_exit "V6. a DECLARED but unreadable registry is fail-closed" 2 Write "$VB/engine/skills/vendored/references/x.md" "The colour is wrong."
+case_msg  "V7. ...and it says the registry is why"              "DECLARED BUT UNREADABLE" Write "$VB/engine/skills/vendored/references/x.md" "The colour is wrong."
+
+# THE FAIL-CLOSED IS AN `exit`, NOT A "TREAT IT AS OURS". The difference is
+# invisible on a blocking finding — both spellings refuse — and it is the whole
+# behavior on a REPORTING one: with the registry unreadable, a soft CEO-TODOs
+# note about a file that may not be ours must not be emitted at all. V6 cannot
+# see this and neither can V7; without this case the fail-closed branch is
+# untested.
+case_exit "V15. a broken registry also refuses a REPORTING verdict" \
+    2 Write "$VB/engine/skills/vendored/references/x.md" "The CEO looked at the list this morning, and the queue was long."
+
+# --- THE REAL FILES, IN THE REAL TREE -------------------------------------
+# A mutation sandbox is a copy of scripts/ and hooks/ with no repository above
+# it, so the shipped registry is absent there and these would go red for a
+# reason unrelated to any mutated property.
+if [ -n "${RICHOS_MUTATION_INNER:-}" ]; then
+    echo "  (V8-V12 skipped inside a mutation sandbox — they are about the SHIPPED tree)"
+else
+    REPO_TOP="$(cd "$ENGINE_ROOT/.." && pwd)"
+    case_exit "V8. THE DAMAGED FILE accepts upstream's own spelling" \
+        0 Write "$REPO_TOP/engine/skills/copywriting/references/natural-transitions.md" "$BRITISH"
+    case_exit "V9. the SECOND damaged file (landing-page-taste) too" \
+        0 Write "$REPO_TOP/engine/skills/landing-page-taste/SKILL.md" "$BRITISH"
+
+    # RE-VENDORING VERBATIM. Not the same assertion as V8: this is the WHOLE
+    # upstream file, the bytes the 2026-08-30 sweep replaced, fetched from the
+    # commit that replaced them. Before this change the repair was refused by
+    # the guard that caused the damage.
+    UP="$SANDBOX/upstream-natural-transitions.md"
+    if git -C "$REPO_TOP" show 06f4a8221a61^:engine/skills/copywriting/references/natural-transitions.md >"$UP" 2>/dev/null \
+       && [ -s "$UP" ]; then
+        UPJSON="$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Write", "tool_input": {
+    "file_path": sys.argv[1],
+    "content": open(sys.argv[2], encoding="utf-8").read()}}))' \
+            "$REPO_TOP/engine/skills/copywriting/references/natural-transitions.md" "$UP")"
+        printf '%s' "$UPJSON" | "$HOOK" >/dev/null 2>&1
+        [ $? -eq 0 ] && ok "V10. RE-VENDORING the file VERBATIM from upstream succeeds" \
+                     || bad "V10. RE-VENDORING the file VERBATIM from upstream succeeds" \
+                            "the guard that caused the divergence still forbids the repair"
+    else
+        bad "V10. RE-VENDORING the file VERBATIM from upstream succeeds" \
+            "could not read 06f4a8221a61^ — the check would have passed by never running"
+    fi
+
+    case_exit "V11. a RichOS-authored skill in the real tree is still blocked" \
+        2 Write "$REPO_TOP/engine/skills/rich-lander/SKILL.md" "$BRITISH"
+
+    # DOCUMENTING THE DIVERGENCE, in the tree's own legal record. The third
+    # direction, and the one that was refused twice.
+    case_exit "V12. quoting a foreign spelling in the notices document is possible" \
+        0 Write "$REPO_TOP/docs/legal/THIRD-PARTY-NOTICES.md" "Upstream writes Emphasising; our copy writes Emphasizing."
+fi
+
+echo
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -x "$SCRIPT_DIR/guard-dialect.mutation.sh" ]; then
+    # THE HARNESS RUNS FROM THE SUITE IT MUTATES. It did not until now, and
+    # nothing else ran it either: run-all-tests.sh discovers *.test.sh, and
+    # contract-integrity.test.sh names three harnesses, not this one. A harness
+    # nobody runs proves nothing about anything.
+    echo "=== running the mutation harness ==="
+    "$SCRIPT_DIR/guard-dialect.mutation.sh" || FAIL=$((FAIL + 1))
+    echo
+fi
+
 if [ "$FAIL" -eq 0 ]; then
     printf '\n  %d/%d cases passed\n' "$PASS" "$((PASS + FAIL))"
     exit 0

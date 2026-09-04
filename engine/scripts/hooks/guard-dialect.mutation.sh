@@ -59,6 +59,8 @@ mutant() {
     cp "$ENGINE_ROOT/scripts/lib/dialect-en-US.dict" \
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
+       "$ENGINE_ROOT/scripts/lib/declaration-path.sh" \
+       "$ENGINE_ROOT/scripts/lib/vendored-material.sh" \
        "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" "$dir/scripts/lib/"
     cp "$ENGINE_ROOT/hooks/hooks.json" "$dir/hooks/"
     cp "$ENGINE_ROOT/.claude/settings.local.json" "$dir/.claude/"
@@ -71,7 +73,10 @@ mutant() {
         FAIL=$((FAIL + 1)); return
     fi
 
-    bash "$dir/scripts/hooks/guard-dialect.test.sh" >"$dir/out.txt" 2>&1
+    # RICHOS_MUTATION_INNER: the suite under test must not recurse into THIS
+    # harness — one level is the proof, and a mutant running mutants is a fork
+    # bomb with a green tick at the bottom. Same flag the shared harness uses.
+    RICHOS_MUTATION_INNER=1 bash "$dir/scripts/hooks/guard-dialect.test.sh" >"$dir/out.txt" 2>&1
     local rc=$?
     if [ "$rc" -eq 0 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
@@ -181,6 +186,41 @@ mutant no-word-boundaries "B3. " "$G" \
     'WORD_RE = re.compile(r"\b(%s)\b" % "|".join(sorted(RULES, key=len, reverse=True)), re.IGNORECASE)' \
     'WORD_RE = re.compile(r"(%s)" % "|".join(sorted(RULES, key=len, reverse=True)), re.IGNORECASE)' \
     "camelCase and snake_case identifiers stop being exempt for free, and every code symbol containing a dictionary word is flagged."
+
+# --- 9. THE VENDORING REGISTRY, AND THE ONE-WAY DOOR IT CLOSES ------------
+# On 2026-08-30 this guard rewrote 14 lines across two vendored MIT-licensed
+# skills, and then refused the commit that tried to quote the difference back.
+# Both halves of that are properties now, so both are proven load-bearing.
+#
+# TWO CALL SITES CARRY THE SUPPRESSION, one per verdict, and each has its own
+# mutant. A single mutant on the FOUND site would leave the REPORTONLY site
+# untested, and the two are not the same assertion: FOUND decides whether
+# somebody else's prose is REWRITTEN, REPORTONLY decides whether somebody else's
+# prose is NARRATED about at every write. Only the first is a correctness bug;
+# the second is the noise that gets a guard switched off.
+mutant no-vendored-exemption "V1. " "$G" \
+    '  FOUND)\n    _dg_is_vendored && exit 0' \
+    '  FOUND)' \
+    "somebody else's prose would be silently rewritten again, and a verbatim re-vendoring from upstream would be REFUSED by the guard that caused the divergence."
+
+mutant no-vendored-exemption-on-soft "V13. " "$G" \
+    "    # write never pays for it. See _dg_is_vendored's header.\n    _dg_is_vendored && exit 0" \
+    "    # write never pays for it. See _dg_is_vendored's header." \
+    "a vendored file would draw a CEO-TODOs note on every write, about wording in a document nobody here may change — the cries-wolf half of the same defect."
+
+mutant vendored-exemption-ignores-origin "V2. " "$G" \
+    '    vm_is_third_party "$rel" || return 1' \
+    '    vm_covering "$rel" || return 1' \
+    "every path the registry names would be exempt, including our own work — an off switch with an inventory attached, and the dialect ruling would stop applying to the tree it was written for."
+
+# Aimed at V15, not V6. On a BLOCKING finding both spellings refuse and the
+# mutant is invisible; the fail-closed only has observable behavior on a
+# REPORTING one, where `exit 2` refuses and `return 1` emits a CEO-TODOs note
+# about a file whose ownership the guard just admitted it cannot establish.
+mutant vendored-broken-fails-open "V15. " "$G" \
+    '            echo "(hook: scripts/hooks/guard-dialect.sh)"\n        } >&2\n        exit 2 ;;' \
+    '            echo "(hook: scripts/hooks/guard-dialect.sh)"\n        } >&2\n        return 1 ;;' \
+    "a declared-but-unreadable registry would print a banner and then judge the file anyway, on the assumption that it is ours — which is the assumption that cost 14 lines of somebody else's prose."
 
 mutant analysis-is-british "B28. " "$D" \
     'analyse	analyze' \
