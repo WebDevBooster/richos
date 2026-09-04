@@ -1829,8 +1829,9 @@
           }
         case "send_message": {
           if (window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__._notConnected) {
-            // Mirrors main.rs's `lease_ready == false` path: rejects before any turn
-            // starts, so NO rich:// events ever fire for this attempt.
+            // Mirrors main.rs's no-lease path (`send_message`'s `!spine.has_lease()`):
+            // rejects before any turn starts, so NO rich:// events ever fire for this
+            // attempt.
             // VERBATIM from `LEASE_UNAVAILABLE_MESSAGE`, app/src-tauri/src/main.rs. The
             // affordance suite asserts the two are byte-identical, so the preview cannot
             // quietly rehearse a sentence the product no longer says.
