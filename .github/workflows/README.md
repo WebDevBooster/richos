@@ -82,3 +82,43 @@ between the passes.
 **None of this makes any of them CI-verified.** A clone on the author's Mac answers "does this
 depend on his machine". It does not answer "does this work on a runner", and no workflow here
 should be described as verified until a run of that workflow is green on a SHA somebody can name.
+
+## Every action here is pinned to a commit, and here is how to move a pin
+
+**Pinned 2026-09-04.** A tag is a pointer. `actions/checkout@v5` says "whatever
+`v5` means on the morning the job runs", and whoever can move that pointer runs
+code on a runner that has already checked this repository out — in
+`packaging-ci`, next to release machinery. Only a full 40-character commit SHA is
+immutable, so that is what every `uses:` line here carries, with the
+human-readable version as a trailing comment.
+
+**The inventory is not repeated here on purpose.** The workflow files are the
+list; a table in this README would be a second copy of it, free to drift, and the
+first thing a reader trusts. `grep -n 'uses:' *.yml` answers the question with no
+possibility of being out of date.
+
+**To move a pin, resolve it from the action's own repository and never from
+memory, another project, or a search result:**
+
+```
+git ls-remote --tags https://github.com/actions/checkout.git 'refs/tags/v5.2.0'
+```
+
+If the output has a second line ending `^{}`, the tag is annotated and the peeled
+line is the commit — pin that one. Then confirm the SHA belongs to the repository
+you think it does, which is the check that catches a SHA copied out of a fork:
+
+```
+gh api repos/actions/checkout/commits/<sha> --jq .sha
+```
+
+Update the trailing `# vX.Y.Z` comment in the same edit. A version comment that
+no longer matches its SHA is worse than no comment, because it is the only thing
+a reader can read.
+
+**These pins WILL go stale, and that is the trade being made.** A pinned action
+never picks up an upstream security fix on its own. The automated route is
+Dependabot's `github-actions` ecosystem, which opens a pull request that bumps
+the SHA and the comment together; until that is switched on, moving these is a
+manual job with a real cost — which is the honest price of the tag not being able
+to move underneath us.
