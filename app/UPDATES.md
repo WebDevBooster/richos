@@ -76,23 +76,59 @@ readable by other users of the Mac — the same two rules the Apple notary key a
 leaked updater key cannot be revoked: the public half is compiled into every copy already
 installed, so the only remedy is a new key and a release nobody with the old build can reach.
 
-### THE KEY IN `tauri.conf.json` TODAY IS A TEST KEY
+### THE SHIPPING KEY, AND WHY IT WAS ROTATED BEFORE ANYTHING WAS INSTALLED
 
-minisign key ID **`A6BCB0F9A1ADED42`**, generated 2026-08-31, passwordless, private half at
-`~/.richos-signing/richos-updater-TEST.key` (mode 600 in a 700 directory).
+minisign key ID **`2F218991C928FD0A`**, generated 2026-09-04, private half at
+`~/.richos-signing/richos-updater.key` (mode 600, in a 700 directory, outside every
+repository). The public half is `plugins.updater.pubkey` and is compiled into every build.
 
-**A real release key has not been generated.** Doing so is one command, and it is deliberately
-not done here because the choice that goes with it is not an engineering one: a release key
-should carry a password, and where that password lives (a password manager, the login
-keychain, a CI secret) is a decision about how releases get made. When it is made:
+It replaced key `A6BCB0F9A1ADED42`, whose private half is still on this Mac as
+`richos-updater-TEST.key` and now signs nothing.
+
+**Why it was rotated at all, when the two keys are cryptographically identical.** Because
+the old one was called TEST, and it was the default key of an automated harness that also
+generates deliberately wrong keys to prove refusals. A file with that name and that job gets
+deleted by somebody tidying up, and deleting it is not recoverable: the public half is
+compiled into every installed copy, so the only remedies are never shipping another update
+or reinstalling by hand on every machine that has one. The name was a standing invitation to
+destroy the one thing that can produce a valid update.
+
+**Why now and not later.** Rotating costs a rebuild while RichOS is installed nowhere but
+this Mac, and one manual reinstall per machine after that. Today it was free. Every day it
+is not.
+
+**It has no password, and that is a decision rather than an omission.** A password protects
+the key file at rest — against a backup, a synced home directory, a paste into somewhere it
+should not be — and protects nothing against anybody who can already read a mode 600 file on
+this Mac. Where the password would live is the same question as how releases get made, and
+today they are made by hand, here. When releases move to CI that answer changes and so
+should this. Treat adding a password as a NEW KEY PAIR unless something proves otherwise:
+`cargo tauri signer` has exactly two subcommands, `generate` and `sign`, and neither of them
+re-encrypts an existing key.
+
+**A leaked key cannot be revoked.** There is no revocation list and no expiry; the compiled-in
+public key is the whole of the trust decision. A leak means a new key and a release that
+nobody with an old build can reach.
+
+```
+# generate, OUTSIDE every git worktree
+cargo tauri signer generate -w "$HOME/.richos-signing/richos-updater.key" -p ''
+
+# sign a release
+export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.richos-signing/richos-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=''
+app/scripts/package-app.sh --updater
+```
+
+`package-app.sh` **refuses** a key path inside a git worktree, and **refuses** a key file
+readable by other users of the Mac — the same two rules the Apple notary key already has.
+
+If the pair is ever replaced again:
 
 1. `cargo tauri signer generate -w "$HOME/.richos-signing/richos-updater.key" -p '<password>'`
 2. put the `.pub` contents into `plugins.updater.pubkey`
-3. rebuild — the pubkey is compiled in, so **every installed copy must be replaced by hand
-   once**, because a copy carrying the old key will refuse everything signed by the new one.
-
-Doing the swap before RichOS is installed anywhere but this Mac costs nothing. Doing it after
-costs a manual reinstall for every copy.
+3. rebuild — and **every installed copy must be replaced by hand once**, because a copy
+   carrying the old key refuses everything signed by the new one.
 
 ### One consequence of a `pubkey` existing at all, measured rather than assumed
 
@@ -310,7 +346,7 @@ app/scripts/updater-e2e.sh
 app/scripts/updater-e2e.sh --keep
 
 # just produce signed artifacts from a normal packaging run
-TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.richos-signing/richos-updater-TEST.key \
+TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.richos-signing/richos-updater.key \
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD= \
 RICHOS_UPDATE_BASE_URL=https://<host>/richos/0.1.1 \
 RICHOS_UPDATE_NOTES='What changed, in the CEO's language.' \

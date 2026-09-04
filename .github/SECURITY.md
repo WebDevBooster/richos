@@ -98,7 +98,6 @@ listed so nobody spends an evening on them.
   downloaded byte is verified against a compiled-in minisign public key before
   anything is installed, so an update that cannot be verified is refused rather
   than applied.
-  The minisign public key beside it is a test key.
 - **Nothing is signed or notarized for distribution.** There is no release
   artifact. A build you make yourself is ad-hoc signed, which is why macOS
   re-prompts for microphone and accessibility permission after each rebuild.

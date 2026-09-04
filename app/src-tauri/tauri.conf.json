@@ -44,7 +44,7 @@
       "endpoints": [
         "https://github.com/WebDevBooster/richos/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE2QkNCMEY5QTFBREVENDIKUldSQzdhMmgrYkM4cHZtN0tuR2MveDlxalViWTN0RkhzTUFnRXhYc3dma05iZkNPU3VydDhOR0QK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJGMjE4OTkxQzkyOEZEMEEKUldRSy9TakprWWtoTHhkSXQwVHpWeFBoNVh6MjR2RkdBVEk0ZDloOXZLbXVpaVNkd2p2Nko3KzIK",
       "windows": {
         "installMode": "passive"
       }
