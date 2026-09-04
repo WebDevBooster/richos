@@ -1239,17 +1239,30 @@ module.exports = [
   },
   {
     s:
-      "Your memory is on this Mac, but the part of me that reads it isn't installed here — so I " +
-      "can't read it back yet. It needs whoever set RichOS up to add it.",
-    c: "NEEDS-SOMEONE-ELSE",
-    party: true,
+      "Your memory folder is on this Mac, and I can't read or write it yet — the part of me that " +
+      "does isn't in this version. Nothing else is affected: our conversations stay on this Mac " +
+      "and I pick them up when you come back. There's nothing for you to install and nothing for " +
+      "you to fix — I'll start using the folder on my own as soon as that part arrives.",
+    c: "INFORMATIONAL",
     fixture: "memory-no-compiler",
     why:
       "Two moments, one sentence: a boot that resolves a corpus and no compiler, and a setup " +
-      "that finishes the same way. He cannot fix either — the compiler ships from nowhere " +
-      "today (`BLOCKED.md`: the product repo holds no `loro/` and the signed bundle's " +
-      "Resources hold `icon.icns` and nothing else) — so the party is named in the text and " +
-      "no control is drawn for a thing no control could do.",
+      "that finishes the same way. " +
+      "IT WAS NEEDS-SOMEONE-ELSE UNTIL 2026-09-04 AND THE PARTY WAS THE DEFECT. The sentence " +
+      "read \"It needs whoever set RichOS up to add it\", which is the right shape on a machine " +
+      "somebody else set up and a dead end on a customer's: Andreas installs RichOS himself, so " +
+      "the party is HIM, and the product's headline promise ended on an instruction to fetch a " +
+      "third party who does not exist. That is the same argument the Anthropic-account row above " +
+      "makes for its own bucket — when the person is him, NEEDS-SOMEONE-ELSE is the wrong " +
+      "answer, because that bucket exists to point him at somebody who is not him. " +
+      "HERE THERE IS NOBODY AT ALL, WHICH IS WHY IT IS INFORMATIONAL AND NOT ACTIONABLE. The " +
+      "missing piece is the loro compiler, and it has no route onto any machine: the public " +
+      "product repo tracks no `loro/` file, the signed bundle's Resources hold `icon.icns` and " +
+      "nothing else, and the engine release asset carries `engine/`, which holds no compiler. " +
+      "Neither he nor an operator can install what ships from nowhere, so no control is drawn " +
+      "and no party is named — the sentence states what does not work, what still does, and " +
+      "that nothing is required of him. It issues no instruction to him, which is the property " +
+      "the INFORMATIONAL bucket owes.",
   },
   {
     s: "This copy of me was told which company it works for when it was started up, from outside this window, and I can't make sense of what it was told — so I won't file anything until whoever set RichOS up has sorted it out.",

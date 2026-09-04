@@ -217,13 +217,33 @@ async function main() {
     return "the backend's own sentence, on screen, verbatim, with the button still live";
   });
 
-  await run.check("5  a corpus it cannot read names who can fix it, and offers no button", async () => {
+  await run.check("5  a corpus it cannot read never sends him to fetch somebody else", async () => {
+    // THE DEAD END THIS CLOSES (ray-opus-a1, 2026-09-04). The sentence used to end "It needs
+    // whoever set RichOS up to add it". For Andreas, who installs RichOS in his lunch break,
+    // that person is HIMSELF — so the product's headline promise ended on an instruction he
+    // could not follow, with no button and no next step. The missing piece is the loro
+    // compiler, which has no route onto any machine (no `loro/` file is tracked in this
+    // repository, the bundle's Resources hold `icon.icns`, and the engine asset carries
+    // `engine/`), so there is nobody to fetch and nothing to press. The sentence therefore
+    // owes him three things and no imperative.
     const page = await openApp(browser, { memory: "no-compiler" });
     await page.waitForSelector("#memory-setup:not([hidden])");
     const text = await dialogText(page);
     assert(
-      text.indexOf("whoever set RichOS up") >= 0,
-      "a state he cannot fix must say who can: " + text
+      !/whoever set RichOS up|whoever installed RichOS|an operator/i.test(text),
+      "it must never send him to a third party who, on his own Mac, is him: " + text
+    );
+    // 1. WHAT DOES NOT WORK, said plainly and without implying the app is broken.
+    assert(/can't read or write it yet/.test(text), "it must say what does not work: " + text);
+    // 2. WHAT STILL DOES.
+    assert(
+      /Nothing else is affected/.test(text) && /conversations stay on this Mac/.test(text),
+      "it must say what still works, or it reads as a broken app: " + text
+    );
+    // 3. WHAT HE CAN DO — which is nothing, said as such rather than left to be guessed at.
+    assert(
+      /nothing for you to install and nothing for you to fix/.test(text),
+      "it must say what is being asked of him, even when the answer is nothing: " + text
     );
     assert(
       await page.isHidden("#memory-setup-go"),
@@ -234,9 +254,9 @@ async function main() {
       (await page.textContent("#memory-setup-location")).trim().length > 0,
       "it names WHERE the memory is, which is the operator's first question"
     );
-    bump(4);
+    bump(7);
     await page.close();
-    return "the party is named, no control is invented, and the location is on screen";
+    return "no third party, and the three things he is owed: what is off, what is on, what is asked of him";
   });
 
   await run.check("6  an install that is already set up is never asked", async () => {
@@ -325,9 +345,10 @@ main().catch((e) => {
 //        -> a finished dialog still offers to do the thing it just did
 //  4   main.js `provisionMemory`: replace the catch body with console.error(e)
 //        -> the refusal dies in a console the CEO does not have
-//  5   main.js MEMORY_NO_READER: drop "whoever set RichOS up"
-//        -> a state he cannot fix names nobody. Also turns affordances.js red, which is the
-//           check that owns that rule
+//  5   main.js MEMORY_NO_READER: restore "It needs whoever set RichOS up to add it"
+//        -> first run dead-ends on an instruction to fetch a person who, on a customer's Mac,
+//           is the customer. Also turns affordances.js red: the registry row is INFORMATIONAL
+//           and a sentence naming a party is not
 //  6   main.js `maybeAskAboutMemory`: return true for every state
 //        -> an install that is already set up is interrupted on every launch
 //  7   main.js: add a second provision_memory call site

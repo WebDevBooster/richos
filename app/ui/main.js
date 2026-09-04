@@ -2940,11 +2940,36 @@ const MEMORY_DONE =
   "That's set up. From now on I'll keep what you tell me in that folder and read it back " +
   "when it matters.";
 /// ONE string for two moments — the boot that finds a corpus it cannot read, and the setup
-/// that finishes without the reader. It names the party, because he cannot fix it: the
-/// compiler ships from nowhere today (`BLOCKED.md`).
+/// that finishes without the reader.
+///
+/// IT NAMES NO PARTY, AND THAT IS THE FIX. Until 2026-09-04 it said *"It needs whoever set
+/// RichOS up to add it"*, which is the standard §21 shape for a state the CEO cannot clear —
+/// and it was written on this machine, where somebody else did set RichOS up. On a customer's
+/// Mac that person IS the reader: Andreas installs RichOS in his lunch break, accepts the
+/// memory folder, and the product's headline promise dead-ends on an instruction to fetch a
+/// third party who does not exist. Pointing a man at himself is worse than saying nothing.
+///
+/// WHY NOTHING IS OFFERED INSTEAD. The missing piece is the loro compiler — `loro-context.mjs`
+/// and `loro-write.mjs`, the read half and the write half. The setup sheet two screens earlier
+/// installs Claude Code and the engine because both have a route onto another machine; this
+/// one has none. `git ls-files` in the public product repo returns zero `loro/` files, the
+/// signed bundle's `Contents/Resources` holds `icon.icns` and nothing else, and the engine
+/// release asset is built from `engine/`, which contains no compiler either. The bytes exist
+/// only in the private `richos-hq` checkout. Publishing them is a decision about what ships
+/// publicly, and it belongs to the CEO — not to a sentence in the window.
+///
+/// SO THE SENTENCE TELLS HIM THREE THINGS, in his own frame: what does not work (this folder
+/// is not read or written), what still does (everything else — the conversations RichOS keeps
+/// in its own store, which is where the thread history, the ledger and the journal live and is
+/// untouched by any of this), and what he can do (nothing, and nothing is required of him).
+/// The last clause is a statement about the app's behavior and not a promise about a date:
+/// `resolve_tools` searches the install directory and the bundle's resources at every launch,
+/// so a compiler that appears is picked up with no action from him.
 const MEMORY_NO_READER =
-  "Your memory is on this Mac, but the part of me that reads it isn't installed here — so I " +
-  "can't read it back yet. It needs whoever set RichOS up to add it.";
+  "Your memory folder is on this Mac, and I can't read or write it yet — the part of me that " +
+  "does isn't in this version. Nothing else is affected: our conversations stay on this Mac " +
+  "and I pick them up when you come back. There's nothing for you to install and nothing for " +
+  "you to fix — I'll start using the folder on my own as soon as that part arrives.";
 
 async function refreshMemory() {
   memoryState = await invokeQuiet("memory_status");
