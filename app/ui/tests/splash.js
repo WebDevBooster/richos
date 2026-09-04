@@ -275,6 +275,54 @@ const MARK_READY = () => {
   });
 };
 
+// ---------------------------------------------------------------------------------------
+// ERRORS THAT ARE NOT THIS SURFACE'S
+// ---------------------------------------------------------------------------------------
+//
+// Every check here that touches a real launch also asserts the page produced no errors. That
+// guard is worth keeping and it was catching the wrong surface.
+//
+// The app lands on the HOME SCREEN behind the curtain, and the home screen draws a WebGL
+// field. On `ui-suite-ci` run 33879245990 the GitHub `macos-latest` runner dropped that
+// context — a shared 4-vCPU VM rasterizing in software, with a page-worth of live WebGL
+// contexts open across this suite's many browser contexts — and WebKit logged its own notice:
+//
+//     console: WebGL: context lost.
+//
+// Three checks went red on it (16, 18 and 23), none of which is about the home screen, one of
+// which is the CONTRAST FLOOR and never got as far as measuring a single ratio. A check that
+// fails on another surface's GPU is not reporting on its own subject.
+//
+// SO IT IS ATTRIBUTED, NOT MUTED, AND THE DIFFERENCE IS THE WHOLE DESIGN:
+//
+//   * exactly ONE pattern, matching WebKit's own fixed string and nothing else. Not "webgl",
+//     not "context", not a substring anybody's message could wander into;
+//   * the second half of that runner's noise — `Unhandled Promise Rejection: Error: null` out
+//     of the field engine's shader compile — is NOT on this list, because it was a real
+//     defect and it is fixed rather than excused. The engine now catches its own throw and
+//     `home.js` degrades on it in a frame instead of eight seconds. `home.js`'s own suite
+//     plants that failure and holds the product to it;
+//   * anything set aside is COUNTED AND NAMED in the check's own detail line, so it appears
+//     in the log of a green run rather than disappearing from it;
+//   * and the claim itself did not go away. It moved to the suite that owns the surface.
+const NOT_THIS_SURFACE = [/^console: WebGL: context lost\.$/];
+
+/// The page's errors, split into the ones this suite is answerable for and the ones it is
+/// not. Never call `page.__errors` directly in a check — that is the reading that made three
+/// checks red about somebody else's GPU.
+function errorsHere(page) {
+  const all = page.__errors || [];
+  const elsewhere = all.filter((e) => NOT_THIS_SURFACE.some((re) => re.test(e)));
+  return { mine: all.filter((e) => !elsewhere.includes(e)), elsewhere };
+}
+
+/// Assert this surface produced no errors of its own, and SAY what was set aside.
+function noErrors(page, what) {
+  const e = errorsHere(page);
+  assert(e.mine.length === 0, (what ? what + " " : "") + "errors: " + e.mine.join("; "));
+  return e.elsewhere.length ? " · " + e.elsewhere.length + " error(s) from the home screen's WebGL behind the curtain, not this surface's: " + e.elsewhere.join("; ") : "";
+}
+
 async function newPage(ctx) {
   const page = await ctx.newPage();
   const errors = [];
@@ -396,7 +444,7 @@ async function matShot(browser, id, mute) {
   const png = (await page.screenshot({ clip: r.clip })).toString("base64");
   const after = await curtainNow(page);
   assert(after.up, id + ": the curtain left during the mat exposure — this is a photograph of the screen behind it");
-  assert(page.__errors.length === 0, id + " errors: " + page.__errors.join("; "));
+  noErrors(page, id);
   await ctx.close();
   return { png, layers: r.layers, above: r.above };
 }
@@ -759,6 +807,7 @@ async function main() {
   // ---- the mechanic ---------------------------------------------------------------------
 
   await run.check("4  the screen he meets is his TABLE, not a draw — #1, #2, then #1 forever", async () => {
+    let aside = "";
     // CEO, 2026-09-01, verbatim: *"USE THE APPROVED SPLASH SCREEN #1 to always
     // deterministically show as SPLASH SCREEN #1 and splash screen #2 to always show as
     // splash screen for the SECOND APP START in RichOS v1. From the third app start onwards:
@@ -788,7 +837,7 @@ async function main() {
       }));
       assertEqual(r.ordinal, n, "the surface misreports which start it was told this is");
       seen.push(r.id);
-      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      aside += noErrors(page);
       await page.__ctx.close();
     }
     const first = LIBRARY.variations[0].id;
@@ -822,7 +871,8 @@ async function main() {
     return (
       "six real launches: " + seen.map((id, i) => (i + 1) + "→" + id.replace("round-11/", "")).join(", ") +
       " · the rule direct: " + [1, 2, 3, 4, 17, 100].map((n) => n + "→" + table[n].replace("round-11/", "")).join(" ") +
-      " · absent→" + table.absent.replace("round-11/", "") + " · a pool of one→" + table.lonely.replace("round-11/", "")
+      " · absent→" + table.absent.replace("round-11/", "") + " · a pool of one→" + table.lonely.replace("round-11/", "") +
+      aside
     );
   });
 
@@ -832,6 +882,7 @@ async function main() {
     // to be taken while it is up; the compositions themselves are the shipped ones.
     const [a, b] = [LIBRARY.variations[0], LIBRARY.variations[LIBRARY.variations.length - 1]];
     const names = [];
+    let aside = "";
     for (const v of [a, b]) {
       const page = await launch(browser, { hold: true, force: v.id });
       // The photograph is only evidence if what it shows is this entry's own values. The
@@ -842,11 +893,11 @@ async function main() {
       const slug = "splash-" + (names.length + 1).toString().padStart(2, "0") + "-" + v.id.replace(/[^a-z0-9]+/gi, "-");
       names.push(await settledShot(page, slug) + " — mat " + mat);
       shotNames.push(slug + ".png");
-      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      aside += noErrors(page);
       await page.__ctx.close();
     }
     assert(a.tokens.surface !== b.tokens.surface, "the two photographed compositions are the same");
-    return names.join(" · ");
+    return names.join(" · ") + aside;
   });
 
   // ---- what was left behind in the study ------------------------------------------------
@@ -1033,7 +1084,7 @@ async function main() {
       assertEqual(r.shown, false, label + ": it thinks it drew");
       assert(r.declined, label + ": it declined without saying why");
       assert(r.rows > 0, label + ": the app did not boot");
-      assert(page.__errors.length === 0, label + " errors: " + page.__errors.join("; "));
+      noErrors(page, label);
       told.push(`${label} → "${r.declined}"`);
       await page.__ctx.close();
     }
@@ -1061,6 +1112,7 @@ async function main() {
   // ---- the off switch ---------------------------------------------------------------------
 
   await run.check("11  the switch is where he would look, and off stays off", async () => {
+    let aside = "";
     // The second constraint on this work, and the reason it shipped in the same commit as
     // the surface: the failure mode is silent. He switches it off behind the same gear as
     // the only other preference this product has, and the next launch is plain.
@@ -1100,9 +1152,9 @@ async function main() {
     const off = await shot(page, "splash-04-a-launch-with-it-off", { fullPage: false });
     fs.copyFileSync(off.file, path.join(SHOTS, "splash-04-a-launch-with-it-off.png"));
     shotNames.push("splash-04-a-launch-with-it-off.png");
-    assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+    aside += noErrors(page);
     await ctx.close();
-    return `on by default → unchecked behind the gear → relaunched plain ("${after.declined}"), control still unchecked`;
+    return `on by default → unchecked behind the gear → relaunched plain ("${after.declined}"), control still unchecked` + aside;
   });
 
   await run.check("12  the switch is durable in Rust, and both sides agree absent means ON", async () => {
@@ -1475,6 +1527,7 @@ async function main() {
   });
 
   await run.check("16  the mark's relief is built from the ENTRY's numbers, in an order that cannot be data", async () => {
+    let aside = "";
     // `relief` is an SVG filter written as values. The renderer fixes its SHAPE — outer
     // bands under the mark, the mark, then the noise field and the inner bands over it —
     // because any other order draws a shadow on top of the thing casting it. Everything
@@ -1529,13 +1582,13 @@ async function main() {
       if (spec.target === "mark") assert(f.ink.indexOf("richos-splash-relief") >= 0, which + ": a mark relief did not reach the ink");
       else assertEqual(f.ink, "none", which + ": a signal-only relief reached the ink");
       told.push(which + " " + spec.target + "/" + spec.bands.length + "band" + (spec.noise ? "+noise" : ""));
-      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      aside += noErrors(page);
       await page.__ctx.close();
     }
     assertEqual(told.length, 2, "both halves of the relief vocabulary have to be exercised");
     return (
       LIBRARY.variations.length + " shipped screens, 0 of which build a filter they did not ask for · " +
-      "the mechanism driven against 2 fixtures: " + told.join(" · ")
+      "the mechanism driven against 2 fixtures: " + told.join(" · ") + aside
     );
   });
 
@@ -1754,6 +1807,7 @@ async function main() {
   // ---- the bar itself: it runs, it lands on time, and it runs ONCE -----------------------
 
   await run.check("22  the bar runs ONCE — monotonic, landing exactly on the hold, and never restarting", async () => {
+    let aside = "";
     // CEO, 2026-09-01, verbatim: *"The animation is only supposed to happen ONCE. NO LOOPING.
     // And I said '3 seconds default'. How many times do I have to repeat that? 3 SECONDS.
     // Unless I say otherwise."*
@@ -1841,15 +1895,16 @@ async function main() {
           Math.round(trace[trace.length - 1].t) + "ms, " + after.length + " after the landing · " +
           own.passes + " pass, loop stopped"
       );
-      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      aside += noErrors(page);
       await page.__ctx.close();
     }
-    return "no interval, no replay path, no wake listener, 2 rAF call sites · " + told.join(" · ");
+    return "no interval, no replay path, no wake listener, 2 rAF call sites · " + told.join(" · ") + aside;
   });
 
   // ---- the floor, measured where the eye is ----------------------------------------------
 
   await run.check("23  WCAG AA on the COMPOSITED frame — text 4.5:1, the bar 3:1, both themes", async () => {
+    let aside = "";
     // The standing rule (`CLAUDE.md`, "Contrast — WCAG AA, ALWAYS, BOTH THEMES"), measured on
     // this surface the only way it can honestly be measured: from a photograph.
     //
@@ -1955,7 +2010,7 @@ async function main() {
           at[name] = { r: got[i].r, g: got[i].g, b: got[i].b, a: 1 };
         });
         perTheme[theme] = at;
-        assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+        aside += noErrors(page);
         await ctx.close();
       }
 
@@ -2065,7 +2120,60 @@ async function main() {
       "against the track and against the ground, and both are asserted above. For #1 the two " +
       "cannot both pass at once within this palette: clearing 3:1 on the ground needs a track " +
       "luminance >= 0.118 and clearing 3:1 against the gold fill needs <= 0.095, and no value is " +
-      "both. For #2 the strap's own EDGE marks the bar's extent and is measured instead."
+      "both. For #2 the strap's own EDGE marks the bar's extent and is measured instead." +
+      aside
+    );
+  });
+
+  await run.check("24  the set-aside list is one line, and it swallows nothing else", async () => {
+    // THE PROBE ON THE THING THAT COULD BECOME A MUTE BUTTON. `NOT_THIS_SURFACE` exists so
+    // that WebKit's own notice about the home screen's WebGL context stops failing checks
+    // about the curtain — and the moment a list like that is trusted rather than tested, it
+    // is the place a real error goes to die. So it is driven, both ways, on every run.
+    //
+    // Nothing here opens a browser: `errorsHere` is a pure function of the array, which is
+    // what makes both arms provable without having to make a GPU fail.
+    const fake = (errs) => ({ __errors: errs });
+
+    // THE ONE LINE, EXACTLY. Set aside, and reported rather than dropped.
+    const one = errorsHere(fake(["console: WebGL: context lost."]));
+    assertEqual(one.mine, [], "the notice this list exists for was still counted against the curtain");
+    assertEqual(one.elsewhere.length, 1, "it was dropped instead of being set aside");
+    const said = noErrors(fake(["console: WebGL: context lost."]));
+    assert(/not this surface's/.test(said), "a set-aside error is not named in the check's own detail line");
+    assert(/WebGL: context lost/.test(said), "the detail line does not quote what it set aside");
+
+    // AND NOTHING ELSE. Eight neighbours of that string, including the second half of the
+    // very runner transcript this list came from — the field engine's unhandled rejection,
+    // which was a real defect and is FIXED rather than excused (`home.js`'s suite plants it
+    // and holds the product to degrading in a frame, without shouting).
+    const others = [
+      "console: WebGL: context lost",           // no full stop
+      "console: WebGL: context lost. twice",    // trailing text
+      "prefix console: WebGL: context lost.",   // leading text
+      "console: webgl: context lost.",          // different case
+      "console: WebGL: could not create context.",
+      "console: WebGL: context restored.",
+      "Unhandled Promise Rejection: Error: null",
+      "console: TypeError: null is not an object",
+    ];
+    const kept = errorsHere(fake(others));
+    assertEqual(kept.elsewhere, [], "the set-aside list swallowed an error it was never given leave to");
+    assertEqual(kept.mine.length, others.length, "an error went missing between the two buckets");
+    // ...and every one of them still fails a check, which is the assertion that matters.
+    for (const e of others) {
+      let threw = false;
+      try {
+        noErrors(fake([e]));
+      } catch (_) {
+        threw = true;
+      }
+      assert(threw, "this error did not fail its check: " + e);
+    }
+    return (
+      NOT_THIS_SURFACE.length + " pattern(s) on the list · the one it is for is set aside AND named in the " +
+      "detail line · " + others.length + " near neighbours, including the runner's own unhandled rejection, " +
+      "each still fails a check"
     );
   });
 
