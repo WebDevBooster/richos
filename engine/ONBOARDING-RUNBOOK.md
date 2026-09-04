@@ -240,7 +240,9 @@ section whose rows rot. Four of them did in a single day on this project.
 Create a **`.row-currency`** at the record repository's root from
 `reference/row-currency/row-currency.example`, and — if the work lives in a
 different repository from the record, which it usually does — the peer form from
-`row-currency-peer.example` at that repository's root. Then:
+`row-currency-peer.example` at that repository's root. (Either file may instead
+sit at `.richos/row-currency`; the engine looks there first and at the root
+second, so it is a preference about the root listing and nothing else.) Then:
 
 ```bash
 scripts/row-currency-lint.sh /path/to/their/record-repo

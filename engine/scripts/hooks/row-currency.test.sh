@@ -50,6 +50,13 @@
 #       work.
 #   (j) FAIL-CLOSED conventions, matching the hook family.
 #   (k) REGISTRATION on both surfaces, plus the probe's oracle and Layer R.
+#   (l) THE GROUPED DIRECTORY — a declaration at `.richos/row-currency` governs
+#       exactly as a root one does (proved by a REFUSAL, never by a load);
+#       declared in both places at once is BROKEN; a DECLARATION in `.richos/`
+#       that nothing resolves is BROKEN too, because the alternative is a
+#       contract switched off by a `git mv`; and anything else sharing that
+#       directory is left alone, because it is a shared RichOS directory and a
+#       resolver policing all of it would take an adopter offline.
 #   (l) THE PREMISE WARRANT — a CEO item's stated reason for asking. Adopted
 #       and unadopted; moved and unmoved (two-sided, both directions asserted);
 #       the paste that clears it; `unobservable` with a reason and without;
@@ -880,6 +887,98 @@ printf '%s' "$GOUT" | grep -qF 'no longer exists. The row describes work that is
     || bad "section 3 VANISHED refusal was reworded: $GOUT"
 
 # ---------------------------------------------------------------------------
+# (l) THE GROUPED DECLARATION DIRECTORY
+# ---------------------------------------------------------------------------
+# The declaration may live at `.richos/row-currency` instead of the repository
+# root. EVERY OTHER CASE IN THIS FILE ALREADY PROVES THE ROOT FORM, which is
+# what makes these the interesting half: the move must not turn a governed
+# repository into a stood-down one, and a stood-down guard is the failure that
+# looks exactly like a clean run.
+#
+# So the first case here is a REFUSAL, not a load. A test that only proved the
+# file was found would pass just as well over a guard that found it and then
+# decided nothing.
+
+# 1. A grouped declaration GOVERNS: the vanished-warrant refusal still fires.
+set -- $(mk_pair grouped_governs); REC="$1"; WORK="$2"
+OLD="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "| 3.1 | open | **State:** \`OPEN\` — \`work/lib/thing.js\`@\`$OLD\` |"
+commit_record "$REC"
+mkdir -p "$WORK/.richos"
+git -C "$WORK" mv .row-currency .richos/row-currency >/dev/null 2>&1
+rm -f "$WORK/lib/thing.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work\"'
+if [ "$GRC" -ne 0 ] && printf '%s' "$GOUT" | grep -qF 'no longer exists. The row describes work that is not there.'; then
+    ok "a declaration at .richos/row-currency GOVERNS — the vanished-warrant landing is refused"
+else
+    bad "a grouped declaration stood the guard down (rc=$GRC): $GOUT"
+fi
+
+# 2. ...and the same repository lets a CURRENT row through. A guard that
+#    refuses everything is not a working guard either.
+set -- $(mk_pair grouped_allows); REC="$1"; WORK="$2"
+OLD="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "| 3.1 | open | **State:** \`OPEN\` — \`work/lib/thing.js\`@\`$OLD\` |"
+commit_record "$REC"
+mkdir -p "$WORK/.richos"
+git -C "$WORK" mv .row-currency .richos/row-currency >/dev/null 2>&1
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work\"'
+[ "$GRC" -eq 0 ] && ok "a grouped declaration over a CURRENT row passes silently" \
+                 || bad "a current row under a grouped declaration was refused (rc=$GRC): $GOUT"
+
+# 3. BOTH forms at once is BROKEN. Choosing one quietly is how the wrong one
+#    stays live — the sentence `.ceo-todos` already carries about its legacy name.
+set -- $(mk_pair grouped_both); REC="$1"; WORK="$2"
+write_record "$REC" '| 3.1 | a row | **State:** `CLOSED` |'
+commit_record "$REC"
+mkdir -p "$WORK/.richos"
+cp "$WORK/.row-currency" "$WORK/.richos/row-currency"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work\"'
+if [ "$GRC" -ne 0 ] && printf '%s' "$GOUT" | grep -qF 'carries BOTH .richos/row-currency and .row-currency'; then
+    ok "a declaration in two places at once is BROKEN and REFUSES, never a silent choice"
+else
+    bad "two declarations were resolved rather than refused (rc=$GRC): $GOUT"
+fi
+
+# 4. A DECLARATION in `.richos/` that nothing resolves is BROKEN TOO — the trap
+#    the directory would otherwise create. Move `.ceo-todos` in there and its
+#    contract switches off in silence; this is what stops that.
+set -- $(mk_pair grouped_stray); REC="$1"; WORK="$2"
+write_record "$REC" '| 3.1 | a row | **State:** `CLOSED` |'
+commit_record "$REC"
+mkdir -p "$WORK/.richos"
+git -C "$WORK" mv .row-currency .richos/row-currency >/dev/null 2>&1
+printf 'TODO_RECORD="wiki/open-items.md"\n' > "$WORK/.richos/ceo-todos"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work\"'
+if [ "$GRC" -ne 0 ] && printf '%s' "$GOUT" | grep -qF '.richos/ceo-todos is a declaration, and nothing reads a declaration from there'; then
+    ok "an unresolved DECLARATION in .richos/ is BROKEN and names itself — a half-migration cannot look finished"
+else
+    bad "a stray declaration in .richos/ was ignored rather than refused (rc=$GRC): $GOUT"
+fi
+
+# 5. ...and ANYTHING ELSE in that directory is none of the resolver's business.
+#    `.richos/` is a SHARED RichOS directory: the ECS entity manifest has sat at
+#    `.richos/entity.json` in femcboost since 2026-08-27, and scripts/ecs/ecs_cli.py
+#    takes that path as a default argument. A resolver policing the whole
+#    directory would have refused every commit in that repository. This case is
+#    that repository, in miniature.
+set -- $(mk_pair grouped_neighbors); REC="$1"; WORK="$2"
+write_record "$REC" '| 3.1 | a row | **State:** `CLOSED` |'
+commit_record "$REC"
+mkdir -p "$WORK/.richos"
+git -C "$WORK" mv .row-currency .richos/row-currency >/dev/null 2>&1
+printf '{"schemaVersion":1,"entityId":"sample"}\n' > "$WORK/.richos/entity.json"
+printf '# what lives here\n' > "$WORK/.richos/README.md"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work\"'
+[ "$GRC" -eq 0 ] && ok "entity.json and a README share .richos/ without breaking anything" \
+                 || bad "an unrelated neighbor in .richos/ was treated as a stray (rc=$GRC): $GOUT"
+
+# ---------------------------------------------------------------------------
 # (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads
 # ---------------------------------------------------------------------------
 G=guard-row-currency-commits.sh
@@ -895,7 +994,7 @@ grep -q "^${G}|PreToolUse" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.
 grep -q "guard-row-currency-commits \\\\" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
     && ok "$G listed among Layer R's root-resolving hooks" \
     || bad "$G NOT listed in Layer R's rooted-hook set — its bootstrap would go unchecked"
-for lib in scripts/lib/row-currency.sh scripts/lib/row-currency.py; do
+for lib in scripts/lib/row-currency.sh scripts/lib/row-currency.py scripts/lib/declaration-path.sh; do
     grep -q "$lib" "$ENGINE_ROOT/scripts/hooks/install.sh" 2>/dev/null \
         && ok "$lib is sidecar-hashed by install.sh (the guard delegates its whole decision to it)" \
         || bad "$lib NOT hashed by install.sh"

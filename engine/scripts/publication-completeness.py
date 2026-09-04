@@ -294,8 +294,11 @@ def _drop_ignored(tree, pending):
 # TWO ARMS, because the failure had two halves:
 #
 #   COPYABLE   Some tracked file is named <D>, <D>.example, <D>.template or
-#              <D>.sample. Without one, the adopter must reverse-engineer the
-#              format out of a parser.
+#              <D>.sample — or the repository's own live declaration sits at
+#              `<declaration_dir>/<D-without-its-dot>`, which is the same file
+#              in the grouped form scripts/lib/declaration-path.sh resolves.
+#              Without one, the adopter must reverse-engineer the format out of
+#              a parser.
 #   ONBOARDED  <D> is named in the ADOPTER'S ENTRY-POINT SET — README.md, the
 #              transitive closure of the markdown it links to, and every
 #              shipped SKILL.md. Derived from README's own link graph, so it
@@ -389,7 +392,55 @@ def onboarding_set(tree):
     return seen
 
 
-def check_declarations(tree, exempt, used, explain):
+DECL_LIST_RE = re.compile(r"""^\s*(DECL_ADOPTED_STEMS|DECL_FOREIGN_STEMS)\s*=\s*"([^"]*)\"""",
+                          re.MULTILINE)
+
+
+def check_declaration_classification(tree, decls, by_base):
+    """Every declaration this engine ships is CLASSIFIED by the resolver.
+
+    scripts/lib/declaration-path.sh answers "where does this declaration live?"
+    for some declarations and not others, and it refuses one it does not serve
+    if it finds a copy in the grouped directory -- which is what stops a `git mv`
+    from switching a contract off in silence.
+
+    That refusal is driven by two hand-written lists, and a hand-written list of
+    names is the exact thing this file exists to stop going quietly stale: a
+    declaration added tomorrow, in neither list, is one the resolver would find
+    in the grouped directory and say nothing about. So the derived set -- which
+    is the truth, read out of shipped source -- is checked against them here.
+
+    BROKEN rather than a finding, because a stale classification makes every
+    other verdict in this check less trustworthy, and a checker that is unsure
+    what it is checking must say so rather than grade.
+    """
+    hits = by_base.get("declaration-path.sh") or []
+    if not hits:
+        return                      # not shipped in this tree; nothing to check
+    text = tree.read(sorted(hits)[0]) or ""
+    classified = set()
+    for m in DECL_LIST_RE.finditer(text):
+        classified.update(m.group(2).split())
+    if not classified:
+        raise Broken("read scripts/lib/declaration-path.sh and derived NO "
+                     "classified declaration stems from it. Those lists decide "
+                     "which declarations the resolver refuses to find in the "
+                     "grouped directory; finding none means the derivation is "
+                     "broken, not that there is nothing to classify.")
+    missing = sorted(d for d in decls if (d[1:] if d.startswith(".") else d) not in classified)
+    if missing:
+        raise Broken(
+            "scripts/lib/declaration-path.sh classifies neither way: %s. Every "
+            "declaration this engine ships must appear in DECL_ADOPTED_STEMS "
+            "(the resolver finds it in the grouped directory) or in "
+            "DECL_FOREIGN_STEMS (it does not, and a copy found there is "
+            "REFUSED). An unclassified one is a declaration a `git mv` into "
+            "that directory would switch off in silence, which is the failure "
+            "the directory must not be able to cause."
+            % ", ".join("`%s`" % d for d in missing))
+
+
+def check_declarations(tree, exempt, used, explain, declaration_dir=""):
     decls = derive_declarations(tree)
     if not decls:
         raise Broken("derived NO declaration names from shipped source. The engine "
@@ -410,6 +461,8 @@ def check_declarations(tree, exempt, used, explain):
     for f in tree.files:
         by_base.setdefault(os.path.basename(f), []).append(f)
 
+    check_declaration_classification(tree, decls, by_base)
+
     for d in sorted(decls):
         problems = []
         # A DOTFILE'S TEMPLATE IS USUALLY SHIPPED WITHOUT THE DOT, because a
@@ -424,10 +477,21 @@ def check_declarations(tree, exempt, used, explain):
         names = [d] + ["%s.%s" % (n, sfx)
                        for n in ({d, stem} if stem else {d})
                        for sfx in ("example", "template", "sample")]
-        if not any(by_base.get(n) for n in names):
+        # A LIVE DECLARATION IN THE GROUPED DIRECTORY IS ITS OWN COPYABLE
+        # INSTANCE, exactly as the root form always was. `.publication-boundary`
+        # had no separate template and never needed one — the repository's own
+        # declaration was the thing an adopter read and copied. Moving it to
+        # `.richos/publication-boundary` must not turn a working capability into
+        # an INERT finding, and this is PATH-EXACT rather than basename-matched
+        # so a file that merely happens to be called `publication-boundary`
+        # somewhere else in the tree still satisfies nothing.
+        grouped = ("%s/%s" % (declaration_dir.rstrip("/"), stem)
+                   if declaration_dir and stem else None)
+        if not any(by_base.get(n) for n in names) and not (grouped and tree.has(grouped)):
+            looked = sorted(set(names)) + ([grouped] if grouped else [])
             problems.append("no copyable instance or template of `%s` is published "
                             "(looked for %s anywhere in the tree)"
-                            % (d, ", ".join(sorted(set(names)))))
+                            % (d, ", ".join(looked)))
         if not any(d in (tree.read(p) or "") for p in sorted(onboard)):
             problems.append("`%s` is named in no document an adopter reads "
                             "(README.md, everything README links to, and every "
@@ -640,7 +704,8 @@ def main():
         tree = Tree(root)
         decls = derive_declarations(tree)
         check_citations(tree, exempt.get("CITATION_EXEMPT", []), used)
-        check_declarations(tree, set(exempt.get("DECLARATION_EXEMPT", [])), used, explain)
+        check_declarations(tree, set(exempt.get("DECLARATION_EXEMPT", [])), used, explain,
+                           cfg.get("declaration_dir", ""))
         check_workflows(tree, set(exempt.get("WORKFLOW_EXEMPT", [])), used, explain)
         check_misplacement(tree, cfg.get("private_roots", []), set(decls),
                            set(exempt.get("INSTANCE_MECHANISMS", [])), used, explain)

@@ -64,6 +64,7 @@ build() {
        "$ENGINE_ROOT/scripts/lib/unstarted-rows.sh" "$ENGINE_ROOT/scripts/lib/unstarted-rows.py" \
        "$ENGINE_ROOT/scripts/lib/row-currency.sh" "$ENGINE_ROOT/scripts/lib/row-currency.py" \
        "$ENGINE_ROOT/scripts/lib/ceo-todos.sh" "$ENGINE_ROOT/scripts/lib/ceo-todos.py" \
+       "$ENGINE_ROOT/scripts/lib/declaration-path.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" \

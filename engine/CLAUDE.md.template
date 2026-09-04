@@ -250,7 +250,7 @@ It has one blind spot, and it is structural rather than careless: **it assumes e
 
 So the doctrine has **two modes**, and the repository tells you which one you are in.
 
-**THE MODE SIGNAL IS `.publication-boundary` AT THE REPOSITORY ROOT.** Its presence is already the declaration that this tree gets published — it is what switches on `guard-publication-writes.sh` and `guard-publication-commits.sh`. It is the same signal, read by a person instead of a hook. There is deliberately **no second declaration**: a writer asking "which mode am I in?" has one file to look at, and a mode signal in two places is one that drifts.
+**THE MODE SIGNAL IS `.publication-boundary` — at the repository root, or as `.richos/publication-boundary`.** Its presence is already the declaration that this tree gets published — it is what switches on `guard-publication-writes.sh` and `guard-publication-commits.sh`. It is the same signal, read by a person instead of a hook. There is deliberately **no second declaration**: a writer asking "which mode am I in?" has one file to look at, and a mode signal in two places is one that drifts — which is why declaring it in BOTH of those two locations is refused as BROKEN rather than resolved to one of them.
 
 | | **PRIVATE repository** (no `.publication-boundary`) | **PUBLISHED repository** (`.publication-boundary` present) |
 |---|---|---|

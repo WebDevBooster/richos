@@ -189,6 +189,23 @@
 
 _RC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# WHERE the declaration lives is scripts/lib/declaration-path.sh's answer and
+# nobody else's — `.richos/row-currency` or the root `.row-currency`, resolved
+# one way for every caller. A missing resolver is BROKEN rather than a quiet
+# fall back to the root form: standing this contract down over a repository
+# that has declared it is the failure the contract exists to end.
+_RC_DECL_LIB="$_RC_LIB_DIR/declaration-path.sh"
+if [ -f "$_RC_DECL_LIB" ]; then
+    # shellcheck source=./declaration-path.sh
+    . "$_RC_DECL_LIB"
+else
+    decl_find() {
+        DECL_PATH=""
+        DECL_BROKEN_REASON="scripts/lib/declaration-path.sh is missing at: $_RC_DECL_LIB — It is the only thing that knows where a declaration lives, and guessing the root form would stand this contract down over a repository that has declared it."
+        return 2
+    }
+fi
+
 # The CEO-TODOs library is the single parser of `.ceo-todos` and the single
 # owner of ct_physical / ct_repo_root / ct_main_checkout / ct_resolve_roots.
 # This file re-uses them rather than carrying a second copy, for the reason
@@ -219,13 +236,16 @@ rc_require_ceo_todos_lib() {
 # ---------------------------------------------------------------------------
 # rc_load_declaration <repo_root>
 # ---------------------------------------------------------------------------
-# Strict-parses <repo_root>/.row-currency. PARSED, never sourced: sourcing a
-# file to read four settings out of it hands arbitrary code execution to
-# anything that can write a config.
+# Strict-parses this repository's `.row-currency`. WHERE it is —
+# `.richos/row-currency` or the root form — is decl_find's answer, and
+# RC_DECLARATION_FILE is the path actually read. PARSED, never sourced:
+# sourcing a file to read four settings out of it hands arbitrary code
+# execution to anything that can write a config.
 #
 #   rc 0  governed        -> RC_MODE is "record" or "peer"
 #   rc 1  no declaration   -> stand down
-#   rc 2  BROKEN           -> caller must BLOCK
+#   rc 2  BROKEN           -> caller must BLOCK (malformed, declared in two
+#                             places at once, or unresolvable)
 #
 # Sets: RC_MODE RC_PEER_SPEC RC_ROW_SECTIONS RC_STATUS_TOKENS
 #       RC_TERMINAL_TOKENS RC_DECLARATION_FILE RC_BROKEN_REASON
@@ -241,7 +261,14 @@ rc_load_declaration() {
     RC_BROKEN_REASON=""
 
     [ -n "$root" ] || return 1
-    f="$root/$ROW_CURRENCY_DECLARATION"
+    local _rc_drc=0
+    decl_find "$root" "$ROW_CURRENCY_DECLARATION" || _rc_drc=$?
+    case "$_rc_drc" in
+        0) ;;
+        2) RC_BROKEN_REASON="$DECL_BROKEN_REASON"; return 2 ;;
+        *) return 1 ;;
+    esac
+    f="$DECL_PATH"
     [ -f "$f" ] || return 1
     RC_DECLARATION_FILE="$f"
 

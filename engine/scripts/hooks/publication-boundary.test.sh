@@ -36,6 +36,15 @@
 #       ALLOWED. That is the correct destination, not a grudging exception.
 #   (e) ALLOWLIST — a committed exemption works, and it is the ONLY way through,
 #       because these two guards deliberately ship no in-prompt override token.
+#   (m) THE GROUPED DIRECTORY — the declaration may live at
+#       `.richos/publication-boundary`, and the move must not stand the guard
+#       down. Proved by a REFUSAL, never by a load: a guard that found the file
+#       and then decided nothing would pass any test that only asked whether it
+#       was found. Declared in both places at once BLOCKS, and a DECLARATION in
+#       `.richos/` that nothing resolves BLOCKS, because the alternative is a
+#       publication contract switched off by a `git mv`. Anything else sharing
+#       that directory is left alone: it is a shared RichOS directory, and a
+#       guard policing all of it would take an adopter offline.
 #   (f) BROKEN DECLARATIONS — unknown key, non-KEY=value line, a threshold below
 #       the measured floor, and a PRIVATE_SOURCES tree that is inside the repo
 #       and NOT gitignored: every one BLOCKS rather than degrading quietly.
@@ -1165,6 +1174,64 @@ else
     bad "missing predicate library should block loudly (rc=$rc)"
 fi
 rm -rf "$TMPENG"
+
+# ---------------------------------------------------------------------------
+# (m) THE GROUPED DECLARATION DIRECTORY.
+# ---------------------------------------------------------------------------
+# The declaration may live at `.richos/publication-boundary` rather than at the
+# repository root. Every case above already proves the root form, so what these
+# have to prove is the dangerous half: THE MOVE MUST NOT STAND THE GUARD DOWN.
+#
+# That is why the first case is a BLOCK and not a load. A guard that found the
+# file and then decided nothing would satisfy any test that only asked whether
+# the file was found — and a stood-down publication guard is byte-identical, at
+# every place an operator looks, to one that is working.
+SBG="$(make_default_sandbox)"
+mkdir -p "$SBG/.richos"
+mv "$SBG/.publication-boundary" "$SBG/.richos/publication-boundary"
+write_case "grouped declaration: a transcript is still REFUSED" 2 Write "$SBG/docs/t.txt" "$SBG" "$TRANSCRIPT"
+write_case "grouped declaration: ordinary product code still passes" 0 Write "$SBG/src/config.js" "$SBG" "$CODE"
+msg_case "grouped declaration: the refusal names the file it actually read" \
+    ".richos/publication-boundary" Write "$SBG/docs/t.txt" "$SBG" "$TRANSCRIPT"
+
+# Both at once is BROKEN, and BROKEN blocks. Choosing one quietly is how the
+# wrong one stays live.
+cp "$SBG/.richos/publication-boundary" "$SBG/.publication-boundary"
+write_case "declared in BOTH places at once: BLOCKS" 2 Write "$SBG/src/config.js" "$SBG" "$CODE"
+msg_case "...and says which two files disagree" \
+    "carries BOTH .richos/publication-boundary and .publication-boundary" \
+    Write "$SBG/src/config.js" "$SBG" "$CODE"
+rm -f "$SBG/.publication-boundary"
+
+# A DECLARATION in `.richos/` that nothing resolves is BROKEN too. Without this,
+# moving a declaration this engine does not read from there switches its
+# contract off in silence — the one failure this directory must not introduce.
+printf 'TODO_RECORD="x"\n' > "$SBG/.richos/ceo-todos"
+write_case "an unresolved DECLARATION in .richos/: BLOCKS" 2 Write "$SBG/src/config.js" "$SBG" "$CODE"
+msg_case "...and names the declaration that nothing reads" \
+    ".richos/ceo-todos is a declaration, and nothing reads a declaration from there" \
+    Write "$SBG/src/config.js" "$SBG" "$CODE"
+rm -f "$SBG/.richos/ceo-todos"
+
+# ...and everything else in there is somebody else's. `.richos/` is a SHARED
+# RichOS directory: the ECS entity manifest has sat at `.richos/entity.json` in
+# femcboost since 2026-08-27. The first draft of this rule policed the whole
+# directory, and it would have BLOCKED EVERY WRITE in that repository — a guard
+# taking an adopter offline over files that were never its business.
+printf '{"schemaVersion":1,"entityId":"sample"}\n' > "$SBG/.richos/entity.json"
+printf '# what lives here\n' > "$SBG/.richos/README.md"
+write_case "entity.json and a README share .richos/ and nothing blocks" 0 Write "$SBG/src/config.js" "$SBG" "$CODE"
+write_case "...and the boundary is still enforced beside them" 2 Write "$SBG/docs/t.txt" "$SBG" "$TRANSCRIPT"
+rm -rf "$SBG"
+
+# The RESOLVER itself is sidecar-hashed. Hashing the guards and leaving the file
+# that decides WHERE their contract lives unverified checks the lock and ignores
+# the key — the same sentence install.sh carries beside every entry on that list.
+if grep -q "scripts/lib/declaration-path.sh" "$ENGINE_ROOT/scripts/hooks/install.sh" 2>/dev/null; then
+    ok "scripts/lib/declaration-path.sh is sidecar-hashed by install.sh"
+else
+    bad "scripts/lib/declaration-path.sh NOT hashed by install.sh"
+fi
 
 # ---------------------------------------------------------------------------
 # (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads.

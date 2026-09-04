@@ -320,6 +320,12 @@ ALL_ROOT_SCRIPTS=(
     # without it, so a sandbox missing it would model an engine that cannot run.
     scripts/lib/publication-boundary.sh
     scripts/lib/publication-boundary.py
+    # The declaration resolver, which publication-boundary.sh and
+    # row-currency.sh both source before they can answer whether a repository
+    # declares anything at all. A sandbox missing it would model an engine
+    # whose guards report BROKEN on every lookup — and, worse, would leave
+    # install.sh minting a sidecar for a file that is not there.
+    scripts/lib/declaration-path.sh
     # The CEO-TODOs predicate. guard-ceo-todos-commits.sh refuses to start
     # without ceo-todos.sh, so a sandbox missing it would model an engine that
     # cannot run — the same reason the publication pair is on this list.

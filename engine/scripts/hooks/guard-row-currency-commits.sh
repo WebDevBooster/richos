@@ -411,7 +411,7 @@ if [ ! -s "$RECORD" ]; then
         echo "  declared   : $RC_RECORD_REL  (in $CEO_TODOS_DECLARATION)"
         echo ""
         echo "  A guard whose subject has vanished protects nothing while looking"
-        echo "  switched on. Restore the record, or delete $ROW_CURRENCY_DECLARATION"
+        echo "  switched on. Restore the record, or delete ${RC_DECLARATION_FILE:-$ROW_CURRENCY_DECLARATION}"
         echo "  to stand this mechanism down deliberately and visibly."
         echo "(hook: scripts/hooks/guard-row-currency-commits.sh)"
     } >&2

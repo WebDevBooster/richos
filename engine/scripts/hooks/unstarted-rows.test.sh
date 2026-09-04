@@ -59,7 +59,8 @@ mkdir -p "$REPO/scripts/hooks" "$REPO/scripts/lib" "$REPO/wiki"
 cp "$SRC_DIR/notice-unstarted-rows.sh" "$REPO/scripts/hooks/"
 chmod +x "$REPO/scripts/hooks/notice-unstarted-rows.sh"
 for l in unstarted-rows.sh unstarted-rows.py row-currency.sh row-currency.py \
-         ceo-todos.sh ceo-todos.py resolve-roots.sh resolve-main-checkout.sh \
+         ceo-todos.sh ceo-todos.py declaration-path.sh \
+         resolve-roots.sh resolve-main-checkout.sh \
          seat-jurisdiction.sh stop-hook-notice.sh; do
     cp "$SRC_DIR/../lib/$l" "$REPO/scripts/lib/$l" 2>/dev/null || true
 done

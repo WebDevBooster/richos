@@ -579,6 +579,108 @@ assert_rc "a declaring repository with NOTHING tracked → exit 2, not '0 findin
     "$EMPTY" 2 "broken checkout"
 
 # ---------------------------------------------------------------------------
+echo "--- (h) the grouped declaration directory"
+# ---------------------------------------------------------------------------
+# The declaration may live at `.richos/publication-boundary`. Everything above
+# proves the root form; these prove the move does not quietly turn a governed
+# tree into a NOT-APPLICABLE one, which is the failure that reads as a pass.
+
+T="$(mktree grouped_found)"
+mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
+commit_all "$T"
+assert_clean "a boundary declared in .richos/ is FOUND and the tree is checked" "$T"
+
+# ...and the check is still capable of failing over it. A NOT-APPLICABLE tree
+# and a clean tree are different exit codes; a tree with a real defect must
+# still report it under the grouped declaration.
+T="$(mktree grouped_still_fails)"
+mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
+printf '\nThe entry point is `src/missing.js`.\n' >> "$T/README.md"
+commit_all "$T"
+assert_rc "a dangling citation is still reported under a grouped declaration" \
+    "$T" 1 "src/missing.js"
+
+# The exemption file is resolved the same way, and an exemption the checker
+# cannot find is one that silently stops exempting.
+T="$(mktree grouped_exempt)"
+mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
+mkdir -p "$T/reference"; printf 'See `reference/nope.md`.\n' > "$T/reference/README.md"
+commit_all "$T"
+assert_rc "without the exemption, the reference tree's dangling citation FAILS" \
+    "$T" 1 "reference/nope.md"
+printf 'CITATION_EXEMPT="reference/"\n' > "$T/.richos/publication-completeness"
+commit_all "$T"
+assert_clean "an exemption file at .richos/publication-completeness is honored" "$T"
+
+# Two copies of one declaration is BROKEN, never a choice between them.
+T="$(mktree grouped_both)"
+mkdir -p "$T/.richos"; cp "$T/.publication-boundary" "$T/.richos/publication-boundary"
+commit_all "$T"
+assert_rc "declared in BOTH places → exit 2, never a quiet choice" \
+    "$T" 2 "carries BOTH"
+
+# A DECLARATION in .richos/ that nothing resolves is BROKEN too...
+T="$(mktree grouped_stray)"
+mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
+printf 'TODO_RECORD="x"\n' > "$T/.richos/ceo-todos"
+commit_all "$T"
+assert_rc "an unresolved DECLARATION in .richos/ → exit 2, naming it" \
+    "$T" 2 "is a declaration, and nothing reads a declaration from there"
+
+# ...and ANYTHING ELSE in there is none of this resolver's business. `.richos/`
+# is a shared RichOS directory: the ECS entity manifest has lived at
+# `.richos/entity.json` in femcboost since 2026-08-27. A resolver that policed
+# the whole directory would have taken that repository offline.
+rm "$T/.richos/ceo-todos"
+printf '{"entityId":"sample"}\n' > "$T/.richos/entity.json"
+printf 'notes\n' > "$T/.richos/something-else.txt"
+commit_all "$T"
+assert_clean "an unrelated file in .richos/ is left alone (the ECS entity manifest case)" "$T"
+
+# EVERY DECLARATION IS CLASSIFIED BY THE RESOLVER, and the check that says so
+# is derived from shipped source rather than from a list somebody remembers to
+# grow. Two-sided: unclassified is BROKEN, classified is silent.
+mk_resolver() { # <tree> <adopted> <foreign>
+    mkdir -p "$1/scripts/lib"
+    {
+        printf ': "${DECLARATION_DIR:=.richos}"\n'
+        printf 'DECL_ADOPTED_STEMS="%s"\n' "$2"
+        printf 'DECL_FOREIGN_STEMS="%s"\n' "$3"
+    } > "$1/scripts/lib/declaration-path.sh"
+}
+T="$(mktree unclassified_decl)"
+mk_resolver "$T" "publication-boundary" "ceo-todos"
+commit_all "$T"
+assert_rc "a declaration in NEITHER resolver list → BROKEN, naming it" \
+    "$T" 2 "widget"
+mk_resolver "$T" "publication-boundary widget" "ceo-todos"
+commit_all "$T"
+assert_clean "the same tree with .widget classified is silent" "$T"
+
+# A MISSING RESOLVER MUST NOT ARRIVE AS "NOT APPLICABLE". This script's
+# stand-down verdict is the sentence a reader takes to mean *this tree does not
+# get published*, and an engine that could not load declaration-path.sh has no
+# business saying it. Run against a COPY of the engine with exactly that one
+# file removed, so the real one is never disturbed.
+FE="$SCRATCH/fake-engine"
+mkdir -p "$FE/scripts/lib"
+cp "$ENGINE_ROOT/scripts/publication-completeness.sh" "$FE/scripts/"
+cp "$ENGINE_ROOT/scripts/publication-completeness.py" "$FE/scripts/"
+cp "$ENGINE_ROOT/scripts/lib/publication-boundary.sh" "$FE/scripts/lib/"
+cp "$ENGINE_ROOT/scripts/lib/publication-boundary.py" "$FE/scripts/lib/"
+cp "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$FE/scripts/lib/" 2>/dev/null || true
+# ...and NO scripts/lib/declaration-path.sh.
+T="$(mktree no_resolver)"
+FE_OUT="$(bash "$FE/scripts/publication-completeness.sh" --root "$T" 2>&1)"; FE_RC=$?
+if [ "$FE_RC" -eq 2 ] \
+   && grep -q "declaration-path.sh is missing at:" <<<"$FE_OUT" \
+   && ! grep -q "NOT APPLICABLE" <<<"$FE_OUT"; then
+    ok "a missing declaration-path.sh → exit 2 naming the file, never NOT APPLICABLE"
+else
+    bad "a missing resolver must refuse loudly (rc=$FE_RC)"; printf '%s\n' "$FE_OUT" | sed 's/^/        /'
+fi
+
+# ---------------------------------------------------------------------------
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '✓ publication-completeness.test.sh: %s/%s cases passed.\n' "$PASS" "$((PASS + FAIL))"
