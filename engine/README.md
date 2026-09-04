@@ -79,10 +79,13 @@ a machine-checkable definition of done.
 
 ## License
 
-**No license has been chosen yet.** See [`LICENSE-TODO.md`](./LICENSE-TODO.md)
-for the current all-rights-reserved default and what still needs a decision
-from the owner. (The one exception: `tools/gpt-exporter/LICENSE` covers only
-that vendored subdirectory.)
+**GNU AGPL v3, unmodified.** The canonical text is the repository's root
+`LICENSE`; the standalone engine release asset carries a byte-identical copy at
+`engine/LICENSE`, placed there by packaging. See
+[`LICENSING.md`](./LICENSING.md) for what the AGPL grants, what its section 13
+requires of a modified version offered over a network, the brand material that
+is excluded from the grant, and the seven bundled third-party items that keep
+their own upstream terms.
 
 ## Prerequisites
 

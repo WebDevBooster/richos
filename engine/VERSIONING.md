@@ -136,17 +136,21 @@ shipped, the VERSION bump records it in the tree, and the tag freezes that exact
 tree as the named release. Never tag a tree whose `VERSION` and `CHANGELOG.md`
 don't already reflect the version being tagged.
 
-### The first tag is pending — deliberately
+### The first tag is pending — but no longer on the license
 
-**No git tag exists yet, and none should be created until the CEO's license
-decision lands.** The engine's contents are complete and recorded in
-`CHANGELOG.md` under `## [1.0.0] — 2026-08-20 — the fork`, but a *release* — a
-distributable, tagged artifact — is precisely what a license governs, and the
-license choice is an explicit CEO business/legal decision sequenced LAST (see
-[`LICENSE-TODO.md`](./LICENSE-TODO.md)). Tagging `v1.0.0` before there is a
-`LICENSE` file would ship a distributable release under the all-rights-reserved
-default with no stated terms — exactly the ambiguity `LICENSE-TODO.md` exists to
-prevent. So the ritual above is fully wired and ready, and step 4 (the first
-tag) fires only once the CEO has chosen a license and the package is declared
-complete. Until then the engine lives at `1.0.0` in `VERSION` and `CHANGELOG.md`
-as the finished-but-unreleased state.
+**The license question is closed.** The owner ruled on 2026-09-04: GNU AGPL v3,
+unmodified, at the repository root, with the scope written down in
+[`LICENSING.md`](./LICENSING.md). The reason this section used to give for
+holding the first tag — that tagging a distributable release before a license
+exists ships it under the all-rights-reserved default with no stated terms — no
+longer applies.
+
+**No git tag exists yet all the same.** The engine's contents are complete and
+recorded in `CHANGELOG.md` under `## [1.0.0] — 2026-08-20 — the fork`, and the
+ritual above is fully wired. What step 4 now waits on is the publication
+sequence rather than a legal decision: the repository is still private, so a tag
+pushed today would be a release nobody can fetch and a download URL that
+resolves for nobody. The first tag is cut once the repository is public and the
+release asset it names has been built and uploaded. Until then the engine lives
+at `1.0.0` in `VERSION` and `CHANGELOG.md` as the finished-but-unreleased
+state.
