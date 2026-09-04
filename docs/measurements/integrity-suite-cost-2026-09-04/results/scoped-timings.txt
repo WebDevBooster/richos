@@ -1,0 +1,17 @@
+MC           9 cases    53s  exit=3  failures=0
+MT           9 cases    53s  exit=3  failures=0
+base        11 cases    96s  exit=3  failures=0
+M            7 cases    46s  exit=3  failures=0
+shim         6 cases    63s  exit=3  failures=0
+manifest    10 cases    98s  exit=3  failures=0
+worktree     4 cases    31s  exit=3  failures=0
+N            4 cases    21s  exit=3  failures=0
+python3      4 cases     2s  exit=3  failures=0
+config      14 cases    37s  exit=3  failures=0
+K            8 cases    43s  exit=3  failures=0
+P           12 cases    86s  exit=3  failures=0
+S            6 cases    43s  exit=3  failures=0
+IP          10 cases   177s  exit=3  failures=0
+CL           2 cases   108s  exit=3  failures=0
+WTR          1 cases    48s  exit=3  failures=0
+MF           1 cases   181s  exit=3  failures=0

@@ -1,0 +1,28 @@
+   0.15  richos-engine v1.0.0 — contract integrity probe
+   0.15    ✓ A. .claude/settings.local.json present (canonical hook source)
+   0.24    ✓ B. write-guard -> /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/contract-integrity.XXXXXX.ogWX8itdvj/scripts/hooks/guard-main-checkout-writes.sh (path-confined, manifest-matched)
+   0.52    ✓ C. PreToolUse[Agent] chain -> guard-worktree-isolation.sh, guard-definition-drift.sh, reader-teammate-hint.sh, verify-agent-prompt.sh, guard-ceo-ask-first.sh, guard-model-ceiling.sh (path-confined, manifest-matched, in order)
+   0.73    ✓ D. wired write-guard rejects main-checkout source writes (exit=2 canary)
+   0.73    ✓ E. wired Agent hook chain scripts present + executable (6 entries)
+   0.79    ✓ F. TeammateIdle hook wired + present (idle-event logging active)
+   0.85    ✓ G. TaskCompleted hook wired + present (completion logging active)
+   0.91    ✓ H. PostToolUse[Agent] detect-nonnative-worktree.sh wired + present (worktree-guard detector active)
+   0.93    ✓ I. env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" present in .claude/settings.local.json
+   0.95    ✓ J. worktree.baseRef="head" present in .claude/settings.local.json
+   1.49    ✓ K. secrets scanner wired + REJECTS a planted secret and PASSES clean content (path-confined, manifest-matched, two-sided canary)
+   2.03    ✓ T. dialect guard wired + REJECTS a British spelling and PASSES clean American prose + vocabulary hashed (path-confined, manifest-matched, two-sided canary)
+   2.90    ✓ IL. idle-land gate wired on Stop + REFUSES a completed-and-started-nothing turn and PASSES a declared stop + analyzer hashed (path-confined, manifest-matched, two-sided canary)
+   3.25    ✓ L. PreToolUse[SendMessage] guard-resume-isolation.sh wired + blocks an unresolvable resume (path-confined, manifest-matched, exit=2 canary)
+   3.47    ✓ M. registration uniqueness — each canonical hook wired exactly once; single-fire canary logged 1 line for 1 registration(s)
+   3.48    ⚠ N. git-tracked check skipped — /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/contract-integrity.XXXXXX.ogWX8itdvj is not a git work tree (or git unavailable). In a real adopter repo .claude/settings.local.json MUST be committed; verify with: git ls-files .claude/settings.local.json
+   3.76    ✓ O. Bash-write guard wired + denies a main-checkout source write (path-confined, manifest-matched, exit=2 canary)
+   4.12    ✓ IP. interactive-prompt guard wired + REFUSES `security import` with no -P and PASSES the same command with -P '' + shape table hashed (path-confined, manifest-matched, two-sided canary)
+   5.02    ✓ P. definition-drift pair wired exactly once (SessionStart snapshotter + PreToolUse[Agent] guard) + blocks drift (exit=2) + allows unchanged (exit=0) — path-confined, manifest-matched
+   7.25    ✓ Q. worktree lifecycle at session start: the wrapper REMOVES NOTHING on its own (a merged/clean/unlocked tree survives) + RECOVERS a quarantined terminal transaction (captured, verified, removed) + inventory is DRY-RUN — path-confined, manifest-matched
+   7.62    ✓ Q6. the write barrier FAILS CLOSED: an unsealed worker, a missing transaction library, a missing python3 and an unparseable payload each REFUSE a worker's Write (exit 2), while the lead's own call and a worker's read-only tool pass — 10/10 arms
+   9.54    ✓ Q4. the inventory (DRY-RUN) sees a SIBLING repository found only by discovery, marks a live owner's path-registered hand-rolled worktree owner-alive, would select a terminated owner's merged+clean one, refuses an unmerged one, and reports its own denominator
+   9.95    ✓ S. worktree-removal guard wired exactly once + BLOCKS a raw 'git worktree remove' + ALLOWS 'git worktree list'; sanctioned helper (remove-agent-worktree.sh) present, executable and manifest-matched
+  10.11    ✓ R. root-resolution contract present + hashed + sourced by all 40 rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces
+  10.34    ✓ AL. agent-liveness resolver present, hashed and behaving: a live lock -> ALIVE, an absent worktree -> NOT-ALIVE, an unqueryable repo -> INDETERMINATE (never collapsed)
+  10.69    ✓ MT. capability order declared as data (MODEL_TIERS="fable > opus > sonnet > haiku"; alias set = ALLOWED_MODELS), parser hash-matched, doctrine quotation matches, spawn guard REFUSES a lower tier naming the remedy and is SILENT on a same tier (two-sided canary)
+  10.98    ✓ MC. cost ceiling declared as data (MODEL_CEILING="opus"), guard present and executable, shared model resolver hash-matched, and the guard REFUSES one tier above naming the remedy, is SILENT at the ceiling, and ANNOUNCES when no ceiling is declared (three-sided canary)

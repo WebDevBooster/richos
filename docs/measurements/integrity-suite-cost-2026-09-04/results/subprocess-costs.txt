@@ -1,0 +1,11 @@
+python3 is: /opt/homebrew/bin/python3
+
+python3 -c pass                         50 calls    0.78s  =   15.5 ms each
+python3 -c 'import json'                50 calls    0.82s  =   16.3 ms each
+python3 -c 'import json,sys,os,re'      50 calls    0.80s  =   16.0 ms each
+git --version                           50 calls    0.19s  =    3.8 ms each
+shasum -a 256 /etc/hosts                50 calls    0.42s  =    8.4 ms each
+grep on /etc/hosts                      50 calls    0.07s  =    1.4 ms each
+sed on /etc/hosts                       50 calls    0.07s  =    1.4 ms each
+awk on /etc/hosts                       50 calls    0.07s  =    1.4 ms each
+/bin/bash -c :                          50 calls    0.08s  =    1.6 ms each
