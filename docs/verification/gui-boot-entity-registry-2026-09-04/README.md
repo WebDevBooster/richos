@@ -16,6 +16,7 @@ operator's real `$HOME` on this Mac; only the scratch temp path is shortened to 
 | `raw/2-removing-the-registry-is-healed-by-the-migration.txt` | Why B8 corrupts the registry instead of deleting it. |
 | `raw/3-green-at-33d8345.txt` | All 20 passed, with the classifications in force. |
 | `raw/4-red-with-a-planted-line.txt` | A planted `eprintln!` in `main.rs`'s boot path: 1 FAILED, 19 passed, B2 naming the line verbatim. |
+| `raw/5-run-tests-all-seven-suites-green.txt` | `app/scripts/run-tests.sh`: all 7 suites, 136 checks, exit 0. |
 | `healthy-boot.txt` | The healthy boot log the suite's `healthy_log()` fixture is a transcript of. |
 
 ## How the true set of new lines was derived
