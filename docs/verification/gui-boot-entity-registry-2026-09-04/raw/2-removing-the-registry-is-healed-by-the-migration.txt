@@ -1,0 +1,43 @@
+### 1. the healthy machine boots once, which is what puts a thread in its ledger
+gui_boot rc=0
+[richos] launch: fresh (start 1, 1 window(s))
+[richos] company registry: 1 company from <TMP>/machine/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 1 compan(ies), <TMP>/machine/Library/Application Support/com.richos.app/entities.json (file)
+[richos] company: northwind (via the saved choice)
+[richos] loro Tier C: compiling from <TMP>/machine/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+[richos] loro correction desk: writing to <TMP>/machine/Library/Application Support/RichOS/corpus via <TMP>/machine/Library/Application Support/RichOS/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] engine directory: <TMP>/machine/.claude/richos-engine (via engine install pointer)
+[richos] compute lease attached over <TMP>/machine/.local/bin/claude
+[richos] first-run setup: nothing missing.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
+
+### 2. the same machine with entities.json DELETED
+gui_boot rc=0
+[richos] launch: crash-restart (start -, 1 window(s))
+[richos] no company registry at <TMP>/rm/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+[richos] company registry: this install already had threads under 1 compan(ies) (northwind). They have been written to <TMP>/rm/Library/Application Support/com.richos.app/entities.json so they keep resolving. No folder was guessed for any of them — open the company settings to add one.
+[richos] company registry: 1 compan(ies), <TMP>/rm/Library/Application Support/com.richos.app/entities.json (file)
+[richos] company: northwind (via the saved choice)
+[richos] loro Tier C: compiling from <TMP>/rm/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+[richos] loro correction desk: writing to <TMP>/rm/Library/Application Support/RichOS/corpus via <TMP>/rm/Library/Application Support/RichOS/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] engine directory: <TMP>/rm/.claude/richos-engine (via engine install pointer)
+[richos] compute lease attached over <TMP>/rm/.local/bin/claude
+[richos] first-run setup: nothing missing.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
+
+### 3. the registry the migration wrote back
+{
+  "version": 1,
+  "entities": [
+    {
+      "id": "northwind",
+      "display_name": "Northwind",
+      "status": "active",
+      "roots": []
+    }
+  ]
+}
+
+survivors after reaping: 0

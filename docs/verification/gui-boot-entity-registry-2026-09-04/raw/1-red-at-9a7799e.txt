@@ -1,0 +1,84 @@
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+  PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+         compiler source : /Users/alex/ab/richos-hq/loro
+         corpus          : <TMP>/machine/RichOS/corpus
+         pointer         : Some("<TMP>/machine/Library/Application Support/RichOS/corpus")
+         loro tools      : <TMP>/machine/Library/Application Support/RichOS/loro-tools (37 files)
+         partitions      : 1
+         saved company   : northwind in <TMP>/machine/Library/Application Support/com.richos.app/config.json
+         binary          : <TMP>/machine/Applications/RichOS.app/Contents/MacOS/richos-tauri
+  PASS  B1 the healthy machine boots to completion under launchd's environment
+  --- the boot log, as captured ---
+      [richos] launch: fresh (start 1, 1 window(s))
+      [richos] no company registry at <TMP>/machine/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+      [richos] company registry: 0 compan(ies), <TMP>/machine/Library/Application Support/com.richos.app/entities.json (absent)
+      [richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess
+      [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+      [richos] no company is registered on this install yet — RichOS will ask in the window and write the answer to <TMP>/machine/Library/Application Support/com.richos.app/entities.json.
+      [richos] operator: the file's format and an example are in docs/entity-registry.md. RICHOS_ENTITY overrides once a company exists.
+      [richos] loro Tier C: compiling from <TMP>/machine/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+      [richos] loro correction desk: writing to <TMP>/machine/Library/Application Support/RichOS/corpus via <TMP>/machine/Library/Application Support/RichOS/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+      [richos] loro lane: no lane narrowing in force — every company reads the CEO layer, which is the whole of an unpartitioned corpus.
+      [richos] engine directory: <TMP>/machine/.claude/richos-engine (via engine install pointer)
+      [richos] compute lease attached over <TMP>/machine/.local/bin/claude
+      [richos] first-run setup: nothing missing.
+      [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+      [richos] boot complete — every line above is what this launch resolved
+  --- accounting ---
+    UNACCOUNTED  [richos] no company registry at <TMP>/machine/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+    UNACCOUNTED  [richos] company registry: 0 compan(ies), <TMP>/machine/Library/Application Support/com.richos.app/entities.json (absent)
+    UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess
+    UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+    UNACCOUNTED  [richos] no company is registered on this install yet — RichOS will ask in the window and write the answer to <TMP>/machine/Library/Application Support/com.richos.app/entities.json.
+    UNACCOUNTED  [richos] operator: the file's format and an example are in docs/entity-registry.md. RICHOS_ENTITY overrides once a company exists.
+    UNACCOUNTED  [richos] first-run setup: nothing missing.
+    NOT RESOLVED  company — nothing in this boot proved it was found.
+                  It should have said: the entity this launch files work under (main.rs::boot_entity)
+    DECLARED GAP  RICHOS_SERVICE_BIN
+                  CliVocabulary::from_env (staging.rs:187) is the same environment-only premise as 
+                  the three defects above, and it is left open ON PURPOSE: nothing installs a 
+                  vocabulary service, so there is no second candidate to fall back TO. Inventing a 
+                  path here would be a fabricated fix. Confirming a spoken correction reports that it 
+                  has nowhere to write, which is the honest behavior. CLOSE THIS by deciding where 
+                  the vocabulary service ships from, then delete this declaration and the check turns 
+                  red until the boot line goes away. 
+  FAIL  B2 every line of a healthy Finder-condition boot is accounted for
+         see the report above
+  PASS  B3 the engine pointer is removed -> caught
+           UNACCOUNTED  [richos] launch: crash-restart (start -, 1 window(s))
+           UNACCOUNTED  [richos] no company registry at <TMP>/broken-B3/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), <TMP>/broken-B3/Library/Application Support/com.richos.app/entities.json (absent)
+           UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess
+  PASS  B4 the corpus pointer is removed -> caught
+           UNACCOUNTED  [richos] launch: crash-restart (start -, 1 window(s))
+           UNACCOUNTED  [richos] no company registry at <TMP>/broken-B4/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), <TMP>/broken-B4/Library/Application Support/com.richos.app/entities.json (absent)
+           UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess
+  PASS  B5 the loro tools are removed -> caught
+           UNACCOUNTED  [richos] launch: crash-restart (start -, 1 window(s))
+           UNACCOUNTED  [richos] no company registry at <TMP>/broken-B5/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), <TMP>/broken-B5/Library/Application Support/com.richos.app/entities.json (absent)
+           UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess
+  PASS  B6 the claude stand-in is removed -> caught
+           UNACCOUNTED  [richos] launch: crash-restart (start -, 1 window(s))
+           UNACCOUNTED  [richos] no company registry at <TMP>/broken-B6/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), <TMP>/broken-B6/Library/Application Support/com.richos.app/entities.json (absent)
+           UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess
+  PASS  B7 the saved company is removed -> caught
+           UNACCOUNTED  [richos] launch: crash-restart (start -, 1 window(s))
+           UNACCOUNTED  [richos] no company registry at <TMP>/broken-B7/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), <TMP>/broken-B7/Library/Application Support/com.richos.app/entities.json (absent)
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+  PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+  PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+  PASS  Z this run launched 6 app(s) and 0 are still running
+
+=== gui-boot.test.sh: 1 FAILED, 17 passed ===
+EXIT=1

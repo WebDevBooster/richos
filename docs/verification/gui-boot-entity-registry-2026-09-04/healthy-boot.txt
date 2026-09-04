@@ -1,0 +1,11 @@
+[richos] launch: fresh (start 1, 1 window(s))
+[richos] company registry: 1 company from <TMP>/machine/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 1 compan(ies), <TMP>/machine/Library/Application Support/com.richos.app/entities.json (file)
+[richos] company: northwind (via the saved choice)
+[richos] loro Tier C: compiling from <TMP>/machine/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+[richos] loro correction desk: writing to <TMP>/machine/Library/Application Support/RichOS/corpus via <TMP>/machine/Library/Application Support/RichOS/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] engine directory: <TMP>/machine/.claude/richos-engine (via engine install pointer)
+[richos] compute lease attached over <TMP>/machine/.local/bin/claude
+[richos] first-run setup: nothing missing.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
