@@ -16,7 +16,7 @@ use richos_core::correction::{
     CliLoroWriter, CorrectionDesk, Proposal, ProposalObserver, ProposedWrite,
     SharedCorrectionDesk, WriteOutput, EVENT_LORO_PROPOSED,
 };
-use richos_core::entity::{EntityId, EntityRegistry};
+use richos_core::entity::{Entity, EntityId, EntityRegistry, RegistrySource, ENTITY_ID_MAX_LEN};
 use richos_core::feedback::{
     ContributingCondition, DiagnosisTerm, Disclosure, FailureClass, FeedbackEntry, FeedbackPayload,
     FeedbackStore, Occurrences, PromptOutcome, Rating, ReportDecision, DISCLOSURE_HEADING,
@@ -202,6 +202,28 @@ struct AppState {
     /// read on the `create_thread` and loro paths, and `config` is held by the settings
     /// surface. Lock order everywhere is config, then entity, then spine.
     entity: Mutex<Option<EntityId>>,
+    /// THE COMPANIES THIS INSTALL KNOWS, and the file they came from.
+    ///
+    /// A SECOND COPY of what the spine holds, deliberately. `registered_entity` and
+    /// `choose_entity` have to answer "is this a company I have?" while `send_message` holds
+    /// the spine's mutex for the whole of a turn, and a settings row that froze until Rich
+    /// finished talking is a settings row nobody touches. It used to reach for a compiled-in
+    /// constant for exactly that reason; now that the registry is data, the copy has to be
+    /// kept somewhere that is not behind the turn lock.
+    ///
+    /// Both copies are written together, in `register_entity`, and nothing else writes
+    /// either. Lock order everywhere in this file is config, then registry, then entity,
+    /// then spine.
+    registry: Mutex<EntityRegistry>,
+    /// Where that file is, resolved once at boot and carried — never re-derived, for the
+    /// reason `data_dir` is carried rather than re-asked.
+    registry_path: PathBuf,
+    /// Whether the file was absent, read, or PRESENT AND UNREADABLE. The third is why this
+    /// is carried at all: "you have not told me your companies yet" and "you told me and I
+    /// could not read it" call for opposite responses, and a surface that answered the
+    /// second with the first would invite somebody to re-enter a list already on disk one
+    /// typo away from working.
+    registry_source: RegistrySource,
     /// Whether `RICHOS_ENTITY` decided the answer. Fixed for the life of the process,
     /// because the variable is: nothing the CEO does in the window can change it, so the
     /// settings surface must render a statement rather than a control (§21's own rule —
@@ -636,6 +658,24 @@ fn resolve_boot_entity(
     }
 }
 
+/// The entity ids that ALREADY OWN THREADS in this install's ledger, in first-seen order.
+///
+/// The migration's only input, and the reason it asserts nothing about anybody's business:
+/// it reads what is durably on this machine. `ThreadSummary::entity_id` is `None` for a
+/// pre-entity legacy thread, which is quarantined by construction (`ThreadEntity::Unbound`)
+/// and contributes nothing here.
+fn entity_ids_already_in_the_ledger(spine: &Spine) -> Vec<EntityId> {
+    let mut seen: Vec<EntityId> = Vec::new();
+    for summary in spine.threads() {
+        let Some(raw) = summary.entity_id.as_deref() else { continue };
+        let Ok(id) = EntityId::parse(raw) else { continue };
+        if !seen.contains(&id) {
+            seen.push(id);
+        }
+    }
+    seen
+}
+
 /// The process-reading wrapper around [`resolve_boot_entity`]. Everything it knows it reads
 /// here and hands over as an argument; it holds no logic of its own.
 fn boot_entity(registry: &EntityRegistry, config: &ConfigStore) -> BootEntity {
@@ -819,7 +859,77 @@ fn main() {
             // in it; if none does, the app launches with NO active context, every send
             // is still refused — and `entity_choice`/`choose_entity` are how the CEO
             // reaches one from inside the window, which is the part that was missing.
-            let boot = boot_entity(&EntityRegistry::ceos_companies(), &config);
+            // =====================================================================
+            // WHICH COMPANIES THIS COPY OF RICH KNOWS — read from disk, not compiled in
+            // =====================================================================
+            //
+            // Until 2026-09-04 this was `EntityRegistry::ceos_companies()`: a `const` table
+            // of one man's six companies, bound to absolute roots under his own home
+            // directory, shipped inside every binary. On his machine it worked. On anybody
+            // else's it published a private list into the company picker AND locked the app,
+            // because no path a second person works in was a registered root.
+            //
+            // It is his own file now. Absent is the ordinary first-run state and yields an
+            // EMPTY registry, which resolves nothing, refuses every root, and makes the app
+            // ASK — the same shape `entity_choice`'s `chosen: None` already had.
+            let registry_path = richos_core::entity::entity_registry_path(&data_dir);
+            let mut registry_load = EntityRegistry::load(&registry_path);
+            for note in &registry_load.notes {
+                eprintln!("[richos] {note}");
+            }
+            // THE NO-ORPHAN MIGRATION, and it runs exactly once per install.
+            //
+            // An install that ran under the compiled-in table has a ledger full of threads
+            // bound to `femcboost`, `richos` and the rest. Those ids stop being registered
+            // the moment the table leaves the binary, and an unregistered id fails every
+            // scoped read and write — the threads would still be on disk and would be
+            // unreachable, which for the person reading the screen is the same thing.
+            //
+            // So the ids that ALREADY OWN RECORDS HERE are restored. That is a fact about
+            // this machine, read off this machine's own ledger, and it is the only thing
+            // asserted: no root is invented, because nothing here knows where those
+            // companies live and a guessed root is a wrong entity waiting to happen.
+            //
+            // It is gated on `Absent` rather than on emptiness: a file the owner has
+            // deliberately emptied is an answer, and re-seeding it would overwrite him.
+            if registry_load.source == RegistrySource::Absent {
+                let existing = entity_ids_already_in_the_ledger(&spine);
+                if !existing.is_empty() {
+                    let migrated = EntityRegistry::from_existing_ids(&existing);
+                    match migrated.save(&registry_path) {
+                        Ok(()) => {
+                            eprintln!(
+                                "[richos] company registry: this install already had threads under \
+                                 {} compan(ies) ({}). They have been written to {} so they keep \
+                                 resolving. No folder was guessed for any of them — open the \
+                                 company settings to add one.",
+                                migrated.len(),
+                                migrated.entities().iter().map(|e| e.id.to_string()).collect::<Vec<_>>().join(", "),
+                                registry_path.display()
+                            );
+                            registry_load = EntityRegistry::load(&registry_path);
+                        }
+                        // A FAILED MIGRATION IS NOT A FAILED BOOT. The app comes up with an
+                        // empty registry and asks, which is recoverable; refusing to start
+                        // would not be.
+                        Err(e) => eprintln!(
+                            "[richos] company registry: could not write {} ({e}). Existing threads \
+                             will not resolve until a company is registered in the window.",
+                            registry_path.display()
+                        ),
+                    }
+                }
+            }
+            let registry = registry_load.registry.clone();
+            eprintln!(
+                "[richos] company registry: {} compan(ies), {} ({})",
+                registry.len(),
+                registry_path.display(),
+                registry_load.source.as_str()
+            );
+            spine.set_entity_registry(registry.clone());
+
+            let boot = boot_entity(&registry, &config);
             match &boot.entity {
                 Some(entity) => {
                     eprintln!("[richos] company: {entity} (via {})", boot.source.map(|s| s.describe()).unwrap_or("resolution"));
@@ -838,17 +948,25 @@ fn main() {
                 // CEO's real six — at which point a hand-written list becomes an operator
                 // instruction that omits two of the valid answers and reads as if they are
                 // invalid. Reading it off the registry is one expression and cannot drift.
+                // THE OPERATOR'S HALF, and since 2026-09-04 it has two shapes, because
+                // the condition has two causes and they need different sentences. An install
+                // with companies registered and none resolved is a CHOICE waiting to be made;
+                // an install with NO companies registered has nothing to choose between, and
+                // telling that operator to set `RICHOS_ENTITY` to "one of " an empty list
+                // would be an instruction he cannot follow.
+                None if registry.is_empty() => eprintln!(
+                    "[richos] no company is registered on this install yet — RichOS will ask in \
+                     the window and write the answer to {}.\n\
+                     [richos] operator: the file's format and an example are in \
+                     docs/entity-registry.md. RICHOS_ENTITY overrides once a company exists.",
+                    registry_path.display()
+                ),
                 None => eprintln!(
                     "[richos] no company resolved — RichOS will ask in the window and \
                      remember the answer.\n\
                      [richos] operator: RICHOS_ENTITY (one of {}) still overrides, as does \
                      launching from that entity's repository root.",
-                    EntityRegistry::ceos_companies()
-                        .entities()
-                        .iter()
-                        .map(|e| e.id.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    registry.entities().iter().map(|e| e.id.to_string()).collect::<Vec<_>>().join(", ")
                 ),
             }
 
@@ -936,7 +1054,7 @@ fn main() {
             // ninety lines later — which is how a GUI launch came to resolve the CEO's
             // corpus for reading and nothing at all for writing. `WiredMemory` carries the
             // writer that the SAME `LoroInstall` produced, so the two cannot disagree.
-            let wired = memory::wire_company_memory(&mut spine, &loro_provenance);
+            let wired = memory::wire_company_memory(&mut spine, &loro_provenance, &registry);
             let memory_status = wired.status;
 
             // Attach the compute lease. A boot with no Claude auth, no `claude` binary, or a
@@ -1241,6 +1359,9 @@ fn main() {
                 config: Mutex::new(config),
                 machinery_root,
                 entity: Mutex::new(boot.entity),
+                registry: Mutex::new(registry),
+                registry_path,
+                registry_source: registry_load.source,
                 // PRESENCE, not success. A `RICHOS_ENTITY` that names nothing resolves to
                 // `None` and short-circuits BEFORE the saved choice — so a CEO who answered
                 // the picker under one would have his answer written to disk and never read
@@ -1374,6 +1495,7 @@ fn main() {
             // --- which company this copy of Rich works for (slice 4, 2026-09-01) ---
             entity_choice,
             choose_entity,
+            register_entity,
             memory_status,
             provision_memory,
             // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
@@ -2027,7 +2149,22 @@ struct EntityChoiceView {
     /// work (§21: a state he cannot change has to say who can).
     pinned_by_environment: bool,
     /// Every registered company, in registry order. Never filtered, never re-sorted.
+    ///
+    /// **EMPTY IS A REAL ANSWER since 2026-09-04**, and it is what a first launch gets. The
+    /// list used to be six compiled-in companies belonging to the app's author, so this
+    /// could never be empty and the surface never had to render the state where the honest
+    /// thing to say is "you have not told me about any company yet".
     options: Vec<EntityOption>,
+    /// Where the registry came from: `absent` | `file` | `unreadable`.
+    ///
+    /// The third is the one the surface must not collapse into the first. "You have not told
+    /// me your companies yet" is a question; "you told me and I could not read it" is a
+    /// repair, and answering the second with the first invites the owner to re-enter a list
+    /// that is already on disk one typo away from working.
+    registry_source: String,
+    /// The file the answer is written to. Shown so the owner (or whoever set RichOS up) can
+    /// find it, and so a `unreadable` state names the file to fix rather than describing it.
+    registry_path: String,
     /// The scope in force, so the caller does not need a second round trip after choosing.
     active: Option<ActiveContext>,
 }
@@ -2078,6 +2215,8 @@ fn entity_choice_view(state: &State<AppState>) -> EntityChoiceView {
         source: state.entity_source.lock().unwrap().map(|s| s.as_str().to_string()),
         pinned_by_environment: state.entity_pinned_by_env,
         options,
+        registry_source: state.registry_source.as_str().to_string(),
+        registry_path: state.registry_path.display().to_string(),
         active: active_binding_view(&spine),
     }
 }
@@ -2149,7 +2288,7 @@ fn provision_memory(
     // list invented here, so the partitions a fresh corpus gets are exactly the entity areas
     // the rail renders — the condition `entities_with_no_lane` warns about at boot is
     // therefore satisfied on the first launch instead of after a manual pass.
-    let registry = EntityRegistry::ceos_companies();
+    let registry = state.registry.lock().unwrap().clone();
     let companies: Vec<(String, String)> = registry
         .entities()
         .iter()
@@ -2194,7 +2333,8 @@ fn provision_memory(
     // BOTH HALVES, from one resolution, exactly as the boot does it. `wire_company_memory`
     // installs the reader into the spine and hands back the writer; the writer becomes the
     // desk through the same `install_correction_desk` the boot calls.
-    let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance);
+    let registry_now = state.registry.lock().unwrap().clone();
+    let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance, &registry_now);
     let mut status = wired.status;
 
     // THE WRITE HALF, INTO THE RUNNING APP. The outer lock is taken here and inside the
@@ -2341,8 +2481,11 @@ fn choose_entity(state: State<AppState>, entity_id: String) -> Result<EntityChoi
     if state.entity_pinned_by_env {
         return Err(ENTITY_PINNED_MESSAGE.to_string());
     }
+    // AGAINST THE REGISTRY IN FORCE, not against a constant. Lock order is config, then
+    // registry, then entity, then spine — this takes and releases the registry lock before
+    // reaching for any of the others.
     let id = EntityId::parse(entity_id.trim()).map_err(|_| unknown_company_message(entity_id.trim()))?;
-    if !EntityRegistry::ceos_companies().contains(&id) {
+    if !state.registry.lock().unwrap().contains(&id) {
         return Err(unknown_company_message(id.as_str()));
     }
 
@@ -2373,6 +2516,224 @@ fn apply_company_choice(spine: &mut Spine, id: &EntityId) -> Result<(), String> 
         return Ok(());
     }
     spine.ensure_active_thread_in(id).map(|_| ()).map_err(|e| e.to_string())
+}
+
+// ---- ADDING A COMPANY (2026-09-04) -----------------------------------------------------
+//
+// THE DEFECT THIS CLOSES: the picker's rows were the registry, the registry was a `const`
+// table of the app author's six companies, and there was no door anywhere in the product
+// for a second person to add a seventh. He could refuse every send or file his work under
+// FemcBoost. `choose_entity` above answers "which of my companies is this?"; nothing
+// answered "this one is mine and it is not on your list."
+//
+// WHAT IS DELIBERATELY NOT HERE, for the second time on this surface: a default. Nothing
+// below invents a name, a folder or an id the CEO did not supply. The id is DERIVED from
+// the name he typed, which is not an invention — it is the same string, in the character
+// class an id is allowed to use.
+
+/// What he is told when the name is blank.
+const COMPANY_NAME_REQUIRED_MESSAGE: &str =
+    "I need a name for the company before I can file anything under it. Anything you'd \
+     recognize on a button is fine — you can change it later.";
+
+/// What he is told when a folder is named and is not one.
+fn company_folder_message(folder: &Path, why: &str) -> String {
+    format!(
+        "I couldn't use \"{}\" as this company's folder: {why}. Give me a folder that's \
+         already on this Mac, or leave it blank — a company works without one, it just won't \
+         be picked automatically when you open RichOS from inside it.",
+        folder.display()
+    )
+}
+
+/// Derive a valid, unused entity id from the name the CEO typed.
+///
+/// **A derivation, not an invention.** `EntityId`'s character class is narrow on purpose
+/// (`entity.rs`: an id reaches the filesystem), and asking a non-technical CEO to supply one
+/// would be asking him to learn what a path component is. So the id is his own name in that
+/// character class: lowercased, every run of anything else collapsed to a single `-`, ends
+/// trimmed, bounded at [`ENTITY_ID_MAX_LEN`].
+///
+/// Collision is resolved by SUFFIX rather than by refusing, because two companies can
+/// legitimately produce one slug ("Harbor Analytics" and "Harbor, Analytics") and a person
+/// who has just typed a name should not have to guess why it was rejected. The suffix is
+/// bounded: after 99 tries it gives up rather than looping.
+fn entity_id_from_name(name: &str, registry: &EntityRegistry) -> Result<EntityId, String> {
+    let mut slug = String::new();
+    for c in name.trim().to_lowercase().chars() {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            slug.push(c);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let base: String = slug.trim_matches('-').chars().take(ENTITY_ID_MAX_LEN).collect();
+    let base = base.trim_end_matches('-').to_string();
+    if base.is_empty() {
+        return Err(
+            "That name doesn't have any letters or numbers in it, so I can't make a file-safe \
+             label out of it. Try a name with a word in it."
+                .to_string(),
+        );
+    }
+    for n in 1..=99u32 {
+        let candidate = if n == 1 {
+            base.clone()
+        } else {
+            // Keep the WHOLE thing inside the bound, suffix included.
+            let suffix = format!("-{n}");
+            let keep = ENTITY_ID_MAX_LEN.saturating_sub(suffix.len());
+            format!("{}{suffix}", base.chars().take(keep).collect::<String>().trim_end_matches('-'))
+        };
+        if let Ok(id) = EntityId::parse(&candidate) {
+            if !registry.contains(&id) {
+                return Ok(id);
+            }
+        }
+    }
+    Err(format!(
+        "I already have a lot of companies with names like \"{name}\" and I couldn't make a \
+         distinct label for another one. Try a name that's a bit more specific."
+    ))
+}
+
+/// Resolve the folder the CEO typed, or refuse in words he can act on.
+///
+/// `~` is expanded because he may well type it, and a leading `~` is the one shape that
+/// looks absolute to a person and is not absolute to `Path`. Everything else is checked
+/// rather than assumed: the path must be absolute (lexical resolution can never match a
+/// relative root, so storing one would be a dead entry that looks live) and it must EXIST
+/// and be a directory — a typo that names nothing would otherwise register a company that
+/// can never be selected by launching from it, and the failure would surface weeks later as
+/// "Rich keeps asking me which company this is".
+fn resolve_company_folder(raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    let expanded = match trimmed.strip_prefix("~/") {
+        Some(rest) => match std::env::var_os("HOME") {
+            Some(home) => PathBuf::from(home).join(rest),
+            None => PathBuf::from(trimmed),
+        },
+        None => PathBuf::from(trimmed),
+    };
+    if !expanded.is_absolute() {
+        return Err(company_folder_message(&expanded, "it isn't a full path from the top of the disk"));
+    }
+    match std::fs::metadata(&expanded) {
+        Ok(m) if m.is_dir() => Ok(expanded),
+        Ok(_) => Err(company_folder_message(&expanded, "that's a file, not a folder")),
+        Err(_) => Err(company_folder_message(&expanded, "there's nothing at that path on this Mac")),
+    }
+}
+
+/// THE CEO ADDS ONE OF HIS OWN COMPANIES.
+///
+/// Five properties this has and must keep:
+///
+///   1. **It writes the file before it changes anything in memory.** The registry is a
+///      privacy boundary; a boundary that moved in this process and not on disk would be
+///      back where it started at the next launch, having filed a thread under a company that
+///      no longer exists. The `save` runs against a CLONE, and the clone is committed only
+///      after the write succeeds.
+///   2. **It refuses rather than guesses**, at every step: a blank name, a name with nothing
+///      file-safe in it, a folder that is not absolute, a folder that is not there, a folder
+///      that overlaps a company he already has.
+///   3. **It never re-homes a thread.** A thread's entity is immutable after creation (ECS
+///      §3.2). Adding a company changes what NEW work can be filed under, and nothing else.
+///   4. **It activates only when nothing is open** — through the same `apply_company_choice`
+///      the picker uses, so the first company a first-run user adds puts him straight into a
+///      working thread, and a company added later does not yank him out of what he is
+///      reading.
+///   5. **It leaves an environment pin alone.** `RICHOS_ENTITY` is a statement made from
+///      outside the window; registering a company does not override it, and the sentence
+///      says who owns that.
+///
+/// `(async)` for the reason `choose_entity` is: it takes the spine's mutex, which
+/// `send_message` holds for the whole of a turn.
+#[tauri::command(async)]
+fn register_entity(
+    state: State<AppState>,
+    display_name: String,
+    folder: Option<String>,
+) -> Result<EntityChoiceView, String> {
+    let name = display_name.trim().to_string();
+    if name.is_empty() {
+        return Err(COMPANY_NAME_REQUIRED_MESSAGE.to_string());
+    }
+    // A folder is OPTIONAL. An entity with no root is legal — it simply cannot be selected
+    // by launching from a folder — and it is exactly what the no-orphan migration produces.
+    let roots = match folder.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        Some(raw) => vec![resolve_company_folder(raw)?],
+        None => Vec::new(),
+    };
+
+    // Lock order everywhere in this file: config, then registry, then entity, then spine.
+    let (id, next) = {
+        let current = state.registry.lock().unwrap();
+        let id = entity_id_from_name(&name, &current)?;
+        let mut next = current.clone();
+        next.register(Entity::try_new(id.as_str(), &name, roots.clone()).map_err(|e| {
+            // These are the same refusals `register` makes, in the voice of the surface.
+            match e {
+                richos_core::entity::EntityError::EmptyDisplayName(_) => {
+                    COMPANY_NAME_REQUIRED_MESSAGE.to_string()
+                }
+                other => format!("I couldn't add that company: {other}"),
+            }
+        })?)
+        .map_err(|e| match e {
+            richos_core::entity::EntityError::OverlappingRoot { other, other_root, .. } => format!(
+                "That folder is inside — or contains — the folder I already have for \"{other}\" \
+                 ({}). If I kept both I wouldn't be able to tell which company work in there \
+                 belongs to, and I won't guess. Pick a folder that isn't shared, or leave it \
+                 blank.",
+                other_root.display()
+            ),
+            other => format!("I couldn't add that company: {other}"),
+        })?;
+        (id, next)
+    };
+
+    // PROPERTY 1: durable first. Nothing in memory has moved yet.
+    next.save(&state.registry_path).map_err(|e| {
+        format!(
+            "I couldn't write that down, so I haven't taken it as your answer. \
+             (Writing {} failed: {e})",
+            state.registry_path.display()
+        )
+    })?;
+    *state.registry.lock().unwrap() = next.clone();
+
+    // The spine's copy is what `create_thread` checks membership against, so the two are
+    // written together and never one without the other.
+    {
+        let mut spine = state.spine.lock().unwrap();
+        spine.set_entity_registry(next);
+    }
+
+    // PROPERTY 4/5: the first company he adds becomes the one in force, unless the
+    // environment already decided or he has already answered. Both of those are statements
+    // that outrank a side effect of adding a row.
+    let already_chosen = state.entity.lock().unwrap().is_some();
+    if !already_chosen && !state.entity_pinned_by_env {
+        state
+            .config
+            .lock()
+            .unwrap()
+            .set_entity(&id)
+            .map_err(|e| format!("I added the company but couldn't remember that it's the one in force: {e}"))?;
+        *state.entity.lock().unwrap() = Some(id.clone());
+        *state.entity_source.lock().unwrap() = Some(EntitySource::SavedChoice);
+        apply_company_choice(&mut state.spine.lock().unwrap(), &id)?;
+    }
+
+    eprintln!(
+        "[richos] company registry: added {} (\"{}\"), {} root(s) -> {}",
+        id,
+        name,
+        roots.len(),
+        state.registry_path.display()
+    );
+    Ok(entity_choice_view(&state))
 }
 
 // ---- search (§3.4) --------------------------------------------------------------------
@@ -2613,8 +2974,20 @@ mod entity_choice_tests {
     use richos_core::config::ConfigStore;
     use std::path::Path;
 
+    /// THE REGISTRY THESE TESTS RUN AGAINST — a local fixture, since 2026-09-04.
+    ///
+    /// It was `EntityRegistry::ceos_companies()`, a `const` table compiled into the shipping
+    /// binary. The registry is the person's own file now, so these tests declare theirs, and
+    /// the ids stay as they were because the record below is about a measured 2026-09-01
+    /// launch that used them.
     fn reg() -> EntityRegistry {
-        EntityRegistry::ceos_companies()
+        EntityRegistry::new(vec![
+            Entity::new("femcboost", "FemcBoost", &["/fixture/ab/femcboost"]).unwrap(),
+            Entity::new("deeply", "Deeply", &["/fixture/ab/deeply"]).unwrap(),
+            Entity::new("prospects", "Prospects", &["/fixture/ab/prospects"]).unwrap(),
+            Entity::new("richos", "RichOS", &["/fixture/ab/richos", "/fixture/ab/richos-hq"]).unwrap(),
+        ])
+        .unwrap()
     }
 
     fn id(s: &str) -> EntityId {
@@ -2630,7 +3003,12 @@ mod entity_choice_tests {
         ));
         let _ = std::fs::remove_file(&path);
         let ledger = Ledger::open(&path).expect("open ledger");
-        (Spine::new(ledger), path)
+        let mut spine = Spine::new(ledger);
+        // A SPINE ARRIVES WITH NO COMPANIES since 2026-09-04. `Spine::new` used to carry a
+        // compiled-in registry; the shell installs the person's own file at boot, and these
+        // tests install [`reg`] — the same call, one line earlier.
+        spine.set_entity_registry(reg());
+        (spine, path)
     }
 
     // ---- the order -----------------------------------------------------------------------
@@ -2698,7 +3076,7 @@ mod entity_choice_tests {
             &reg(),
             Some("acme"),
             Some("richos"),
-            Some(Path::new("/Users/alex/ab/femcboost")),
+            Some(Path::new("/fixture/ab/femcboost")),
         );
         assert_eq!(out.entity, None);
         assert_eq!(out.source, None);
@@ -2714,7 +3092,7 @@ mod entity_choice_tests {
             &reg(),
             None,
             Some("acme"),
-            Some(Path::new("/Users/alex/ab/deeply/src")),
+            Some(Path::new("/fixture/ab/deeply/src")),
         );
         assert_eq!(out.entity, Some(id("deeply")));
         assert_eq!(out.source, Some(EntitySource::WorkingDirectory));
@@ -2726,14 +3104,15 @@ mod entity_choice_tests {
     }
 
     #[test]
-    fn the_dogfood_working_directory_behaves_exactly_as_it_did() {
-        // STEP 3 IS UNCHANGED, and this is the guard on that claim. Every dogfood launch has
-        // an empty `entity` key — it did not exist before this pass — so step 2 is absent and
-        // containment answers, as it always has.
+    fn a_launch_from_inside_a_registered_folder_still_resolves_by_containment() {
+        // STEP 3 IS UNCHANGED, and this is the guard on that claim. A launch from a terminal
+        // inside a registered company's folder resolves by containment, exactly as it always
+        // has — including from deep inside it, and including a company with two roots.
         for (dir, want) in [
-            ("/Users/alex/ab/femcboost", "femcboost"),
-            ("/Users/alex/ab/richos/app/crates/richos-core", "richos"),
-            ("/Users/alex/ab/prospects", "prospects"),
+            ("/fixture/ab/femcboost", "femcboost"),
+            ("/fixture/ab/richos/app/crates/richos-core", "richos"),
+            ("/fixture/ab/richos-hq/loro/records", "richos"),
+            ("/fixture/ab/prospects", "prospects"),
         ] {
             let out = resolve_boot_entity(&reg(), None, None, Some(Path::new(dir)));
             assert_eq!(out.entity, Some(id(want)), "{dir} should resolve to {want}");
@@ -2816,6 +3195,117 @@ mod entity_choice_tests {
         assert!(spine.active_thread().is_none(), "a refused choice must not open anything");
         std::fs::remove_file(&path).ok();
     }
+
+    // ---- ADDING A COMPANY (2026-09-04) ---------------------------------------------------
+    //
+    // The pure halves of `register_entity`. The command itself takes a `State<AppState>` that
+    // only a running Tauri app can supply; what is testable here is everything it decides
+    // BEFORE it touches the app, which is every decision it makes.
+
+    #[test]
+    fn an_id_is_derived_from_the_name_he_typed_and_never_asked_of_him() {
+        let empty = EntityRegistry::empty();
+        for (typed, want) in [
+            ("Northwind Traders", "northwind-traders"),
+            ("  Harbor Analytics  ", "harbor-analytics"),
+            ("Lumen Labs, Inc.", "lumen-labs-inc"),
+            ("ACME", "acme"),
+            ("3M", "3m"),
+        ] {
+            assert_eq!(entity_id_from_name(typed, &empty).unwrap().as_str(), want, "{typed:?}");
+        }
+        // Bounded, because an id reaches the filesystem (`entity.rs`).
+        let long = entity_id_from_name(&"a".repeat(200), &empty).unwrap();
+        assert!(long.as_str().len() <= ENTITY_ID_MAX_LEN);
+        // A name with nothing file-safe in it is REFUSED rather than turned into "-" or "".
+        assert!(entity_id_from_name("!!!", &empty).is_err());
+        assert!(entity_id_from_name("   ", &empty).is_err());
+    }
+
+    #[test]
+    fn a_colliding_name_gets_a_distinct_id_rather_than_a_refusal() {
+        // Two companies can legitimately produce one slug, and a person who has just typed a
+        // name should not have to guess why it was rejected.
+        let mut reg = EntityRegistry::empty();
+        reg.register(Entity::try_new("harbor-analytics", "Harbor Analytics", vec![]).unwrap()).unwrap();
+        let second = entity_id_from_name("Harbor, Analytics", &reg).unwrap();
+        assert_eq!(second.as_str(), "harbor-analytics-2");
+        assert!(!reg.contains(&second), "and it is genuinely free");
+
+        // The suffix keeps the WHOLE id inside the bound rather than pushing past it.
+        let mut long = EntityRegistry::empty();
+        let base = "b".repeat(ENTITY_ID_MAX_LEN);
+        long.register(Entity::try_new(&base, "Long", vec![]).unwrap()).unwrap();
+        let next = entity_id_from_name(&base, &long).unwrap();
+        assert!(next.as_str().len() <= ENTITY_ID_MAX_LEN, "{next}");
+        assert!(next.as_str().ends_with("-2"), "{next}");
+    }
+
+    #[test]
+    fn a_folder_that_is_not_there_is_refused_in_words_he_can_act_on() {
+        // A typo that names nothing would otherwise register a company that can never be
+        // selected by launching from it, and surface weeks later as "Rich keeps asking me
+        // which company this is".
+        let missing = std::env::temp_dir().join(format!("richos-no-such-{}", std::process::id()));
+        let err = resolve_company_folder(&missing.display().to_string()).unwrap_err();
+        assert!(err.contains("nothing at that path"), "{err}");
+        assert!(err.contains(&missing.display().to_string()), "it names the path: {err}");
+        assert!(err.contains("leave it blank"), "and it names the way through: {err}");
+
+        // Relative is refused too: lexical resolution can never match one.
+        assert!(resolve_company_folder("Projects/northwind").unwrap_err().contains("full path"));
+
+        // A file is not a folder, and says so as its own reason.
+        let file = std::env::temp_dir().join(format!("richos-not-a-dir-{}.txt", std::process::id()));
+        std::fs::write(&file, "x").unwrap();
+        assert!(resolve_company_folder(&file.display().to_string()).unwrap_err().contains("not a folder"));
+        let _ = std::fs::remove_file(&file);
+
+        // And a real directory is accepted, including through `~`, which is the one shape
+        // that looks absolute to a person and is not absolute to `Path`.
+        let dir = std::env::temp_dir();
+        assert_eq!(resolve_company_folder(&dir.display().to_string()).unwrap(), dir);
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            if home.is_dir() {
+                assert_eq!(resolve_company_folder("~/").unwrap(), home);
+            }
+        }
+    }
+
+    // ---- the no-orphan migration ----------------------------------------------------------
+
+    #[test]
+    fn the_migration_reads_the_ids_the_ledger_already_uses_and_invents_nothing() {
+        // THE PROPERTY THAT KEEPS AN EXISTING INSTALL WORKING. A ledger written under the
+        // compiled-in table is full of threads bound to ids that stopped being registered
+        // when that table left the binary, and an unregistered id fails every scoped read and
+        // write — the threads would be on disk and unreachable.
+        let (mut spine, path) = spine_for("migration");
+        spine.create_thread("Q4 board pack", &id("deeply")).unwrap();
+        spine.create_thread("Pricing", &id("femcboost")).unwrap();
+        spine.create_thread("More pricing", &id("femcboost")).unwrap();
+
+        let ids = entity_ids_already_in_the_ledger(&spine);
+        assert_eq!(ids.len(), 2, "de-duplicated: {ids:?}");
+        assert!(ids.contains(&id("deeply")) && ids.contains(&id("femcboost")));
+
+        let migrated = EntityRegistry::from_existing_ids(&ids);
+        for want in &ids {
+            assert!(migrated.contains(want), "{want} owns threads here and must stay registered");
+        }
+        // NOTHING IS INVENTED. No root, so no path resolves to a company nobody named.
+        assert!(migrated.entities().iter().all(|e| e.roots.is_empty()));
+        assert!(migrated.resolve_root(Path::new("/fixture/ab/femcboost")).is_err());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn an_empty_ledger_migrates_nothing_so_a_fresh_user_is_asked_rather_than_seeded() {
+        let (spine, path) = spine_for("migration-empty");
+        assert!(entity_ids_already_in_the_ledger(&spine).is_empty());
+        assert!(EntityRegistry::from_existing_ids(&[]).is_empty());
+        std::fs::remove_file(&path).ok();
+    }
 }
 
 #[cfg(test)]
@@ -2850,7 +3340,28 @@ mod navigation_tests {
         let _ = std::fs::remove_file(&path);
         std::fs::write(&path, REAL_PRE_ENTITY_LEDGER).unwrap();
         let ledger = Ledger::open(&path).expect("replay the real ledger");
-        (Spine::new(ledger), path)
+        let mut spine = Spine::new(ledger);
+        // A SPINE ARRIVES WITH NO COMPANIES since 2026-09-04 — the registry is the person's
+        // own file and is installed by the shell at boot. These tests install theirs, which
+        // is what the shell does, rather than inheriting somebody's compiled-in list.
+        spine.set_entity_registry(nav_test_registry());
+        (spine, path)
+    }
+
+    /// The companies `REAL_PRE_ENTITY_LEDGER` below actually references.
+    ///
+    /// It is a REAL ledger, captured off a real machine, and the ids inside it are facts
+    /// about that capture — the bound thread is bound to `richos` and nothing here can
+    /// rename it without making the fixture describe a ledger that does not exist. So the
+    /// registry declares those ids. The roots do not appear in the ledger and are
+    /// placeholders.
+    fn nav_test_registry() -> EntityRegistry {
+        EntityRegistry::new(vec![
+            Entity::new("femcboost", "FemcBoost", &["/fixture/ab/femcboost"]).unwrap(),
+            Entity::new("deeply", "Deeply", &["/fixture/ab/deeply"]).unwrap(),
+            Entity::new("richos", "RichOS", &["/fixture/ab/richos"]).unwrap(),
+        ])
+        .unwrap()
     }
 
     #[test]
@@ -2858,16 +3369,14 @@ mod navigation_tests {
         let (spine, path) = spine_from_real_ledger("group");
         let tree = build_navigation_tree(&spine, &nav::NavState::default());
 
-        // Every registered entity gets its own top-level group (§25 Navigation #1) — SIX
-        // since 2026-09-01, when the registry stopped being four directory names and
-        // became the CEO's own list. Read off the registry rather than retyped: a nav test
-        // that hard-codes the roster fails the day a company is added, which is a true
-        // failure worth exactly one line, not a second place to keep the list.
+        // Every registered entity gets its own top-level group (§25 Navigation #1), and
+        // the groups ARE the registry — read off it rather than retyped, so this asserts the
+        // projection rather than a second copy of the roster.
         let ids: Vec<String> = tree.groups.iter().map(|g| g.entity.id.clone()).collect();
         let expected: Vec<String> =
-            EntityRegistry::ceos_companies().entities().iter().map(|e| e.id.to_string()).collect();
+            nav_test_registry().entities().iter().map(|e| e.id.to_string()).collect();
         assert_eq!(ids, expected);
-        assert_eq!(ids.len(), 6, "the CEO named six companies on 2026-09-01");
+        assert_eq!(ids.len(), 3, "one group per registered company, in registry order");
 
         // The pre-entity thread is listed, but NOT inside any entity.
         assert_eq!(tree.unbound.len(), 1);
@@ -2980,11 +3489,10 @@ mod navigation_tests {
     /// `app/ui/timeline.js` (pinned by `app/ui/tests/scale.js`), the entity index is
     /// `run_search` above. Neither had a test at either number until 2026-08-30.
     ///
-    /// SEEDED, NOT ASSUMED. The shipping registry is `EntityRegistry::ceos_companies()` — SIX
-    /// entities, hard-coded, because it IS the current registry rather than a default. So
-    /// 10,000 is a scale the product cannot reach today, and this test SEEDS it through
-    /// `Spine::set_entity_registry`, which exists for exactly this. That is stated plainly
-    /// rather than left for a reader to infer from a passing test.
+    /// SEEDED, NOT ASSUMED. The registry is the person's own file and starts EMPTY
+    /// (2026-09-04), so 10,000 is a scale no install reaches on its own; this test SEEDS it
+    /// through `Spine::set_entity_registry`, which is the same call the shell makes at boot.
+    /// That is stated plainly rather than left for a reader to infer from a passing test.
     ///
     /// BOUNDED means the RESULT, and that is what is asserted: `hits.truncate(limit)` and
     /// `limit.clamp(1, 200)` cap what crosses the IPC boundary however many entities match.
@@ -2998,7 +3506,7 @@ mod navigation_tests {
         let (mut spine, path) = spine_from_real_ledger("scale");
         let mut entities = Vec::with_capacity(10_000);
         for i in 0..10_000u32 {
-            let root = format!("/Users/alex/ab/seeded/client-{i:05}");
+            let root = format!("/Users/example/Projects/seeded/client-{i:05}");
             // Every one of them matches the query below, which is the worst case: the
             // truncate is the ONLY thing standing between 10,000 matches and the renderer.
             entities.push(
@@ -4259,7 +4767,7 @@ fn set_home_entity_label(
     entity_id: String,
     label: Option<String>,
 ) -> Result<Vec<HomeEntityView>, String> {
-    let id = registered_entity(&entity_id)?;
+    let id = registered_entity(&state, &entity_id)?;
     state
         .config
         .lock()
@@ -4277,7 +4785,7 @@ fn set_home_entity_visible(
     entity_id: String,
     visible: bool,
 ) -> Result<Vec<HomeEntityView>, String> {
-    let id = registered_entity(&entity_id)?;
+    let id = registered_entity(&state, &entity_id)?;
     state
         .config
         .lock()
@@ -4288,12 +4796,16 @@ fn set_home_entity_visible(
 }
 
 /// Parse and check an id against the registry, or refuse with the sentence the CEO reads.
-/// Shared by both setters so the two cannot drift apart on what they accept. It reads the
-/// registry as a CONSTANT rather than through the spine: `ceos_companies` is compiled in and
-/// asking for the spine lock here would put a settings write behind a running turn.
-fn registered_entity(entity_id: &str) -> Result<EntityId, String> {
+/// Shared by both setters so the two cannot drift apart on what they accept.
+///
+/// It reads `AppState::registry` and NOT the spine's copy: `send_message` holds the spine
+/// mutex for the whole of a turn, and a settings write that queued behind a running turn
+/// would be a settings row nobody touches. That was the reason it read a compiled-in
+/// constant before the registry became data; the constant is gone and the reason is not, so
+/// the copy that is not behind the turn lock is the one it reads.
+fn registered_entity(state: &State<AppState>, entity_id: &str) -> Result<EntityId, String> {
     let id = EntityId::parse(entity_id.trim()).map_err(|_| unknown_company_message(entity_id.trim()))?;
-    if !EntityRegistry::ceos_companies().contains(&id) {
+    if !state.registry.lock().unwrap().contains(&id) {
         return Err(unknown_company_message(id.as_str()));
     }
     Ok(id)
