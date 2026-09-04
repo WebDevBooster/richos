@@ -20,3 +20,11 @@ Using RichOS is as easy as talking to a person.
 
 ---
 
+
+## License
+
+RichOS-authored software is licensed under [AGPL-3.0-only](../LICENSE). See the
+[licensing overview](../docs/legal/LICENSING.md) for scope and third-party notices.
+
+The RichOS name, logo, wordmark and identified brand artwork are **not** licensed
+under the AGPL. See the [brand-assets policy](../docs/legal/BRAND-ASSETS.md).
