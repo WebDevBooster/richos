@@ -541,20 +541,83 @@ fi
 
 echo ""
 echo "=== 8. THE LIVE RECORD ON THIS MACHINE ==="
-# The fixture above is deterministic; this is the real thing. When the live
-# record is not on this machine, THAT IS SAID, not passed over — a suite that
-# reported green for a check it never ran is the failure mode this whole
-# mechanism exists for.
-LIVE_DEC=""
-for cand in "$ENGINE_SRC/../../richos-hq/wiki/ceo-decisions.md" \
-            "$HOME/ab/richos-hq/wiki/ceo-decisions.md"; do
-    [ -f "$cand" ] && { LIVE_DEC="$(cd "$(dirname "$cand")" && pwd -P)/$(basename "$cand")"; break; }
-done
-if [ -z "$LIVE_DEC" ]; then
-    echo "  NOTE  the live richos-hq record is not on this machine, so cases 8a-8d did NOT run."
-    echo "        This is not a pass. Section 1-7 ran against the fixture only."
+# ===========================================================================
+# WHAT THIS SECTION IS FOR — AND THE PIN THAT WAS TAKEN OUT OF IT
+# ===========================================================================
+# Sections 1-7 run against a fixture that was SHAPED so the answers come out
+# right: sixty lines, arranged so that "logo" reads as vocabulary and "swoosh"
+# reads as a subject. That proves the MECHANISM, and it cannot prove the
+# mechanism survives a real register — 67 rulings, roughly 1,400 lines, real
+# term frequencies. That is what this section is for, and it is the only place
+# in the suite that touches anything real:
+#
+#   NO FALSE NEGATIVE AT SCALE   the three questions that were the actual
+#                                failure of 2026-09-01 are still refused when
+#                                the haystack is the whole register, and the
+#                                refusal is USABLE — it points at a line that
+#                                exists and quotes what is written there.
+#   NO FALSE POSITIVE AT SCALE   the one question nobody had ruled on still
+#                                passes, against 1,400 lines of vocabulary.
+#
+# UNTIL 2026-09-04 CASE 8a ALSO ASSERTED **WHICH** RULING DID THE REFUSING: it
+# grepped the refusal for the string "row 3.14". It went red — and not because
+# anything broke. The gate refused, with rc=2, citing §19, the payload ruling,
+# which is a better citation than the one the case demanded. What moved was the
+# record: open-items.md retired row 3.14 on 2026-09-02 in "eight finished rows
+# leave the page", which is ordinary maintenance of the kind
+# guard-row-currency-commits.sh exists to DEMAND. A suite that goes red because
+# the CEO's record was correctly maintained is a suite that gets ignored on the
+# day it is right.
+#
+# WHICH ruling answers a question is a fact about the record's contents at one
+# moment. It is not a property of the predicate. So the citation is no longer
+# pinned by name, and two mechanical properties that cannot drift with content
+# took its place — both of them things the old case never checked at all:
+#
+#   THE LOCATOR RESOLVES        every "in <file>, line <N>" the refusal prints
+#                               has to land on a line that really carries the
+#                               title printed above it. A refusal is worth
+#                               something only as a pointer, and nothing until
+#                               now checked that it pointed anywhere.
+#   THE QUOTE IS THE RECORD'S   every quoted line has to be findable in the
+#                               file it was attributed to — six consecutive
+#                               words after normalization, because the renderer
+#                               unwraps paragraphs, strips markdown and
+#                               truncates at 400 characters. A refusal that
+#                               invents his words is worse than no refusal.
+#
+# THIS IS WEAKER IN EXACTLY ONE PLACE AND THE PLACE IS NAMED: nothing here
+# asserts any longer that the cited ruling is ABOUT the question. That claim is
+# made against the fixture, where the record is fixed and the claim therefore
+# means something — cases 1a-1f make it, and the negative controls of section 3
+# prove each one load-bearing by taking the matching signal away. Case 8d is
+# what stops a gate that refuses everything from passing this section, and
+# scripts/hooks/ceo-ruled.mutation.sh turns every case here red by breaking the
+# gate, one property at a time.
+#
+# When the live record is not on this machine, THAT IS SAID, not passed over —
+# a suite that reported green for a check it never ran is the failure mode this
+# whole mechanism exists for.
+#
+# CEO_RULED_LIVE_DIR redirects the search at a copy of the register. It exists
+# for the drift demonstration in the mutation harness, which renumbers and
+# retitles the record and requires this section to stay green, so that "this no
+# longer depends on which row answers" is measured rather than asserted.
+LIVE_DIR=""
+if [ -n "${CEO_RULED_LIVE_DIR:-}" ]; then
+    [ -f "$CEO_RULED_LIVE_DIR/ceo-decisions.md" ] && \
+        LIVE_DIR="$(cd "$CEO_RULED_LIVE_DIR" && pwd -P)"
 else
-    LIVE_ITEMS="$(dirname "$LIVE_DEC")/open-items.md"
+    for cand in "$ENGINE_SRC/../../richos-hq/wiki" "$HOME/ab/richos-hq/wiki"; do
+        [ -f "$cand/ceo-decisions.md" ] && { LIVE_DIR="$(cd "$cand" && pwd -P)"; break; }
+    done
+fi
+if [ -z "$LIVE_DIR" ]; then
+    echo "  NOTE  the live richos-hq record is not on this machine, so cases 8a-8d did NOT run."
+    echo "        This is not a pass. Sections 1-7 ran against the fixture only."
+else
+    LIVE_DEC="$LIVE_DIR/ceo-decisions.md"
+    LIVE_ITEMS="$LIVE_DIR/open-items.md"
     LIVESEAT="$SANDBOX/liveseat"
     mkdir -p "$LIVESEAT"
     {
@@ -562,6 +625,88 @@ else
         [ -f "$LIVE_ITEMS" ] && printf ' %s' "$LIVE_ITEMS"
         printf '"\n'
     } > "$LIVESEAT/orchestration.config"
+
+    # Reads a refusal on stdin and answers the only two questions that survive
+    # a maintained record: does every locator it printed land on the title it
+    # printed, and is every sentence it quoted actually in the file it named.
+    # Prints nothing when the refusal is sound; prints the reason otherwise.
+    # It parses the REFUSAL TEXT, not the predicate's output, deliberately —
+    # what the operator is shown is the thing that has to be true.
+    cat > "$SANDBOX/live-citation.py" <<'CITEPY'
+import os
+import re
+import sys
+
+LIVE_DIR = os.environ["LIVE_DIR"]
+WINDOW = 6  # consecutive words that must be found; see the section comment
+
+LOC_RE = re.compile(r"^ {6}in (.+?), line (\d+)\s{3}\(matched: ")
+QUOTE_RE = re.compile(r"^ {6}> (.*)$")
+TITLE_RE = re.compile(r"^ {4}(\S.*?)  +(\S.*)$")
+
+
+def norm(s):
+    return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+
+
+text = sys.stdin.read().split("\n")
+blocks = []          # (cite, title, label, lineno, [quotes])
+for i, line in enumerate(text):
+    m = LOC_RE.match(line)
+    if not m:
+        continue
+    label, lineno = m.group(1), int(m.group(2))
+    t = TITLE_RE.match(text[i - 1]) if i else None
+    cite, title = (t.group(1), t.group(2)) if t else ("?", "")
+    quotes = []
+    for nxt in text[i + 1:]:
+        q = QUOTE_RE.match(nxt)
+        if not q:
+            break
+        quotes.append(q.group(1))
+    blocks.append((cite, title, label, lineno, quotes))
+
+if not blocks:
+    print("the refusal named no ruling at all — 'already decided' sends him hunting")
+    sys.exit(0)
+
+cache = {}
+for cite, title, label, lineno, quotes in blocks:
+    path = os.path.join(LIVE_DIR, label)
+    if not os.path.isfile(path):
+        print("%s cites %s, which is not one of the live record's files" % (cite, label))
+        sys.exit(0)
+    if path not in cache:
+        with open(path, encoding="utf-8") as fh:
+            cache[path] = fh.read().split("\n")
+    lines = cache[path]
+    if not 1 <= lineno <= len(lines):
+        print("%s points at %s line %d; the file has %d lines"
+              % (cite, label, lineno, len(lines)))
+        sys.exit(0)
+    if norm(title) not in norm(lines[lineno - 1]):
+        print("%s prints title %r but %s line %d reads %r — the locator does not "
+              "point at the ruling it names"
+              % (cite, title[:60], label, lineno, lines[lineno - 1][:60]))
+        sys.exit(0)
+    if not quotes:
+        print("%s is named but not quoted — a citation without his words is a "
+              "citation the reader has to go and check" % cite)
+        sys.exit(0)
+    hay = norm("\n".join(lines))
+    for q in quotes:
+        words = norm(q).split()
+        if not words:
+            print("%s quoted an empty line" % cite)
+            sys.exit(0)
+        w = min(WINDOW, len(words))
+        if not any(" ".join(words[i:i + w]) in hay
+                   for i in range(len(words) - w + 1)):
+            print("%s quotes %r, and no %d consecutive words of it appear in %s — "
+                  "the refusal is not quoting the record" % (cite, q[:70], w, label))
+            sys.exit(0)
+CITEPY
+
     live_gate() {
         local payload
         payload="$(SEAT="$LIVESEAT" ask_payload "$1")"
@@ -571,15 +716,26 @@ else
 $OUT"
         return 0
     }
-    for c in f1:8a:"row 3.14" f2:8b:"The logo" f3:8c:"The splash screens"; do
-        CASE="${c%%:*}"; REST="${c#*:}"; NUM="${REST%%:*}"; NEEDLE="${REST#*:}"
-        live_gate "$CASE"
-        if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF "$NEEDLE"; then
-            ok "$NUM  LIVE record: the $CASE question of 2026-09-01 is refused, citing $NEEDLE"
-        else
-            bad "$NUM  LIVE record: $CASE refused citing $NEEDLE" "rc=$RC out=$(printf '%s' "$OUT" | head -3 | tr '\n' ' ')"
+
+    live_refused() { # <case> <label>
+        live_gate "$1"
+        if [ "$RC" -ne 2 ]; then
+            bad "$2" "rc=$RC — the live register no longer refuses a question that was ruled on 2026-09-01: $(printf '%s' "$OUT" | head -3 | tr '\n' ' ')"
+            return
         fi
-    done
+        local why
+        why="$(printf '%s' "$OUT" | LIVE_DIR="$LIVE_DIR" python3 "$SANDBOX/live-citation.py" 2>&1)"
+        if [ -z "$why" ]; then
+            ok "$2"
+        else
+            bad "$2" "$why"
+        fi
+    }
+
+    live_refused f1 "8a  LIVE record: the install / Option D question of 2026-09-01 is refused, and every ruling it cites resolves and is quoted from the file"
+    live_refused f2 "8b  LIVE record: the logo one-tone-or-two question is refused, and every ruling it cites resolves and is quoted from the file"
+    live_refused f3 "8c  LIVE record: the splash-screens question is refused, and every ruling it cites resolves and is quoted from the file"
+
     live_gate pos
     if [ "$RC" -eq 0 ]; then
         ok "8d  LIVE record: the monospace question PASSES — measured against 1,400 lines of real register"
@@ -587,7 +743,6 @@ $OUT"
         bad "8d  LIVE record: the monospace question passes" "rc=$RC out=$(printf '%s' "$OUT" | head -3 | tr '\n' ' ')"
     fi
 fi
-
 echo ""
 echo "=== 9. WIRING — registered, hashed, and carried into the sandboxes ==="
 
