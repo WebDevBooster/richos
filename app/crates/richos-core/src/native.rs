@@ -752,7 +752,7 @@ impl NativeClient {
             }
         });
 
-        let client = NativeClient {
+        let mut client = NativeClient {
             child,
             stdin,
             session_id,
@@ -777,7 +777,7 @@ impl NativeClient {
     ///
     /// It costs NO API turn: measured 697.9 ms on 2.1.252, and `run10` of the spike
     /// established that control requests are free.
-    fn handshake(&self) -> Result<(), NativeError> {
+    fn handshake(&mut self) -> Result<(), NativeError> {
         let (tx, rx): (Sender<Value>, Receiver<Value>) = channel();
         self.pending.lock().unwrap().insert("req_init".to_string(), tx);
         let msg = json!({
@@ -785,7 +785,28 @@ impl NativeClient {
             "request": { "subtype": "initialize", "hooks": {} }
         });
         if let Err(e) = Self::write_line(&self.stdin, &msg) {
-            return Err(self.startup_error(format!("could not write the initialize handshake: {e}")));
+            // ONE CAUSE, ONE SENTENCE — and until 2026-09-04 this one had two.
+            //
+            // A child that rejects a flag writes its line and is gone in a millisecond or
+            // two, so whether this process gets the handshake into the pipe before the
+            // kernel tears it down is a SCHEDULER RACE and nothing else. Win it and the
+            // write succeeds, the reader hits stdout EOF, and the arm below says "the child
+            // exited before answering the handshake". Lose it and the write returns `EPIPE`
+            // and the operator was told, for the identical fault, "could not write the
+            // initialize handshake: claude io: Broken pipe (os error 32)".
+            //
+            // Two bug reports for one cause, decided by machine speed. This machine wins the
+            // race every time; a GitHub `macos-latest` runner lost it on the first public
+            // run of `app-spine-ci` (33872961756, 2026-09-04) and the only test that names
+            // the sentence went red — over the product's nondeterminism, not over the test.
+            //
+            // THE EXIT IS CONFIRMED, NEVER INFERRED. A broken pipe is a positive fact about
+            // the PIPE and only a guess about the process: a child that closes its input and
+            // stays up breaks it too, and "the child exited" would then be a false statement
+            // in a diagnosis. So the pipe sends us to `waitpid`, and `waitpid` decides.
+            let broken = matches!(&e, NativeError::Io(io) if io.kind() == std::io::ErrorKind::BrokenPipe);
+            let exited = broken && self.child_has_exited();
+            return Err(self.startup_error(Self::write_failure_reason(&e, broken, exited)));
         }
         match rx.recv_timeout(HANDSHAKE_TIMEOUT) {
             Ok(resp) => {
@@ -829,6 +850,44 @@ impl NativeClient {
             }
         };
         NativeError::Startup { reason, stderr }
+    }
+
+    /// The sentence a failed handshake WRITE gets, as a pure function of the three facts
+    /// that decide it.
+    ///
+    /// PURE ON PURPOSE. The caller's inputs come out of a race, and a test that had to WIN
+    /// that race to exercise an arm would be a test that passes on whichever machine it is
+    /// run on — which is the exact defect this function exists to remove. Split out, both
+    /// arms are provable on any machine, in microseconds, with no child at all.
+    fn write_failure_reason(e: &NativeError, broken_pipe: bool, child_exited: bool) -> String {
+        if broken_pipe && child_exited {
+            // The same words the `Disconnected` arm below uses, because it is the same fact:
+            // the child was gone before it answered.
+            "the child exited before answering the handshake".to_string()
+        } else if broken_pipe {
+            // A live child that shut its own input. Rarer, and a DIFFERENT fault with a
+            // different fix, so it does not get to borrow the sentence above.
+            "the child closed its input before answering the handshake".to_string()
+        } else {
+            format!("could not write the initialize handshake: {e}")
+        }
+    }
+
+    /// Has the child really gone — `waitpid`, not an inference.
+    ///
+    /// Bounded at ~200 ms because reaping is not instantaneous: the write can return `EPIPE`
+    /// the moment the kernel tears the pipe down, a beat before the process is reapable. It
+    /// runs once, on a boot that has already failed, so the cost is paid by nothing that
+    /// works.
+    fn child_has_exited(&mut self) -> bool {
+        for _ in 0..40 {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return true,
+                Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+                Err(_) => return false,
+            }
+        }
+        false
     }
 
     /// Route one inbound frame: control response -> waiter, control request -> answered
@@ -1436,6 +1495,13 @@ mod native_driver_tests {
         // The measured failure mode, reproduced without needing the real binary: on an
         // unknown option `claude` writes ONE line to stderr and exits 1 with zero bytes of
         // stdout (verified 2026-08-31 against 2.1.252). This script does exactly that.
+        //
+        // THE SENTENCE BELOW IS NOW STABLE, AND IT WAS NOT. Whether this process gets its
+        // handshake into the pipe before a child this short-lived is torn down is a race
+        // this machine wins and a GitHub runner lost — see `handshake()`. The product now
+        // collapses both arms onto one diagnosis, so this assertion is a claim about the
+        // product rather than about the scheduler. `write_failure_reason` is where both arms
+        // are proved without needing to win anything.
         let script = write_script(
             "flag-reject",
             "echo \"error: unknown option '--permission-prompt-tool'\" >&2\nexit 1\n",
@@ -1448,6 +1514,34 @@ mod native_driver_tests {
         assert!(msg.contains("exited before answering the handshake"), "{msg}");
         // The child's own words, verbatim — on this failure that one line IS the diagnosis.
         assert!(msg.contains("unknown option '--permission-prompt-tool'"), "{msg}");
+    }
+
+    #[test]
+    fn one_failed_handshake_write_gets_one_sentence_whichever_side_of_the_race_we_land_on() {
+        // THE ARM A RUNNER TOOK AND THIS MACHINE NEVER DOES. The test above can only
+        // exercise whichever side of the race it happens to land on, which is why it passed
+        // here for days and failed on the first public runner. These three assertions need
+        // no child, no timing and no luck.
+        let pipe = NativeError::Io(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+
+        // Broken pipe, child confirmed gone: the SAME words the read side uses, because it
+        // is the same fact.
+        assert_eq!(
+            NativeClient::write_failure_reason(&pipe, true, true),
+            "the child exited before answering the handshake"
+        );
+
+        // Broken pipe, child still up: a different fault, and it says so rather than
+        // claiming an exit nobody observed.
+        let live = NativeClient::write_failure_reason(&pipe, true, false);
+        assert!(live.contains("closed its input"), "{live}");
+        assert!(!live.contains("exited"), "an unobserved exit was asserted as fact: {live}");
+
+        // Anything else keeps the error verbatim — collapsing every write failure onto one
+        // sentence would be the opposite mistake.
+        let other = NativeError::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        let msg = NativeClient::write_failure_reason(&other, false, false);
+        assert!(msg.starts_with("could not write the initialize handshake:"), "{msg}");
     }
 
     #[test]

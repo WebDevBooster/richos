@@ -27,6 +27,28 @@ still supported — it is now an opt-out rather than the only way in:
 RICHOS_PLAYWRIGHT=/path/to/node_modules/playwright node run.js
 ```
 
+## Making this machine behave like a runner
+
+The first public `ui-suite-ci` runs, 2026-09-04, were red on nine checks between them, and
+every one was a check that had folded the harness's own latency or the runner's own speed
+into a claim about the product. Two knobs exist so the next one of those can be reproduced
+here instead of argued about:
+
+```
+RICHOS_SPLASH_LAG_MS=2000 node splash.js
+```
+
+`page.goto()` resolves on `load`, and the opening curtain goes up long before that. The gap
+is 51-72 ms on this machine and was ~2,000 ms on a GitHub `macos-latest` runner, which is
+what made six splash checks red at once. This delays the harness's first instruction after
+every launch by that many milliseconds, so a fast machine measures what a slow one measures.
+Zero, and no delay at all, unless it is set.
+
+The other knob is not a variable: `home.js`'s WebGL check PLANTS the failure it is about
+(`getShaderParameter` refusing COMPILE_STATUS), because this machine's WebGL works and a
+check that passes for want of the defect is not a check. Do the same for anything else the
+runner can do and this machine cannot.
+
 `node_modules/` and `.shots/` are gitignored; `package-lock.json` is COMMITTED, because
 `npm ci` is the only install command that refuses to resolve anything not already written
 down and it does not run without one. The tests are the artifact; those PNGs are evidence for
@@ -144,13 +166,15 @@ is the WebKitGTK port with a different graphics stack; on macOS it is a build of
 WebKit, the engine family WKWebView renders through. An ubuntu runner would cost a tenth of
 the minutes and would be answering a different question than rule 2 asks.
 
-**`realbytes.js` may not run there**, and the workflow says so out loud with
-`--allow-skip=realbytes.js`. It needs `cargo run --example timeline_payload` from
-`app/src-tauri` — the detached workspace with the whole webview dependency tree behind it,
-which `app-spine-ci.yml` also keeps off its test path on purpose, and which measures 1.3 GB
-and about a quarter of an hour from cold. Allowed is not required: if the runner has cargo
-and the build fits the timeout, the suite runs and the run says the allowance went unused. A
-skip by any OTHER suite fails the run.
+**`realbytes.js` runs there, and that is measured rather than hoped.** It needs `cargo run
+--example timeline_payload` from `app/src-tauri` — the detached workspace with the whole
+webview dependency tree behind it, which `app-spine-ci.yml` keeps off its test path on
+purpose, and which was estimated at 1.3 GB and about a quarter of an hour from cold. The
+estimate bought it an `--allow-skip=realbytes.js` on the workflow's command line, and the
+estimate was never checked. Run 33872963879 checked it: the image carries cargo, the suite
+ran, and the gate reported the allowance as unused. 2m16s of a 25m10s job against a
+45-minute budget. The allowance is gone, and NO suite may skip — which matters most for this
+one, because it is the only suite that renders the bytes the backend actually emits.
 
 **And these suites still drive WebKit through Playwright, not the Tauri shell.** §23 Phase 6
 — every acceptance state in the real shell — is not closed by any of this, and the workflow's

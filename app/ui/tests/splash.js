@@ -103,20 +103,161 @@ const HOLD_OPEN = () => {
   });
 };
 
-const FORCE = (wanted) => {
+/// Shape the library on its way into the page: keep one entry, and/or hand every entry a
+/// `seconds`. ONE script rather than two, because both work by `defineProperty` on the same
+/// property and the second installed would silently replace the first.
+const SHAPE = (o) => {
   let lib;
   Object.defineProperty(window, "RichSplashLibrary", {
     configurable: true,
     get: () => lib,
     set: (x) => {
-      lib = {
-        schemaVersion: x.schemaVersion,
-        round: x.round,
-        variations: x.variations.filter((v) => v.id === wanted),
-      };
+      const kept = JSON.parse(JSON.stringify(x.variations.filter((v) => !o.id || v.id === o.id)));
+      if (o.seconds != null) kept.forEach((v) => (v.tokens.seconds = String(o.seconds)));
+      lib = { schemaVersion: x.schemaVersion, round: x.round, variations: kept };
     },
   });
 };
+
+// ---------------------------------------------------------------------------------------
+// THE CURTAIN'S OWN CLOCK — and the reason every timing check in this file now reads it
+// ---------------------------------------------------------------------------------------
+//
+// THE DEFECT, IN ONE SENTENCE: this suite used to time the product from the moment
+// `page.goto()` RETURNED, which is a fact about the harness and not about the curtain.
+//
+// `goto` resolves on `load`, and `load` waits for every subresource; the curtain is inserted
+// far earlier, during script execution. On this machine the gap between the two is ~55 ms
+// (measured over six launches, 10-22 ms into the page for the insert, 51-72 ms for the first
+// instruction after it) and every check here was written inside that margin. On the first
+// public `ui-suite-ci` runner the gap was ~2,000 ms, and eight of this suite's twenty-five
+// checks went red at once:
+//
+//   * 12b measured a 3,000 ms hold as 1,024 ms — it had started its stopwatch two seconds
+//     into the hold;
+//   * 8 sampled "300 ms in, before the bar starts at 600 ms" and read a bar 331 px along;
+//   * 12c got its keystroke in after the hold had already been served, so the surface
+//     reported "held" where the check demanded "first-input";
+//   * 15, 18 and 23 dereferenced `#splash` after the ceiling had taken it away;
+//   * 22 got 8 samples of a bar it needed 40 of.
+//
+// One cause, six symptoms, and none of them a fault in the product.
+//
+// So the harness stops keeping its own clock. This script goes in before any page script and
+// records, ON THE PAGE'S OWN `performance.now()`: when the curtain went up, when it came
+// down, when the first key reached it, and — where a reading has to be taken at an instant
+// the harness cannot be trusted to be present for — the reading itself, sampled by a timer
+// inside the page. A check then asks for a fact instead of racing to observe one.
+//
+// WHAT IT DOES NOT DO is hold the curtain open. The ceiling is the product's failsafe and
+// check 10 exists to watch it fire; a harness that defeated it would be testing a surface
+// nobody ships. Checks that need longer than the default ceremony ASK for it, through the
+// `seconds` token the product already supports, and say so at the call site.
+const CURTAIN_CLOCK = (cfg) => {
+  cfg = cfg || {};
+  const c = { shownAt: null, goneAt: null, firstKeyAt: null, mid: null, trace: [] };
+  window.__curtain = c;
+
+  const bits = () => {
+    const n = document.getElementById("splash");
+    if (!n) return null;
+    const fill = n.querySelector('.splash-bar [data-role="progress"]');
+    // The run, not the track — see check 22. An entry with no rhythm uses the strap itself,
+    // so the two are the same element there.
+    const track = n.querySelector('.splash-bar [data-role="rhythm"]') || n.querySelector(".splash-bar");
+    return fill && track ? { n, fill, track } : null;
+  };
+
+  const readMid = () => {
+    const b = bits();
+    if (!b) return { gone: true };
+    const foot = b.n.querySelector(".splash-rise--4");
+    return {
+      at: Math.round(performance.now() - c.shownAt),
+      fill: Math.round(b.fill.getBoundingClientRect().width),
+      track: Math.round(b.track.getBoundingClientRect().width),
+      foot: Number(getComputedStyle(foot).opacity),
+      settled: b.n.classList.contains("splash--settled"),
+      reason: window.RichSplash.state.reason,
+    };
+  };
+
+  const onShown = () => {
+    c.shownAt = performance.now();
+    if (cfg.midAt != null) setTimeout(() => { c.mid = readMid(); }, cfg.midAt);
+    if (cfg.trace) {
+      const every = cfg.every || 40;
+      const step = () => {
+        const b = bits();
+        if (!b) return;
+        c.trace.push({
+          t: performance.now() - c.shownAt,
+          p: b.fill.getBoundingClientRect().width / b.track.getBoundingClientRect().width,
+        });
+        setTimeout(step, every);
+      };
+      step();
+    }
+  };
+
+  new MutationObserver(() => {
+    const there = !!document.getElementById("splash");
+    if (there && c.shownAt === null) onShown();
+    else if (!there && c.shownAt !== null && c.goneAt === null) c.goneAt = performance.now();
+  }).observe(document, { childList: true, subtree: true });
+
+  // Capture phase and installed first, so this sees the key whatever the surface does with
+  // it. It only records; it never consumes.
+  window.addEventListener("keydown", () => {
+    if (c.firstKeyAt === null) c.firstKeyAt = performance.now();
+  }, true);
+};
+
+/// A DELIBERATE SLOW RUNNER, on demand. `RICHOS_SPLASH_LAG_MS=2000 node splash.js`
+/// reproduces the ~2,000 ms harness lag a GitHub `macos-latest` runner produced on
+/// 2026-09-04 — which is the only way to run the fixed checks against the condition that
+/// broke them without waiting for a real run. Zero, and no delay at all, unless it is set.
+const LAG_MS = Number(process.env.RICHOS_SPLASH_LAG_MS || 0);
+const lag = async (page) => {
+  if (LAG_MS > 0) await page.waitForTimeout(LAG_MS);
+};
+
+/// Wait until the PAGE says `ms` have passed since the curtain went up. Returns immediately
+/// if that instant is already behind us — the point is never to add the harness's own
+/// latency to the product's clock, not to guarantee the harness was quick.
+async function atCurtain(page, ms) {
+  await page.waitForFunction(
+    (m) => window.__curtain && window.__curtain.shownAt !== null && performance.now() - window.__curtain.shownAt >= m,
+    ms,
+    { timeout: 20000 }
+  );
+}
+
+/// Is the curtain still up, and how far into its life are we? Used to fail a check that
+/// arrived too late OUT LOUD, rather than letting it read a null and blame the product.
+const curtainNow = (page) =>
+  page.evaluate(() => {
+    const c = window.__curtain || {};
+    return {
+      up: !!document.getElementById("splash"),
+      shownAt: c.shownAt,
+      goneAt: c.goneAt,
+      age: c.shownAt == null ? null : Math.round(performance.now() - c.shownAt),
+      life: c.shownAt == null || c.goneAt == null ? null : Math.round(c.goneAt - c.shownAt),
+    };
+  });
+
+/// The curtain must still be on screen for what comes next. A check that has fallen behind
+/// its own subject says THAT, instead of dereferencing a node that is not there.
+async function stillUp(page, what) {
+  const c = await curtainNow(page);
+  assert(
+    c.up,
+    what + ": the curtain was already gone " + (c.life == null ? "" : "(it lived " + c.life + "ms) ") +
+      "— this check fell behind the surface it is measuring, which is a harness fault, not a product one"
+  );
+  return c;
+}
 
 const MARK_READY = () => {
   let sp;
@@ -133,6 +274,54 @@ const MARK_READY = () => {
     },
   });
 };
+
+// ---------------------------------------------------------------------------------------
+// ERRORS THAT ARE NOT THIS SURFACE'S
+// ---------------------------------------------------------------------------------------
+//
+// Every check here that touches a real launch also asserts the page produced no errors. That
+// guard is worth keeping and it was catching the wrong surface.
+//
+// The app lands on the HOME SCREEN behind the curtain, and the home screen draws a WebGL
+// field. On `ui-suite-ci` run 33879245990 the GitHub `macos-latest` runner dropped that
+// context — a shared 4-vCPU VM rasterizing in software, with a page-worth of live WebGL
+// contexts open across this suite's many browser contexts — and WebKit logged its own notice:
+//
+//     console: WebGL: context lost.
+//
+// Three checks went red on it (16, 18 and 23), none of which is about the home screen, one of
+// which is the CONTRAST FLOOR and never got as far as measuring a single ratio. A check that
+// fails on another surface's GPU is not reporting on its own subject.
+//
+// SO IT IS ATTRIBUTED, NOT MUTED, AND THE DIFFERENCE IS THE WHOLE DESIGN:
+//
+//   * exactly ONE pattern, matching WebKit's own fixed string and nothing else. Not "webgl",
+//     not "context", not a substring anybody's message could wander into;
+//   * the second half of that runner's noise — `Unhandled Promise Rejection: Error: null` out
+//     of the field engine's shader compile — is NOT on this list, because it was a real
+//     defect and it is fixed rather than excused. The engine now catches its own throw and
+//     `home.js` degrades on it in a frame instead of eight seconds. `home.js`'s own suite
+//     plants that failure and holds the product to it;
+//   * anything set aside is COUNTED AND NAMED in the check's own detail line, so it appears
+//     in the log of a green run rather than disappearing from it;
+//   * and the claim itself did not go away. It moved to the suite that owns the surface.
+const NOT_THIS_SURFACE = [/^console: WebGL: context lost\.$/];
+
+/// The page's errors, split into the ones this suite is answerable for and the ones it is
+/// not. Never call `page.__errors` directly in a check — that is the reading that made three
+/// checks red about somebody else's GPU.
+function errorsHere(page) {
+  const all = page.__errors || [];
+  const elsewhere = all.filter((e) => NOT_THIS_SURFACE.some((re) => re.test(e)));
+  return { mine: all.filter((e) => !elsewhere.includes(e)), elsewhere };
+}
+
+/// Assert this surface produced no errors of its own, and SAY what was set aside.
+function noErrors(page, what) {
+  const e = errorsHere(page);
+  assert(e.mine.length === 0, (what ? what + " " : "") + "errors: " + e.mine.join("; "));
+  return e.elsewhere.length ? " · " + e.elsewhere.length + " error(s) from the home screen's WebGL behind the curtain, not this surface's: " + e.elsewhere.join("; ") : "";
+}
 
 async function newPage(ctx) {
   const page = await ctx.newPage();
@@ -152,10 +341,15 @@ async function launch(browser, opts) {
   const ctx = await browser.newContext({ viewport: opts.viewport || { width: 1280, height: 800 } });
   const page = await newPage(ctx);
   if (opts.off) await page.addInitScript(() => window.localStorage.setItem("richos.splash.enabled", "false"));
+  // FIRST, so the clock is running before anything else the page or this suite does.
+  await page.addInitScript(CURTAIN_CLOCK, opts.clock || {});
   if (opts.hold) await page.addInitScript(HOLD_OPEN);
-  if (opts.force) await page.addInitScript(FORCE, opts.force);
+  if (opts.force || opts.seconds != null) {
+    await page.addInitScript(SHAPE, { id: opts.force || null, seconds: opts.seconds == null ? null : opts.seconds });
+  }
   if (opts.init) await page.addInitScript(opts.init, opts.initArg);
   await page.goto(APP);
+  await lag(page);
   page.__ctx = ctx;
   return page;
 }
@@ -171,12 +365,30 @@ const splashState = (page) =>
   });
 
 /// A settled screenshot of the composition, copied into `shots-splash/` beside the suite.
+/// ON THE CURTAIN'S CLOCK, AND PROVED TO BE OF THE CURTAIN.
+///
+/// This waited 3,000 ms from `goto` returning and photographed whatever was on screen. On the
+/// first public runner that instant was ~5,000 ms into a surface with a 4,000 ms ceiling, so
+/// what it photographed was the HOME SCREEN — and check 5 passed, because `shot()` only asks
+/// a PNG to have more than eight distinct colors and a home screen has thousands. The
+/// evidence file in that run carries 8,283 distinct colors against 464 here, which is the two
+/// pictures being different pictures.
+///
+/// A green check over a photograph of the wrong screen is exactly what this directory's
+/// evidence gate exists to refuse, so the wait is now the page's and the surface is
+/// ASSERTED, before and after the shutter.
 async function settledShot(page, name) {
-  await page.waitForTimeout(3000);
+  // 2,000 ms rather than 3,000: the four `splash-rise` stages are landed by ~1.4 s (delay
+  // 0.48 s over a 0.9 s curve), so this is the settled composition either way, and it leaves
+  // twice the room before the ceiling for the shutter itself.
+  await atCurtain(page, 2000);
+  await stillUp(page, "the settled photograph");
   fs.mkdirSync(SHOTS, { recursive: true });
   const s = await shot(page, name, { fullPage: false });
+  const after = await curtainNow(page);
+  assert(after.up, name + ": the curtain left DURING the exposure — this photograph is of the screen behind it");
   fs.copyFileSync(s.file, path.join(SHOTS, name + ".png"));
-  return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors)";
+  return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors, taken " + after.age + "ms into the curtain)";
 }
 
 /// A photograph of the MAT ALONE, and what was laid on it. `mute` empties the entry's
@@ -185,6 +397,7 @@ async function settledShot(page, name) {
 async function matShot(browser, id, mute) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await newPage(ctx);
+  await page.addInitScript(CURTAIN_CLOCK, {});
   await page.addInitScript(HOLD_OPEN);
   await page.addInitScript((o) => {
     let lib;
@@ -198,6 +411,13 @@ async function matShot(browser, id, mute) {
           variations: x.variations.filter((v) => v.id === o.id).map((v) => {
             const c = JSON.parse(JSON.stringify(v));
             if (o.mute) c.tokens.materials = [];
+            // FIVE SECONDS, THROUGH THE PRODUCT'S OWN TOKEN, and it changes nothing in the
+            // photograph. The clip is the PLINTH, and the bar is the plinth's SIBLING inside
+            // the rising frame — so the one element the hold's length moves is not in the
+            // frame. What it buys is a 6,000 ms ceiling instead of 4,000 for a page that has
+            // to survive a measurement and a screenshot, on a runner where the harness's
+            // first instruction landed ~2,000 ms in.
+            c.tokens.seconds = "5";
             return c;
           }),
         };
@@ -205,7 +425,9 @@ async function matShot(browser, id, mute) {
     });
   }, { id, mute });
   await page.goto(APP);
-  await page.waitForTimeout(2200);
+  await lag(page);
+  await atCurtain(page, 2200);
+  await stillUp(page, "the mat photograph for " + id);
   const r = await page.evaluate(() => {
     const n = document.querySelector("#splash .splash-plinth");
     const q = n.getBoundingClientRect();
@@ -220,7 +442,9 @@ async function matShot(browser, id, mute) {
     };
   });
   const png = (await page.screenshot({ clip: r.clip })).toString("base64");
-  assert(page.__errors.length === 0, id + " errors: " + page.__errors.join("; "));
+  const after = await curtainNow(page);
+  assert(after.up, id + ": the curtain left during the mat exposure — this is a photograph of the screen behind it");
+  noErrors(page, id);
   await ctx.close();
   return { png, layers: r.layers, above: r.above };
 }
@@ -583,6 +807,7 @@ async function main() {
   // ---- the mechanic ---------------------------------------------------------------------
 
   await run.check("4  the screen he meets is his TABLE, not a draw — #1, #2, then #1 forever", async () => {
+    let aside = "";
     // CEO, 2026-09-01, verbatim: *"USE THE APPROVED SPLASH SCREEN #1 to always
     // deterministically show as SPLASH SCREEN #1 and splash screen #2 to always show as
     // splash screen for the SECOND APP START in RichOS v1. From the third app start onwards:
@@ -612,7 +837,7 @@ async function main() {
       }));
       assertEqual(r.ordinal, n, "the surface misreports which start it was told this is");
       seen.push(r.id);
-      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      aside += noErrors(page);
       await page.__ctx.close();
     }
     const first = LIBRARY.variations[0].id;
@@ -646,7 +871,8 @@ async function main() {
     return (
       "six real launches: " + seen.map((id, i) => (i + 1) + "→" + id.replace("round-11/", "")).join(", ") +
       " · the rule direct: " + [1, 2, 3, 4, 17, 100].map((n) => n + "→" + table[n].replace("round-11/", "")).join(" ") +
-      " · absent→" + table.absent.replace("round-11/", "") + " · a pool of one→" + table.lonely.replace("round-11/", "")
+      " · absent→" + table.absent.replace("round-11/", "") + " · a pool of one→" + table.lonely.replace("round-11/", "") +
+      aside
     );
   });
 
@@ -656,6 +882,7 @@ async function main() {
     // to be taken while it is up; the compositions themselves are the shipped ones.
     const [a, b] = [LIBRARY.variations[0], LIBRARY.variations[LIBRARY.variations.length - 1]];
     const names = [];
+    let aside = "";
     for (const v of [a, b]) {
       const page = await launch(browser, { hold: true, force: v.id });
       // The photograph is only evidence if what it shows is this entry's own values. The
@@ -666,11 +893,11 @@ async function main() {
       const slug = "splash-" + (names.length + 1).toString().padStart(2, "0") + "-" + v.id.replace(/[^a-z0-9]+/gi, "-");
       names.push(await settledShot(page, slug) + " — mat " + mat);
       shotNames.push(slug + ".png");
-      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      aside += noErrors(page);
       await page.__ctx.close();
     }
     assert(a.tokens.surface !== b.tokens.surface, "the two photographed compositions are the same");
-    return names.join(" · ");
+    return names.join(" · ") + aside;
   });
 
   // ---- what was left behind in the study ------------------------------------------------
@@ -791,11 +1018,20 @@ async function main() {
     // the tail wagging the product. It now runs against what they DO have: a four-stage
     // settle and a bar, both unfinished at 300ms by construction.
     const v = LIBRARY.variations[0];
-    const page = await launch(browser, { hold: true, force: v.id });
     // 300ms in: the bar has not begun (it starts at 600ms) and the fourth stage of the
     // settle — the rule and the line — is still rising (delay 0.48s over a 0.9s curve).
     // Without this half the check would pass on a surface that had simply never animated.
-    await page.waitForTimeout(300);
+    //
+    // AND THE PAGE TAKES THAT READING, NOT THIS FILE. A 300 ms mark cannot be hit from
+    // outside by a harness whose first instruction may arrive at 2,000 ms — on the first
+    // public runner this read a bar 331 px along and called it "the bar has not started
+    // yet". The instant is inside the page's own timeline, so the sample is scheduled
+    // there, off the curtain's own clock, and this file collects it afterwards. Five
+    // seconds of hold for the same reason `matShot` takes it: room for what follows.
+    const page = await launch(browser, { hold: true, force: v.id, seconds: 5, clock: { midAt: 300 } });
+    await page.waitForFunction(() => window.__curtain && window.__curtain.mid !== null, null, { timeout: 20000 });
+    const before = await page.evaluate(() => window.__curtain.mid);
+    assert(!before.gone, "the curtain was gone before its own 300ms sample — nothing was measured");
     const read = () => {
       const n = document.getElementById("splash");
       const fill = n.querySelector('.splash-bar [data-role="progress"]');
@@ -811,10 +1047,10 @@ async function main() {
         reason: window.RichSplash.state.reason,
       };
     };
-    const before = await page.evaluate(read);
-    assertEqual(before.fill, 0, "mid-ceremony the bar has not started yet");
+    assertEqual(before.fill, 0, "mid-ceremony the bar has not started yet (sampled " + before.at + "ms in)");
     assert(before.foot < 1, "mid-ceremony the last stage of the settle has not landed yet (" + before.foot + ")");
     // His first keystroke is one of the three things that make the surface yield.
+    await stillUp(page, "the keystroke half of check 8");
     await page.keyboard.press("a");
     const after = await page.evaluate(read);
     assert(after.settled, "the surface did not pin itself on the way out");
@@ -822,7 +1058,7 @@ async function main() {
     assertEqual(after.fill, after.track, "the bar was left standing at a fraction on the way out");
     assertEqual(after.reason, "first-input", "what made it yield");
     await page.__ctx.close();
-    return `${v.id}: at 300ms a 0px bar and a stage at opacity ${before.foot.toFixed(2)}; on his first keystroke the bar is ${after.fill}px of ${after.track}px and the settle is landed, then gone`;
+    return `${v.id}: at ${before.at}ms a 0px bar and a stage at opacity ${before.foot.toFixed(2)}; on his first keystroke the bar is ${after.fill}px of ${after.track}px and the settle is landed, then gone`;
   });
 
   await run.check("9  an unusable library is a normal launch, never a half-drawn frame", async () => {
@@ -848,7 +1084,7 @@ async function main() {
       assertEqual(r.shown, false, label + ": it thinks it drew");
       assert(r.declined, label + ": it declined without saying why");
       assert(r.rows > 0, label + ": the app did not boot");
-      assert(page.__errors.length === 0, label + " errors: " + page.__errors.join("; "));
+      noErrors(page, label);
       told.push(`${label} → "${r.declined}"`);
       await page.__ctx.close();
     }
@@ -876,6 +1112,7 @@ async function main() {
   // ---- the off switch ---------------------------------------------------------------------
 
   await run.check("11  the switch is where he would look, and off stays off", async () => {
+    let aside = "";
     // The second constraint on this work, and the reason it shipped in the same commit as
     // the surface: the failure mode is silent. He switches it off behind the same gear as
     // the only other preference this product has, and the next launch is plain.
@@ -915,9 +1152,9 @@ async function main() {
     const off = await shot(page, "splash-04-a-launch-with-it-off", { fullPage: false });
     fs.copyFileSync(off.file, path.join(SHOTS, "splash-04-a-launch-with-it-off.png"));
     shotNames.push("splash-04-a-launch-with-it-off.png");
-    assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+    aside += noErrors(page);
     await ctx.close();
-    return `on by default → unchecked behind the gear → relaunched plain ("${after.declined}"), control still unchecked`;
+    return `on by default → unchecked behind the gear → relaunched plain ("${after.declined}"), control still unchecked` + aside;
   });
 
   await run.check("12  the switch is durable in Rust, and both sides agree absent means ON", async () => {
@@ -967,18 +1204,24 @@ async function main() {
     // And there is no SECOND number: the constant is the only literal duration on the path.
     assert(!/var HOLD_MS = \d+/.test(source), "HOLD_MS is a literal again beside SPLASH_SECONDS");
 
-    /// One real launch, timed from navigation to the frame the curtain is gone on.
+    /// One real launch, timed ON THE PAGE from the curtain going up to the curtain coming
+    /// down.
+    ///
+    /// IT USED TO START ITS STOPWATCH WHEN `page.goto()` RETURNED, which is when the LOAD
+    /// event fired and not when the curtain went up. The gap is ~55 ms here and was ~2,000 ms
+    /// on the first public runner, where this reported a 3,000 ms hold as 1,024 ms and went
+    /// red over the product obeying the CEO exactly. A hold is an interval between two things
+    /// the PAGE does, so both ends are read off the page's clock.
     const timeIt = async (opts) => {
       const page = await launch(browser, opts);
-      const t0 = Date.now();
-      await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 20000 });
-      const gone = Date.now() - t0;
-      const st = await page.evaluate(() => ({
+      await page.waitForFunction(() => window.__curtain && window.__curtain.goneAt !== null, null, { timeout: 20000 });
+      const r = await page.evaluate(() => ({
+        gone: Math.round(window.__curtain.goneAt - window.__curtain.shownAt),
         reason: window.RichSplash.state.reason,
         seconds: window.RichSplash.state.seconds,
       }));
       await page.__ctx.close();
-      return { gone, ...st };
+      return r;
     };
 
     // THE DEFAULT, OBEYED — which the constant alone does not prove.
@@ -997,21 +1240,7 @@ async function main() {
     // are handed a `seconds` of "5" on their way into the page, nothing else is touched, and
     // the curtain has to stay up two seconds longer. This also proves the CEILING moved with
     // it — it used to be a flat 4000ms and would have cut this launch off at four seconds.
-    const five = await timeIt({
-      init: () => {
-        let lib;
-        Object.defineProperty(window, "RichSplashLibrary", {
-          configurable: true,
-          get: () => lib,
-          set: (x) => {
-            lib = JSON.parse(JSON.stringify(x));
-            lib.variations.forEach((v) => {
-              v.tokens.seconds = "5";
-            });
-          },
-        });
-      },
-    });
+    const five = await timeIt({ seconds: 5 });
     assertEqual(five.reason, "held", "the five-second screen left on something other than its hold");
     assertEqual(five.seconds, 5, "the screen did not take the duration it asked for");
     assert(
@@ -1021,21 +1250,7 @@ async function main() {
 
     // AND THE CEILING IS A CEILING. A screen asking for more than the maximum is clamped to
     // it, not granted it — "up to 5" is a limit, and an entry is data, not an authority.
-    const greedy = await timeIt({
-      init: () => {
-        let lib;
-        Object.defineProperty(window, "RichSplashLibrary", {
-          configurable: true,
-          get: () => lib,
-          set: (x) => {
-            lib = JSON.parse(JSON.stringify(x));
-            lib.variations.forEach((v) => {
-              v.tokens.seconds = "12";
-            });
-          },
-        });
-      },
-    });
+    const greedy = await timeIt({ seconds: 12 });
     assertEqual(greedy.seconds, 5, "a screen asking for 12 seconds was not clamped to the ceiling");
     assert(greedy.gone < 5900, "a screen asking for 12 seconds was on screen for " + greedy.gone + "ms");
 
@@ -1051,32 +1266,53 @@ async function main() {
     // THE TWO THINGS A DURATION COULD BREAK, and they are the two this surface must not
     // break. §5.5 forbids anything on it that is delaying, so his first keystroke has to win
     // against the hold; and a ceiling that could itself be deferred is not a failsafe.
-    const typed = await launch(browser);
-    await typed.waitForSelector(".nav-thread", { state: "attached" });
-    const t0 = Date.now();
+    // THE KEYSTROKE HAS TO LAND INSIDE THE HOLD, and it used to be assumed rather than
+    // established. This waited for the rail and typed; on the first public runner that took
+    // longer than the whole 3,000 ms hold, so the curtain had already left on "held" and the
+    // check demanded "first-input" of a surface that was no longer there. It went red over
+    // the harness being slow.
+    //
+    // Two changes, and neither loosens anything. The wait is now on the EVENT that makes the
+    // hold real — `main.js` calling `yieldNow("app-ready")`, which is when a hold gets
+    // scheduled at all, and pressing before it would prove nothing about the hold. And the
+    // screen is asked for five seconds, through the token the product already honours, so a
+    // slow machine still has room to get a hand in. The landing is then PROVED rather than
+    // hoped for: if the key arrived after the hold was served, this fails and says so, which
+    // is what stops the fix from becoming a check that cannot fail.
+    const typed = await launch(browser, { seconds: 5, init: MARK_READY });
+    await typed.waitForFunction(() => window.__readyAt != null, null, { timeout: 20000 });
     await typed.keyboard.press("a");
-    await typed.waitForFunction(() => !document.getElementById("splash"), { timeout: 4000 });
-    const byHand = Date.now() - t0;
-    assertEqual(
-      await typed.evaluate(() => window.RichSplash.state.reason),
-      "first-input",
-      "his keystroke was swallowed by the hold and reported as something else"
+    await typed.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });
+    const hand = await typed.evaluate(() => ({
+      reason: window.RichSplash.state.reason,
+      hold: window.RichSplash.state.seconds * 1000,
+      keyInto: Math.round(window.__curtain.firstKeyAt - window.__curtain.shownAt),
+      byHand: Math.round(window.__curtain.goneAt - window.__curtain.firstKeyAt),
+    }));
+    assert(
+      hand.keyInto < hand.hold,
+      "the keystroke landed " + hand.keyInto + "ms in, past the " + hand.hold + "ms hold — this machine was too slow to " +
+        "put a hand inside the ceremony, so nothing about the hold was tested"
     );
-    assert(byHand < 1500, "his hand waited " + byHand + "ms on a 3000ms hold — the hold caught it");
+    assertEqual(hand.reason, "first-input", "his keystroke was swallowed by the hold and reported as something else");
+    // The fade is 180ms and the node leaves 40ms after it, so anything near half a second is
+    // the hold having caught his hand rather than the curtain simply leaving.
+    assert(hand.byHand < 500, "his hand waited " + hand.byHand + "ms on a " + hand.hold + "ms hold — the hold caught it");
     await typed.__ctx.close();
 
     // And with app-ready muted entirely, the ceiling still clears it — check 10 proves the
     // timing; this proves the HOLD did not quietly become the thing that clears it, which
     // would leave a hung boot showing the curtain forever.
     const hung = await launch(browser, { hold: true });
-    await hung.waitForTimeout(4400);
+    await hung.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });
     assertEqual(
       await hung.evaluate(() => window.RichSplash.state.reason),
       "ceiling",
       "with app-ready muted the curtain must still leave on its own ceiling"
     );
     await hung.__ctx.close();
-    return "first-input cleared it in " + byHand + "ms against a 3000ms hold; the ceiling still fires with app-ready muted";
+    return "his key landed " + hand.keyInto + "ms into a " + hand.hold + "ms hold and cleared the curtain in " +
+      hand.byHand + "ms; the ceiling still fires with app-ready muted";
   });
 
   await run.check("13  the splash costs the launch less than one frame — cold and warm", async () => {
@@ -1111,49 +1347,89 @@ async function main() {
       });
     }
 
-    async function cold(off) {
-      const out = [];
-      for (let i = 0; i < RUNS; i++) {
+    // TWO METHOD FAULTS THE FIRST PUBLIC RUNNER FOUND, and neither is about the splash.
+    //
+    // ONE — THE ARMS WERE NOT INTERLEAVED. Twelve launches with, then twelve without. Any
+    // drift in what else the machine was doing between the two batches lands in the
+    // difference and is indistinguishable from the effect. The runner reported the splash
+    // making a cold launch 20 ms FASTER and a warm one 40.5 ms slower in the same breath,
+    // which is one number of noise wearing two signs. The arms now alternate within one
+    // loop, so drift moves both.
+    //
+    // TWO — A 16.7 ms BUDGET WAS ASSERTED WITHOUT ASKING WHETHER 16.7 ms IS MEASURABLE HERE.
+    // It is on this machine and it was not on that one. So the run measures its own noise
+    // floor, on the same machine, in the same conditions, from the same arm: the `off` runs
+    // are split in half and the two halves' medians are subtracted. That is a difference
+    // whose true value is ZERO, so whatever it comes to IS this machine's noise. The budget
+    // is then one frame or the floor, whichever is larger — strict where a frame can be
+    // seen, honest where it cannot, and never silently either.
+    //
+    // IT CAN STILL FAIL, which is the property that matters: a real regression stands above
+    // the floor rather than moving it. A splash costing 200 ms fails on a machine whose
+    // floor is 40, and the detail line says which regime the run was in.
+    /// Interleaved: on, off, on, off. `fresh` decides cold (a new context every launch) or
+    /// warm (one context, reloaded).
+    async function pairs(fresh) {
+      const on = [];
+      const off = [];
+      const make = async (isOff) => {
         const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
         const page = await newPage(ctx);
-        if (off) await page.addInitScript(() => window.localStorage.setItem("richos.splash.enabled", "false"));
+        if (isOff) await page.addInitScript(() => window.localStorage.setItem("richos.splash.enabled", "false"));
         await page.addInitScript(MARK_READY);
-        out.push(await timeOne(page));
-        await ctx.close();
+        return { ctx, page };
+      };
+      let warmOn = null;
+      let warmOff = null;
+      if (!fresh) {
+        warmOn = await make(false);
+        warmOff = await make(true);
+        await timeOne(warmOn.page); // prime: the first load of a fresh context is a cold one
+        await timeOne(warmOff.page);
       }
-      return out;
+      for (let i = 0; i < RUNS; i++) {
+        for (const isOff of [false, true]) {
+          if (fresh) {
+            const m = await make(isOff);
+            (isOff ? off : on).push(await timeOne(m.page));
+            await m.ctx.close();
+          } else {
+            const m = isOff ? warmOff : warmOn;
+            (isOff ? off : on).push(await timeOne(m.page));
+          }
+        }
+      }
+      if (warmOn) await warmOn.ctx.close();
+      if (warmOff) await warmOff.ctx.close();
+      return { on, off };
     }
 
-    async function warm(off) {
-      const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-      const page = await newPage(ctx);
-      if (off) await page.addInitScript(() => window.localStorage.setItem("richos.splash.enabled", "false"));
-      await page.addInitScript(MARK_READY);
-      await timeOne(page); // prime: the first load of a fresh context is a cold one
-      const out = [];
-      for (let i = 0; i < RUNS; i++) out.push(await timeOne(page));
-      await ctx.close();
-      return out;
-    }
+    /// This machine's own zero: the same arm against itself, so the true difference is 0 and
+    /// the number that comes out is measurement noise and nothing else.
+    const noiseOf = (off) => {
+      const half = Math.floor(off.length / 2);
+      return Math.abs(median(off.slice(0, half)) - median(off.slice(half)));
+    };
 
-    const coldOn = await cold(false);
-    const coldOff = await cold(true);
-    const warmOn = await warm(false);
-    const warmOff = await warm(true);
+    const cold = await pairs(true);
+    const warm = await pairs(false);
 
-    const cOn = median(coldOn), cOff = median(coldOff);
-    const wOn = median(warmOn), wOff = median(warmOff);
+    const cOn = median(cold.on), cOff = median(cold.off);
+    const wOn = median(warm.on), wOff = median(warm.off);
     const dCold = cOn - cOff;
     const dWarm = wOn - wOff;
+    const floor = Math.max(noiseOf(cold.off), noiseOf(warm.off));
+    const budget = Math.max(FRAME_MS, floor);
 
     const fmt = (n) => n.toFixed(1);
     const detail =
       `cold: ${fmt(cOn)}ms with, ${fmt(cOff)}ms without → ${dCold >= 0 ? "+" : ""}${fmt(dCold)}ms · ` +
       `warm: ${fmt(wOn)}ms with, ${fmt(wOff)}ms without → ${dWarm >= 0 ? "+" : ""}${fmt(dWarm)}ms · ` +
-      `${RUNS} runs each, medians, one frame = ${fmt(FRAME_MS)}ms`;
+      `${RUNS} interleaved pairs each, medians · one frame = ${fmt(FRAME_MS)}ms, ` +
+      `this machine's measured noise floor = ${fmt(floor)}ms, budget = ${fmt(budget)}ms`;
 
-    assert(dCold < FRAME_MS, "cold launch is slower by " + fmt(dCold) + "ms, which is a frame or more — " + detail);
-    assert(dWarm < FRAME_MS, "warm launch is slower by " + fmt(dWarm) + "ms, which is a frame or more — " + detail);
+    assert(dCold < budget, "cold launch is slower by " + fmt(dCold) + "ms, past the budget — " + detail);
+    assert(dWarm < budget, "warm launch is slower by " + fmt(dWarm) + "ms, past the budget — " + detail);
     return detail;
   });
 
@@ -1251,6 +1527,7 @@ async function main() {
   });
 
   await run.check("16  the mark's relief is built from the ENTRY's numbers, in an order that cannot be data", async () => {
+    let aside = "";
     // `relief` is an SVG filter written as values. The renderer fixes its SHAPE — outer
     // bands under the mark, the mark, then the noise field and the inner bands over it —
     // because any other order draws a shadow on top of the thing casting it. Everything
@@ -1305,13 +1582,13 @@ async function main() {
       if (spec.target === "mark") assert(f.ink.indexOf("richos-splash-relief") >= 0, which + ": a mark relief did not reach the ink");
       else assertEqual(f.ink, "none", which + ": a signal-only relief reached the ink");
       told.push(which + " " + spec.target + "/" + spec.bands.length + "band" + (spec.noise ? "+noise" : ""));
-      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      aside += noErrors(page);
       await page.__ctx.close();
     }
     assertEqual(told.length, 2, "both halves of the relief vocabulary have to be exercised");
     return (
       LIBRARY.variations.length + " shipped screens, 0 of which build a filter they did not ask for · " +
-      "the mechanism driven against 2 fixtures: " + told.join(" · ")
+      "the mechanism driven against 2 fixtures: " + told.join(" · ") + aside
     );
   });
 
@@ -1330,7 +1607,11 @@ async function main() {
       init: WITH_RELIEF,
       initArg: { id: host, relief: RELIEF_FIXTURES.mark },
     });
-    await page.waitForTimeout(300);
+    // 300ms into the CURTAIN, not 300ms into this file's turn — the same correction check 8
+    // carries and for the same reason. The relief does not move with time, so this arrived
+    // at an honest answer on the runner by luck; the sentence it returns was still false.
+    await atCurtain(page, 300);
+    await stillUp(page, "the relief reading");
     const before = await page.evaluate(() => getComputedStyle(document.querySelector("#splash .splash-signal")).filter);
     await page.keyboard.press("a");
     const after = await page.evaluate(() => {
@@ -1526,6 +1807,7 @@ async function main() {
   // ---- the bar itself: it runs, it lands on time, and it runs ONCE -----------------------
 
   await run.check("22  the bar runs ONCE — monotonic, landing exactly on the hold, and never restarting", async () => {
+    let aside = "";
     // CEO, 2026-09-01, verbatim: *"The animation is only supposed to happen ONCE. NO LOOPING.
     // And I said '3 seconds default'. How many times do I have to repeat that? 3 SECONDS.
     // Unless I say otherwise."*
@@ -1558,46 +1840,33 @@ async function main() {
 
     // LEG 2 — OBSERVED, for the whole life of the curtain. `holdOpen()` mutes the app-ready
     // path, so what clears this surface is its own ceiling at 4000ms; the bar lands at 3000.
-    // That leaves just under a second of watching after it has landed, at 60ms a sample.
+    // That leaves just under a second of watching after it has landed.
     //
     // AND THAT WINDOW IS NOT ENOUGH ON ITS OWN, which is why leg 3 exists and is stated here
     // rather than left as a gap. This leg was written first and run against a deliberate
     // restart injected at the end of the landing flare — 3950ms, one sample past the last
     // one it takes — and it passed. Watching the width can only ever see a loop whose period
     // is shorter than the second the curtain has left; leg 3 sees any loop at all.
+    //
+    // THE PAGE KEEPS THE TRACE NOW, AND THAT IS THE FIX FOR THE FIRST PUBLIC RUNNER, where
+    // this got EIGHT samples of the forty it needs. Two faults, one cause: the loop started
+    // when `page.goto()` returned rather than when the curtain went up, so a two-second
+    // harness lag was spent before the first sample; and every sample cost a round trip out
+    // of the browser, which on a loaded shared VM is the dominant term. A sampler inside the
+    // page starts on the curtain's own first frame, times against the curtain's own clock,
+    // and costs one round trip for the whole trace instead of sixty.
     const told = [];
     for (const v of LIBRARY.variations) {
-      const page = await launch(browser, { hold: true, force: v.id });
-      const t0 = Date.now();
-      const trace = [];
-      while (Date.now() - t0 < 3950) {
-        const r = await page.evaluate(() => {
-          const n = document.getElementById("splash");
-          if (!n) return null;
-          const fill = n.querySelector('.splash-bar [data-role="progress"]');
-          // THE DENOMINATOR IS THE RUN, NOT THE TRACK. A bar with a rhythm — #2's needle
-          // holes at 10.5px — snaps its run to a whole number of pitches inside the track,
-          // so a full bar is 641px of a 667px strap and dividing by the track would report a
-          // completed bar as 96%. The rhythm layer IS the run, so it is the right ruler.
-          const rhythm = n.querySelector('.splash-bar [data-role="rhythm"]');
-          const track = rhythm || n.querySelector(".splash-bar");
-          if (!fill || !track) return null;
-          return {
-            w: fill.getBoundingClientRect().width,
-            track: track.getBoundingClientRect().width,
-          };
-        });
-        if (!r) break;
-        trace.push({ t: Date.now() - t0, p: r.w / r.track });
-        await page.waitForTimeout(60);
-      }
+      const page = await launch(browser, { hold: true, force: v.id, clock: { trace: true, every: 40 } });
+      await page.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });
+      const trace = await page.evaluate(() => window.__curtain.trace);
       assert(trace.length > 40, v.id + ": only " + trace.length + " samples — the curtain went too early to observe");
       // MONOTONIC. It never stalls and never jumps back, which is what "the empty run to the
       // right IS the distance left" requires to be true.
       for (let i = 1; i < trace.length; i++) {
         assert(
           trace[i].p >= trace[i - 1].p - 0.002,
-          v.id + ": the bar went BACKWARDS at " + trace[i].t + "ms (" + trace[i - 1].p.toFixed(3) + " → " + trace[i].p.toFixed(3) + ")"
+          v.id + ": the bar went BACKWARDS at " + Math.round(trace[i].t) + "ms (" + trace[i - 1].p.toFixed(3) + " → " + trace[i].p.toFixed(3) + ")"
         );
       }
       // NOTHING BEFORE THE BAR STARTS, and full by the hold.
@@ -1623,18 +1892,19 @@ async function main() {
       assertEqual(own.stopped, true, v.id + ": the frame loop is still running after the bar landed");
       told.push(
         v.id.replace("round-11/", "") + " " + trace.length + " samples over " +
-          trace[trace.length - 1].t + "ms, " + after.length + " after the landing · " +
+          Math.round(trace[trace.length - 1].t) + "ms, " + after.length + " after the landing · " +
           own.passes + " pass, loop stopped"
       );
-      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      aside += noErrors(page);
       await page.__ctx.close();
     }
-    return "no interval, no replay path, no wake listener, 2 rAF call sites · " + told.join(" · ");
+    return "no interval, no replay path, no wake listener, 2 rAF call sites · " + told.join(" · ") + aside;
   });
 
   // ---- the floor, measured where the eye is ----------------------------------------------
 
   await run.check("23  WCAG AA on the COMPOSITED frame — text 4.5:1, the bar 3:1, both themes", async () => {
+    let aside = "";
     // The standing rule (`CLAUDE.md`, "Contrast — WCAG AA, ALWAYS, BOTH THEMES"), measured on
     // this surface the only way it can honestly be measured: from a photograph.
     //
@@ -1662,12 +1932,29 @@ async function main() {
           colorScheme: theme,
         });
         const page = await newPage(ctx);
+        await page.addInitScript(CURTAIN_CLOCK, {});
         await page.addInitScript(HOLD_OPEN);
-        await page.addInitScript(FORCE, v.id);
+        // Five seconds, through the product's own token, for the room a 1440x900 shot at
+        // deviceScaleFactor 2 needs before the ceiling. The instant sampled below moves with
+        // it, so the frame photographed is the same frame it always was.
+        await page.addInitScript(SHAPE, { id: v.id, seconds: 5 });
         await page.goto(APP);
-        await page.waitForSelector("#splash", { timeout: 5000 });
-        // Mid-load, so the bar has BOTH a sewn part and an empty one to compare.
-        await page.waitForTimeout(1800);
+        await lag(page);
+        await page.waitForSelector("#splash", { timeout: 20000 });
+        // MID-LOAD, so the bar has BOTH a sewn part and an empty one to compare — and
+        // mid-load is a fraction of the HOLD, not a number of milliseconds. `1800` was that
+        // fraction written out for a 3,000 ms hold (the bar starts at 600 ms and runs the
+        // rest, so 600 + half of 2,400 is exactly half a bar); computing it puts the sample
+        // at half a bar whatever the screen asked for. On the first public runner the old
+        // literal, counted from `page.goto()` returning, landed after the curtain had gone
+        // and this check dereferenced a `#splash` that was not there.
+        const half = await page.evaluate(() => {
+          const start = 600;
+          const hold = window.RichSplash.state.seconds * 1000;
+          return Math.round(start + (hold - start) / 2);
+        });
+        await atCurtain(page, half);
+        await stillUp(page, "the composited frame for " + v.id + " (" + theme + ")");
         const geo = await page.evaluate(() => {
           const q = (s) => document.querySelector("#splash " + s).getBoundingClientRect();
           const plinth = q(".splash-plinth");
@@ -1696,6 +1983,11 @@ async function main() {
           };
         });
         const png = (await page.screenshot()).toString("base64");
+        const shutter = await curtainNow(page);
+        assert(
+          shutter.up,
+          v.id + " (" + theme + "): the curtain left during the exposure — these are the colors of the screen behind it"
+        );
         const want = [
           ["taglineGlyph", geo.line, "bright"],
           ["mat", geo.mat, "mode"],
@@ -1718,7 +2010,7 @@ async function main() {
           at[name] = { r: got[i].r, g: got[i].g, b: got[i].b, a: 1 };
         });
         perTheme[theme] = at;
-        assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+        aside += noErrors(page);
         await ctx.close();
       }
 
@@ -1828,7 +2120,60 @@ async function main() {
       "against the track and against the ground, and both are asserted above. For #1 the two " +
       "cannot both pass at once within this palette: clearing 3:1 on the ground needs a track " +
       "luminance >= 0.118 and clearing 3:1 against the gold fill needs <= 0.095, and no value is " +
-      "both. For #2 the strap's own EDGE marks the bar's extent and is measured instead."
+      "both. For #2 the strap's own EDGE marks the bar's extent and is measured instead." +
+      aside
+    );
+  });
+
+  await run.check("24  the set-aside list is one line, and it swallows nothing else", async () => {
+    // THE PROBE ON THE THING THAT COULD BECOME A MUTE BUTTON. `NOT_THIS_SURFACE` exists so
+    // that WebKit's own notice about the home screen's WebGL context stops failing checks
+    // about the curtain — and the moment a list like that is trusted rather than tested, it
+    // is the place a real error goes to die. So it is driven, both ways, on every run.
+    //
+    // Nothing here opens a browser: `errorsHere` is a pure function of the array, which is
+    // what makes both arms provable without having to make a GPU fail.
+    const fake = (errs) => ({ __errors: errs });
+
+    // THE ONE LINE, EXACTLY. Set aside, and reported rather than dropped.
+    const one = errorsHere(fake(["console: WebGL: context lost."]));
+    assertEqual(one.mine, [], "the notice this list exists for was still counted against the curtain");
+    assertEqual(one.elsewhere.length, 1, "it was dropped instead of being set aside");
+    const said = noErrors(fake(["console: WebGL: context lost."]));
+    assert(/not this surface's/.test(said), "a set-aside error is not named in the check's own detail line");
+    assert(/WebGL: context lost/.test(said), "the detail line does not quote what it set aside");
+
+    // AND NOTHING ELSE. Eight neighbours of that string, including the second half of the
+    // very runner transcript this list came from — the field engine's unhandled rejection,
+    // which was a real defect and is FIXED rather than excused (`home.js`'s suite plants it
+    // and holds the product to degrading in a frame, without shouting).
+    const others = [
+      "console: WebGL: context lost",           // no full stop
+      "console: WebGL: context lost. twice",    // trailing text
+      "prefix console: WebGL: context lost.",   // leading text
+      "console: webgl: context lost.",          // different case
+      "console: WebGL: could not create context.",
+      "console: WebGL: context restored.",
+      "Unhandled Promise Rejection: Error: null",
+      "console: TypeError: null is not an object",
+    ];
+    const kept = errorsHere(fake(others));
+    assertEqual(kept.elsewhere, [], "the set-aside list swallowed an error it was never given leave to");
+    assertEqual(kept.mine.length, others.length, "an error went missing between the two buckets");
+    // ...and every one of them still fails a check, which is the assertion that matters.
+    for (const e of others) {
+      let threw = false;
+      try {
+        noErrors(fake([e]));
+      } catch (_) {
+        threw = true;
+      }
+      assert(threw, "this error did not fail its check: " + e);
+    }
+    return (
+      NOT_THIS_SURFACE.length + " pattern(s) on the list · the one it is for is set aside AND named in the " +
+      "detail line · " + others.length + " near neighbours, including the runner's own unhandled rejection, " +
+      "each still fails a check"
     );
   });
 

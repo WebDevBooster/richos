@@ -30,7 +30,23 @@
 //   * a suite that SKIPPED is named and fails the run, unless it was explicitly allowed with
 //     `--allow-skip=<file>` — which is a visible argument at the call site, not a silent
 //     branch inside the suite;
+//   * a suite that RECORDED FAILED CHECKS fails the run whatever it exited;
 //   * zero total checks is a failure even if every suite exited 0.
+//
+// THAT THIRD CLAUSE IS NEW, AND A REAL RUN EARNED IT. On 2026-09-04 the first public
+// `ui-suite-ci` run printed, in its own evidence table:
+//
+//     FAIL            home.js — 29 check(s) run, 28 declared, 2 failed (exit 0)
+//
+// ...and then reported "2 suite(s) FAILED: scale.js, splash.js". home.js is the one suite in
+// this directory that calls `run.report()` and throws the number away, so its process exited
+// 0 with two checks red — and this file gated on exit codes alone, so two failures on the
+// CEO's own home screen were printed as FAIL and counted as fine. That is this file's entire
+// thesis ("AND AN EXIT CODE IS NOT EVIDENCE") failing on the one path where the evidence and
+// the exit code disagreed, and the ledger already held the number needed to catch it.
+//
+// The suite is fixed too — `home.js` exits on its own failures now, as the other twenty do —
+// but a gate that depends on twenty-one authors each remembering one line is not a gate.
 //
 // The relation is `observed >= declared`, not `==`: several suites drive their checks from a
 // loop (affordances.js declares 16 and runs 46). A scanner mistake can therefore only make
@@ -280,7 +296,20 @@ for (const suite of SUITES) {
   console.log(`  ${verdict}           ${suite} — ${observed} check(s) run, ${declared} declared, ${failedChecks} failed (exit ${status})`);
 }
 
-const failedSuites = SUITES.filter((s) => exited.get(s) !== 0);
+// FAILED BY EITHER WITNESS. The exit code is one; the ledger is the other, and where they
+// disagree the ledger is the one that saw a check go red.
+const failedSuites = SUITES.filter((s) => {
+  const recs = (bySuite.get(s) || []).filter((r) => typeof r.checks === "number");
+  return exited.get(s) !== 0 || recs.reduce((a, r) => a + r.failed, 0) > 0;
+});
+for (const s of failedSuites) {
+  if (exited.get(s) === 0) {
+    problems.push(
+      `${s}: reported failed check(s) and still exited 0 — its own failures did not reach its ` +
+        `exit code. The run is failed on the LEDGER; fix the suite to exit on \`run.report()\`.`
+    );
+  }
+}
 
 if (observedTotal === 0) {
   problems.push("zero checks were run across the whole tree — refusing to report green over nothing");
