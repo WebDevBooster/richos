@@ -196,6 +196,34 @@ else
         "exit $CODE, shipped sha256 ${SHIPPED:-<absent>}: $(printf '%s' "$OUT" | tail -1)"
 fi
 
+# L13 — THE ENVIRONMENT, WHICH IS WHERE THIS SCRIPT WAS ACTUALLY WRONG.
+#
+# `--check` builds twice and compares, and for months that proved nothing: both builds ran
+# in the same shell, so neither could fail for any reason the other would not have failed
+# for. Two variables the caller controls did move the bytes, and both were found by running
+# the script rather than by reading it (2026-09-04):
+#
+#   umask  macOS bsdtar applies the caller's umask when it extracts as a non-root user, so
+#          the staging copy inherited it. All 531 members differed, in mode and nothing else.
+#   TZ     `date -u` printed the mtime stamp in UTC and `touch -t` read it back in the LOCAL
+#          zone, so the archive's timestamps moved with wherever the Mac was.
+#
+# This case runs the real script twice with both variables deliberately opposed. It is the
+# case that fails if `--check` is ever quietly reduced to running the same build twice.
+E1="$WORK/env-a"; E2="$WORK/env-b"
+( umask 077; TZ=UTC       bash "$SCRIPT" --out "$E1" >/dev/null 2>&1 )
+( umask 022; TZ=Asia/Tokyo bash "$SCRIPT" --out "$E2" >/dev/null 2>&1 )
+D1="$(/usr/bin/shasum -a 256 "$E1"/richos-engine-*.tar.gz 2>/dev/null | awk '{print $1}')"
+D2="$(/usr/bin/shasum -a 256 "$E2"/richos-engine-*.tar.gz 2>/dev/null | awk '{print $1}')"
+if [ -n "$D1" ] && [ "$D1" = "$D2" ]; then
+    ok "L13 the digest survives a different umask and a different timezone ($D1)"
+else
+    bad "L13 the digest survives a different umask and a different timezone" \
+        "umask 077 TZ=UTC gave ${D1:-<none>}; umask 022 TZ=Asia/Tokyo gave ${D2:-<none>}. The pin
+         compiled into the app would be a property of whoever built it, and a customer would
+         discover that as a DigestMismatch."
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== make-engine-asset tests: $FAIL FAILED, $PASS passed ==="
