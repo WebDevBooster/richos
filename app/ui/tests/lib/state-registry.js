@@ -1146,6 +1146,43 @@ module.exports = [
       "unpinned state below, where no press would help.",
   },
   {
+    s: "I can get it myself — you just have to say so.",
+    c: "ACTIONABLE",
+    control: "#setup-go",
+    fixture: "setup-missing-engine",
+    why:
+      "The same sentence for one missing piece rather than two. It has its own row for the " +
+      "reason the two titles do: until 2026-09-04 there was only the plural, so a machine " +
+      "missing only the engine read \"There's one thing I need on this Mac. I can get them " +
+      "myself\" — the first screen a customer ever sees, disagreeing with itself in its own " +
+      "second sentence.",
+  },
+  {
+    s: "That's the setting up done.",
+    c: "INFORMATIONAL",
+    fixture: "setup-finished",
+    why:
+      "The heading after a run the backend agrees is complete. It exists because the title " +
+      "used to keep COUNTING WHAT WAS MISSING after the run: a finished install showed " +
+      "\"There's one thing I need on this Mac.\" over \"That's everything. I'm ready.\", two " +
+      "sentences contradicting each other on screen at once. Both are set from the same " +
+      "`next.complete`, so they cannot come apart again. Nothing to do — it is the " +
+      "confirmation that the question is over.",
+  },
+  {
+    s: "I couldn't finish the setting up.",
+    c: "NEEDS-SOMEONE-ELSE",
+    explainedBy:
+      "the note directly beneath it — \"That's everything I could do — something is still " +
+      "missing. That part is for whoever set RichOS up to look at.\" — which names the party",
+    why:
+      "The other ending's heading, and it carries no fixture for the same reason its note " +
+      "carries none: reaching it needs a component to vanish between the install and the " +
+      "backend's re-read of the disk. It does not name the party itself because the sentence " +
+      "under it does, in the same view, and repeating it would make a two-line dialog say the " +
+      "same thing twice.",
+  },
+  {
     s:
       "You'll still need your own Anthropic account, and to sign in to it once. I can't do " +
       "that part for you, and I never see your password.",

@@ -2789,12 +2789,18 @@ function maybeAskAboutSetup() {
 function openSetupSheet(ask, opts) {
   // THE TITLE COUNTS WHAT IS MISSING, in words, because "1 item" is a package manager's
   // sentence and this is a conversation.
-  setupTitleEl.textContent =
-    ask.items.length > 1
-      ? "There are a couple of things I need on this Mac."
-      : "There's one thing I need on this Mac.";
+  const several = ask.items.length > 1;
+  setupTitleEl.textContent = several
+    ? "There are a couple of things I need on this Mac."
+    : "There's one thing I need on this Mac.";
+  // AND THE SENTENCE UNDER IT COUNTS THE SAME WAY. It said "I can get them myself" under
+  // both titles, so a machine missing only the engine read "There's one thing I need on this
+  // Mac. I can get them myself" — the first screen a customer ever sees, disagreeing with
+  // itself in the second sentence (ray-opus-a1, finding 7, 2026-09-04).
   setupNoteEl.textContent = opts.canInstall
-    ? "I can get them myself — you just have to say so."
+    ? several
+      ? "I can get them myself — you just have to say so."
+      : "I can get it myself — you just have to say so."
     : "";
   setupNoteEl.hidden = !setupNoteEl.textContent;
 
@@ -2880,6 +2886,14 @@ async function runSetup() {
   // `complete` is the BACKEND'S answer, re-read from disk after the run rather than inferred
   // from "no step threw". A run whose steps all returned Ok and whose disk still says
   // something is missing must not say "I'm ready".
+  // THE HEADING MOVES WITH THE STATE. It kept counting what was missing after the run
+  // finished, so a successful install showed "There's one thing I need on this Mac." over
+  // "That's everything. I'm ready." — two sentences contradicting each other on screen at the
+  // same time (ray-opus-a1, finding 7, 2026-09-04). It is set from the same `next.complete`
+  // the note is, so the two cannot come apart again.
+  setupTitleEl.textContent = next && next.complete
+    ? "That's the setting up done."
+    : "I couldn't finish the setting up.";
   setupNoteEl.textContent = next && next.complete
     ? "That's everything. I'm ready."
     : "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.";
