@@ -831,6 +831,46 @@ case "$RA1|$RA2|$AT2" in
 esac
 case "$RA2" in *"+ 120s"*) bad "C63  the doubled value is present: [$RA2]" ;; *) ok "C63  ...and the doubled value the old rule would have written is absent" ;; esac
 
+# 24. THE SPARSIFIED SHELL IS STILL FULLY CAPTURED — the positive probe for
+# property 4 of the never-read-shell ruling (scripts/lib/shell-worktree-sparse.py).
+# A cross-repository teammate's native worktree is de-materialized at seal. It
+# should never be written to; the system must not depend on manners. So write
+# into one anyway — at the root and inside a directory sparse-checkout
+# skipped — and require the bytes back out of the archive.
+mkdir -p "$ENTITY/qa-audits/run"
+for i in 1 2 3 4; do head -c 51200 /dev/urandom | base64 >"$ENTITY/qa-audits/run/shot-$i.b64"; done
+git -C "$ENTITY" add qa-audits          # a pathspec: by now the fixture has quarantines beside it
+git -C "$ENTITY" commit -q -m "qa-audits, the 202 MB of the measurement"
+FULL_KB="$(du -sk "$ENTITY/qa-audits" | cut -f1)"
+A35="a00000000000rc35"
+EXT35="$SANDBOX/other-wt/dev-opus-r35"
+seal "$A35" dev-opus-r35 "$OTHER:$EXT35:dev-opus-r35"
+NAT35="$ENTITY/.claude/worktrees/agent-$A35"
+SHELL_KB="$(du -sk "$NAT35" | cut -f1)"
+SPARSE35="$(member_field "$A35" sparse)"
+printf 'evidence the shell should never have had\n' >"$NAT35/STRAY.md"
+mkdir -p "$NAT35/qa-audits/run"
+printf 'written after sparsification, into a skipped directory\n' >"$NAT35/qa-audits/run/late.txt"
+T claim --session-id "$SID" --agent-id "$A35" --ingress SubagentStop >/dev/null
+R >/dev/null 2>&1
+CAP35="$SANDBOX/captures/$SID/$A35/member-0"
+X35="$SANDBOX/extract35"; mkdir -p "$X35"; tar -xf "$CAP35/tree.tar" -C "$X35" 2>/dev/null
+if [ "$(cat "$X35/STRAY.md" 2>/dev/null)" = "evidence the shell should never have had" ] \
+   && [ "$(cat "$X35/qa-audits/run/late.txt" 2>/dev/null)" = "written after sparsification, into a skipped directory" ]; then
+    ok "C64  POSITIVE PROBE: a file written into a SPARSIFIED shell — at the root and inside a skipped directory — is archived byte-for-byte"
+else
+    bad "C64  extracted: $(find "$X35" -type f 2>/dev/null | sed "s|$X35/||" | tr '\n' ' ')"
+fi
+TAR_KB="$(du -sk "$CAP35/tree.tar" | cut -f1)"
+if [ ! -e "$X35/qa-audits/run/shot-1.b64" ] && [ "$TAR_KB" -lt "$FULL_KB" ] && [ "$SHELL_KB" -lt "$FULL_KB" ]; then
+    ok "C65  the saving lands on the ARCHIVE too and no archive code changed: the de-materialized bytes are absent, tree.tar is ${TAR_KB}K against ${FULL_KB}K of tracked screenshots (live shell ${SHELL_KB}K)"
+else
+    bad "C65  tar=${TAR_KB}K full=${FULL_KB}K shell=${SHELL_KB}K shot present=$([ -e "$X35/qa-audits/run/shot-1.b64" ] && echo YES || echo NO)"
+fi
+[ "$(states "$A35")" = "removed removed " ] && printf '%s' "$SPARSE35" | grep -q "True" \
+    && ok "C66  the sparsified member runs the whole lifecycle unchanged: quarantined -> captured -> verified -> unregistered -> removed" \
+    || bad "C66  states=$(states "$A35") sparse=[$SPARSE35]"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="
