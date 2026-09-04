@@ -92,9 +92,12 @@ this project more than any exploit has.
 Reporting these is not useful, because they are already written down. They are
 listed so nobody spends an evening on them.
 
-- **The updater endpoint is a placeholder.** `app/src-tauri/tauri.conf.json`
-  points at `https://updates.richos.invalid/`, a domain that cannot resolve by
-  construction. Updates are not live and no release exists for them to fetch.
+- **No release exists yet for the updater to find.**
+  `app/src-tauri/tauri.conf.json` points at this repository's GitHub Releases,
+  and until the first release is published that URL answers 404. Every
+  downloaded byte is verified against a compiled-in minisign public key before
+  anything is installed, so an update that cannot be verified is refused rather
+  than applied.
   The minisign public key beside it is a test key.
 - **Nothing is signed or notarized for distribution.** There is no release
   artifact. A build you make yourself is ad-hoc signed, which is why macOS
