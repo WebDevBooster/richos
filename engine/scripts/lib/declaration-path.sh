@@ -57,19 +57,34 @@
 # that drifts.
 #
 # ===========================================================================
-# AN UNRESOLVED FILE IN `.richos/` IS BROKEN TOO, AND THIS IS THE POINT
+# A DECLARATION IN `.richos/` THAT NOTHING READS IS BROKEN, AND THAT IS THE
+# ONLY THING IN HERE THIS FILE HAS AN OPINION ABOUT
 # ===========================================================================
 # The moment `.richos/` exists as a convention, the trap it creates is obvious:
 # somebody moves `.ceo-todos` in there, nothing reads it there, the guard
 # stands down, and the repository reports green over an unenforced contract.
-# That is the exact failure this directory must not introduce.
+# That is the exact failure this directory must not introduce, so a declaration
+# this file does not serve is BROKEN, loudly, naming the file.
 #
-# So `.richos/` is a GOVERNED directory. It may hold the declarations named in
-# DECL_ADOPTED_STEMS below and nothing else but `README.md`. Anything else in
-# it is BROKEN, loudly, naming the file — so a half-finished migration cannot
-# present itself as a working one. A declaration adopting this directory adds
-# its stem to that list in the same edit that makes it call decl_find, and the
-# list can therefore never drift into licensing a silent miss.
+# THE FIRST DRAFT OF THIS RULE WAS "ONLY DECLARATIONS AND A README MAY LIVE
+# HERE", AND IT WAS WRONG ON THIS MACHINE THE DAY IT WAS WRITTEN.
+# `.richos/` was already in use: the Executive Continuity System has kept its
+# entity manifest at `.richos/entity.json` in `femcboost` since 2026-08-27, and
+# `scripts/ecs/ecs_cli.py` takes it as a default argument. A whole-directory
+# rule would have made `rc_load_declaration` return BROKEN there, which is
+# `guard-row-currency-commits.sh` refusing EVERY commit in that repository —
+# an outage in an adopter, caused by a guard policing files that were never
+# its business.
+#
+# So the scope is exactly the defect: `.richos/` is a SHARED RichOS directory,
+# and this file judges only the names it knows to be declarations. Everything
+# else in there belongs to whoever put it there.
+#
+# The two lists below are the whole policy, and they cannot silently fall
+# behind: publication-completeness.py derives the full set of declaration names
+# from shipped source and FAILS if one of them appears in neither list. A
+# declaration added tomorrow is therefore classified deliberately or not at
+# all.
 #
 # Safe to source repeatedly. Never mutates state, never changes the caller's cwd.
 
@@ -81,14 +96,16 @@ _DECLARATION_PATH_SH_SOURCED=1
 # The directory, declared once. Overridable for tests, never in production.
 : "${DECLARATION_DIR:=.richos}"
 
-# The declarations that RESOLVE through this file. See the section above: this
-# list is what stops `.richos/` becoming a place a contract can be switched off
-# by moving a file into it.
+# The declarations that RESOLVE through this file, by stem (the name without
+# its leading dot). A declaration adopting the directory adds its stem here in
+# the same edit that makes it call decl_find.
 DECL_ADOPTED_STEMS="publication-boundary publication-completeness row-currency"
 
-# The only non-declaration entry `.richos/` may carry. It exists so that
-# `ls .richos/` explains itself to whoever looks.
-DECL_DIR_EXTRA_ENTRIES="README.md"
+# The declarations this engine ships that do NOT resolve from the directory.
+# One of them appearing in `.richos/` is a contract somebody believes is live
+# and is not, so it is refused by name. Move a stem from this list to the one
+# above only in the edit that makes its own library call decl_find.
+DECL_FOREIGN_STEMS="ceo-todos unstarted-rows"
 
 # ---------------------------------------------------------------------------
 # decl_find <repo_root> <declaration_name>
@@ -112,18 +129,22 @@ decl_find() {
     grouped="$root/$DECLARATION_DIR/$stem"
     legacy="$root/$name"
 
-    # THE GOVERNED DIRECTORY. Checked before anything is resolved, because a
-    # stray file in here means somebody believes a contract is live and it is
+    # A DECLARATION IN HERE THAT NOTHING READS. Checked before anything is
+    # resolved, because it means somebody believes a contract is live and it is
     # not — and that belief must not survive one more command.
+    #
+    # ONLY the names this engine knows to be declarations are judged.
+    # `.richos/` is a shared RichOS directory (the ECS entity manifest lives at
+    # `.richos/entity.json`), and a resolver that refused files belonging to
+    # other components would take an adopter's repository offline over
+    # something that was never its business.
     if [ -d "$root/$DECLARATION_DIR" ]; then
-        for entry in "$root/$DECLARATION_DIR"/* "$root/$DECLARATION_DIR"/.[!.]*; do
-            [ -e "$entry" ] || continue
-            base="${entry##*/}"
-            case " $DECL_ADOPTED_STEMS $DECL_DIR_EXTRA_ENTRIES " in
-                *" $base "*) continue ;;
-            esac
-            DECL_BROKEN_REASON="$DECLARATION_DIR/$base is not a declaration anything reads from there. $DECLARATION_DIR holds only the declarations that resolve through scripts/lib/declaration-path.sh ($DECL_ADOPTED_STEMS) and README.md. A file moved in here that nothing resolves is a contract switched off silently, which is the one thing this directory must never be able to do — move it back to the repository root, or teach declaration-path.sh to resolve it."
-            return 2
+        for entry in $DECL_FOREIGN_STEMS; do
+            for base in "$entry" ".$entry"; do
+                [ -f "$root/$DECLARATION_DIR/$base" ] || continue
+                DECL_BROKEN_REASON="$DECLARATION_DIR/$base is a declaration, and nothing reads a declaration from there. Only $DECL_ADOPTED_STEMS resolve through scripts/lib/declaration-path.sh; .$entry is read at the repository root and nowhere else, so this copy switches its contract off in silence — which is the one thing this directory must never be able to do. Move it back to the repository root, or teach declaration-path.sh to resolve it."
+                return 2
+            done
         done
     fi
 

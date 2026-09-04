@@ -720,9 +720,10 @@ repository root second, so both forms work and neither has to be migrated. This
 repository groups its own three in `.richos/` because a public repository's root
 listing is the first thing a stranger reads; see
 [`.richos/README.md`](../.richos/README.md). Declaring the same thing in both
-places at once is BROKEN rather than a choice between them, and a file in
-`.richos/` that no contract resolves is BROKEN too — otherwise moving one in
-there would switch its contract off in silence.
+places at once is BROKEN rather than a choice between them, and a DECLARATION
+in `.richos/` that no contract resolves is BROKEN too — otherwise moving one in
+there would switch its contract off in silence. `.richos/` is a shared RichOS
+directory, so anything in it that is not a declaration is left alone.
 
 **Half one — may this leave?** `guard-publication-writes.sh` (at the write) and
 `guard-publication-commits.sh` (at `git commit`, against the staged index, which

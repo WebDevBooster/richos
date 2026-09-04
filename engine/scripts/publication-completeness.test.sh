@@ -619,13 +619,43 @@ commit_all "$T"
 assert_rc "declared in BOTH places → exit 2, never a quiet choice" \
     "$T" 2 "carries BOTH"
 
-# A file in .richos/ that nothing resolves is BROKEN too.
+# A DECLARATION in .richos/ that nothing resolves is BROKEN too...
 T="$(mktree grouped_stray)"
 mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
 printf 'TODO_RECORD="x"\n' > "$T/.richos/ceo-todos"
 commit_all "$T"
-assert_rc "an unresolved file in .richos/ → exit 2, naming the file nothing reads" \
-    "$T" 2 "not a declaration anything reads from there"
+assert_rc "an unresolved DECLARATION in .richos/ → exit 2, naming it" \
+    "$T" 2 "is a declaration, and nothing reads a declaration from there"
+
+# ...and ANYTHING ELSE in there is none of this resolver's business. `.richos/`
+# is a shared RichOS directory: the ECS entity manifest has lived at
+# `.richos/entity.json` in femcboost since 2026-08-27. A resolver that policed
+# the whole directory would have taken that repository offline.
+rm "$T/.richos/ceo-todos"
+printf '{"entityId":"sample"}\n' > "$T/.richos/entity.json"
+printf 'notes\n' > "$T/.richos/something-else.txt"
+commit_all "$T"
+assert_clean "an unrelated file in .richos/ is left alone (the ECS entity manifest case)" "$T"
+
+# EVERY DECLARATION IS CLASSIFIED BY THE RESOLVER, and the check that says so
+# is derived from shipped source rather than from a list somebody remembers to
+# grow. Two-sided: unclassified is BROKEN, classified is silent.
+mk_resolver() { # <tree> <adopted> <foreign>
+    mkdir -p "$1/scripts/lib"
+    {
+        printf ': "${DECLARATION_DIR:=.richos}"\n'
+        printf 'DECL_ADOPTED_STEMS="%s"\n' "$2"
+        printf 'DECL_FOREIGN_STEMS="%s"\n' "$3"
+    } > "$1/scripts/lib/declaration-path.sh"
+}
+T="$(mktree unclassified_decl)"
+mk_resolver "$T" "publication-boundary" "ceo-todos"
+commit_all "$T"
+assert_rc "a declaration in NEITHER resolver list → BROKEN, naming it" \
+    "$T" 2 "widget"
+mk_resolver "$T" "publication-boundary widget" "ceo-todos"
+commit_all "$T"
+assert_clean "the same tree with .widget classified is silent" "$T"
 
 # A MISSING RESOLVER MUST NOT ARRIVE AS "NOT APPLICABLE". This script's
 # stand-down verdict is the sentence a reader takes to mean *this tree does not

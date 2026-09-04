@@ -38,18 +38,34 @@ version heading with Added / Changed / Fixed groupings.
   resolver is BROKEN rather than a quiet fall back, and declaring the same
   thing in both places at once is BROKEN rather than a choice between them.
 
-  **A file in `.richos/` that nothing resolves is BROKEN too**, and that rule
-  is the point of the directory rather than tidiness: without it, moving
-  `.ceo-todos` in there would switch its contract off in silence. `.richos/`
-  therefore holds only the declarations named in `DECL_ADOPTED_STEMS` and a
-  `README.md`, and a declaration adopting the directory adds its stem in the
-  same edit that makes it call `decl_find`.
+  **A DECLARATION in `.richos/` that nothing resolves is BROKEN too**, and that
+  rule is the point of the directory rather than tidiness: without it, moving
+  `.ceo-todos` in there would switch its contract off in silence.
+
+  The first draft of that rule said "only declarations and a README may live
+  here", and it was wrong on the day it was written. `.richos/` is a SHARED
+  RichOS directory and was already in use: the Executive Continuity System has
+  kept its entity manifest at `.richos/entity.json` in `femcboost` since
+  2026-08-27, with `scripts/ecs/ecs_cli.py` taking that path as a default
+  argument. A whole-directory rule made `rc_load_declaration` return BROKEN
+  there — which is `guard-row-currency-commits.sh` refusing EVERY commit in
+  that repository, an outage in an adopter caused by a guard policing files
+  that were never its business. Found by running the new resolver against
+  `femcboost` before landing, and it is the reason that check exists.
+
+  So the scope is exactly the defect: only names this engine knows to be
+  declarations are judged, through `DECL_ADOPTED_STEMS` (served here) and
+  `DECL_FOREIGN_STEMS` (read at the root and nowhere else). Neither list can
+  silently fall behind — `publication-completeness.py` derives the full
+  declaration set from shipped source and goes BROKEN if one appears in
+  neither, so a declaration added tomorrow is classified deliberately or the
+  check refuses to grade.
 
   Sixteen new cases prove it by REFUSAL rather than by load — a transcript
   still blocked, a vanished warrant still refused, a dangling citation still
   reported, each with its benign counterpart passing silently in the same
-  sandbox. `publication-boundary.test.sh` 121 → 130, `row-currency.test.sh`
-  70 → 76, `publication-completeness.test.sh` 37 → 43.
+  sandbox. `publication-boundary.test.sh` 121 → 131, `row-currency.test.sh`
+  70 → 76, `publication-completeness.test.sh` 37 → 47.
 
 - **The model COST ceiling is enforced at the spawn** (`MODEL_CEILING` in
   `orchestration.config`, `scripts/hooks/guard-model-ceiling.sh`,

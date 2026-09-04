@@ -52,9 +52,11 @@
 #   (k) REGISTRATION on both surfaces, plus the probe's oracle and Layer R.
 #   (l) THE GROUPED DIRECTORY — a declaration at `.richos/row-currency` governs
 #       exactly as a root one does (proved by a REFUSAL, never by a load);
-#       declared in both places at once is BROKEN; and a file in `.richos/`
+#       declared in both places at once is BROKEN; a DECLARATION in `.richos/`
 #       that nothing resolves is BROKEN too, because the alternative is a
-#       contract switched off by a `git mv`.
+#       contract switched off by a `git mv`; and anything else sharing that
+#       directory is left alone, because it is a shared RichOS directory and a
+#       resolver policing all of it would take an adopter offline.
 #   (l) THE PREMISE WARRANT — a CEO item's stated reason for asking. Adopted
 #       and unadopted; moved and unmoved (two-sided, both directions asserted);
 #       the paste that clears it; `unobservable` with a reason and without;
@@ -941,8 +943,8 @@ else
     bad "two declarations were resolved rather than refused (rc=$GRC): $GOUT"
 fi
 
-# 4. A file in `.richos/` that nothing resolves is BROKEN TOO — the trap the
-#    directory would otherwise create. Move `.ceo-todos` in there and its
+# 4. A DECLARATION in `.richos/` that nothing resolves is BROKEN TOO — the trap
+#    the directory would otherwise create. Move `.ceo-todos` in there and its
 #    contract switches off in silence; this is what stops that.
 set -- $(mk_pair grouped_stray); REC="$1"; WORK="$2"
 write_record "$REC" '| 3.1 | a row | **State:** `CLOSED` |'
@@ -952,24 +954,29 @@ git -C "$WORK" mv .row-currency .richos/row-currency >/dev/null 2>&1
 printf 'TODO_RECORD="wiki/open-items.md"\n' > "$WORK/.richos/ceo-todos"
 git -C "$WORK" add -A >/dev/null 2>&1
 run_guard "$WORK" 'git commit -m \"work\"'
-if [ "$GRC" -ne 0 ] && printf '%s' "$GOUT" | grep -qF '.richos/ceo-todos is not a declaration anything reads from there'; then
-    ok "an unresolved file in .richos/ is BROKEN and names itself — a half-migration cannot look finished"
+if [ "$GRC" -ne 0 ] && printf '%s' "$GOUT" | grep -qF '.richos/ceo-todos is a declaration, and nothing reads a declaration from there'; then
+    ok "an unresolved DECLARATION in .richos/ is BROKEN and names itself — a half-migration cannot look finished"
 else
-    bad "a stray file in .richos/ was ignored rather than refused (rc=$GRC): $GOUT"
+    bad "a stray declaration in .richos/ was ignored rather than refused (rc=$GRC): $GOUT"
 fi
 
-# 5. README.md is the one thing that may sit beside the declarations, so that
-#    `ls .richos/` explains itself instead of looking empty.
-set -- $(mk_pair grouped_readme); REC="$1"; WORK="$2"
+# 5. ...and ANYTHING ELSE in that directory is none of the resolver's business.
+#    `.richos/` is a SHARED RichOS directory: the ECS entity manifest has sat at
+#    `.richos/entity.json` in femcboost since 2026-08-27, and scripts/ecs/ecs_cli.py
+#    takes that path as a default argument. A resolver policing the whole
+#    directory would have refused every commit in that repository. This case is
+#    that repository, in miniature.
+set -- $(mk_pair grouped_neighbors); REC="$1"; WORK="$2"
 write_record "$REC" '| 3.1 | a row | **State:** `CLOSED` |'
 commit_record "$REC"
 mkdir -p "$WORK/.richos"
 git -C "$WORK" mv .row-currency .richos/row-currency >/dev/null 2>&1
+printf '{"schemaVersion":1,"entityId":"sample"}\n' > "$WORK/.richos/entity.json"
 printf '# what lives here\n' > "$WORK/.richos/README.md"
 git -C "$WORK" add -A >/dev/null 2>&1
 run_guard "$WORK" 'git commit -m \"work\"'
-[ "$GRC" -eq 0 ] && ok ".richos/README.md sits beside the declarations without breaking anything" \
-                 || bad "a README in .richos/ was treated as a stray (rc=$GRC): $GOUT"
+[ "$GRC" -eq 0 ] && ok "entity.json and a README share .richos/ without breaking anything" \
+                 || bad "an unrelated neighbor in .richos/ was treated as a stray (rc=$GRC): $GOUT"
 
 # ---------------------------------------------------------------------------
 # (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads

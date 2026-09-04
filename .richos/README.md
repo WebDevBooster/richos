@@ -37,14 +37,21 @@ working, untouched — `femcboost` carries a root `.row-currency` right now.
 Two copies of one declaration is **BROKEN**, never a choice between them:
 choosing one quietly is how the wrong one stays live.
 
-## What may live here
+## What else may live here
 
-Only the three files above, and this README. Anything else is refused by name,
-loudly, at the next guard invocation. That rule is the point of the directory
-rather than a tidiness preference: without it, moving a declaration this engine
-does not resolve from here — `.ceo-todos`, say — would switch its contract off
-in silence, and a stood-down guard is indistinguishable from a clean one.
+**This directory is shared.** It is RichOS's directory in a repository, not the
+declaration resolver's — the Executive Continuity System keeps its entity
+manifest here, as an `entity.json`, in the repositories that have one, and
+other components may use it too.
 
-A declaration adopting this directory adds its stem to `DECL_ADOPTED_STEMS` in
-`engine/scripts/lib/declaration-path.sh` in the same edit that makes it call
-`decl_find`. The list cannot drift into licensing a silent miss.
+The one thing that is refused is a **declaration this engine does not read from
+here** — `.ceo-todos`, say. Moving one in would switch its contract off in
+silence, and a stood-down guard is indistinguishable from a clean one, so the
+next guard invocation refuses by name instead. Nothing else in this directory
+is any of the resolver's business.
+
+A declaration adopting this directory moves its stem from `DECL_FOREIGN_STEMS`
+to `DECL_ADOPTED_STEMS` in `engine/scripts/lib/declaration-path.sh`, in the same
+edit that makes it call `decl_find`. Neither list can silently fall behind:
+`engine/scripts/publication-completeness.sh` derives every declaration this
+engine ships out of shipped source and fails if one appears in neither.
