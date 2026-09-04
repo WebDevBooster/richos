@@ -448,11 +448,22 @@ module.exports = [
       "and the sentence does not imply it is.",
   },
   {
-    s: "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there. You can type, or tap ◉ to talk to me.",
+    s: "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there.",
     c: "INFORMATIONAL",
     why:
-      "First-run greeting. An invitation, not a state he could change — and it names both " +
-      "controls anyway (#input and #talk-toggle).",
+      "First-run greeting. An invitation, not a state he could change, and it names the " +
+      "control it invites (#input).",
+  },
+  {
+    s: "You can type, or tap ◉ to talk to me.",
+    c: "INFORMATIONAL",
+    why:
+      "The voice half of the first-run greeting, SPLIT OFF on 2026-09-04 and appended only " +
+      "when `voice_readiness` says this machine can transcribe. It was one sentence with " +
+      "the line above, and on a fresh Mac with no speech model it named a control that " +
+      "opened a hot microphone, said \"listening…\" and never transcribed. A sentence that " +
+      "names a control is a promise the control works, so it is now withheld with the " +
+      "control rather than shipped beside its absence.",
   },
   {
     s: "Talking out loud needs the desktop app — here in the preview, type to me.",

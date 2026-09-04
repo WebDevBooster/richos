@@ -251,6 +251,14 @@ const liveStatus = new Map();
 // screen.
 let activeThreadId = null;
 let voiceMode = false;
+/// **CAN THIS MACHINE TURN SPEECH INTO WORDS?** Read once at launch from `voice_readiness`.
+///
+/// FALSE UNTIL PROVEN, and the direction is the whole point. A command that is missing, a
+/// backend that errors, a preview that does not implement it — every unknown resolves to
+/// "do not offer voice", because the failure this exists to prevent is an affordance that
+/// is offered and cannot work. The opposite failure (voice quietly unoffered on a machine
+/// that could have run it) costs a feature nobody was promised.
+let voiceAvailable = false;
 let drillItems = []; // populated from the real `get_worker_status` command — honest-empty
 // until the engine has ever completed a task since boot (richos-core's worker_status.rs).
 // The view's OWN authoritative counts (§7.3). Never re-derived from `drillItems`, and
@@ -1208,6 +1216,12 @@ function retryTurn(turn) {
   inputEl.focus();
 }
 
+/// The first thing Rich says, in two pieces because the second one is a PROMISE about a
+/// control. Kept apart so the promise can be withheld without rewriting the greeting.
+const GREETING =
+  "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there.";
+const GREETING_VOICE_INVITE = "You can type, or tap ◉ to talk to me.";
+
 function renderFirstRun() {
   // Authored, in Rich's voice — never a blank screen. Client-side only.
   messagesEl.innerHTML = "";
@@ -1231,8 +1245,19 @@ function renderFirstRun() {
   art.appendChild(meta);
   const body = document.createElement("div");
   body.className = "tl-prose";
-  body.textContent =
-    "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there. You can type, or tap ◉ to talk to me.";
+  // THE GREETING NEVER INVITES A CONTROL THAT IS NOT THERE.
+  //
+  // It was one sentence ending "You can type, or tap ◉ to talk to me." — and on a
+  // customer's fresh Mac there is no speech model, so ◉ opened a hot microphone, said
+  // "listening…", and never transcribed and never said it could not (ray-opus-a1,
+  // published v1.0.0, 2026-09-04). An app that names a control in its first sentence has
+  // promised that control works.
+  //
+  // So the invitation is a SECOND sentence, appended only when `voice_readiness` says this
+  // machine can actually turn speech into words — the same answer that decides whether the
+  // button exists at all. Where voice is off, nothing here mentions it: a stranger cannot
+  // miss a feature he was never offered, and he can very much notice one that pretends.
+  body.textContent = voiceAvailable ? GREETING + " " + GREETING_VOICE_INVITE : GREETING;
   art.appendChild(body);
   messagesEl.appendChild(art);
   sessionAvatarShown = true;
@@ -2030,6 +2055,21 @@ function richVoiceSays(text) {
   window.RichTimeline.addLocalNotice(timelineModel, text, Date.now());
   followBottom = true;
   scheduleRender();
+}
+
+/// Ask the backend whether voice can work here, and shape the surface to the answer.
+///
+/// ONE READ, AT LAUNCH. Nothing installs a speech model while the app is running — the
+/// first-run setup sheet installs Claude Code and the engine and neither is whisper — so
+/// re-asking would be a round trip that cannot change its answer.
+async function refreshVoiceReadiness() {
+  const r = await invokeQuiet("voice_readiness");
+  voiceAvailable = !!(r && r.available === true);
+  // NOT OFFERED, rather than offered-and-inert. A dimmed control at a demo invites a press
+  // and then a refusal in front of an audience; a control that is not there costs nothing.
+  // `start_voice_capture` still refuses with Rich's own sentence for anything that reaches
+  // it another way, so this is the affordance half of the fix and not the whole of it.
+  talkToggleBtn.hidden = !voiceAvailable;
 }
 
 async function enterVoiceMode() {
@@ -4744,6 +4784,11 @@ async function init() {
   // choice is: this question comes FIRST when both are open, and the branch below must know
   // that so it holds the company question back instead of stacking a second dialog on it.
   await refreshMemory();
+  // WHETHER VOICE IS EVEN OFFERED, read before anything renders the greeting or the
+  // composer row. It sits beside the setup read below because it answers the same kind of
+  // question — what this machine does and does not have — and it costs the same kind of
+  // work: path lookups and one `command -v`, no device and no permission prompt.
+  await refreshVoiceReadiness();
   // WHAT THIS MACHINE IS MISSING, read and asked FIRST when it is missing anything. The
   // order is not cosmetic: without a `claude` binary and an engine directory there is
   // nothing for a corpus to be read by and nothing for a company to be chosen for. One

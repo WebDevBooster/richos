@@ -2101,6 +2101,18 @@
         case "update_install":
           mockUpdate.calls.push("update_install");
           return mockUpdateAdvance();
+        // WHETHER THE PREVIEW OFFERS VOICE, answered rather than left to the default reject.
+        //
+        // `main.js` treats every unknown as "not available" and hides the talk button, which
+        // is the right direction for a real machine with no speech model. The preview is not
+        // that: ◉ is part of the shipping composer row the browser harness exists to
+        // exercise, and pressing it here already says exactly what is true —
+        // "Talking out loud needs the desktop app — here in the preview, type to me."
+        // Offered, and honest when pressed, which is the second of the two shapes the
+        // 2026-09-04 voice fix allows.
+        case "voice_readiness":
+          return { available: true, reason: null };
+
         case "update_relaunch":
           // The real command never returns — the process is replaced. Recording the call is
           // the only thing a browser can honestly do with it.

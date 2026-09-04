@@ -1476,6 +1476,7 @@ fn main() {
             loro_suppressed_records,
             loro_unsuppress_record,
             // --- voice mode (2026-08-24) — appended, never reordered ---
+            voice_readiness,
             start_voice_capture,
             stop_voice_capture,
             voice_speak_delta,
@@ -1703,11 +1704,72 @@ fn ensure_voice_state(app: &AppHandle) {
     app.manage(VoiceHandle::default());
 }
 
+/// **CAN THIS MACHINE TURN SPEECH INTO WORDS?** Asked WITHOUT touching the microphone.
+///
+/// `Recognizer::resolve` is `stt.rs`'s own resolution — `RICHOS_WHISPER_BIN`, then `PATH`,
+/// then the Homebrew prefixes for the binary; `RICHOS_VOICE_WHISPER_MODEL`/
+/// `RICHOS_WHISPER_MODEL`, then `RICHOS_MODEL_DIR`, then three per-user directories for the
+/// model. It reads paths and runs `command -v`; it opens no device, records nothing and
+/// asks macOS for no permission. The resolved recognizer is dropped: this is the question,
+/// not the answer's use.
+///
+/// **ONE RESOLUTION, TWO CALLERS**, deliberately. [`voice_readiness`] answers it so the
+/// window can decide whether to OFFER voice at all, and [`start_voice_capture`] asks it
+/// again before it opens anything, so the two can never disagree about the same machine —
+/// the discipline `wire_company_memory` already establishes for the corpus.
+///
+/// **The shipping bundle carries no whisper binary and no model** (`tauri.conf.json`
+/// declares no `resources` and no `externalBin`), so on a customer's fresh Mac this is
+/// `Err`, and it is `Err` before the microphone is ever asked for.
+fn speech_preflight() -> Result<(), String> {
+    richos_voice::stt::Recognizer::resolve().map(|_| ()).map_err(|e| e.ceo_message())
+}
+
+/// **WHETHER TO OFFER VOICE AT ALL.** Read by the window at launch, once.
+///
+/// THE DEFECT THIS EXISTS TO REMOVE, measured by ray-opus-a1 on published v1.0.0,
+/// 2026-09-04: the talk button asked for the microphone, the panel said *"listening…"*, the
+/// level meter rendered and macOS lit its orange recording indicator — for 25+ seconds. It
+/// never transcribed and it never said it could not. To someone who has never seen this app
+/// that does not read as "not ready yet"; it reads as *"I am listening to you and ignoring
+/// you"*, and the app's own first-run greeting invited it: *"You can type, or tap ◉ to talk
+/// to me."*
+///
+/// So the window asks this before it renders that greeting. `available: false` removes the
+/// talk button and drops the voice half of the greeting, and `start_voice_capture` refuses
+/// with the same sentence for anything that reaches it by another route. An unfinished
+/// feature that is not offered costs a stranger nothing; one that is offered and pretends
+/// costs him the demo.
+///
+/// `reason` is [`richos_voice::stt::SttError::ceo_message`] — *"My ears aren't installed on
+/// this machine yet — whoever set RichOS up adds those. I can still read what you type."*
+/// It names the party, and it is already in the affordance suite's state registry.
+///
+/// `(async)` so the resolution's one `command -v` subprocess never runs on the IPC thread.
+#[tauri::command(async)]
+fn voice_readiness() -> serde_json::Value {
+    match speech_preflight() {
+        Ok(()) => serde_json::json!({ "available": true, "reason": serde_json::Value::Null }),
+        Err(reason) => {
+            eprintln!("[richos] voice: not offered on this machine — {reason}");
+            serde_json::json!({ "available": false, "reason": reason })
+        }
+    }
+}
+
 /// Enter voice mode: open the mic and start listening. Returns the resolved audio
 /// configuration for developer eyes; the CEO-facing UI only renders `rich://voice-state`.
 #[tauri::command]
 fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serde_json::Value, String> {
     let _ = thread_id; // voice rides the ACTIVE thread — there is no per-thread voice.
+    // REFUSE BEFORE THE MICROPHONE, NOT AFTER IT. `VoiceController::start` resolves the
+    // recognizer first today and would raise the same sentence, but it does so eight lines
+    // and one `EchoCanceller` into a function whose next act is `capture::start` — and the
+    // ordering of two lines inside another crate is not a property this command should be
+    // relying on to keep a hot mic off a machine that cannot transcribe. Asked here, the
+    // guarantee is local and structural: no permission dialog, no orange indicator, no
+    // "listening…" panel in a build with no speech model.
+    speech_preflight()?;
     ensure_voice_state(&app);
     let handle = app.state::<VoiceHandle>();
     let mut slot = handle.controller.lock().map_err(|_| "voice state poisoned")?;
