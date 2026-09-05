@@ -105,6 +105,16 @@ trap 'rm -rf "$SANDBOX"' EXIT
 #     A canary claiming to watch $HOME would be claiming something it cannot
 #     check in the time a suite is allowed to take.
 #
+# ITS ONE FALSE-POSITIVE VECTOR, named so nobody has to rediscover it: another
+# writer adding a NON-ignored file to the same checkout while this suite runs
+# is indistinguishable from a leak, and case 17n will name it. That is the
+# right trade — the failure prints the path, so a reader sees at once that it
+# is not an escalation record, whereas the opposite trade (staying quiet to
+# avoid the noise) is the whole defect. It is also why 17o counts FIXTURE rows
+# in the real ledger rather than total rows: there, a concurrent real
+# escalation is likely enough that a total-row check would be false-alarming
+# regularly, and a check that cries wolf gets muted.
+#
 # A ROOT IT CANNOT READ IS A FAILURE, NEVER A QUIET PASS. An unreadable root
 # yields an empty snapshot both times and therefore an empty diff, which is the
 # "green over something that never ran" shape this engine keeps finding. So the
