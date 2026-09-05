@@ -356,7 +356,8 @@ run_layer_R() {
     notice-unasked-deferral \
     guard-agent-state-claims \
     guard-idle-land notice-waiver-repetition \
-    guard-stated-actions"
+    guard-stated-actions \
+    notice-escalations session-start-escalations"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
@@ -947,6 +948,7 @@ session-start-reap-worktrees.sh|SessionStart
 snapshot-agent-definitions.sh|SessionStart
 snapshot-enforcing-hooks.sh|SessionStart
 session-start-ceo-ask.sh|SessionStart
+session-start-escalations.sh|SessionStart
 guard-sealed-worktree.sh|PreToolUse
 guard-worktree-isolation.sh|PreToolUse
 guard-definition-drift.sh|PreToolUse
@@ -990,6 +992,7 @@ notice-mechanical-findings.sh|Stop
 guard-ceo-ruled-ask.sh|PreToolUse
 notice-ceo-ruled-prose.sh|Stop
 notice-waiver-repetition.sh|Stop
+notice-escalations.sh|Stop
 notice-unstarted-rows.sh|Stop
 notice-ceo-unasked.sh|Stop
 notice-unasked-deferral.sh|Stop

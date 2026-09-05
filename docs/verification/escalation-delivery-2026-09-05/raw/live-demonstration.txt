@@ -1,0 +1,96 @@
+
+=== 0. the ledger before anything is raised ===
+
+$ ls -l ~/.claude/state/escalations.jsonl
+ls: /Users/alex/.claude/state/escalations.jsonl: No such file or directory
+(does not exist yet)
+
+=== 1. a teammate raises one — from a richos worktree, in ONE command ===
+
+$ engine/scripts/escalate.sh raise --title ... --state work-complete --for lead ...
+escalation RAISED: esc-20260905T085243Z-a5758586
+  ledger  : /Users/alex/.claude/state/escalations.jsonl
+            ^^ outside every repository and every session. It reaches the lead with
+               NO MERGE, and it survives this session, this worktree and you.
+  record  : /Users/alex/ab/richos-wt/zach-opus-e1/docs/verification/escalations/2026-09-05-zach-opus-e1-row-e1-delivery-proof-this-escalation-was-raised-to-prove-it.md
+            Commit it with your work. Nothing depends on it being merged.
+  state   : work-complete
+  for     : lead
+
+  It is announced to the lead at every session start and at every turn end, and it
+  gets LOUDER at 1h, 24h and 72h until somebody acknowledges it. You do not have to
+  chase it, wait for a reply, or check that it arrived.
+
+  OPTIONAL, and only a doorbell: SendMessage to team-lead saying you raised esc-20260905T085243Z-a5758586.
+  The mailbox drops roughly half of what crosses it, which is why it is no longer
+  the thing your escalation depends on. Now carry on with your work.
+rc=0
+
+=== 2. NOTHING WAS MERGED. The branch state, stated rather than assumed. ===
+
+$ git -C /Users/alex/ab/richos-wt/zach-opus-e1 log --oneline -1
+3c32f5f The doctrine that told teammates to write BLOCKED.md is installable, not typed
+$ git -C /Users/alex/ab/richos log --oneline -1   # main, untouched by this branch
+5e00651 Voice refuses to speak for him: the gate is asked of the audio, before whisper runs
+$ git -C /Users/alex/ab/richos merge-base --is-ancestor <branch tip> HEAD ; echo $?
+ancestor-of-main rc=1 (non-zero == NOT merged)
+
+=== 3. the ledger row — outside every repository, every worktree, every session ===
+
+$ tail -1 ~/.claude/state/escalations.jsonl
+{"event": "Escalation", "id": "esc-20260905T085243Z-a5758586", "raised": "2026-09-05T08:52:43Z", "teammate": "zach-opus-e1", "worktree": "/Users/alex/ab/richos-wt/zach-opus-e1", "branch": "zach-opus-e1", "repo": "richos", "head": "3c32f5f48ae6d31064a05031949208d43e84236a", "state": "work-complete", "for": "lead", "title": "Row e1 delivery proof: this escalation was raised to prove it arrives", "question": "Nothing is being asked. Acknowledge this row to close the demonstration.", "tried": "the ledger, both hooks and the installer, all under test in this branch", "meanwhile": "the rest of row e1 is finished and committed on zach-opus-e1", "record": "/Users/alex/ab/richos-wt/zach-opus-e1/docs/verification/escalations/2026-09-05-zach-opus-e1-row-e1-delivery-proof-this-escalation-was-raised-to-prove-it.md", "session_id": "", "actor": "alex"}
+
+=== 4. SessionStart, run as Rich's FEMCBOOST-seated session would run it ===
+
+$ RICHOS_ENTITY_ROOT=/Users/alex/ab/femcboost engine/scripts/hooks/session-start-escalations.sh </dev/null
+{"systemMessage": "1 ESCALATION(S) OUTSTANDING \u2014 oldest 0m old from zach-opus-e1: \"Row e1 delivery proof: this escalation was raised to prove it arrives\". escalate.sh list", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "1 ESCALATION(S) RAISED BY TEAMMATES ARE OUTSTANDING \u2014 raised, never acknowledged, and waiting for you. This is the whole content; nothing has to be merged, and no worktree has to still exist, to read it.\n  [esc-20260905T085243Z-a5758586] Row e1 delivery proof: this escalation was raised to prove it arrives (0m old), from zach-opus-e1, state=work-complete (work COMPLETE \u2014 a record, NOT a stall), for=lead. QUESTION: Nothing is being asked. Acknowledge this row to close the demonstration. TRIED: the ledger, both hooks and the installer, all under test in this branch MEANWHILE: the rest of row e1 is finished and committed on zach-opus-e1\n  NONE of these is a stall. Each teammate either finished its work or is still working; they are records of something you must know, not requests to be rescued.\n  Acknowledge each one you have dealt with: escalate.sh ack <id> --disposition \"<what you decided or did>\". Until then it is announced at every session start and gets louder at 1h, 24h and 72h."}}
+
+--- what the MODEL receives (hookSpecificOutput.additionalContext) ---
+1 ESCALATION(S) RAISED BY TEAMMATES ARE OUTSTANDING — raised, never acknowledged, and waiting for you. This is the whole content; nothing has to be merged, and no worktree has to still exist, to read it.
+  [esc-20260905T085243Z-a5758586] Row e1 delivery proof: this escalation was raised to prove it arrives (0m old), from zach-opus-e1, state=work-complete (work COMPLETE — a record, NOT a stall), for=lead. QUESTION: Nothing is being asked. Acknowledge this row to close the demonstration. TRIED: the ledger, both hooks and the installer, all under test in this branch MEANWHILE: the rest of row e1 is finished and committed on zach-opus-e1
+  NONE of these is a stall. Each teammate either finished its work or is still working; they are records of something you must know, not requests to be rescued.
+  Acknowledge each one you have dealt with: escalate.sh ack <id> --disposition "<what you decided or did>". Until then it is announced at every session start and gets louder at 1h, 24h and 72h.
+
+--- what the OPERATOR receives (systemMessage) ---
+1 ESCALATION(S) OUTSTANDING — oldest 0m old from zach-opus-e1: "Row e1 delivery proof: this escalation was raised to prove it arrives". escalate.sh list
+
+=== 5. turn end, same seat ===
+
+$ echo '<Stop payload>' | RICHOS_ENTITY_ROOT=/Users/alex/ab/femcboost engine/scripts/hooks/notice-escalations.sh
+{"suppressOutput":true,"systemMessage":"ESCALATION OUTSTANDING — zach-opus-e1 raised an escalation 0m old and NOTHING HAS ACKNOWLEDGED IT: \"Row e1 delivery proof: this escalation was raised to prove it arrives\"; none is a stall — the work is done or continuing. Read it: escalate.sh list. Close it: escalate.sh ack <id> --disposition \"...\"."}
+
+(same session, second turn — a persistent condition is not repeated:)
+(nothing above this line == correctly quiet)
+
+=== 6. THE NOISE AN UNACKNOWLEDGED ONE MAKES — a separate ledger, aged ===
+
+--- age 0 minutes, SAME session, already announced ---
+{"suppressOutput":true,"systemMessage":"ESCALATION OUTSTANDING — zach-opus-p8 raised an escalation 0m old and NOTHING HAS ACKNOWLEDGED IT: \"A premise in my brief is contradicted by the evidence\"; 1 is for the CEO; none is a stall — the work is done or continuing. Read it: escalate.sh list. Close it: escalate.sh ack <id> --disposition \"...\"."}
+
+--- age 90 minutes, SAME session, already announced ---
+{"suppressOutput":true,"systemMessage":"ESCALATION OUTSTANDING — zach-opus-p8 raised an escalation 1h old and NOTHING HAS ACKNOWLEDGED IT: \"A premise in my brief is contradicted by the evidence\"; 1 is for the CEO; none is a stall — the work is done or continuing. Read it: escalate.sh list. Close it: escalate.sh ack <id> --disposition \"...\"."}
+
+--- age 1500 minutes, SAME session, already announced ---
+{"suppressOutput":true,"systemMessage":"ESCALATION OUTSTANDING — zach-opus-p8 raised an escalation 1d old and NOTHING HAS ACKNOWLEDGED IT: \"A premise in my brief is contradicted by the evidence\"; 1 is for the CEO; none is a stall — the work is done or continuing. Read it: escalate.sh list. Close it: escalate.sh ack <id> --disposition \"...\"."}
+
+--- age 4500 minutes, SAME session, already announced ---
+{"suppressOutput":true,"systemMessage":"ESCALATION OUTSTANDING — zach-opus-p8 raised an escalation 3d old and NOTHING HAS ACKNOWLEDGED IT: \"A premise in my brief is contradicted by the evidence\"; 1 is for the CEO; none is a stall — the work is done or continuing. Read it: escalate.sh list. Close it: escalate.sh ack <id> --disposition \"...\"."}
+
+--- and a NEW session is told from scratch, whatever it has already heard ---
+{"suppressOutput":true,"systemMessage":"ESCALATION OUTSTANDING — zach-opus-p8 raised an escalation 3d old and NOTHING HAS ACKNOWLEDGED IT: \"A premise in my brief is contradicted by the evidence\"; 1 is for the CEO; none is a stall — the work is done or continuing. Read it: escalate.sh list. Close it: escalate.sh ack <id> --disposition \"...\"."}
+
+=== 7. closing the demonstration escalation on the real ledger ===
+
+$ engine/scripts/escalate.sh ack esc-20260905T085243Z-a5758586 --disposition ...
+{"id": "esc-20260905T085243Z-a5758586", "acked": "2026-09-05T08:52:46Z"}
+rc=0
+
+$ engine/scripts/escalate.sh list ; echo $?
+escalation ledger: /Users/alex/.claude/state/escalations.jsonl
+  1 raised in all, 0 OUTSTANDING (raised and never acknowledged).
+
+  Nothing outstanding.
+rc=0  (0 == nothing outstanding)
+
+$ RICHOS_ENTITY_ROOT=/Users/alex/ab/femcboost engine/scripts/hooks/session-start-escalations.sh </dev/null
+(nothing above this line == silent again)

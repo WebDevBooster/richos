@@ -12,6 +12,66 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **An escalation a teammate raises cannot quietly fail to arrive**
+  (`scripts/escalate.sh`, `scripts/lib/escalations.{py,sh}`,
+  `scripts/hooks/notice-escalations.sh` on Stop,
+  `scripts/hooks/session-start-escalations.sh` on SessionStart,
+  `reference/escalation-protocol-seam.md` +
+  `scripts/install-escalation-protocol.sh`) — MINOR.
+
+  The in-flight sweep covers lead → teammate. This is the direction back, and
+  it had the same defect one layer worse. The protocol was: write `BLOCKED.md`
+  at the root of your worktree, commit it, send a one-line message. On
+  2026-09-02 two teammates did exactly that, correctly, recording that a
+  premise in each brief was contradicted by evidence. NEITHER WAS A STALL. They
+  were found on 2026-09-04 by a worktree cleanup, because somebody was counting
+  directories.
+
+  The mailbox is measured at ~50% loss, so a file was chosen as the durable
+  substrate instead — and it is durable in exactly the wrong direction. A file
+  on a teammate's branch is read only by whoever merges that branch, and the
+  teammate cannot see whether its branch was ever merged. The repository root
+  is separately closed at nine entries by permanent CEO ruling, so the same
+  write would be refused today with nowhere obvious to go.
+
+  So the escalation is now an append-only LEDGER ROW outside every repository,
+  worktree and session (`~/.claude/state/escalations.jsonl`, the substrate the
+  worktree ownership ledger already uses). `escalate.sh raise` is one call; the
+  worktree, branch, HEAD, teammate and repository are DERIVED from the
+  workspace, and the ledger row is written BEFORE the record file so a failed
+  file write cannot stop the escalation arriving. The record file goes under
+  `docs/verification/`, is never written into a repository with no `docs/`
+  directory (that would add a root entry), and nothing depends on it.
+
+  **Delivery is two hooks and no mailbox.** SessionStart puts the teammate's
+  own question, verbatim, into the lead's context — the whole escalation, never
+  a count, because a count is something to acknowledge and get past. Stop names
+  the condition in one line on the channel measured to reach the operator. An
+  unacknowledged escalation is re-announced from scratch by every NEW session
+  and gets LOUDER at 1h, 24h and 72h, so state-change de-duplication cannot
+  decay into the two-day silence it exists to prevent. It closes only on an
+  `ack` carrying a disposition of at least 30 characters; nothing is ever
+  deleted.
+
+  **`--state` is required** (`work-complete` / `proceeding` / `stopped`) and is
+  quoted in every notice, which says "none is a stall" whenever nothing
+  outstanding is stopped. Both originals were `work-complete` and said so
+  explicitly; a mechanism that read every escalation as a failure would teach
+  teammates not to raise them, and the channel would die of disuse rather than
+  of a bug.
+
+  Proof rather than assertion: `scripts/hooks/escalations.test.sh` (59 cases)
+  deletes the teammate's worktree with its branch never merged and shows the
+  escalation still arriving in full; carries a NEGATIVE CONTROL that rebuilds a
+  predicate reporting "clear" over a live escalation; and collapses
+  `AGE_BUCKETS` in the SHIPPED source so the escalation ages a full day in
+  silence — the 2026-09-02 incident, reproduced inside the suite the runner
+  discovers, rather than in a `*.mutation.sh` that eight of thirteen times gets
+  run by nobody. `docs/verification/escalation-delivery-2026-09-05/`
+  holds the live run: raised in a richos worktree, read by a femcboost-seated
+  session, with `git merge-base --is-ancestor` proving the branch was not
+  merged.
+
 - **Declarations may be grouped in `.richos/`, and where one lives is now a
   single question with a single answer** (`scripts/lib/declaration-path.sh`,
   hashed by `install.sh`) — MINOR.

@@ -55,6 +55,15 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-escalations.sh",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -380,6 +389,11 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-waiver-repetition.sh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-escalations.sh",
             "timeout": 20
           },
           {
