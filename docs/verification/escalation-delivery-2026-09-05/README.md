@@ -5,8 +5,10 @@ worked perfectly.** On 2026-09-02 two teammates wrote a correct `BLOCKED.md`, co
 and the files sat unread until a worktree cleanup found them on 2026-09-04. Any check that
 asserted "the escalation file exists" would have been green through the whole incident.
 
-So everything below asserts ARRIVAL, and the two hardest cases reproduce the incident rather
-than the happy path.
+So everything below asserts ARRIVAL, and three cases reproduce the incident rather than the
+happy path: the branch is never merged and its worktree is deleted (3), the predicate is
+replaced by one that reports a clean sheet (12), and the age buckets are removed from the
+shipped source so the escalation ages a full day in silence (16).
 
 ## What was built
 
@@ -19,7 +21,7 @@ than the happy path.
 | Session-start surfacing | `engine/scripts/hooks/session-start-escalations.sh` |
 | The doctrine every teammate definition carries | `engine/reference/escalation-protocol-seam.md` |
 | Its installer | `engine/scripts/install-escalation-protocol.sh` |
-| Suites | `engine/scripts/hooks/escalations.test.sh` (55), `engine/scripts/install-escalation-protocol.test.sh` (25) |
+| Suites | `engine/scripts/hooks/escalations.test.sh` (59), `engine/scripts/install-escalation-protocol.test.sh` (25) |
 
 The ledger is `~/.claude/state/escalations.jsonl` — outside every repository, every worktree
 and every session, the same substrate the worktree ownership ledger already uses.

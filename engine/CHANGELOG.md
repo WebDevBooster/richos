@@ -60,11 +60,14 @@ version heading with Added / Changed / Fixed groupings.
   teammates not to raise them, and the channel would die of disuse rather than
   of a bug.
 
-  Proof rather than assertion: `scripts/hooks/escalations.test.sh` (55 cases)
+  Proof rather than assertion: `scripts/hooks/escalations.test.sh` (59 cases)
   deletes the teammate's worktree with its branch never merged and shows the
-  escalation still arriving in full, and carries a NEGATIVE CONTROL that
-  rebuilds a predicate reporting "clear" over a live escalation so the positive
-  cases are known to be load-bearing. `docs/verification/escalation-delivery-2026-09-05/`
+  escalation still arriving in full; carries a NEGATIVE CONTROL that rebuilds a
+  predicate reporting "clear" over a live escalation; and collapses
+  `AGE_BUCKETS` in the SHIPPED source so the escalation ages a full day in
+  silence — the 2026-09-02 incident, reproduced inside the suite the runner
+  discovers, rather than in a `*.mutation.sh` that eight of thirteen times gets
+  run by nobody. `docs/verification/escalation-delivery-2026-09-05/`
   holds the live run: raised in a richos worktree, read by a femcboost-seated
   session, with `git merge-base --is-ancestor` proving the branch was not
   merged.
