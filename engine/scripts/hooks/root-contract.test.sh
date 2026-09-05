@@ -405,12 +405,34 @@ fi
 #
 # The third row is a real finding too, and it is reported in its own words
 # rather than dressed up as the second.
+#
+# ---------------------------------------------------------------------------
+# AND THE VERDICT NO LONGER RESTS ON AN ABSOLUTE NUMBER OF SECONDS
+# ---------------------------------------------------------------------------
+# The control arm removes the machine from the COMPARISON, but a fixed ceiling
+# would have put it straight back into the THRESHOLD. That is the same defect
+# one layer up: 8 seconds was a number that happened to suit one laptop, and a
+# sweep measuring 8150-8479ms turned every slower machine — a loaded laptop,
+# CI, a colder cache — into a red "blocked on stdin" that no code change could
+# explain. Widening it to 9 or 14 only moves the cliff.
+#
+# So the ceiling for the open-stdin arm is DERIVED from what this hook just
+# took on THIS machine, with stdin closed: three times its own control time
+# plus five seconds, and never less than eight. A hook that takes three times
+# its own measured runtime plus five seconds longer merely because stdin is
+# open is not a slow machine, it is a hook waiting on a read. The check scales
+# with the hardware instead of assuming it.
+#
+# HANG_CTRL_CEIL is the one absolute left, and it is deliberately NOT an
+# assertion: it exists only so the suite terminates if a hook wedges outright.
+# It is set far above any plausible honest runtime for that reason.
 # ===========================================================================
-HANG_CEIL="${HANG_CEIL:-14}"
+HANG_CTRL_CEIL="${HANG_CTRL_CEIL:-60}"
 
-# _run_arm <fd-source> <hook> [args...] -> 0 finished, 1 overran; sets ARM_SECS
+# _run_arm <ceil-seconds> <fd-source> <hook> [args...]
+#   0 finished, 1 overran. Sets ARM_SECS (label) and ARM_N (integer seconds).
 _run_arm() {
-    local src="$1" hook="$2"; shift 2
+    local ceil="$1" src="$2" hook="$3"; shift 3
     local start child n
     start=$(date +%s)
     (
@@ -419,18 +441,20 @@ _run_arm() {
     ) &
     child=$!
     n=0
-    while kill -0 "$child" 2>/dev/null && [ "$n" -lt "$HANG_CEIL" ]; do
+    while kill -0 "$child" 2>/dev/null && [ "$n" -lt "$ceil" ]; do
         sleep 1
         n=$((n + 1))
     done
     if kill -0 "$child" 2>/dev/null; then
         kill -9 "$child" 2>/dev/null
         wait "$child" 2>/dev/null
-        ARM_SECS="over-${HANG_CEIL}s"
+        ARM_N="$ceil"
+        ARM_SECS="over-${ceil}s"
         return 1
     fi
     wait "$child" 2>/dev/null
-    ARM_SECS="$(( $(date +%s) - start ))s"
+    ARM_N="$(( $(date +%s) - start ))"
+    ARM_SECS="${ARM_N}s"
     return 0
 }
 
@@ -441,32 +465,42 @@ _run_arm() {
 # Sets HANG_WHY for the caller's message.
 hang_check() {
     local hook="$1"; shift
-    local fifo holder ctrl_secs open_rc
+    local fifo holder ctrl_secs ctrl_n open_ceil open_rc
 
-    # --- control arm: stdin CLOSED. Establishes that the hook can finish at
-    # all, so an overrun in the second arm is attributable to stdin.
-    _run_arm /dev/null "$hook" "$@" || {
-        HANG_WHY="did not finish within ${HANG_CEIL}s even with stdin CLOSED (${ARM_SECS}) — slow or hanging for some reason OTHER than stdin"
+    # --- control arm: stdin CLOSED. Two jobs. It establishes that the hook can
+    # finish at all, so an overrun in the second arm is attributable to stdin —
+    # and it MEASURES this machine, so the second arm's ceiling is this hook's
+    # own speed rather than a number somebody typed.
+    _run_arm "$HANG_CTRL_CEIL" /dev/null "$hook" "$@" || {
+        HANG_WHY="did not finish within ${HANG_CTRL_CEIL}s even with stdin CLOSED (${ARM_SECS}) — slow or hanging for some reason OTHER than stdin"
         return 2
     }
     ctrl_secs="$ARM_SECS"
+    ctrl_n="$ARM_N"
+
+    # Three times its own control time, plus five seconds, floor of eight.
+    # The floor covers the bounded-read ceiling a well-behaved hook may now
+    # legitimately spend (RICHOS_HOOK_STDIN_TIMEOUT, 2s) on a hook whose
+    # control time rounds to zero.
+    open_ceil=$(( ctrl_n * 3 + 5 ))
+    [ "$open_ceil" -lt 8 ] && open_ceil=8
 
     # --- test arm: stdin OPEN and never closed.
     fifo="$SANDBOX/fifo.$$"
     rm -f "$fifo"; mkfifo "$fifo"
-    ( exec 3>"$fifo"; sleep $((HANG_CEIL + 10)) ) &
+    ( exec 3>"$fifo"; sleep $((open_ceil + 10)) ) &
     holder=$!
-    _run_arm "$fifo" "$hook" "$@"
+    _run_arm "$open_ceil" "$fifo" "$hook" "$@"
     open_rc=$?
     kill -9 "$holder" 2>/dev/null
     wait "$holder" 2>/dev/null
     rm -f "$fifo"
 
     if [ "$open_rc" -ne 0 ]; then
-        HANG_WHY="finished in $ctrl_secs with stdin CLOSED but did not finish within ${HANG_CEIL}s with stdin OPEN — it reads a stdin that may never close"
+        HANG_WHY="finished in $ctrl_secs with stdin CLOSED but did not finish within ${open_ceil}s (3x its own control time + 5) with stdin OPEN — it reads a stdin that may never close"
         return 1
     fi
-    HANG_WHY="closed=$ctrl_secs open=$ARM_SECS"
+    HANG_WHY="closed=$ctrl_secs open=$ARM_SECS ceiling=${open_ceil}s"
     return 0
 }
 
