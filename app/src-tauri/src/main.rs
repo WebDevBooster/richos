@@ -1294,6 +1294,36 @@ fn main() {
             };
             spine.set_turn_control(control.clone());
 
+            // WHAT HE ASKED FOR AND THIS BUILD COULD NOT READ, ON THE BOOT LINE.
+            //
+            // The same shape as the ledger's line above and for the same reason:
+            // `IntakeLog::open` prints the operator's account (one line per skipped record
+            // plus a summary), and this is the CEO's, in the sentences a surface would
+            // render — so a boot log and a screen say the same thing rather than two
+            // versions of it.
+            //
+            // IT IS A DIFFERENT STATEMENT FROM THE LEDGER'S, which is why it is a separate
+            // pair of lines rather than folded into `history_health`. The ledger's says part
+            // of the conversation on screen did not load. This one says something he TYPED
+            // while Rich was working never reached Rich at all — the intake log holds his
+            // words before they become turns, so a record lost here is a message that was
+            // never answered and never shown.
+            //
+            // NO NEW SURFACE IS BUILT HERE. There is no window notice for the intake log
+            // today; `TurnControl::intake_health()` is the seam one would read, and what
+            // the smallest honest surface is remains an open question rather than something
+            // invented in this change. Silent, however, it is no longer.
+            match control.intake_health() {
+                Some(h) if !h.is_clean() => {
+                    eprintln!("[richos] {}", h.headline);
+                    eprintln!("[richos] {}", h.detail);
+                }
+                // Clean, or detached — and those are different facts. A detached control has
+                // no file to read, which is not the same as a file with nothing wrong in it;
+                // the line above has already said why it is detached.
+                _ => {}
+            }
+
             // Apply any stop request that outlived the process. The window is one line
             // wide — request fsync'd, process dies, terminal event never written — and
             // without this the turn is `in_flight` forever and crash-replay would re-run

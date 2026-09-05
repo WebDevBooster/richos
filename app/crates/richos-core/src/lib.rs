@@ -30,6 +30,9 @@
 //!   - `staging`   — where a detected spoken correction LANDS: durable candidates and
 //!                   §7's three outcomes. The only path to a vocabulary write is a human
 //!                   answer; there is no threshold that reaches one.
+//!   - `skip`     — ONE vocabulary for a record on disk this build could not read,
+//!                   shared by the ledger and the intake log so they cannot drift apart
+//!                   about what is damage and what was written by a newer RichOS.
 //!   - `steering`  — the CEO's two mid-turn controls (UX §9.2/§9.3): the durable intake
 //!                   log and the cancel seam, both reachable WITHOUT the spine lock.
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
@@ -68,6 +71,7 @@ pub mod native;
 pub mod provision;
 pub mod reprime;
 pub mod setup;
+pub mod skip;
 pub mod spine;
 pub mod spoken;
 pub mod staging;
@@ -113,7 +117,8 @@ pub use loro::{
 pub use reprime::{LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest};
 pub use spine::{Spine, SpineError, WorkerEventsSource};
 pub use steering::{
-    ActiveTurn, IntakeLog, IntakeRecord, SteeringError, StopClaim, StopOutcome, TurnCancel, TurnControl,
+    ActiveTurn, IntakeHealth, IntakeLog, IntakeRecord, SteeringError, StopClaim, StopOutcome, TurnCancel,
+    TurnControl, KNOWN_INTAKE_TAGS,
 };
 pub use stream::{StreamEvent, TurnObserver};
 pub use timeline::{
