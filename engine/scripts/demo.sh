@@ -237,6 +237,15 @@ DEMO_FILES+=(
     # this sample repo has no reader for. Layer MT fails loudly when it is
     # absent, which is how a sample engine missing it stops passing Beat 7.
     "scripts/lib/model-tiers.sh"
+    # The named-person deny-list loader. guard-named-persons-commands.sh and
+    # guard-named-persons-writes.sh both REFUSE TO START without it, and both
+    # landed on 2026-09-05 with the scrub work while this list stood still —
+    # the third time in two days that the standing failure mode this block was
+    # written for has fired, and the second time it killed the whole demo
+    # during setup. The loader reads ~/.richos-privacy/named-persons, outside
+    # every repository by construction, so the sample repo carrying it exposes
+    # nothing: with no list present the guards start and admit everything.
+    "scripts/lib/named-persons.sh"
     # The model resolver — which model does this spawn boot on? On this list for
     # the HARD reason and the strongest version of it: guard-worktree-
     # isolation.sh REFUSES TO START without it (its truthful-name and
