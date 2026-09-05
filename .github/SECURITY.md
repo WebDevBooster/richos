@@ -32,7 +32,8 @@ Whatever you have. A short description of the problem beats a long one that
 waits for polish. If you can, include:
 
 - what an attacker gets, and what they need in order to get it;
-- the commit SHA you looked at, since there are no releases to name yet;
+- the version you looked at — a release tag such as `v1.0.2`, or the commit
+  SHA if you built from source;
 - the steps or the proof-of-concept, if you have one;
 - your operating system and how you built or installed RichOS.
 
@@ -60,12 +61,14 @@ it will be worked to rather than argued with.
 | Version | Supported |
 |---|---|
 | `main` | Yes |
-| Anything else | There is nothing else |
+| The newest release | Yes |
+| Any earlier release | No — nothing is backported |
 
-**RichOS has no releases and no tags.** Every build in existence was made from
-a checkout of `main` by the person running it. So the supported version is the
-commit you are on, and the fix for anything found is "update to current `main`".
-This table will grow a real row the day a first version is tagged.
+**Three releases exist — `v1.0.0`, `v1.0.1` and `v1.0.2`, all published on
+2026-09-04 — and there are no maintenance branches.** A fix lands on `main` and
+reaches everyone else in the next release, so the answer to "which version is
+safe" is always the newest one. This table grows a real support policy the day
+there is more than one line of development to support.
 
 ## Scope
 
