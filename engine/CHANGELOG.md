@@ -12,6 +12,104 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **The worktree inventory reported `reaped=11` for a run that removed
+  nothing** (`scripts/reap-stale-worktrees.sh`,
+  `scripts/reap-stale-worktrees.test.sh`,
+  `scripts/reap-stale-worktrees.mutation.sh`,
+  `scripts/lib/worktree-ledger.py`) — MINOR.
+
+  The CEO opened his IDE on 2026-09-04, found 17 `agent-*` directories under
+  `femcboost/.claude/worktrees/` and asked for "an automatic mechanism for
+  cleaning those things up". The mechanism was not missing. This session's own
+  start-up inventory ended `reaped=11 skipped=21 errors=0 residue=0` under a
+  `(DRY-RUN, nothing removed)` header — eleven removals in the past tense,
+  zero removals performed, and the parenthetical that said so sat where nobody
+  reads past a number.
+
+  **The answer taken, and it is the second of the two the row allowed:
+  DRY-RUN stays the default and the report stops lying.** Removal stopped
+  being this script's job on 2026-09-03 by CEO ruling — *"The system should
+  stop trying to discover whether the agent might return. It is forbidden to
+  return."* — after nine rounds of sweep-decided liveness failed in nine
+  shapes, the last by removing a live agent's worktree. Removal now belongs to
+  the worktree transaction and `reconcile-terminal-worktrees.py`, which works:
+  75 removed, measured 2026-09-05. Re-arming `--execute` at session start
+  would be a regression wearing a fix's clothes.
+
+  What that machine does not cover is a worktree NO transaction ever claimed,
+  and those are exactly the pile in his IDE. So:
+
+  - In DRY-RUN the summary reads `removed=0 would-remove=N`. `reaped=N`
+    appears only under `--execute`. Two counters, not one relabeled at print
+    time — one number cannot honestly answer both questions.
+  - `would-remove>0` is a **PENDING** verdict, never CLEAN, and the clause
+    names the single command that turns removal on, because "why is it
+    dry-run" deserves its answer at the point of use.
+  - The verdict now names **every** pending condition rather than the first it
+    meets. First-match-wins hid whichever sorted later, and the new one sorts
+    last.
+
+- **The reaper deleted worktrees on its own liveness answer, bypassing the
+  sanctioned remover** (`scripts/reap-stale-worktrees.sh`) — MINOR.
+
+  Under `--execute` it ran `git worktree remove` directly. That is a second
+  implementation of "is this agent dead" sitting beside
+  `scripts/lib/agent-liveness.sh`, which is how the first one silently becomes
+  the stale one — the exact defect `remove-agent-worktree.sh` documents in its
+  own header. Removal is now routed through that remover: the gates are a
+  FILTER, the remover is the AUTHORITY, and a refusal (its exit 3) is an ERROR
+  naming the disagreement rather than a routine skip. `--branch` is
+  deliberately not passed, so the loop keeps `git branch -d` (which refuses
+  unmerged commits) instead of the remover's `-D`.
+
+- **One directory, two repositories: the same worktree counted twice**
+  (`scripts/reap-stale-worktrees.sh`) — PATCH.
+
+  `/Users/alex/ab/richos-alex` is a copy of `richos`'s `.git` and registers
+  the same four worktree paths. Discovery found both, so `would-remove=11`
+  described SEVEN real directories, and under `--execute` the second
+  repository would have run `git worktree remove` on a path the first had
+  already deleted — a spurious error failing an otherwise clean run. The first
+  reap-eligible claimant now wins; later claimants are named
+  (`duplicate-registration`) and never acted on. Nine such rows on this
+  machine today.
+
+### Added
+
+- **Unmerged work is NAMED in the report, not merely counted**
+  (`scripts/reap-stale-worktrees.sh`) — PATCH.
+
+  `SKIP agent-a44e6817bce90ed1c unmerged(+1)` was the entire report on a
+  worktree whose one commit is *"BLOCKED.md: the 'parked until' fixture
+  dispatched an Agent, so the arm-2 rule as specified reads it green"* — a
+  teammate's escalation, written exactly as the protocol of the day told it
+  to, committed on a branch nobody merged. A second one sits beside it. Both
+  are still there. The gate was always right — unmerged work is never swept —
+  and the report was useless, which is why nobody looked. Every `unmerged`
+  skip now carries up to three commit subjects.
+
+- **A cross-repository SHELL is labeled `native-shell`, and labeling is all it
+  is** (`scripts/reap-stale-worktrees.sh`, `scripts/lib/worktree-ledger.py`
+  `shells`) — PATCH.
+
+  The row that requested this work described a cross-repo spawn's native
+  worktree as "a worktree it will never use". That is false in the fatal
+  direction: it holds no files and one thing that matters — the
+  platform-owned LOCK that `agent-liveness.sh` reads. A hand-rolled tree takes
+  no lock at all, which is why `guard-worktree-isolation.sh` refuses a
+  cwd-only spawn for having "no platform-owned lifecycle witness". Remove a
+  shell whose agent is running and the only evidence that it is running is
+  gone. So `native-shell` is printed and counted (`shells=N`) and wired to
+  nothing that decides; a native worktree with no registration is reported as
+  plain `native` and the count of those is DECLARED in `blind:`, because
+  absence from the shell list is not evidence of anything.
+
+- **`scripts/reap-stale-worktrees.mutation.sh`** — PATCH. Four properties
+  proven load-bearing behind an unmutated control run, at a measured cost of
+  ~6.5 minutes for the suite plus its harness. The two properties deliberately
+  NOT mutated, and why, are named in that file's header rather than left to be
+  noticed.
+
 - **An ack is no longer destroyed by the cleanup that follows every teammate**
   (`scripts/inflight-ack.sh`, `scripts/lib/inflight.{py,sh}`,
   `scripts/inflight-notify.sh`, `reference/ack-protocol-seam.md`,
