@@ -449,6 +449,18 @@ ALL_ROOT_SCRIPTS=(
     # `cd <repo> && git commit` — the form a worktree-isolated agent types by
     # default. SC1 below is what stops this list falling behind it.
     scripts/lib/git-jurisdiction.sh
+    # The NAMED-PERSON predicate, both halves plus the operator/release front
+    # end. On this list for the FIRST reason: guard-named-persons-writes.sh and
+    # guard-named-persons-commands.sh both REFUSE TO START without
+    # scripts/lib/named-persons.sh, by exiting 2 — which SC1 caught the moment
+    # they were registered, and is why they are here rather than discovered
+    # later. The front end is carried because the release chokepoint in
+    # app/scripts/make-release.sh names it and DIES when it is absent, so a
+    # sandbox with the guards and no front end models an engine whose last line
+    # of defense refuses every release.
+    scripts/lib/named-persons.sh
+    scripts/lib/named-persons.py
+    scripts/named-persons.sh
     # The VENDORED-MATERIAL reader — whose work is this? On this list for the
     # FIRST reason twice over: guard-vendoring-commits.sh REFUSES TO START
     # without it, and so does guard-dialect.sh, which is the more interesting
