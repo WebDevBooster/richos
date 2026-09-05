@@ -104,9 +104,23 @@ registered exactly once on the right event, BR4 green, `engine-status.test.sh` 1
 Layer R's byte-identical root-resolution bootstrap holds in both new hooks, checked with Layer
 R's own extraction and normalization.
 
-## What is NOT done here, and is Rich's at the land
+## What is NOT done here, and is Rich's at the land — IN THIS ORDER
 
-`scripts/install-escalation-protocol.sh --repo /Users/alex/ab/femcboost` — the write into the
-teammate definitions. Verified read-only with `--check`: **26 seams across 25 files**, dean.md
-carrying two. Until it is run, every teammate still boots with the instruction to write
-`BLOCKED.md`, and the channel is built but unused.
+The order is load-bearing, not a preference.
+
+1. **Merge this branch into `richos` main.** The teammate-facing path in the doctrine is
+   `~/.claude/richos-engine/scripts/escalate.sh`, and that pointer resolves to
+   `/Users/alex/ab/richos/engine` — the main checkout, not this branch. Until the merge, the
+   command the definitions would name does not exist on disk.
+
+2. **Then** `scripts/install-escalation-protocol.sh --repo /Users/alex/ab/femcboost` — the
+   write into the teammate definitions. Verified read-only with `--check`: **26 seams across
+   25 files**, dean.md carrying two (its own copy and the definition template every new hire
+   is built from). Until it is run, every teammate still boots with the instruction to write
+   `BLOCKED.md`, and the channel is built but unused. Doing it BEFORE step 1 would install a
+   doctrine naming a script that is not there yet.
+
+3. **A fresh session.** Hooks are snapshotted at session start, so both halves are INERT in
+   the session that lands them. Neither assumes otherwise.
+
+Until all three, the honest status is: the channel exists, is tested, and nothing is using it.
