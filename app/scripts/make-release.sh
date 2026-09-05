@@ -198,7 +198,40 @@ plan() {
 }
 
 # ---------------------------------------------------------------------------------------
+# names_gate — NOBODY'S NAME LEAVES THIS MACHINE INSIDE AN ARTIFACT.
+#
+# A third party found his own name in this repository hours after it went public, and told
+# the owner. Nothing in the toolchain had looked for it: the secret scanner looks for
+# CREDENTIALS, and a name is not a secret. The engine's write-time and command-time guards
+# close that for anything authored or committed HERE — but they cannot see a file that
+# arrived by cp, a generator's output, a title typed into github.com, or anything committed
+# before those guards existed.
+#
+# So the tree is checked again at the one point where the cost stops being recoverable. A
+# name in a commit can be scrubbed at HEAD; a name in a signed, notarized, downloaded binary
+# is on a stranger's disk and stays there.
+#
+# It runs before ANY artifact is built, and it refuses on a MISSING list as loudly as on a
+# hit. That asymmetry with the write-time guards is deliberate and it is the whole design:
+# a stranger who clones this repository has no roster of the owner's clients and friends and
+# must not be blocked by its absence, but a release happens on the owner's machine, where
+# "there is no list" and "there are no names" are two entirely different facts.
+names_gate() {
+  local checker="$repo_root/engine/scripts/named-persons.sh"
+  if [ ! -x "$checker" ]; then
+    die "the named-person check is missing at $checker.
+  It is the last thing standing between a private individual's name and a published
+  binary, and a release that cannot run it is a release that does not know what it
+  is shipping. Refusing." 2
+  fi
+  say "checking the tree for names on the deny-list..."
+  bash "$checker" --tree --repo "$repo_root" || exit $?
+  say ""
+}
+
+# ---------------------------------------------------------------------------------------
 cmd_engine() {
+  names_gate
   mkdir -p "$OUT" || die "cannot create $OUT"
   say "building the engine asset for $TAG, and proving it is reproducible..."
   say ""
@@ -295,6 +328,11 @@ cmd_verify_engine() {
 
 # ---------------------------------------------------------------------------------------
 cmd_app() {
+  # Run again, and not out of belt-and-braces: `engine` and `app` are separate invocations
+  # with an upload and a network verification between them, and the tree can move in that
+  # window. A gate that runs once, at the start of a chain that spans hours, is a gate that
+  # attests to a tree nobody is still building.
+  names_gate
   [ -f "$PIN_FILE" ] || die "no pin at $PIN_FILE — run \`make-release.sh engine --tag $TAG\` first"
   [ -f "$RECEIPT" ] || die "no receipt at $RECEIPT.
   The engine asset has not been read back from its published URL, so the digest about to

@@ -169,6 +169,11 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-named-persons-writes.sh",
+            "timeout": 15
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-dialect.sh",
             "timeout": 10
           }
@@ -220,6 +225,11 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-publication-commits.sh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-named-persons-commands.sh",
             "timeout": 20
           },
           {

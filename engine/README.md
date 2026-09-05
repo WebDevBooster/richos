@@ -210,6 +210,7 @@ left out. What ships here is only what transfers to any project:
 |---|---|---|
 | Mechanical hooks | `scripts/hooks/` | Worktree-isolation guard (incl. structural no-name-reuse), resume-isolation guard, definition-drift guard pair, worktree reaper on SessionStart and on agent-finish, spawn-content verifier, reader/creator hints, secrets scanner, durable idle/task handoff loggers, contract-integrity probe + self-test suites, `install.sh` generator |
 | Resume-isolation guard | `scripts/hooks/guard-resume-isolation.sh` | Blocks a `SendMessage` that would RESUME a completed/removed teammate (the spawn-side guard never fires on a resume) — a file-bearing follow-up must spawn fresh in a new isolated worktree; a `resume-ack:` line is the audited escape hatch for a safe pure-question resume. Pairs with the spawn guard's structural no-name-reuse to kill live-vs-ghost ambiguity |
+| Named-person deny-list | `scripts/hooks/guard-named-persons-writes.sh`, `scripts/hooks/guard-named-persons-commands.sh`, `scripts/named-persons.sh` | Refuses a private individual's NAME entering a repository that publishes — in file content, in a destination path, in a commit message, in a branch name, in a PR/issue/release title, and at release. A name is not a secret and never trips the scanner above. The list lives OUTSIDE every repository (`~/.richos-privacy/named-persons`) and a missing list is announced loudly rather than read as "nothing to check" |
 | Secrets scanner | `scripts/hooks/scan-secrets.sh` | Blocks a Write/Edit/MultiEdit/NotebookEdit whose content looks like a live secret (AWS/GitHub/Anthropic/OpenAI/Stripe key patterns, PEM private keys, high-entropy assignment literals for `password`, `api_key`, `secret` and `token`) — closes the "will these AI workers leak my keys" objection structurally, not by promise. Config-driven allowlist so placeholders (e.g. `re_xxxxxxxxx`) never false-positive |
 | Dialect guard | `scripts/hooks/guard-dialect.sh` + `scripts/lib/dialect-en-US.dict` | Blocks a Write/Edit/MultiEdit/NotebookEdit that introduces a word outside the repository's declared dialect. Built because a rule with no write-time chokepoint decays on a measurable schedule: a 654-site cleanup pass on 2026-08-30 was partly undone **within hours**, into the very page that carries the ruling, because the pass cleaned what existed and constrained nothing that came after. The vocabulary is DATA, in one file, hashed by `install.sh` and verified by probe **Layer T** — a hash-matched guard over an emptied word list is a green tick over an enforcement outage. **The exemptions are the product:** fenced code, inline code spans, blockquotes (quoted external material is never "corrected"), URLs and paths, code identifiers (`\b` boundaries make camelCase/snake_case free; kebab, `--custom-props` and dotted paths are handled explicitly), captured evidence by path segment (`raw/`, `cold-open/`, `transcripts/`, `fixtures/`, `corpora/`, `snapshots/`, `logs/`), vendor `LICENSE`/`NOTICE`, lockfiles, per-word file-type exemptions (`grey` is a legal CSS color), a config allowlist, and a per-line `dialect-exempt: <reason>` — declared where a reviewer sees it, and a bare marker exempts nothing. **`queue` gets its own rule and it is not a spelling:** `CEO queue` is BLOCKED (it is a name, and the CEO's list is CEO-TODOs), the hyphenated `.ceo-queue` legacy file name is untouched, rename narration is exempt, and the genuinely ambiguous `the queue`/`his queue` is REPORTED and never blocked — precision it cannot prove, it does not claim. Blank `DIALECT_TARGET` = silent no-op; a dialect with no shipped dictionary = announced no-op, never pretend enforcement |
 | Definition-drift guard pair | `scripts/hooks/snapshot-agent-definitions.sh` (SessionStart) + `scripts/hooks/guard-definition-drift.sh` (PreToolUse[Agent]) | Teammate definitions in `.claude/agents/*.md` load ONCE, at session start — exactly like hooks — so a definition installed or updated mid-session never reaches a newly spawned worker's BOOTED prompt, silently. The snapshotter records every definition's sha256 at session start; the guard BLOCKS a spawn whose definition changed since, naming both hashes and the two sanctioned paths (restart into a fresh session, or a live `definition-drift-ack: <current sha256>` line plus an explicit order to read the on-disk definition). Blocks only on PROVEN drift — no snapshot means no evidence, so it warns rather than halting the team |
@@ -736,6 +737,36 @@ is where it catches files that tools generated and no Write ever touched) refuse
 private material entering a published tree. They decide on CONTENT, not on file
 extension: the incident that produced them was 137 files of recorded speech that
 passed a "no media committed" check three times because the payload was text.
+
+**Half one and a half — whose NAME is in this?** A name is not a secret. It has
+no vendor prefix and the entropy of a person's name is the entropy of ordinary
+prose, so it never trips `scan-secrets.sh`; it is nobody's recorded speech, so it
+never trips the two guards above. On 2026-09-04 a third party found his own name
+in this repository hours after it went public, in the source filename of a
+recording named inside a test fixture's script — and he found it himself, because
+nothing here was looking.
+
+**`guard-named-persons-writes.sh`** (content AND destination path — the leak was a
+filename) and **`guard-named-persons-commands.sh`** (commit message, branch name,
+PR/issue/release title — the three surfaces the original scrub missed, one of
+which it made *worse* by putting the same name in the commit message that removed
+it from the file) refuse a listed name entering a published tree.
+`scripts/named-persons.sh --tree` is the release-time backstop, and
+`app/scripts/make-release.sh` runs it before it builds anything.
+
+**The list itself is NOT in any repository.** A roster of your clients, friends
+and family is worse to publish than any one name on it, so it lives at
+`~/.richos-privacy/named-persons`, operator scope, and the loader REFUSES a list
+that resolves inside a git work tree. **A missing list is announced, never
+assumed away** — the write-time guards say so loudly, by name, once per repository
+per session, and let the write through, because a stranger who clones your
+repository has no such list and must not be blocked by its absence; the release
+check refuses. Entries can be plaintext or `sha256:<n>:<hex>`, so a digest-only
+list discloses a token count and nothing else. A `name:` entry must be two or more
+tokens and matches only where they are adjacent — a bare given name cannot be
+entered at all, because a deny-list that blocks ordinary prose is a deny-list
+somebody switches off. Start with `scripts/named-persons.sh --doctor` and
+`--mint "Firstname Lastname"`.
 
 **Half two — is everything that must be there, there?** A leak guard is blind to
 the opposite failure: the public tree claiming a capability it does not deliver.

@@ -321,6 +321,17 @@ HOOK_FILES+=(
     # on this list.
     "$REPO_ROOT/scripts/lib/publication-boundary.sh"
     "$REPO_ROOT/scripts/lib/publication-boundary.py"
+    # The named-person predicate, in both its halves. Same argument once more,
+    # and this pair guards a different class of harm: TWO registered guards
+    # (guard-named-persons-writes.sh, guard-named-persons-commands.sh) and the
+    # release chokepoint delegate their entire decision to these two files, and
+    # the thing they refuse is a private individual's NAME reaching a public
+    # repository. A tampered copy would leave both guards wired, hashed,
+    # executable and matching nothing — and a deny-list that matches nothing is
+    # indistinguishable from a clean tree at every place anybody looks. Check
+    # the lock, ignore the key.
+    "$REPO_ROOT/scripts/lib/named-persons.sh"
+    "$REPO_ROOT/scripts/lib/named-persons.py"
     # The declaration RESOLVER. Not a hook, and the newest instance of the same
     # sentence: it is the only code that answers "does this repository declare
     # X, and which file is it?", and THREE contracts take that answer whole —
