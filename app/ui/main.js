@@ -2277,10 +2277,27 @@ Bridge.listen("rich://turn-completed", () => {
   Bridge.invoke("voice_speak_end").catch(() => {});
   Bridge.invoke("voice_turn_ended").catch(() => {});
 });
-Bridge.listen("rich://turn-error", () => {
+// A TURN THAT DIED SAYS SO OUT LOUD (open-items row 3.30, answer 1).
+//
+// WAS: `voice_speak_end` + `voice_turn_ended`, the same pair `turn-completed` uses above.
+// `speak_end` FLUSHES the sentence chunker's tail, and on a turn that died mid-sentence the
+// tail is half a sentence that will never be completed — so Rich spoke half a sentence,
+// trailed off, and said nothing else. In voice mode the CEO is listening rather than
+// reading, and trailing off is exactly what a person does while thinking, so he waits for
+// the rest of an answer that is not coming. That is the row's own words: "the CEO is
+// speaking to a system that has stopped listening and does not know it."
+//
+// `voice_turn_cut_off` drops the fragment, SPEAKS the cut-off notice, and ends the turn —
+// all three, in that order (`richos_voice::controller::CutOffDesk`). It replaces BOTH calls
+// rather than joining them: `turn_ended` is inside it, because a caller who could forget the
+// second half is a caller who will.
+//
+// `payload.reason` is relayed as it stands. For an upstream failure it is the sentence
+// `richos-core`'s `upstream.rs` authored; for anything else it is whatever the backend said.
+// Nothing here parses it — one classifier owns that decision and it is not this file.
+Bridge.listen("rich://turn-error", ({ payload }) => {
   if (!voiceMode) return;
-  Bridge.invoke("voice_speak_end").catch(() => {});
-  Bridge.invoke("voice_turn_ended").catch(() => {});
+  Bridge.invoke("voice_turn_cut_off", { reason: (payload && payload.reason) || null }).catch(() => {});
 });
 
 // ---------------------------------------------------------------------------------------

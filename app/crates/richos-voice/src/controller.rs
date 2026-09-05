@@ -494,6 +494,28 @@ pub enum VoiceNotice {
     /// first refusal says it, consecutive refusals are stderr only, and the latch clears the
     /// moment an utterance is admitted — because that proves the input recovered.
     HeardNoVoice,
+    /// **RICH WAS CUT OFF MID-ANSWER AND STOPPED, and until 2026-09-05 nothing said so.**
+    ///
+    /// `open-items.md` row 3.30: *"A voice turn cut mid-sentence needs to say so audibly,
+    /// not fail silent. The CEO is speaking to a system that has stopped listening and does
+    /// not know it."*
+    ///
+    /// **The failure is precise, and it is worse than silence.** On `rich://turn-error` the
+    /// shell called `voice_speak_end`, which FLUSHES the chunker's tail — so a turn that
+    /// died mid-sentence spoke its half-sentence aloud, trailed off, and then said nothing
+    /// at all. The CEO hears Rich stop in the middle of a word and has no way to tell that
+    /// from thinking.
+    ///
+    /// **It is the only notice in this enum that is SPOKEN as well as shown**, and that is
+    /// the whole requirement rather than a flourish: in voice mode his eyes are not on the
+    /// panel. `SoundButNoWords` and `HeardNoVoice` both describe the microphone, which he
+    /// discovers by the app not answering; this one describes the ANSWER, which he is in
+    /// the middle of listening to.
+    ///
+    /// **It names no control and offers no retry**, for the reason the other two give: the
+    /// affordance for asking again is the open microphone, there is no button to point at,
+    /// and an imperative with no control is a request wearing a status's clothes.
+    ReplyCutOff,
 }
 
 impl VoiceNotice {
@@ -527,7 +549,80 @@ impl VoiceNotice {
                 "That didn't come through as speech, so I haven't sent anything. I'm still \
                  listening."
             }
+            // IT SAYS THE ANSWER STOPPED, not that "something went wrong". The CEO is
+            // listening, not reading, and the fact he needs first is that what he heard is
+            // all there is — otherwise he waits for a sentence that is never coming.
+            //
+            // IT ENDS WITH A STATUS, like the two above: the microphone is still open, and
+            // saying so is what tells him he can simply ask again. The REASON is a separate
+            // sentence supplied by the caller, because voice does not know a 529 from a
+            // broken pipe and inventing a cause here would be worse than naming none.
+            VoiceNotice::ReplyCutOff => {
+                "I was cut off partway through that answer, so what you heard is all I got \
+                 out. I'm still listening."
+            }
         }
+    }
+}
+
+/// **WHAT VOICE MODE DOES WHEN THE ANSWER IT IS SPEAKING DIES** — row 3.30's first answer.
+///
+/// A struct, not three lines inside [`VoiceController::turn_cut_off`], for exactly the
+/// reason [`RecognizerDesk`] is one: the thing that has to be provable here is not *what*
+/// is said but *where it goes*. The defect is that the notice reaches the panel and not the
+/// speaker, and a test that only inspected a `VoiceEvent` would pass over it forever. So
+/// `handle` takes the SPEAK sink as a parameter and `controller::tests` asserts the sentence
+/// arrived in both.
+///
+/// ## THE ORDER IS THE DESIGN, AND IT IS NOT INTERCHANGEABLE
+///
+/// 1. **Drop the dangling fragment.** The chunker holds whatever arrived after the last
+///    sentence boundary — half a sentence that will never be completed, because the lease
+///    that was writing it is gone. Until 2026-09-05 the shell called `voice_speak_end` here,
+///    which FLUSHES that fragment: Rich spoke half a sentence aloud, trailed off, and said
+///    nothing else. That is worse than silence, because trailing off is what a person does
+///    while thinking.
+/// 2. **Then say the notice**, appended AFTER whatever is already queued rather than
+///    replacing it. The sentences Rich already completed are real answer and the CEO is
+///    entitled to hear them finish; the generation counter is deliberately NOT bumped and
+///    playout is deliberately NOT stopped. Silencing them in order to announce a cut-off
+///    would destroy the thing being announced.
+/// 3. **Then the reason, if the caller has one.** Voice cannot tell a `529` from a broken
+///    pipe and does not try: `richos-core`'s `upstream.rs` classifies, and whatever sentence
+///    it authored is spoken after this one. A `None` reason costs nothing — the notice
+///    already carries the fact that matters.
+///
+/// It is latched per turn by the caller holding it, so a turn that produces two terminal
+/// events cannot say this twice.
+pub struct CutOffDesk;
+
+impl CutOffDesk {
+    /// Announce one cut-off. `speak` queues a sentence for the speaker thread; `observer`
+    /// gets the same words for the panel.
+    ///
+    /// **Both, always, and neither is optional.** The panel alone is the defect this exists
+    /// to end — in voice mode his eyes are not on it. The speaker alone would leave nothing
+    /// on screen for him to read back afterwards, and the screen is where the REASON is
+    /// legible (a request id is unspeakable).
+    pub fn handle<S>(reason: Option<&str>, observer: &dyn VoiceObserver, mut speak: S)
+    where
+        S: FnMut(&str),
+    {
+        let notice = VoiceNotice::ReplyCutOff.ceo_message();
+        speak(notice);
+        // The reason is SPOKEN too, after the notice, when there is one. It is one sentence
+        // of plain English authored by `upstream.rs` for exactly this purpose; the operator
+        // detail (request ids, HTTP statuses) never travels on this path, because a spoken
+        // `req_011Cegb417YK6i1BEVDFmzU1` is noise with a syllable count.
+        if let Some(r) = reason.map(str::trim).filter(|r| !r.is_empty()) {
+            speak(r);
+        }
+        // The panel gets the whole statement in one line, because a screen reads at once.
+        let shown = match reason.map(str::trim).filter(|r| !r.is_empty()) {
+            Some(r) => format!("{notice} {r}"),
+            None => notice.to_string(),
+        };
+        observer.on_voice_event(&VoiceEvent::Error { message: shown, at: now_millis() });
     }
 }
 
@@ -905,6 +1000,40 @@ impl VoiceController {
         }
     }
 
+    /// **The turn DIED. Say so out loud** (row 3.30, answer 1).
+    ///
+    /// The counterpart to [`VoiceController::speak_end`], and it must never be that
+    /// function: `speak_end` FLUSHES the chunker's tail, so calling it on a turn that died
+    /// mid-sentence speaks the half-sentence and then falls silent. This drops the fragment
+    /// and speaks [`VoiceNotice::ReplyCutOff`] instead.
+    ///
+    /// `reason` is one plain sentence from whoever knows why — `richos-core`'s
+    /// `upstream::UpstreamFault::ceo_message` for a `529` or a `429`. `None` is fine and
+    /// common; voice never invents one.
+    ///
+    /// **Nothing already queued is stopped.** The generation counter is not bumped and
+    /// `playout.stop_now()` is not called, so completed sentences finish and the notice
+    /// follows them. See [`CutOffDesk`] for why that order is the design.
+    pub fn turn_cut_off(&self, reason: Option<&str>, observer: &dyn VoiceObserver) {
+        // 1. The fragment that will never be finished.
+        if let Ok(mut c) = self.chunker.lock() {
+            c.reset();
+        }
+        // 2. and 3. — the decision itself, in the unit-tested desk.
+        let generation = self.shared.generation.load(Ordering::Relaxed);
+        let tx = self.speak_tx.clone();
+        CutOffDesk::handle(reason, observer, |text| {
+            if let Some(tx) = &tx {
+                let _ = tx.send(SpeakMsg { generation, text: text.to_string() });
+            }
+        });
+        // 4. The state machine last: the turn is over whatever the speaker does with the
+        //    sentences, and `turn_ended` is what puts the panel back to listening.
+        if let Ok(mut m) = self.machine.lock() {
+            m.turn_ended();
+        }
+    }
+
     /// `rich://turn-started` — Rich has the turn.
     pub fn turn_started(&self) {
         if let Ok(mut m) = self.machine.lock() {
@@ -1263,6 +1392,122 @@ mod tests {
         assert!(!b.contains('/') && !b.contains("dBFS"), "machinery leaked to the CEO: {b}");
     }
 
+
+    // =====================================================================================
+    // ROW 3.30, ANSWER 1 — A VOICE TURN CUT MID-SENTENCE SAYS SO AUDIBLY
+    // =====================================================================================
+
+    /// **THE TEST THIS ROW EXISTS FOR.** The notice reaches the SPEAKER, not only the panel.
+    ///
+    /// In voice mode the CEO's eyes are not on the screen — that is what voice mode is. A
+    /// notice that only raises a `VoiceEvent` leaves him listening to silence and deciding
+    /// for himself whether Rich is thinking or gone, which is the failure the row describes
+    /// in its own words: *"the CEO is speaking to a system that has stopped listening and
+    /// does not know it."*
+    ///
+    /// The speak sink is a parameter precisely so this can be asserted. A test over
+    /// `VoiceEvent` alone would stay green through the entire defect.
+    #[test]
+    fn a_cut_off_answer_is_spoken_aloud_and_not_only_shown() {
+        let rec = Recorder::default();
+        let spoken = Mutex::new(Vec::<String>::new());
+        CutOffDesk::handle(None, &rec, |t| spoken.lock().unwrap().push(t.to_string()));
+
+        let said = spoken.into_inner().unwrap();
+        assert_eq!(
+            said,
+            vec![VoiceNotice::ReplyCutOff.ceo_message().to_string()],
+            "the sentence has to be QUEUED FOR THE SPEAKER, not merely raised as an event"
+        );
+        assert_eq!(messages(&rec), vec![VoiceNotice::ReplyCutOff.ceo_message().to_string()]);
+    }
+
+    /// INVARIANT: the reason is spoken as its OWN sentence after the notice, and the panel
+    /// gets both in one line.
+    ///
+    /// Two sinks, two shapes, on purpose: the ear takes sentences one at a time and the eye
+    /// takes a paragraph at once.
+    #[test]
+    fn the_reason_is_spoken_after_the_notice_and_shown_beside_it() {
+        let rec = Recorder::default();
+        let spoken = Mutex::new(Vec::<String>::new());
+        // The exact sentence `richos-core`'s `UpstreamFault::Overloaded.ceo_message()`
+        // authors. Voice does not know where it came from and does not parse it.
+        let reason = "Anthropic's servers are at capacity, so that request never reached \
+                      Claude. This one ends when their capacity frees up, and nothing on this \
+                      machine brings it back sooner.";
+        CutOffDesk::handle(Some(reason), &rec, |t| spoken.lock().unwrap().push(t.to_string()));
+
+        let said = spoken.into_inner().unwrap();
+        assert_eq!(said.len(), 2, "notice first, reason second: {said:?}");
+        assert_eq!(said[0], VoiceNotice::ReplyCutOff.ceo_message());
+        assert_eq!(said[1], reason);
+
+        let shown = messages(&rec);
+        assert_eq!(shown.len(), 1, "the panel gets ONE line");
+        assert!(shown[0].starts_with(VoiceNotice::ReplyCutOff.ceo_message()));
+        assert!(shown[0].contains("at capacity"));
+    }
+
+    /// POSITIVE CONTROL for the reason path: an ABSENT or blank reason produces exactly one
+    /// spoken sentence and no empty utterance.
+    ///
+    /// Without this, `speak("")` would hand the synthesizer nothing and the CEO would hear a
+    /// pause where a sentence should be — a silent failure inside the fix for a silent
+    /// failure.
+    #[test]
+    fn a_missing_or_blank_reason_never_becomes_an_empty_utterance() {
+        for reason in [None, Some(""), Some("   "), Some("\n")] {
+            let rec = Recorder::default();
+            let spoken = Mutex::new(Vec::<String>::new());
+            CutOffDesk::handle(reason, &rec, |t| spoken.lock().unwrap().push(t.to_string()));
+            let said = spoken.into_inner().unwrap();
+            assert_eq!(said.len(), 1, "reason {reason:?} produced {said:?}");
+            assert!(!said[0].trim().is_empty());
+            assert_eq!(messages(&rec).len(), 1);
+        }
+    }
+
+    /// INVARIANT: the cut-off notice is its own sentence, different from every other voice
+    /// notice, and it carries no machinery.
+    ///
+    /// The three notices answer three different questions — "I got no words out of your
+    /// audio", "nothing was sent", "the answer stopped". One shared line would tell him the
+    /// wrong thing in two of the three cases.
+    #[test]
+    fn the_cut_off_notice_is_its_own_sentence_and_carries_no_machinery() {
+        let cut = VoiceNotice::ReplyCutOff.ceo_message();
+        for other in [VoiceNotice::SoundButNoWords.ceo_message(), VoiceNotice::HeardNoVoice.ceo_message()] {
+            assert_ne!(cut, other);
+        }
+        // It states the CONSEQUENCE — what he heard is all there is — because the alternative
+        // leaves him waiting for a sentence that is never coming.
+        assert!(cut.contains("all I got out"), "the consequence is stated: {cut}");
+        // And it ends on a status rather than an instruction, like the other two: the
+        // affordance for asking again is the open microphone and there is no button.
+        assert!(cut.contains("still listening"), "it ends with a status: {cut}");
+        assert!(!cut.contains('/') && !cut.contains("dBFS"), "machinery leaked to the CEO: {cut}");
+        assert!(!cut.contains("529") && !cut.contains("req_"), "operator detail is unspeakable: {cut}");
+    }
+
+    /// INVARIANT: an operator-shaped reason is spoken as it stands and NOT rewritten — but
+    /// nothing in the product ever hands one here, and this test says which is which.
+    ///
+    /// `CutOffDesk` deliberately does not sanitize: a filter would be a second opinion about
+    /// what is CEO-facing, and `upstream.rs` already owns that decision (its `summary()` is
+    /// the operator's line and its `ceo_message()` is his). The guard that matters is on the
+    /// CALLER, and it is asserted in `richos-core`'s own suites — `UpstreamRecord` keeps the
+    /// request id in a field that the CEO view redacts, and `finish_upstream_failure` never
+    /// puts `summary()` on a CEO path.
+    #[test]
+    fn the_desk_relays_the_reason_verbatim_and_owns_no_opinion_about_it() {
+        let rec = Recorder::default();
+        let spoken = Mutex::new(Vec::<String>::new());
+        CutOffDesk::handle(Some("a sentence with EXACT wording"), &rec, |t| {
+            spoken.lock().unwrap().push(t.to_string())
+        });
+        assert_eq!(spoken.into_inner().unwrap()[1], "a sentence with EXACT wording");
+    }
 
     #[derive(Default)]
     struct Recorder {

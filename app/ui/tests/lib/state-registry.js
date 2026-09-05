@@ -1901,6 +1901,29 @@ module.exports = [
       "always gone on this failure class and implying otherwise is the defect the row names.",
   },
 
+  {
+    s:
+      "I was cut off partway through that answer, so what you heard is all I got out. " +
+      "I'm still listening.",
+    c: "INFORMATIONAL",
+    why:
+      "`VoiceNotice::ReplyCutOff`, added 2026-09-05 for open-items row 3.30. THE ONLY " +
+      "NOTICE IN THIS REGISTRY THAT IS SPOKEN ALOUD AS WELL AS SHOWN, and that is the " +
+      "requirement rather than a flourish: in voice mode the CEO's eyes are not on the " +
+      "panel. What it replaces was worse than silence — on `rich://turn-error` the shell " +
+      "called `voice_speak_end`, which FLUSHES the sentence chunker's tail, so a turn that " +
+      "died mid-sentence spoke half a sentence aloud, trailed off, and said nothing " +
+      "further. Trailing off is exactly what a person does while thinking, so he waited " +
+      "for the rest of an answer that was never coming. " +
+      "Two things are load-bearing in the wording. It states the CONSEQUENCE — what he " +
+      "heard is all there is — because the alternative leaves the question open. And it " +
+      "ends with a status rather than 'ask me again': the affordance for asking again is " +
+      "the open microphone, there is no button to point at, and an imperative with no " +
+      "control is a request wearing a status's clothes — the same reason `SoundButNoWords` " +
+      "ends with \"Voice is still on.\" INFORMATIONAL for that reason and not because " +
+      "nothing happened. The REASON (a 529, a 429) is a separate sentence supplied by " +
+      "`richos-core`'s `upstream.rs` and classified above; voice never invents one.",
+  },
   // -------------------------------------------------------------------------------------
   // REACHABILITY (`crates/richos-core/src/reachability.rs`, row 3.30, 2026-09-05)
   //

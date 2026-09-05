@@ -726,14 +726,14 @@ Two limits, stated rather than discovered later:
 cargo test -p richos-core                       # 816 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 191 tests
-#     …of which 187 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
+cargo test -p richos-voice                      # 196 tests
+#     …of which 192 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
 #     reason. Those four open a real output device and one is audible for about a second, so
 #     they are opt-in. Until 2026-09-05 they opted out with an early `return` — and a test
 #     that returns is reported `ok`, so they were four green lines asserting nothing on every
 #     machine but the CEO's and on every CI run. `crates/richos-voice/build.rs` turns the
 #     variable below into `cfg(live_audio)` so the default run says `ignored` instead.
-RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 191 run, incl. the audible ones
+RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 196 run, incl. the audible ones
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 
 # 2. The desktop shell (from app/src-tauri/):

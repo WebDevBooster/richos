@@ -1641,6 +1641,8 @@ fn main() {
             voice_turn_ended,
             voice_barge_in,
             voice_diagnostics,
+            // --- row 3.30 (2026-09-05) — appended, never reordered ---
+            voice_turn_cut_off,
             // --- spoken corrections (2026-08-30) — appended, never reordered ---
             spoken_corrections_available,
             spoken_pending_corrections,
@@ -2052,6 +2054,36 @@ fn voice_turn_ended(app: AppHandle) {
         if let Ok(slot) = handle.controller.lock() {
             if let Some(ctl) = slot.as_ref() {
                 ctl.turn_ended();
+            }
+        }
+    }
+}
+
+/// **`rich://turn-error` WHILE VOICE MODE IS ON — say it out loud** (`open-items.md` row
+/// 3.30, answer 1).
+///
+/// **This replaces `voice_speak_end` on the error path, and that is the whole fix.**
+/// `speak_end` FLUSHES the sentence chunker's tail. On a turn that died mid-sentence the
+/// tail is half a sentence that will never be completed, so the shipping behavior was: Rich
+/// speaks half a sentence aloud, trails off, and says nothing further. In voice mode the
+/// CEO's eyes are not on the screen — trailing off is exactly what a person does while
+/// thinking, so he waits for the rest of an answer that is not coming.
+///
+/// `reason` is the `reason` field of the `rich://turn-error` payload, which for an upstream
+/// failure is the sentence `richos-core`'s `upstream.rs` authored (`UpstreamFault::
+/// ceo_message` plus the loss statement). It is relayed VERBATIM and never parsed here:
+/// richos-voice knows nothing about ledgers or HTTP statuses, and one classifier owning that
+/// decision is why it stays right.
+///
+/// Nothing queued is silenced. Sentences Rich already completed are real answer and they
+/// finish; the notice follows them. See `richos_voice::controller::CutOffDesk`.
+#[tauri::command]
+fn voice_turn_cut_off(app: AppHandle, reason: Option<String>) {
+    if let Some(handle) = app.try_state::<VoiceHandle>() {
+        if let Ok(slot) = handle.controller.lock() {
+            if let Some(ctl) = slot.as_ref() {
+                let observer = TauriVoiceEmitter { app: app.clone() };
+                ctl.turn_cut_off(reason.as_deref(), &observer);
             }
         }
     }
