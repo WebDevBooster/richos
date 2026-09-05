@@ -234,3 +234,82 @@ decisions:
   session is a judgment that differs per gate, and it has not been taken. Every
   wiring here allows exactly what it allowed before, which is what makes it safe
   to apply across many guards at once.
+
+---
+
+## What was built, and what it measures now
+
+Added after the wiring, so this section reports artifacts rather than intentions.
+
+`scripts/lib/unevaluated-notice.sh` holds the judgment (does this payload parse as a
+JSON object?) and the sentence, in the grammar `guard-ceo-ask-first.sh` established.
+Twenty-seven hooks source it. `scripts/hooks/unevaluated-payload.test.sh` derives both
+inventories from `hooks/hooks.json` and drives every one of the forty:
+
+| class | how it is established | count |
+|---|---|---|
+| audible — announces on a payload it cannot read | proven by driving it | **31** |
+| fail-closed — refuses one | proven by driving it | **3** |
+| payload-independent — the predicate is the repository | **declared** in the hook, and the declaration verified by driving it | **6** |
+| silent and undeclared | | **0** |
+
+**Only one of those three classes needs a word in its source, and that is the point.**
+A refusal and an announcement are positive evidence; a test that drives the hook sees
+them and needs nothing else. Silence is not evidence of anything — a hook that is quiet
+on all four payloads looks identical whether its predicate never needed the payload or
+its predicate was silently lost, which is the whole defect. So payload-independence is
+the single class a person has to CLAIM, in the file, where a reviewer sees it, and the
+suite then holds the claim to its consequence: the output must be identical across all
+four payloads.
+
+`4d` is the case that keeps this from becoming the thing it was built against: a guard
+that announced on every call would satisfy everything above and be worthless. Silence
+on a payload the guard could read is asserted separately, per hook.
+
+## Two things this work got wrong first, and how
+
+**The sandbox gave a false red for two guards, exactly as the survey warned.** Driven
+in a bare sandbox, `guard-ceo-ask-first.sh` and `guard-ceo-ruled-ask.sh` stood down and
+landed in the silent-and-undeclared bucket — a failing case for a defect that does not
+exist. The survey had already recorded this for the first of the two, and I reproduced
+it independently. Both stand down when the repository declares no CEO list, and that
+stand-down is correct: a repository with no list has no protection to lose. The suite's
+sandbox is now a complete adopter.
+
+**Then the sandbox's declaration was malformed and the guards were blamed for saying
+so.** `.ceo-todos` is `KEY=value`; the first version wrote a markdown checklist, and
+both hooks reported *"declares CEO TODOs but its declaration could not be read"* on the
+CONTROL arm, which `4d` read as noise. They were doing their job. Declared, readable
+and satisfied is the one sandbox state that leaves the gate live and the happy path
+silent.
+
+Recorded because the survey's own method section makes the same point from the other
+side: reading produced a wrong answer twice that day, and driving produced one too. What
+caught both here was the control arm — the thing that exists so a case cannot pass, or
+fail, for a reason that has nothing to do with what it claims to test.
+
+## Two findings closed on the way, neither of them the task
+
+**`hook-staleness-latest.announced` can no longer be written by a payload nobody could
+read.** The survey found this file was the one piece of state a degraded payload could
+write, and that writing it suppresses the next real staleness announcement for
+everybody; it recorded it as a small finding it did not pursue. With an unreadable
+payload `notice-hook-staleness.sh` produced an empty `SESSION_ID`, fell back to that
+non-session-scoped marker, and wrote it. It now stands down before reaching that line.
+
+**`guard-completeness-commits.sh` lost its check one step earlier than any of its
+siblings.** Before resolving any root it tests the RAW payload for `commit`/`push` and
+exits 0 on anything else, so a truncated payload cut before the command never reached
+the tool-name dispatch the survey measured. Its notice sits above that filter.
+
+## What is still open, and belongs to someone else
+
+- **The bounded read.** Safe everywhere, worth it for two guards, and unnecessary for
+  the reason the timeout arms above establish. Not done.
+- **The fail-closed template.** Which gates are worth the risk of bricking a live
+  session is a per-gate judgment that has not been taken. Not done, and nothing here
+  moves any verdict toward it.
+- **`guard-worktree-isolation.test.sh` exits 1** on its embedded clause-7 mutation
+  section — 3 properties not proven load-bearing, 4 proven, with `Q05`, `Q07` and `Q09`
+  named. Its own 174 cases all pass. **That red is not from this work:** reverting the
+  hook to the previous commit and re-running produced byte-identical output.
