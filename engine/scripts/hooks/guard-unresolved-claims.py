@@ -311,25 +311,109 @@ def _hex_tokens(sentence):
     return out
 
 
+# --------------------------------------------------------------------------
+# POLARITY -- because a guard that cannot parse "not" cannot judge a claim
+# --------------------------------------------------------------------------
+#
+# ON 2026-09-03 THIS GATE BLOCKED A TRUE STATEMENT, which is notable because
+# catching false ones is its entire job. The reply said a commit was NOT on the
+# remote; the repository agreed exactly; the gate read the word `pushed`,
+# ignored the negation, called it a contradiction and stopped the turn. It fired
+# the same way on 2026-09-05 on "committed on the branch, not landed, main is
+# still at <sha>" -- a sentence whose whole content is that the commit had not
+# landed.
+#
+# The extractor asks git ONE question -- "you said landed, so is this an
+# ancestor of main?" -- and that question is only the right one if the sentence
+# ASSERTED the landing. When the sentence asserts the opposite, the same git
+# answer means the claim was TRUE, and blocking on it is a guard punishing
+# accuracy.
+#
+# THE RULE IS DELIBERATELY LOCAL, AND THAT IS THE WHOLE SAFETY ARGUMENT.
+# Polarity is decided from the CLAUSE the state word sits in -- never from the
+# sentence, never from the paragraph -- and a negation cue only counts when it
+# sits BEFORE the state word in that clause. So a sentence with no negation cue
+# in the governing clause behaves exactly as it did before this existed: same
+# extraction, same question, same refusal. Nothing gets quieter by accident.
+#
+# MEASURED over every non-scratchpad orchestrator transcript on this machine
+# (docs/verification/claim-polarity-2026-09-05/), 960 state claims in 770
+# messages:
+#
+#     949  positive    -> unchanged: the repository is asked, and a
+#                        contradiction still BLOCKS
+#      11  negated     -> report-only, and all 11 were read by hand: every one
+#                        is a genuine statement of absence ("not pushed",
+#                        "nothing landed", "haven't landed it yet", "never be
+#                        pushed", "hadn't merged")
+#       0  unreadable
+#
+# THE FIRST DRAFT WAS WRONG IN THE DANGEROUS DIRECTION and the measurement is
+# what caught it. It called polarity unreadable whenever a negation cue appeared
+# ANYWHERE in the sentence, which demoted 113 perfectly positive claims to
+# report-only -- every "landed, no worktrees, no live agents" status line Rich
+# writes. A rule that quiet would have been indistinguishable from switching the
+# gate off, and it looked entirely reasonable until it was counted.
+#
+# `not only` / `not just` / `not merely` are emphatic POSITIVES and are masked
+# before the cue search, or "not only landed but pushed" would read as a denial.
+NEG_CUE = re.compile(
+    r"\b(?:not|never|no|nor|neither|nothing|none|without|cannot)\b|n[\u2019']t\b",
+    re.I)
+NEG_EMPHATIC = re.compile(r"\bnot\s+(?:only|just|merely|simply)\b", re.I)
+# Clause boundaries. Sentence terminators and colons are included because
+# SENTENCE_SPLIT requires whitespace after the terminator and markdown does not
+# supply it -- "...never the model.** Landed `228ccf5`" is one "sentence" to the
+# splitter, and without this boundary its `never` would govern a landing three
+# words later. That single addition moved four of fifteen readings from wrong to
+# right when it was measured.
+CLAUSE_SPLIT = re.compile(
+    r"[.!?:,]|\s+--\s+|\s+\u2014\s+|\bbut\b|\band\b|\bwhile\b|\bthough\b"
+    r"|\balthough\b|\bbecause\b|\bso\b", re.I)
+
+
+def claim_polarity(sentence, pos):
+    """'positive' | 'negated' | 'unreadable' for the state word at <pos>."""
+    start = 0
+    end = len(sentence)
+    for m in CLAUSE_SPLIT.finditer(sentence):
+        if m.end() <= pos:
+            start = m.end()
+        elif m.start() >= pos:
+            end = m.start()
+            break
+    clause = sentence[start:end]
+    rel = pos - start
+    if NEG_CUE.search(NEG_EMPHATIC.sub(" ", clause[:rel])):
+        return "negated"
+    # A cue AFTER the state word in the same clause -- "on main not staging" --
+    # has a scope this cannot decide. Report, never block: the fail-open-loud
+    # shape the rest of the engine uses for an undecidable premise.
+    if NEG_CUE.search(NEG_EMPHATIC.sub(" ", clause[rel:])):
+        return "unreadable"
+    return "positive"
+
+
 def state_claims(text):
-    """[(kind, sha, sentence)] where kind is 'integrated' or 'published'."""
+    """[(kind, sha, sentence, polarity)]; kind is 'integrated' or 'published'."""
     out, seen = [], set()
     for s in SENTENCE_SPLIT.split(text):
         s = s.strip()
         if not s:
             continue
-        integrated = bool(STATE_INTEGRATED.search(s))
-        published = bool(STATE_PUBLISHED.search(s))
-        if not (integrated or published):
+        mi = STATE_INTEGRATED.search(s)
+        mp = STATE_PUBLISHED.search(s)
+        if not (mi or mp):
             continue
         for tok in _hex_tokens(s):
             # "landed" wins when a sentence says both, because it is the
             # stronger claim and the one that was false on 2026-09-01.
-            kind = "integrated" if integrated else "published"
+            kind = "integrated" if mi else "published"
             if (kind, tok) in seen:
                 continue
             seen.add((kind, tok))
-            out.append((kind, tok, s[:400]))
+            out.append((kind, tok, s[:400],
+                        claim_polarity(s, (mi or mp).start())))
             if len(out) >= MAX_STATE_CLAIMS:
                 return out
     return out
@@ -937,14 +1021,29 @@ def main():
     # branch prints the SHA, so the token is in this session's tool output in
     # the very case the gate exists to catch. Grounding this check would disarm
     # it against the 2026-09-01 failure and nothing else.
+    #
+    # POLARITY DECIDES WHICH ANSWER IS THE BAD ONE, and it is decided before
+    # git is asked rather than after. A POSITIVE claim is contradicted by
+    # "violation"; a NEGATED claim -- "not pushed", "nothing landed" -- is
+    # contradicted by "ok", and that contradiction is REPORTED rather than
+    # blocked, because understating what landed has never been the failure this
+    # engine is protecting against. An UNREADABLE one never blocks at all.
     bad_states = []
+    state_reports = []
     if sclaims:
         roots = repo_roots(entity_root, extra_repos)
         deadline = time.monotonic() + STATE_BUDGET_SECONDS
-        for kind, sha, sentence in sclaims:
+        for kind, sha, sentence, pol in sclaims:
             v = state_verdict(kind, sha, roots, deadline)
-            if v[0] == "violation":
-                bad_states.append((kind, sha, sentence, v[1], v[2]))
+            if pol == "positive":
+                if v[0] == "violation":
+                    bad_states.append((kind, sha, sentence, v[1], v[2]))
+            elif pol == "negated":
+                if v[0] == "ok":
+                    state_reports.append((kind, sha, sentence, "negated"))
+            else:
+                if v[0] == "violation":
+                    state_reports.append((kind, sha, sentence, "unreadable"))
 
     # --- REPORTING: paths and prose ----------------------------------------
     bases = [entity_root] + [os.path.dirname(os.path.abspath(entity_root))]
@@ -989,7 +1088,10 @@ def main():
         "role_claims": [r for r, _ in rclaims],
         "undispatched_roles": [r for r, _ in undispatched_roles],
         "stale_roles": [r for r, _ in stale_roles],
-        "state_claims": [{"kind": k, "sha": sh} for k, sh, _ in sclaims],
+        "state_claims": [{"kind": k, "sha": sh, "polarity": pol}
+                         for k, sh, _, pol in sclaims],
+        "state_reports": [{"kind": k, "sha": sh, "why": w}
+                          for k, sh, _, w in state_reports],
         "bad_state_claims": [{"kind": k, "sha": sh, "repo": rp, "ref": rf}
                              for k, sh, _, rp, rf in bad_states],
         "value_absence": [{"value": v, "surviving": sp, "file": fp}
@@ -1008,7 +1110,8 @@ def main():
     # --- verdict ------------------------------------------------------------
     if not (unresolved_names or unresolved_shas or undispatched_roles
             or bad_states):
-        if unresolved_paths or prose or stale_roles or absence_reports:
+        if (unresolved_paths or prose or stale_roles or absence_reports
+                or state_reports):
             lines = ["=== claim check: PASSED, with observations (not blocking) ==="]
             for p in unresolved_paths:
                 lines.append("  path cited but unresolved and ungrounded: %s" % p)
@@ -1022,6 +1125,18 @@ def main():
                 lines.append("  (this signal measures 17% precision -- it is logged, never enforced)")
                 if nameless:
                     lines.append("  ...and it named no agent identifier (10.3% precision -- also never enforced)")
+            for kind, sha, sentence, why in state_reports:
+                if why == "negated":
+                    lines.append("  you said this had NOT %s, and the repository says it HAS:"
+                                 % ("landed" if kind == "integrated" else "been pushed"))
+                else:
+                    lines.append("  a %s claim whose polarity could not be read, and the"
+                                 % ("landing" if kind == "integrated" else "push"))
+                    lines.append("  repository does not agree with the positive reading:")
+                lines.append("    \"%s\"" % sentence.replace("\n", " ").strip()[:200])
+                lines.append("    (%s -- reported, never enforced: over-stating is the failure"
+                             % sha)
+                lines.append("     this gate blocks on, and understating is not)")
             for v, sp, fp, _root in absence_reports:
                 lines.append("  a value you said was gone survives in a spelling you did not name:")
                 lines.append("    you wrote #%s; %s is the same value and is still in %s" % (v, sp, fp))
