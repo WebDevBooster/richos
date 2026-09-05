@@ -56,6 +56,7 @@
 //! | [`TimelineItem::WorkDuration`] | REAL — measured from the turn's start/end events |
 //! | [`TimelineItem::Activity`] | REAL — journaled machinery records |
 //! | [`TimelineItem::SystemError`] | REAL — an interrupted turn |
+//! | [`TimelineItem::UpstreamOutage`] | REAL — a turn that died to the model API (row 3.30) |
 //! | [`TimelineItem::Recovery`] | REAL — `TurnSuperseded` (mid-turn-crash replay) |
 //! | [`TimelineItem::WorkerActivity`] | REAL — a `Task` call joined by `agent_id` to the lifecycle stream |
 //! | [`TimelineItem::Worker`] | **NO SOURCE.** §12-verbatim `WorkerRun`; never constructed here. |
@@ -737,6 +738,46 @@ pub enum TimelineItem {
         base: TimelineBase,
         detail: Option<String>,
     },
+    /// **The turn died to the UPSTREAM MODEL API** (`open-items.md` row 3.30, measured
+    /// 2026-09-03). REAL — projected from the ledger's `UpstreamFailure` event.
+    ///
+    /// **Why this is CEO-visible when [`TimelineItem::SystemError`] beside it is not.**
+    /// That record is Technical because its `detail` is a raw vendor string
+    /// (`cognition io: broken pipe`) and its doc is right that nothing there may compose
+    /// CEO-facing copy. This record composes none either: every sentence on it was
+    /// AUTHORED in `upstream.rs`'s `ceo_message` functions at the moment of the failure,
+    /// written to the ledger there, and is relayed here verbatim — the same
+    /// backend-authored relay `state-strings.js` documents as blind spot B2 and scrapes
+    /// for the affordance registry. The renderer neither writes nor edits these strings.
+    ///
+    /// **And why it exists at all.** Without it the whole answer to *"a dying task must
+    /// not lose silently"* would live in a live event that a reload throws away, which is
+    /// the difference between visible AT the moment and discoverable afterward.
+    #[serde(rename_all = "camelCase")]
+    UpstreamOutage {
+        #[serde(flatten)]
+        base: TimelineBase,
+        /// `UpstreamFault::tag` — `overloaded`, `rate_limit`, `server_error`,
+        /// `unclassified`. A token for the renderer to key on, never shown as text.
+        fault: String,
+        /// Whether waiting is a plan with a known end. The `429`/`529` distinction, as a
+        /// boolean, so a renderer cannot get it wrong by reading the prose.
+        clears_on_a_known_schedule: bool,
+        /// What happened, authored by `UpstreamFault::ceo_message`.
+        ceo_message: String,
+        /// What is on disk and what is not, authored by `TurnLoss::ceo_message` from
+        /// counts read off the ledger at the instant of the failure.
+        loss_message: String,
+        /// What was spent trying, authored by `RetryBudget::ceo_message`. `None` when
+        /// nothing had been spent — a different statement from "nothing was spent".
+        #[serde(skip_serializing_if = "Option::is_none")]
+        retry_message: Option<String>,
+        /// The vendor's `req_…`. **Technical**: it is what makes the incident findable in
+        /// Anthropic's logs and it means nothing to the CEO, so it is carried and
+        /// [`TimelineItem::redacted`] removes it from a CEO view.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
+    },
 }
 
 impl TimelineItem {
@@ -753,7 +794,8 @@ impl TimelineItem {
             | TimelineItem::Question { base, .. }
             | TimelineItem::Artifact { base, .. }
             | TimelineItem::Recovery { base, .. }
-            | TimelineItem::SystemError { base, .. } => base,
+            | TimelineItem::SystemError { base, .. }
+            | TimelineItem::UpstreamOutage { base, .. } => base,
         }
     }
 
@@ -787,6 +829,9 @@ impl TimelineItem {
             TimelineItem::WorkerActivity { detail, .. } => *detail = None,
             TimelineItem::WorkDuration { detail, .. } => *detail = None,
             TimelineItem::SystemError { detail, .. } => *detail = None,
+            // The three authored sentences STAY — they are the whole point of this record
+            // and they were written for him. Only the vendor's request id goes.
+            TimelineItem::UpstreamOutage { request_id, .. } => *request_id = None,
             _ => {}
         }
         self
@@ -1305,7 +1350,30 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
     }
 
     // --- Rich's prose (§5.2 / §5.4) ---
+    //
+    // ONE PIECE OF TEXT IS DEMOTED HERE, AND IT IS NOT RICH'S PROSE AT ALL. When the
+    // upstream model API fails, `claude` reports it as an ASSISTANT MESSAGE — the
+    // `API Error: 529 Overloaded …` line arrives on the same frame type an answer does, so
+    // `native.rs` hands it over as text and the ledger persists it as Rich's reply.
+    // Rendering it puts a vendor diagnostic on screen in Rich's voice, indistinguishable
+    // from an answer, which is the sharp end of what row 3.30 calls failing silent: the CEO
+    // is not told anything went wrong, he is shown a stack-shaped sentence and left to work
+    // it out for himself.
+    //
+    // **IT IS SPLIT AT THE LINE, NOT DROPPED AT THE RUN, and a real test forced that.**
+    // The first version demoted a whole `TextRun` whose text classified. Runs are contiguous
+    // stretches of the shared per-turn sequence and they only END where a non-text item took
+    // a position, so a turn that streamed real prose and then failed WITH NO TOOL CALL
+    // BETWEEN THEM has both in one run — and demoting it threw away the answer that did
+    // arrive in order to hide the error. That is the failure this row exists to stop,
+    // committed in the other direction.
+    //
+    // So the run is split at the first line that classifies: everything before it is Rich's
+    // and renders; that line and everything after it is `Internal`. Nothing is edited or
+    // deleted — the ledger keeps the run byte for byte, and both halves are still projected,
+    // one of them into a visibility that renders in no mode.
     for (idx, run) in turn.text_runs.iter().enumerate() {
+        let (kept, diagnostic) = crate::upstream::split_at_vendor_diagnostic(&run.text);
         let (phase, slot, tier, visibility) = match turn.source {
             // REAL SIGNAL: a proactive message knows what it is. Tier 3 (Silent) never
             // appears in the conversation (§5.1) — internal, not merely quiet.
@@ -1318,18 +1386,39 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
             // NO SIGNAL. Not "final" — see the module doc.
             _ => (RichMessagePhase::Unknown, TimelineSlot::Stream, None, Visibility::Ceo),
         };
-        out.push(TimelineItem::RichMessage {
-            base: base(
-                format!("{}:text:{idx}", turn.id),
-                run.start_seq,
-                slot,
-                run.at,
-                vis(visibility),
-            ),
-            phase,
-            text: run.text.clone(),
-            tier,
-        });
+        // Rich's half. Emitted under the run's OWN id, so an unaffected turn's items are
+        // identical to what they were before any of this existed.
+        if !kept.trim().is_empty() {
+            out.push(TimelineItem::RichMessage {
+                base: base(
+                    format!("{}:text:{idx}", turn.id),
+                    run.start_seq,
+                    slot,
+                    run.at,
+                    vis(visibility),
+                ),
+                phase,
+                text: kept.to_string(),
+                tier,
+            });
+        }
+        // The vendor's half. `Internal` renders in NO mode (not even Technical), which is
+        // the same treatment a re-prime's text gets and for the same reason: it is real,
+        // it is retained, and it is not something Rich said.
+        if !diagnostic.is_empty() {
+            out.push(TimelineItem::RichMessage {
+                base: base(
+                    format!("{}:text:{idx}:upstream", turn.id),
+                    run.start_seq,
+                    slot,
+                    run.at,
+                    Visibility::Internal,
+                ),
+                phase,
+                text: diagnostic.to_string(),
+                tier,
+            });
+        }
     }
 
     // --- the working-duration row (§6) ---
@@ -1366,6 +1455,35 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
                 vis(Visibility::Technical),
             ),
             detail: turn.stop_reason.clone(),
+        });
+    }
+
+    // --- the upstream outage (row 3.30) ---
+    //
+    // AFTER the SystemError row, because the technical fact came first and this is the
+    // explanation of it; and at Ceo visibility, because unlike that row every sentence
+    // here was authored for him and written to the ledger at the time. Its timestamp is
+    // the turn's own end, so it sorts with the failure rather than at the tail.
+    if let Some(up) = &turn.upstream_failure {
+        out.push(TimelineItem::UpstreamOutage {
+            base: base(
+                format!("{}:upstream", turn.id),
+                None,
+                TimelineSlot::Terminal,
+                turn.ended_at.unwrap_or(turn.created_at),
+                vis(Visibility::Ceo),
+            ),
+            fault: up.fault.clone(),
+            // Derived from the STORED tag rather than re-classified from prose. A record
+            // written by an older build carries a tag this one still understands; a tag it
+            // does not understand is reported as having no known schedule, which is the
+            // safe direction — it never tells him a wait has an end that nobody measured.
+            clears_on_a_known_schedule: up.fault
+                == crate::upstream::UpstreamFault::RateLimited.tag(),
+            ceo_message: up.ceo_message.clone(),
+            loss_message: up.loss_message.clone(),
+            retry_message: up.retry_message.clone(),
+            request_id: up.request_id.clone(),
         });
     }
 
@@ -1978,6 +2096,7 @@ mod tests {
             superseded_by: None,
             stop_requested_at: None,
             intake_id: None,
+            upstream_failure: None,
         }
     }
 

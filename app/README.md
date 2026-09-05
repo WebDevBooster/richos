@@ -134,6 +134,19 @@ app/
                               docs/verification/first-run-setup-2026-09-02/
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
+    src/upstream.rs          UPSTREAM MODEL-API FAILURE, first-class (open-items row 3.30).
+                              `529` overload and `429` quota classified apart, from the
+                              vendor's own structural tokens rather than its English; the
+                              BOUNDED, VISIBLE retry budget; the what-survived statement; and
+                              a size-dependent fake upstream, because the 2026-09-03 outage
+                              failed the expensive requests and passed a one-command probe
+    src/reachability.rs      CAN CLAUDE BE REACHED **AT THE SIZE THE WORK IS**? On
+                              2026-09-03 a three-character probe finished while every large
+                              brief died on 529, so a `Reachable` verdict CANNOT be
+                              constructed by a probe below the measured floor — a cheap
+                              success is `Unproven`, which is a statement about the probe.
+                              The floor is the LARGEST recent request, never the median,
+                              and an unmeasured install sends nothing at all
     src/work_gate.rs         IS RICHOS DOING ANYTHING RIGHT NOW — the decision the updater
                               never asked (RICH-TODOs row u1). Three readings in, one verdict
                               plus the sentence that explains it out. Holds no handles and
@@ -346,6 +359,35 @@ app/
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
                               every case, so "reads nothing" cannot pass by finding nothing)
+    tests/upstream_classification_tests.rs 14 tests pinned to CAPTURED BYTES — the five
+                              `API Error: 529` lines from 2026-09-03, four of them carrying
+                              the incident's own request ids, at
+                              docs/verification/upstream-failure-2026-09-05/. It proves `429`
+                              and `529` never present the same way, that classification reads
+                              the vendor's structure and not its English, that retry stops at
+                              two attempts and says what it spent, and — the finding itself —
+                              that the injected upstream passes a 3-character probe while
+                              failing a 120,000-character one
+    tests/upstream_turn_tests.rs 12 tests driving the REAL spine against an injected
+                              upstream: the `529` that arrives as an ASSISTANT MESSAGE (the
+                              shape that would otherwise complete a turn whose answer is a
+                              vendor diagnostic in Rich's voice), the loss statement built
+                              from ledger counts, its survival across a cold reopen, and the
+                              two positive controls without which the rest is theater — an
+                              ordinary broken pipe is NOT dressed up as an outage, and a
+                              healthy turn produces nothing at all
+    tests/reachability_tests.rs 8 tests over the size-dependent fault the incident
+                              actually had. The first one IS the finding: one degraded
+                              upstream answers a 3-character probe and refuses a
+                              120,000-character one in the same test, and RichOS reports
+                              `Unproven` for the first rather than a green tick. Positive
+                              controls on both sides — a healthy API at realistic size IS
+                              `Reachable`, and the floor's boundary is inclusive
+    examples/reachability_probe.rs the operator's half: the same rules against the REAL
+                              `claude`, with the floor read off a real ledger. It prints
+                              what it would send and REFUSES to send it without `--spend`,
+                              because the request is billed to whoever is signed in. Exit 0
+                              proved / 1 classified failure / 3 NOT PROVEN
     examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
                               end to end against the real adapter (the run is kept at
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
@@ -685,7 +727,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 776 tests + 5 doc-tests
+cargo test -p richos-core                       # 816 tests + 5 doc-tests
 #     ONE OF THEM NEEDS A `claude` ON A MAC, and that is deliberate as of 2026-09-05.
 #     `the_real_claude_binary_on_this_machine_satisfies_the_requirement` is the POSITIVE half
 #     of the Anthropic signature pin; it used to `return` when the binary was absent, and a
@@ -695,14 +737,14 @@ cargo test -p richos-core                       # 776 tests + 5 doc-tests
 #     which is what `app-spine-ci.yml`'s ubuntu runner now prints in place of a green line.
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 191 tests
-#     …of which 187 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
+cargo test -p richos-voice                      # 196 tests
+#     …of which 192 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
 #     reason. Those four open a real output device and one is audible for about a second, so
 #     they are opt-in. Until 2026-09-05 they opted out with an early `return` — and a test
 #     that returns is reported `ok`, so they were four green lines asserting nothing on every
 #     machine but the CEO's and on every CI run. `crates/richos-voice/build.rs` turns the
 #     variable below into `cfg(live_audio)` so the default run says `ignored` instead.
-RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 191 run, incl. the audible ones
+RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 196 run, incl. the audible ones
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 
 # 2. The desktop shell (from app/src-tauri/):

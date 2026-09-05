@@ -1,0 +1,5 @@
+API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com. (error type server_error, HTTP 529, request id req_011Cegb417YK6i1BEVDFmzU1, model sent to the API: claude-fable-5-1)
+API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com. (error type server_error, HTTP 529, request id req_011CegbZnNQkV7nSHESJQXcq, model sent to the API: claude-fable-5-1)
+API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com. (error type server_error, HTTP 529, request id req_011CegbzZpYpdqtCRHTmEh9H, model sent to the API: claude-opus-5)
+API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com. (error type server_error, HTTP 529, request id req_011CegdeZDky4nwegbmqvQoV, model sent to the API: claude-fable-5-1)
+API Error: 529 Overloaded.

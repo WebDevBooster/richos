@@ -1,12 +1,13 @@
 === ledger ledgers/v1-legacy.jsonl ===
-file.bytes = 3922
-file.lines = 24
-file.sha256 = f0103076bc8a9bbdf1a622f3c964ba3710cabb401140fb298387aeeb35a12c1a
+file.bytes = 4494
+file.lines = 25
+file.sha256 = 5b57d4cddc894c4dad93e5bf80df605e9b18886e14d098b67d831578223fc164
 threads.count = 2
 thread thr_0000000000000000000000000000000a | title=ccfb04c1e00f8e3ac8e72c56f98dc27d05a3fb2ace42b955eee03eed56d91fe3:13 | created_at=1787000000000 | bound=true | entity=richos | revision=7
 thread thr_0000000000000000000000000000000b | title=55b7d9cfb7a51f911859324fdb2632ad0cd9bd5d1a607bf7499534472f98582b:23 | created_at=1787000002000 | bound=true | entity=richos | revision=8
 turns.count = 5
 turn turn_0000000000000000000000000000000a | thread=thr_0000000000000000000000000000000a | entity=- | revision=0 | quarantined=false | source=Text | state=Interrupted | session=legacy-session-1 | user=dc4121980b9a94a3648ee6bf36d80ee01c2176c8667e248d8f39734b65484249:37 | assistant=5578c1fc745780d4d4f21db6a1984be212cff607912497d8706f3ca713920bb2:63 | runs=1 | stop_reason=b5c6c11a27b0ba1cfcf3cdb8cac06836f6140253bd9de118c1ba9a0b762aba56:34 | created_at=1787000000100 | started_at=1787000000200 | ended_at=1787000000500 | tier=None | superseded_by=turn_0000000000000000000000000000000b | stop_requested_at=- | intake_id=- | active_ms=300
+  upstream turn_0000000000000000000000000000000a | fault=overloaded | status=529 | request_id=req_011Cegb417YK6i1BEVDFmzU1 | model=claude-fable-5-1 | ceo=9821e61b101d319be6393b4378fe89eb127e37e443d9ca48788bfcb86a7f2e83:169 | loss=15ba242d86aec504b6300c9f51fb9f85af96ff8f9177a57a2c7d1159313b6e85:158 | retry=-
   run turn_0000000000000000000000000000000a.0 | start_seq=- | end_seq=- | at=1787000000300 | text=5578c1fc745780d4d4f21db6a1984be212cff607912497d8706f3ca713920bb2:63
 turn turn_0000000000000000000000000000000b | thread=thr_0000000000000000000000000000000a | entity=- | revision=0 | quarantined=false | source=Text | state=Completed | session=legacy-session-2 | user=dc4121980b9a94a3648ee6bf36d80ee01c2176c8667e248d8f39734b65484249:37 | assistant=f179d8fc2b9d7dd5cfe102b2694d9c00c3f64795ae4cf91046535530fb2e1ea1:33 | runs=1 | stop_reason=c9a0f5804f9c8da7c9e3fac359a14d8b6f1ea48adc0f5ccec6eac581a59450d0:8 | created_at=1787000000600 | started_at=1787000000700 | ended_at=1787000000900 | tier=None | superseded_by=- | stop_requested_at=- | intake_id=- | active_ms=200
   run turn_0000000000000000000000000000000b.0 | start_seq=- | end_seq=- | at=1787000000800 | text=f179d8fc2b9d7dd5cfe102b2694d9c00c3f64795ae4cf91046535530fb2e1ea1:33

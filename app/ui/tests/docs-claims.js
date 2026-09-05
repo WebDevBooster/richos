@@ -70,7 +70,15 @@ function testCount(file) {
 /// Doc-tests: fenced blocks inside `///` or `//!` doc comments whose info string is not a
 /// non-Rust language. rustdoc runs an unlabelled block, and runs `compile_fail` /
 /// `should_panic` / `no_run` as tests too; ```` ```text ```` is prose and is not one.
-const NON_TEST_FENCE = /^(text|json|jsonc|sh|bash|console|ignore|md|markdown|toml|yaml|diff)$/;
+// `js` earned its place here on 2026-09-05, and it is a correction rather than an addition.
+// `upstream.rs` quotes four lines of the Claude Code bundle's own JavaScript in a ```js fence
+// to show where the vendor's error-kind vocabulary was read from. rustdoc does NOT run a fence
+// with a non-Rust info string, so `cargo test -p richos-core --doc` still reported 5 — and this
+// list, which is supposed to PREDICT that number, said 6. A checker whose count disagrees with
+// the command it models is the same defect as a test that reports `ok` without running: a
+// number that looks like evidence and is not. Verified against `cargo test -p richos-core --doc`,
+// which prints 5 both before and after this line changed.
+const NON_TEST_FENCE = /^(text|json|jsonc|sh|bash|console|ignore|md|markdown|toml|yaml|diff|js|javascript)$/;
 function docTestCount(file) {
   let inFence = false;
   let n = 0;

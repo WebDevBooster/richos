@@ -195,6 +195,7 @@ fn tag_of(e: &Event) -> &'static str {
         Event::AssistantDelta { .. } => "AssistantDelta",
         Event::TurnCompleted { .. } => "TurnCompleted",
         Event::TurnInterrupted { .. } => "TurnInterrupted",
+        Event::UpstreamFailure { .. } => "UpstreamFailure",
         Event::TurnStopped { .. } => "TurnStopped",
         Event::ActionRecorded { .. } => "ActionRecorded",
         Event::ActionUpdated { .. } => "ActionUpdated",
@@ -240,7 +241,7 @@ fn the_known_tag_table_matches_the_event_type_exactly() {
 
 #[test]
 fn nothing_at_all_is_skipped_on_an_unmodified_ledger() {
-    for (stem, records) in [("v1-current", 20usize), ("v1-legacy", 24usize)] {
+    for (stem, records) in [("v1-current", 20usize), ("v1-legacy", 25usize)] {
         let (ledger, _) = open_edited(stem, |l| l);
         let h = ledger.history_health();
         assert!(h.is_clean(), "{stem}: {:?}", ledger.skipped_records());
