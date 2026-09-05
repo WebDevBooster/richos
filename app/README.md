@@ -323,6 +323,11 @@ app/
     src/fft.rs               512-point radix-2 FFT, hand-rolled (license: no vendored crate)
     src/endpoint.rs          utterance start/end, pre-roll ring, cough filter, 30.000 s cut
     src/noaudio.rs           post-open silent input: 188 frames (3.008 s) under -80.00 dBFS
+    src/voiced.rs            DID THE MIC CARRY A VOICE? periodicity at a human pitch over
+                              512-sample windows, hop 256. A transcript is refused unless the
+                              AUDIO holds a 6-window (0.112 s) voiced run whose pitch moved
+                              by 2.00 % — the gate that stops a silent room being submitted
+                              as the CEO's own words (2026-09-04, published v1.0.1)
     src/chunk.rs             streaming sentence chunker + clean output FOR THE EAR
     src/state.rs             the voice-mode state machine (mic state is never a guess)
     src/wav.rs               hand-rolled PCM16 WAV codec + rate conversion
@@ -331,6 +336,9 @@ app/
     src/{stt,tts}.rs         local whisper.cpp (small.en) / macOS `say` behind a trait
     src/controller.rs        four threads, CaptureBrain, the half-duplex taint rule
     tests/barge_in_composition.rs  the WIRING: echo defense + real interruptions
+    tests/voiced_acceptance.rs REAL `say` speech, every installed voice, through the voiced
+                              gate — the acceptance half, so the refusal half cannot pass by
+                              refusing everything. Prints the margin and the gate's cost
     examples/voice_loop.rs   the reproducible end-to-end proof (audio -> Claude -> speakers)
     examples/device_probe.rs what the audio hardware on THIS machine actually reports
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
@@ -631,7 +639,7 @@ Two limits, stated rather than discovered later:
 cargo test -p richos-core                       # 694 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 165 tests
+cargo test -p richos-voice                      # 191 tests
 RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # + the audible live tests
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 

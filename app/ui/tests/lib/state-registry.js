@@ -374,6 +374,27 @@ module.exports = [
       "already offered is a request wearing a status's clothes.",
   },
   {
+    s:
+      "That didn't come through as speech, so I haven't sent anything. I'm still " +
+      "listening.",
+    c: "INFORMATIONAL",
+    why:
+      "`VoiceNotice::HeardNoVoice`, added 2026-09-05. The audio-grounded gate in " +
+      "`crates/richos-voice/src/voiced.rs` measured the recording and found no voice in " +
+      "it, so whisper was never called and nothing was submitted. It exists because the " +
+      "alternative shipped: on 2026-09-04, on published v1.0.1, on the CEO's own Mac, a " +
+      "tap on the talk button in a quiet room produced \"1, 2, 3, testing.\" and the app " +
+      "SENT IT as his message (ray-opus-a2). " +
+      "Two things are load-bearing in the wording. It says nothing was sent, because the " +
+      "defect being fixed is the app sending a sentence he never said and a refusal that " +
+      "leaves that question open is no better than the drop. And it ends with a status " +
+      "rather than \"say it again\": the affordance for repeating himself is the open " +
+      "microphone, there is no button to point at, and an imperative with no control is a " +
+      "request wearing a status's clothes — the same reason `SoundButNoWords` ends with " +
+      "\"Voice is still on.\" It is latched per run of refusals, so it states the refusal " +
+      "once and never becomes a drip.",
+  },
+  {
     s: "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,

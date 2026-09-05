@@ -45,6 +45,7 @@ use crate::state::{VoiceState, VoiceStateMachine};
 use crate::stt::{self, Recognizer};
 use crate::tts::{MacSay, SpeechSynth};
 use crate::vad::{frames_to_secs, Vad};
+use crate::voiced::VoiceEvidence;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
@@ -473,7 +474,26 @@ pub enum VoiceNotice {
     /// Three utterances in a row came back as whisper's documented silence noise. The
     /// microphone is open, the level meter is moving and `noaudio.rs` is satisfied that
     /// signal is arriving, so nothing else in this pipeline has anything to report.
+    ///
+    /// **Its meaning NARROWED on 2026-09-05 and is better for it.** Since
+    /// [`crate::voiced::VoiceEvidence`] now refuses voiceless audio before whisper is ever
+    /// called, an utterance that reaches this notice has already been measured to contain a
+    /// human voice. So it no longer means "the room is noisy"; it means the CEO really did
+    /// speak and the recognizer still got no words out of it.
     SoundButNoWords,
+    /// **The recording carried no voice, so nothing was sent.** Raised by the audio-grounded
+    /// gate in [`crate::voiced`], before the recognizer runs — see [`RecognizerDesk`].
+    ///
+    /// This is the refusal that the CEO has to be told about, because a silent drop is its
+    /// own kind of lying: he tapped the talk button, something happened, and if the app says
+    /// nothing he cannot tell "it ignored me" from "it is still listening".
+    ///
+    /// **It is latched per RUN of refusals, and that is a judgment worth stating.** An open
+    /// mic in a quiet room can produce one voiceless utterance every ~1.104 s, and a line
+    /// per refusal would be a drip that trains him to ignore the one that matters. So the
+    /// first refusal says it, consecutive refusals are stderr only, and the latch clears the
+    /// moment an utterance is admitted — because that proves the input recovered.
+    HeardNoVoice,
 }
 
 impl VoiceNotice {
@@ -491,6 +511,136 @@ impl VoiceNotice {
             VoiceNotice::SoundButNoWords => {
                 "I can hear sound, but I'm not getting words out of it — the microphone may \
                  be picking up the room rather than you. Voice is still on."
+            }
+            // STATES THE CONSEQUENCE, not just the observation. "I didn't catch that"
+            // leaves open whether something was sent anyway, and the whole defect being
+            // fixed here is the app sending a sentence he never said — so the line has to
+            // close that question, in his own words, before anything else.
+            //
+            // IT ENDS WITH A STATUS AND NOT AN INSTRUCTION, deliberately. "Say it again"
+            // is an imperative aimed at the reader, which makes it a request wearing a
+            // status's clothes: the affordance for saying it again is the open microphone,
+            // and there is no button to point at. So it says the mic is still open and
+            // leaves the next move where it belongs. Same discipline as `SoundButNoWords`
+            // above, whose last three words are "Voice is still on."
+            VoiceNotice::HeardNoVoice => {
+                "That didn't come through as speech, so I haven't sent anything. I'm still \
+                 listening."
+            }
+        }
+    }
+}
+
+/// **THE ONE PLACE A RECOGNIZED UTTERANCE CAN BECOME A TURN — and the order it happens in.**
+///
+/// The recognizer thread used to be a `while let` with the whole decision inlined, and the
+/// decision was: run whisper, then ask [`stt::is_meaningful`] whether the TEXT looked like
+/// something. That is a text heuristic over a ten-phrase list, and on 2026-09-04 it let
+/// *"1, 2, 3, testing."* through from a silent room on the CEO's own Mac, into his own
+/// ledger, under his own name (`ray-opus-a2`, published v1.0.1). No list of phrases can fix
+/// that, because the sentence is indistinguishable AS TEXT from one a person would say.
+///
+/// So the decision is now made on the AUDIO, and it is made FIRST:
+///
+/// 1. [`VoiceEvidence::measure`] asks whether the recording carried a voice.
+/// 2. If it did not, this returns. **Whisper is never called**, so no transcript exists to
+///    be submitted, mis-filtered or logged. The failure direction is silence by construction
+///    rather than by care.
+/// 3. Only then does the recognizer run, and only then can `submit` be reached.
+///
+/// It is a struct rather than a closure so the ORDER is something a test can hold: `handle`
+/// takes the transcriber as a parameter, and `controller::tests` passes one that PANICS if
+/// it is ever called. "Refused audio never reaches whisper" is therefore proven, not
+/// asserted — the same reason [`CaptureBrain`] was split out of the audio callback.
+pub struct RecognizerDesk {
+    /// Consecutive transcripts rejected by [`stt::is_meaningful`] — see [`SILENT_DISCARD_RUN`].
+    discards: u32,
+    /// [`VoiceNotice::SoundButNoWords`] has been said this run.
+    said_sound_but_no_words: bool,
+    /// [`VoiceNotice::HeardNoVoice`] has been said this run.
+    said_heard_no_voice: bool,
+}
+
+impl Default for RecognizerDesk {
+    fn default() -> Self {
+        RecognizerDesk::new()
+    }
+}
+
+impl RecognizerDesk {
+    pub fn new() -> RecognizerDesk {
+        RecognizerDesk { discards: 0, said_sound_but_no_words: false, said_heard_no_voice: false }
+    }
+
+    /// Decide one finished utterance.
+    ///
+    /// `transcribe` is only ever called for audio that has already been measured to carry a
+    /// voice. `submit` is only ever called for a transcript that survived both that gate and
+    /// the narrow noise-phrase filter, and it is the SAME path typed text takes.
+    pub fn handle<T, S>(
+        &mut self,
+        utterance: &Utterance,
+        observer: &dyn VoiceObserver,
+        transcribe: T,
+        submit: S,
+    ) where
+        T: FnOnce(&[f32]) -> Result<(String, u64), stt::SttError>,
+        S: FnOnce(String),
+    {
+        let duration_ms = (utterance.duration_secs() * 1000.0) as u64;
+
+        // ---- 1. THE AUDIO, BEFORE ANY TRANSCRIPT EXISTS ---------------------------------
+        let evidence = VoiceEvidence::measure(&utterance.samples);
+        if !evidence.carried_speech() {
+            // The operator gets the measurement; the CEO gets the sentence. Neither gets a
+            // transcript, because none was produced.
+            eprintln!(
+                "[richos-voice] refused before recognition — the audio carried no voice: {}",
+                evidence.summary()
+            );
+            if !self.said_heard_no_voice {
+                self.said_heard_no_voice = true;
+                observer.on_voice_event(&VoiceEvent::Error {
+                    message: VoiceNotice::HeardNoVoice.ceo_message().to_string(),
+                    at: now_millis(),
+                });
+            }
+            return;
+        }
+        // A voice was measured. Whatever happens to the words, the room is working.
+        self.said_heard_no_voice = false;
+
+        // ---- 2. ONLY NOW DOES WHISPER EXIST ----------------------------------------------
+        match transcribe(&utterance.samples) {
+            Ok((text, latency_ms)) => {
+                if !stt::is_meaningful(&text) {
+                    eprintln!("[richos-voice] discarded non-speech transcript: {text:?}");
+                    self.discards += 1;
+                    if self.discards >= SILENT_DISCARD_RUN && !self.said_sound_but_no_words {
+                        self.said_sound_but_no_words = true;
+                        observer.on_voice_event(&VoiceEvent::Error {
+                            message: VoiceNotice::SoundButNoWords.ceo_message().to_string(),
+                            at: now_millis(),
+                        });
+                    }
+                    return;
+                }
+                self.discards = 0;
+                self.said_sound_but_no_words = false;
+                observer.on_voice_event(&VoiceEvent::Transcript {
+                    text: text.clone(),
+                    duration_ms,
+                    latency_ms,
+                    at: now_millis(),
+                });
+                submit(text);
+            }
+            Err(e) => {
+                eprintln!("[richos-voice] stt failed: {e}");
+                observer.on_voice_event(&VoiceEvent::Error {
+                    message: e.ceo_message(),
+                    at: now_millis(),
+                });
             }
         }
     }
@@ -599,65 +749,23 @@ impl VoiceController {
             let scratch = opts.scratch_dir.clone();
             let submit_tx = submit_tx.clone();
             threads.push(std::thread::spawn(move || {
-                // THE SILENT-DISCARD RUN, and why it is counted rather than left alone.
+                // THE WHOLE DECISION LIVES IN `RecognizerDesk`, deliberately.
                 //
-                // `is_meaningful` drops whisper's documented silence hallucinations — "you",
-                // "thank you", "bye" — because sending one costs a real turn and puts words
-                // in the CEO's mouth in the durable ledger. Right, and it is the ONLY path
-                // in this thread that produces nothing at all: an utterance goes in, an
-                // `eprintln` comes out, and the panel keeps saying "listening…".
-                //
-                // Measured on published v1.0.0, 2026-09-04 (ray-opus-a1): a talk button
-                // pressed on a machine where the mic was hot and the level meter moved sat
-                // at "listening…" for 25+ seconds, never transcribed and never said it
-                // could not. Whatever the input was, it was ABOVE `noaudio.rs`'s floors —
-                // so the honest "I can't hear anything" row could not fire — and whisper
-                // kept returning noise. To someone standing in front of an audience that
-                // does not read as "not ready yet"; it reads as being ignored.
-                //
-                // ONE utterance discarded is a cough and must stay silent. THREE IN A ROW
-                // is the microphone hearing the room instead of the person, and that is
-                // worth one calm line ([`SILENT_DISCARD_RUN`]). Latched, so it is said once
-                // per voice session and never becomes a drip; the latch clears the moment a
-                // real sentence lands, because that proves the input recovered.
-                let mut discards: u32 = 0;
-                let mut said_it = false;
+                // This thread used to hold it inline: transcribe, then judge the TEXT. That
+                // shape is what let *"1, 2, 3, testing."* be submitted as the CEO's own
+                // message from a silent room on 2026-09-04. The desk asks the AUDIO first
+                // and only reaches whisper if the recording earned it, and it is a separate
+                // type so that ordering is testable rather than merely visible.
+                let mut desk = RecognizerDesk::new();
                 while let Ok(utterance) = utt_rx.recv() {
-                    let duration_ms = (utterance.duration_secs() * 1000.0) as u64;
-                    match recognizer.transcribe(&utterance.samples, &scratch) {
-                        Ok((text, latency_ms)) => {
-                            if !stt::is_meaningful(&text) {
-                                eprintln!("[richos-voice] discarded non-speech transcript: {text:?}");
-                                discards += 1;
-                                if discards >= SILENT_DISCARD_RUN && !said_it {
-                                    said_it = true;
-                                    observer.on_voice_event(&VoiceEvent::Error {
-                                        message: VoiceNotice::SoundButNoWords
-                                            .ceo_message()
-                                            .to_string(),
-                                        at: now_millis(),
-                                    });
-                                }
-                                continue;
-                            }
-                            discards = 0;
-                            said_it = false;
-                            observer.on_voice_event(&VoiceEvent::Transcript {
-                                text: text.clone(),
-                                duration_ms,
-                                latency_ms,
-                                at: now_millis(),
-                            });
+                    desk.handle(
+                        &utterance,
+                        observer.as_ref(),
+                        |samples| recognizer.transcribe(samples, &scratch),
+                        |text| {
                             let _ = submit_tx.send(text);
-                        }
-                        Err(e) => {
-                            eprintln!("[richos-voice] stt failed: {e}");
-                            observer.on_voice_event(&VoiceEvent::Error {
-                                message: e.ceo_message(),
-                                at: now_millis(),
-                            });
-                        }
-                    }
+                        },
+                    );
                 }
             }));
         }
@@ -985,6 +1093,176 @@ fn supervise(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::endpoint::EndReason;
+    use crate::voiced::fixtures::{framed, hiss, silence, steady_tone, synthetic_voice};
+
+    /// Wrap a buffer as a finished utterance. `speech_frames`/`total_frames` are set to what
+    /// the endpointer WOULD have counted — deliberately generous, because the point of these
+    /// tests is that the desk does not trust that count. It was the count being wrong that
+    /// put words in the CEO's mouth.
+    fn utterance(samples: Vec<f32>) -> Utterance {
+        let total = (samples.len() / crate::vad::VAD_FRAME_SAMPLES) as u32;
+        Utterance {
+            samples,
+            reason: EndReason::Silence,
+            speech_frames: total,
+            total_frames: total,
+        }
+    }
+
+    fn messages(rec: &Recorder) -> Vec<String> {
+        rec.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                VoiceEvent::Error { message, .. } => Some(message.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn transcripts(rec: &Recorder) -> Vec<String> {
+        rec.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                VoiceEvent::Transcript { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// INVARIANT — **THE ONE THIS WHOLE CHANGE EXISTS FOR.** Audio that carried no voice
+    /// never reaches the recognizer, so there is no transcript to submit, however plausible
+    /// whisper would have made it sound. The transcriber PANICS if it is called: this is a
+    /// proof of ordering, not an assertion about it.
+    #[test]
+    fn audio_that_carried_no_voice_never_reaches_whisper_and_never_becomes_a_turn() {
+        for (what, audio) in [
+            ("digital silence", silence(3.0)),
+            ("a quiet room at the VAD's own floor", hiss(3.0, -46.0, 7)),
+            ("a room 18 dB above it", hiss(3.0, -28.0, 9)),
+            ("a fan", steady_tone(3.0, -40.0)),
+        ] {
+            let rec = Recorder::default();
+            let mut desk = RecognizerDesk::new();
+            desk.handle(
+                &utterance(audio),
+                &rec,
+                |_| panic!("{what} reached whisper — the gate is not in front of it"),
+                |t| panic!("{what} was submitted as the CEO's message: {t:?}"),
+            );
+            assert!(transcripts(&rec).is_empty(), "{what} produced a transcript event");
+            assert_eq!(
+                messages(&rec),
+                vec![VoiceNotice::HeardNoVoice.ceo_message().to_string()],
+                "{what} was dropped silently — a silent drop is its own kind of lying"
+            );
+        }
+    }
+
+    /// INVARIANT: a voice DOES get through, all the way to `submit`. Without this the suite
+    /// above would pass by refusing everything, which is the false green this repository has
+    /// been bitten by repeatedly.
+    #[test]
+    fn a_voice_reaches_whisper_and_is_submitted_as_a_turn() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        let sent = Mutex::new(Vec::<String>::new());
+        let saw_whisper = std::sync::atomic::AtomicBool::new(false);
+        desk.handle(
+            &utterance(framed(synthetic_voice(1.5, 190.0, 130.0, -26.0), -55.0, 3)),
+            &rec,
+            |samples| {
+                saw_whisper.store(true, Ordering::Relaxed);
+                assert!(!samples.is_empty(), "whisper was handed nothing");
+                Ok(("Renegotiate Acme and get me the number by Thursday.".to_string(), 470))
+            },
+            |t| sent.lock().unwrap().push(t),
+        );
+        assert!(saw_whisper.load(Ordering::Relaxed), "a real voice never reached whisper");
+        assert_eq!(
+            sent.into_inner().unwrap(),
+            vec!["Renegotiate Acme and get me the number by Thursday.".to_string()]
+        );
+        assert_eq!(transcripts(&rec).len(), 1, "the CEO's own words must appear in the thread");
+        assert!(messages(&rec).is_empty(), "a working turn raised a notice");
+    }
+
+    /// INVARIANT: a ONE-WORD decision still gets through. `stt.rs` keeps its noise list
+    /// narrow precisely so "Yes." survives; an audio gate that swallowed it would have
+    /// undone that from the other side.
+    #[test]
+    fn a_one_word_decision_still_reaches_the_spine() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        let sent = Mutex::new(Vec::<String>::new());
+        desk.handle(
+            &utterance(framed(synthetic_voice(0.30, 210.0, 150.0, -26.0), -55.0, 5)),
+            &rec,
+            |_| Ok(("Yes.".to_string(), 320)),
+            |t| sent.lock().unwrap().push(t),
+        );
+        assert_eq!(sent.into_inner().unwrap(), vec!["Yes.".to_string()]);
+    }
+
+    /// INVARIANT: the audio gate is added IN FRONT of the noise-phrase filter, not instead
+    /// of it. A real voice whose transcript comes back as whisper's silence noise is still
+    /// discarded, and still never submitted.
+    #[test]
+    fn the_noise_phrase_filter_still_applies_to_audio_that_did_carry_a_voice() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        desk.handle(
+            &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, 11)),
+            &rec,
+            |_| Ok(("Thank you.".to_string(), 300)),
+            |t| panic!("whisper's silence noise was submitted: {t:?}"),
+        );
+        assert!(transcripts(&rec).is_empty());
+    }
+
+    /// INVARIANT: the refusal is said ONCE per run and again after a recovery. A line per
+    /// refusal would arrive every ~1.104 s from an open mic in a quiet room, and a notice
+    /// that repeats forever trains him to ignore the one that matters.
+    #[test]
+    fn the_refusal_is_said_once_per_run_and_again_after_the_room_recovers() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        let refuse = |desk: &mut RecognizerDesk, rec: &Recorder| {
+            desk.handle(&utterance(hiss(2.0, -40.0, 13)), rec, |_| panic!("reached whisper"), |_| {});
+        };
+        refuse(&mut desk, &rec);
+        refuse(&mut desk, &rec);
+        refuse(&mut desk, &rec);
+        assert_eq!(messages(&rec).len(), 1, "the notice became a drip");
+
+        // He speaks; the room is proven to work; the latch clears.
+        desk.handle(
+            &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, 17)),
+            &rec,
+            |_| Ok(("Approved.".to_string(), 300)),
+            |_| {},
+        );
+        refuse(&mut desk, &rec);
+        assert_eq!(messages(&rec).len(), 2, "the refusal went silent after a good turn");
+    }
+
+    /// INVARIANT: the two CEO-facing voice notices are different sentences answering
+    /// different questions — "nothing was sent" versus "I heard you and got no words". A
+    /// single shared line would tell him the wrong thing in one of the two cases.
+    #[test]
+    fn the_two_voice_notices_say_different_things() {
+        let a = VoiceNotice::HeardNoVoice.ceo_message();
+        let b = VoiceNotice::SoundButNoWords.ceo_message();
+        assert_ne!(a, b);
+        assert!(a.contains("haven't sent anything"), "the refusal must close the send question: {a}");
+        assert!(!a.contains('/') && !a.contains("dBFS"), "machinery leaked to the CEO: {a}");
+        assert!(!b.contains('/') && !b.contains("dBFS"), "machinery leaked to the CEO: {b}");
+    }
+
 
     #[derive(Default)]
     struct Recorder {
@@ -1241,6 +1519,92 @@ mod tests {
         assert!(ctl.queued_speech_secs() > 0.0 || ctl.state() == VoiceState::Speaking,
             "Rich never produced audio");
         drop(ctl);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **LIVE, END TO END: THE 2026-09-04 DEFECT, REPRODUCED AND THEN REFUSED.**
+    ///
+    /// Everything above proves a piece. This drives the WHOLE pipeline — real capture path,
+    /// real VAD, real endpointer, real recognizer thread, real submit callback — and proves
+    /// both directions on the same run:
+    ///
+    /// 1. **The failure, reproduced.** 12.000 s of -30 dBFS room hiss. That is 6.5 dB above
+    ///    the VAD's initial threshold (`max(0.005 x 3, 0.005)` = 0.015 = -36.48 dBFS), so
+    ///    every frame reads as speech until the 625-frame (10.000 s) stuck-floor escape lets
+    ///    the floor learn the room — and then the 50-frame (0.800 s) hangover closes an
+    ///    utterance of roughly 10.8 s. That utterance is EXACTLY what published v1.0.1 would
+    ///    have handed to whisper and submitted under the CEO's name. It must produce no turn,
+    ///    and it must say so.
+    /// 2. **The fix not being a mute button.** A real `say` utterance through the identical
+    ///    path must still land as a turn with the right words in it.
+    ///
+    /// Opt-in (`RICHOS_VOICE_LIVE_AUDIO=1`) because it opens a real output device and takes
+    /// ~20 s of wall clock. It never plays anything: no `speak_delta` is called, so the test
+    /// is silent even on a machine with speakers.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn live_a_silent_channel_produces_no_turn_and_a_real_utterance_still_does() {
+        if std::env::var("RICHOS_VOICE_LIVE_AUDIO").as_deref() != Ok("1") {
+            return;
+        }
+        let dir = std::env::temp_dir().join("richos-voice-silent-channel-test");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // ---- 1. the quiet room that v1.0.1 spoke for him from -----------------------------
+        let room = dir.join("quiet-room.wav");
+        crate::wav::write_pcm16_mono(&room, &hiss(12.0, -30.0, 4_242), crate::vad::SAMPLE_RATE)
+            .expect("write the room fixture");
+
+        let observer = Arc::new(Recorder::default());
+        let sent: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = sent.clone();
+        let ctl = VoiceController::start(
+            VoiceOptions { source: AudioSource::Wav(room), scratch_dir: dir.clone() },
+            observer.clone(),
+            Arc::new(move |text: String| sink.lock().unwrap().push(text)),
+        )
+        .expect("voice mode should start with an injected source");
+        // 12.000 s of audio + 0.800 s hangover + the gate; generous, because a false pass
+        // here would be a test that agreed with the bug.
+        std::thread::sleep(Duration::from_millis(16_000));
+        let said = sent.lock().unwrap().clone();
+        assert!(said.is_empty(), "a silent channel was submitted as the CEO's message: {said:?}");
+        let notices = messages(&observer);
+        assert!(
+            notices.contains(&VoiceNotice::HeardNoVoice.ceo_message().to_string()),
+            "the utterance either never reached the desk (so this test proves nothing) or was \
+             dropped silently. Notices seen: {notices:?}"
+        );
+        drop(ctl);
+
+        // ---- 2. and a real utterance still gets through ------------------------------------
+        let spoken = dir.join("ceo.wav");
+        let out = std::process::Command::new("/usr/bin/say")
+            .args(["-v", "Samantha", "-o"])
+            .arg(&spoken)
+            .arg("--data-format=LEI16@16000")
+            .arg("Rich, what is the status of the voice pipeline today?")
+            .output()
+            .expect("say");
+        assert!(out.status.success());
+
+        let observer2 = Arc::new(Recorder::default());
+        let sent2: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink2 = sent2.clone();
+        let ctl2 = VoiceController::start(
+            VoiceOptions { source: AudioSource::Wav(spoken), scratch_dir: dir.clone() },
+            observer2.clone(),
+            Arc::new(move |text: String| sink2.lock().unwrap().push(text)),
+        )
+        .expect("voice mode should start with an injected source");
+        std::thread::sleep(Duration::from_millis(8_000));
+        let said2 = sent2.lock().unwrap().clone();
+        assert!(!said2.is_empty(), "the gate swallowed a real utterance — it is a mute button");
+        assert!(
+            said2[0].to_lowercase().contains("voice pipeline"),
+            "transcript did not match what was spoken: {said2:?}"
+        );
+        drop(ctl2);
         std::fs::remove_dir_all(&dir).ok();
     }
 }
