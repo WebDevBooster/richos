@@ -1,0 +1,57 @@
+  PASS  1a  raise exits 0
+  PASS  1b  it returns a derived id (esc-20260905T085310Z-90ca9fde)
+  PASS  1c  a ledger row was appended at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/escalations.XXXXXX.OJscP6Xjja/state/escalations.jsonl
+  PASS  1d  derived from the workspace: "teammate": "zach-opus-e1demo"
+  PASS  1d  derived from the workspace: "branch": "worktree-zach-opus-e1demo"
+  PASS  1d  derived from the workspace: "state": "work-complete"
+  PASS  1d  derived from the workspace: "for": "ceo"
+  PASS  1e  nothing was written at the repository root
+  PASS  1f  the record file went to docs/verification/escalations/
+  PASS  2a  the Stop hook emits on the channel measured to reach the operator
+  PASS  2b  it names the condition
+  PASS  2c  it names WHO raised it
+  PASS  2d  it says the answer belongs to the CEO
+  PASS  2e  it says explicitly that this is NOT a stall
+  PASS  3a  the teammate's worktree is GONE (branch never merged)
+  PASS  3b  list still reports it outstanding (exit 1)
+  PASS  3c  THE WHOLE QUESTION SURVIVED the worktree that raised it
+  PASS  3d  what was already tried survived too
+  PASS  3e  same session, unchanged state: it does not repeat itself
+  PASS  4a  the model's context carries the teammate's own question, verbatim
+  PASS  4b  it carries the id to acknowledge
+  PASS  4c  and it says, to the model, that this is not a stall
+  PASS  4d  it states that nothing has to be merged to read it
+  PASS  4e  and the operator gets a line too — both channels, always
+  PASS  5a  empty ledger: SessionStart says nothing
+  PASS  5b  empty ledger: the Stop hook says nothing
+  PASS  6a  SAME SESSION, ALREADY ANNOUNCED, IT SPEAKS AGAIN because the age bucket crossed 24h
+  PASS  6b  and it goes quiet again at the same age — loudness is a transition, not a nag
+  PASS  7a  a NEW session is told about an escalation raised in an old one
+  PASS  8a  a one-word disposition is REFUSED (a dismissal wearing a ledger row)
+  PASS  8b  acknowledging an id nobody raised is REFUSED
+  PASS  8c  a real ack is recorded
+  PASS  8d  and nothing is outstanding afterwards (exit 0)
+  PASS  8e  the ack APPENDED — the original row is still there, nothing was rewritten
+  PASS  8f  the operator is told the story ended, having been told it started
+  PASS  8g  and SessionStart is silent again
+  PASS  9a  a raise that could not be written exits non-zero
+  PASS  9b  and it says so in those words, with what to do instead
+  PASS  10a --state is required
+  PASS  10b and the refusal explains WHY it is required
+  PASS  10c a record with no real question is refused — nothing could ever close it
+  PASS  11a a stopped escalation is reported as stopped
+  PASS  11b and the not-a-stall wording is correctly absent for it
+  PASS  12a  the control escalation really is in the ledger
+  PASS  12b  NEGATIVE CONTROL: with a predicate that reports 'clear', the Stop hook is SILENT over a live escalation — the historical defect, reproduced
+  PASS  12c  NEGATIVE CONTROL: SessionStart is silent too
+  PASS  12d  and with the real predicate restored, the same fixture is announced — the control was the mutation, not the fixture
+  PASS  13a  a missing predicate is ANNOUNCED, not swallowed
+  PASS  13b  and SessionStart says the same rather than opening quietly
+  PASS  14a  a malformed ledger line is reported, with a count
+  PASS  14b  and the good row beside it is still read
+  PASS  15a raise still succeeds without a docs/ directory
+  PASS  15b and it added NOTHING to the repository root (0 entries before and after)
+  PASS  15c the escalation was still delivered
+  PASS  15d and it says why, rather than failing silently
+
+  55 passed, 0 failed

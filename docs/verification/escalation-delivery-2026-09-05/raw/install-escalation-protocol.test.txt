@@ -1,0 +1,27 @@
+  PASS  1a  --check exits 1 over definitions carrying the old protocol
+  PASS  1b  it finds all THREE seams — one in zach.md, TWO in dean.md
+  PASS  1c  and reports the definition that has none, rather than passing over it
+  PASS  1d  --check wrote nothing
+  PASS  2a  install exits 0
+  PASS  2b  the instruction to write BLOCKED.md at the root is GONE
+  PASS  2c  BOTH of dean.md's seams were replaced — including the template every new hire is built from
+  PASS  2d  and neither of dean.md's copies still instructs it
+  PASS  2e  the new command is in the definition
+  PASS  3a  the ACK-PROTOCOL-SEAM placeholder immediately after the span is untouched
+  PASS  3b  and WHEN to escalate — unchanged doctrine — is still there
+  PASS  3c  the section after it is intact
+  PASS  4a  a second install changes nothing
+  PASS  4b  --check now exits 0
+  PASS  5a  a hand-edited definition is reported as drift
+  PASS  5b  and re-installing says which one it overwrote
+  PASS  5c  the hand edit is gone — the canonical text is the only source
+  PASS  6a  no seam anywhere is exit 2, not a quiet success
+  PASS  6b  and it says so in words
+  PASS  6c  a repository with no .claude/agents is exit 2 too
+  PASS  7   the canonical text names: escalate.sh raise
+  PASS  7   the canonical text names: --state
+  PASS  7   the canonical text names: work-complete
+  PASS  7   the canonical text names: docs/verification/
+  PASS  7   the canonical text names: EXITS NON-ZERO
+
+  25 passed, 0 failed
