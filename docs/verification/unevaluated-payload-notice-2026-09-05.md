@@ -313,3 +313,55 @@ the tool-name dispatch the survey measured. Its notice sits above that filter.
   section — 3 properties not proven load-bearing, 4 proven, with `Q05`, `Q07` and `Q09`
   named. Its own 174 cases all pass. **That red is not from this work:** reverting the
   hook to the previous commit and re-running produced byte-identical output.
+
+## What it costs, measured, because the first number was wrong
+
+Sourcing the library and classifying the payload adds one `python3` invocation to a
+hook that reaches it. That is not free and it goes on the happy path of guards that
+fire on every tool call, so it was measured rather than waved away.
+
+**The first measurement was worthless and said so loudly, which is why it got a second
+one.** It ran the reverted hook from a bare temp directory, where it could not find
+`scripts/lib/resolve-roots.sh` and exited on the broken-install path in 9.7ms. Against
+the wired hook's 83.4ms that read as a catastrophic regression. It was a measurement of
+a hook that did nothing.
+
+**Both arms then ran from a full mirror of the engine's `scripts` tree**, so each hook
+resolves its libraries exactly as it does in place and the only difference between the
+arms is the hook file. Twenty runs each, one warm-up discarded (`raw/cost-harness.sh`):
+
+| hook | unwired | wired | added |
+|---|---|---|---|
+| `guard-bash-main-writes.sh` | 42.9 ms | 59.9 ms | +17.0 ms |
+| `guard-interactive-prompt.sh` | 61.0 ms | 82.5 ms | +21.5 ms |
+| `guard-worktree-removal.sh` | 59.3 ms | 74.7 ms | +15.4 ms |
+
+**And the number that decides whether that matters is whether the host runs matching
+hooks in parallel or in series.** Ten guards are registered on `Bash`; in series the
+added cost of a `Bash` tool call would be about 200ms, which is a regression worth
+redesigning for, and in parallel it is about 20ms, which is not.
+
+Measured, in the same sandbox style: five hooks registered on `PreToolUse[Bash]`, each
+sleeping two seconds and logging its own start and end.
+
+```
+h1 start +0.000s   h2 end +2.033s
+h2 start +0.001s   h3 end +2.042s
+h3 start +0.007s   h1 end +2.044s
+h4 start +0.020s   h5 end +2.059s
+h5 start +0.027s   h4 end +2.062s
+hook span: 2.06s
+```
+
+**Parallel.** All five started within 27ms of each other and the whole set finished at
+2.06 seconds rather than 10. So the added cost of this change to a tool call is the
+added cost of the slowest guard — about **20 milliseconds** — and not the sum across
+the chain. Raw: `raw/parallelism-*`.
+
+That number is why the obvious optimization was NOT taken. Moving each notice below the
+guard's own tool-name extraction and firing it only when that extraction came back
+empty would put the happy-path cost at zero, and it would mean twenty-seven bespoke
+insertions instead of three shared shapes, in files where the dispatch is sometimes in
+shell and sometimes inside a python heredoc. Twenty milliseconds is not worth trading a
+uniform, checkable block for that. It is written down here so the trade is a decision on
+the record rather than something nobody looked at.
