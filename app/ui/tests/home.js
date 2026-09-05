@@ -48,6 +48,19 @@ const contrastLib = require("./lib/contrast");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = path.join(__dirname, "shots-home");
 
+/// A DELIBERATE SLOW RUNNER, on demand — the same knob `splash.js` carries, deliberately the
+/// same NAME, because it reproduces the same condition and one condition should not need two
+/// switches. `page.goto()` resolves on `load`; the harness's next instruction after that landed
+/// 51-72ms later on this machine and about 2,000ms later on a GitHub `macos-latest` runner.
+///
+///     RICHOS_SPLASH_LAG_MS=2000 node home.js
+///
+/// That gap is why the cold-launch check below was red on 2026-09-05: it SAMPLED the screen
+/// once, from outside, at whatever moment the harness happened to get its turn, and on the
+/// runner that moment was after the picture had finished. Zero, and no delay at all, unless it
+/// is set.
+const LAG_MS = Number(process.env.RICHOS_SPLASH_LAG_MS || 0);
+
 /// The harness's six companies, as `mock.js` holds them and in its order. Written down HERE
 /// so the suite can prove the row is the registry's rather than merely non-empty — a row that
 /// had drifted to four, which is what `mock.js` carried until 2026-09-01, would otherwise pass
@@ -1475,6 +1488,23 @@ async function main() {
     //      fails on a gross miss rather than on a machine being three times slower than a
     //      Mac. `docs`-level honesty: on hardware slower than that, the CEO meets the loading
     //      state for a moment. He is not shown a blank screen and he is not shown a pop.
+    //
+    // AND WHAT IT LEARNED ON 2026-09-05, WHICH IS ABOUT THIS CHECK AND NOT ABOUT THE PRODUCT.
+    // Assertion 2 used to SAMPLE the surface once — `goto`, then `waitForFunction`, then an
+    // `evaluate` — and require the loading state to be up at that instant. That instant is not
+    // a moment in the product's life; it is whenever the harness got its turn. Here that is
+    // ~100ms after navigation and the picture lands at ~490ms, so it read "still building" and
+    // passed. On a `macos-latest` runner the harness's first instruction after `load` arrives
+    // about 2,000 ms late (measured, `README.md` "Making this machine behave like a runner")
+    // and the picture lands at 1,669-2,544 ms — so the sample lands AFTER the picture, reads a
+    // dismissed cover, and reports `the loading state was already dismissed before the field
+    // was live` about a launch in which everything happened in the right order. Reproduced on
+    // this machine, three runs out of three, with `RICHOS_SPLASH_LAG_MS=2000`.
+    //
+    // SO NOTHING IS SAMPLED FROM OUTSIDE ANY MORE. The page records the ORDER of its own
+    // launch and the order is what is asserted — which is both immune to when the harness
+    // wakes up AND strictly stronger than what a single sample could say: a cover that went
+    // early would be caught wherever it went, not only if the harness happened to be looking.
     const p2 = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await p2.addInitScript(() => {
       // WHEN THE BUILD ACTUALLY STARTED, which no state flag records — `state.field` is
@@ -1485,10 +1515,34 @@ async function main() {
       // null, first try). And deliberately not patching `requestIdleCallback` either — that
       // would test the branch this WebKit build happens to take rather than the product.
       window.__fieldStartedAt = null;
-      new MutationObserver(() => {
-        if (window.__fieldStartedAt != null) return;
-        if (document.querySelector('script[src*="home/field-"]')) window.__fieldStartedAt = performance.now();
-      }).observe(document, { childList: true, subtree: true });
+      // AND WHAT WAS ON SCREEN AT THAT INSTANT, recorded by the page rather than asked for
+      // later: the cover has to be up and undismissed when the build begins, or the CEO is
+      // watching a bare surface while 5 MB loads.
+      window.__coverAtKickoff = null;
+      // WHEN THE COVER LEFT, and — the assertion that matters — WHAT EXISTED WHEN IT DID.
+      // `field-engine.js` adds `.gone` and publishes `window.__loro` in the same synchronous
+      // block, so an observer that fires after it sees both. A cover dismissed on a timer, or
+      // moved ahead of the engine, would be seen with no picture behind it.
+      window.__gone = null;
+      const look = () => {
+        const l = document.getElementById("home-loading");
+        if (window.__fieldStartedAt == null && document.querySelector('script[src*="home/field-"]')) {
+          window.__fieldStartedAt = performance.now();
+          window.__coverAtKickoff = { present: !!l, gone: !!(l && l.classList.contains("gone")) };
+        }
+        if (window.__gone == null && l && l.classList.contains("gone")) {
+          window.__gone = {
+            at: performance.now(),
+            loro: !!window.__loro,
+            frames: window.__loro ? window.__loro.frames : null,
+            fadeMs: Math.round(parseFloat(getComputedStyle(l).transitionDuration) * 1000),
+            field: window.RichHome ? window.RichHome.state.field : null,
+          };
+        }
+      };
+      new MutationObserver(look).observe(document, {
+        childList: true, subtree: true, attributes: true, attributeFilter: ["class"],
+      });
       // AND THE ORIGIN THE FLOOR IS MEASURED FROM. `home.js` arms the idle callback in
       // `afterShell`, which runs on DOMContentLoaded — so the 1,200 ms timeout is 1,200 ms
       // from THERE, not from navigation. Comparing it against a from-navigation figure would
@@ -1498,25 +1552,32 @@ async function main() {
       document.addEventListener("DOMContentLoaded", () => {
         if (window.__domReadyAt == null) window.__domReadyAt = performance.now();
       }, true);
+      // AND WHEN THE PICTURE ACTUALLY LANDED, timed BY THE PAGE. `performance.now()` read from
+      // an `evaluate` after the field is live reports when the HARNESS got its turn, and on a
+      // runner that is about 2,000 ms after the fact — which is why the numbers this check used
+      // to print from CI (1,669-2,544 ms) were mostly harness lag charged to the product. A
+      // 10 ms poll costs nothing next to a 5 MB script load and it is the product's own clock.
+      window.__liveAt = null;
+      (function pollLive() {
+        if (window.RichHome && window.RichHome.state.field === "live") {
+          window.__liveAt = performance.now();
+          return;
+        }
+        setTimeout(pollLive, 10);
+      })();
     });
     await p2.goto(APP);
+    if (LAG_MS > 0) await p2.waitForTimeout(LAG_MS);
     await p2.waitForFunction("typeof window.RichHome === 'object'");
-    // The designed late state, observed WHILE it is the thing on screen.
-    const waiting = await p2.evaluate(() => {
-      const l = document.getElementById("home-loading");
-      const cs = l && getComputedStyle(l);
-      return {
-        present: !!l,
-        gone: !!(l && l.classList.contains("gone")),
-        fadeMs: cs ? Math.round(parseFloat(cs.transitionDuration) * 1000) : 0,
-        field: window.RichHome.state.field,
-      };
-    });
     await p2.waitForFunction("window.RichHome.state.field === 'live'", { timeout: 60000 });
     const t = await p2.evaluate(() => ({
-      live: Math.round(performance.now()),
+      live: window.__liveAt == null ? null : Math.round(window.__liveAt),
+      sampledAt: Math.round(performance.now()),
       started: window.__fieldStartedAt == null ? null : Math.round(window.__fieldStartedAt),
       domReady: window.__domReadyAt == null ? null : Math.round(window.__domReadyAt),
+      cover: window.__coverAtKickoff,
+      left: window.__gone,
+      present: !!document.getElementById("home-loading"),
       gone: document.getElementById("home-loading").classList.contains("gone"),
     }));
     await p2.close();
@@ -1532,6 +1593,7 @@ async function main() {
     // 1. STRICT. The kick-off is floored by a TIMER, not by the machine's speed, so a slow
     //    runner has no excuse here — 300ms of slack for timer imprecision and nothing more.
     assert(t.started != null, "the field scripts were never requested — nothing kicked the picture off");
+    assert(t.live != null, "nothing recorded WHEN the picture landed — the number below would be the harness's clock, not the product's");
     assert(t.domReady != null, "DOMContentLoaded was never seen, so the floor has no origin to be measured from");
     const armed = t.started - t.domReady;
     assert(
@@ -1539,10 +1601,24 @@ async function main() {
       `the picture was not kicked off inside its own ${idleFloor}ms floor — it started ${armed}ms after ` +
         `DOMContentLoaded (at ${t.started}ms from navigation)`
     );
-    // 2. STRICT. What he sees while it builds is the designed state, and it leaves on a fade.
-    assert(waiting.present, "there is no loading state — a late picture would arrive on a blank surface");
-    assert(!waiting.gone, "the loading state was already dismissed before the field was live");
-    assert(waiting.fadeMs >= 500, `the loading state leaves in ${waiting.fadeMs}ms — that is a pop, not a cross-fade`);
+    // 2. STRICT, AND IN THE PAGE'S OWN ORDER RATHER THAN AT THE HARNESS'S CONVENIENCE. What he
+    //    sees while it builds is the designed state; it is still up when the build STARTS; it
+    //    leaves only once there is a picture to leave onto; and it leaves on a cross-fade.
+    assert(t.present, "there is no loading state — a late picture would arrive on a blank surface");
+    assert(t.cover != null, "nothing recorded what was on screen when the build started");
+    assert(t.cover.present, "the loading state was not on screen when the picture began building");
+    assert(!t.cover.gone, "the loading state had already been dismissed when the picture began building");
+    assert(t.left != null, "the loading state never left — the field went live behind a cover");
+    assert(
+      t.left.at >= t.started,
+      `the loading state left at ${Math.round(t.left.at)}ms, before the picture even began building at ${t.started}ms`
+    );
+    // THE ONE THAT SAYS THE DISMISSAL IS GATED ON READINESS RATHER THAN ON A GUESS. The cover
+    // is lifted by `field-engine.js` in the same synchronous block that publishes the picture,
+    // so `window.__loro` is there when it goes. Put the dismissal on a timer, or ahead of the
+    // engine, and this reads false.
+    assert(t.left.loro, "the loading state was dismissed with no picture published behind it");
+    assert(t.left.fadeMs >= 500, `the loading state leaves in ${t.left.fadeMs}ms — that is a pop, not a cross-fade`);
     assert(t.gone, "the field went live and the loading state stayed up");
     // 3. THE MACHINE-DEPENDENT ONE, reported always and failed only on a gross miss. Three
     //    curtain-holds is where the loading state stops being a moment and becomes the
@@ -1554,8 +1630,13 @@ async function main() {
         `state IS the launch on this machine (kick-off ${t.started}ms, build ${t.live - t.started}ms)`
     );
     return (
-      `field live at ${t.live}ms from navigation (shell ready ${t.domReady}ms, kick-off ${armed}ms after it ` +
-      `inside a ${idleFloor}ms floor, build ${t.live - t.started}ms) — ${inside ? `inside the curtain's ${hold}ms hold` : `PAST the ${hold}ms hold on this machine, so the designed loading state carries it, leaving on a ${waiting.fadeMs}ms fade`}`
+      `field live at ${t.live}ms from navigation, timed by the page (the harness only got its turn at ` +
+      `${t.sampledAt}ms) — shell ready ${t.domReady}ms, kick-off ${armed}ms after it ` +
+      `inside a ${idleFloor}ms floor, build ${t.live - t.started}ms — ${inside ? `inside the curtain's ${hold}ms hold` : `PAST the ${hold}ms hold on this machine, so the designed loading state carries it`}` +
+      `\n          the cover was up when the build started and left at ${Math.round(t.left.at)}ms with the picture ` +
+      `published, on a ${t.left.fadeMs}ms cross-fade — ${t.left.frames} frames drawn at that moment, so the first ` +
+      `frame lands inside the fade rather than before it` +
+      (LAG_MS > 0 ? ` · run with RICHOS_SPLASH_LAG_MS=${LAG_MS}` : "")
     );
   });
 
@@ -1729,3 +1810,66 @@ main().then(
     process.exit(1);
   }
 );
+
+// ---------------------------------------------------------------------------------------
+// THE COLD-LAUNCH CHECK, AND WHY THE PRODUCT WAS NOT CHANGED — 2026-09-05
+// ---------------------------------------------------------------------------------------
+//
+// `ui-suite-ci` run 33933067025 failed this suite on one line:
+//
+//     FAIL  the picture lands inside the curtain's hold, on a cold launch
+//           the loading state was already dismissed before the field was live
+//
+// READ AS WRITTEN, that says a customer on a slow machine meets a dismissed cover over a
+// surface with nothing on it. It is not what happened, and the evidence is here rather than
+// in a claim:
+//
+//  1. THE SENTENCE WAS ABOUT A SAMPLE, NOT ABOUT THE SCREEN. The check did `goto`, then
+//     `waitForFunction`, then one `evaluate`, and required the cover to be up at whatever
+//     instant that `evaluate` ran. That instant belongs to the harness. Here it lands ~100ms
+//     after navigation with the picture arriving at ~460ms, so it read "still building". On a
+//     `macos-latest` runner the harness's first instruction after `load` arrives about
+//     2,000 ms late — measured on this repository's own runners and already documented in
+//     `README.md` — and the picture arrives at 1,669-2,544 ms, so the sample lands after
+//     everything and reads a dismissed cover over a LIVE picture. `state.field` in that same
+//     sample read `live`, which is the tell.
+//
+//  2. REPRODUCED, THREE OUT OF THREE, ON THIS MACHINE. `RICHOS_SPLASH_LAG_MS=2000` puts the
+//     lag in and the old assertion fails every time with the runner's exact wording, on a
+//     launch in which the cover was up for the whole build. The same knob against the check
+//     as it now stands passes: `field live at 464ms from navigation, timed by the page (the
+//     harness only got its turn at 2172ms)`.
+//
+//  3. THE PRODUCT'S ORDER WAS ALREADY RIGHT, and it is not gated on a duration.
+//     `field-engine.js` lifts `#home-loading` in the same synchronous block that publishes
+//     `window.__loro`, so the cover leaves at the moment the picture exists. Measured over
+//     five launches: cover up at kick-off, gone at 449-494ms, `window.__loro` present at that
+//     instant every time. The one fixed number on the path is the 0.8s CSS cross-fade, and the
+//     first frame is drawn 25-35ms into it.
+//
+// SO THE PRODUCT IS UNCHANGED AND THE CHECK IS. Nothing is sampled from outside any more: the
+// page records the ORDER of its own launch and the order is asserted, which is both immune to
+// when the harness wakes up and strictly more than one sample could say. The old form could
+// only catch an early dismissal if the harness happened to be looking at that moment; this one
+// catches it wherever it happens.
+//
+// ALSO FIXED, AND IT WAS QUIETLY WRONG THE WHOLE TIME: assertion 3's `t.live` was
+// `performance.now()` read from an `evaluate` AFTER the field went live, so it timed the
+// harness, not the picture. The 1,669-2,544 ms this check has been printing from CI was mostly
+// harness lag charged to the product. It is now recorded by the page at the moment the state
+// flips; under a 2,000 ms lag it reads 464ms while the harness's own turn reads 2,172ms.
+//
+// THE MUTATION RUNS BEHIND THE TWO NEW ASSERTIONS, both against the shipped `app/ui/home.js`:
+//
+//  1. LIFT THE COVER AT KICK-OFF — `classList.add("gone")` at the top of `startField()`, which
+//     is a dismissal that is a guess about how fast the machine is. RED:
+//     `the loading state had already been dismissed when the picture began building`.
+//
+//  2. LIFT IT WHEN THE DATA LANDS, BEFORE THE ENGINE RUNS — the same line in `loadScript`'s
+//     `onload`, so the cover goes with `window.__loro` still undefined. RED:
+//     `the loading state was dismissed with no picture published behind it`.
+//
+// A third shape — a `setTimeout` inside `startField` — does NOT reproduce, and the reason is
+// worth keeping: the engine's whole build is synchronous, so a timer armed at kick-off cannot
+// fire until after the picture is up. A duration-based dismissal on this path has to be armed
+// before the scripts load to beat them, which is what mutation 1 does.

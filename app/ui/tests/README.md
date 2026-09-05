@@ -44,6 +44,14 @@ what made six splash checks red at once. This delays the harness's first instruc
 every launch by that many milliseconds, so a fast machine measures what a slow one measures.
 Zero, and no delay at all, unless it is set.
 
+**`home.js` reads the same variable, deliberately** — `RICHOS_SPLASH_LAG_MS=2000 node home.js`
+— because it is the same condition and one condition should not need two switches. It is what
+reproduced run 33933067025's `the loading state was already dismissed before the field was
+live`: the check sampled the surface once, from outside, at whatever moment the harness got its
+turn, and on a runner that moment was after the picture had finished. Three failures out of
+three with the lag in, on a launch whose order was correct throughout. The check now records
+the order in the page and asserts THAT, so the harness's turn cannot reach it.
+
 ```
 RICHOS_FRAME_BUDGET_MS=30 node scale.js
 ```
