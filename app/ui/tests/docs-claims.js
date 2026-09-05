@@ -186,7 +186,7 @@ async function main() {
     const claims = [];
     for (const line of readme.split("\n")) {
       const m = line.match(/cargo test -p (richos-[a-z]+).*?#\s*(\d+) tests(?:\s*\+\s*(\d+) doc-tests)?/);
-      if (m) claims.push({ crate: m[1], tests: Number(m[2]), docTests: m[3] === undefined ? null : Number(m[3]) });
+      if (m) claims.push({ line, crate: m[1], tests: Number(m[2]), docTests: m[3] === undefined ? null : Number(m[3]) });
     }
     assert(claims.length > 0, "EMPTY INVENTORY: the README states no crate total in the form `# <N> tests`");
 
@@ -203,7 +203,7 @@ async function main() {
       const total = files.reduce((n, f) => n + testCount(f), 0);
       const ignored = files.reduce((n, f) => n + (read(f).match(/^\s*#\[ignore(?:\s*=.*?)?\]/gm) || []).length, 0);
       if (ignored) {
-        const line = readme.split("\n").find(l => l.includes(`cargo test -p ${c.crate}`));
+        const line = c.line;
         assert(line.includes(`${total - ignored} direct, ${ignored} child-only`), "README must distinguish direct passes from child-only fixtures");
       }
       const docs = rustFiles(path.join(crateDir, "src")).reduce((n, f) => n + docTestCount(f), 0);

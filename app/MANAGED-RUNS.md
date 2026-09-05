@@ -1,158 +1,122 @@
-# Managed work runs
+# Owned work in RichOS
 
-RichOS owns continuation. A model ending a conversation turn is not evidence
-that the requested work is complete.
+Tell Rich what needs doing in the conversation. The desktop persists the request
+before inference, plans the work and runs it through independent outcome checks.
+No JSON file, task breakdown or per-attempt approval is required.
 
-`richos-core::run` is a portable controller with two hosts:
+Rich owns the request until its outcome is verified, the CEO explicitly ends it
+or a genuine business decision prevents that task from proceeding. Operational
+failures remain owned and retry with persisted backoff. They are not completion
+and are not automatically presented as CEO decisions.
 
-- The desktop host records separately governed worker attempts through the scoped
-  Spine, conversation stream and cancellation channel. Open a bound task, expand **Work plan**, load a prepared
-  plan and review it. Preparation does not execute anything. **Start / continue**
-  drives the plan. **Pause run** and the existing **Stop** control pause it.
-- The `richos-run` terminal binary drives the same controller through the governed
-  native model adapter. It works in any explicitly selected workspace. It does
-  not attach to, interrupt or rewrite an existing interactive Claude Code team.
+## Conversation and execution
 
-This first implementation runs one managed task at a time. Dependencies control
-ordering. A failed task does not stop unrelated ready tasks. Parallel worker
-allocation is not implemented, and native interactive teams are not a dependency.
+Typed messages, voice input and steering enter the owned-request path. Intake
+uses the conversation and relevant workspace documents to distinguish a request
+for work from a question. It creates declarative tasks and acceptance criteria.
+Generated criteria cannot install shell commands as verifiers.
 
-## What completion means
+The desktop scheduler starts at app launch and services saved requests and jobs.
+It executes one worker attempt at a time across conversations. A job retains its
+original company and conversation when the user selects another conversation.
+A company without a project folder receives an app-owned workspace.
 
-A plan is an explicit, finite scope: a goal, workspace, tasks, dependencies,
-acceptance commands, attempt limit and per-attempt model timeout. The controller
-copies the contract into its journal before running anything. Agent responses
-cannot change that contract through the API.
+Each worker uses a fresh governed Claude session. Background tasks and experimental native teams are disabled inside that lease, so work cannot be handed off to an unowned background team. Foreground subagents may finish within their parent attempt. Output reaches the ordinary
+conversation. Generated worker prompts are not attributed to the CEO. The run
+journal, rather than a model's memory or turn-end event, owns unfinished work.
 
-Each task follows `pending -> running -> verifying -> passed`. An `end_turn`
-only permits verification. The host executes every acceptance command itself.
-A failed check returns the task to `pending` while attempts remain, with the
-failure evidence included in the next attempt. Exhaustion becomes
-`needs_attention`. Only all tasks passing produces `completed`.
+A separate inspector has Read, Glob and Grep tools, no shell or write tools and
+no MCP tools. It reads the actual result and returns a structured verdict:
 
-Before declaring completion, the controller rechecks previously passed tasks
-against the final workspace. A later change invalidating an earlier result
-therefore reopens the affected task. Background shells and model declarations
-do not satisfy an acceptance check.
+- Complete, with evidence for the acceptance criteria.
+- Incomplete, with the missing work for the next attempt.
+- A CEO decision, with the question, why CEO authority is needed, options and a
+  recommendation.
 
-Acceptance is only as good as the checks selected. Commands must test the
-requested result and be repeatable without external side effects. A trivial
-`true` command or a test weakened by an agent cannot prove a business outcome.
-Use separately maintained verification where possible. This controller is not
-an adversarial sandbox: a worker with the same OS permissions can modify files,
-including verifier code. It does not invent verification for subjective work.
+Earlier passed tasks are checked against the final workspace before completion.
+A file's existence or the worker's claim alone does not establish a business
+outcome. Independent model review still requires judgment and is fallible.
 
-## Failure, pause and recovery
+## Permissions
 
-- The journal is flushed before each external attempt and each transition.
-  OS file locking prevents two controllers from owning the same journal.
-- A model error, refusal, cancellation or timeout becomes `needs_attention`.
-  Unknown external effects are not automatically replayed. After inspection,
-  an operator may retry within the original attempt budget.
-- Missing or moved workspaces do not prevent inspection or cancellation.
-  Execution still refuses an unavailable directory. Unreadable journals can be
-  explicitly archived in the panel, preserving their bytes for diagnosis.
-- Restarting recovers committed state. An interrupted `running` or `verifying`
-  attempt is flagged for inspection. A torn final journal append is discarded;
-  corrupt committed data is refused. A changed contract in the journal is refused.
-- Pausing survives restart. It does not mark tasks complete. An explicit
-  **End run without completing it** records cancellation and permits a new plan,
-  preserving the old journal. It is not a success state.
-- The desktop app must remain open to execute. A machine restart does not
-  automatically launch the app or repeat uncertain work. Resume is explicit.
-- Verifiers have time and output limits. They must own and clean up any child
-  processes they launch; the current verifier adapter terminates its direct child.
+Managed workers retain user, project and local settings, including configured
+hooks and explicit restrictions. RichOS supplies `acceptEdits` and enables the
+Bash sandbox with automatic approval of sandboxed commands. Filesystem isolation
+is on, unsandboxed retries are off and unavailable sandbox support is an error.
+Reads outside working directories are restricted.
 
-Managed workers load user/project/local Claude settings in the selected workspace.
-They keep provider transcripts for hooks that read them. The native permission
-mode is explicitly `default`; any permission request delivered to RichOS is denied.
-Such a denial leaves the run needing attention, even if the model later reports
-`end_turn`. There is no automatic grant or fallback to the ordinary chat adapter's
-legacy policy. This slice does not include an in-app permission-grant dialog.
+The permission callback denies requests that still require approval. It tells
+Rich to find a permitted alternative, rather than ask the CEO to edit settings.
+This is not an unconditional approval callback. Existing settings still matter:
+Claude merges some permission and sandbox arrays across settings sources. This
+policy is not a separate VM or an adversarial isolation boundary.
 
-Acceptance commands are trusted executable input. The application executes them
-under its own OS identity, outside Claude's permission channel. Review their exact
-arguments in the panel before Start. Installed settings can authorize tool use;
-retaining those settings does not independently certify the installed hooks.
+The installed-provider trials and transport tests are described in
+[the review brief](ORCHESTRATION-REVIEW.md). The background-task switch follows the documented [Claude environment contract](https://code.claude.com/docs/en/env-vars). Native Claude is an external runtime;
+its supported sandbox platforms and policy behavior remain dependencies.
 
-The model adapter must implement cancellation and explicitly support governed
-execution in the requested workspace. Desktop attempts use a separate worker
-lease and disable automatic crash replay. The original chat lease is restored
-and re-primes from the conversation before its next use. User steering remains
-between attempts. The run's assistant output uses the `Managed` source and is
-rendered live and after reopening; generated task prompts never appear as user
-messages. Older binaries need compatibility support to read this new source.
+## Ownership, recovery and control
 
-## Terminal use
+Requests are written through a synced temporary file and atomic rename. Stable
+receipt IDs prevent a request being duplicated across spool recovery. Run
+snapshots are synced before execution and verified transitions. An OS lock
+prevents two controllers from owning the same journal.
 
-Build from `app/` with Rust 1.89 or newer:
+Autonomous tasks retain ownership after the advanced-plan attempt ceiling.
+Retries back off up to 512 seconds. An unavailable workspace is retried without
+asking the CEO to repair a task plan. Restart recovers interrupted work and tells
+the next worker to inspect existing effects before continuing. This is not an
+exactly-once guarantee for arbitrary external services.
+
+Explicit pause survives restart. The Work plan panel offers pause, resume and
+end controls. Ending a run is recorded as cancellation, never completion.
+Unreadable journals can be archived without destroying their bytes. A missing
+workspace does not prevent inspection or ending an existing run.
+
+CEO answers are retained verbatim and passed to both execution and verification.
+An answer must first be classified as addressing the pending decision. Other
+independent tasks can continue while a decision is pending.
+
+The app must be running to execute. Closing the app preserves work for its next
+launch; it does not install a background system service or arrange an OS login
+launch. Managed Unix leases use a process group for ordinary child cleanup when
+the lease is dropped. This does not provide an external-action transaction log
+or containment of deliberately detached processes.
+
+## Advanced terminal interface
+
+The same core controller is available without the desktop:
 
 ```sh
-cargo build -p richos-core --bin richos-run
-target/debug/richos-run create /private/state/work.jsonl /path/to/plan.json
-target/debug/richos-run drive /private/state/work.jsonl
-target/debug/richos-run status /private/state/work.jsonl
-target/debug/richos-run pause /private/state/work.jsonl
-target/debug/richos-run resume /private/state/work.jsonl
-target/debug/richos-run retry /private/state/work.jsonl implement
-target/debug/richos-run end /private/state/work.jsonl
+cargo build --manifest-path app/Cargo.toml -p richos-core --bin richos-run
+app/target/debug/richos-run handle /absolute/job.jsonl /absolute/workspace 'Handle this: finish the requested document.'
+app/target/debug/richos-run status /absolute/job.jsonl
+app/target/debug/richos-run pause /absolute/job.jsonl
+app/target/debug/richos-run resume /absolute/job.jsonl
+app/target/debug/richos-run drive /absolute/job.jsonl
+app/target/debug/richos-run end /absolute/job.jsonl
 ```
 
-`resume` clears a pause; `drive` performs execution. `retry` requeues an inspected
-failed task, preserving attempts. `end` requires the writer to be stopped. Exit
-0 from `drive` or `status` means completed, 3 means unfinished and 2 means an
-operational error. Administrative commands return 0 when their operation succeeds.
+`status` and `drive` return 0 only for completed work, 3 for unfinished work and
+2 for errors. `create JOURNAL PLAN.json` remains available for explicit technical
+plans. These can use executable acceptance commands and retain their finite
+attempt budget and explicit recovery contract. Only trusted operators should
+import executable checks. The conversation planner cannot generate them.
 
-Example plan shape, with project-specific checks substituted before use:
+`inspect WORKSPACE PROMPT` is a diagnostic for the read-only structured inspector.
+The desktop owns intake before planning; the terminal `handle` command currently
+creates its run journal after intake has produced a plan.
 
-```json
-{
-  "goal": "Implement and verify the requested change",
-  "workspace": "/absolute/path/to/project",
-  "max_attempts": 3,
-  "turn_timeout_seconds": 1800,
-  "tasks": [
-    {
-      "id": "implement",
-      "prompt": "Implement the change described in the approved brief.",
-      "depends_on": [],
-      "checks": [
-        {
-          "name": "Requested behavior and regression coverage",
-          "argv": ["python3", "verification/acceptance.py"],
-          "timeout_seconds": 120
-        }
-      ]
-    }
-  ]
-}
-```
+## Compatibility and limits
 
-This is an interface for prepared plans, not an automatic importer of scattered
-Markdown backlogs. A planner must establish scope and meaningful checks. The
-desktop stores journals under its application data directory in `runs/`; the
-terminal takes an explicit private state path. No runtime state belongs in a
-public source repository.
+The conversation ledger writes the existing `text` and `proactive` source values.
+It does not introduce a `managed` value older RichOS readers cannot deserialize.
+The newer reader also accepts the earlier experimental `managed` spelling.
+Request and run journals live separately from the conversation ledger.
 
-## Migration boundary
-
-Keep concrete safety checks at the actions they protect. Move continuation into
-managed runs as work migrates into RichOS. Do not disable all existing guards to
-adopt this controller. Existing ordinary chat and interactive terminal sessions
-continue to behave as before; neither is silently enrolled in a run.
-
-The implementation is independent of repository names and provider prose. A new
-provider implements `Cognition` with cancellation or the narrower `RunHost`
-interface. Platform execution belongs to hosts, while dependency ordering,
-completion, attempt budgets and journal recovery remain shared.
-
-Verification: `cargo test -p richos-core --test run_tests`, the full core suite,
-the desktop build and `app/ui/tests/runs.js`. Tests use controlled model fixtures
-and real verifier processes. They do not claim a live production team has been
-migrated or that a subjective deliverable has been independently reviewed.
-
-`python3 app/scripts/test-managed-run-mutations.py` removes acceptance gating,
-attempt limits, interrupted-work reconciliation, writer locking, visible output,
-permission denial, settings retention and workspace-independent recovery in disposable
-copies. Each mutation must fail its specific regression test; compiler failures
-do not count.
+This implementation owns serial app workers. It neither adopts an existing
+interactive Claude Code team nor supplies a parallel team scheduler. Available
+files, services, credentials and configured tools bound what Rich can achieve.
+A retry loop cannot manufacture missing authority, guarantee a model's judgment
+or prove that an external side effect happened exactly once. Those limitations
+must not be represented as verified completion.

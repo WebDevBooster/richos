@@ -1,8 +1,8 @@
 /* Durable work runs. Model turn events never decide this panel's completion. */
 (function () {
   "use strict";
-  let bridge, root, thread, current, generation = 0, busy = false, lastError = "";
-  const labels = { ready: "Ready to continue", running: "Working", paused: "Paused",
+  let bridge, root, thread, current, generation = 0, busy = false, polling = false, lastError = "";
+  const labels = { ready: "Queued", waiting: "Retrying automatically", needs_decision: "Waiting for your decision", running: "Working", paused: "Paused",
     needs_attention: "Needs attention", completed: "Completed", pending: "Not finished",
     verifying: "Checking the result", passed: "Checks passed", cancelled: "Ended without completion" };
 
@@ -19,7 +19,7 @@
     details.append(node("summary", current ? `Work plan: ${lastError ? "Needs attention" : (labels[current.state] || current.state)}` : "Work plan"));
     const status = node("p", lastError); status.setAttribute("role", "status");
     if (!current) {
-      details.append(node("p", "Load a prepared work plan to keep this task moving across conversation turns. Review the plan before starting."));
+      details.append(node("p", "Tell Rich what needs doing in the conversation. He will plan the work, carry it out and check the result."));
       const load = node("input"); load.type = "file"; load.accept = ".json,application/json";
       load.setAttribute("aria-label", "Load a work plan");
       load.addEventListener("change", async () => {
@@ -33,16 +33,16 @@
           current = result; render();
         } catch (e) { if (stamp === generation) error(e); }
       });
-      details.append(load);
+      const advanced = node("details"); advanced.append(node("summary", "Import an existing plan"), load); details.append(advanced);
     } else {
       details.append(node("p", current.goal));
-      if (current.workspace) details.append(node("p", `Workspace: ${current.workspace}. Up to ${current.maxAttempts} attempts per task, ${current.turnTimeoutSeconds} seconds per attempt.`));
+      if (current.workspace && !current.autonomous) details.append(node("p", `Workspace: ${current.workspace}. Up to ${current.maxAttempts} attempts per task, ${current.turnTimeoutSeconds} seconds per attempt.`));
       const list = node("ol");
       for (const task of current.tasks) {
         const item = node("li");
         item.append(node("p", `${task.description} (${labels[task.state] || task.state})`));
-        item.append(node("small", `Completion checks: ${task.checks.join("; ")}`));
-        if (task.commands && task.commands.length) {
+        if (task.checks.length) item.append(node("small", `Completion checks: ${task.checks.join("; ")}`));
+        if (!current.autonomous && task.commands && task.commands.length) {
           const commands = node("details"); commands.append(node("summary", "Commands used to check completion"));
           commands.append(node("pre", task.commands.map(argv => JSON.stringify(argv)).join("\n"))); item.append(commands);
         }
@@ -50,7 +50,7 @@
           const evidence = node("details"); evidence.append(node("summary", "Check results"));
           evidence.append(node("pre", task.evidence.join("\n"))); item.append(evidence);
         }
-        if (task.state === "needs_attention") {
+        if (task.state === "needs_attention" && !current.autonomous) {
           const retry = node("button", "Retry after inspecting the result"); retry.type = "button"; retry.disabled = busy;
           retry.addEventListener("click", async () => {
             const stamp = generation;
@@ -81,7 +81,8 @@
             if (stamp === generation) status.textContent = "Pause requested. The current attempt will stop before more work starts.";
           } catch (e) { if (stamp === generation) error(e); }
         });
-        details.append(start, pause);
+        if (!current.autonomous || current.state === "paused") details.append(start);
+        details.append(pause);
         const end = node("button", "End run without completing it"); end.type = "button"; end.disabled = busy;
         end.addEventListener("click", async () => {
           const stamp = generation;
@@ -113,6 +114,13 @@
   window.RichRuns = {
     mount(b, element) {
       bridge = b; root = element;
+      setInterval(async () => {
+        if (!thread || !current?.preparing || polling) return;
+        const stamp = generation; polling = true;
+        try { const result = await bridge.invoke("get_run", { threadId: thread }); if (stamp === generation) { current = result; render(); } }
+        catch (e) { if (stamp === generation) error(e); }
+        finally { polling = false; }
+      }, 2000);
       bridge.listen("rich://run-updated", ({ payload }) => {
         if (payload.threadId !== thread) return;
         if (current && (payload.runId !== current.runId || payload.revision < current.revision)) return;

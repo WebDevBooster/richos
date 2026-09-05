@@ -125,3 +125,5 @@ pub use timeline::{
 };
 pub use worker_events::{HostLiveness, ObservedWorkerState, OpenRun, SessionScope, WorkerEventRow};
 pub use worker_status::WorkerStatusView;
+
+pub mod autonomy;

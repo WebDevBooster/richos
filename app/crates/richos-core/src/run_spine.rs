@@ -63,7 +63,8 @@ impl RunHost for SpineRunHost<'_> {
         previous: &[String],
     ) -> Result<(), String> {
         self.spine
-            .verify_active_binding(&self.binding)
+            .ledger()
+            .verify_binding(&self.binding)
             .map_err(|e| e.to_string())?;
         let entity = self
             .spine
@@ -73,10 +74,16 @@ impl RunHost for SpineRunHost<'_> {
         if &entity.id != self.binding.entity_id() {
             return Err("The run workspace belongs to a different entity.".into());
         }
-        let worker = self
-            .worker
-            .take()
-            .ok_or("This attempt has no governed worker.")?;
+        let worker: Box<dyn Cognition> = match self.worker.take() {
+            Some(worker) => worker,
+            None => Box::new(
+                crate::native::NativeCognition::start_managed(
+                    &crate::native::resolve_claude_bin(),
+                    &plan.workspace,
+                )
+                .map_err(|e| e.to_string())?,
+            ),
+        };
         worker
             .prepare_managed(&plan.workspace)
             .map_err(|e| e.to_string())?;
@@ -105,7 +112,8 @@ impl RunHost for SpineRunHost<'_> {
 
     fn verify(&mut self, workspace: &Path, check: &Check) -> Result<String, String> {
         self.spine
-            .verify_active_binding(&self.binding)
+            .ledger()
+            .verify_binding(&self.binding)
             .map_err(|e| e.to_string())?;
         verify_command(workspace, check, &self.pause)
     }

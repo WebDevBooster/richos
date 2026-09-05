@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, State};
 
 #[derive(Default)]
 pub struct ManagedRuns {
-    active: Mutex<Option<(String, Arc<AtomicBool>)>>,
+    pub(crate) active: Mutex<Option<(String, Arc<AtomicBool>)>>,
 }
 
 impl ManagedRuns {
@@ -35,6 +35,8 @@ pub struct RunView {
     updated_at: u64,
     revision: u64,
     goal: String,
+    autonomous: bool,
+    preparing: bool,
     workspace: String,
     max_attempts: u32,
     turn_timeout_seconds: u64,
@@ -53,13 +55,15 @@ pub struct TaskView {
     evidence: Vec<String>,
 }
 
-fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
+pub(crate) fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
     RunView {
         thread_id: thread.into(),
         run_id: snapshot.id.clone(),
         updated_at: snapshot.updated_at,
         revision: snapshot.revision,
-        goal: snapshot.plan.goal.clone(),
+        goal: snapshot.plan.display_goal().into(),
+        autonomous: snapshot.plan.autonomous(),
+        preparing: false,
         workspace: snapshot.plan.workspace.display().to_string(),
         max_attempts: snapshot.plan.max_attempts,
         turn_timeout_seconds: snapshot.plan.turn_timeout_seconds,
@@ -91,6 +95,47 @@ fn path(state: &AppState, thread: &str) -> Result<PathBuf, String> {
         return Err("Invalid task identity.".into());
     }
     Ok(state.data_dir.join("runs").join(format!("{thread}.jsonl")))
+}
+
+fn pending_view(state: &AppState, thread_id: &str) -> Option<RunView> {
+    crate::owned_work::pending(state, thread_id).map(|(id, goal, error, workspace)| RunView {
+        thread_id: thread_id.to_string(),
+        run_id: id,
+        updated_at: 0,
+        revision: 0,
+        goal: goal.clone(),
+        autonomous: true,
+        preparing: true,
+        workspace: workspace.display().to_string(),
+        max_attempts: 0,
+        turn_timeout_seconds: 0,
+        state: if state
+            .data_dir
+            .join("runs")
+            .join(format!("{thread_id}.jsonl"))
+            .with_extension("pause")
+            .exists()
+        {
+            RunState::Paused
+        } else if error.is_empty() {
+            RunState::Ready
+        } else {
+            RunState::Waiting
+        },
+        tasks: vec![TaskView {
+            id: "intake".into(),
+            description: "Plan the complete work".into(),
+            state: richos_core::run::TaskState::Pending,
+            checks: vec![],
+            commands: vec![],
+            attempts: 0,
+            evidence: if error.is_empty() {
+                vec![]
+            } else {
+                vec![error]
+            },
+        }],
+    })
 }
 
 #[tauri::command(async)]
@@ -148,19 +193,30 @@ pub fn get_run(state: State<AppState>, thread_id: String) -> Result<Option<RunVi
     }
     let path = path(&state, &thread_id)?;
     if !path.exists() {
-        return Ok(None);
+        return Ok(pending_view(&state, &thread_id));
     }
     if active.is_none() {
         let mut ctl = RunController::open(&path).map_err(|e| e.to_string())?;
         if path.with_extension("pause").exists() {
             ctl.pause(true).map_err(|e| e.to_string())?;
         }
+        if matches!(
+            ctl.snapshot().state(),
+            RunState::Completed | RunState::Cancelled
+        ) {
+            if let Some(pending) = pending_view(&state, &thread_id) {
+                return Ok(Some(pending));
+            }
+        }
         return Ok(Some(view(&thread_id, ctl.snapshot())));
     }
-    Ok(Some(view(
-        &thread_id,
-        &read_snapshot(&path).map_err(|e| e.to_string())?,
-    )))
+    let snapshot = read_snapshot(&path).map_err(|e| e.to_string())?;
+    if matches!(snapshot.state(), RunState::Completed | RunState::Cancelled) {
+        if let Some(pending) = pending_view(&state, &thread_id) {
+            return Ok(Some(pending));
+        }
+    }
+    Ok(Some(view(&thread_id, &snapshot)))
 }
 
 #[tauri::command(async)]
@@ -179,6 +235,15 @@ pub fn drive_run(
     }
     let result = (|| {
         let path = path(&state, &thread_id)?;
+        if !path.exists() {
+            if let Some(mut pending) = pending_view(&state, &thread_id) {
+                if path.with_extension("pause").exists() {
+                    std::fs::remove_file(path.with_extension("pause")).map_err(|e| e.to_string())?;
+                }
+                pending.state = RunState::Ready;
+                return Ok(pending);
+            }
+        }
         let mut ctl = RunController::open(&path).map_err(|e| e.to_string())?;
         let binding = {
             let spine = state.spine.lock().unwrap();
@@ -248,8 +313,19 @@ pub fn end_run(state: State<AppState>, thread_id: String) -> Result<RunView, Str
     if spine.active_binding().map(|b| b.thread_id()) != Some(thread_id.as_str()) {
         return Err("The selected task changed.".into());
     }
-    let mut ctl = RunController::open(&path(&state, &thread_id)?).map_err(|e| e.to_string())?;
+    let journal = path(&state, &thread_id)?;
+    if !journal.exists() {
+        let mut pending = pending_view(&state, &thread_id).ok_or("There is no work to end.")?;
+        crate::owned_work::cancel_pending(&state, &thread_id)?;
+        pending.state = RunState::Cancelled;
+        pending.preparing = false;
+        return Ok(pending);
+    }
+    let mut ctl = RunController::open(&journal).map_err(|e| e.to_string())?;
     ctl.cancel().map_err(|e| e.to_string())?;
+    if journal.with_extension("pause").exists() {
+        std::fs::remove_file(journal.with_extension("pause")).map_err(|e| e.to_string())?;
+    }
     Ok(view(&thread_id, ctl.snapshot()))
 }
 
@@ -268,7 +344,13 @@ pub fn pause_run(state: State<AppState>, thread_id: String) -> Result<(), String
         return Ok(());
     }
     drop(active);
-    RunController::open(&path(&state, &thread_id)?)
+    let journal = path(&state, &thread_id)?;
+    if !journal.exists() && crate::owned_work::pending(&state, &thread_id).is_some() {
+        let f =
+            std::fs::File::create(journal.with_extension("pause")).map_err(|e| e.to_string())?;
+        return f.sync_all().map_err(|e| e.to_string());
+    }
+    RunController::open(&journal)
         .map_err(|e| e.to_string())?
         .pause(true)
         .map_err(|e| e.to_string())

@@ -98,14 +98,14 @@ pub enum TurnState {
 pub enum Source {
     Text,
     Jam,
-    /// Application-owned work: render assistant output, never attribute its prompt to the user.
-    Managed,
     /// A system-authored internal prompt (re-prime / handoff-summary request) — NEVER
     /// rendered to the CEO.
     Internal,
     /// Rich speaking unprompted (continuity design §9 / UX doc §5 "proactive messages").
-    /// Carries NO user_text — there was no CEO prompt. Render eligibility is gated by
+    /// Has no user-authored prompt. It can carry a hidden system continuation
+    /// prompt for owned work. Render eligibility is gated by
     /// `Turn::tier` (Tier 3 / Silent never renders — UX §5.1).
+    #[serde(alias = "managed")]
     Proactive,
 }
 
@@ -1058,6 +1058,24 @@ impl Ledger {
         Ok(turn_id)
     }
 
+    /// Idempotent host receipt using only the existing ledger event vocabulary.
+    /// The durable request owns this ID before inference starts.
+    pub(crate) fn record_owned_prompt(&mut self, binding: &ThreadBinding, id: &str, text: &str, source: Source) -> Result<String, LedgerError> {
+        self.verify_binding(binding)?;
+        if let Some(turn) = self.turn(id) {
+            if turn.thread_id != binding.thread_id() || turn.user_text != text || turn.source != source {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Receipt identity collision").into());
+            }
+            return Ok(id.into());
+        }
+        self.append(Event::PromptReceived {
+            turn_id: id.into(), thread_id: binding.thread_id().into(), text: text.into(), source,
+            at: now_millis(), entity_id: Some(binding.entity_id().clone()),
+            binding_revision: binding.binding_revision(), intake_id: None,
+        }, true)?;
+        Ok(id.into())
+    }
+
     /// The turn already drained from intake record `intake_id`, if there is one.
     ///
     /// The drain writes the LEDGER first and the drain marker second, deliberately: a
@@ -1308,9 +1326,7 @@ impl Ledger {
                 }
                 continue;
             }
-            if t.source != Source::Managed {
-                out.push(Message { role: "user".into(), text: t.user_text.clone(), turn_id: t.id.clone(), at: t.created_at });
-            }
+            out.push(Message { role: "user".into(), text: t.user_text.clone(), turn_id: t.id.clone(), at: t.created_at });
             if !t.assistant_text.is_empty() {
                 out.push(Message { role: "assistant".into(), text: t.assistant_text.clone(), turn_id: t.id.clone(), at: t.created_at });
             }

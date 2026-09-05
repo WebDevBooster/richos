@@ -566,6 +566,7 @@ fn terminal_runner_repeats_a_real_native_protocol_turn_until_the_artifact_passes
     let fake = tmp.0.join("fake-model");
     std::fs::write(&fake, r#"#!/bin/sh
 count=0
+if [ -f attempt-count ]; then read -r count < attempt-count; fi
 while IFS= read -r line; do
   case "$line" in
     *'"subtype":"initialize"'*)
@@ -573,6 +574,7 @@ while IFS= read -r line; do
       ;;
     *'"type":"user"'*)
       count=$((count + 1))
+      printf "%s\n" "$count" > attempt-count
       if [ "$count" -eq 2 ]; then printf 'actual work\n' > deliverable; fi
       printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","is_error":false}'
       ;;
@@ -688,7 +690,7 @@ for line in sys.stdin:
     assert_eq!(args[sources + 1], "user,project,local");
     assert!(!args.iter().any(|v| v == "--no-session-persistence"));
     let mode = args.iter().position(|v| v == "--permission-mode").unwrap();
-    assert_eq!(args[mode + 1], "default");
+    assert_eq!(args[mode + 1], "acceptEdits");
     assert_eq!(
         launch["cwd"],
         tmp.0.canonicalize().unwrap().to_str().unwrap()
@@ -722,4 +724,173 @@ fn unreadable_journal_can_be_archived_verbatim_but_a_live_writer_cannot() {
     assert_eq!(std::fs::read(archive).unwrap(), raw);
     let ctl = RunController::create(&tmp.journal(), plan(&tmp.0)).unwrap();
     assert_eq!(ctl.snapshot().state(), RunState::Ready);
+}
+
+fn autonomous_plan(root: &Path) -> RunPlan {
+    richos_core::autonomy::plan(root, "Handle the document", "Deliver the completed document", vec![richos_core::autonomy::WorkItem {
+        id: "document".into(), description: "Write the requested document".into(), depends_on: vec![], criteria: "The finished document covers all requirements".into(),
+    }]).unwrap()
+}
+
+#[test]
+fn generated_plans_cannot_install_executable_acceptance_commands() {
+    let tmp = Temp::new();
+    let p = autonomous_plan(&tmp.0);
+    assert!(p.autonomous());
+    assert_eq!(p.tasks[0].checks[0].argv[0], richos_core::autonomy::REVIEW);
+    let injected = r#"{"kind":"work","goal":"x","tasks":[{"id":"x","description":"x","depends_on":[],"criteria":"x","argv":["rm","-rf","/"]}]}"#;
+    assert!(richos_core::autonomy::parse::<richos_core::autonomy::Intake>(injected).is_err());
+    assert!(richos_core::autonomy::parse::<richos_core::autonomy::Review>(r#"{"kind":"complete"}"#).is_err());
+}
+
+#[test]
+fn autonomous_work_retains_ownership_after_the_advanced_plan_attempt_ceiling() {
+    let tmp = Temp::new();
+    let ctl = RunController::create(&tmp.journal(), autonomous_plan(&tmp.0)).unwrap();
+    let mut snapshot = ctl.snapshot().clone();
+    drop(ctl);
+    snapshot.tasks[0].attempts = 25;
+    std::fs::write(tmp.journal(), format!("{}\n", serde_json::to_string(&snapshot).unwrap())).unwrap();
+    let mut ctl = RunController::open(&tmp.journal()).unwrap();
+    let mut host = Host { fail_execute: true, fail_checks: 1, ..Host::default() };
+    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::Waiting);
+    assert_eq!(ctl.snapshot().tasks[0].attempts, 26);
+    assert!(ctl.snapshot().tasks[0].retry_at > richos_core::util::now_millis());
+    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::Waiting);
+    assert_eq!(host.executions.len(), 1, "backoff must not spin the provider");
+    drop(ctl);
+    assert_eq!(RunController::open(&tmp.journal()).unwrap().snapshot().state(), RunState::Waiting);
+}
+
+#[test]
+fn autonomous_crash_recovery_is_owned_but_an_explicit_pause_stays_paused() {
+    let tmp = Temp::new();
+    let ctl = RunController::create(&tmp.journal(), autonomous_plan(&tmp.0)).unwrap();
+    let mut snapshot = ctl.snapshot().clone();
+    drop(ctl);
+    snapshot.tasks[0].state = TaskState::Running;
+    snapshot.tasks[0].attempts = 1;
+    snapshot.paused = true;
+    std::fs::write(tmp.journal(), format!("{}\n", serde_json::to_string(&snapshot).unwrap())).unwrap();
+    let mut ctl = RunController::open(&tmp.journal()).unwrap();
+    assert_eq!(ctl.snapshot().state(), RunState::Paused);
+    assert_eq!(ctl.snapshot().tasks[0].state, TaskState::Pending);
+    assert!(ctl.snapshot().tasks[0].evidence.iter().any(|e| e.contains("Reconcile")));
+    ctl.pause(false).unwrap();
+    assert_eq!(ctl.snapshot().state(), RunState::Ready);
+}
+
+#[test]
+fn business_decision_does_not_discard_independent_work_and_answer_reaches_verification() {
+    struct DecisionHost { calls: usize, saw_answer: bool }
+    impl RunHost for DecisionHost {
+        fn execute(&mut self, plan: &RunPlan, _: &TaskSpec, _: &[String]) -> Result<(), String> {
+            self.saw_answer |= plan.goal.contains("Use option A"); Ok(())
+        }
+        fn verify(&mut self, _: &Path, check: &Check) -> Result<String, String> {
+            self.calls += 1;
+            if self.calls == 1 { Err(format!("{}{{\"kind\":\"decision\",\"question\":\"A or B?\",\"why_ceo\":\"Material spending choice\",\"recommendation\":\"A\",\"options\":[\"A\",\"B\"]}}", richos_core::autonomy::DECISION)) }
+            else { if self.saw_answer { assert!(check.argv[1].contains("Use option A")); } Ok("Inspected result".into()) }
+        }
+    }
+    let tmp = Temp::new();
+    let mut p = autonomous_plan(&tmp.0);
+    let mut second = p.tasks[0].clone(); second.id = "independent".into(); p.tasks.push(second);
+    let mut ctl = RunController::create(&tmp.journal(), p).unwrap();
+    let mut host = DecisionHost { calls: 0, saw_answer: false };
+    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::Ready);
+    assert_eq!(ctl.snapshot().tasks[0].state, TaskState::NeedsDecision);
+    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::NeedsDecision);
+    ctl.answer_decision("answer-1", "Use option A").unwrap();
+    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::Completed);
+    assert!(host.saw_answer);
+}
+
+#[test]
+fn owned_receipts_replay_once_and_use_the_old_ledger_source_vocabulary() {
+    use richos_core::{Entity, EntityId, EntityRegistry, Ledger, Spine};
+    let tmp = Temp::new();
+    let path = tmp.0.join("conversation.jsonl");
+    let mut spine = Spine::new(Ledger::open(&path).unwrap());
+    spine.set_entity_registry(EntityRegistry::new(vec![Entity::try_new("company", "Company", vec![tmp.0.clone()]).unwrap()]).unwrap());
+    let thread = spine.create_thread("Owned work", &EntityId::parse("company").unwrap()).unwrap();
+    let binding = spine.active_binding().unwrap().clone();
+    for _ in 0..2 {
+        spine.record_owned_message(&binding, "request-fixed", Some("Handle this"), "").unwrap();
+        spine.record_owned_message(&binding, "reply-fixed", None, "The result is ready").unwrap();
+    }
+    assert_eq!(spine.messages(&thread).unwrap().len(), 2);
+    drop(spine);
+    let ledger = Ledger::open(&path).unwrap();
+    assert_eq!(ledger.messages(&thread).unwrap().len(), 2);
+    for line in std::fs::read_to_string(&path).unwrap().lines() {
+        let event: serde_json::Value = serde_json::from_str(line).unwrap();
+        if let Some(source) = event.get("source") { assert!(["text", "jam", "internal", "proactive"].contains(&source.as_str().unwrap())); }
+    }
+    if let Ok(export) = std::env::var("RICHOS_COMPAT_LEDGER_EXPORT") { std::fs::copy(&path, export).unwrap(); }
+}
+
+#[test]
+fn an_owned_worker_can_finish_in_its_company_while_another_conversation_is_selected() {
+    use richos_core::{Entity, EntityId, EntityRegistry, Ledger, Spine};
+    use richos_core::run_spine::SpineRunHost;
+    use std::sync::Arc;
+    let tmp = Temp::new();
+    let mut spine = Spine::new(Ledger::open(tmp.0.join("conversation.jsonl")).unwrap());
+    spine.set_entity_registry(EntityRegistry::new(vec![Entity::try_new("company", "Company", vec![tmp.0.clone()]).unwrap()]).unwrap());
+    let entity = EntityId::parse("company").unwrap();
+    let owned = spine.create_thread("Owned", &entity).unwrap();
+    let binding = spine.active_binding().unwrap().clone();
+    let selected = spine.create_thread("Selected", &entity).unwrap();
+    spine.switch_thread(&selected).unwrap();
+    let mut p = plan(&tmp.0); p.tasks.truncate(1); p.tasks[0].checks[0].argv = vec!["/usr/bin/true".into()];
+    let mut ctl = RunController::create(&tmp.journal(), p).unwrap();
+    let mut host = SpineRunHost { spine: &mut spine, binding, worker: Some(worker(&tmp.0)), pause: Arc::new(AtomicBool::new(false)), on_update: None };
+    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::Completed);
+    assert_eq!(host.spine.active_thread(), Some(selected.as_str()));
+    assert!(host.spine.messages(&selected).unwrap().is_empty());
+    assert_eq!(host.spine.messages(&owned).unwrap().last().unwrap().text, "All done");
+}
+
+#[test]
+fn structured_review_accepts_commentary_but_refuses_ambiguous_or_partial_verdicts() {
+    use richos_core::autonomy::{parse, Review};
+    assert!(matches!(parse::<Review>("I inspected the file.\n{\"kind\":\"complete\",\"evidence\":\"File checked\"}").unwrap(), Review::Complete { .. }));
+    assert!(parse::<Review>("{\"kind\":\"complete\",\"evidence\":\"checked\"} {\"kind\":\"incomplete\",\"remaining\":\"missing\"}").is_err());
+    assert!(parse::<Review>("{\"kind\":\"complete\",\"evidence\":").is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn dropping_a_managed_lease_terminates_its_ordinary_child_processes() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+    let tmp = Temp::new();
+    let script = tmp.0.join("native");
+    std::fs::write(&script, r#"#!/usr/bin/env python3
+import json, sys, subprocess, os
+assert os.environ.get('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS') == '1'
+assert os.environ.get('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS') == '0'
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+open('child.pid', 'w').write(str(child.pid))
+for line in sys.stdin:
+    m = json.loads(line)
+    if m.get('type') == 'control_request':
+        print(json.dumps({'type':'control_response','response':{'subtype':'success','request_id':m['request_id'],'response':{}}}), flush=True)
+"#).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let model = richos_core::native::NativeCognition::start_managed(&script, &tmp.0).unwrap();
+    let pid = std::fs::read_to_string(tmp.0.join("child.pid")).unwrap();
+    assert!(pid.parse::<u32>().unwrap() > 1);
+    drop(model);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let dead = loop {
+        let state = Command::new("/bin/ps").args(["-p", &pid, "-o", "stat="]).output().unwrap();
+        let state_text = String::from_utf8_lossy(&state.stdout);
+        if state.status.code() == Some(1) || state_text.trim().starts_with('Z') { break true; }
+        if std::time::Instant::now() >= deadline { break false; }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
+    if !dead { let _ = Command::new("/bin/kill").args(["-KILL", &pid]).status(); }
+    assert!(dead, "A managed lease must not leave its ordinary child running after drop");
 }

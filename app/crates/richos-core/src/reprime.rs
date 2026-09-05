@@ -201,7 +201,7 @@ impl RePrimePayload {
             // Rich's own initiative to the CEO. That is the same false-attribution class
             // §6 exists to structurally exclude, so the line is omitted and the reply is
             // labelled for what it was.
-            if !matches!(t.source, Source::Proactive | Source::Managed) {
+            if !matches!(t.source, Source::Proactive) {
                 recent_tail.push(TurnView { role: "user".into(), text: t.user_text.clone() });
             }
             if !t.assistant_text.is_empty() {

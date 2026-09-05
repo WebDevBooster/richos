@@ -739,15 +739,33 @@ impl Spine {
         self.lease.as_ref().and_then(|lease| lease.cancel_handle())
     }
 
-    /// An application-owned attempt, recorded as Managed rather than as words
+    /// Persist a request receipt or a supervisor response without inventing a
+    /// model turn. Stable IDs make request-spool recovery idempotent.
+    pub fn record_owned_message(&mut self, binding: &ThreadBinding, id: &str, user: Option<&str>, reply: &str) -> Result<(), SpineError> {
+        let source = if user.is_some() { Source::Text } else { Source::Proactive };
+        let id = self.ledger.record_owned_prompt(binding, id, user.unwrap_or(""), source)?;
+        if self.ledger.turn(&id).and_then(|t| t.ended_at).is_some() { return Ok(()); }
+        if self.ledger.turn(&id).and_then(|t| t.ended_at).is_none() {
+            if !reply.is_empty() && self.ledger.turn(&id).map(|t| t.assistant_text.is_empty()).unwrap_or(false) {
+                self.ledger.append_assistant_delta(&id, reply, 0)?;
+            }
+            self.ledger.complete_turn(&id, "host_receipt")?;
+        }
+        self.emit_live(self.turn_status_event(binding, &id, TurnStatus::Completed, None));
+        self.emit(StreamEvent::TurnCompleted { thread_id: binding.thread_id().into(), turn_id: id.clone(), stop_reason: "host_receipt".into(), at: now_millis() });
+        if user.is_none() && !reply.is_empty() { self.emit_proactive_live(binding, &id, AttentionTier::Digest, reply); }
+        Ok(())
+    }
+
+    /// An application-owned attempt, recorded as Proactive rather than as words
     /// the user typed. Automatic crash replay is disabled: the run controller
     /// owns recovery and cannot safely replay unknown external effects.
     pub fn submit_run_prompt(&mut self, binding: &ThreadBinding, text: &str) -> Result<String, SpineError> {
-        self.verify_active_binding(binding)?;
+        self.ledger.verify_binding(binding)?;
         if self.turn_in_progress {
             return Err(SpineError::Cognition(CognitionError::Protocol("Another turn is already running.".into())));
         }
-        let id = self.ledger.record_prompt_received(binding, text, Source::Managed)?;
+        let id = self.ledger.record_prompt_received(binding, text, Source::Proactive)?;
         self.emit_live(self.turn_status_event(binding, &id, TurnStatus::Queued, None));
         self.deliver(&id, binding, text, false)?;
         Ok(self.ledger.turn(&id).and_then(|t| t.stop_reason.clone()).unwrap_or_else(|| "unknown".into()))
@@ -756,8 +774,18 @@ impl Spine {
     /// Called after the attempt's timeout watcher is disarmed. Queued user
     /// input takes precedence over the next managed attempt.
     pub fn finish_run_boundary(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
-        self.after_turn_boundary(binding)?;
-        self.drain_queue()
+        self.drain_intake()?;
+        self.settle_stop_claim(binding)?;
+        self.flush_pending_proactive_emits();
+        Ok(())
+    }
+
+    /// Transfer steering to the app-owned request scheduler. Persist the
+    /// resulting request before acknowledging its existing ledger receipt.
+    pub fn pending_owned_intake(&mut self) -> Result<Vec<(String, String, String)>, SpineError> {
+        self.drain_intake()?;
+        self.queue.retain(|q| self.ledger.turn(&q.turn_id).map(|t| t.state == crate::ledger::TurnState::Received).unwrap_or(false));
+        Ok(self.queue.iter().map(|q| (q.turn_id.clone(), q.binding.thread_id().to_string(), q.text.clone())).collect())
     }
 
     /// Attach the rotation/recovery seam. Without one, the spine can still run its

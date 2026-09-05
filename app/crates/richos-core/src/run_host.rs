@@ -16,7 +16,7 @@ pub struct CognitionRunHost<'a> {
 }
 
 pub fn task_prompt(plan: &RunPlan, task: &TaskSpec, previous: &[String]) -> String {
-    format!("Work on this task within the authorized run.\nGoal: {}\nTask {}: {}\nWorkspace: {}\nAcceptance checks (executed by the host after you return):\n{}\nPrevious attempt evidence:\n{}\nA turn ending does not finish the task. Complete the requested work. Do not weaken acceptance checks, change the run journal or expand the authorized scope. Report genuine blockers.\n",
+    format!("Work on this task within the authorized run.\nGoal: {}\nTask {}: {}\nWorkspace: {}\nAcceptance checks (executed by the host after you return):\n{}\nPrevious attempt evidence:\n{}\nA turn ending does not finish the task. Complete the requested work. Do not weaken acceptance checks, change the run journal or expand the authorized scope. Make routine decisions yourself. Inspect existing effects before acting, especially after interruption. Continue until every deliverable is complete. Only a material business tradeoff or missing authority may require a CEO decision. Explain that decision with options and a recommendation. Missing tools, tests and implementation choices are your work to resolve. Record concrete result evidence in the workspace for independent review. Report progress without asking the CEO to review routine assumptions. Do not claim the overall job is finished; the host will report that after independent verification.\n",
         plan.goal, task.id, task.prompt, plan.workspace.display(),
         task.checks.iter().map(|c| format!("{}: {:?}", c.name, c.argv)).collect::<Vec<_>>().join("\n"),
         previous.join("\n"))
@@ -89,6 +89,9 @@ pub fn verify_command(
     check: &Check,
     pause: &AtomicBool,
 ) -> Result<String, String> {
+    if check.argv.first().map(String::as_str) == Some(crate::autonomy::REVIEW) {
+        return crate::autonomy::verify(workspace, check, pause);
+    }
     let path = std::env::temp_dir().join(format!("richos-check-{}", uuid::Uuid::new_v4()));
     let mut options = std::fs::OpenOptions::new();
     options.create_new(true).read(true).write(true);

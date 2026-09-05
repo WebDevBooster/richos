@@ -51,6 +51,21 @@ pub struct RunPlan {
 }
 
 impl RunPlan {
+    pub fn display_goal(&self) -> &str {
+        self.goal
+            .rsplit_once("\nIntended outcome: ")
+            .map(|(_, goal)| goal)
+            .unwrap_or(&self.goal)
+    }
+
+    pub fn autonomous(&self) -> bool {
+        !self.tasks.is_empty()
+            && self.tasks.iter().all(|t| {
+                t.checks
+                    .iter()
+                    .all(|c| c.argv.first().map(String::as_str) == Some(crate::autonomy::REVIEW))
+            })
+    }
     pub fn validate(&self) -> Result<(), RunError> {
         self.validate_structure()?;
         if !self.workspace.is_dir() {
@@ -121,6 +136,7 @@ pub enum TaskState {
     Verifying,
     Passed,
     NeedsAttention,
+    NeedsDecision,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -128,15 +144,19 @@ pub struct TaskProgress {
     pub state: TaskState,
     pub attempts: u32,
     pub evidence: Vec<String>,
+    #[serde(default)]
+    pub retry_at: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RunState {
     Ready,
+    Waiting,
     Running,
     Paused,
     NeedsAttention,
+    NeedsDecision,
     Completed,
     Cancelled,
 }
@@ -151,6 +171,10 @@ pub struct RunSnapshot {
     pub paused: bool,
     pub cancelled: bool,
     pub updated_at: u64,
+    #[serde(default)]
+    pub decisions: Vec<String>,
+    #[serde(default)]
+    pub decision_receipts: Vec<String>,
 }
 
 impl RunSnapshot {
@@ -169,6 +193,18 @@ impl RunSnapshot {
             RunState::Running
         } else if self.next().is_some() {
             RunState::Ready
+        } else if self
+            .tasks
+            .iter()
+            .any(|t| t.state == TaskState::Pending && t.retry_at > crate::util::now_millis())
+        {
+            RunState::Waiting
+        } else if self
+            .tasks
+            .iter()
+            .any(|t| t.state == TaskState::NeedsDecision)
+        {
+            RunState::NeedsDecision
         } else {
             RunState::NeedsAttention
         }
@@ -180,6 +216,7 @@ impl RunSnapshot {
         }
         self.tasks.iter().enumerate().position(|(i, p)| {
             p.state == TaskState::Pending
+                && p.retry_at <= crate::util::now_millis()
                 && self.plan.tasks[i].depends_on.iter().all(|id| {
                     let j = self.plan.tasks.iter().position(|t| &t.id == id).unwrap();
                     self.tasks[j].state == TaskState::Passed
@@ -241,7 +278,14 @@ pub struct RunController {
 
 impl RunController {
     pub fn create(path: &Path, plan: RunPlan) -> Result<Self, RunError> {
+        Self::create_named(path, plan, uuid::Uuid::new_v4().to_string())
+    }
+
+    pub fn create_named(path: &Path, plan: RunPlan, id: String) -> Result<Self, RunError> {
         plan.validate()?;
+        if uuid::Uuid::parse_str(&id).is_err() {
+            return Err(RunError::Invalid("Invalid run identity".into()));
+        }
         let mut options = OpenOptions::new();
         options.read(true).append(true).create_new(true);
         #[cfg(unix)]
@@ -257,6 +301,7 @@ impl RunController {
                 state: TaskState::Pending,
                 attempts: 0,
                 evidence: vec![],
+                retry_at: 0,
             })
             .collect();
         let mut this = Self {
@@ -265,12 +310,14 @@ impl RunController {
             snapshot: RunSnapshot {
                 version: 1,
                 revision: 0,
-                id: uuid::Uuid::new_v4().to_string(),
+                id,
                 plan,
                 tasks,
                 paused: false,
                 cancelled: false,
                 updated_at: 0,
+                decisions: vec![],
+                decision_receipts: vec![],
             },
         };
         this.save()?;
@@ -323,6 +370,14 @@ impl RunController {
                 recovered = true;
             }
         }
+        if recovered && this.snapshot.plan.autonomous() && !this.snapshot.cancelled {
+            for task in &mut this.snapshot.tasks {
+                if task.state == TaskState::NeedsAttention {
+                    task.state = TaskState::Pending;
+                    task.evidence.push("Inspect the workspace first. Reconcile existing effects before continuing; never repeat a completed external action.".into());
+                }
+            }
+        }
         if recovered {
             this.save()?;
         }
@@ -354,8 +409,71 @@ impl RunController {
         Ok(())
     }
 
+    /// The host calls this only after classifying an actual CEO answer to a
+    /// pending decision. The exact answer is retained, never replaced by a
+    /// model's paraphrase of authorization.
+    pub fn answer_decision(&mut self, receipt: &str, answer: &str) -> Result<(), RunError> {
+        if self
+            .snapshot
+            .decision_receipts
+            .iter()
+            .any(|id| id == receipt)
+        {
+            return Ok(());
+        }
+        if receipt.trim().is_empty()
+            || answer.trim().is_empty()
+            || self.snapshot.cancelled
+            || !self
+                .snapshot
+                .tasks
+                .iter()
+                .any(|t| t.state == TaskState::NeedsDecision)
+        {
+            return Err(RunError::Invalid(
+                "There is no pending decision to answer.".into(),
+            ));
+        }
+        self.snapshot.decisions.push(answer.into());
+        self.snapshot.decision_receipts.push(receipt.into());
+        for task in &mut self.snapshot.tasks {
+            if task.state == TaskState::NeedsDecision {
+                task.state = TaskState::Pending;
+                task.retry_at = 0;
+                task.evidence.push(format!("CEO answer: {answer}"));
+            }
+        }
+        self.save()
+    }
+
+    fn effective_check(&self, check: &Check) -> Check {
+        let mut check = check.clone();
+        if check.argv.first().map(String::as_str) == Some(crate::autonomy::REVIEW)
+            && !self.snapshot.decisions.is_empty()
+        {
+            if let Some(encoded) = check.argv.get_mut(1) {
+                if let Ok(mut outcome) = serde_json::from_str::<crate::autonomy::Outcome>(encoded) {
+                    outcome.goal.push_str(&format!(
+                        "\nCEO decisions (verbatim):\n{}",
+                        self.snapshot.decisions.join("\n")
+                    ));
+                    *encoded = serde_json::to_string(&outcome).unwrap();
+                }
+            }
+        }
+        check
+    }
+
     pub fn pause(&mut self, paused: bool) -> Result<(), RunError> {
         self.snapshot.paused = paused;
+        if !paused && self.snapshot.plan.autonomous() {
+            for task in &mut self.snapshot.tasks {
+                if task.state == TaskState::NeedsAttention {
+                    task.state = TaskState::Pending;
+                    task.retry_at = 0;
+                }
+            }
+        }
         self.save()
     }
 
@@ -404,19 +522,36 @@ impl RunController {
         let Some(i) = self.snapshot.next() else {
             return Ok(self.snapshot.state());
         };
-        self.snapshot.plan.validate()?;
+        if let Err(error) = self.snapshot.plan.validate() {
+            if !self.snapshot.plan.autonomous() {
+                return Err(error);
+            }
+            self.snapshot.tasks[i].retry_at = crate::util::now_millis() + 30_000;
+            self.snapshot.tasks[i].evidence = vec![error.to_string()];
+            self.save()?;
+            host.updated(&self.snapshot);
+            return Ok(self.snapshot.state());
+        }
+        let mut pending_decision = false;
         self.snapshot.tasks[i].state = TaskState::Running;
-        self.snapshot.tasks[i].attempts += 1;
+        self.snapshot.tasks[i].attempts = self.snapshot.tasks[i].attempts.saturating_add(1);
         self.save()?;
         host.updated(&self.snapshot);
+        let mut effective_plan = self.snapshot.plan.clone();
+        if !self.snapshot.decisions.is_empty() {
+            effective_plan.goal.push_str(&format!(
+                "\nCEO decisions (verbatim):\n{}",
+                self.snapshot.decisions.join("\n")
+            ));
+        }
         let result = host.execute(
-            &self.snapshot.plan,
+            &effective_plan,
             &self.snapshot.plan.tasks[i],
             &self.snapshot.tasks[i].evidence,
         );
-        if let Err(reason) = result {
+        if result.is_err() && !self.snapshot.plan.autonomous() {
             self.snapshot.tasks[i].state = TaskState::NeedsAttention;
-            self.snapshot.tasks[i].evidence = vec![reason];
+            self.snapshot.tasks[i].evidence = vec![result.unwrap_err()];
         } else if host.paused() {
             // Execution may have changed external state. Pausing cannot requeue
             // it implicitly and cause a duplicate action on resume.
@@ -431,10 +566,11 @@ impl RunController {
             let mut evidence = vec![];
             let mut passed = true;
             for c in &self.snapshot.plan.tasks[i].checks {
-                match host.verify(&self.snapshot.plan.workspace, c) {
+                match host.verify(&self.snapshot.plan.workspace, &self.effective_check(c)) {
                     Ok(e) => evidence.push(format!("{}: {e}", c.name)),
                     Err(e) => {
                         passed = false;
+                        pending_decision |= e.starts_with(crate::autonomy::DECISION);
                         evidence.push(format!("{}: {e}", c.name));
                     }
                 }
@@ -455,6 +591,25 @@ impl RunController {
                 TaskState::NeedsAttention
             };
         }
+        if self.snapshot.plan.autonomous() {
+            let progress = &mut self.snapshot.tasks[i];
+            if pending_decision {
+                progress.state = TaskState::NeedsDecision;
+            } else if matches!(
+                progress.state,
+                TaskState::NeedsAttention | TaskState::Pending
+            ) && !host.paused()
+            {
+                progress.state = TaskState::Pending;
+                // Operational failures remain owned. Back off instead of abandoning
+                // the job or hammering the provider after a fixed attempt budget.
+                progress.retry_at = crate::util::now_millis()
+                    + (2_u64.saturating_pow(progress.attempts.min(9)) * 1000);
+            }
+            if host.paused() {
+                self.snapshot.paused = true;
+            }
+        }
         // The last task may have broken an earlier result. Completion is a
         // verdict about the final workspace, not a collection of old greens.
         if self
@@ -470,7 +625,7 @@ impl RunController {
                 let mut evidence = vec![];
                 let mut passed = true;
                 for c in &self.snapshot.plan.tasks[j].checks {
-                    match host.verify(&self.snapshot.plan.workspace, c) {
+                    match host.verify(&self.snapshot.plan.workspace, &self.effective_check(c)) {
                         Ok(e) => evidence.push(format!("{}: {e}", c.name)),
                         Err(e) => {
                             passed = false;
@@ -485,7 +640,8 @@ impl RunController {
                 self.snapshot.tasks[j].evidence = evidence;
                 if !passed {
                     self.snapshot.tasks[j].state = if !host.paused()
-                        && self.snapshot.tasks[j].attempts < self.snapshot.plan.max_attempts
+                        && (self.snapshot.plan.autonomous()
+                            || self.snapshot.tasks[j].attempts < self.snapshot.plan.max_attempts)
                     {
                         TaskState::Pending
                     } else {

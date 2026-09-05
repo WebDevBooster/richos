@@ -1,40 +1,70 @@
-# Managed-run revision validation
+# Owned-work revision validation
 
 Measured on 2026-09-05 in the isolated `codex/durable-orchestration` worktree.
-Commands below are from the repository root. Cargo was invoked with its resolved
-executable path under the operator's Cargo installation; browser suites used the existing
-Playwright installation through `RICHOS_PLAYWRIGHT`.
+All commands run from the repository root. `cargo` below was the actual executable
+`/Users/alex/.cargo/bin/cargo`. Browser suites used the installed Playwright through
+`RICHOS_PLAYWRIGHT`. No production session or main checkout was changed.
 
-| Command | Observed result |
+| Command or trial | Observed result |
 | --- | --- |
-| `cargo test --manifest-path app/Cargo.toml -p richos-core --quiet` | 711 non-doc tests passed directly, 0 failed. Two additional fixtures are marked ignored in this top-level run and exercised by parent tests as child processes. Five doctests passed. |
-| `cargo test --manifest-path app/Cargo.toml -p richos-core --test run_tests --quiet` | 19 passed, 0 failed, 0 ignored. Repeated after the final managed-priming permission change. |
-| `cargo check --manifest-path app/src-tauri/Cargo.toml --quiet` | Exit 0, no compiler errors. |
-| `python3 app/scripts/test-managed-run-mutations.py /path/to/cargo` | Eight of eight deliberate changes failed their named regression. |
-| `node app/ui/tests/runs.js` | 11 checks passed, including computed type sizes and corrupt-journal recovery controls. |
-| `node app/ui/tests/appearance.js` | 18 checks passed. |
-| `node app/ui/tests/affordances.js` | Passed after registering the new archive refusal and its Stop control. |
-| `node app/ui/tests/docs-claims.js` | Passed. Source inventory is explicitly distinguished from runtime test execution. |
-| `git diff --check` | Passed. |
+| `cargo test --manifest-path app/Cargo.toml -p richos-core` | 719 non-doc tests passed directly, zero failed. Two child-only fixtures ignored at the top level are exercised by parent tests. Five doctests passed. 721 is the non-doc source inventory, not the direct pass count. |
+| Managed tests within that full run | 27 passed. Covers continuation beyond the autonomous attempt ceiling, independent acceptance, restart, pause, decision receipt idempotency, company scope, ledger vocabulary and managed child cleanup. |
+| `cargo build --manifest-path app/src-tauri/Cargo.toml` | Debug desktop compiled successfully with the final scheduler and permission changes. |
+| `python3 app/scripts/test-managed-run-mutations.py /Users/alex/.cargo/bin/cargo` | Eight of eight deliberate regressions were killed by their named tests. |
+| Full UI runner | All 23 discovered suites ran, zero skipped. 446 checks observed. 22 suites passed initially; affordances failed on missing classifications and a stale state row. |
+| `node app/ui/tests/affordances.js` after registry correction | Passed, exit 0. No affordance rule was weakened. |
+| `node app/ui/tests/docs-claims.js` | Six checks passed with the 721 source count and updated event documentation. |
+| `node app/ui/tests/runs.js` within the full UI run | 13 checks passed, including automatic retry, CEO decision display, type sizes and recovery controls. |
+| Installed Claude, natural-language `richos-run handle` | Exit 0 and Completed after intake, file creation and independent read-only review. `hello.txt` contained exactly the requested 20 bytes, with no trailing newline. No manual setting edits or intervention. |
+| Actual desktop restart harness | Passed against the final debug binary: acceptance, restart, false completion rejection, scoped output and completion-notice crash recovery. |
+| Actual older ledger reader | A temporary executable built against the unchanged main checkout's older core read and rendered the new desktop ledger successfully, including exactly one CEO request and its completion notice. |
 
-The two child-only tests are in `loro_gui_launch_tests.rs`. The original branch's
-710 non-doc test declarations included those two fixtures; the original audit's
-708 top-level passes excluded them. Both numbers referred to real but different
-inventories. The revised README states the distinction rather than implying that
-source regex matches are runtime passes.
+The desktop harness is reproducible:
 
-The full core run preceded the final small change that propagates a permission
-denial during managed worker priming. The 19-test managed suite and desktop
-compile were then rerun with that change. The managed suite was rerun again
-after moving workspace canonicalization ahead of child creation, so a failed
-precondition cannot leave an unowned child. The complete browser suite was not
-rerun during this revision; the affected suites above were run explicitly.
+```sh
+cargo build --manifest-path app/src-tauri/Cargo.toml
+python3 app/scripts/test-owned-work-desktop.py
+python3 app/scripts/check-owned-ledger-compat.py /path/to/older/app/crates/richos-core /path/printed/by/harness/data/conversation-ledger.jsonl /path/to/cargo
+```
 
-The model fixtures are controlled subprocesses. They establish our launch flags,
-working directory, permission response, failure propagation and completion logic.
-They do not establish behavior of every installed Claude version or configuration.
-No production run, live team migration or hook deployment was performed.
+It boots the real desktop with an isolated data directory and invokes its actual
+message command. The first boot exits before inference. The second selects another
+company while the original job runs. The fixture falsely says “All done” on its
+first attempt without creating the deliverable. Assertions require two attempts,
+the correct file, exactly one CEO request, a verified completion notice and no
+output leaking into the selected company. A third boot tests the crash gap between
+committing verified completion and publishing its conversation notice. It must
+recover that notice without executing the job again.
 
-The installed Claude executable's `--help` also listed `--setting-sources`,
-`--permission-mode` and `--no-session-persistence`. That checks flag availability,
-not full provider enforcement.
+## Failures, corrections and evidence boundaries
+
+- The first core run rejected an added `libc` dependency under the existing privacy
+  allowlist. The dependency was removed; process cleanup uses the system `kill`
+  executable. The allowlist was not relaxed.
+- A launch-policy test's source parser mistook prose for a function declaration and
+  matched function-name prefixes. The parser was corrected without changing the
+  banned launch behavior. Its 11 tests and the full core suite passed afterward.
+- The docs-count checker found an earlier prose mention instead of its matched
+  README command line. It now checks the exact matched line.
+- Earlier native trials failed on commentary surrounding JSON, a transport timeout
+  and a terminal stop reason of `tool_use` despite a valid structured result. Those
+  trials were not counted as success. The inspector now consumes structured output
+  and accepts that stop reason only when such output exists. The final complete
+  natural-language trial passed.
+- The desktop fixture initially matched task text in priming and then mishandled a
+  protocol content array. Both failures were corrected before claiming continuation.
+- The installed-native completion trial preceded the final background-task disable
+  flags. Those flags are covered by subprocess assertions and the final desktop
+  build; the native trial does not establish every provider version's enforcement.
+
+The full UI run was not repeated after the isolated state-registry correction.
+Its affected suite was rerun. Browser tests exercise the actual webview code with
+mocked IPC. The desktop harness exercises actual IPC entry, persistence and native
+transport with a controlled subprocess. The installed-native trial exercises a
+real provider for one bounded file outcome. These are complementary evidence,
+not proof of arbitrary business-task competence or exactly-once external effects.
+
+Independent product/design review remains external to this implementation. No
+release package, deployment, main-branch merge or live Claude team migration is
+claimed. See [ORCHESTRATION-REVIEW.md](ORCHESTRATION-REVIEW.md) for the review brief
+and [MANAGED-RUNS.md](MANAGED-RUNS.md) for the operational limits.

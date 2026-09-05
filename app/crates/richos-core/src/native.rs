@@ -343,7 +343,8 @@ pub fn child_args(session_id: &str) -> Vec<String> {
 }
 
 /// Managed workers retain user, project and local settings, including configured
-/// hooks. They use the default permission mode and deny unapproved requests.
+/// hooks. The app grants local edits and sandboxed Bash, while the callback
+/// denies requests outside that policy.
 /// The ordinary chat adapter retains its existing policy through child_args.
 pub fn managed_child_args(session_id: &str) -> Vec<String> {
     let mut args = child_args(session_id);
@@ -351,7 +352,14 @@ pub fn managed_child_args(session_id: &str) -> Vec<String> {
     args.splice(i..i + 2, ["--setting-sources".into(), "user,project,local".into()]);
     // Transcript-dependent hooks need the provider transcript to exist.
     args.retain(|a| a != "--no-session-persistence");
-    args.extend(["--permission-mode".into(), "default".into()]);
+    args.extend(["--permission-mode".into(), "acceptEdits".into(),
+        "--settings".into(), serde_json::json!({
+            "env": {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "CLAUDE_AUTO_BACKGROUND_TASKS": "0", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"},
+            "sandbox": {"enabled": true, "failIfUnavailable": true,
+                "autoAllowBashIfSandboxed": true, "allowUnsandboxedCommands": false,
+                "filesystem": {"disabled": false}, "excludedCommands": []},
+            "permissions": {"blockReadsOutsideWorkingDirectories": true, "deny": ["Bash(dangerouslyDisableSandbox:true)"]}
+        }).to_string()]);
     args
 }
 
@@ -544,6 +552,7 @@ pub struct NativeClient {
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: String,
     managed_workspace: Option<std::path::PathBuf>,
+    structured_output: Mutex<Option<Value>>,
     next_id: AtomicI64,
     /// Control-request replies, keyed by our `request_id`.
     pending: Arc<Mutex<std::collections::HashMap<String, Sender<Value>>>>,
@@ -672,14 +681,32 @@ impl NativeClient {
     }
 
     fn spawn_with_policy(bin: &Path, cwd: &Path, managed: bool) -> Result<Self, NativeError> {
+        Self::spawn_with_tools(bin, cwd, managed, false)
+    }
+
+    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, inspect: bool) -> Result<Self, NativeError> {
         // Refuse BEFORE spawning, so the error names WHICH path is wrong instead of an
         // errno that stands for two different faults. See `preflight`.
         preflight(bin, cwd)?;
         let managed_workspace = if managed { Some(cwd.canonicalize()?) } else { None };
 
         let session_id = uuid::Uuid::new_v4().to_string();
-        let mut child = Command::new(bin)
-            .args(if managed { managed_child_args(&session_id) } else { child_args(&session_id) })
+        let mut args = if managed { managed_child_args(&session_id) } else { child_args(&session_id) };
+        if inspect {
+            args.extend(["--tools".into(), "Read,Glob,Grep".into(),
+                "--strict-mcp-config".into(), "--mcp-config".into(), "{\"mcpServers\":{}}".into(),
+                "--json-schema".into(), crate::autonomy::response_schema().to_string()]);
+        }
+        let mut command = Command::new(bin);
+        if managed {
+            command.env("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1")
+                .env("CLAUDE_AUTO_BACKGROUND_TASKS", "0")
+                .env("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "0");
+        }
+        #[cfg(unix)]
+        if managed { use std::os::unix::process::CommandExt; command.process_group(0); }
+        let mut child = command
+            .args(args)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -777,6 +804,7 @@ impl NativeClient {
             stdin,
             session_id,
             managed_workspace,
+            structured_output: Mutex::new(None),
             next_id: AtomicI64::new(1),
             pending,
             current_prompt,
@@ -1073,7 +1101,7 @@ impl NativeClient {
 
         let (response, machinery) = if subtype == "can_use_tool" {
             let decision = if managed {
-                PermissionDecision::Deny { message: "Managed work cannot grant permission. Approve the needed action in your Claude settings or perform it separately, then inspect and retry the task.".into() }
+                PermissionDecision::Deny { message: "This action is outside the automatic execution policy. Find a permitted way to achieve the authorized outcome. Do not ask the CEO to edit settings or resolve implementation details. Report a precise authority or access requirement only if no permitted alternative exists.".into() }
             } else { decide_permission(&request) };
             let body = match &decision {
                 PermissionDecision::Allow { updated_input } => {
@@ -1179,6 +1207,7 @@ impl NativeClient {
     /// consumer sees gaps where machinery happened. That is the point of a shared counter,
     /// and `app/STREAMING.md` says so.
     pub fn prompt(&self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, NativeError> {
+        *self.structured_output.lock().unwrap() = None;
         let (tx, rx): (Sender<ChunkMsg>, Receiver<ChunkMsg>) = channel();
         *self.current_prompt.lock().unwrap() = Some(tx);
 
@@ -1242,7 +1271,10 @@ impl NativeClient {
                     // the deadline exists). All this arm does is start the clock.
                     cancel_deadline.get_or_insert_with(|| std::time::Instant::now() + cancel_grace());
                 }
-                Ok(ChunkMsg::Done(result)) => return Ok(if permission_denied { "permission_denied".into() } else { stop_reason_of(&result) }),
+                Ok(ChunkMsg::Done(result)) => {
+                    *self.structured_output.lock().unwrap() = result.get("structured_output").cloned();
+                    return Ok(if permission_denied { "permission_denied".into() } else { stop_reason_of(&result) });
+                }
                 Err(RecvTimeoutError::Timeout) => {
                     // The agent was told to interrupt and did not answer within the grace
                     // window. Stop rendering this turn — and DETACH the sink first, so
@@ -1320,6 +1352,12 @@ impl TurnCancel for NativeCancelHandle {
 
 impl Drop for NativeClient {
     fn drop(&mut self) {
+        // Managed leases own their ordinary descendants, including a shell
+        // still running after a cancelled turn. Never target the app's group.
+        #[cfg(unix)]
+        if self.managed_workspace.is_some() {
+            let _ = Command::new("/bin/kill").args(["-KILL", "--", &format!("-{}", self.child.id())]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -1376,6 +1414,14 @@ impl NativeCognition {
     }
     /// Launch a managed worker in its actual workspace, retaining the configured
     /// settings and refusing requests for permissions that have not been granted.
+    pub fn structured_output(&self) -> Option<Value> { self.client.structured_output.lock().unwrap().clone() }
+
+    pub fn start_inspector(bin: &Path, workspace: &Path) -> Result<Self, NativeError> {
+        let client = NativeClient::spawn_with_tools(bin, workspace, true, true)?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id })
+    }
+
     pub fn start_managed(bin: &Path, workspace: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn_with_policy(bin, workspace, true)?;
         let session_id = client.session_id().to_string();

@@ -1431,6 +1431,7 @@ async function send() {
 
   try {
     await Bridge.invoke("send_message", { text });
+    window.RichRuns.show(activeThreadId);
   } catch (e) {
     // An outright rejection BEFORE any turn started (no lease ⇒ no stream events will ever
     // fire for this attempt). A turn that started and then failed is resolved by

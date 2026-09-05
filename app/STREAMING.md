@@ -646,19 +646,23 @@ cannot start a download or an install by itself.
 # Managed run updates
 
 `rich://run-updated` is independent of turn completion. It carries `threadId`,
-`runId`, `updatedAt`, `revision`, `goal`, `state` and `tasks`. Each task has `id`, `description`,
-`state`, `checks`, `attempts` and `evidence`. Run states are `ready`, `running`,
-`paused`, `needs_attention`, `completed` and `cancelled`. Task states are
-`pending`, `running`, `verifying`, `passed` and `needs_attention`.
+`runId`, `updatedAt`, `revision`, `goal`, `state` and `tasks`. Each task has `id`,
+`description`, `state`, `checks`, `attempts` and `evidence`. Run states include
+`ready`, `running`, `waiting`, `needs_decision`, `paused`, `needs_attention`,
+`completed` and `cancelled`. Task states include `pending`, `running`, `verifying`,
+`passed`, `needs_attention` and `needs_decision`.
 
-The desktop emits this snapshot after each controller transition has been durably written.
-The work-plan panel accepts updates only for its visible task and current run,
-rejecting lower revisions than the one it already has. `get_run` restores the
-durable view on reopening. Model turn events never set this panel to completed.
-Active model output continues through the existing conversation events.
+The desktop emits snapshots after durable controller transitions. The panel
+accepts updates only for its visible conversation and current run, rejecting
+older revisions. `get_run` restores the durable view and projects accepted
+requests still being prepared. Model turn events never mark the job complete.
 
-Managed task attempts use `Source::Managed`: their assistant text and activity
-are visible through the existing conversation projections, while the generated
-work prompt has no user-message render path. The source survives ledger reload.
-The run view also includes the workspace, attempt limits and exact verifier
-argument vectors for review before Start.
+Managed attempts use the existing `Source::Proactive`. Assistant text and
+activity render through the conversation projections; generated prompts remain
+hidden. New ledgers retain the old source vocabulary. The reader also accepts
+`managed` as an alias for ledgers written by the earlier experimental branch.
+
+Ordinary conversation requests start automatically. `autonomous` and `preparing`
+flags distinguish this flow from optional imported command plans. Operational
+failures display automatic retry; only `needs_decision` requests a CEO answer.
+Explicit Pause and End remain available. See [MANAGED-RUNS.md](MANAGED-RUNS.md).

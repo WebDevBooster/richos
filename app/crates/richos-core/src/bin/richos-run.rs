@@ -20,9 +20,31 @@ fn main() {
 }
 
 fn run() -> Result<i32, Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() < 2 {
-        return Err("Usage: richos-run create JOURNAL PLAN.json | drive JOURNAL | status JOURNAL | pause JOURNAL | resume JOURNAL | retry JOURNAL TASK_ID | end JOURNAL".into());
+        return Err("Usage: richos-run handle JOURNAL WORKSPACE REQUEST | create JOURNAL PLAN.json | drive JOURNAL | status JOURNAL | pause JOURNAL | resume JOURNAL | retry JOURNAL TASK_ID | end JOURNAL".into());
+    }
+    if args[0] == "inspect" && args.len() == 3 {
+        let workspace = PathBuf::from(&args[1]).canonicalize()?;
+        println!(
+            "{}",
+            richos_core::autonomy::inspect(&workspace, &args[2], &AtomicBool::new(false), 120)?
+        );
+        return Ok(0);
+    }
+    if args[0] == "handle" && args.len() == 4 {
+        let workspace = PathBuf::from(&args[2]).canonicalize()?;
+        match richos_core::autonomy::intake(&workspace, &args[3], "", &AtomicBool::new(false))? {
+            richos_core::autonomy::Intake::Reply { text } => {
+                println!("{text}");
+                return Ok(0);
+            }
+            richos_core::autonomy::Intake::Work { goal, tasks } => {
+                let plan = richos_core::autonomy::plan(&workspace, &args[3], &goal, tasks)?;
+                RunController::create(&PathBuf::from(&args[1]), plan)?;
+            }
+        }
+        args = vec!["drive".into(), args[1].clone()];
     }
     let path = PathBuf::from(&args[1]);
     let pause_path = path.with_extension("pause");
@@ -65,7 +87,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             if pause_path.exists() {
                 ctl.pause(true)?;
             }
-            if ctl.snapshot().state() != RunState::Ready {
+            if !matches!(ctl.snapshot().state(), RunState::Ready | RunState::Waiting) {
                 println!("State: {:?}", ctl.snapshot().state());
                 return Ok(if ctl.snapshot().state() == RunState::Completed {
                     0
@@ -85,21 +107,29 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
                 }
             });
             let result = (|| -> Result<RunState, Box<dyn std::error::Error>> {
-                // A fresh lease per drive. State and acceptance belong to the
-                // controller, so resuming never relies on a model's memory.
-                let mut cognition =
-                    NativeCognition::start_managed(&resolve_claude_bin(), &ctl.snapshot().plan.workspace)?;
-                let mut output = |item: TurnItem<'_>| {
-                    if let TurnItem::Text { text, .. } = item {
-                        print!("{text}");
+                while matches!(ctl.snapshot().state(), RunState::Ready | RunState::Waiting) {
+                    if pause.load(Ordering::SeqCst) {
+                        ctl.pause(true)?;
+                        break;
                     }
-                };
-                let mut host = CognitionRunHost {
-                    cognition: &mut cognition,
-                    on_item: &mut output,
-                    pause,
-                };
-                while ctl.snapshot().state() == RunState::Ready {
+                    if ctl.snapshot().state() == RunState::Waiting {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        continue;
+                    }
+                    let mut cognition = NativeCognition::start_managed(
+                        &resolve_claude_bin(),
+                        &ctl.snapshot().plan.workspace,
+                    )?;
+                    let mut output = |item: TurnItem<'_>| {
+                        if let TurnItem::Text { text, .. } = item {
+                            print!("{text}");
+                        }
+                    };
+                    let mut host = CognitionRunHost {
+                        cognition: &mut cognition,
+                        on_item: &mut output,
+                        pause: pause.clone(),
+                    };
                     let state = ctl.tick(&mut host)?;
                     eprintln!("\nRun state: {state:?}");
                 }

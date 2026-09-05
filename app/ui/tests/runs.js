@@ -93,6 +93,8 @@ async function main() {
     await page.getByRole("button", { name: "Archive the unreadable plan and preserve its journal", exact: true }).click();
     assert(await page.evaluate(() => window.calls.some(([n, args]) => n === "archive_run" && args.threadId === "a")));
     await page.locator("summary").first().click();
+    assert((await page.locator("#managed-run").innerText()).includes("Tell Rich what needs doing"));
+    await page.getByText("Import an existing plan", { exact: true }).click();
     assert(await page.getByLabel("Load a work plan").isVisible());
     assertEqual(await page.locator('[role="status"]').innerText(), "");
     await page.evaluate(() => { window.loadFailure = ""; });
@@ -101,6 +103,20 @@ async function main() {
     await page.evaluate(() => window.RichRuns.show(null));
     assert(await page.locator("#managed-run").isHidden());
     assertEqual(await page.locator("#managed-run").innerText(), "");
+  });
+  await run.check("Automatic retry remains owned and does not ask the CEO to start it", async () => {
+    await page.evaluate(async () => {
+      window.snapshot = { threadId: "a", runId: "auto-a", revision: 1, goal: "Handle this", autonomous: true, state: "waiting", tasks: [{ id: "one", description: "Deliver it", state: "pending", checks: ["Actual result"], attempts: 26, evidence: ["Transient failure"] }] };
+      await window.RichRuns.show("a");
+    });
+    assert((await page.locator("summary").first().innerText()).includes("Retrying automatically"));
+    assertEqual(await page.getByRole("button", { name: "Start / continue", exact: true }).count(), 0);
+    assert(await page.getByRole("button", { name: "Pause run", exact: true }).isVisible());
+  });
+  await run.check("A CEO decision is distinct from an operational retry", async () => {
+    await page.evaluate(() => window.listeners["rich://run-updated"]({payload:{...window.snapshot, revision:2, state:"needs_decision"}}));
+    assert((await page.locator("summary").first().innerText()).includes("Waiting for your decision"));
+    assertEqual(await page.getByRole("button", { name: "Start / continue", exact: true }).count(), 0);
   });
   await browser.close(); return run.report();
 }

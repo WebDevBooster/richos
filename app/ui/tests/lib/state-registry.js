@@ -60,6 +60,20 @@
 "use strict";
 
 module.exports = [
+  {"s": "Accepted conversation disappeared on restart", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
+  {"s": "Desktop job did not finish within the integration-test deadline", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
+  {"s": "Handle this: produce deliverable.txt containing Finished.", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
+  {"s": "Worker changed the selected conversation", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
+  {"s": "Worker output leaked into the selected company", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
+  {"s": "Could not persist request state: {error}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic. The durable request remains queued for automatic retry; this literal is not emitted to the webview."},
+  {"s": "Owned work {thread} remains unfinished: {error}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic. The durable request remains queued for automatic retry; this literal is not emitted to the webview."},
+  {"s": "Steering remains queued: {error}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic. The durable request remains queued for automatic retry; this literal is not emitted to the webview."},
+  {"s": "Intake returned an empty answer", "c": "INFORMATIONAL", "why": "Persisted diagnostic evidence for an automatically retried intake. The scheduler retains ownership and requires no user action."},
+  {"s": "Plan the complete work", "c": "INFORMATIONAL", "why": "Description of the task Rich is currently preparing, not an instruction to the user. Preparation starts automatically."},
+  {"s": "There is no work to end.", "c": "INFORMATIONAL", "why": "A stale End request found no pending work. There is no remaining operation for the user to cancel."},
+  {"s": "Open a conversation first.", "c": "ACTIONABLE", "control": "#rail-new-thread", "why": "Message acceptance requires a conversation. The sidebar New thread control creates one."},
+  {"s": "The company is unavailable", "c": "ACTIONABLE", "control": "#rail-new-thread", "why": "The message has not been accepted because its company was removed. New thread lets the user select an available company before sending again."},
+
   { s: "A different task is running.", c: "ACTIONABLE", control: "#stop", why: "The existing global Stop control pauses the active managed run, even when another task is selected." },
   { s: "A run is already active.", c: "UNREACHABLE", why: "The run panel disables Start synchronously until drive_run returns; this also refuses concurrent IPC clients." },
   { s: "Invalid task identity.", c: "UNREACHABLE", why: "Managed-run requests carry ledger-issued task IDs, never user-entered filesystem paths." },
@@ -291,15 +305,6 @@ module.exports = [
       "Two contexts in one sentence, and both are stated. Quitting and reopening is his and " +
       "needs no control; signing the lease back in is not, and is named as somebody else's. " +
       "Send is required because the same notice restores his words.",
-  },
-  {
-    s: "I've taken that down, but I haven't got a thread open to show it in. Quit RichOS and open it again; if it still isn't here, whoever set RichOS up needs to look.",
-    c: "NEEDS-SOMEONE-ELSE",
-    party: true,
-    fixture: null,
-    why:
-      "send_message's no-active-thread path. Not drivable from the browser harness: it needs a " +
-      "boot where boot_entity() resolves to None, which the mock bridge cannot produce.",
   },
   {
     s: "I can't open this one. It has no entity home — it predates entity scoping, and I won't guess which entity this work belongs to. Filing it under the wrong one would mix up two companies' records, and that's not a mistake worth risking to save you a question.",

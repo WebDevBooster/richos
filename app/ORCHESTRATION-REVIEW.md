@@ -1,144 +1,127 @@
-# Managed work in RichOS: revised review brief
+# RichOS owned-work review
 
-This branch implements managed work in the RichOS desktop app, with a terminal
-adapter for the same controller. The target is RichOS, with repository use as
-an additional surface. It is not an in-place repair of an existing interactive
-Claude Code team. The earlier review was briefed against that narrower target;
-its scope-based rejection does not settle whether this RichOS feature is useful.
-Its implementation findings did identify defects, which this revision addresses.
+## Problem and intended product behavior
 
-## What “working in RichOS” means here
+The CEO should be able to say “Handle this.” Rich, the Chief of Staff & Business
+Operations Lead, should determine the routine details, own the resulting work
+and continue until the complete outcome is verified. Only a material decision
+requiring CEO authority should be escalated. A model ending its turn is not a
+reason to abandon the work.
 
-The surface is a bound desktop task's **Work plan** panel. The user loads a
-prepared plan, inspects its workspace, task descriptions, acceptance commands
-and attempt limits, then starts it. This is currently an interface for prepared
-plans, not a natural-language planner for a nontechnical user.
+The supplied incident was an interactive Claude Code team in the femcboost
+repository. Its orchestrator claimed that nothing was unblocked despite actual
+available backlog work. The stop guard accepted that declaration. The guard
+also had its own one-refusal escape, separate from the provider's hook policy.
 
-The controller owns the finite tasks in that plan across model turns. Each
-attempt uses a separately governed model worker in the selected workspace. The
-worker's output appears in the same desktop conversation, both live and after
-reopening it. Its generated prompt is not attributed to the user. The ordinary
-chat lease is restored after the attempt and re-primes from the durable record
-on its next use, so it can learn the worker's output.
+The target of this branch is RichOS. It does not change the live femcboost
+session or install another hook into it. Repository work is one use of the
+RichOS controller, rather than the definition of the product.
 
-Completion means every required task's acceptance commands passed, with earlier
-results checked again against the final workspace. A model's `end_turn` only
-starts verification. Failed verification can trigger another attempt within the
-plan's budget. Errors, denied permissions, interruption and exhausted budgets
-leave work explicitly unfinished. Pause and cancellation are not completion.
+## Why a stop guard is insufficient
 
-This version executes tasks serially. It does not own a parallel worker team,
-import Markdown backlogs or attach to a running interactive Claude Code team.
-Those are limits of this slice, not reasons to pretend it targets the old guard.
+A guard can reject a bad stopping claim. It cannot own a request after the app
+exits, recover a lost worker, schedule another conversation or independently
+establish delivery. That ownership belongs in the application. Hooks remain
+useful checks inside execution, but are not the application scheduler.
 
-## The problem and the architectural decision
+The architecture does not depend on an alleged single-refusal limit in Claude
+Code. The engine's own one-refusal choice and Claude Code's documented Stop
+behavior are different contracts. Consult the current [Claude hook
+reference](https://code.claude.com/docs/en/hooks) for provider behavior.
 
-The supplied incident showed a model claiming nothing was unblocked even though
-its guard had found free backlog rows. The guard accepted that claim. That is a
-real evidence-overridden-by-prose defect, and checking the claim against the rows
-in that guard is a valid fix for the incident. The original document's dismissal
-of such a change as “another declaration parser” was unjustified.
+## What changed after the audits
 
-For RichOS managed work, the design puts task selection, attempt budgets,
-verification and recovery in application code. This makes a model ending a turn
-an input to a state machine, not the authority that finishes the job. It provides
-a shared contract for the desktop and terminal adapters. It does not prove that
-guards are inherently incapable of checking substance or that a controller alone
-solves planning, subjective acceptance or team ownership.
+The earlier implementation required a hand-prepared JSON plan and left failed
+attempts for an operator to inspect and retry. That was a controller foundation,
+not the requested Chief of Staff workflow. This revision adds the missing
+conversation intake and desktop owner.
 
-The controller's host must remain running too. Journaling preserves state; it
-does not keep a terminated process alive. There is no installed recovery daemon.
+1. The real `send_message` command persists an owned request. Voice and steering
+   use the same ownership path. Ordinary questions can receive a direct answer;
+   work requests become declarative plans after workspace discovery.
+2. A startup scheduler services the request spool and unfinished jobs across
+   conversations. It survives an app restart through disk state. Worker output
+   stays bound to the originating company when another conversation is selected.
+3. Generated plans contain independent, read-only outcome reviews rather than
+   model-authored executable verifier commands. Review output uses the native
+   structured-result field, not a guess extracted from visible commentary.
+4. Operational retries retain ownership and persist backoff. Explicit pauses
+   remain paused. CEO decisions have their own state and require a question,
+   justification, options and a recommendation. Answers are stored verbatim.
+5. Managed execution can perform ordinary file edits and sandboxed shell work
+   without user-written allow rules. It retains configured restrictions and
+   denies permissions requiring additional authority. It does not approve all
+   requests or strip settings sources.
+6. Managed output uses the existing `proactive` ledger source. This removes the
+   downgrade hazard introduced by the experimental `managed` enum value.
+7. Existing missing-workspace cancellation and corrupt-journal archive controls
+   remain. The file picker meets the type floor and is an optional import path,
+   rather than the primary workflow.
+8. The documentation-count check now uses the exact README command line it
+   matched. Previously it selected an earlier prose mention and failed despite
+   the count being correct. The prior validation record overstated that check.
 
-## The Stop-hook citation dispute
+The [usage and permission contract](MANAGED-RUNS.md) describes the implemented paths
+and their limits. In particular, retaining settings also retains the provider's
+array-merge semantics. This is not a claim of VM isolation or arbitrary external
+transaction safety.
 
-Re-fetched on **2026-09-05**, the official
-[Stop input reference](https://code.claude.com/docs/en/hooks#stop-input) says:
+## Code map
 
-> Claude Code overrides the hook and ends the turn after 8 consecutive blocks.
-
-The Stop decision-control section also describes the same continuation cap.
-The audit's statement that the documentation contains no cap conflicts with the
-page retrieved for this revision. This is documentation evidence, not a claim
-that the installed binary's behavior was independently measured in this task.
-
-Separately, the existing engine's `guard-idle-land.py` immediately returns 0 on
-`stop_hook_active`. That is the engine's own one-refusal choice. It is not the
-documented eight-block limit. Neither limit establishes that the specific false
-declaration incident requires a new controller. The RichOS architecture should
-be reviewed against the ownership and completion contract above.
-
-## Implementation findings and their disposition
-
-| Finding | Change | Regression evidence |
-| --- | --- | --- |
-| Managed output was `Internal`, which has no durable render path | Added an explicit `Managed` source. Assistant output is public to the bound task; generated user text stays out of conversation and re-prime user attribution. | Real Spine test checks live message events, messages after reopening and equality of timeline projections. |
-| The native adapter stripped settings and auto-approved permissions | Managed workers use a separate native launch policy in the actual plan workspace. It loads user/project/local settings, retains provider transcripts for transcript-dependent hooks, forces default permission mode and denies permission requests. Legacy leases are refused by the managed host. | A real subprocess captures its launch arguments, working directory and permission response. Even a subsequent `end_turn` after a denial leaves the run needing attention. |
-| A missing workspace made a journal impossible to end | Contract validation is separate from workspace availability. Opening, inspecting and cancelling need only a valid journal. Execution still requires the directory. | Rename the workspace, reopen the journal, refuse execution and persist cancellation. |
-| Corrupt journals also trapped the UI | An explicit archive action preserves the raw journal under a unique name and permits a fresh plan. It takes the writer lock and refuses a live owner. | Corrupt bytes survive verbatim; live-writer archival is refused; the UI calls the archive command. |
-| README test totals did not match witnessed execution | The revised total is checked against compiled runtime results, not merely a successful shell exit or a source regex. The original audit observed 708 non-doc tests; this revision's measured results are recorded below. | Full cargo output is counted after completion. The source-inventory check is supplementary, not proof that tests ran. |
-| File picker and panel violated the type floor | Readable text and controls use 16px at the default scale; supplementary check labels use 14px. | Browser test reads computed styles, including the file-selector button. |
-
-The existing ordinary chat adapter still has its previous auto-approval policy.
-This revision does not claim to repair that separate policy globally. Managed
-work cannot borrow that legacy adapter or silently fall back to it.
-
-Acceptance commands run directly under the application's OS identity. They do
-not go through Claude permissions. A prepared plan is therefore trusted
-executable input, and the panel exposes the commands before Start. The worker's
-settings are retained, but which hooks and allow rules are installed remains the
-operator's configuration. Preserving settings is not proof that every hook is
-healthy. There is no in-app permission-grant dialog in this slice; unapproved
-requests are denied and the run requires attention.
-
-## Review map
-
-Paths below are relative to `app/`.
-
-| Area | Files |
+| Concern | Source |
 | --- | --- |
-| State machine, journal and recovery | `crates/richos-core/src/run.rs` |
-| Model attempt and external verification | `crates/richos-core/src/run_host.rs` |
-| Managed native policy and transport | `crates/richos-core/src/native.rs`, `crates/richos-core/src/cognition.rs` |
-| Scoped worker and conversation | `crates/richos-core/src/run_spine.rs`, `crates/richos-core/src/spine.rs` |
-| Durable attribution and rendering | `crates/richos-core/src/ledger.rs`, `crates/richos-core/src/timeline.rs`, `crates/richos-core/src/reprime.rs` |
-| Desktop commands and controls | `src-tauri/src/managed_runs.rs`, `ui/runs.js`, `ui/style.css` |
-| Terminal adapter | `crates/richos-core/src/bin/richos-run.rs` |
-| Regression and mutation checks | `crates/richos-core/tests/run_tests.rs`, `ui/tests/runs.js`, `scripts/test-managed-run-mutations.py` |
+| Durable state, dependencies, retries and completion | `crates/richos-core/src/run.rs` |
+| Intake, structured inspector and declarative criteria | `crates/richos-core/src/autonomy.rs` |
+| Native settings, sandbox policy and structured results | `crates/richos-core/src/native.rs` |
+| Worker execution and independent checks | `crates/richos-core/src/run_host.rs` |
+| Scoped conversation worker adapter | `crates/richos-core/src/run_spine.rs` |
+| Compatible receipts, output and steering transfer | `crates/richos-core/src/spine.rs`, `ledger.rs` |
+| Desktop request spool and startup scheduler | `src-tauri/src/owned_work.rs` |
+| Actual message entry and app startup | `src-tauri/src/main.rs` |
+| Run controls and projection | `src-tauri/src/managed_runs.rs`, `ui/runs.js` |
 
-## Validation
+## Verification and failures found during development
 
-See [managed-run-validation.md](managed-run-validation.md) for the completed
-commands and measured totals for this revision. Tests use controlled model
-fixtures and actual subprocess transport and verifier execution. They do not
-claim a live production team has migrated or that a real Claude deployment has
-been acceptance-tested end to end.
+The detailed command record is in [managed-run-validation.md](managed-run-validation.md).
+Do not equate a successful compilation with a passed behavioral test. A portable measured summary is checked in at `validation/owned-work/results.json`; the UI suite results are beside it.
 
-Eight mutations remove acceptance gating, attempt limits, interruption recovery,
-writer locking, visible managed output, permission denial, settings retention
-and workspace-independent recovery. Each must fail its named regression test;
-compilation errors and zero-test runs do not count as detection.
+The actual desktop integration harness is
+`scripts/test-owned-work-desktop.py`. It boots the desktop, invokes its actual
+message command and exits before inference. A second boot selects another
+company's conversation. Its native fixture first says “All done” without
+creating the deliverable. The test requires another attempt, the correct file,
+exactly one CEO request after restart, a verified completion message and no
+output in the other company. This test has passed. It also tests recovery of a completion notice lost after the job committed its verified result.
 
-## Deployment and remaining limits
+The fixture itself initially matched a task string inside priming context and
+performed two actions in one attempt. A second version failed to extract text
+from the native input content array. Both produced failing assertions; neither
+was counted as proof of continuation. The corrected fixture matches the actual
+task prompt and extracts the protocol's text blocks.
 
-This branch is isolated and unmerged. It changes no installed hooks, active team
-session or other agent's branch. The existing guard fix remains a separate review.
-An exploratory guard alternative was set aside when the review target was
-clarified; it is not part of this proposal.
+Installed Claude testing first established that a managed worker can write a
+real file without editing settings and that the host verifies its exact content.
+A natural-language trial then exposed reviewer commentary breaking JSON parsing.
+A later probe established that native structured output can terminate with
+`tool_use`; that is accepted only when a structured result actually exists.
+Timeouts and failed trials remain failures in the evidence record.
 
-A safe first trial is a bounded RichOS task with independently maintained checks.
-Inspect the output and journal, exercise pause and process interruption, then
-assess whether its acceptance actually proves the requested result. Larger team
-ownership and planning need their own concrete contracts before being claimed.
+## Remaining limits reviewers should challenge
 
-The journal does not guarantee exactly-once external effects. Verifiers kill
-their direct child on timeout and must clean up their own descendants. Workers
-with the same OS permissions can alter verifier files, so this is not an
-adversarial verification boundary. Subjective work needs an appropriate reviewer
-or acceptance mechanism; a convenient shell exit code cannot establish quality.
+Independent model review is stronger than accepting the worker's claim, but is
+not infallible or adversarially independent of workspace evidence. General
+external actions still need available tools, authority and an idempotency
+strategy. This branch does not implement an external-action outbox or guarantee
+exactly-once effects after a hard process crash.
 
-The new `Managed` source is a conversation-ledger format addition. An older
-binary that does not recognize it cannot read a ledger containing those turns.
-Do not treat a source revert as a lossless downgrade after live use. Trial data
-should be isolated or backed up first, and a downgrade reader would need explicit
-compatibility support. Managed provider transcripts also now persist in Claude's
-normal private data directory so transcript-dependent hooks can work.
+Workers are scheduled serially. RichOS does not adopt an existing Claude Code
+team. The app must be open to execute and restarts work when it is launched
+again. The terminal intake is not yet persisted before planning, unlike the
+desktop intake. These are real boundaries, not successful outcomes in disguise.
+
+The strongest objection is that application ownership alone cannot make every
+business task finish: a bad scope, weak criteria, missing capabilities or a
+wrong escalation judgment can still defeat the intended outcome. The claim to
+verify is narrower and executable: an accepted desktop request does not lose
+its owner merely because a worker returned, a check failed, a conversation
+changed or the app restarted. Anything broader needs additional evidence.

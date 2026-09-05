@@ -22,7 +22,7 @@ mutations = [
      "interrupted_execution_is_not_replayed_on_restart_and_a_torn_append_is_recovered"),
     ("src/run.rs", "remove-writer-lock", ".try_lock()", ".metadata().map(|_| ())",
      "a_second_controller_cannot_dispatch_duplicate_work_and_status_reads_do_not_recover_live_tasks"),
-    ("src/spine.rs", "hide-managed-output", "record_prompt_received(binding, text, Source::Managed)", "record_prompt_received(binding, text, Source::Internal)",
+    ("src/spine.rs", "hide-managed-output", "record_prompt_received(binding, text, Source::Proactive)", "record_prompt_received(binding, text, Source::Internal)",
      "desktop_adapter_uses_real_scoped_spine_turns_and_external_verification"),
     ("src/native.rs", "autoapprove-managed-permissions", "let decision = if managed {", "let decision = if false {",
      "managed_native_transport_loads_settings_and_denies_unapproved_tools"),
