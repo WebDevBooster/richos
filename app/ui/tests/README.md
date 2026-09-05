@@ -114,9 +114,10 @@ fixed it:
   percent of its fade), and the splash bar is photographed once it reports it has landed rather
   than at an arbitrary point in its run.
 
-**Eight files still change, and they are named rather than excused.** Measured over two
+**Eight files still change, and they are named rather than excused.** Measured over four
 consecutive full runs from a clean tree on 2026-09-05: 88 of the 96 were byte-identical after
-both, and these eight were not. Five of the eight are one cause and three are another.
+every one of them, and these eight were not. Five of the eight are one cause and three are
+another, and only four of the eight change on every run.
 
 **The live field.** `home/field-engine.js` integrates 7,500 objects on springs and flies packets
 along 12,817 links, all of it off `performance.now()`, so two runs photograph it at different
@@ -131,15 +132,19 @@ unpicking that is a larger change than this one. It is written down rather than 
 element having moved — the compositor's own dithering of the same gradient, which is not
 something a suite can wait for. Two of the three do not change on every run.
 
-| Still not byte-stable | Measured, run to run | Why |
-|---|---|---|
-| `shots-home/home-named.png` | 12.9%–21.1% of pixels, delta up to 248 | the live field, running |
-| `shots-home/home-returned.png` | 14.9%–24.4%, delta up to 247 | the live field, running |
-| `shots-home/home-anonymized.png` | 6.5%–18.1%, delta up to 247 | the live field, running |
-| `shots-10-1/10-1-start-screen-always-dark.png` | ~0.31%, delta up to 127 | the curtain is held up on purpose and the same live field shows through it |
-| `shots-contrast/opening-screen.png` | ~0.29%, delta up to 90, not every run | same |
-| `shots-splash/material-round-11-v1.png`, `material-round-11-v2.png` | 0.10%–0.37%, delta 2 | dither in the composite's shipping half (the study half settles: 326 samples) |
-| `shots-splash/splash-01-round-11-v1.png` | 20.7% of pixels, delta **1**, not every run | dither across the ground, nothing moved |
+The "how often" column is four consecutive full runs, and it is there because "sometimes" is a
+fact about a flake that rounding to "always" would misdescribe.
+
+| Still not byte-stable | How often | Measured, run to run | Why |
+|---|---|---|---|
+| `shots-home/home-named.png` | 4 of 4 | 12.9%–21.2% of pixels, delta up to 248 | the live field, running |
+| `shots-home/home-returned.png` | 4 of 4 | 14.9%–24.4%, delta up to 250 | the live field, running |
+| `shots-home/home-anonymized.png` | 4 of 4 | 6.5%–18.2%, delta up to 250 | the live field, running |
+| `shots-splash/material-round-11-v1.png` | 4 of 4 | 0.10%–0.26%, delta 2 | dither in the composite's shipping half (the study half settles: 326 samples) |
+| `shots-splash/splash-01-round-11-v1.png` | 3 of 4 | 20.7% of pixels, delta **1** | dither across the ground, nothing moved |
+| `shots-10-1/10-1-start-screen-always-dark.png` | 3 of 4 | 0.29%–0.32%, delta up to 127 | the curtain is held up on purpose and the same live field shows through it |
+| `shots-contrast/opening-screen.png` | 3 of 4 | 1 pixel to 0.29%, delta up to 90 | same, through a nearly opaque curtain |
+| `shots-splash/material-round-11-v2.png` | 2 of 4 | 0.27%–0.37%, delta 2 | as `-v1` |
 
 Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is signal.
 
