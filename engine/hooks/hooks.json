@@ -57,6 +57,17 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/commit-ceo-inputs.sh",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [
@@ -396,6 +407,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-stated-actions.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-ceo-inputs-unheld.sh",
+            "timeout": 25
           }
         ]
       }

@@ -356,7 +356,8 @@ run_layer_R() {
     notice-unasked-deferral \
     guard-agent-state-claims \
     guard-idle-land notice-waiver-repetition \
-    guard-stated-actions"
+    guard-stated-actions \
+    commit-ceo-inputs notice-ceo-inputs-unheld"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
@@ -995,7 +996,9 @@ notice-ceo-unasked.sh|Stop
 notice-unasked-deferral.sh|Stop
 guard-agent-state-claims.sh|Stop
 guard-idle-land.sh|Stop
-guard-stated-actions.sh|Stop"
+guard-stated-actions.sh|Stop
+commit-ceo-inputs.sh|UserPromptSubmit
+notice-ceo-inputs-unheld.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a
     # drift surface of exactly the kind this probe exists to remove: add a

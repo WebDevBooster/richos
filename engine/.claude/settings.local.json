@@ -84,6 +84,17 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/commit-ceo-inputs.sh",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [
@@ -423,6 +434,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-stated-actions.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/notice-ceo-inputs-unheld.sh",
+            "timeout": 25
           }
         ]
       }

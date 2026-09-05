@@ -457,6 +457,16 @@ HOOK_FILES+=(
     # than blocks: it decides nothing itself, so an unhashed copy is the file
     # that decides whether a repeatedly-waived guard is ever named.
     "$REPO_ROOT/scripts/hooks/notice-waiver-repetition.py"
+    # The ingress analyzer, and the argument is the strongest on this list
+    # because this one WRITES. commit-ceo-inputs.sh resolves roots, reads
+    # config and then hands the entire job to commit-ceo-inputs.py: which paths
+    # the CEO's message named, which gates run, and — when they all pass —
+    # `git hash-object`, `git commit-tree` and `git update-ref`. A trimmed copy
+    # could leave the hook wired, hashed, executable and capturing nothing,
+    # rebuilding the exact defect it was written for; a tampered one could
+    # commit past the credential and publication gates. Every other entry here
+    # protects a decision. This one also protects a write.
+    "$REPO_ROOT/scripts/hooks/commit-ceo-inputs.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

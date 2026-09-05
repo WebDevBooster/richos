@@ -441,6 +441,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # name yours. That answer is computed from the tree at the moment you ask,
 # which is the only kind of answer that cannot rot.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
 engine-status.sh
 guard-agent-state-claims.sh
@@ -468,6 +469,7 @@ guard-workflow-ban.sh
 guard-worktree-isolation.sh
 guard-worktree-removal.sh
 notice-ceo-asks.sh
+notice-ceo-inputs-unheld.sh
 notice-ceo-ruled-prose.sh
 notice-ceo-unasked.sh
 notice-hook-staleness.sh
