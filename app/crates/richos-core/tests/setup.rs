@@ -858,23 +858,55 @@ fn the_digest_is_correct_across_the_buffer_boundary() {
 /// And it agrees with the tool everybody else uses. Not because `shasum` is trusted more —
 /// the point of a pure-Rust digest is that it is not a subprocess — but because a private
 /// definition of SHA-256 that nobody else shares would make the published digest useless.
+///
+/// **A MISSING TOOL USED TO RETURN, AND A TEST THAT RETURNS IS REPORTED `ok`.** Same defect as
+/// the signature test above, in the one place where the condition is not an opt-in at all:
+/// this test's whole content is a COMPARISON, so a run in which no comparison happened has
+/// nothing to report but a not-run. It now panics, in the words `richos-voice`'s `tts.rs`
+/// already uses about a missing `/usr/bin/say` (32cefd2, today).
+///
+/// It is deliberately NOT `#[ignore]`d and NOT `cfg`-gated on a target: it needs no hardware,
+/// no opt-in and no network, and it runs on `app-spine-ci.yml`'s `ubuntu-latest` runner today.
+/// Ignoring it there would remove real coverage to fix a report that is not wrong.
+///
+/// **Two names for the same tool, because `/usr/bin/shasum` is a macOS certainty and a Linux
+/// probability.** It is on macOS's sealed system volume; on Linux it comes with the full Perl
+/// package and coreutils' `sha256sum` is the one that is always there. This crate's own
+/// hooks already try exactly this pair in exactly this order — `engine/docs/ci-portability-
+/// notes.md:240` — so the panic below fires only if a machine has NEITHER, which is a finding
+/// about the machine rather than a test worth skipping. Both print the digest first, so the
+/// same `split_whitespace().next()` reads both.
 #[test]
 fn the_digest_agrees_with_shasum() {
     let root = scratch("shasum-agreement");
     let f = root.join("bytes");
     std::fs::write(&f, b"RichOS engine asset\n").unwrap();
 
-    let out = std::process::Command::new("/usr/bin/shasum").args(["-a", "256"]).arg(&f).output();
-    let Ok(out) = out else {
-        eprintln!("SKIPPED: /usr/bin/shasum is not on this machine");
-        return;
+    let candidates: [(&str, &[&str]); 2] =
+        [("/usr/bin/shasum", &["-a", "256"]), ("/usr/bin/sha256sum", &[])];
+    let mut theirs: Option<(&str, String)> = None;
+    for (bin, args) in candidates {
+        let Ok(out) = std::process::Command::new(bin).args(args).arg(&f).output() else { continue };
+        if !out.status.success() {
+            continue;
+        }
+        let digest = String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        theirs = Some((bin, digest));
+        break;
+    }
+    let Some((tool, theirs)) = theirs else {
+        panic!(
+            "the whole content of this test is agreement with the tool everybody else uses, \
+             and neither /usr/bin/shasum nor /usr/bin/sha256sum could be run here — refusing \
+             to report green over a comparison that did not happen"
+        )
     };
-    let theirs = String::from_utf8_lossy(&out.stdout)
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_string();
-    assert_eq!(sha256_file(&f).unwrap(), theirs);
+
+    assert_eq!(sha256_file(&f).unwrap(), theirs, "sha256_file disagrees with {tool}");
 }
 
 // ===========================================================================================
