@@ -484,15 +484,15 @@ function normalize(s) {
   return String(s).replace(/\s+/g, " ").trim();
 }
 
-const UI_SOURCES = ["index.html", "main.js", "timeline.js"];
+const UI_SOURCES = ["index.html", "main.js", "timeline.js", "runs.js"];
 
 /// Every user-visible prose string the shipped UI can render, derived from disk.
 /// `{ text, normal, sites: ["main.js:1113", ...] }`, sorted by normal form.
 function inventory() {
   const byNormal = new Map();
-  const add = (text, site) => {
+  const add = (text, site, explicit = false) => {
     const normal = normalize(text);
-    if (!looksLikeProse(normal)) return;
+    if (!explicit && !looksLikeProse(normal)) return;
     let rec = byNormal.get(normal);
     if (!rec) { rec = { text: normal, normal, sites: [] }; byNormal.set(normal, rec); }
     if (rec.sites.indexOf(site) < 0) rec.sites.push(site);
@@ -504,6 +504,18 @@ function inventory() {
       for (const s of htmlVisibleStrings(src)) add(s.text, name + ":" + s.line);
     } else {
       for (const s of jsStringLiterals(src)) add(s.text, name + ":" + s.line);
+      if (name === "runs.js") {
+        // State maps are part of the inventory even when a label is just one word.
+        // Do not allow the prose heuristic to hide Working, Paused or Queued again.
+        const states = src.match(/const labels\s*=\s*({[\s\S]*?});/);
+        if (!states) throw new Error("Assignment state map was not found");
+        for (const s of jsStringLiterals(states[1])) add(s.text, name + ":labels", true);
+        for (const match of src.matchAll(/(?:button|node)\(\s*"[^"]*"(?:,\s*"[^"]*")?/g)) {
+          const strings = jsStringLiterals(match[0]);
+          const text = strings[match[0].startsWith("node") ? 1 : 0]?.text;
+          if (text) add(text, name + ":controls", true);
+        }
+      }
     }
   }
   for (const s of rustStrings()) add(s.text, s.file + ":" + s.line);

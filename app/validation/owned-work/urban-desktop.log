@@ -1,0 +1,12 @@
+Evidence directory: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-kea1l14n
+PASS enqueue
+PASS resume
+PASS recover-notice
+PASS correct-live
+PASS slow-registration
+PASS independent-work
+PASS registration-failures
+PASS registration-failures-restart
+PASS end-live
+PASS panel-decisions
+PASS actual desktop: restart, false completion rejection, scoped output, responsive conversation and live correction.

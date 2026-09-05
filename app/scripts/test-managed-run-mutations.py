@@ -14,6 +14,14 @@ import tempfile
 core = Path(__file__).resolve().parents[1] / "crates/richos-core"
 cargo = sys.argv[1] if len(sys.argv) > 1 else "cargo"
 mutations = [
+    ("src/run.rs", "accept-stale-panel-question", ".filter(|d| d.id == decision_id)", ".filter(|_| true)",
+     "panel_continue_is_bounded_durable_idempotent_and_scoped_to_one_question"),
+    ("src/run.rs", "continue-grants-business-authority", "DecisionAction::Continue if d.resource", "DecisionAction::Continue if true",
+     "panel_business_answer_is_verbatim_and_generic_continue_cannot_authorize_it"),
+    ("src/run.rs", "drop-panel-correction-from-verifier", "outcome.criteria.push_str(&correction);", "// dropped correction from criteria",
+     "panel_scope_change_preserves_contract_and_rechecks_before_execution"),
+    ("src/run.rs", "abandon-interrupted-independent-task", "other.review_pending = true;", "other.review_pending = false;",
+     "answering_a_panel_decision_reconciles_interrupted_independent_work"),
     ("src/run.rs", "accept-without-passing-checks", "} else if passed {", "} else if true {",
      "ending_a_turn_cannot_complete_failed_work_and_the_controller_continues"),
     ("src/run.rs", "ignore-attempt-budget", "self.snapshot.tasks[i].attempts < self.snapshot.plan.max_attempts", "true",

@@ -1,0 +1,52 @@
+{
+  "reviewed_base": "63e93acb82588c999b979d8d0d76ca18c1070374",
+  "revision": "seventh review, Urban response",
+  "core": {
+    "direct_passed": 740,
+    "doctests_passed": 5,
+    "child_only_ignored": 2,
+    "source_tests": 742,
+    "failures": 0
+  },
+  "final_controller_tests": 42,
+  "mutations_killed": 20,
+  "mutations_total": 20,
+  "panel_browser_checks": 18,
+  "contrast": {
+    "checks_passed": 41,
+    "surfaces": 26,
+    "theme_walks": 52,
+    "assignment_surfaces": 7,
+    "new_debt": 0,
+    "new_exemptions": 0
+  },
+  "affordance_checks_passed": 71,
+  "documentation_checks_passed": 6,
+  "desktop_phases_passed": 10,
+  "final_panel_desktop": {
+    "acknowledgments": 3,
+    "panelActions": 3,
+    "staleRejected": 3,
+    "writerBoundary": true
+  },
+  "browser_engine": "Playwright WebKit, real shell with scripted bridge",
+  "desktop_mode": "Actual command functions and controller with scripted native provider and isolated data directory",
+  "native_ipc_clickthrough_tested": false,
+  "independent_design_approval": false,
+  "merged": false,
+  "deployed": false,
+  "incremental_validation": "Full core precedes the receipt JSON encoding refinement; final controller suite and final desktop panel pass exercise that refinement. The full desktop pass precedes the final dedicated writer-boundary assertion. All run gates executed real checks. The final resource-copy change was checked by the 42 controller tests and 18 browser checks, including question clipping and shared contrast; the desktop rebuilt successfully.",
+  "process_exit_codes": {
+    "core": 0,
+    "final_controller": 0,
+    "mutations": 0,
+    "panel_browser": 0,
+    "contrast": 0,
+    "affordances": 0,
+    "desktop": 0,
+    "final_panel_desktop": 0,
+    "desktop_build": 0,
+    "docs": 0
+  },
+  "resource_question_fits_without_scrolling": true
+}

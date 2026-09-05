@@ -1,4 +1,4 @@
-# RichOS durable work: sixth review
+# RichOS durable work: seventh review
 
 ## Problem and target
 
@@ -147,7 +147,7 @@ parallel worker scheduler.
 
 A correction identifies its job, requests interruption and applies a numbered
 amendment once that writer yields. Existing effects are independently rechecked.
-The Work plan panel lists assignments separately. Controls send the displayed
+The assignment panel lists assignments separately. Controls send the displayed
 run identity so a newer assignment cannot redirect a click to a different job.
 Resuming autonomous work returns it to the detached scheduler.
 
@@ -174,11 +174,45 @@ The live/reloaded proactive report styling seam from the fourth audit remains;
 the ledger source and speech delivery are correct, but their visual presentation
 has not received a separate reconciliation in this revision.
 
-The selector text now has measured contrast of 13.02:1 in dark mode and 17.02:1
-in light mode, checked from computed WebKit colors. The Work plan panel, including
-its selector, still needs independent design review. P4 is open. No design approval, production deployment or main-branch merge
-is claimed. Validation below is evidence for the code paths tested, not a promise
-that no future operational failure can occur.
+Urban withheld P4 design approval at `63e93ac` (4/10). The original selector-only
+contrast assertion was too narrow and the affordance inventory excluded the
+panel entirely. Those greens did not establish a usable interface.
+
+The replacement shows portfolio attention counts, a stable assignment chooser
+and visible Pause/End controls. Decision questions and their controls precede
+one optional history disclosure. History scrolls above the fixed controls;
+completion checks are 16px with no exemption. Duplicate titles show creation
+time and a distinguishing reference. End confirms its exact target. Friendly
+errors put Refresh first and retain technical details in history.
+
+Finding 2 required a mechanism, not button styling. `respond_run_decision` now
+handles resource continuation, business answers, scope changes and cancellation.
+It checks the open conversation, assignment, task and question identity under
+the journal lock. The identity hashes the durable question and contract context.
+Exact repeated actions are idempotent after restart. Continue grants the displayed
+resource allowance only; it cannot answer a business question. Written resource
+answers are refused rather than interpreted as spending permission. A business
+answer preserves the CEO's exact text and releases only its task. Multiple
+pending questions cannot be cleared by an ambiguous conversation answer.
+
+A scope change appends the exact correction to the preserved contract and every
+review criterion, superseding conflicting instructions only. It checks existing
+effects before more execution. End persists cancellation without claiming
+completion. An active writer is interrupted at its boundary before the command
+writes; a 30-second timeout remains an explicit failure if it cannot yield.
+Saved panel actions get bounded acknowledgments through Rich's normal conversation
+and speech path. Canceled assignments no longer publish pending-decision notices.
+
+The new browser tests use the real shell at all five reviewed viewport sizes.
+The shared contrast suite now walks seven assignment surfaces in both themes;
+it must measure each surface's defining nodes. `runs.js` is in the affordance
+inventory, including short state-map labels normally filtered out as non-prose.
+Assignment fixtures assert the state text and the usable control together.
+
+See [the response to Urban](URBAN-REVIEW-RESPONSE.md) for evidence and reproduction.
+P4 remains open pending independent re-review. No design approval, production
+deployment or main-branch merge is claimed. Native window chrome, OS accent
+behavior and interactive speech were not visually audited in this pass.
 
 ## Review entry points
 

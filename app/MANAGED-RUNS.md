@@ -33,7 +33,7 @@ Rich's responsibility. Answers to actual decisions are kept verbatim.
 
 Requests and job transitions are persisted. Restart resumes unfinished ownership.
 Explicit pauses survive restart. Pause, resume and End remain available in the
-Work plan panel. End means cancellation, never completion. A missing workspace
+assignment panel. End means cancellation, never completion. A missing workspace
 can still be inspected and ended; corrupt journals can be archived intact.
 
 A malformed or unavailable review retries the reviewer, not the executor. After
@@ -46,8 +46,8 @@ cycle budget, not a dollar cap. Registration stops and reports after three faile
 attempts. Work remains saved and unfinished; neither limit claims completion.
 
 Unrelated assignments in one conversation have separate journals and can proceed
-while another is paused or awaiting a decision. Select an assignment in the Work
-plan panel to inspect or control it.
+while another is paused or awaiting a decision. Select an assignment in the assignment
+panel to inspect or control it.
 
 The app must be open to run work. Closing it preserves work for the next launch;
 no background OS service is installed. Workers are serial. Existing interactive
@@ -93,3 +93,19 @@ The conversation planner cannot install executable verifier commands.
 The ledger writes the existing text, jam and proactive vocabulary. Request and
 run journals are separate. See [ORCHESTRATION-REVIEW.md](ORCHESTRATION-REVIEW.md)
 for architecture, audit response and known limits.
+
+The assignment panel shows the selected work and the number of assignments that
+need you. Its chooser puts pending decisions first. Duplicate titles include a
+creation time and distinguishing reference. Pause and End remain outside the
+optional history. End asks you to confirm which assignment you are ending.
+
+Pending questions appear with working controls. Keep going authorizes only the
+allowance displayed above it. Change instructions accepts your exact correction
+and rechecks the revised outcome. Business questions offer their choices or a
+written answer. These actions call the desktop controller directly and are saved
+before work proceeds. You can also answer Rich in the conversation.
+
+“Show me what happened” opens task details, completion checks and technical
+history. Completion checks use the same readable type size as the rest of the
+panel. A load failure offers Refresh first and preserves diagnostic details in
+history. Setting an unreadable assignment aside requires confirmation.

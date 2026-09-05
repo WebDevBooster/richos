@@ -390,6 +390,16 @@ async function setupRefusal(browser, preset) {
 }
 
 const FIXTURES = {
+  ...Object.fromEntries(["running", "decision", "paused", "error", "scope", "answer", "empty"].map(state => ["assignment-"+state, async browser => {
+    const A = require("./lib/assignments"); const page = await A.open(browser);
+    await A.drive(page, ["scope", "answer"].includes(state) ? "decision" : state);
+    if (state === "scope") await page.locator("#managed-run [data-run-scope]").click();
+    if (state === "answer") {
+      await page.evaluate(async () => { const d=window.assignmentCurrent.tasks[1].decision; d.resource=false; await window.RichRuns.show("hiring"); });
+      await page.getByRole("button", {name:"Write an answer",exact:true}).click();
+    }
+    return page;
+  }])),
   /// The app as it opens. Proves the controls that the voice instructions NAME are on the
   /// screen those instructions render on.
   async shell(browser) {
@@ -875,6 +885,7 @@ const FIXTURES = {
 /// names is present and usable on the screen the sentence appears on. Said here rather than
 /// left as an unexplained asymmetry.
 const TEXT_RENDERING_FIXTURES = new Set([
+  "assignment-running", "assignment-decision", "assignment-paused", "assignment-error", "assignment-scope", "assignment-answer", "assignment-empty",
   // Every correction-desk fixture renders its own words — there is no hardware behind any
   // of them, so the weaker control-presence-only proof would be a choice rather than a
   // limit.

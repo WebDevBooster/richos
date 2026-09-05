@@ -456,19 +456,22 @@ fn report(state: &AppState, thread: &str, id: &str, evidence: &str) -> Result<bo
 
 fn publish_outcome(state: &AppState, thread: &str, snapshot: &RunSnapshot) -> Result<(), String> {
     let mut notices = vec![];
+    for (index, receipt) in snapshot.decision_receipts.iter().enumerate() {
+        let Some(encoded) = receipt.strip_prefix("panel:") else { continue; };
+        let Ok((_, _, action)) = serde_json::from_str::<(String, String, richos_core::run::DecisionAction)>(encoded) else { continue; };
+        let choice = match action {
+            richos_core::run::DecisionAction::Continue => "The CEO explicitly authorized the displayed additional work allowance.".to_string(),
+            richos_core::run::DecisionAction::Answer { text } => format!("The CEO answered (verbatim): {text}"),
+            richos_core::run::DecisionAction::ChangeScope { text } => format!("The CEO changed the instructions (verbatim): {text}"),
+            richos_core::run::DecisionAction::End => "The CEO ended the assignment without completing it.".to_string(),
+        };
+        notices.push((format!("panel-decision-{}-{index}", snapshot.id), format!("The assignment panel has already saved this CEO action. Acknowledge it briefly in the conversation. Do not ask for it again or claim the work is complete. {choice} Assignment: {}", snapshot.plan.display_goal())));
+    }
     for (i, task) in snapshot.tasks.iter().enumerate() {
-        if task.state == richos_core::run::TaskState::NeedsDecision {
+        if let Some(decision) = snapshot.decision(i) {
             notices.push((
-                format!(
-                    "decision-{}-{}-{i}-{}",
-                    snapshot.id,
-                    snapshot.plan_revision,
-                    format!("{}-{}", task.attempts, snapshot.decision_receipts.len())
-                ),
-                format!(
-                    "A CEO decision is required for this task. {}",
-                    task.evidence.join("\n")
-                ),
+                format!("decision-{}-{}-{i}-{}", snapshot.id, snapshot.plan_revision, format!("{}-{}", task.attempts, snapshot.decision_receipts.len())),
+                format!("A CEO decision is required for this task. {} {} Recommendation: {} Options: {}", decision.question, decision.why_ceo, decision.recommendation, decision.options.join("; ")),
             ));
         }
     }
@@ -711,6 +714,66 @@ pub fn selftest(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let result = (|| -> Result<serde_json::Value, String> {
             let state = app.state::<AppState>();
+            if mode == "panel-decisions" {
+                use richos_core::run::{DecisionAction, TaskState};
+                let thread = crate::create_thread_in(app.state(), "fixture".into(), "Panel decisions".into())?;
+                let workspace = state.registry.lock().unwrap()
+                    .get(&richos_core::EntityId::parse("fixture").unwrap()).unwrap().roots[0].clone();
+                let mut results = vec![];
+                for action in [DecisionAction::Continue, DecisionAction::ChangeScope { text: "Deliver the summary only. Do not send it.".into() }, DecisionAction::End] {
+                    let plan = autonomy::plan(&workspace, "Prepare a report", "Prepare the report", vec![autonomy::WorkItem {
+                        id: "deliver".into(), description: "Prepare a report".into(), depends_on: vec![], criteria: "The report exists and is correct".into()
+                    }])?;
+                    let id = autonomy::request_id();
+                    let path = state.data_dir.join("runs").join(format!("{thread}--{id}.jsonl"));
+                    let ctl = RunController::create_from_handoff(&path, plan, id).map_err(|e|e.to_string())?;
+                    let mut snapshot = ctl.snapshot().clone(); drop(ctl);
+                    snapshot.paused = true;
+                    snapshot.tasks[0].state = TaskState::NeedsDecision;
+                    snapshot.tasks[0].recovery_cycles = 10;
+                    snapshot.tasks[0].evidence = vec!["CEO_DECISION:Recovery resource limit reached: 10 cycles".into()];
+                    std::fs::write(&path, format!("{}\n",serde_json::to_string(&snapshot).unwrap())).map_err(|e|e.to_string())?;
+                    let d = snapshot.decision(0).unwrap();
+                    if crate::managed_runs::respond_run_decision(app.clone(), app.state(), thread.clone(), snapshot.id.clone(), "deliver".into(), "stale".into(), action.clone()).is_ok() {
+                        return Err("A stale panel decision was accepted".into());
+                    }
+                    // Hold the actual desktop ownership slot until the command asks its
+                    // writer to yield. This exercises the boundary without external work.
+                    let yielded = Arc::new(AtomicBool::new(false));
+                    if matches!(action, DecisionAction::Continue) {
+                        let pause = Arc::new(AtomicBool::new(false));
+                        *state.managed_runs.active.lock().unwrap() = Some((thread.clone(), path.clone(), pause.clone()));
+                        let app_copy = app.clone(); let yielded_copy = yielded.clone();
+                        std::thread::spawn(move || {
+                            let deadline = std::time::Instant::now();
+                            while !pause.load(Ordering::SeqCst) && deadline.elapsed() < Duration::from_secs(5) { std::thread::sleep(Duration::from_millis(10)); }
+                            yielded_copy.store(pause.load(Ordering::SeqCst), Ordering::SeqCst);
+                            *app_copy.state::<AppState>().managed_runs.active.lock().unwrap() = None;
+                        });
+                    }
+                    let result = crate::managed_runs::respond_run_decision(app.clone(), app.state(), thread.clone(), snapshot.id.clone(), "deliver".into(), d.id, action.clone())?;
+                    if matches!(action, DecisionAction::Continue) && !yielded.load(Ordering::SeqCst) {
+                        return Err("Panel decision did not wait for its writer boundary".into());
+                    }
+                    let value = serde_json::to_value(result).unwrap();
+                    match action {
+                        DecisionAction::Continue if value["state"] != "ready" => return Err("Panel continue did not resume owned work".into()),
+                        DecisionAction::ChangeScope { .. } if !value["tasks"][0]["description"].as_str().unwrap().contains("Do not send it.") => return Err("Panel scope correction was lost".into()),
+                        DecisionAction::End if value["state"] != "canceled" => return Err("Panel end did not cancel".into()),
+                        _ => {}
+                    }
+                    results.push(value);
+                    crate::managed_runs::end_run(app.state(), thread.clone(), Some(snapshot.id))?;
+                }
+                let deadline = std::time::Instant::now();
+                while deadline.elapsed() < Duration::from_secs(30) {
+                    let delivered = state.spine.lock().unwrap().ledger().turns().iter()
+                        .filter(|t| t.thread_id == thread && t.id.starts_with("panel-decision-") && t.state == TurnState::Completed).count();
+                    if delivered == 3 { return Ok(serde_json::json!({"panelActions":results.len(),"staleRejected":results.len(),"acknowledgments":delivered,"writerBoundary":true})); }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                return Err("Panel decision acknowledgments were not delivered".into());
+            }
             if mode == "native-handoff" {
                 let thread = crate::create_thread_in(
                     app.state(),

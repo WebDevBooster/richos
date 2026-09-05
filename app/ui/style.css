@@ -4439,26 +4439,25 @@ body.bp-narrow .tl-user-bubble {
     animation: none;
   }
 }
-#managed-run { border-top: 1px solid var(--line); margin: 0 clamp(16px, 5vw, 72px); padding: 10px 0; font-size: 1rem; color: var(--ink); }
-#managed-run > details[open] { max-height: 240px; overflow: auto; }
-#managed-run summary { cursor: pointer; }
-#managed-run p { margin: 8px 0; }
-#managed-run button, #managed-run input::file-selector-button { margin: 8px 8px 0 0; padding: 6px 10px; cursor: pointer; color: var(--ink); background: var(--surface-raised); border: 1px solid var(--line-control); border-radius: 6px; font: inherit; }
+/* Required controls are outside the optional, independently scrolling history. */
+#managed-run { position: relative; flex: none; border-top: 1px solid var(--line); margin: 0 clamp(16px, 5vw, 72px); padding: 8px 0; font-size: 1rem; color: var(--ink); }
+#managed-run p { margin: 6px 0; overflow-wrap: anywhere; }
+#managed-run .run-status, #managed-run .run-question { font-weight: 600; }
+#managed-run .run-attention { font-weight: 700; border-left: 3px solid var(--ink); padding-left: 8px; }
+#managed-run button, #managed-run input::file-selector-button { padding: 6px 10px; cursor: pointer; color: var(--ink); background: var(--surface-raised); border: 1px solid var(--line-control); border-radius: 6px; font: inherit; }
 #managed-run button:disabled { cursor: default; color: var(--ink-soft); }
-#managed-run input, #managed-run select { max-width: 100%; font: inherit; }
-#managed-run pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-
-#managed-run small { font-size: 0.875rem; }
-#managed-run select {
-  appearance: none;
-  font: inherit;
-  color: var(--ink);
-  background-color: var(--surface-raised);
-  background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%);
-  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
-  background-size: 5px 5px;
-  background-repeat: no-repeat;
-  border: 1px solid var(--line-control);
-  border-radius: 6px;
-  padding: 6px 30px 6px 10px;
-}
+#managed-run :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+#managed-run input, #managed-run textarea { max-width: 100%; font: inherit; color: var(--ink); }
+#managed-run textarea { display: block; width: 100%; height: 64px; resize: vertical; background: var(--surface-raised); border: 1px solid var(--line-control); margin: 8px 0; }
+#managed-run pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1rem; }
+#managed-run .run-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+#managed-run .run-picker { position: relative; }
+#managed-run [data-run-picker] { display: flex; width: 100%; gap: 8px; align-items: center; justify-content: space-between; text-align: left; }
+#managed-run [data-run-picker] > :last-child { flex: none; }
+#managed-run .run-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#managed-run .run-choices { position: absolute; z-index: 10; bottom: 100%; left: 0; right: 0; max-height: 40vh; overflow-y: auto; background: var(--surface-raised); border: 1px solid var(--line-control); border-radius: 6px; padding: 6px; }
+#managed-run .run-choices button { display: block; width: 100%; text-align: left; margin: 3px 0; overflow-wrap: anywhere; }
+#managed-run summary { cursor: pointer; padding: 4px 0; }
+#managed-run .run-history-body { position: absolute; bottom: 100%; left: 0; right: 0; z-index: 9; background: var(--paper); max-height: 40vh; overflow: auto; scrollbar-gutter: stable; border: 1px solid var(--line-control); padding: 8px; }
+#managed-run .run-question-body { max-height: 20vh; overflow: auto; scrollbar-gutter: stable; }
+@media (max-height: 760px) { #managed-run .run-question-body { max-height: 15vh; } }

@@ -93,6 +93,17 @@ const THEMES = ["light", "dark"];
 // ---------------------------------------------------------------------------------------
 
 const SURFACES = [
+  ...["empty", "running", "decision", "error", "history", "picker", "scope"].map(state => ({
+    name: "assignment-" + state,
+    what: "the assignment panel in the real composer, " + state,
+    drive: async p => {
+      await p.evaluate(() => document.querySelector('.nav-thread[data-thread-id="hiring"]').click());
+      await require("./lib/assignments").drive(p, ["scope"].includes(state) ? "decision" : ["history", "picker"].includes(state) ? "running" : state);
+      if (state === "history") await p.locator("#managed-run summary").click();
+      if (state === "picker") { await p.locator("#managed-run [data-run-picker]").click(); await p.waitForSelector("#managed-run .run-choices button"); }
+      if (state === "scope") await p.locator("#managed-run [data-run-scope]").click();
+    }
+  })),
   {
     name: "shell",
     what: "the shell as it opens: rail, scope line, first turn, composer",
@@ -795,6 +806,10 @@ async function main() {
         const page = await openApp(browser, theme, surface.holdSplash, surface.preset);
         await surface.drive(page);
         const out = await walk(page, surface.name, theme);
+        if (surface.name.startsWith("assignment-")) {
+          const required = surface.name === "assignment-picker" ? "run-choices" : surface.name === "assignment-scope" ? "textarea" : surface.name === "assignment-history" ? "run-checks" : "run-status";
+          assert(out.measuredPaths.some(p => p.includes(required)), surface.name + " did not measure its required state: " + required);
+        }
         if (theme === "light") {
           const s = await shot(page, "contrast-" + surface.name, { fullPage: false });
           fs.copyFileSync(s.file, path.join(SHOTS, surface.name + ".png"));

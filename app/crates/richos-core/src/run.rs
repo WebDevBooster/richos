@@ -192,7 +192,55 @@ pub struct RunSnapshot {
     pub decision_receipts: Vec<String>,
 }
 
+/// A pending question projected from durable evidence, including older journals.
+/// Its identity binds an answer to the exact question and contract.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDecision {
+    pub id: String,
+    pub question: String,
+    pub why_ceo: String,
+    pub recommendation: String,
+    pub options: Vec<String>,
+    pub resource: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DecisionAction {
+    Continue,
+    Answer { text: String },
+    ChangeScope { text: String },
+    End,
+}
+
 impl RunSnapshot {
+    pub fn decision(&self, i: usize) -> Option<RunDecision> {
+        use sha2::{Digest, Sha256};
+        let task = self.tasks.get(i)?;
+        if self.canceled || task.state != TaskState::NeedsDecision { return None; }
+        let raw = task.evidence.iter().rev()
+            .find_map(|e| e.split_once(crate::autonomy::DECISION).map(|(_, s)| s))
+            .unwrap_or("");
+        let mut d = serde_json::from_str::<RunDecision>(raw).ok().unwrap_or_else(|| {
+            if raw.starts_with("Recovery resource limit reached:") {
+                return resource_question(self.plan.turn_timeout_seconds);
+            }
+            match serde_json::from_str::<crate::autonomy::Review>(raw) {
+                Ok(crate::autonomy::Review::Decision { question, why_ceo, recommendation, options }) =>
+                    RunDecision { id: String::new(), question, why_ceo, recommendation, options, resource: false },
+                _ => RunDecision { id: String::new(), question: "What should Rich do next?".into(),
+                    why_ceo: "Rich needs your decision before this part of the assignment can continue. You can also answer in the conversation.".into(),
+                    recommendation: String::new(), options: vec![], resource: false },
+            }
+        });
+        d.id = format!("{:x}", Sha256::digest(serde_json::to_vec(&(
+            &self.id, self.plan_revision, &self.plan.tasks[i].id, task,
+            &self.decision_receipts
+        )).unwrap()));
+        Some(d)
+    }
+
     pub fn state(&self) -> RunState {
         if self.tasks.iter().all(|t| t.state == TaskState::Passed) {
             RunState::Completed
@@ -458,6 +506,70 @@ impl RunController {
         Ok(())
     }
 
+    /// Validate explicit CEO actions under the journal lock. A resume click cannot
+    /// grant authority, and a stale question cannot authorize a different one.
+    pub fn respond_to_decision(&mut self, task_id: &str, decision_id: &str, action: DecisionAction) -> Result<(), RunError> {
+        let receipt = format!("panel:{}", serde_json::to_string(&(task_id, decision_id, &action))?);
+        if self.snapshot.decision_receipts.contains(&receipt) { return Ok(()); }
+        let i = self.snapshot.plan.tasks.iter().position(|t| t.id == task_id)
+            .ok_or_else(|| RunError::Invalid("This decision is no longer available. Refresh the assignment.".into()))?;
+        let d = self.snapshot.decision(i).filter(|d| d.id == decision_id)
+            .ok_or_else(|| RunError::Invalid("This decision has changed. Refresh before answering.".into()))?;
+        let answer = match action {
+            DecisionAction::End => {
+                self.snapshot.canceled = true;
+                self.snapshot.decisions.push(format!("CEO ended the assignment while answering: {}", d.question));
+                self.snapshot.decision_receipts.push(receipt);
+                return self.save();
+            }
+            DecisionAction::Continue if d.resource => format!("I authorize {} further attempts on this task, each allowing up to {} minutes of work plus checks. Provider charges apply.", RECOVERY_BUDGET, self.snapshot.plan.turn_timeout_seconds.div_ceil(60)),
+            DecisionAction::Continue => return Err(RunError::Invalid("This question needs an answer, not permission to keep trying.".into())),
+            DecisionAction::Answer { text } if !d.resource && !text.trim().is_empty() && text.len() <= 32000 => text,
+            DecisionAction::ChangeScope { text } if !text.trim().is_empty() && text.len() <= 32000 && self.snapshot.plan.autonomous() => {
+                let correction = format!("\nCEO change of instructions (verbatim; replaces conflicting earlier instructions only):\n{text}\nReconcile existing effects before continuing.");
+                let mut plan = self.snapshot.plan.clone();
+                plan.goal.push_str(&correction);
+                for t in &mut plan.tasks {
+                    t.prompt.push_str(&correction);
+                    for c in &mut t.checks {
+                        let encoded = c.argv.get_mut(1).ok_or_else(|| RunError::Invalid("The assignment has an unreadable completion check.".into()))?;
+                        let mut outcome: crate::autonomy::Outcome = serde_json::from_str(encoded)?;
+                        outcome.goal.push_str(&correction);
+                        outcome.task.push_str(&correction);
+                        outcome.criteria.push_str(&correction);
+                        *encoded = serde_json::to_string(&outcome)?;
+                    }
+                }
+                return self.amend(&receipt, plan);
+            }
+            _ => return Err(RunError::Invalid("Enter your decision before sending it.".into())),
+        };
+        self.apply_answer(i, &receipt, &answer)
+    }
+
+    fn apply_answer(&mut self, i: usize, receipt: &str, answer: &str) -> Result<(), RunError> {
+        self.snapshot.decisions.push(answer.into());
+        self.snapshot.decision_receipts.push(receipt.into());
+        let task = &mut self.snapshot.tasks[i];
+        task.state = TaskState::Pending;
+        task.retry_at = 0;
+        task.evidence.push(format!("CEO answer: {answer}"));
+        task.recovery_cycles = 0;
+        self.snapshot.paused = false;
+        // Answering may have interrupted independent work in this assignment.
+        // Inspect its effects before continuing it, without releasing other decisions.
+        if self.snapshot.plan.autonomous() {
+            for other in &mut self.snapshot.tasks {
+                if other.state == TaskState::NeedsAttention {
+                    other.state = TaskState::Pending;
+                    other.retry_at = 0;
+                    other.review_pending = true;
+                }
+            }
+        }
+        self.save()
+    }
+
     /// The host calls this only after classifying an actual CEO answer to a
     /// pending decision. The exact answer is retained, never replaced by a
     /// model's paraphrase of authorization.
@@ -483,17 +595,12 @@ impl RunController {
                 "There is no pending decision to answer.".into(),
             ));
         }
-        self.snapshot.decisions.push(answer.into());
-        self.snapshot.decision_receipts.push(receipt.into());
-        for task in &mut self.snapshot.tasks {
-            if task.state == TaskState::NeedsDecision {
-                task.state = TaskState::Pending;
-                task.retry_at = 0;
-                task.evidence.push(format!("CEO answer: {answer}"));
-                task.recovery_cycles = 0;
-            }
+        let pending: Vec<_> = self.snapshot.tasks.iter().enumerate()
+            .filter(|(_, t)| t.state == TaskState::NeedsDecision).map(|(i, _)| i).collect();
+        if pending.len() != 1 {
+            return Err(RunError::Invalid("More than one decision is pending. Answer each question in the assignment panel.".into()));
         }
-        self.save()
+        self.apply_answer(pending[0], receipt, answer)
     }
 
     fn effective_check(&self, check: &Check) -> Check {
@@ -539,7 +646,8 @@ impl RunController {
         let task = &mut self.snapshot.tasks[i];
         task.state = TaskState::NeedsDecision;
         task.retry_at = 0;
-        task.evidence.push(format!("{}Recovery resource limit reached: {} cycles without verified completion. This assignment remains owned. Authorize up to {} further cycles, change its scope or end it. Recommendation: review the failure evidence before authorizing more compute. Each cycle permits at most one {}-second worker plus independent checks; actual charges depend on the provider. Further inference is suspended until your decision.", crate::autonomy::DECISION, RECOVERY_BUDGET, RECOVERY_BUDGET, self.snapshot.plan.turn_timeout_seconds));
+        task.evidence.push(format!("{}{}", crate::autonomy::DECISION,
+            serde_json::to_string(&resource_question(self.snapshot.plan.turn_timeout_seconds)).unwrap()));
     }
 
     pub fn defer_recovery(&mut self, seconds: u64) -> Result<(), RunError> {
@@ -824,4 +932,14 @@ pub fn archive_journal(path: &Path) -> Result<PathBuf, RunError> {
     ));
     std::fs::rename(path, &archive)?;
     Ok(archive)
+}
+
+fn resource_question(seconds: u64) -> RunDecision {
+    RunDecision {
+        id: String::new(), resource: true,
+        question: "Rich has used the allowance without finishing.".into(),
+        why_ceo: format!("Keep going allows up to {RECOVERY_BUDGET} more attempts of up to {} minutes each, plus checks. Provider charges apply.", seconds.div_ceil(60)),
+        recommendation: "Review what happened before spending more, or change the instructions.".into(),
+        options: vec![],
+    }
 }

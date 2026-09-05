@@ -11,7 +11,8 @@ import tempfile
 
 app = Path(__file__).resolve().parents[1]
 native = "--native" in sys.argv[1:]
-args = [arg for arg in sys.argv[1:] if arg != "--native"]
+panel_only = "--panel-only" in sys.argv[1:]
+args = [arg for arg in sys.argv[1:] if arg not in ("--native", "--panel-only")]
 binary = Path(args[0]) if args else app / "src-tauri/target/debug/richos-tauri"
 if not binary.is_file():
     sys.exit("Build the debug desktop binary first: cargo build --manifest-path app/src-tauri/Cargo.toml")
@@ -80,7 +81,8 @@ fake.chmod(0o700)
 env = dict(os.environ, RICHOS_TEST_DATA_DIR=str(data), RICHOS_ENTITY="fixture",
            RICHOS_ENGINE_DIR=str(workspace), RICHOS_CLAUDE_BIN=str(fake), RICHOS_FIXTURE_ROOT=str(root))
 if native: env.pop("RICHOS_CLAUDE_BIN", None)
-for phase in (("native-handoff",) if native else ("enqueue", "resume", "recover-notice", "correct-live", "slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live")):
+phases = ("panel-decisions",) if panel_only else (("native-handoff",) if native else ("enqueue", "resume", "recover-notice", "correct-live", "slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live", "panel-decisions"))
+for phase in phases:
     if phase == "recover-notice":
         # Simulate the crash window after verified completion was committed to
         # the job but before its conversation notice was written.
@@ -114,6 +116,8 @@ for phase in (("native-handoff",) if native else ("enqueue", "resume", "recover-
         if phase == 'registration-failures-restart':
             for prefix in ('Handle malformed:', 'Question inconsistent:'):
                 assert sum(c['ceo'].startswith(prefix) for c in calls) == 3, calls
+    elif phase == "panel-decisions":
+        assert report["panelActions"] == 3 and report["staleRejected"] == 3 and report["acknowledgments"] == 3 and report["writerBoundary"], report
     elif phase == "enqueue":
         assert report["requestPersisted"], report
         assert not (workspace / "deliverable.txt").exists(), "The restart fixture ran before the first app exited"
@@ -129,4 +133,4 @@ for phase in (("native-handoff",) if native else ("enqueue", "resume", "recover-
         assert sum(m["role"] == "user" for m in report["messages"]) == 1, "Restart duplicated the CEO request"
         assert (workspace / "deliverable.txt").read_text() == "Finished.\n"
     print("PASS", phase, flush=True)
-print("PASS installed-native desktop: Rich answered, registered work, verified delivery and reported completion." if native else "PASS actual desktop: restart, false completion rejection, scoped output, responsive conversation and live correction.")
+print(f"PASS actual desktop: {len(phases)} exercised phase(s): {', '.join(phases)}.")

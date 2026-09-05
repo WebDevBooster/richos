@@ -1,174 +1,186 @@
-/* Durable work runs. Model turn events never decide this panel's completion. */
+/* Assignment state comes from the durable controller, never a model's end_turn. */
 (function () {
   "use strict";
-  let bridge, root, thread, current, assignments = [], generation = 0, busy = false, polling = false, lastError = "";
-  const labels = { ready: "Queued", waiting: "Retrying automatically", needs_decision: "Waiting for your decision", running: "Working", paused: "Paused",
-    needs_attention: "Needs attention", completed: "Completed", pending: "Not finished",
-    verifying: "Checking the result", passed: "Checks passed", canceled: "Ended without completion" };
-
-  function node(tag, text) { const e = document.createElement(tag); if (text) e.textContent = text; return e; }
-  function error(e) {
-    lastError = String(e);
-    const out = root.querySelector('[role="status"]');
-    if (out) out.textContent = String(e);
-    render();
+  let bridge, root, thread, current, assignments = [], generation = 0, polling = false;
+  let lastError = "", pickerOpen = false, historyOpen = false, editor = null, working = false, archiveConfirm = false;
+  const pausing = new Set();
+  const labels = { pausing: "Pausing…", needs_input: "need you", ready: "Queued", waiting: "Retrying automatically", needs_decision: "Waiting for your decision",
+    running: "Working", paused: "Paused", needs_attention: "Needs attention", completed: "Completed",
+    pending: "Not started", verifying: "Checking the result", passed: "Checks passed", canceled: "Ended without completion" };
+  function node(tag, text, cls) { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
+  function button(text, fn, key) { const b = node("button", text); b.type = "button"; if (key) b.dataset[key] = ""; b.addEventListener("click", fn); return b; }
+  function error(e) { lastError = String(e); render(); }
+  function all() { const rows = assignments.filter(a => a.runId !== current?.runId); if (current) rows.push(current); return rows; }
+  function needs(a) { return !["completed", "canceled"].includes(a.state) && (a.state === "needs_decision" || a.tasks.some(t => t.decision)); }
+  function title(a) {
+    // Keep the full registrar contract in history. Lead with the CEO's request here.
+    return a.goal.split("CEO request (verbatim):\n").pop().split("\nRich's accepted scope")[0].split("\n")[0];
   }
+  function identity(a) {
+    if (all().filter(b => title(b) === title(a)).length < 2) return title(a);
+    const date = a.createdAt ? new Date(a.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+    const suffix = all().some(b => b.runId !== a.runId && b.runId.slice(0, 8) === a.runId.slice(0, 8)) ? a.runId : a.runId.slice(0, 8);
+    return `${title(a)} (${date ? date + ", " : ""}${suffix})`;
+  }
+  function target() { return { threadId: thread, runId: current.runId }; }
+  async function mutate(command, args, after) {
+    const stamp = generation, selected = current?.runId;
+    working = true; lastError = ""; render();
+    try {
+      const result = await bridge.invoke(command, args);
+      if (stamp !== generation) return;
+      if (result?.runId && (!current || current.runId === selected)) current = result;
+      if (after) await after();
+      await refreshAssignments(stamp);
+    } catch (e) { if (stamp === generation) { lastError = String(e); if (command === "pause_run") pausing.delete(args.runId); } }
+    finally { if (stamp === generation) { working = false; render(); } }
+  }
+  function edit(kind, task) { editor = { kind, target: target(), name: identity(current), task, text: "" }; render(); root.querySelector("textarea")?.focus(); }
+  function respond(task, action) { return mutate("respond_run_decision", { ...target(), taskId: task.id, decisionId: task.decision.id, action }, () => { editor = null; }); }
   function render() {
-    root.replaceChildren(); root.hidden = !thread;
-    if (!thread) return;
-    const details = node("details"); details.open = !!current || !!lastError;
-    details.append(node("summary", current ? `Work plan: ${lastError ? "Needs attention" : (labels[current.state] || current.state)}` : "Work plan"));
-    const status = node("p", lastError); status.setAttribute("role", "status");
-    if (!current) {
-      details.append(node("p", "Tell Rich what needs doing in the conversation. He will plan the work, carry it out and check the result."));
-      const load = node("input"); load.type = "file"; load.accept = ".json,application/json";
-      load.setAttribute("aria-label", "Load a work plan");
-      load.addEventListener("change", async () => {
-        const selected = thread, stamp = generation;
-        try {
-          const file = load.files[0]; if (!file) return;
-          if (file.size > 1024 * 1024) throw new Error("This work plan is too large.");
-          const plan = JSON.parse(await file.text());
-          const result = await bridge.invoke("prepare_run", { threadId: selected, plan });
-          if (stamp !== generation) return;
-          current = result; render();
-        } catch (e) { if (stamp === generation) error(e); }
-      });
-      const advanced = node("details"); advanced.append(node("summary", "Import an existing plan"), load); details.append(advanced);
-    } else {
-      if (assignments.length > 1) {
-        const label = node("label", "Assignment ");
-        const select = node("select"); select.setAttribute("aria-label", "Assignment");
-        for (const assignment of assignments) {
-          const option = node("option", `${labels[assignment.state] || assignment.state}: ${assignment.goal}`);
-          option.value = assignment.runId; option.selected = assignment.runId === current.runId; select.append(option);
-        }
-        select.addEventListener("change", async () => {
-          const stamp = generation;
-          try { const result = await bridge.invoke("select_run", { threadId: thread, runId: select.value });
-            if (stamp === generation) { current = result; render(); }
-          } catch (e) { if (stamp === generation) error(e); }
-        });
-        label.append(select); details.append(label);
-      }
-      details.append(node("p", current.goal));
-      if (current.workspace && !current.autonomous) details.append(node("p", `Workspace: ${current.workspace}. Up to ${current.maxAttempts} attempts per task, ${current.turnTimeoutSeconds} seconds per attempt.`));
-      const list = node("ol");
-      for (const task of current.tasks) {
-        const item = node("li");
-        item.append(node("p", `${task.description} (${labels[task.state] || task.state})`));
-        if (task.checks.length) item.append(node("small", `Completion checks: ${task.checks.join("; ")}`));
-        if (!current.autonomous && task.commands && task.commands.length) {
-          const commands = node("details"); commands.append(node("summary", "Commands used to check completion"));
-          commands.append(node("pre", task.commands.map(argv => JSON.stringify(argv)).join("\n"))); item.append(commands);
-        }
-        if (task.evidence && task.evidence.length) {
-          const evidence = node("details"); evidence.append(node("summary", "Check results"));
-          evidence.append(node("pre", task.evidence.join("\n"))); item.append(evidence);
-        }
-        if (task.state === "needs_attention" && !current.autonomous) {
-          const retry = node("button", "Retry after inspecting the result"); retry.type = "button"; retry.disabled = busy;
-          retry.addEventListener("click", async () => {
+    const focused = root.querySelector("textarea") === document.activeElement;
+    const caret = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
+    root.replaceChildren(); root.hidden = !thread; if (!thread) return;
+    const rows = all(), waiting = rows.filter(needs).length;
+    if (pausing.has(current?.runId) && ["paused", "completed", "canceled"].includes(current.state)) pausing.delete(current.runId);
+    const progress = current?.state === "running" ? current.tasks.findIndex(t => ["running", "verifying"].includes(t.state)) : -1;
+    const state = current ? (pausing.has(current.runId) ? labels.pausing : labels[current.state]) : "No assignment yet";
+    const headline = progress >= 0 ? `${state} · task ${progress + 1} of ${current.tasks.length}` : state;
+    const status = node("p", lastError ? "Rich couldn’t update this assignment. Refresh to try again. Your saved work is kept." : (waiting ? `${waiting} ${labels.needs_input} · ${headline}` : headline), "run-status");
+    status.setAttribute("role", "status"); root.append(status);
+    if (waiting || lastError) status.classList.add("run-attention");
+    if (lastError) root.append(button("Refresh assignments", () => window.RichRuns.show(thread), "runRefresh"));
+    if (current) {
+      const picker = node("div", null, "run-picker");
+      const choose = button("", () => { pickerOpen = !pickerOpen; historyOpen = false; render(); if (pickerOpen) root.querySelector("[data-run-choice]")?.focus(); }, "runPicker");
+      choose.append(node("span", identity(current), "run-title"), node("span", `${rows.length} ${rows.length === 1 ? "assignment" : "assignments"} ▾`));
+      choose.setAttribute("aria-expanded", String(pickerOpen)); choose.setAttribute("aria-label", `Choose assignment: ${identity(current)} (${rows.length})`);
+      picker.append(choose);
+      if (pickerOpen) {
+        const list = node("div", null, "run-choices"); list.setAttribute("aria-label", "Assignments");
+        rows.sort((a, b) => Number(needs(b)) - Number(needs(a)) || (b.createdAt || 0) - (a.createdAt || 0) || a.runId.localeCompare(b.runId));
+        for (const a of rows) {
+          const row = button(`${identity(a)} · ${needs(a) ? "Needs your decision" : labels[a.state]}`, async () => {
             const stamp = generation;
             try {
-              const result = await bridge.invoke("retry_run_task", { threadId: thread, runId: current.runId, taskId: task.id });
-              if (stamp === generation) { current = result; render(); }
+              const result = await bridge.invoke("select_run", { threadId: thread, runId: a.runId });
+              if (stamp === generation) { current = result; pickerOpen = false; editor = null; render(); root.querySelector("[data-run-picker]")?.focus(); }
             } catch (e) { if (stamp === generation) error(e); }
-          }); item.append(retry);
+          }); row.dataset.runChoice = a.runId; if (needs(a)) row.classList.add("run-attention"); list.append(row);
+        } picker.append(list);
+      } root.append(picker);
+      const tasks = current.tasks.filter(t => t.decision), task = tasks[0];
+      if (task && !editor) {
+        const d = task.decision, decision = node("section", null, "run-decision"); decision.setAttribute("aria-label", "Your decision");
+        const question = node("div", null, "run-question-body");
+        question.append(node("p", d.question, "run-question"), node("p", d.whyCeo));
+        if (tasks.length > 1) question.append(node("p", `Decision 1 of ${tasks.length}`));
+        decision.append(question);
+        const actions = node("div", null, "run-actions");
+        if (d.resource) actions.append(button("Keep going", () => respond(task, { kind: "continue" }), "runAnswer"));
+        else for (const option of d.options) actions.append(button(option, () => edit("option", { ...task, option }), "runAnswer"));
+        if (!d.resource) actions.append(button("Write an answer", () => edit("answer", task), "runAnswer"));
+        if (current.autonomous) actions.append(button("Change instructions", () => edit("scope", task), "runScope"));
+        decision.append(actions); root.append(decision);
+      } else if (needs(current) && !editor) {
+        root.append(node("p", "Rich needs your answer in the conversation. Refresh to load the question here."));
+        if (!lastError) root.append(button("Refresh assignments", () => window.RichRuns.show(thread), "runRefresh"));
+      }
+      if (!editor && !["completed", "canceled"].includes(current.state)) {
+        const controls = node("div", null, "run-actions");
+        if ((!current.autonomous || current.state === "paused") && !needs(current)) controls.append(button("Continue assignment", () => mutate("drive_run", target()), "runContinue"));
+        if (current.state !== "paused") controls.append(button("Pause assignment", () => {
+          const args = target(); pausing.add(args.runId);
+          mutate("pause_run", args, async () => {
+            const result = await bridge.invoke("get_run", { threadId: args.threadId });
+            if (current?.runId === result?.runId) current = result;
+          });
+        }, "runPause"));
+        controls.append(button("End assignment", () => edit("end", task), "runEnd")); root.append(controls);
+      }
+      if (editor) {
+        const form = node("form", null, "run-editor"), ending = editor.kind === "end", option = editor.kind === "option";
+        form.append(node("p", ending ? `End “${editor.name}” without completing it? Work already done will be kept.` : option ? `For “${editor.name}”, confirm: ${editor.task.option}` : editor.kind === "scope" ? "What should Rich do differently? Your other requirements still apply." : "What is your decision?"));
+        if (!ending && !option) {
+          const input = node("textarea"); input.value = editor.text; input.required = true; input.maxLength = 32000;
+          input.setAttribute("aria-label", editor.kind === "scope" ? "New instructions" : "Your answer");
+          input.addEventListener("input", () => { editor.text = input.value; }); form.append(input);
         }
+        const cancel = button("Go back", () => { editor = null; render(); }, "runDismiss");
+        const submit = node("button", ending ? "Confirm end" : option ? "Confirm decision" : "Send decision"); submit.type = "submit"; if (ending) submit.dataset.runEnd = ""; form.append(cancel, submit);
+        form.addEventListener("submit", e => {
+          e.preventDefault(); const saved = editor;
+          if (ending && !saved.task) mutate("end_run", saved.target, () => { editor = null; });
+          else mutate("respond_run_decision", { ...saved.target, taskId: saved.task.id, decisionId: saved.task.decision.id,
+            action: ending ? { kind: "end" } : { kind: saved.kind === "scope" ? "change_scope" : "answer", text: option ? saved.task.option : saved.text } }, () => { editor = null; });
+        }); root.append(form);
+      }
+    }
+    const history = node("details", null, "run-history"); history.open = historyOpen; history.append(node("summary", "Show me what happened"));
+    history.addEventListener("toggle", () => { if (history.isConnected) historyOpen = history.open; });
+    const body = node("div", null, "run-history-body"); if (lastError) body.append(node("pre", lastError));
+    if (current) {
+      const list = node("ol");
+      for (const task of current.tasks) {
+        const item = node("li"); item.append(node("p", `${task.description} (${labels[task.state]})`));
+        if (task.checks.length) item.append(node("p", `Completion checks: ${task.checks.join("; ")}`, "run-checks"));
+        if (task.decision?.recommendation) item.append(node("p", task.decision.recommendation));
+        const evidence = (task.evidence || []).filter(e => !e.includes("CEO_DECISION:")); if (evidence.length) item.append(node("pre", evidence.join("\n")));
+        if (!current.autonomous && task.commands?.length) item.append(node("pre", task.commands.map(a => JSON.stringify(a)).join("\n")));
+        if (!current.autonomous && task.state === "needs_attention") item.append(button("Retry after reviewing the result", () => mutate("retry_run_task", { ...target(), taskId: task.id })));
         list.append(item);
-      }
-      details.append(list);
-      if (!["completed", "canceled"].includes(current.state)) {
-        const start = node("button", busy ? "Run active" : "Start / continue"); start.type = "button"; start.disabled = busy;
-        start.addEventListener("click", async () => {
-          const selected = thread, stamp = generation; busy = true; lastError = ""; render();
-          try {
-            const result = await bridge.invoke("drive_run", { threadId: selected, runId: current.runId });
-            if (stamp === generation) current = result;
-          } catch (e) { if (stamp === generation) error(e); }
-          finally { busy = false; if (stamp === generation) render(); }
-        });
-        const pause = node("button", "Pause run"); pause.type = "button";
-        pause.addEventListener("click", async () => {
-          const stamp = generation;
-          try {
-            await bridge.invoke("pause_run", { threadId: thread, runId: current.runId });
-            if (stamp === generation) status.textContent = "Pause requested. The current attempt will stop before more work starts.";
-          } catch (e) { if (stamp === generation) error(e); }
-        });
-        if (!current.autonomous || current.state === "paused") details.append(start);
-        details.append(pause);
-        const end = node("button", "End run without completing it"); end.type = "button"; end.disabled = busy;
-        end.addEventListener("click", async () => {
-          const stamp = generation;
-          try {
-            const result = await bridge.invoke("end_run", { threadId: thread, runId: current.runId });
-            if (stamp === generation) { current = result; render(); }
-          } catch (e) { if (stamp === generation) error(e); }
-        }); details.append(end);
-      } else {
-        const next = node("button", "Load another work plan"); next.type = "button";
-        next.addEventListener("click", () => { current = null; lastError = ""; render(); });
-        details.append(next);
+      } body.append(list);
+      if (!current.autonomous && current.workspace) body.append(node("p", `Workspace: ${current.workspace}. Up to ${current.maxAttempts} attempts per task, ${current.turnTimeoutSeconds} seconds per attempt.`));
+    } else {
+      body.append(node("p", "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result."));
+      if (lastError) {
+        if (archiveConfirm) {
+          body.append(node("p", "Set aside this unreadable assignment? Its saved history will be kept."));
+          body.append(button("Go back", () => { archiveConfirm = false; render(); }));
+          body.append(button("Confirm set aside", () => mutate("archive_run", { threadId: thread }, () => { lastError = ""; archiveConfirm = false; })));
+        } else body.append(button("Set aside unreadable assignment", () => { archiveConfirm = true; render(); }));
       }
     }
-    if (lastError && !current) {
-      const archive = node("button", "Archive the unreadable plan and preserve its journal"); archive.type = "button";
-      archive.addEventListener("click", async () => {
-        const stamp = generation;
-        try {
-          await bridge.invoke("archive_run", { threadId: thread });
-          if (stamp === generation) { current = null; lastError = ""; render(); }
+    if (!current || ["completed", "canceled"].includes(current.state)) {
+      const label = node("label", "Import assignment from a file "), load = node("input"); load.type = "file"; load.accept = ".json,application/json";
+      load.addEventListener("change", async () => {
+        const stamp = generation, id = thread;
+        try { const file = load.files[0]; if (!file) return;
+          if (file.size > 1024 * 1024) throw new Error("This assignment file is too large.");
+          const plan = JSON.parse(await file.text()); if (stamp === generation) await mutate("prepare_run", { threadId: id, plan });
         } catch (e) { if (stamp === generation) error(e); }
-      });
-      details.append(archive);
+      }); label.append(load); body.append(label);
     }
-    if (lastError) {
-      const refresh = node("button", "Refresh work plans"); refresh.type = "button"; refresh.dataset.runRefresh = "";
-      refresh.addEventListener("click", () => window.RichRuns.show(thread)); details.append(refresh);
-    }
-    details.append(status); root.append(details);
+    history.append(body); root.append(history);
+    for (const b of root.querySelectorAll("button")) if (!b.hasAttribute("data-run-pause") && !b.hasAttribute("data-run-end") && !b.hasAttribute("data-run-dismiss")) b.disabled = working;
+    if (focused && root.querySelector("textarea")) { const input = root.querySelector("textarea"); input.focus(); input.setSelectionRange(...caret); }
   }
-
   async function refreshAssignments(stamp) {
-    const result = await bridge.invoke("list_runs", { threadId: thread });
-    if (stamp === generation && Array.isArray(result)) assignments = result;
+    const result = await bridge.invoke("list_runs", { threadId: thread }); if (stamp === generation && Array.isArray(result)) assignments = result;
   }
-
   window.RichRuns = {
     mount(b, element) {
       bridge = b; root = element;
+      root.addEventListener("keydown", e => { if (e.key === "Escape" && pickerOpen) { pickerOpen = false; render(); root.querySelector("[data-run-picker]")?.focus(); } });
+      document.addEventListener("click", e => { if (pickerOpen && !e.composedPath().includes(root)) { pickerOpen = false; render(); } });
       setInterval(async () => {
-        if (!thread || !current?.preparing || polling) return;
+        if (!thread || (!current?.preparing && !pausing.has(current?.runId)) || polling) return;
         const stamp = generation; polling = true;
         try { const result = await bridge.invoke("get_run", { threadId: thread }); if (stamp === generation) { current = result; render(); } }
-        catch (e) { if (stamp === generation) error(e); }
-        finally { polling = false; }
+        catch (e) { if (stamp === generation) error(e); } finally { polling = false; }
       }, 2000);
       bridge.listen("rich://run-updated", async ({ payload }) => {
         if (payload.threadId !== thread) return;
-        try { await refreshAssignments(generation); } catch (_) {}
+        const stamp = generation; try { await refreshAssignments(stamp); } catch (_) {} if (stamp !== generation) return;
         if (current && payload.runId !== current.runId) {
-          const stamp = generation;
-          try {
-            const actual = await bridge.invoke("get_run", { threadId: thread });
-            if (stamp === generation && actual?.runId === payload.runId) { current = actual; render(); }
-          } catch (_) { /* A future update or reopening retries the authoritative read. */ }
-          return;
-        }
-        if (current && payload.revision < current.revision) return;
-        current = payload; render();
+          try { const actual = await bridge.invoke("get_run", { threadId: thread }); if (stamp === generation && actual?.runId === payload.runId && !editor) current = actual; } catch (_) { /* Refresh retries the authoritative read. */ }
+        } else if (!current || payload.revision >= current.revision) current = payload;
+        if (stamp === generation) render();
       });
     },
     async show(id) {
-      const stamp = ++generation; thread = id; current = null; assignments = []; lastError = ""; render();
-      if (!id) return;
-      try {
-        const result = await bridge.invoke("get_run", { threadId: id });
-        await refreshAssignments(stamp);
-        if (stamp === generation) { current = result; render(); }
-      } catch (e) { if (stamp === generation) { error(e); render(); } }
+      const stamp = ++generation; thread = id; current = null; assignments = []; lastError = ""; editor = null; pickerOpen = false; working = false; archiveConfirm = false; render(); if (!id) return;
+      try { const result = await bridge.invoke("get_run", { threadId: id }); await refreshAssignments(stamp); if (stamp === generation) { current = result; render(); } } catch (e) { if (stamp === generation) error(e); }
     }
   };
 })();

@@ -89,6 +89,34 @@
     "setup-blocked": {
       "checked": 18,
       "considered": 394
+    },
+    "assignment-empty": {
+      "checked": 104,
+      "considered": 432
+    },
+    "assignment-running": {
+      "checked": 112,
+      "considered": 448
+    },
+    "assignment-decision": {
+      "checked": 120,
+      "considered": 458
+    },
+    "assignment-error": {
+      "checked": 106,
+      "considered": 438
+    },
+    "assignment-history": {
+      "checked": 124,
+      "considered": 448
+    },
+    "assignment-picker": {
+      "checked": 112,
+      "considered": 448
+    },
+    "assignment-scope": {
+      "checked": 114,
+      "considered": 452
     }
   },
   "signatures": {}

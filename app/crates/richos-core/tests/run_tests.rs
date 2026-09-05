@@ -1059,7 +1059,7 @@ fn recovery_checkpoints_charge_real_cycles_and_stop_at_resource_decision() {
     for _ in 0..15 { ctl.tick(&mut host).unwrap(); }
     assert_eq!(host.executions.len(),10,"no inference after the persisted limit");
     assert_eq!(host.verifications.len(),10);
-    assert!(ctl.snapshot().tasks[0].evidence.join("\n").contains("Authorize up to 10"));
+    assert!(ctl.snapshot().decision(0).unwrap().why_ceo.contains("up to 10 more attempts"));
     ctl.pause(false).unwrap();
     ctl.tick(&mut host).unwrap();
     assert_eq!(host.executions.len(),10,"resume is not a resource authorization");
@@ -1094,4 +1094,111 @@ fn a_crash_on_the_last_charged_cycle_cannot_start_an_eleventh() {
     let mut ctl=RunController::open(&tmp.journal()).unwrap();let mut host=Host::default();
     assert_eq!(ctl.tick(&mut host).unwrap(),RunState::NeedsDecision);
     assert!(host.executions.is_empty());assert!(host.verifications.is_empty());
+}
+
+// Seed durable pending questions without calling a model or spending money.
+fn pending_panel(tmp: &Temp, resource: bool, count: usize) -> RunController {
+    let mut plan = autonomous_plan(&tmp.0);
+    for n in 1..count { let mut t=plan.tasks[0].clone(); t.id=format!("other-{n}"); plan.tasks.push(t); }
+    let ctl=RunController::create(&tmp.journal(),plan).unwrap();
+    let mut snapshot=ctl.snapshot().clone(); drop(ctl);
+    for t in &mut snapshot.tasks {
+        t.state=TaskState::NeedsDecision; t.recovery_cycles=10;
+        t.evidence=vec![if resource { "CEO_DECISION:Recovery resource limit reached: 10 cycles without verified completion.".into() }
+            else { r#"Result: CEO_DECISION:{"kind":"decision","question":"Buy A or B?","why_ceo":"Spending authority","recommendation":"A","options":["A","B"]}"#.into() }];
+    }
+    std::fs::write(tmp.journal(),format!("{}\n",serde_json::to_string(&snapshot).unwrap())).unwrap();
+    RunController::open(&tmp.journal()).unwrap()
+}
+
+#[test]
+fn panel_continue_is_bounded_durable_idempotent_and_scoped_to_one_question() {
+    let tmp=Temp::new(); let mut ctl=pending_panel(&tmp,true,2);
+    let task=ctl.snapshot().plan.tasks[0].id.clone(); let d=ctl.snapshot().decision(0).unwrap();
+    assert!(d.resource); assert!(d.why_ceo.contains("charges apply"));
+    assert!(ctl.respond_to_decision("wrong-task",&d.id,DecisionAction::Continue).is_err());
+    assert!(ctl.respond_to_decision(&task,"stale",DecisionAction::Continue).is_err());
+    assert!(ctl.respond_to_decision(&task,&d.id,DecisionAction::Answer{text:"Maybe".into()}).is_err());
+    ctl.respond_to_decision(&task,&d.id,DecisionAction::Continue).unwrap();
+    assert_eq!(ctl.snapshot().tasks[0].recovery_cycles,0);
+    assert_eq!(ctl.snapshot().tasks[1].state,TaskState::NeedsDecision);
+    assert_eq!(ctl.snapshot().tasks[1].recovery_cycles,10);
+    let revision=ctl.snapshot().revision; drop(ctl);
+    let mut ctl=RunController::open(&tmp.journal()).unwrap();
+    ctl.respond_to_decision(&task,&d.id,DecisionAction::Continue).unwrap();
+    assert_eq!(ctl.snapshot().revision,revision);
+    assert_eq!(ctl.snapshot().decision_receipts.len(),1);
+    assert!(ctl.respond_to_decision(&task,&d.id,DecisionAction::End).is_err());
+    assert!(ctl.snapshot().decisions[0].contains("10 further attempts"));
+    let mut host=Host::default(); ctl.tick(&mut host).unwrap();
+    assert_eq!(host.executions.len(),1);
+}
+
+#[test]
+fn panel_business_answer_is_verbatim_and_generic_continue_cannot_authorize_it() {
+    let tmp=Temp::new(); let mut ctl=pending_panel(&tmp,false,1);
+    let task=ctl.snapshot().plan.tasks[0].id.clone(); let d=ctl.snapshot().decision(0).unwrap();
+    assert_eq!(d.options,vec!["A","B"]); assert!(!d.resource);
+    assert!(ctl.respond_to_decision(&task,&d.id,DecisionAction::Continue).is_err());
+    let answer="Buy B, with a maximum spend of $80.";
+    ctl.respond_to_decision(&task,&d.id,DecisionAction::Answer{text:answer.into()}).unwrap();
+    assert_eq!(ctl.snapshot().decisions,vec![answer]);
+    assert_eq!(ctl.snapshot().state(),RunState::Ready);
+}
+
+#[test]
+fn panel_scope_change_preserves_contract_and_rechecks_before_execution() {
+    let tmp=Temp::new(); let mut ctl=pending_panel(&tmp,true,1);
+    let task=ctl.snapshot().plan.tasks[0].id.clone(); let d=ctl.snapshot().decision(0).unwrap();
+    let old=ctl.snapshot().plan.clone(); let correction="Deliver only the summary. Do not send it.";
+    ctl.respond_to_decision(&task,&d.id,DecisionAction::ChangeScope{text:correction.into()}).unwrap();
+    assert!(ctl.snapshot().plan.goal.starts_with(&old.goal));
+    assert!(ctl.snapshot().plan.tasks[0].prompt.starts_with(&old.tasks[0].prompt));
+    let outcome:richos_core::autonomy::Outcome=serde_json::from_str(&ctl.snapshot().plan.tasks[0].checks[0].argv[1]).unwrap();
+    assert!(outcome.criteria.contains(correction));
+    assert_eq!(ctl.snapshot().plan_revision,1);
+    drop(ctl); let mut ctl=RunController::open(&tmp.journal()).unwrap();
+    let mut host=Host::default(); ctl.tick(&mut host).unwrap();
+    assert_eq!(host.executions.len(),0,"inspect existing effects before more work");
+    assert_eq!(host.verifications.len(),1);
+    assert_eq!(ctl.snapshot().state(),RunState::Completed);
+}
+
+#[test]
+fn panel_end_survives_restart_without_claiming_completion() {
+    let tmp=Temp::new(); let mut ctl=pending_panel(&tmp,true,1);
+    let task=ctl.snapshot().plan.tasks[0].id.clone(); let d=ctl.snapshot().decision(0).unwrap();
+    ctl.respond_to_decision(&task,&d.id,DecisionAction::End).unwrap();
+    drop(ctl); let mut ctl=RunController::open(&tmp.journal()).unwrap();
+    assert_eq!(ctl.snapshot().state(),RunState::Canceled);
+    let mut host=Host::default(); ctl.tick(&mut host).unwrap(); assert_eq!(host.executions.len(),0);
+}
+
+#[test]
+fn panel_decision_identity_changes_with_question_and_cannot_cross_assignments() {
+    let a=Temp::new();let b=Temp::new();let mut first=pending_panel(&a,false,2);let mut second=pending_panel(&b,false,1);
+    let id=first.snapshot().decision(0).unwrap().id; let task=first.snapshot().plan.tasks[0].id.clone();
+    assert!(first.answer_decision("ambiguous","A").is_err());
+    assert!(second.respond_to_decision(&task,&id,DecisionAction::Answer{text:"A".into()}).is_err());
+    let mut snapshot=first.snapshot().clone();drop(first);
+    snapshot.tasks[0].evidence.push("CEO_DECISION:Different question".into());
+    std::fs::write(a.journal(),format!("{}\n",serde_json::to_string(&snapshot).unwrap())).unwrap();
+    let mut first=RunController::open(&a.journal()).unwrap();
+    assert!(first.respond_to_decision(&task,&id,DecisionAction::Answer{text:"A".into()}).is_err());
+}
+
+#[test]
+fn answering_a_panel_decision_reconciles_interrupted_independent_work() {
+    let tmp=Temp::new();let ctl=pending_panel(&tmp,true,2);
+    let mut snapshot=ctl.snapshot().clone();drop(ctl);
+    snapshot.tasks[1].state=TaskState::NeedsAttention;snapshot.tasks[1].recovery_cycles=1;snapshot.tasks[1].review_pending=false;snapshot.paused=true;
+    std::fs::write(tmp.journal(),format!("{}\n",serde_json::to_string(&snapshot).unwrap())).unwrap();
+    let mut ctl=RunController::open(&tmp.journal()).unwrap();
+    let d=ctl.snapshot().decision(0).unwrap();let task=ctl.snapshot().plan.tasks[0].id.clone();
+    ctl.respond_to_decision(&task,&d.id,DecisionAction::Continue).unwrap();
+    assert_eq!(ctl.snapshot().tasks[1].state,TaskState::Pending);
+    assert!(ctl.snapshot().tasks[1].review_pending,"interrupted effects must be inspected first");
+    let mut host=Host::default();ctl.tick(&mut host).unwrap();ctl.tick(&mut host).unwrap();
+    assert_eq!(ctl.snapshot().state(),RunState::Completed);
+    assert_eq!(host.executions.len(),1,"the interrupted independent task was checked, not replayed");
 }

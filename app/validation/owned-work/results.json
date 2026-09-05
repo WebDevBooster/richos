@@ -120,5 +120,6 @@
     "P4 remains open; selector contrast measurements are not independent design approval.",
     "The live/reloaded proactive report styling seam remains separate.",
     "No main merge or deployment."
-  ]
+  ],
+  "superseded_by": "urban-results.json"
 }

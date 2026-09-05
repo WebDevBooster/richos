@@ -1,4 +1,13 @@
-# Sixth revision: validation after the fifth audit
+# Seventh revision: validation after Urban's review
+
+See [the review response](URBAN-REVIEW-RESPONSE.md) and
+[the current evidence](validation/owned-work/urban-results.json) for the panel and
+backend decision changes. Current core inventory is 742 tests: 740 direct passes,
+two child-only fixtures and five additional passing doctests. The controller suite
+has 42 tests. The prior revisions below are historical evidence, not current UI
+sign-off. P4 remains open for independent re-review.
+
+## Sixth revision: validation after the fifth audit
 
 R5 showed that the earlier single successful Haiku desktop trial was insufficient:
 two of four reviewer trials halted on quote provenance and another needed a false
