@@ -1,0 +1,1025 @@
+[
+ {
+  "hook": "guard-worktree-isolation.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 275,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 129,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 129,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 129,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-model-ceiling.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 555,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 125,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 125,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 125,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "verify-agent-prompt.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 219,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 131,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 131,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 131,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-main-checkout-writes.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 184,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 130,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 130,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 130,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "scan-secrets.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 208,
+    "judged": true,
+    "timeout": false,
+    "last": "+ rm -f /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/scan-secrets.XXXXXX.py.KaQ5tI1ZIC"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 134,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 134,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 134,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-dialect.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 425,
+    "judged": true,
+    "timeout": false,
+    "last": "+ rm -f /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/guard-dialect.XXXXXX.py.cpCk32be2g"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 132,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 132,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 132,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-interactive-prompt.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 110,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 98,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 98,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 98,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-bash-main-writes.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 135,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 127,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 127,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 127,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-worktree-removal.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 127,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 99,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 99,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 99,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-inflight-notify.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 119,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 119,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 119,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 119,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-ceo-ask-first.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 303,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 165,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 165,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 165,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-workflow-ban.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 148,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 2,
+    "steps": 149,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "truncated": {
+    "rc": 2,
+    "steps": 148,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "nonjson": {
+    "rc": 2,
+    "steps": 149,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   }
+  }
+ },
+ {
+  "hook": "guard-resume-isolation.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 252,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 2,
+    "steps": 154,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "truncated": {
+    "rc": 2,
+    "steps": 154,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "nonjson": {
+    "rc": 2,
+    "steps": 154,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   }
+  }
+ },
+ {
+  "hook": "guard-publication-writes.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 1379,
+    "judged": true,
+    "timeout": false,
+    "last": "+ rm -f /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/pub-boundary-job.XXXXXX.json.gbcygYZnlK"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 154,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 156,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 156,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-named-persons-writes.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 158,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 82,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 82,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 82,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-publication-commits.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 1356,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 167,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 169,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 169,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-named-persons-commands.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 156,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 89,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 89,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 89,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-ceo-todos-commits.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 197,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 122,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 122,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 122,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-completeness-commits.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 227,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 54,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 130,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 54,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-row-currency-commits.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 1978,
+    "judged": true,
+    "timeout": false,
+    "last": "+ rm -rf /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/row-currency.XXXXXX.rut0Oknqdj"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 129,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 129,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 129,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-vendoring-commits.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 3229,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 162,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 164,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 164,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-sealed-worktree.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 181,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 2,
+    "steps": 43,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "truncated": {
+    "rc": 2,
+    "steps": 68,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "nonjson": {
+    "rc": 2,
+    "steps": 43,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   }
+  }
+ },
+ {
+  "hook": "guard-definition-drift.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 183,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 134,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 133,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 133,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "reader-teammate-hint.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 136,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 126,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 126,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 126,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-ceo-ruled-ask.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 253,
+    "judged": true,
+    "timeout": false,
+    "last": "+ rm -f /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ceo-ruled-q.XXXXXX.oHlI0LIagJ /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ceo-ruled-out.XXXXXX.6UY"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 215,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 215,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 215,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-stated-actions.sh",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "steps": 194,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 2"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 181,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 200,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 193,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-unresolved-claims.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 183,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 170,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 189,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 182,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-idle-land.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 194,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 181,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 200,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 193,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "guard-agent-state-claims.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 201,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 184,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 207,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 196,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "notice-unasked-deferral.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 205,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 170,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 202,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 182,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ },
+ {
+  "hook": "turn-manifest.sh",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "steps": 185,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "empty": {
+    "rc": 0,
+    "steps": 171,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "truncated": {
+    "rc": 0,
+    "steps": 190,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   },
+   "nonjson": {
+    "rc": 0,
+    "steps": 183,
+    "judged": true,
+    "timeout": false,
+    "last": "+ exit 0"
+   }
+  }
+ }
+]
