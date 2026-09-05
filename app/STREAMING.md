@@ -658,7 +658,7 @@ older revisions. `get_run` restores the durable view and projects accepted
 requests still being prepared. Model turn events never mark the job complete.
 
 Normal typed and spoken turns retain `Source::Text` and `Source::Jam`. The
-private handoff on Rich's lease emits no conversation JSON. Desktop workers
+detached tool-free registration emits no conversation JSON and never leases Rich's session. Desktop workers
 execute independently of the conversation lease. Rich reports their results
 through ordinary turn-start, chunk and completion events, so the existing speech
 listener receives the report. Background reports use `Source::Proactive`; their

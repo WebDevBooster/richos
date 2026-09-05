@@ -12,14 +12,15 @@ use tauri::{AppHandle, Emitter, State};
 
 #[derive(Default)]
 pub struct ManagedRuns {
-    pub(crate) active: Mutex<Option<(String, Arc<AtomicBool>)>>,
+    selected: Mutex<std::collections::HashMap<String, String>>,
+    pub(crate) active: Mutex<Option<(String, PathBuf, Arc<AtomicBool>)>>,
 }
 
 impl ManagedRuns {
-    pub fn pause_active(&self, data_dir: &std::path::Path) -> Result<(), String> {
-        if let Some((id, flag)) = self.active.lock().unwrap().as_ref() {
-            let f = std::fs::File::create(data_dir.join("runs").join(format!("{id}.pause")))
-                .map_err(|e| e.to_string())?;
+    pub fn pause_active(&self, _data_dir: &std::path::Path) -> Result<(), String> {
+        if let Some((_, path, flag)) = self.active.lock().unwrap().as_ref() {
+            let f =
+                std::fs::File::create(path.with_extension("pause")).map_err(|e| e.to_string())?;
             f.sync_all().map_err(|e| e.to_string())?;
             flag.store(true, Ordering::SeqCst);
         }
@@ -86,7 +87,7 @@ pub(crate) fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
     }
 }
 
-fn path(state: &AppState, thread: &str) -> Result<PathBuf, String> {
+pub(crate) fn journals(state: &AppState, thread: &str) -> Result<Vec<PathBuf>, String> {
     if thread.is_empty()
         || !thread
             .chars()
@@ -94,7 +95,103 @@ fn path(state: &AppState, thread: &str) -> Result<PathBuf, String> {
     {
         return Err("Invalid task identity.".into());
     }
-    Ok(state.data_dir.join("runs").join(format!("{thread}.jsonl")))
+    let mut paths = vec![];
+    for entry in std::fs::read_dir(state.data_dir.join("runs")).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name == format!("{thread}.jsonl")
+            || (name
+                .strip_prefix(&format!("{thread}--"))
+                .and_then(|n| n.strip_suffix(".jsonl"))
+                .map(|id| id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+                .unwrap_or(false))
+        {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn path(state: &AppState, thread: &str) -> Result<PathBuf, String> {
+    let selected = state
+        .managed_runs
+        .selected
+        .lock()
+        .unwrap()
+        .get(thread)
+        .cloned();
+    let paths = journals(state, thread)?;
+    if paths.len() == 1 {
+        return Ok(paths[0].clone());
+    }
+    let mut choices = vec![];
+    for path in paths {
+        let snapshot = read_snapshot(&path).map_err(|e| e.to_string())?;
+        if selected.as_ref() == Some(&snapshot.id) {
+            return Ok(path);
+        }
+        choices.push((snapshot.created_at, path));
+    }
+    choices.sort();
+    Ok(choices
+        .pop()
+        .map(|(_, p)| p)
+        .unwrap_or_else(|| state.data_dir.join("runs").join(format!("{thread}.jsonl"))))
+}
+
+fn command_path(state: &AppState, thread: &str, run: Option<&str>) -> Result<PathBuf, String> {
+    if let Some(id) = run {
+        for p in journals(state, thread)? {
+            if read_snapshot(&p).map_err(|e| e.to_string())?.id == id {
+                return Ok(p);
+            }
+        }
+        if crate::owned_work::pending(state, thread)
+            .map(|p| p.0 == id)
+            .unwrap_or(false)
+        {
+            return Ok(state
+                .data_dir
+                .join("runs")
+                .join(format!("{thread}--{id}.jsonl")));
+        }
+        return Err("This assignment is no longer available. Refresh the work plan.".into());
+    }
+    path(state, thread)
+}
+
+#[tauri::command(async)]
+pub fn list_runs(state: State<AppState>, thread_id: String) -> Result<Vec<RunView>, String> {
+    journals(&state, &thread_id)?
+        .iter()
+        .map(|p| {
+            read_snapshot(p)
+                .map(|s| view(&thread_id, &s))
+                .map_err(|e| e.to_string())
+        })
+        .collect()
+}
+
+#[tauri::command(async)]
+pub fn select_run(
+    state: State<AppState>,
+    thread_id: String,
+    run_id: String,
+) -> Result<RunView, String> {
+    for p in journals(&state, &thread_id)? {
+        let s = read_snapshot(&p).map_err(|e| e.to_string())?;
+        if s.id == run_id {
+            state
+                .managed_runs
+                .selected
+                .lock()
+                .unwrap()
+                .insert(thread_id.clone(), run_id);
+            return Ok(view(&thread_id, &s));
+        }
+    }
+    Err("The selected assignment is unavailable.".into())
 }
 
 fn pending_view(state: &AppState, thread_id: &str) -> Option<RunView> {
@@ -169,7 +266,7 @@ pub fn prepare_run(
         let previous = RunController::open(&path).map_err(|e| e.to_string())?;
         if !matches!(
             previous.snapshot().state(),
-            RunState::Completed | RunState::Cancelled
+            RunState::Completed | RunState::Canceled
         ) {
             return Err("This task already has unfinished work. Resume its run first.".into());
         }
@@ -202,7 +299,7 @@ pub fn get_run(state: State<AppState>, thread_id: String) -> Result<Option<RunVi
         }
         if matches!(
             ctl.snapshot().state(),
-            RunState::Completed | RunState::Cancelled
+            RunState::Completed | RunState::Canceled
         ) {
             if let Some(pending) = pending_view(&state, &thread_id) {
                 return Ok(Some(pending));
@@ -211,7 +308,7 @@ pub fn get_run(state: State<AppState>, thread_id: String) -> Result<Option<RunVi
         return Ok(Some(view(&thread_id, ctl.snapshot())));
     }
     let snapshot = read_snapshot(&path).map_err(|e| e.to_string())?;
-    if matches!(snapshot.state(), RunState::Completed | RunState::Cancelled) {
+    if matches!(snapshot.state(), RunState::Completed | RunState::Canceled) {
         if let Some(pending) = pending_view(&state, &thread_id) {
             return Ok(Some(pending));
         }
@@ -224,6 +321,7 @@ pub fn drive_run(
     app: AppHandle,
     state: State<AppState>,
     thread_id: String,
+    run_id: Option<String>,
 ) -> Result<RunView, String> {
     let pause = Arc::new(AtomicBool::new(false));
     {
@@ -231,14 +329,19 @@ pub fn drive_run(
         if active.is_some() {
             return Err("A run is already active.".into());
         }
-        *active = Some((thread_id.clone(), pause.clone()));
+        *active = Some((
+            thread_id.clone(),
+            command_path(&state, &thread_id, run_id.as_deref())?,
+            pause.clone(),
+        ));
     }
     let result = (|| {
-        let path = path(&state, &thread_id)?;
+        let path = command_path(&state, &thread_id, run_id.as_deref())?;
         if !path.exists() {
             if let Some(mut pending) = pending_view(&state, &thread_id) {
                 if path.with_extension("pause").exists() {
-                    std::fs::remove_file(path.with_extension("pause")).map_err(|e| e.to_string())?;
+                    std::fs::remove_file(path.with_extension("pause"))
+                        .map_err(|e| e.to_string())?;
                 }
                 pending.state = RunState::Ready;
                 return Ok(pending);
@@ -257,6 +360,9 @@ pub fn drive_run(
             std::fs::remove_file(path.with_extension("pause")).map_err(|e| e.to_string())?;
         }
         ctl.pause(false).map_err(|e| e.to_string())?;
+        if ctl.snapshot().plan.autonomous() {
+            return Ok(view(&thread_id, ctl.snapshot()));
+        }
         while ctl.snapshot().state() == RunState::Ready {
             let mut spine = state.spine.lock().unwrap();
             ctl.snapshot().plan.validate().map_err(|e| e.to_string())?;
@@ -277,6 +383,9 @@ pub fn drive_run(
             ctl.tick(&mut host).map_err(|e| e.to_string())?;
             drop(host);
             drop(spine);
+            if path.with_extension("cancel").exists() {
+                ctl.cancel().map_err(|e| e.to_string())?;
+            }
         }
         Ok(view(&thread_id, ctl.snapshot()))
     })();
@@ -288,6 +397,7 @@ pub fn drive_run(
 pub fn retry_run_task(
     state: State<AppState>,
     thread_id: String,
+    run_id: Option<String>,
     task_id: String,
 ) -> Result<RunView, String> {
     let active = state.managed_runs.active.lock().unwrap();
@@ -298,26 +408,39 @@ pub fn retry_run_task(
     if spine.active_binding().map(|b| b.thread_id()) != Some(thread_id.as_str()) {
         return Err("Open this task before retrying its work.".into());
     }
-    let mut ctl = RunController::open(&path(&state, &thread_id)?).map_err(|e| e.to_string())?;
+    let mut ctl = RunController::open(&command_path(&state, &thread_id, run_id.as_deref())?)
+        .map_err(|e| e.to_string())?;
     ctl.retry(&task_id).map_err(|e| e.to_string())?;
     Ok(view(&thread_id, ctl.snapshot()))
 }
 
 #[tauri::command(async)]
-pub fn end_run(state: State<AppState>, thread_id: String) -> Result<RunView, String> {
+pub fn end_run(
+    state: State<AppState>,
+    thread_id: String,
+    run_id: Option<String>,
+) -> Result<RunView, String> {
     let active = state.managed_runs.active.lock().unwrap();
-    if active.is_some() {
-        return Err("Pause the run before ending it.".into());
+    let journal = command_path(&state, &thread_id, run_id.as_deref())?;
+    if let Some((_, active_path, flag)) = active.as_ref() {
+        if active_path == &journal {
+            let file = std::fs::File::create(journal.with_extension("cancel"))
+                .map_err(|e| e.to_string())?;
+            file.sync_all().map_err(|e| e.to_string())?;
+            flag.store(true, Ordering::SeqCst);
+            let mut snapshot = read_snapshot(&journal).map_err(|e| e.to_string())?;
+            snapshot.canceled = true;
+            return Ok(view(&thread_id, &snapshot));
+        }
     }
     let spine = state.spine.lock().unwrap();
     if spine.active_binding().map(|b| b.thread_id()) != Some(thread_id.as_str()) {
         return Err("The selected task changed.".into());
     }
-    let journal = path(&state, &thread_id)?;
     if !journal.exists() {
         let mut pending = pending_view(&state, &thread_id).ok_or("There is no work to end.")?;
         crate::owned_work::cancel_pending(&state, &thread_id)?;
-        pending.state = RunState::Cancelled;
+        pending.state = RunState::Canceled;
         pending.preparing = false;
         return Ok(pending);
     }
@@ -330,21 +453,27 @@ pub fn end_run(state: State<AppState>, thread_id: String) -> Result<RunView, Str
 }
 
 #[tauri::command(async)]
-pub fn pause_run(state: State<AppState>, thread_id: String) -> Result<(), String> {
+pub fn pause_run(
+    state: State<AppState>,
+    thread_id: String,
+    run_id: Option<String>,
+) -> Result<(), String> {
     let active = state.managed_runs.active.lock().unwrap();
-    if let Some((id, flag)) = active.as_ref() {
-        if id != &thread_id {
+    if let Some((id, active_path, flag)) = active.as_ref() {
+        if id != &thread_id || *active_path != command_path(&state, &thread_id, run_id.as_deref())?
+        {
             return Err("A different task is running.".into());
         }
-        // Persist intent outside the busy spine lock before cancelling.
-        let pause_path = path(&state, &thread_id)?.with_extension("pause");
+        // Persist intent outside the busy spine lock before canceling.
+        let pause_path =
+            command_path(&state, &thread_id, run_id.as_deref())?.with_extension("pause");
         let f = std::fs::File::create(pause_path).map_err(|e| e.to_string())?;
         f.sync_all().map_err(|e| e.to_string())?;
         flag.store(true, Ordering::SeqCst);
         return Ok(());
     }
     drop(active);
-    let journal = path(&state, &thread_id)?;
+    let journal = command_path(&state, &thread_id, run_id.as_deref())?;
     if !journal.exists() && crate::owned_work::pending(&state, &thread_id).is_some() {
         let f =
             std::fs::File::create(journal.with_extension("pause")).map_err(|e| e.to_string())?;

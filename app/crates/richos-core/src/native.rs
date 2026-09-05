@@ -116,15 +116,15 @@ pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// The `stop_reason` `prompt` returns when the agent acknowledged the cancel.
 ///
 /// **This is OURS on this wire, and that is a real change from the file this replaces.**
-/// ACP answered a cancelled prompt with `stopReason: "cancelled"`. The native binary answers
+/// ACP answered a canceled prompt with `stopReason: "canceled"`. The native binary answers
 /// with `stop_reason: null`, `subtype: "error_during_execution"`, `is_error: true` and
 /// `terminal_reason: "aborted_streaming"` (`raw/run9-rust-driven.jsonl:65`) — the fact
 /// survives, it just lives on a different field. [`stop_reason_of`] maps it back, so
 /// everything downstream (`spine.rs`, `steering.rs`, the ledger) keeps the one string it
 /// already reasons about.
-pub const STOP_REASON_CANCELLED: &str = "cancelled";
+pub const STOP_REASON_CANCELLED: &str = "canceled";
 
-/// The stop reason `prompt` returns when the agent did NOT answer the cancelled turn within
+/// The stop reason `prompt` returns when the agent did NOT answer the canceled turn within
 /// [`CANCEL_GRACE_MS`] of being told to.
 ///
 /// A distinct string because it is a distinct fact: the CEO's stop still stands and the
@@ -135,7 +135,7 @@ pub const STOP_REASON_CANCEL_UNACKNOWLEDGED: &str = "cancel_unacknowledged";
 /// The `terminal_reason` the binary sets on a turn the client interrupted.
 pub const TERMINAL_REASON_ABORTED: &str = "aborted_streaming";
 
-/// How long `prompt` waits for the agent to answer the cancelled turn.
+/// How long `prompt` waits for the agent to answer the canceled turn.
 ///
 /// **`acp.rs:49` asked whoever ran the first live stop to replace this bound with a measured
 /// figure and to say so. That measurement now exists, and the bound is kept anyway.**
@@ -283,7 +283,7 @@ pub fn decide_permission(request: &Value) -> PermissionDecision {
 /// Map the binary's terminal `result` frame onto the one stop-reason string the rest of the
 /// app already reasons about.
 ///
-/// **Spike caveat C1, resolved here and nowhere else.** ACP said `stopReason: "cancelled"`.
+/// **Spike caveat C1, resolved here and nowhere else.** ACP said `stopReason: "canceled"`.
 /// This wire says `stop_reason: null` + `subtype: "error_during_execution"` +
 /// `terminal_reason: "aborted_streaming"`, and ONLY the last of those separates a cancel
 /// from a genuine error — an `error_during_execution` with any other `terminal_reason` is a
@@ -681,10 +681,10 @@ impl NativeClient {
     }
 
     fn spawn_with_policy(bin: &Path, cwd: &Path, managed: bool) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, managed, None)
+        Self::spawn_with_tools(bin, cwd, managed, None, None)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>) -> Result<Self, NativeError> {
         // Refuse BEFORE spawning, so the error names WHICH path is wrong instead of an
         // errno that stands for two different faults. See `preflight`.
         preflight(bin, cwd)?;
@@ -692,8 +692,12 @@ impl NativeClient {
 
         let session_id = uuid::Uuid::new_v4().to_string();
         let mut args = if managed { managed_child_args(&session_id) } else { child_args(&session_id) };
+        if let Some(model) = registrar_model {
+            args = child_args(&session_id);
+            args.extend(["--model".into(), model.into()]);
+        }
         if let Some(schema) = schema {
-            args.extend(["--tools".into(), "Read,Glob,Grep".into(),
+            args.extend(["--tools".into(), if registrar_model.is_some() { "".into() } else { "Read,Glob,Grep".into() },
                 "--strict-mcp-config".into(), "--mcp-config".into(), "{\"mcpServers\":{}}".into(),
                 "--json-schema".into(), schema.to_string()]);
         }
@@ -1353,7 +1357,7 @@ impl TurnCancel for NativeCancelHandle {
 impl Drop for NativeClient {
     fn drop(&mut self) {
         // Managed leases own their ordinary descendants, including a shell
-        // still running after a cancelled turn. Never target the app's group.
+        // still running after a canceled turn. Never target the app's group.
         #[cfg(unix)]
         if self.managed_workspace.is_some() {
             let _ = Command::new("/bin/kill").args(["-KILL", "--", &format!("-{}", self.child.id())]).stdout(Stdio::null()).stderr(Stdio::null()).status();
@@ -1421,7 +1425,15 @@ impl NativeCognition {
     }
 
     pub fn start_inspector_with_schema(bin: &Path, workspace: &Path, schema: serde_json::Value) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema))?;
+        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema), None)?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id })
+    }
+
+    /// A detached transcriber has no tools, plugins or workspace access. Managed
+    /// callbacks still deny unexpected permission requests and drop kills its group.
+    pub fn start_registrar(bin: &Path, neutral_cwd: &Path, schema: Value, model: &str) -> Result<Self, NativeError> {
+        let client = NativeClient::spawn_with_tools(bin, neutral_cwd, true, Some(schema), Some(model))?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id })
     }

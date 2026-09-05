@@ -60,6 +60,25 @@
 "use strict";
 
 module.exports = [
+  {s: "End active assignment", c: "NOT-RENDERED", why: "Title of the debug-only isolated desktop test for End during an active worker."},
+  {"s": "Busy registration blocked Rich", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Earlier paused work", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "End selected the wrong assignment", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Failure test thread missing", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Handle malformed: deliver the document.", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Handle slow registration: produce deliverable.txt containing Finished.", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Independent work changed the old assignment", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Invalid registration launched a worker", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "New assignment waited behind paused work", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Question inconsistent: what is the plan?", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Registrar never started", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Registration failures did not stop and report", "c": "NOT-RENDERED", "why": "Debug-only integration test input or assertion gated by explicit selftest and isolated data-directory settings."},
+  {"s": "Owned inbox index: {e}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic, never emitted to the webview."},
+  {"s": "Scope repair missing", "c": "NOT-RENDERED", "why": "Internal failed scope-repair invariant; logged by the inbox worker. The saved request retains its earlier failure for the bounded failure report."},
+  {"s": "The target assignment is unavailable", "c": "NOT-RENDERED", "why": "Saved registration application failure, interpreted by Rich in a bounded failure notice rather than emitted as this literal."},
+  {"s": "The selected assignment is unavailable.", "c": "ACTIONABLE", "control": "#managed-run button[data-run-refresh]", "why": "A stale assignment error adds Refresh work plans to reload the authoritative assignment list and current plan."},
+  {"s": "This assignment is no longer available. Refresh the work plan.", "c": "ACTIONABLE", "control": "#managed-run button[data-run-refresh]", "why": "A stale assignment error adds Refresh work plans to reload the authoritative assignment list and current plan."},
+
   { s: "Owned execution recovery for {thread}: {error}", c: "NOT-RENDERED", why: "Per-job scheduler stderr diagnostic. Other jobs continue; this literal is not sent to the webview." },
   {"s": "Handle this: create hello.txt containing exactly Hello Rich with no trailing newline. Do not create other files.", "c": "NOT-RENDERED", "why": "Debug-only installed-native desktop selftest input or assertion, gated by explicit selftest and isolated data-directory environment variables."},
   {"s": "Native handoff did not complete before the test deadline", "c": "NOT-RENDERED", "why": "Debug-only installed-native desktop selftest input or assertion, gated by explicit selftest and isolated data-directory environment variables."},
@@ -92,7 +111,6 @@ module.exports = [
   { s: "Pause the current run before preparing another.", c: "ACTIONABLE", control: "#stop", why: "The global Stop control pauses the active run before another work plan can be prepared." },
   { s: "Pause the run before retrying a task.", c: "UNREACHABLE", why: "Retry buttons are disabled while the controller invocation remains active." },
   { s: "Pause the run before archiving its journal.", c: "ACTIONABLE", control: "#stop", why: "The global Stop control pauses the active run before journal recovery." },
-  { s: "Pause the run before ending it.", c: "UNREACHABLE", why: "End run is disabled while drive_run is active; Pause remains available during execution." },
   { s: "The selected task changed.", c: "UNREACHABLE", why: "The run panel discards asynchronous responses whose navigation generation has changed." },
   { s: "The selected task changed. Open it again.", c: "UNREACHABLE", why: "A preparation response for a task the user left is discarded by the panel's navigation fence." },
   { s: "This task already has unfinished work. Resume its run first.", c: "ACTIONABLE", control: "#managed-run button", why: "A concurrent preparation cannot replace unfinished work; the already-loaded plan offers Start / continue." },

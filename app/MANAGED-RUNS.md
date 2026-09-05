@@ -11,7 +11,9 @@ completion. Operational failures retain ownership and retry automatically.
 ## What happens
 
 The conversation is persisted before inference. After Rich answers, a private
-registration turn on his same primed session records the assignment or correction.
+tool-free registration on a separate small-model session records the assignment or correction.
+It never borrows Rich's conversation lease or blocks it. The host preserves the
+full request and reply as the work contract and checks registration consistency.
 The host saves it before execution. Private JSON is never shown or spoken.
 New assignments first check existing effects, then execute only if more work is
 needed. A separate read-only inspector checks the outcome after each attempt.
@@ -37,8 +39,15 @@ can still be inspected and ended; corrupt journals can be archived intact.
 A malformed or unavailable review retries the reviewer, not the executor. After
 five unsuccessful execution or review cycles, Rich reports the situation and
 his recovery approach. Recovery at that checkpoint waits one hour instead of
-continually opening workers every few minutes. Work remains owned. This is not
-a finite spending limit and does not guarantee that recovery will succeed.
+continually opening workers every few minutes. At ten cycles the task needs an
+explicit decision about authorizing more compute, changing scope or ending it.
+This persisted limit includes review-only failures and survives restart. It is a
+cycle budget, not a dollar cap. Registration stops and reports after three failed
+attempts. Work remains saved and unfinished; neither limit claims completion.
+
+Unrelated assignments in one conversation have separate journals and can proceed
+while another is paused or awaiting a decision. Select an assignment in the Work
+plan panel to inspect or control it.
 
 The app must be open to run work. Closing it preserves work for the next launch;
 no background OS service is installed. Workers are serial. Existing interactive

@@ -1529,6 +1529,8 @@ fn main() {
             send_message,
             managed_runs::prepare_run,
             managed_runs::get_run,
+            managed_runs::list_runs,
+            managed_runs::select_run,
             managed_runs::drive_run,
             managed_runs::pause_run,
             managed_runs::retry_run_task,

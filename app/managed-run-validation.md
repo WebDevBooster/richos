@@ -1,4 +1,74 @@
-# Fourth revision: measured validation
+# Fifth revision: measured validation
+
+Measured on 2026-09-05 in the isolated `codex/durable-orchestration` worktree.
+No production data or main checkout was changed. The review document is
+[ORCHESTRATION-REVIEW.md](ORCHESTRATION-REVIEW.md).
+
+| Check | Witnessed result |
+| --- | --- |
+| Full core suite | 732 direct non-doc tests and five doctests passed, zero failures. Two child-only fixtures are ignored at top level. Source inventory: 734 tests. |
+| Focused regressions | 36 controller/Spine tests and four registrar tests passed. |
+| Desktop build | Debug build finished successfully with the final Rust changes. |
+| Controlled desktop | Nine phases passed: enqueue, resume, recover-notice, correct-live, slow-registration, independent-work, registration-failures, registration-failures-restart and end-live. |
+| Registration permissions | Fixture process arguments prove `haiku`, no tools, empty settings sources, strict empty MCP configuration and a neutral working directory. Acting-worker permission tests still pass. |
+| Busy registration | An eight-second registrar did not prevent Rich from answering a second message within the three-second assertion. |
+| Failed registration | Two bad inputs each made exactly three registrar calls, created no jobs and produced one failure notice each. Restart added no calls or notices. |
+| Independent work | A second job completed while an earlier job in the same thread stayed paused. End targeted the selected older job. |
+| Active End | A running worker received persisted cancellation directly from End, without a prior Pause click. The final journal state was `canceled`. |
+| Resource checkpoint | Tests drive the real controller through the five-cycle delay and ten-cycle decision, including restart and review-only failures. An eleventh call cannot start without a recorded answer; Resume alone cannot authorize it. |
+| Mutation harness | 14/14 deliberate behavioral regressions killed at their named assertions. Six additions cover the resource ceiling, checkpoint invocation, review-only behavior, registration consistency, verbatim constraints and redundant priming. Compiler errors do not count as kills. |
+| Panel browser checks | 16 passed, including assignment selection, control identity and the selector's computed 16px type size. |
+| Affordance checks | Passed with 287/287 states classified. New stale-assignment errors have a Refresh work plans control. No enforcement rule was weakened. |
+| Documentation checks | Six passed, including the source-derived 734+5 count. |
+| Installed Claude desktop | Passed. One CEO message, one worker attempt and exact ten-byte `Hello Rich` file with no newline. Rich delivered the acknowledgement and verified completion through the ordinary conversation. |
+| Conversation lease in that native trial | One initial prime, one answer and one completion report. No registration or extra priming turns on Rich's lease. |
+| Conversation compatibility | The unchanged main checkout's reader rendered a controlled new ledger with nine CEO messages exactly once and visible completion. |
+
+The full core run includes the persisted creation timestamp used to select the
+newest assignment consistently. The final desktop harness includes the later
+request-budget accounting and direct-End changes. The mutation run preceded those
+application edits and the creation-timestamp addition; its six new mutants test
+core behavior, not the entire reconciler. The native trial preceded the final
+metadata, End-control and UI edits; it exercised the detached registrar and the
+same native permission and conversation paths.
+
+Initial validation caught a missing snapshot initializer, stale state inventory,
+a missing README test-file entry and WebKit forcing a native selector to 13px.
+Those failed invocations are not counted as successes. Each relevant check was
+rerun after correction. The selector now uses an explicit styled appearance and
+its computed font size is asserted in WebKit.
+
+The full UI suite and voice hardware were not rerun. The focused UI checks use
+WebKit and the core test asserts speech chunks, not microphone or speaker behavior.
+No live-provider correction, production-scale load test or independent P4 design
+approval is claimed. The live/reloaded proactive report styling seam remains
+listed in the review document. No merge into main or deployment is included.
+
+## Reproduce this revision
+
+```sh
+cargo test --manifest-path app/Cargo.toml -p richos-core
+cargo build --manifest-path app/src-tauri/Cargo.toml
+python3 app/scripts/test-owned-work-desktop.py
+python3 app/scripts/test-owned-work-desktop.py --native
+python3 app/scripts/test-managed-run-mutations.py /path/to/cargo
+python3 app/scripts/check-owned-ledger-compat.py /path/to/older/core /path/to/ledger.jsonl /path/to/cargo
+node app/ui/tests/runs.js
+node app/ui/tests/affordances.js
+node app/ui/tests/docs-claims.js
+```
+
+Browser tests need Playwright, optionally supplied by `RICHOS_PLAYWRIGHT`.
+The native desktop test needs an installed, signed-in Claude runtime. Each
+desktop invocation creates a separate temporary company and app data directory.
+Portable results are in `validation/owned-work/results.json`.
+
+---
+
+# Historical fourth-revision evidence
+
+The following is retained as earlier evidence, not the current result inventory.
+
 
 Measured on 2026-09-05 in the isolated `codex/durable-orchestration` worktree.
 Commands run from the repository root. Cargo resolves to the real executable

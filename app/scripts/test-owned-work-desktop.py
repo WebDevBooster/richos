@@ -28,7 +28,7 @@ for p in (data, workspace, other):
 ]}))
 fake = root / "native-fixture"
 fake.write_text("#!/usr/bin/env python3\n" + r'''
-import json, sys, time
+import json, sys, time, os
 from pathlib import Path
 for line in sys.stdin:
     msg = json.loads(line)
@@ -38,28 +38,29 @@ for line in sys.stdin:
         content = msg.get('message', {}).get('content', '')
         text = content if isinstance(content, str) else ''.join(item.get('text', '') for item in content if item.get('type') == 'text')
         structured = None
-        if text.startswith('Register the assignment you just discussed.'):
-            ceo = text.split('CEO message: ',1)[1].split('\nYour reply:',1)[0]
-            if ceo.startswith('Revise the assignment:'):
-                structured = {'kind':'amend','goal':'Write revised.txt instead of original.txt','tasks':[{'id':'revise','description':'Write revised.txt containing Revised. Do not produce original.txt.','depends_on':[],'criteria':'revised.txt contains Revised. and original.txt does not exist'}]}
-            elif ceo.startswith('Handle correction test:'):
-                structured = {'kind':'work','goal':'Write original.txt','tasks':[{'id':'original','description':'Write original.txt','depends_on':[],'criteria':'original.txt exists'}]}
-            elif ceo.startswith('Handle this:'):
-                structured = {'kind':'work','goal':'Produce the finished deliverable','tasks':[{'id':'deliver','description':'Write deliverable.txt containing Finished.','depends_on':[],'criteria':'deliverable.txt contains exactly Finished.'}]}
-            else: structured = {'kind':'none'}
-            print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':json.dumps(structured)}]}}), flush=True)
-            structured = None
-        elif text.startswith(('Handle this:', 'Handle correction test:', 'Revise the assignment:', 'How is work going?')):
-            print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':'I will handle the complete deliverable.'}]}}), flush=True)
+        if text.startswith("Transcribe Rich's completed conversation."):
+            data = json.loads(text.split('DATA:\n',1)[1]); ceo = data['ceo_message']; reply = data['rich_reply']
+            base = Path(os.environ['RICHOS_FIXTURE_ROOT'])
+            with (base / 'registration-calls.jsonl').open('a') as log: log.write(json.dumps({'ceo':ceo,'args':sys.argv[1:],'cwd':str(Path.cwd())})+'\n')
+            intent = 'amend' if ceo.startswith('Revise the assignment:') else 'work' if ceo.startswith('Handle') else 'discussion'
+            target = data['assignments'][0]['id'] if intent == 'amend' else None
+            if ceo.startswith('Handle slow registration:'):
+                (base / 'registration-started').write_text('started'); time.sleep(8)
+            structured = {'intent':intent,'rich_committed':intent!='discussion','request_quote':ceo,'reply_quote':reply,'scope_complete':True,'target_run_id':target}
+            if ceo.startswith('Handle malformed:'): structured = None
+            if ceo.startswith('Question inconsistent:'): structured.update(intent='work',rich_committed=False)
+        elif text.startswith(('Handle', 'Revise the assignment:', 'How is work going?', 'Question inconsistent:')):
+            reply = 'There is no action requested.' if text.startswith(('How','Question')) else 'I will deliver the full requested result: '+text
+            print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':reply}]}}), flush=True)
         elif text.startswith('Report this durable work update'):
             print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':'Finished and checked: the deliverable is ready.'}]}}), flush=True)
         elif text.startswith('Independently audit'):
             exists = (Path('revised.txt').exists() and not Path('original.txt').exists()) if 'revised.txt' in text else Path('original.txt').exists() if 'original.txt' in text else (Path('deliverable.txt').exists() and Path('deliverable.txt').read_text() == 'Finished.\n')
             structured = {'kind':'complete','evidence':'I read deliverable.txt and matched its exact content.'} if exists else {'kind':'incomplete','remaining':'The actual deliverable is absent. Write it before finishing.'}
         elif text.startswith('Work on this task within the authorized run.'):
-            if 'Write revised.txt instead of original.txt' in text:
+            if 'Revise the assignment:' in text:
                 Path('revised.txt').write_text('Revised.')
-            elif 'Goal: Write original.txt' in text or 'Intended outcome: Write original.txt' in text:
+            elif 'Handle correction test:' in text:
                 Path('correction-worker-started').write_text('started')
                 time.sleep(8)
             counter = Path('attempts')
@@ -73,9 +74,9 @@ for line in sys.stdin:
 ''')
 fake.chmod(0o700)
 env = dict(os.environ, RICHOS_TEST_DATA_DIR=str(data), RICHOS_ENTITY="fixture",
-           RICHOS_ENGINE_DIR=str(workspace), RICHOS_CLAUDE_BIN=str(fake))
+           RICHOS_ENGINE_DIR=str(workspace), RICHOS_CLAUDE_BIN=str(fake), RICHOS_FIXTURE_ROOT=str(root))
 if native: env.pop("RICHOS_CLAUDE_BIN", None)
-for phase in (("native-handoff",) if native else ("enqueue", "resume", "recover-notice", "correct-live")):
+for phase in (("native-handoff",) if native else ("enqueue", "resume", "recover-notice", "correct-live", "slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live")):
     if phase == "recover-notice":
         # Simulate the crash window after verified completion was committed to
         # the job but before its conversation notice was written.
@@ -96,6 +97,19 @@ for phase in (("native-handoff",) if native else ("enqueue", "resume", "recover-
         assert (workspace / "hello.txt").read_bytes() == b"Hello Rich"
         assert sum(m["role"] == "user" for m in report["messages"]) == 1
         assert any(m["turn_id"].startswith("finished-") for m in report["messages"])
+    elif phase in ("slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live"):
+        assert report["passed"], report
+        calls = [json.loads(line) for line in (root / 'registration-calls.jsonl').read_text().splitlines()]
+        for call in calls:
+            argv = call['args']
+            assert argv[argv.index('--model')+1] == 'haiku'
+            assert argv[argv.index('--tools')+1] == ''
+            assert argv[argv.index('--setting-sources')+1] == ''
+            assert '--strict-mcp-config' in argv
+            assert call['cwd'] not in (str(workspace), str(other))
+        if phase == 'registration-failures-restart':
+            for prefix in ('Handle malformed:', 'Question inconsistent:'):
+                assert sum(c['ceo'].startswith(prefix) for c in calls) == 3, calls
     elif phase == "enqueue":
         assert report["requestPersisted"], report
         assert not (workspace / "deliverable.txt").exists(), "The restart fixture ran before the first app exited"

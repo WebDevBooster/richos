@@ -10,6 +10,10 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+/// One progress checkpoint, then an explicit resource decision. Persisted before calls.
+pub const RECOVERY_CHECKPOINT: u32 = 5;
+pub const RECOVERY_BUDGET: u32 = 10;
+
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
     #[error("run storage: {0}")]
@@ -150,6 +154,9 @@ pub struct TaskProgress {
     pub review_pending: bool,
     #[serde(default)]
     pub review_failures: u32,
+    /// Persisted cycles since the last explicit resource authorization.
+    #[serde(default)]
+    pub recovery_cycles: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,7 +169,7 @@ pub enum RunState {
     NeedsAttention,
     NeedsDecision,
     Completed,
-    Cancelled,
+    Canceled,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -175,8 +182,10 @@ pub struct RunSnapshot {
     pub plan_revision: u64,
     pub tasks: Vec<TaskProgress>,
     pub paused: bool,
-    pub cancelled: bool,
+    pub canceled: bool,
     pub updated_at: u64,
+    #[serde(default)]
+    pub created_at: u64,
     #[serde(default)]
     pub decisions: Vec<String>,
     #[serde(default)]
@@ -187,8 +196,8 @@ impl RunSnapshot {
     pub fn state(&self) -> RunState {
         if self.tasks.iter().all(|t| t.state == TaskState::Passed) {
             RunState::Completed
-        } else if self.cancelled {
-            RunState::Cancelled
+        } else if self.canceled {
+            RunState::Canceled
         } else if self.paused {
             RunState::Paused
         } else if self
@@ -217,7 +226,7 @@ impl RunSnapshot {
     }
 
     fn next(&self) -> Option<usize> {
-        if self.paused || self.cancelled {
+        if self.paused || self.canceled {
             return None;
         }
         self.tasks.iter().enumerate().position(|(i, p)| {
@@ -297,7 +306,12 @@ impl RunController {
         Self::create_with_review(path, plan, id, true)
     }
 
-    fn create_with_review(path: &Path, plan: RunPlan, id: String, review_first: bool) -> Result<Self, RunError> {
+    fn create_with_review(
+        path: &Path,
+        plan: RunPlan,
+        id: String,
+        review_first: bool,
+    ) -> Result<Self, RunError> {
         plan.validate()?;
         if uuid::Uuid::parse_str(&id).is_err() {
             return Err(RunError::Invalid("Invalid run identity".into()));
@@ -320,6 +334,7 @@ impl RunController {
                 retry_at: 0,
                 review_pending: review_first,
                 review_failures: 0,
+                recovery_cycles: 0,
             })
             .collect();
         let mut this = Self {
@@ -333,8 +348,9 @@ impl RunController {
                 plan_revision: 0,
                 tasks,
                 paused: false,
-                cancelled: false,
+                canceled: false,
                 updated_at: 0,
+                created_at: crate::util::now_millis(),
                 decisions: vec![],
                 decision_receipts: vec![],
             },
@@ -403,7 +419,7 @@ impl RunController {
                 recovered = true;
             }
         }
-        if recovered && this.snapshot.plan.autonomous() && !this.snapshot.cancelled {
+        if recovered && this.snapshot.plan.autonomous() && !this.snapshot.canceled {
             for task in &mut this.snapshot.tasks {
                 if task.state == TaskState::NeedsAttention {
                     task.state = TaskState::Pending;
@@ -456,7 +472,7 @@ impl RunController {
         }
         if receipt.trim().is_empty()
             || answer.trim().is_empty()
-            || self.snapshot.cancelled
+            || self.snapshot.canceled
             || !self
                 .snapshot
                 .tasks
@@ -474,6 +490,7 @@ impl RunController {
                 task.state = TaskState::Pending;
                 task.retry_at = 0;
                 task.evidence.push(format!("CEO answer: {answer}"));
+                task.recovery_cycles = 0;
             }
         }
         self.save()
@@ -510,12 +527,19 @@ impl RunController {
         plan.goal.push_str(
             "\nThis is a revised assignment. Inspect existing effects before making changes.",
         );
-        self.snapshot.tasks = plan.tasks.iter().map(|_| TaskProgress { state: TaskState::Pending, attempts: 0, evidence: vec!["Assignment revised by Rich from the CEO's correction. Reconcile existing effects first.".into()], retry_at: 0, review_pending: true, review_failures: 0 }).collect();
+        self.snapshot.tasks = plan.tasks.iter().map(|_| TaskProgress { state: TaskState::Pending, attempts: 0, evidence: vec!["Assignment revised by Rich from the CEO's correction. Reconcile existing effects first.".into()], retry_at: 0, review_pending: true, review_failures: 0, recovery_cycles: 0 }).collect();
         self.snapshot.plan = plan;
         self.snapshot.plan_revision += 1;
         self.snapshot.decision_receipts.push(receipt.into());
         self.snapshot.paused = false;
         self.save()
+    }
+
+    fn require_resource_decision(&mut self, i: usize) {
+        let task = &mut self.snapshot.tasks[i];
+        task.state = TaskState::NeedsDecision;
+        task.retry_at = 0;
+        task.evidence.push(format!("{}Recovery resource limit reached: {} cycles without verified completion. This assignment remains owned. Authorize up to {} further cycles, change its scope or end it. Recommendation: review the failure evidence before authorizing more compute. Each cycle permits at most one {}-second worker plus independent checks; actual charges depend on the provider. Further inference is suspended until your decision.", crate::autonomy::DECISION, RECOVERY_BUDGET, RECOVERY_BUDGET, self.snapshot.plan.turn_timeout_seconds));
     }
 
     pub fn defer_recovery(&mut self, seconds: u64) -> Result<(), RunError> {
@@ -541,14 +565,14 @@ impl RunController {
     }
 
     pub fn cancel(&mut self) -> Result<(), RunError> {
-        self.snapshot.cancelled = true;
+        self.snapshot.canceled = true;
         self.save()
     }
 
     /// Explicit operator recovery after inspecting an interrupted or failed
     /// task. Previous attempts remain counted against the original budget.
     pub fn retry(&mut self, id: &str) -> Result<(), RunError> {
-        if self.snapshot.cancelled {
+        if self.snapshot.canceled {
             return Err(RunError::Invalid(
                 "This run was ended by its operator.".into(),
             ));
@@ -585,6 +609,16 @@ impl RunController {
         let Some(i) = self.snapshot.next() else {
             return Ok(self.snapshot.state());
         };
+        if self.snapshot.plan.autonomous() {
+            if self.snapshot.tasks[i].recovery_cycles >= RECOVERY_BUDGET {
+                self.require_resource_decision(i);
+                self.save()?;
+                host.updated(&self.snapshot);
+                return Ok(self.snapshot.state());
+            }
+            self.snapshot.tasks[i].recovery_cycles += 1;
+            self.save()?;
+        }
         if let Err(error) = self.snapshot.plan.validate() {
             if !self.snapshot.plan.autonomous() {
                 return Err(error);
@@ -745,6 +779,17 @@ impl RunController {
         }
         if host.paused() {
             self.snapshot.paused = true;
+        }
+        if self.snapshot.plan.autonomous() {
+            for j in 0..self.snapshot.tasks.len() {
+                if self.snapshot.tasks[j].state == TaskState::Pending {
+                    if self.snapshot.tasks[j].recovery_cycles >= RECOVERY_BUDGET {
+                        self.require_resource_decision(j);
+                    } else if self.snapshot.tasks[j].recovery_cycles == RECOVERY_CHECKPOINT {
+                        self.snapshot.tasks[j].retry_at = crate::util::now_millis() + 3_600_000;
+                    }
+                }
+            }
         }
         self.save()?;
         host.updated(&self.snapshot);

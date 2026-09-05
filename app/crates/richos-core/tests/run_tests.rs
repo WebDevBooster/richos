@@ -525,7 +525,7 @@ fn an_operator_can_end_unfinished_work_without_calling_it_completed() {
     drop(ctl);
     let mut ctl = RunController::open(&tmp.journal()).unwrap();
     let mut host = Host::default();
-    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::Cancelled);
+    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::Canceled);
     assert!(host.executions.is_empty());
     assert!(ctl.retry("first").is_err());
 }
@@ -636,7 +636,7 @@ fn unavailable_workspace_can_be_inspected_and_ended_but_never_executed() {
             .unwrap()
             .snapshot()
             .state(),
-        RunState::Cancelled
+        RunState::Canceled
     );
 }
 
@@ -971,12 +971,12 @@ fn recovery_backoff_survives_restart_without_losing_work() {
     let mut host=Host::default();
     assert_eq!(ctl.tick(&mut host).unwrap(),RunState::Waiting);
     assert!(host.executions.is_empty());
-    assert!(!ctl.snapshot().cancelled);
+    assert!(!ctl.snapshot().canceled);
     assert!(!ctl.snapshot().paused);
 }
 
 #[test]
-fn rich_keeps_the_conversation_voice_stream_and_private_handoff_on_his_lease() {
+fn rich_keeps_voice_and_reports_without_registration_or_redundant_priming() {
     use richos_core::{Entity,EntityId,EntityRegistry,Ledger,Spine};
     use richos_core::cognition::{Cognition,CognitionError,TurnItem};
     use richos_core::stream::{StreamEvent,TurnObserver};
@@ -987,7 +987,7 @@ fn rich_keeps_the_conversation_voice_stream_and_private_handoff_on_his_lease() {
         fn session_id(&self)->&str{"continuous-rich"}
         fn reprime(&mut self,text:&str,sink:&mut dyn FnMut(TurnItem))->Result<(),CognitionError>{
             self.calls.lock().unwrap().push(text.into());
-            if text.starts_with("Register the assignment") { sink(TurnItem::Text{text:r#"{"kind":"none"}"#,seq:0}); }
+            let _ = sink;
             Ok(())
         }
         fn prompt(&mut self,text:&str,sink:&mut dyn FnMut(TurnItem))->Result<String,CognitionError>{
@@ -1005,9 +1005,10 @@ fn rich_keeps_the_conversation_voice_stream_and_private_handoff_on_his_lease() {
     spine.attach_lease(Box::new(Rich{calls:calls.clone()}));spine.enable_owned_work();spine.set_observer(Box::new(events.clone()));
     let turn=spine.submit_prompt("What is the plan?",Source::Jam).unwrap();
     let binding=spine.active_binding().unwrap().clone();
-    assert!(matches!(spine.register_owned_work(&binding,"What is the plan?","Here is the answer.","null").unwrap(),richos_core::autonomy::Handoff::None));
+    assert_eq!(calls.lock().unwrap().len(),2,"one prime and one answer, with no private registration on Rich");
     spine.report_owned_work(&binding,"finished-test","Verified outcome").unwrap();
     spine.report_owned_work(&binding,"finished-test","Verified outcome").unwrap();
+    assert_eq!(calls.lock().unwrap().len(),3,"same-thread reports require no additional prime or private turn");
     assert_eq!(spine.lease_session_id(),Some("continuous-rich"));
     assert_eq!(spine.ledger().turn(&turn).unwrap().source,Source::Jam);
     let messages=spine.messages(&thread).unwrap();
@@ -1028,4 +1029,60 @@ fn a_handoff_that_is_already_satisfied_never_executes_a_worker() {
     assert_eq!(ctl.tick(&mut host).unwrap(),RunState::Completed);
     assert!(host.executions.is_empty());
     assert_eq!(host.verifications.len(),1);
+}
+
+#[test]
+fn recovery_checkpoints_charge_real_cycles_and_stop_at_resource_decision() {
+    let tmp=Temp::new();
+    let mut ctl=RunController::create(&tmp.journal(),autonomous_plan(&tmp.0)).unwrap();
+    let mut host=Host { fail_checks: 100, ..Host::default() };
+    for cycle in 1..=RECOVERY_BUDGET {
+        ctl.defer_recovery(0).unwrap();
+        ctl.tick(&mut host).unwrap();
+        assert_eq!(ctl.snapshot().tasks[0].recovery_cycles,cycle);
+        if cycle == RECOVERY_CHECKPOINT {
+            assert!(ctl.snapshot().tasks[0].retry_at >= richos_core::util::now_millis()+3_590_000,"tick must invoke the hour checkpoint itself");
+        }
+        drop(ctl); ctl=RunController::open(&tmp.journal()).unwrap();
+    }
+    assert_eq!(ctl.snapshot().state(),RunState::NeedsDecision);
+    assert_eq!(host.executions.len(),10);
+    for _ in 0..15 { ctl.tick(&mut host).unwrap(); }
+    assert_eq!(host.executions.len(),10,"no inference after the persisted limit");
+    assert_eq!(host.verifications.len(),10);
+    assert!(ctl.snapshot().tasks[0].evidence.join("\n").contains("Authorize up to 10"));
+    ctl.pause(false).unwrap();
+    ctl.tick(&mut host).unwrap();
+    assert_eq!(host.executions.len(),10,"resume is not a resource authorization");
+    ctl.answer_decision("ceo-resource-authorization","Authorize ten more cycles.").unwrap();
+    ctl.tick(&mut host).unwrap();
+    assert_eq!(host.executions.len(),11);
+    assert_eq!(ctl.snapshot().tasks[0].recovery_cycles,1);
+    assert_eq!(ctl.snapshot().decisions,vec!["Authorize ten more cycles."]);
+}
+
+#[test]
+fn review_only_failures_exhaust_the_same_persisted_resource_budget() {
+    struct Broken { reviews:u32 }
+    impl RunHost for Broken {
+        fn execute(&mut self,_:&RunPlan,_:&TaskSpec,_:&[String])->Result<(),String>{panic!("review-only retries cannot execute")}
+        fn verify(&mut self,_:&Path,_:&Check)->Result<String,String>{self.reviews+=1;Err(format!("{} invalid response",richos_core::autonomy::REVIEW_RETRY))}
+    }
+    let tmp=Temp::new();let mut ctl=RunController::create_from_handoff(&tmp.journal(),autonomous_plan(&tmp.0),uuid::Uuid::new_v4().to_string()).unwrap();
+    let mut host=Broken{reviews:0};
+    for _ in 0..RECOVERY_BUDGET {ctl.defer_recovery(0).unwrap();ctl.tick(&mut host).unwrap();drop(ctl);ctl=RunController::open(&tmp.journal()).unwrap();}
+    for _ in 0..4 {ctl.tick(&mut host).unwrap();}
+    assert_eq!(host.reviews,10);assert_eq!(ctl.snapshot().tasks[0].attempts,0);
+    assert_eq!(ctl.snapshot().state(),RunState::NeedsDecision);
+}
+
+#[test]
+fn a_crash_on_the_last_charged_cycle_cannot_start_an_eleventh() {
+    let tmp=Temp::new();let ctl=RunController::create(&tmp.journal(),autonomous_plan(&tmp.0)).unwrap();
+    let mut s=ctl.snapshot().clone();drop(ctl);
+    s.tasks[0].state=TaskState::Running;s.tasks[0].recovery_cycles=RECOVERY_BUDGET;
+    std::fs::write(tmp.journal(),format!("{}\n",serde_json::to_string(&s).unwrap())).unwrap();
+    let mut ctl=RunController::open(&tmp.journal()).unwrap();let mut host=Host::default();
+    assert_eq!(ctl.tick(&mut host).unwrap(),RunState::NeedsDecision);
+    assert!(host.executions.is_empty());assert!(host.verifications.is_empty());
 }

@@ -36,6 +36,18 @@ struct Request {
     error: String,
     #[serde(default)]
     directive: Option<Handoff>,
+    #[serde(default)]
+    target_run_id: Option<String>,
+    #[serde(default)]
+    attempts: u32,
+    #[serde(default)]
+    application_failures: u32,
+    #[serde(default)]
+    halted: bool,
+    #[serde(default)]
+    scope_repaired: bool,
+    #[serde(default)]
+    tail: String,
 }
 fn now() -> u64 {
     richos_core::util::now_millis()
@@ -63,7 +75,7 @@ fn save<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
 /// Installing this feature does not retroactively execute historical conversations.
 /// After installation the existing ledger itself is the durable handoff inbox.
 pub fn initialize(state: &AppState) -> Result<(), String> {
-    for name in ["requests", "runs"] {
+    for name in ["requests", "runs", "run-notices"] {
         std::fs::create_dir_all(state.data_dir.join(name)).map_err(|e| e.to_string())?;
     }
     let baseline = state.data_dir.join("owned-work-baseline.json");
@@ -82,25 +94,61 @@ pub fn initialize(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+struct IntakeIndex {
+    baseline: std::collections::HashSet<String>,
+    cursor: usize,
+    unresolved: std::collections::BTreeSet<usize>,
+    pending: std::collections::HashSet<PathBuf>,
+}
+impl IntakeIndex {
+    fn load(state: &AppState) -> Result<Self, String> {
+        let baseline = serde_json::from_slice(
+            &std::fs::read(state.data_dir.join("owned-work-baseline.json"))
+                .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        let pending = std::fs::read_dir(state.data_dir.join("requests"))
+            .map_err(|e| e.to_string())?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+            .collect();
+        Ok(Self {
+            baseline,
+            cursor: 0,
+            unresolved: Default::default(),
+            pending,
+        })
+    }
+}
+
+#[cfg(debug_assertions)]
 fn discover(state: &AppState) -> Result<(), String> {
-    let baseline: Vec<String> = serde_json::from_slice(
-        &std::fs::read(state.data_dir.join("owned-work-baseline.json"))
-            .map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    discover_cached(state, &mut IntakeIndex::load(state)?)
+}
+
+fn discover_cached(state: &AppState, index: &mut IntakeIndex) -> Result<(), String> {
     let registry = state.registry.lock().unwrap();
     let spine = state.spine.lock().unwrap();
-    for turn in spine.ledger().turns() {
-        if baseline.contains(&turn.id)
+    index
+        .unresolved
+        .extend(index.cursor..spine.ledger().turns().len());
+    index.cursor = spine.ledger().turns().len();
+    for i in index.unresolved.clone() {
+        let turn = &spine.ledger().turns()[i];
+        if index.baseline.contains(&turn.id)
             || turn.quarantined
             || !matches!(turn.source, Source::Text | Source::Jam)
-            || !matches!(turn.state, TurnState::Completed | TurnState::Interrupted)
         {
+            index.unresolved.remove(&i);
+            continue;
+        }
+        if !matches!(turn.state, TurnState::Completed | TurnState::Interrupted) {
             continue;
         }
         let id = autonomy::turn_request_id(&turn.id)?;
         let path = state.data_dir.join("requests").join(format!("{id}.json"));
         if path.exists() {
+            index.unresolved.remove(&i);
             continue;
         }
         let binding = spine
@@ -130,41 +178,110 @@ fn discover(state: &AppState) -> Result<(), String> {
                 created_at: turn.created_at,
                 error: String::new(),
                 directive: None,
+                target_run_id: None,
+                attempts: 0,
+                application_failures: 0,
+                halted: false,
+                scope_repaired: false,
+                tail: spine
+                    .ledger()
+                    .turns()
+                    .iter()
+                    .filter(|t| {
+                        t.thread_id == turn.thread_id
+                            && t.created_at < turn.created_at
+                            && matches!(t.source, Source::Text | Source::Jam)
+                    })
+                    .rev()
+                    .take(6)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .map(|t| format!("CEO: {}\nRich: {}", t.user_text, t.assistant_text))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             },
         )?;
+        index.pending.insert(path);
+        index.unresolved.remove(&i);
     }
     Ok(())
 }
 
-fn requests(state: &AppState) -> Result<(), String> {
-    discover(state)?;
+fn requests(state: &AppState, index: &mut IntakeIndex) -> Result<(), String> {
+    discover_cached(state, index)?;
     let mut queued = vec![];
-    for entry in std::fs::read_dir(state.data_dir.join("requests")).map_err(|e| e.to_string())? {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("json") {
-            continue;
-        }
+    for path in index.pending.clone() {
         let request: Request =
             serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
                 .map_err(|e| format!("Cannot read saved handoff {}: {e}", path.display()))?;
-        if !request.done && request.retry_at <= now() {
+        if request.done {
+            index.pending.remove(&path);
+            continue;
+        }
+        if !request.halted && request.retry_at <= now() {
             queued.push((path, request));
         }
     }
     queued.sort_by_key(|(_, r)| (r.retry_at, r.created_at));
     if let Some((path, mut request)) = queued.into_iter().next() {
-        match process_request(state, &path, &mut request) {
-            Ok(done) => {
-                request.done = done;
-                request.retry_at = now() + 2000;
-                request.error.clear();
+        // Charge before inference so process crashes cannot reset the ceiling.
+        let registering = request.directive.is_none();
+        if (registering && request.attempts >= richos_core::registration::MAX_ATTEMPTS)
+            || request.application_failures >= 3
+        {
+            request.halted = true;
+            save(&path, &request)?;
+        } else {
+            if registering {
+                request.attempts += 1;
             }
-            Err(error) => {
-                request.error = error;
-                request.retry_at = now() + 30_000;
+            save(&path, &request)?;
+            match process_request(state, &path, &mut request) {
+                Ok(done) => {
+                    request.done = done;
+                    request.retry_at = now() + 2000;
+                    request.error.clear();
+                }
+                Err(error) => {
+                    request.error = error;
+                    request.retry_at = now() + 30_000;
+                    if request.directive.is_some() {
+                        request.application_failures += 1;
+                    }
+                    request.halted = (request.directive.is_none()
+                        && request.attempts >= richos_core::registration::MAX_ATTEMPTS)
+                        || request.application_failures >= 3;
+                    if request.error.starts_with("MISSING_SCOPE:") && !request.scope_repaired {
+                        request.scope_repaired = true;
+                        save(&path, &request)?;
+                        let mut spine = state.spine.lock().unwrap();
+                        let binding = spine
+                            .ledger()
+                            .thread_binding(&request.thread)
+                            .map_err(|e| e.to_string())?;
+                        let id = format!("scope-{}", request.id);
+                        spine.report_owned_work(&binding, &id, &format!("Your accepted assignment needs a complete scope. State the full deliverable and acceptance constraints now, preserving all prohibitions and previous requirements. Resolve routine details yourself; do not ask the CEO to plan. No work has been executed for this registration. CEO request: {}\nPrevious reply: {}\nConversation: {}", request.text, request.conversation, request.tail)).map_err(|e|e.to_string())?;
+                        request.conversation = spine
+                            .ledger()
+                            .turn(&id)
+                            .ok_or("Scope repair missing")?
+                            .assistant_text
+                            .clone();
+                    }
+                }
             }
         }
         save(&path, &request)?;
+    }
+    // Notice delivery never restarts classification. Receipts survive app restarts.
+    for path in index.pending.clone() {
+        let request: Request =
+            serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        if request.halted && !request.done {
+            if report(state, &request.thread, &format!("registration-failed-{}", request.id), &format!("Registration failed after {} attempts. The assignment remains saved and unfinished, but execution is suspended because its authorization or scope could not be established reliably. This is an internal failure, not a request for the CEO to troubleshoot or approve a routine retry. Do not claim work is underway or completed. Request: {}\nFailure: {}", request.attempts, request.text, request.error))? { index.pending.remove(&path); }
+        }
     }
     Ok(())
 }
@@ -173,43 +290,50 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
     if path.with_extension("cancel").exists() {
         return Ok(true);
     }
-    let journal = state
-        .data_dir
-        .join("runs")
-        .join(format!("{}.jsonl", request.thread));
-    let current = if journal.exists() {
-        Some(richos_core::run::read_snapshot(&journal).map_err(|e| e.to_string())?)
-    } else {
-        None
-    };
+    let paths = crate::managed_runs::journals(state, &request.thread)?;
+    let current: Vec<_> = paths
+        .iter()
+        .map(|p| richos_core::run::read_snapshot(p).map_err(|e| e.to_string()))
+        .collect::<Result<_, _>>()?;
     if current
-        .as_ref()
-        .map(|s| s.id == request.id || s.decision_receipts.contains(&request.id))
-        .unwrap_or(false)
+        .iter()
+        .any(|s| s.id == request.id || s.decision_receipts.contains(&request.id))
     {
         return Ok(true);
     }
     if request.directive.is_none() {
-        let mut spine = state.spine.lock().unwrap();
-        let binding = spine
-            .ledger()
-            .thread_binding(&request.thread)
-            .map_err(|e| e.to_string())?;
-        let current_text = serde_json::to_string(&current).map_err(|e| e.to_string())?;
-        request.directive = Some(
-            spine
-                .register_owned_work(
-                    &binding,
-                    &request.text,
-                    &request.conversation,
-                    &current_text,
-                )
-                .map_err(|e| e.to_string())?,
-        );
-        drop(spine);
-        // Commit Rich's actual decision before attempting any journal mutation.
+        let (directive, target) = richos_core::registration::register(
+            &request.text,
+            &request.conversation,
+            &request.tail,
+            &current,
+            &request.error,
+        )?;
+        request.directive = Some(directive);
+        request.target_run_id = target;
         save(path, request)?;
     }
+    let journal = if let Some(target) = &request.target_run_id {
+        paths
+            .iter()
+            .zip(&current)
+            .find(|(_, s)| &s.id == target)
+            .map(|(p, _)| p.clone())
+            .ok_or("The target assignment is unavailable")?
+    } else {
+        let primary = state
+            .data_dir
+            .join("runs")
+            .join(format!("{}.jsonl", request.thread));
+        if primary.exists() {
+            state
+                .data_dir
+                .join("runs")
+                .join(format!("{}--{}.jsonl", request.thread, request.id))
+        } else {
+            primary
+        }
+    };
     if matches!(request.directive, Some(Handoff::None)) {
         return Ok(true);
     }
@@ -217,8 +341,8 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
         request.directive,
         Some(Handoff::Amend { .. } | Handoff::AnswerDecision | Handoff::Cancel)
     );
-    if let Some((thread, pause)) = state.managed_runs.active.lock().unwrap().as_ref() {
-        if thread == &request.thread {
+    if let Some((_, active_path, pause)) = state.managed_runs.active.lock().unwrap().as_ref() {
+        if active_path == &journal {
             if changes_current {
                 pause.store(true, Ordering::SeqCst);
             }
@@ -230,7 +354,7 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
     let active = state.managed_runs.active.lock().unwrap();
     if active
         .as_ref()
-        .map(|(t, _)| t == &request.thread)
+        .map(|(_, p, _)| p == &journal)
         .unwrap_or(false)
     {
         return Ok(false);
@@ -240,7 +364,10 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
         Handoff::Work { goal, tasks } | Handoff::Amend { goal, tasks } => {
             let tasks = serde_json::from_value(serde_json::to_value(tasks).unwrap())
                 .map_err(|e| e.to_string())?;
-            if request.workspace.starts_with(state.data_dir.join("workspaces")) {
+            if request
+                .workspace
+                .starts_with(state.data_dir.join("workspaces"))
+            {
                 std::fs::create_dir_all(&request.workspace).map_err(|e| e.to_string())?;
             }
             let plan = autonomy::plan(&request.workspace, &request.text, goal, tasks)?;
@@ -252,12 +379,6 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
                     std::fs::remove_file(pause).map_err(|e| e.to_string())?;
                 }
             } else {
-                if let Some(ref previous) = current {
-                    if !matches!(previous.state(), RunState::Completed | RunState::Cancelled) {
-                        return Ok(false);
-                    }
-                    richos_core::run::archive_journal(&journal).map_err(|e| e.to_string())?;
-                }
                 RunController::create_from_handoff(&journal, plan, request.id.clone())
                     .map_err(|e| e.to_string())?;
             }
@@ -280,6 +401,55 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
     }
 }
 
+/// Reporting also has a budget. A broken conversational lease cannot turn one
+/// checkpoint into an unlimited inference loop. The fallback is an honest host notice.
+fn report(state: &AppState, thread: &str, id: &str, evidence: &str) -> Result<bool, String> {
+    let mut spine = state.spine.lock().unwrap();
+    if spine
+        .ledger()
+        .turn(id)
+        .map(|t| t.state == TurnState::Completed)
+        .unwrap_or(false)
+    {
+        return Ok(true);
+    }
+    let binding = spine
+        .ledger()
+        .thread_binding(thread)
+        .map_err(|e| e.to_string())?;
+    let ticket = state
+        .data_dir
+        .join("run-notices")
+        .join(format!("{id}.json"));
+    let (attempts, retry_at): (u32, u64) = if ticket.exists() {
+        serde_json::from_slice(&std::fs::read(&ticket).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?
+    } else {
+        (0, 0)
+    };
+    if attempts >= 3 {
+        spine
+            .record_owned_message(
+                &binding,
+                &format!("fallback-{id}"),
+                None,
+                &format!(
+                    "Rich's spoken report could not be delivered. Saved work status: {evidence}"
+                ),
+            )
+            .map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    if retry_at > now() {
+        return Ok(false);
+    }
+    save(&ticket, &(attempts + 1, now() + 30_000))?;
+    spine
+        .report_owned_work(&binding, id, evidence)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 fn publish_outcome(state: &AppState, thread: &str, snapshot: &RunSnapshot) -> Result<(), String> {
     let mut notices = vec![];
     for (i, task) in snapshot.tasks.iter().enumerate() {
@@ -287,7 +457,9 @@ fn publish_outcome(state: &AppState, thread: &str, snapshot: &RunSnapshot) -> Re
             notices.push((
                 format!(
                     "decision-{}-{}-{i}-{}",
-                    snapshot.id, snapshot.plan_revision, task.attempts
+                    snapshot.id,
+                    snapshot.plan_revision,
+                    format!("{}-{}", task.attempts, snapshot.decision_receipts.len())
                 ),
                 format!(
                     "A CEO decision is required for this task. {}",
@@ -310,21 +482,15 @@ fn publish_outcome(state: &AppState, thread: &str, snapshot: &RunSnapshot) -> Re
     // the CEO troubleshoot. Space subsequent recovery cycles rather than burn
     // two cold sessions every few minutes forever.
     for (i, task) in snapshot.tasks.iter().enumerate() {
-        let failures = task.attempts.max(task.review_failures);
-        if task.state == richos_core::run::TaskState::Pending && failures >= 5 && failures % 5 == 0
+        let failures = task.recovery_cycles;
+        if task.state == richos_core::run::TaskState::Pending
+            && failures == richos_core::run::RECOVERY_CHECKPOINT
         {
-            notices.push((format!("recovery-{}-{}-{i}-{failures}",snapshot.id,snapshot.plan_revision),format!("Work remains owned and unfinished after repeated failures. Diagnose these results, explain the changed approach and any external dependency. No CEO retry approval is needed. Automatic recovery is spaced one hour apart at this checkpoint. Goal: {}\nEvidence: {:?}",snapshot.plan.display_goal(),task.evidence)));
+            notices.push((format!("recovery-{}-{}-{i}-{failures}",snapshot.id,format!("{}-{}",snapshot.plan_revision,snapshot.decision_receipts.len())),format!("Work remains owned and unfinished after repeated failures. Diagnose these results, explain the changed approach and any external dependency. No CEO retry approval is needed. Automatic recovery is spaced one hour apart at this checkpoint. Goal: {}\nEvidence: {:?}",snapshot.plan.display_goal(),task.evidence)));
         }
     }
     for (id, evidence) in notices {
-        let mut spine = state.spine.lock().unwrap();
-        let binding = spine
-            .ledger()
-            .thread_binding(thread)
-            .map_err(|e| e.to_string())?;
-        spine
-            .report_owned_work(&binding, &id, &evidence)
-            .map_err(|e| e.to_string())?;
+        report(state, thread, &id, &evidence)?;
     }
     Ok(())
 }
@@ -339,130 +505,141 @@ fn jobs(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
         .map(|t| t.id)
         .collect();
     for thread in threads {
-        let path = state.data_dir.join("runs").join(format!("{thread}.jsonl"));
-        if !path.exists() {
-            continue;
-        }
-        let pause = Arc::new(AtomicBool::new(path.with_extension("pause").exists()));
-        {
-            let mut active = state.managed_runs.active.lock().unwrap();
-            if active.is_some() {
-                return Ok(());
-            }
-            *active = Some((thread.clone(), pause.clone()));
-        }
-        let result = (|| -> Result<(), String> {
-            let mut ctl = RunController::open(&path).map_err(|e| e.to_string())?;
-            if !ctl.snapshot().plan.autonomous() {
-                return Ok(());
-            }
-            if state
-                .data_dir
-                .join("requests")
-                .join(format!("{}.cancel", ctl.snapshot().id))
-                .exists()
+        for path in crate::managed_runs::journals(state, &thread)? {
+            let pause = Arc::new(AtomicBool::new(path.with_extension("pause").exists()));
             {
-                ctl.cancel().map_err(|e| e.to_string())?;
-            }
-            if path.with_extension("pause").exists() {
-                ctl.pause(true).map_err(|e| e.to_string())?;
-            }
-            publish_outcome(state, &thread, ctl.snapshot())?;
-            if ctl.snapshot().state() != RunState::Ready {
-                return Ok(());
-            }
-            let context = {
-                let mut spine = state.spine.lock().unwrap();
-                let binding = spine
-                    .ledger()
-                    .thread_binding(&thread)
-                    .map_err(|e| e.to_string())?;
-                spine
-                    .owned_worker_context(&binding)
-                    .map_err(|e| e.to_string())?
-            };
-            // No Spine borrow survives this scope. Rich can answer and revise work
-            // while this independently governed worker executes.
-            struct Host {
-                context: String,
-                pause: Arc<AtomicBool>,
-                app: tauri::AppHandle,
-                thread: String,
-            }
-            impl richos_core::run::RunHost for Host {
-                fn execute(
-                    &mut self,
-                    plan: &richos_core::run::RunPlan,
-                    task: &richos_core::run::TaskSpec,
-                    previous: &[String],
-                ) -> Result<(), String> {
-                    let mut model =
-                        NativeCognition::start_managed(&resolve_claude_bin(), &plan.workspace)
-                            .map_err(|e| e.to_string())?;
-                    // Priming is part of the bounded worker prompt, not an unbounded
-                    // extra call before the timeout watcher starts.
-                    let mut effective = plan.clone();
-                    effective.goal =
-                        format!("{}\nScoped Rich context:\n{}", plan.goal, self.context);
-                    let mut sink = |_: TurnItem<'_>| {};
-                    richos_core::run::RunHost::execute(
-                        &mut CognitionRunHost {
-                            cognition: &mut model,
-                            on_item: &mut sink,
-                            pause: self.pause.clone(),
-                        },
-                        &effective,
-                        task,
-                        previous,
-                    )
+                let mut active = state.managed_runs.active.lock().unwrap();
+                if active.is_some() {
+                    return Ok(());
                 }
-                fn verify(
-                    &mut self,
-                    workspace: &Path,
-                    check: &richos_core::run::Check,
-                ) -> Result<String, String> {
-                    richos_core::run_host::verify_command(workspace, check, &self.pause)
-                }
-                fn paused(&self) -> bool {
-                    self.pause.load(Ordering::SeqCst)
-                }
-                fn updated(&mut self, s: &RunSnapshot) {
-                    let _ = self.app.emit(
-                        EVENT_RUN_UPDATED,
-                        crate::managed_runs::view(&self.thread, s),
-                    );
-                }
+                *active = Some((thread.clone(), path.clone(), pause.clone()));
             }
-            ctl.tick(&mut Host {
-                context,
-                pause,
-                app: app.clone(),
-                thread: thread.clone(),
-            })
-            .map_err(|e| e.to_string())?;
-            if ctl.snapshot().tasks.iter().any(|t| {
-                t.state == richos_core::run::TaskState::Pending
-                    && t.attempts.max(t.review_failures) >= 5
-                    && t.attempts.max(t.review_failures) % 5 == 0
-            }) {
-                ctl.defer_recovery(3600).map_err(|e| e.to_string())?;
+            let result = (|| -> Result<(), String> {
+                let mut ctl = RunController::open(&path).map_err(|e| e.to_string())?;
+                if !ctl.snapshot().plan.autonomous() {
+                    return Ok(());
+                }
+                if state
+                    .data_dir
+                    .join("requests")
+                    .join(format!("{}.cancel", ctl.snapshot().id))
+                    .exists()
+                {
+                    ctl.cancel().map_err(|e| e.to_string())?;
+                }
+                if path.with_extension("cancel").exists() {
+                    ctl.cancel().map_err(|e| e.to_string())?;
+                }
+                if path.with_extension("pause").exists() {
+                    ctl.pause(true).map_err(|e| e.to_string())?;
+                }
+                publish_outcome(state, &thread, ctl.snapshot())?;
+                if ctl.snapshot().state() != RunState::Ready {
+                    return Ok(());
+                }
+                let context = {
+                    let mut spine = state.spine.lock().unwrap();
+                    let binding = spine
+                        .ledger()
+                        .thread_binding(&thread)
+                        .map_err(|e| e.to_string())?;
+                    spine
+                        .owned_worker_context(&binding)
+                        .map_err(|e| e.to_string())?
+                };
+                // No Spine borrow survives this scope. Rich can answer and revise work
+                // while this independently governed worker executes.
+                struct Host {
+                    context: String,
+                    pause: Arc<AtomicBool>,
+                    app: tauri::AppHandle,
+                    thread: String,
+                }
+                impl richos_core::run::RunHost for Host {
+                    fn execute(
+                        &mut self,
+                        plan: &richos_core::run::RunPlan,
+                        task: &richos_core::run::TaskSpec,
+                        previous: &[String],
+                    ) -> Result<(), String> {
+                        let mut model =
+                            NativeCognition::start_managed(&resolve_claude_bin(), &plan.workspace)
+                                .map_err(|e| e.to_string())?;
+                        // Priming is part of the bounded worker prompt, not an unbounded
+                        // extra call before the timeout watcher starts.
+                        let mut effective = plan.clone();
+                        effective.goal =
+                            format!("{}\nScoped Rich context:\n{}", plan.goal, self.context);
+                        let mut sink = |_: TurnItem<'_>| {};
+                        richos_core::run::RunHost::execute(
+                            &mut CognitionRunHost {
+                                cognition: &mut model,
+                                on_item: &mut sink,
+                                pause: self.pause.clone(),
+                            },
+                            &effective,
+                            task,
+                            previous,
+                        )
+                    }
+                    fn verify(
+                        &mut self,
+                        workspace: &Path,
+                        check: &richos_core::run::Check,
+                    ) -> Result<String, String> {
+                        richos_core::run_host::verify_command(workspace, check, &self.pause)
+                    }
+                    fn paused(&self) -> bool {
+                        self.pause.load(Ordering::SeqCst)
+                    }
+                    fn updated(&mut self, s: &RunSnapshot) {
+                        let _ = self.app.emit(
+                            EVENT_RUN_UPDATED,
+                            crate::managed_runs::view(&self.thread, s),
+                        );
+                    }
+                }
+                ctl.tick(&mut Host {
+                    context,
+                    pause,
+                    app: app.clone(),
+                    thread: thread.clone(),
+                })
+                .map_err(|e| e.to_string())?;
+                if path.with_extension("cancel").exists() {
+                    ctl.cancel().map_err(|e| e.to_string())?;
+                }
+                publish_outcome(state, &thread, ctl.snapshot())?;
+                Ok(())
+            })();
+            *state.managed_runs.active.lock().unwrap() = None;
+            if let Err(error) = result {
+                eprintln!("Owned execution recovery for {thread}: {error}");
             }
-            publish_outcome(state, &thread, ctl.snapshot())?;
-            Ok(())
-        })();
-        *state.managed_runs.active.lock().unwrap() = None;
-        if let Err(error) = result { eprintln!("Owned execution recovery for {thread}: {error}"); }
+        }
     }
     Ok(())
 }
 
 pub fn start(app: tauri::AppHandle) {
     let intake_app = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_secs(2));
-        let state = intake_app.state::<AppState>();
-        if let Err(error) = requests(&state) {
-            eprintln!("Owned handoff recovery: {error}");
+    std::thread::spawn(move || {
+        let mut index = None;
+        loop {
+            std::thread::sleep(Duration::from_secs(2));
+            let state = intake_app.state::<AppState>();
+            if index.is_none() {
+                match IntakeIndex::load(&state) {
+                    Ok(i) => index = Some(i),
+                    Err(e) => {
+                        eprintln!("Owned inbox index: {e}");
+                        continue;
+                    }
+                }
+            }
+            if let Err(error) = requests(&state, index.as_mut().unwrap()) {
+                eprintln!("Owned handoff recovery: {error}");
+            }
         }
     });
     std::thread::spawn(move || loop {
@@ -480,7 +657,15 @@ pub fn pending(state: &AppState, thread: &str) -> Option<(String, String, String
         .flatten()
         .filter_map(|e| std::fs::read(e.path()).ok())
         .filter_map(|b| serde_json::from_slice(&b).ok())
-        .filter(|r: &Request| r.thread == thread && !r.done && matches!(r.directive, Some(Handoff::Work {..} | Handoff::Amend {..})))
+        .filter(|r: &Request| {
+            r.thread == thread
+                && !r.done
+                && (r.halted
+                    || matches!(
+                        r.directive,
+                        Some(Handoff::Work { .. } | Handoff::Amend { .. })
+                    ))
+        })
         .collect();
     requests.sort_by_key(|r| r.created_at);
     requests
@@ -523,24 +708,258 @@ pub fn selftest(app: tauri::AppHandle) {
         let result = (|| -> Result<serde_json::Value, String> {
             let state = app.state::<AppState>();
             if mode == "native-handoff" {
-                let thread = crate::create_thread_in(app.state(), "fixture".into(), "Native handoff".into())?;
+                let thread = crate::create_thread_in(
+                    app.state(),
+                    "fixture".into(),
+                    "Native handoff".into(),
+                )?;
                 crate::send_message(app.state(), "Handle this: create hello.txt containing exactly Hello Rich with no trailing newline. Do not create other files.".into())?;
-                let deadline=std::time::Instant::now();
-                while deadline.elapsed()<Duration::from_secs(240) {
-                    let journal=state.data_dir.join("runs").join(format!("{thread}.jsonl"));
-                    if let Ok(snapshot)=richos_core::run::read_snapshot(&journal) {
-                        if snapshot.state()==RunState::Completed {
-                            let spine=state.spine.lock().unwrap();
-                            if spine.ledger().turns().iter().any(|t|t.id.starts_with("finished-") && t.thread_id==thread && t.state==TurnState::Completed) {
-                                let bytes=std::fs::read(snapshot.plan.workspace.join("hello.txt")).map_err(|e|e.to_string())?;
-                                if bytes != b"Hello Rich" { return Err("Native handoff produced incorrect bytes".into()); }
-                                return Ok(serde_json::json!({"nativeHandoffCompleted":true,"attempts":snapshot.tasks[0].attempts,"messages":spine.messages(&thread).map_err(|e|e.to_string())?}));
+                let deadline = std::time::Instant::now();
+                while deadline.elapsed() < Duration::from_secs(240) {
+                    let journal = state.data_dir.join("runs").join(format!("{thread}.jsonl"));
+                    if let Ok(snapshot) = richos_core::run::read_snapshot(&journal) {
+                        if snapshot.state() == RunState::Completed {
+                            let spine = state.spine.lock().unwrap();
+                            if spine.ledger().turns().iter().any(|t| {
+                                t.id.starts_with("finished-")
+                                    && t.thread_id == thread
+                                    && t.state == TurnState::Completed
+                            }) {
+                                let bytes =
+                                    std::fs::read(snapshot.plan.workspace.join("hello.txt"))
+                                        .map_err(|e| e.to_string())?;
+                                if bytes != b"Hello Rich" {
+                                    return Err("Native handoff produced incorrect bytes".into());
+                                }
+                                return Ok(
+                                    serde_json::json!({"nativeHandoffCompleted":true,"attempts":snapshot.tasks[0].attempts,"messages":spine.messages(&thread).map_err(|e|e.to_string())?}),
+                                );
                             }
                         }
                     }
                     std::thread::sleep(Duration::from_millis(200));
                 }
                 return Err("Native handoff did not complete before the test deadline".into());
+            }
+            if mode == "end-live" {
+                let thread = crate::create_thread_in(
+                    app.state(),
+                    "fixture".into(),
+                    "End active assignment".into(),
+                )?;
+                let root = state
+                    .registry
+                    .lock()
+                    .unwrap()
+                    .get(&richos_core::EntityId::parse("fixture").unwrap())
+                    .unwrap()
+                    .roots[0]
+                    .clone();
+                let marker = root.join("correction-worker-started");
+                if marker.exists() {
+                    std::fs::remove_file(&marker).map_err(|e| e.to_string())?;
+                }
+                crate::send_message(
+                    app.state(),
+                    "Handle correction test: write original.txt.".into(),
+                )?;
+                let start = std::time::Instant::now();
+                while !marker.exists() {
+                    if start.elapsed() > Duration::from_secs(30) {
+                        return Err("Correction fixture worker never started".into());
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                let journal = state.data_dir.join("runs").join(format!("{thread}.jsonl"));
+                let id = richos_core::run::read_snapshot(&journal)
+                    .map_err(|e| e.to_string())?
+                    .id;
+                let began = std::time::Instant::now();
+                let result = crate::managed_runs::end_run(app.state(), thread, Some(id))?;
+                if began.elapsed() > Duration::from_secs(3)
+                    || serde_json::to_value(result).unwrap()["state"] != "canceled"
+                {
+                    return Err("End selected the wrong assignment".into());
+                }
+                while start.elapsed() < Duration::from_secs(45) {
+                    if richos_core::run::read_snapshot(&journal)
+                        .map_err(|e| e.to_string())?
+                        .state()
+                        == RunState::Canceled
+                    {
+                        return Ok(serde_json::json!({"passed":true,"endWithoutPause":true}));
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                return Err("End selected the wrong assignment".into());
+            }
+            if mode == "slow-registration" {
+                let _thread = crate::create_thread_in(
+                    app.state(),
+                    "fixture".into(),
+                    "Slow registration".into(),
+                )?;
+                crate::send_message(
+                    app.state(),
+                    "Handle slow registration: produce deliverable.txt containing Finished.".into(),
+                )?;
+                let marker = PathBuf::from(std::env::var("RICHOS_FIXTURE_ROOT").unwrap())
+                    .join("registration-started");
+                let start = std::time::Instant::now();
+                while !marker.exists() {
+                    if start.elapsed() > Duration::from_secs(20) {
+                        return Err("Registrar never started".into());
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                let start = std::time::Instant::now();
+                crate::send_message(app.state(), "How is work going?".into())?;
+                if start.elapsed() > Duration::from_secs(3) {
+                    return Err("Busy registration blocked Rich".into());
+                }
+                // Let the slow child exit before stopping this test process.
+                std::thread::sleep(Duration::from_secs(9));
+                return Ok(serde_json::json!({"passed":true,"busyRegistrationResponsive":true}));
+            }
+            if mode == "independent-work" {
+                let thread = crate::create_thread_in(
+                    app.state(),
+                    "fixture".into(),
+                    "Independent assignments".into(),
+                )?;
+                let workspace = state
+                    .registry
+                    .lock()
+                    .unwrap()
+                    .get(&richos_core::EntityId::parse("fixture").unwrap())
+                    .unwrap()
+                    .roots[0]
+                    .clone();
+                let primary = state.data_dir.join("runs").join(format!("{thread}.jsonl"));
+                let plan = autonomy::plan(
+                    &workspace,
+                    "An earlier assignment",
+                    "Earlier paused work",
+                    vec![autonomy::WorkItem {
+                        id: "old".into(),
+                        description: "Earlier paused work".into(),
+                        depends_on: vec![],
+                        criteria: "Old result".into(),
+                    }],
+                )?;
+                let mut ctl = RunController::create(&primary, plan).map_err(|e| e.to_string())?;
+                ctl.pause(true).map_err(|e| e.to_string())?;
+                let old_id = ctl.snapshot().id.clone();
+                drop(ctl);
+                crate::send_message(
+                    app.state(),
+                    "Handle this: produce deliverable.txt containing Finished.".into(),
+                )?;
+                let start = std::time::Instant::now();
+                while start.elapsed() < Duration::from_secs(40) {
+                    let paths = crate::managed_runs::journals(&state, &thread)?;
+                    if paths.len() == 2
+                        && paths
+                            .iter()
+                            .filter_map(|p| richos_core::run::read_snapshot(p).ok())
+                            .any(|s| s.id != old_id && s.state() == RunState::Completed)
+                    {
+                        if richos_core::run::read_snapshot(&primary)
+                            .map_err(|e| e.to_string())?
+                            .state()
+                            != RunState::Paused
+                        {
+                            return Err("Independent work changed the old assignment".into());
+                        }
+                        let view = crate::managed_runs::select_run(
+                            app.state(),
+                            thread.clone(),
+                            old_id.clone(),
+                        )?;
+                        let _ = view;
+                        // Control must end this selected job even after the newer one finishes.
+                        while state.managed_runs.active.lock().unwrap().is_some() {
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        crate::managed_runs::end_run(app.state(), thread.clone(), Some(old_id))?;
+                        if richos_core::run::read_snapshot(&primary)
+                            .map_err(|e| e.to_string())?
+                            .state()
+                            != RunState::Canceled
+                        {
+                            return Err("End selected the wrong assignment".into());
+                        }
+                        return Ok(
+                            serde_json::json!({"passed":true,"independentWorkCompleted":true,"selectedControlCorrect":true}),
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                return Err("New assignment waited behind paused work".into());
+            }
+            if mode == "registration-failures" || mode == "registration-failures-restart" {
+                let thread = if mode == "registration-failures" {
+                    let thread = crate::create_thread_in(
+                        app.state(),
+                        "fixture".into(),
+                        "Failed registration".into(),
+                    )?;
+                    crate::send_message(
+                        app.state(),
+                        "Handle malformed: deliver the document.".into(),
+                    )?;
+                    crate::send_message(
+                        app.state(),
+                        "Question inconsistent: what is the plan?".into(),
+                    )?;
+                    thread
+                } else {
+                    state
+                        .spine
+                        .lock()
+                        .unwrap()
+                        .threads()
+                        .into_iter()
+                        .find(|t| t.title == "Failed registration")
+                        .ok_or("Failure test thread missing")?
+                        .id
+                };
+                let start = std::time::Instant::now();
+                while start.elapsed() < Duration::from_secs(95) {
+                    let saved: Vec<Request> = std::fs::read_dir(state.data_dir.join("requests"))
+                        .unwrap()
+                        .flatten()
+                        .filter_map(|e| std::fs::read(e.path()).ok())
+                        .filter_map(|b| serde_json::from_slice(&b).ok())
+                        .filter(|r: &Request| r.thread == thread)
+                        .collect();
+                    let spine = state.spine.lock().unwrap();
+                    let notices = spine
+                        .ledger()
+                        .turns()
+                        .iter()
+                        .filter(|t| {
+                            t.thread_id == thread
+                                && t.id.starts_with("registration-failed-")
+                                && t.state == TurnState::Completed
+                        })
+                        .count();
+                    drop(spine);
+                    if saved.len() == 2
+                        && saved.iter().all(|r| r.halted && !r.done && r.attempts == 3)
+                        && notices == 2
+                    {
+                        if !crate::managed_runs::journals(&state, &thread)?.is_empty() {
+                            return Err("Invalid registration launched a worker".into());
+                        }
+                        std::thread::sleep(Duration::from_secs(4));
+                        return Ok(
+                            serde_json::json!({"passed":true,"halted":2,"reports":notices,"workers":0}),
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                return Err("Registration failures did not stop and report".into());
             }
             if mode == "correct-live" {
                 let thread = crate::create_thread_in(

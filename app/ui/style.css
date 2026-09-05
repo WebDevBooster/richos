@@ -4445,7 +4445,20 @@ body.bp-narrow .tl-user-bubble {
 #managed-run p { margin: 8px 0; }
 #managed-run button, #managed-run input::file-selector-button { margin: 8px 8px 0 0; padding: 6px 10px; cursor: pointer; color: var(--ink); background: var(--surface-raised); border: 1px solid var(--line-control); border-radius: 6px; font: inherit; }
 #managed-run button:disabled { cursor: default; color: var(--ink-soft); }
-#managed-run input { max-width: 100%; font: inherit; }
+#managed-run input, #managed-run select { max-width: 100%; font: inherit; }
 #managed-run pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 #managed-run small { font-size: 0.875rem; }
+#managed-run select {
+  appearance: none;
+  font: inherit;
+  color: var(--ink);
+  background-color: var(--surface-raised);
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  border: 1px solid var(--line-control);
+  border-radius: 6px;
+  padding: 6px 30px 6px 10px;
+}

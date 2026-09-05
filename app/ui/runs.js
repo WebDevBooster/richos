@@ -1,16 +1,17 @@
 /* Durable work runs. Model turn events never decide this panel's completion. */
 (function () {
   "use strict";
-  let bridge, root, thread, current, generation = 0, busy = false, polling = false, lastError = "";
+  let bridge, root, thread, current, assignments = [], generation = 0, busy = false, polling = false, lastError = "";
   const labels = { ready: "Queued", waiting: "Retrying automatically", needs_decision: "Waiting for your decision", running: "Working", paused: "Paused",
     needs_attention: "Needs attention", completed: "Completed", pending: "Not finished",
-    verifying: "Checking the result", passed: "Checks passed", cancelled: "Ended without completion" };
+    verifying: "Checking the result", passed: "Checks passed", canceled: "Ended without completion" };
 
   function node(tag, text) { const e = document.createElement(tag); if (text) e.textContent = text; return e; }
   function error(e) {
     lastError = String(e);
     const out = root.querySelector('[role="status"]');
     if (out) out.textContent = String(e);
+    render();
   }
   function render() {
     root.replaceChildren(); root.hidden = !thread;
@@ -35,6 +36,21 @@
       });
       const advanced = node("details"); advanced.append(node("summary", "Import an existing plan"), load); details.append(advanced);
     } else {
+      if (assignments.length > 1) {
+        const label = node("label", "Assignment ");
+        const select = node("select"); select.setAttribute("aria-label", "Assignment");
+        for (const assignment of assignments) {
+          const option = node("option", `${labels[assignment.state] || assignment.state}: ${assignment.goal}`);
+          option.value = assignment.runId; option.selected = assignment.runId === current.runId; select.append(option);
+        }
+        select.addEventListener("change", async () => {
+          const stamp = generation;
+          try { const result = await bridge.invoke("select_run", { threadId: thread, runId: select.value });
+            if (stamp === generation) { current = result; render(); }
+          } catch (e) { if (stamp === generation) error(e); }
+        });
+        label.append(select); details.append(label);
+      }
       details.append(node("p", current.goal));
       if (current.workspace && !current.autonomous) details.append(node("p", `Workspace: ${current.workspace}. Up to ${current.maxAttempts} attempts per task, ${current.turnTimeoutSeconds} seconds per attempt.`));
       const list = node("ol");
@@ -55,7 +71,7 @@
           retry.addEventListener("click", async () => {
             const stamp = generation;
             try {
-              const result = await bridge.invoke("retry_run_task", { threadId: thread, taskId: task.id });
+              const result = await bridge.invoke("retry_run_task", { threadId: thread, runId: current.runId, taskId: task.id });
               if (stamp === generation) { current = result; render(); }
             } catch (e) { if (stamp === generation) error(e); }
           }); item.append(retry);
@@ -63,12 +79,12 @@
         list.append(item);
       }
       details.append(list);
-      if (!["completed", "cancelled"].includes(current.state)) {
+      if (!["completed", "canceled"].includes(current.state)) {
         const start = node("button", busy ? "Run active" : "Start / continue"); start.type = "button"; start.disabled = busy;
         start.addEventListener("click", async () => {
           const selected = thread, stamp = generation; busy = true; lastError = ""; render();
           try {
-            const result = await bridge.invoke("drive_run", { threadId: selected });
+            const result = await bridge.invoke("drive_run", { threadId: selected, runId: current.runId });
             if (stamp === generation) current = result;
           } catch (e) { if (stamp === generation) error(e); }
           finally { busy = false; if (stamp === generation) render(); }
@@ -77,7 +93,7 @@
         pause.addEventListener("click", async () => {
           const stamp = generation;
           try {
-            await bridge.invoke("pause_run", { threadId: thread });
+            await bridge.invoke("pause_run", { threadId: thread, runId: current.runId });
             if (stamp === generation) status.textContent = "Pause requested. The current attempt will stop before more work starts.";
           } catch (e) { if (stamp === generation) error(e); }
         });
@@ -87,7 +103,7 @@
         end.addEventListener("click", async () => {
           const stamp = generation;
           try {
-            const result = await bridge.invoke("end_run", { threadId: thread });
+            const result = await bridge.invoke("end_run", { threadId: thread, runId: current.runId });
             if (stamp === generation) { current = result; render(); }
           } catch (e) { if (stamp === generation) error(e); }
         }); details.append(end);
@@ -108,7 +124,16 @@
       });
       details.append(archive);
     }
+    if (lastError) {
+      const refresh = node("button", "Refresh work plans"); refresh.type = "button"; refresh.dataset.runRefresh = "";
+      refresh.addEventListener("click", () => window.RichRuns.show(thread)); details.append(refresh);
+    }
     details.append(status); root.append(details);
+  }
+
+  async function refreshAssignments(stamp) {
+    const result = await bridge.invoke("list_runs", { threadId: thread });
+    if (stamp === generation && Array.isArray(result)) assignments = result;
   }
 
   window.RichRuns = {
@@ -123,6 +148,7 @@
       }, 2000);
       bridge.listen("rich://run-updated", async ({ payload }) => {
         if (payload.threadId !== thread) return;
+        try { await refreshAssignments(generation); } catch (_) {}
         if (current && payload.runId !== current.runId) {
           const stamp = generation;
           try {
@@ -136,10 +162,11 @@
       });
     },
     async show(id) {
-      const stamp = ++generation; thread = id; current = null; lastError = ""; render();
+      const stamp = ++generation; thread = id; current = null; assignments = []; lastError = ""; render();
       if (!id) return;
       try {
         const result = await bridge.invoke("get_run", { threadId: id });
+        await refreshAssignments(stamp);
         if (stamp === generation) { current = result; render(); }
       } catch (e) { if (stamp === generation) { error(e); render(); } }
     }

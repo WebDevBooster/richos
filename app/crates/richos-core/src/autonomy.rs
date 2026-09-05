@@ -99,9 +99,18 @@ pub fn inspect_schema(
     seconds: u64,
     schema: serde_json::Value,
 ) -> Result<String, String> {
-    let mut model =
+    let model =
         NativeCognition::start_inspector_with_schema(&resolve_claude_bin(), workspace, schema)
             .map_err(|e| e.to_string())?;
+    inspect_model(model, prompt, pause, seconds)
+}
+
+pub(crate) fn inspect_model(
+    mut model: NativeCognition,
+    prompt: &str,
+    pause: &AtomicBool,
+    seconds: u64,
+) -> Result<String, String> {
     let cancel = model
         .cancel_handle()
         .ok_or("Inspector has no cancellation handle")?;

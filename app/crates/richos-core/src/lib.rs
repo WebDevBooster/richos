@@ -127,3 +127,5 @@ pub use worker_events::{HostLiveness, ObservedWorkerState, OpenRun, SessionScope
 pub use worker_status::WorkerStatusView;
 
 pub mod autonomy;
+
+pub mod registration;

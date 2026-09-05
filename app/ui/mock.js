@@ -1404,6 +1404,10 @@
     async invoke(cmd, args) {
       args = args || {};
       switch (cmd) {
+        case "list_runs":
+          return [];
+        case "select_run":
+          return null;
         case "get_run":
           return null;
         case "prepare_run":

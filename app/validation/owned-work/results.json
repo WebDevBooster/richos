@@ -1,18 +1,19 @@
 {
-  "revision": "fourth review",
+  "revision": "fifth review",
   "measured_on": "2026-09-05",
   "core": {
-    "direct_non_doc_passed": 725,
+    "direct_non_doc_passed": 732,
     "child_only_fixtures": 2,
     "doctests_passed": 5,
     "failed": 0,
-    "source_inventory": 727
+    "source_inventory": 734
   },
-  "managed_regressions_passed": 33,
-  "mutations_killed": 8,
-  "mutations_total": 8,
+  "managed_regressions_passed": 36,
+  "registrar_regressions_passed": 4,
+  "mutations_killed": 14,
+  "mutations_total": 14,
   "ui": {
-    "runs_passed": 14,
+    "runs_passed": 16,
     "affordances_exit": 0,
     "docs_claims_passed": 6,
     "full_suite_rerun": false
@@ -22,28 +23,53 @@
       "enqueue",
       "resume",
       "recover-notice",
-      "correct-live"
+      "correct-live",
+      "slow-registration",
+      "independent-work",
+      "registration-failures",
+      "registration-failures-restart",
+      "end-live"
     ],
     "native_handoff": {
       "exit": 0,
       "worker_attempts": 1,
       "ceo_messages": 1,
-      "result": "hello.txt contains exactly 10 bytes Hello Rich with no newline; Rich acknowledges ownership before reporting completion"
+      "conversation_prime_turns": 1,
+      "conversation_answer_turns": 1,
+      "conversation_report_turns": 1,
+      "conversation_registration_turns": 0,
+      "result": "hello.txt contains exactly 10 bytes Hello Rich with no newline"
     }
   },
-  "native_terminal": {
-    "exit": 0,
-    "state": "Completed",
-    "sessions": 3
+  "registration": {
+    "default_model": "haiku",
+    "tools": [],
+    "settings_sources": [],
+    "max_attempts": 3,
+    "busy_registrar_fixture_seconds": 8,
+    "conversation_response_assertion_seconds": 3,
+    "bad_inputs_tested": 2,
+    "calls_per_bad_input_including_restart": 3,
+    "workers_for_invalid_registrations": 0
+  },
+  "recovery": {
+    "checkpoint_cycles": 5,
+    "checkpoint_delay_seconds": 3600,
+    "decision_cycles": 10,
+    "resume_grants_more_resources": false
   },
   "older_reader": {
     "exit": 0,
-    "ceo_messages_preserved": 4
+    "ceo_messages_preserved": 9
   },
   "limits": [
-    "Microphone and speaker hardware were not tested; the existing speech chunk contract is tested.",
-    "No main-branch merge, release or deployment.",
-    "The full core run preceded the final same-scope amendment validation adjustment; the 33-test managed suite passed after it.",
-    "Model judgments and exactly-once external effects are not guaranteed."
+    "No live-provider correction or production-scale load measurement.",
+    "Voice is established through chunk tests, not hardware.",
+    "Native trial preceded the final metadata, direct-End and UI edits.",
+    "Mutation run preceded later application edits and the creation-timestamp addition.",
+    "The full UI suite was not rerun. P4 remains open.",
+    "Live/reloaded proactive report styling remains a separate issue.",
+    "No main merge or production deployment.",
+    "Model judgment and exactly-once external effects are not guaranteed."
   ]
 }

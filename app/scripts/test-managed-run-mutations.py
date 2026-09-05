@@ -30,6 +30,18 @@ mutations = [
      "managed_native_transport_loads_settings_and_denies_unapproved_tools"),
     ("src/run.rs", "require-workspace-for-recovery", "snapshot.plan.validate_structure()?", "snapshot.plan.validate()?",
      "unavailable_workspace_can_be_inspected_and_ended_but_never_executed"),
+    ("src/run.rs", "ignore-resource-ceiling", ">= RECOVERY_BUDGET", ">= 1000",
+     "recovery_checkpoints_charge_real_cycles_and_stop_at_resource_decision"),
+    ("src/run.rs", "skip-recovery-checkpoint", "== RECOVERY_CHECKPOINT", "== 999",
+     "recovery_checkpoints_charge_real_cycles_and_stop_at_resource_decision"),
+    ("src/run.rs", "reexecute-broken-review", "self.snapshot.plan.autonomous() && self.snapshot.tasks[i].review_pending", "false",
+     "review_only_failures_exhaust_the_same_persisted_resource_budget"),
+    ("src/registration.rs", "trust-inconsistent-registration", "action != value.rich_committed", "false",
+     "neither_false_none_nor_unaccepted_work_crosses_the_consistency_floor"),
+    ("src/registration.rs", "drop-verbatim-request", 'CEO request (verbatim):\\n{request}\\nRich', 'Rich',
+     "the_contract_preserves_every_byte_including_negative_constraints_and_tail"),
+    ("src/spine.rs", "reprime-before-every-report", "self.deliver(id, binding, &prompt, true)", "{ self.lease_primed = false; self.deliver(id, binding, &prompt, true) }",
+     "rich_keeps_voice_and_reports_without_registration_or_redundant_priming"),
 ]
 
 with tempfile.TemporaryDirectory(prefix="richos-run-mutations-") as temporary:
@@ -38,7 +50,7 @@ with tempfile.TemporaryDirectory(prefix="richos-run-mutations-") as temporary:
     shutil.copytree(core, copy, ignore=shutil.ignore_patterns("target"))
     shutil.copyfile(core.parents[1] / "Cargo.lock", copy / "Cargo.lock")
     env = dict(os.environ, CARGO_TARGET_DIR=str(root / "target"))
-    command = [cargo, "test", "--offline", "--manifest-path", str(copy / "Cargo.toml"), "--test", "run_tests"]
+    command = [cargo, "test", "--offline", "--manifest-path", str(copy / "Cargo.toml"), "--test", "run_tests", "--test", "registration_tests"]
     baseline = subprocess.run(command, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if baseline.returncode:
         sys.exit("Baseline failed; no mutation verdict is valid.\n" + baseline.stdout)

@@ -17,6 +17,8 @@ async function main() {
       listen(name, fn) { window.listeners[name] = fn; },
       async invoke(name, args) {
         window.calls.push([name, args]);
+        if (name === "list_runs") return window.assignments || (window.snapshot ? [window.snapshot] : []);
+        if (name === "select_run") { window.snapshot = window.assignments.find(r => r.runId === args.runId); }
         if (name === "get_run" && window.loadFailure) throw Error(window.loadFailure);
         if (name === "drive_run" && window.failure) throw Error(window.failure);
         if (name === "prepare_run") { window.snapshot.state = "paused"; }
@@ -50,7 +52,7 @@ async function main() {
     assert(!(await page.locator("#managed-run").innerText()).includes("STALE SNAPSHOT"));
   });
   await run.check("Cancellation is not completion and offers a new plan", async () => {
-    await page.evaluate(() => window.listeners["rich://run-updated"]({ payload: { ...window.snapshot, state: "cancelled" } }));
+    await page.evaluate(() => window.listeners["rich://run-updated"]({ payload: { ...window.snapshot, state: "canceled" } }));
     assert((await page.locator("summary").first().innerText()).includes("Ended without completion"));
     assert(await page.getByRole("button", { name: "Load another work plan", exact: true }).isVisible());
   });
@@ -58,6 +60,7 @@ async function main() {
     await page.evaluate(async () => { window.failure = "Cannot start this attempt"; await window.RichRuns.show("a"); });
     await page.getByRole("button", { name: "Start / continue", exact: true }).click();
     assert((await page.locator('[role="status"]').innerText()).includes("Cannot start this attempt"));
+    assert(await page.getByRole("button", {name:"Refresh work plans",exact:true}).isVisible());
     assert(await page.getByRole("button", { name: "Start / continue", exact: true }).isEnabled());
   });
   await run.check("Pause is a real backend request scoped to this task", async () => {
@@ -128,6 +131,26 @@ async function main() {
       await window.listeners["rich://run-updated"]({payload:{...window.snapshot, runId:"auto-a", revision:999, goal:"Obsolete assignment"}});
     });
     assert(!(await page.locator("#managed-run").innerText()).includes("Obsolete assignment"));
+  });
+  await run.check("Independent assignments remain selectable while one needs a CEO decision", async () => {
+    await page.evaluate(async () => {
+      window.assignments = [
+        {...window.snapshot, runId:"blocked", state:"needs_decision", goal:"Original assignment"},
+        {...window.snapshot, runId:"unrelated", state:"completed", goal:"Unrelated completed assignment"}
+      ];
+      window.snapshot = window.assignments[1]; await window.RichRuns.show("a");
+    });
+    assert(await page.getByLabel("Assignment", {exact:true}).evaluate(e => parseFloat(getComputedStyle(e).fontSize) >= 16));
+    await page.getByLabel("Assignment", {exact:true}).selectOption("blocked");
+    await page.waitForFunction(() => window.calls.some(([n,a]) => n === "select_run" && a.runId === "blocked"));
+    assert((await page.locator("#managed-run").innerText()).includes("Original assignment"));
+    assert((await page.locator("summary").first().innerText()).includes("Waiting for your decision"));
+  });
+  await run.check("Controls carry the displayed assignment identity even if another job updates", async () => {
+    await page.getByRole("button", {name:"End run without completing it",exact:true}).click();
+    assert(await page.evaluate(() => window.calls.some(([n,a]) => n === "end_run" && a.runId === "blocked")));
+    await page.getByRole("button", {name:"Pause run",exact:true}).click();
+    assert(await page.evaluate(() => window.calls.some(([n,a]) => n === "pause_run" && a.runId === "blocked")));
   });
   await browser.close(); return run.report();
 }
