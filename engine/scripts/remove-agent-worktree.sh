@@ -48,9 +48,33 @@
 # The guard and this helper MOVE AS A PAIR and must never be split: a guard
 # whose sanctioned escape route is not installed is a guard that only blocks.
 #
-# USAGE:
-#   <engine>/scripts/remove-agent-worktree.sh --owner <agent-id> <worktree-path> \
-#       [--branch <branch>] [--repo <repo-path>] [--force]
+# TWO MODES, AND THE NEW ONE IS THE ONE TO USE.
+#
+#   RETIREMENT (preferred):
+#     remove-agent-worktree.sh --workspace <ws-id> [--owner <a>] [--repo <r>]
+#                              [<path>] [--dry-run] [--retention-days <n>]
+#
+#   The caller names an IDENTITY and nothing else. Repository, path, branch and
+#   owner are DERIVED from the ownership ledger by scripts/lib/workspace-retire.py;
+#   --owner, --repo and a positional path become ASSERTIONS that must AGREE with
+#   the record, and can never widen the target. The workspace is preserved
+#   (committed, staged, dirty, untracked AND ignored), its tip made reachable
+#   from a backup ref, and its directory RENAMED to quarantine with a retention
+#   period. Nothing is deleted; branch deletion is a separate operation. A
+#   structured JSON outcome goes to stdout.
+#
+#   WHY IT EXISTS: on 2026-09-05 the legacy mode below was handed a malformed
+#   owner and a malformed path by a caller whose zsh loop failed to word-split,
+#   and it recursively deleted /Users/alex/ab/richos-wt/ — the parent of every
+#   RichOS worktree on the machine — then reported success, twice. Every string
+#   check the legacy mode had, that request passed, because the path it was
+#   handed was real and non-empty. The repair is not a stricter path check; it
+#   is that a caller does not supply a path at all.
+#   Diagnosis: richos-hq docs/verification/worktree-container-deletion-2026-09-05.md
+#
+#   LEGACY (retained for the reaper and for operator work):
+#     remove-agent-worktree.sh --owner <agent-id> <worktree-path> \
+#         [--branch <branch>] [--repo <repo-path>] [--force]
 #
 #   --owner <agent-id>   REQUIRED. The agent whose liveness is checked against
 #                        the ENTITY's worktree lock. Accepts "agent-<id>" or "<id>".
@@ -75,9 +99,14 @@
 #
 # Exit codes:
 #   0  agent confirmed NOT alive; worktree (and optional branch) removed.
+#      (retirement mode: quarantined, already-retired, or a --dry-run that passed)
 #   2  usage error.
 #   3  agent is ALIVE (or liveness indeterminate) — REFUSED, nothing removed.
+#      (retirement mode: any refusal at all, always BEFORE any mutation)
 #   4  removal failed (e.g. dirty worktree without --force).
+#      (retirement mode: a step was attempted and failed; `stage` names which)
+#   5  legacy mode only: the target is a directory that is NOT a registered
+#      worktree of the repository. REFUSED — see the block at that exit.
 
 set -euo pipefail
 
@@ -87,13 +116,31 @@ err() { printf '%s\n' "$*" >&2; }
 
 usage() {
     cat >&2 <<EOF
-usage: remove-agent-worktree.sh --owner <agent-id> <worktree-path> \\
+usage, RETIREMENT mode (preferred):
+  remove-agent-worktree.sh --workspace <ws-id> [--owner <a>] [--repo <r>] \\
+           [<path>] [--dry-run] [--retention-days <n>] [--entity-repo <path>]
+
+  The caller names an IDENTITY. Repository, path, branch and owner are DERIVED
+  from the ownership ledger; --owner, --repo and a positional path are
+  ASSERTIONS that must AGREE with the record. The workspace is preserved
+  (committed, staged, dirty, untracked AND ignored), its tip made reachable
+  from a backup ref, and its directory RENAMED to quarantine with a retention
+  period. NOTHING IS DELETED. A structured JSON outcome goes to stdout.
+
+  List identities:   python3 <engine>/scripts/lib/workspace-retire.py list
+  Delete a branch:   python3 <engine>/scripts/lib/workspace-retire.py retire-branch <ws-id>
+  Expire quarantine: python3 <engine>/scripts/lib/workspace-retire.py sweep --execute
+  Restore:           python3 <engine>/scripts/lib/workspace-retire.py restore <ws-id> <dest>
+
+usage, LEGACY mode (the reaper's route, and operator work from a bare path):
+  remove-agent-worktree.sh --owner <agent-id> <worktree-path> \\
            [--branch <branch>] [--repo <repo-path>] [--force] \\
            [--entity-repo <path>]
 
 The ONLY sanctioned way to remove an agent-associated worktree. Verifies the
 agent is NOT alive (authoritative ENTITY isolation-worktree lock + live-pid
-check) before removing anything.
+check) before removing anything, and REFUSES a target that is not a registered
+worktree of the repository (it used to recursively delete it — 2026-09-05).
 $HOOK_TAG
 EOF
 }
@@ -104,9 +151,17 @@ BRANCH=""
 REPO=""
 ENTITY_OVERRIDE="${REMOVE_AGENT_ENTITY_REPO:-}"
 FORCE=0
+WORKSPACE=""
+DRY_RUN=0
+RETENTION=""
+LOCK_WAIT=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --workspace)      WORKSPACE="${2:-}"; shift 2 ;;
+        --dry-run)        DRY_RUN=1; shift ;;
+        --retention-days) RETENTION="${2:-}"; shift 2 ;;
+        --lock-wait)      LOCK_WAIT="${2:-}"; shift 2 ;;
         --owner)          OWNER="${2:-}"; shift 2 ;;
         --branch)         BRANCH="${2:-}"; shift 2 ;;
         --repo)           REPO="${2:-}"; shift 2 ;;
@@ -124,8 +179,9 @@ done
 # Any trailing positionals after `--`.
 if [ -z "$WT_PATH" ] && [ "$#" -gt 0 ]; then WT_PATH="$1"; shift; fi
 
-if [ -z "$OWNER" ] || [ -z "$WT_PATH" ]; then
-    err "ERROR: --owner <agent-id> and <worktree-path> are both required."
+if [ -z "$WORKSPACE" ] && { [ -z "$OWNER" ] || [ -z "$WT_PATH" ]; }; then
+    err "ERROR: --owner <agent-id> and <worktree-path> are both required (legacy mode),"
+    err "       or --workspace <ws-id> (retirement mode)."
     usage
     exit 2
 fi
@@ -162,6 +218,70 @@ else
         err "  $HOOK_TAG"
         exit 3
     fi
+fi
+
+# ===========================================================================
+# RETIREMENT MODE — the operation the 2026-09-05 diagnosis specifies
+# ===========================================================================
+# Everything below this block is the LEGACY mode. It is retained because the
+# reaper calls it and because an operator sometimes has only a path, and it is
+# now safe in the one way that mattered (an unregistered directory is refused
+# rather than recursively deleted). But it still takes a path from its caller,
+# and a path from a caller is what turned a word-splitting mistake into the
+# deletion of every workspace on this machine.
+#
+# Retirement mode takes an IDENTITY. There is no way to spell
+# `/Users/alex/ab/richos-wt/` as a workspace ID, because no ownership record
+# has ever named it: it resolves to `unknown-workspace` and the operation
+# stops before it looks at the disk at all.
+#
+# This helper is a THIN ROUTE to scripts/lib/workspace-retire.py, and it is a
+# route rather than a second implementation for a reason already written into
+# this file twice: two implementations of a rule is how one of them silently
+# becomes the stale one. It stays inside THIS script's name because
+# guard-worktree-removal.sh recognizes that name as its sanctioned escape
+# route — a new file name would be blocked by the guard, and a guard whose
+# escape route is not installed is a guard that only blocks.
+if [ -n "$WORKSPACE" ]; then
+    _WR_LIB="$SCRIPT_DIR/lib/workspace-retire.py"
+    if [ ! -f "$_WR_LIB" ]; then
+        {
+            echo "=== remove-agent-worktree: REFUSED — retirement library missing ==="
+            echo "  scripts/lib/workspace-retire.py is absent at:"
+            echo "    $_WR_LIB"
+            echo "  The ownership record is the ONLY source of a workspace's repository,"
+            echo "  path and owner. Without the library there is nothing to derive them"
+            echo "  from, and this script does not fall back to a caller's strings."
+            echo "$HOOK_TAG"
+        } >&2
+        exit 3
+    fi
+    _WR_ARGS=(retire "$WORKSPACE" --entity-repo "$ENTITY_MAIN")
+    # --owner / --repo / <path> are ASSERTIONS here, never inputs. They can
+    # only fail to match what the record says; they can never widen the target.
+    #
+    # These are `if` statements and not `[ x ] && y` one-liners deliberately:
+    # under `set -e` an AND-list whose test fails IS the command's status, and
+    # the shell exits. A silent early exit in a removal helper is the exact
+    # shape of a step that never ran while its caller reported success.
+    if [ -n "$OWNER" ];     then _WR_ARGS+=(--owner "$OWNER"); fi
+    if [ -n "$REPO" ];      then _WR_ARGS+=(--repo "$REPO"); fi
+    if [ -n "$WT_PATH" ];   then _WR_ARGS+=(--path "$WT_PATH"); fi
+    if [ -n "$RETENTION" ]; then _WR_ARGS+=(--retention-days "$RETENTION"); fi
+    if [ -n "$LOCK_WAIT" ]; then _WR_ARGS+=(--lock-wait "$LOCK_WAIT"); fi
+    if [ "$DRY_RUN" -eq 1 ]; then _WR_ARGS+=(--dry-run); fi
+    if [ -n "$BRANCH" ]; then
+        err "note: --branch is ignored in retirement mode. Branch deletion is a SEPARATE"
+        err "      operation with its own retention and reachability checks:"
+        err "        python3 $_WR_LIB retire-branch $WORKSPACE"
+    fi
+    if [ "$FORCE" -eq 1 ]; then
+        err "note: --force is ignored in retirement mode. Nothing is deleted, so there is"
+        err "      nothing for it to override — the workspace is preserved and RENAMED."
+    fi
+    _WR_RC=0
+    python3 "$_WR_LIB" "${_WR_ARGS[@]}" || _WR_RC=$?
+    exit "$_WR_RC"
 fi
 
 # The repo that owns the worktree being removed (where `git worktree remove`
