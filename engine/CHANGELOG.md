@@ -10,6 +10,61 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An ack is no longer destroyed by the cleanup that follows every teammate**
+  (`scripts/inflight-ack.sh`, `scripts/lib/inflight.{py,sh}`,
+  `scripts/inflight-notify.sh`, `reference/ack-protocol-seam.md`,
+  `scripts/hooks/inflight-ack-durability.test.sh`) — MINOR.
+
+  An ack was only a file inside the teammate's worktree. Both governed
+  repositories gitignore `.claude/*`; the harness auto-cleans an isolation
+  worktree that is UNCHANGED at completion; and a gitignored write does not
+  make a tree changed. So an agent whose only writes were acks had its
+  worktree, and every ack in it, deleted the moment it finished.
+
+  Observed rather than theorized. `echo-opus-529` wrote three acks on
+  2026-09-05, reported them by path, and named the ignore rule itself in its
+  own handoff; `361590f`, `363b0f8` and `c92488d` are absent from the whole of
+  the working tree today. `zach-opus-not1` hit the other end: after its
+  worktree was cleaned, `inflight-ack.sh` REFUSED its next ack with "worktree
+  does not exist", so it could not answer at all.
+
+  **Why it is not cosmetic:** the Stop-hook notice escalates a missing ack on a
+  measured 30-minute timeout, and an ack that was written, confirmed and then
+  deleted reads at that timeout exactly like an ack that was never written. The
+  operator is sent to chase a teammate that already complied.
+
+  **The row offered three options and costed none of them.** Un-ignoring the
+  directory in one repository was refuted by a commit LATER than the row —
+  `c19cd83`, 2026-09-02, untracked all 31 acks from `richos` precisely because
+  they carry the operator's absolute home paths, teammate names and session
+  ids and that repository is the open-source launch target. It also leaves the
+  mechanism repository-dependent, which IS the defect. Moving the write into a
+  hook answers WHO writes the evidence and not WHERE it lives, so it would
+  evaporate identically. What was actually wrong was the location, so the
+  location changed: an append-only row in `~/.claude/state/inflight-acks.jsonl`,
+  outside every repository, worktree and session, beside the two ledgers that
+  already exist for exactly this reason. The worktree file is still written and
+  still read — every ack already on disk is one — as the readable mirror.
+
+  Consequences that are the point rather than side effects: a teammate whose
+  worktree has ALREADY been removed can now ack (the refusal above is gone); an
+  ack that cannot be made durable exits non-zero and says so, instead of
+  leaving a file in a doomed tree; a worktree that is no longer live still has
+  its ack read rather than discarded; and acks whose teammate has no registered
+  worktree left are reported under ACKED, WORKTREE GONE instead of not being
+  reported at all. `RICHOS_INFLIGHT_ACK_LEDGER` overrides the path, same
+  spelling and same purpose as `RICHOS_ESCALATION_LEDGER`.
+
+  Proven against a REAL removal — the engine's own `remove-agent-worktree.sh`,
+  on a real linked worktree, which deregisters as well as deletes — and in both
+  directions, because a store that answers "acked" for everybody would be worse
+  than the bug. The suite carries its own positive probes: it re-runs the
+  survival assertion against an emptied ledger and requires it to go RED, and
+  it makes the Stop-hook nag fire before it asserts the nag's silence, so no
+  case can pass by never running.
+
 ### Added
 
 - **An escalation a teammate raises cannot quietly fail to arrive**
