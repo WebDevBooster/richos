@@ -220,6 +220,23 @@ if [ "$LBL" = "HOOK-STALENESS GUARD" ]; then
     ok "6b  and the notice- prefix is stripped the same way: $LBL"
 else bad "6b  the notice- prefix is stripped" "got '$LBL'"; fi
 
+# 6c/6d. ONE sentence, two events. A PreToolUse guard let a CALL through; a
+# Stop hook let a TURN end. Two templates would be two voices waiting to drift.
+S_CALL="$( . "$LIB"; unevaluated_sentence "guard-x.sh" "the thing" empty call )"
+S_TURN="$( . "$LIB"; unevaluated_sentence "guard-x.sh" "the thing" empty turn )"
+if printf '%s' "$S_CALL" | grep -q 'This ONE call is UNGATED' \
+   && printf '%s' "$S_TURN" | grep -q 'This turn ENDED UNCHECKED'; then
+    ok "6c  the noun and the scope clause follow the event — call for PreToolUse, turn for Stop"
+else bad "6c  the sentence adapts its noun to the event" "call=[$S_CALL] turn=[$S_TURN]"; fi
+# The noun appears twice, so the shared part is the head up to it and the tail
+# after the scope clause. Both are compared, because a template that drifted
+# would drift in one of them.
+HEAD_C="${S_CALL%%could not read this *}"; HEAD_T="${S_TURN%%could not read this *}"
+TAIL_C="${S_CALL#*is UNGATED}";            TAIL_T="${S_TURN#*ENDED UNCHECKED}"
+if [ "$HEAD_C" = "$HEAD_T" ] && [ "$TAIL_C" = "$TAIL_T" ] && [ -n "$TAIL_C" ]; then
+    ok "6d  and the head and tail around it are byte-identical — one template, not two waiting to drift"
+else bad "6d  the two sentences share one template" "call=[$S_CALL] turn=[$S_TURN]"; fi
+
 echo ""
 echo "=== $PASS passed, $FAIL failed ==="
 [ "$FAIL" -eq 0 ]

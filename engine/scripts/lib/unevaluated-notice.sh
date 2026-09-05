@@ -226,13 +226,35 @@ _ue_label() { # <hook basename.sh> -> WORKTREE-ISOLATION GUARD
     printf '%s GUARD' "$(_ue_upper "$n")"
 }
 
-announce_unevaluated() { # <hook basename> <what was not checked> <reason word> [<state dir>]
-    local hook="${1-}" what="${2-}" reason="${3-}" dir="${4-}" msg
+# ONE SENTENCE, TWO EVENTS. A PreToolUse guard is talking about a CALL it let
+# through; a Stop hook is talking about a TURN it let end. The noun is the only
+# thing that differs, and it is a parameter rather than a second template,
+# because two templates is how a shared voice becomes two voices that drift.
+#
+# The Stop hooks do NOT emit through announce_unevaluated. They build the
+# sentence here and hand it to stop_notice_abnormal, which is the channel
+# scripts/lib/stop-hook-notice.sh measured for that event and which
+# de-duplicates on state change. That difference is deliberate: a PreToolUse
+# announcement is about one call and must repeat, while a Stop announcement is
+# about a persistent condition seen once per turn, which is exactly the case
+# stop-hook-notice.sh argues should speak on entry and then stay quiet.
+unevaluated_sentence() { # <hook basename> <what was not checked> <reason word> <noun: call|turn>
+    local hook="${1-}" what="${2-}" reason="${3-}" noun="${4:-call}" scope
     case "$reason" in
         empty) reason="the payload was empty" ;;
         *)     reason="the payload is not readable JSON" ;;
     esac
-    msg="$(printf '%s' "$(_ue_label "$hook"): could not read this call ($reason), so $what was NOT checked. This ONE call is UNGATED — nothing looked at it, which is not the same as nothing being wrong with it. (hook: scripts/hooks/$hook)")"
+    case "$noun" in
+        turn) scope="This turn ENDED UNCHECKED" ;;
+        *)    scope="This ONE call is UNGATED" ;;
+    esac
+    printf '%s: could not read this %s (%s), so %s was NOT checked. %s — nothing looked at it, which is not the same as nothing being wrong with it. (hook: scripts/hooks/%s)' \
+        "$(_ue_label "$hook")" "$noun" "$reason" "$what" "$scope" "$hook"
+}
+
+announce_unevaluated() { # <hook basename> <what was not checked> <reason word> [<state dir>]
+    local hook="${1-}" what="${2-}" reason="${3-}" dir="${4-}" msg
+    msg="$(unevaluated_sentence "$hook" "$what" "$reason" "call")"
     printf '%s\n' "$msg" >&2
     # THE OPERATOR CHANNEL DOES NOT GET TO DEPEND ON python3. This whole file
     # runs in a failure path; a notice that is itself conditional on a working
