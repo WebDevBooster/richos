@@ -42,7 +42,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 
@@ -61,7 +61,7 @@ const shots = [];
 async function evidence(page, name, note) {
   const s = await shot(page, name); // throws unless the pixels are a real render
   fs.mkdirSync(SHOTS_26, { recursive: true });
-  fs.copyFileSync(s.file, path.join(SHOTS_26, name + ".png"));
+  publishShotFile(s.file, path.join(SHOTS_26, name + ".png"));
   shots.push({ name, note, distinct: s.distinct, bytes: s.bytes });
   return `${name}.png — ${s.width}x${s.height}, ${s.distinct} distinct colors, ${s.bytes} bytes`;
 }

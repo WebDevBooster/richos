@@ -71,7 +71,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const C = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -797,7 +797,7 @@ async function main() {
         const out = await walk(page, surface.name, theme);
         if (theme === "light") {
           const s = await shot(page, "contrast-" + surface.name, { fullPage: false });
-          fs.copyFileSync(s.file, path.join(SHOTS, surface.name + ".png"));
+          publishShotFile(s.file, path.join(SHOTS, surface.name + ".png"));
         }
         await page.close();
         perSurface[surface.name + "/" + theme] = out;

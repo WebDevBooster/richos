@@ -42,7 +42,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { loadPlaywright, leaveHome, shot, createRun, assert, assertEqual, UI_DIR, SHOT_DIR } = require("./lib/harness");
+const { loadPlaywright, leaveHome, shot, publishShotFile, createRun, assert, assertEqual, UI_DIR, SHOT_DIR } = require("./lib/harness");
 const contrastLib = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -610,7 +610,7 @@ async function main() {
     // `All` is a capsule and is meant to be: it is a word, not a numeral.
     assert(r.widths[0] > r.heights[0], "the All button came out as a disc — it is a word and needs its own room");
     await shot(page, "home-anonymized", { fullPage: false });
-    fs.copyFileSync(path.join(SHOT_DIR, "home-anonymized.png"), path.join(SHOTS, "home-anonymized.png"));
+    publishShotFile(path.join(SHOT_DIR, "home-anonymized.png"), path.join(SHOTS, "home-anonymized.png"));
     return `All ${r.widths[0]}x${r.heights[0]}; six discs at ${discs.join("/")}px wide x ${tall.join("/")}px tall`;
   });
 
@@ -1183,7 +1183,7 @@ async function main() {
 
   await run.check("the switch takes him to the app UI, and the picture stops", async () => {
     await shot(page, "home-named", { fullPage: false });
-    fs.copyFileSync(path.join(SHOT_DIR, "home-named.png"), path.join(SHOTS, "home-named.png"));
+    publishShotFile(path.join(SHOT_DIR, "home-named.png"), path.join(SHOTS, "home-named.png"));
     const framesAt = await page.evaluate(() => window.__loro.frames);
     await page.click("#home-enter");
     await page.waitForFunction(() => document.getElementById("home").hidden);
@@ -1204,7 +1204,7 @@ async function main() {
     assertEqual(r.focus, "input", "focus did not follow the surface to the composer");
     assert(!r.forced, "the always-dark clamp is still up in the app UI");
     await shot(page, "home-app-ui", { fullPage: false });
-    fs.copyFileSync(path.join(SHOT_DIR, "home-app-ui.png"), path.join(SHOTS, "home-app-ui.png"));
+    publishShotFile(path.join(SHOT_DIR, "home-app-ui.png"), path.join(SHOTS, "home-app-ui.png"));
     await page.waitForTimeout(1500);
     const later = await page.evaluate(() => window.__loro.frames);
     assertEqual(later, r.frames, "the frame loop is still running while the CEO is in the app UI");
@@ -1244,7 +1244,7 @@ async function main() {
     assert(r.forced, "the always-dark clamp did not come back with the screen");
     assertEqual(r.focus, "home-enter", "focus did not follow the surface back");
     await shot(page, "home-returned", { fullPage: false });
-    fs.copyFileSync(path.join(SHOT_DIR, "home-returned.png"), path.join(SHOTS, "home-returned.png"));
+    publishShotFile(path.join(SHOT_DIR, "home-returned.png"), path.join(SHOTS, "home-returned.png"));
     return `back in ${resumeMs}ms, frames ${before.frames} -> ${r.frames}, still ${r.N} objects, no reload, clamp back up`;
   });
 
@@ -1425,7 +1425,7 @@ async function main() {
       const bad = failures(all);
       assertEqual(bad.length, 0, "under the floor in " + theme + ":\n" + reportRatios(bad));
       await shot(page, "home-settings-" + theme, { fullPage: false });
-      fs.copyFileSync(path.join(SHOT_DIR, "home-settings-" + theme + ".png"), path.join(SHOTS, "home-settings-" + theme + ".png"));
+      publishShotFile(path.join(SHOT_DIR, "home-settings-" + theme + ".png"), path.join(SHOTS, "home-settings-" + theme + ".png"));
       await page.evaluate(() => window.RichHome.closeSettings());
       return reportRatios(all) + `\n          ${shape.foot}`;
     });
