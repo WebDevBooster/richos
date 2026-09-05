@@ -150,3 +150,24 @@ restored: `all 20 passed`, seven boots, none of them reaching his keyboard.
 * **The published `v1.0.2` bundle at `~/Applications/RichOS.app` was never modified** and is
   not what any row above measured. Rows 05 and 06 built their own bundle in `/private/tmp`
   around this branch's binary; the installed app's `Info.plist` was copied, never edited.
+* **The updater's relaunch was NOT exercised end to end.** `update_relaunch` now sets
+  `RICHOS_ACTIVATION=regular` before `app.restart()`, because restart spawns a replacement
+  and exits, so condition P would race the old process dying. The marker reaching the child
+  is `std::process::Command`'s ordinary environment inheritance rather than a measurement —
+  proving it needs a real staged update, which this run did not have. The override itself
+  IS measured, in both directions and on a real boot: row 08 above, and the unit tests
+  `the_override_answers_in_both_directions` and
+  `an_unrecognized_override_value_decides_nothing`.
+* **The 47 leftover `richos-owned-desktop-*` evidence directories (7.4 MB) were not
+  cleaned up, and the one-line fix is not in this branch's territory.** They are created by
+  a `tempfile.mkdtemp(prefix="richos-owned-desktop-")` in the owned-work desktop harness,
+  a script that exists only on the unmerged `codex/durable-orchestration` branch and is the
+  contractor's file — not in this tree at all. The fix belongs where the directory is made:
+  remove it on the SUCCESS
+  path only, since that script's own failure message tells its reader to inspect the
+  directory. The existing 47 were left in place because they may still be evidence for a
+  review in flight.
+* **The contractor's harness phases cannot be broken by the invisible window**, and that is
+  checked rather than assumed: `owned_work.rs::selftest` on that branch runs entirely
+  Rust-side, calling the Tauri commands through `app.state()`, and never drives the page or
+  reads window geometry. The webview loads either way, which row 03 measures.
