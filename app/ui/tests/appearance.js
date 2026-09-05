@@ -41,6 +41,7 @@
 const fs = require("fs");
 const path = require("path");
 const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const SOURCES = require("./lib/ui-sources");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = "../shots-10-1";
@@ -348,19 +349,49 @@ async function main() {
     // So this half is structural: `.settings` must out-rank EVERY other z-index the app
     // ships, computed from the stylesheets rather than compared against a number typed
     // here. A new overlay that outranks it fails this check on the day it lands.
-    const css = [
-      fs.readFileSync(path.join(UI_DIR, "style.css"), "utf8"),
-      fs.readFileSync(path.join(UI_DIR, "splash.css"), "utf8"),
-    ].join("\n");
-    // The COMPONENT is `.settings` plus the toast its Bust a bug raises; both belong to it
-    // and the toast is deliberately the higher of the two, so neither is measured against
-    // the other. Everything else in the app is.
-    const zOf = (sel) => Number(css.match(new RegExp(sel + "\\s*\\{[^}]*z-index:\\s*(\\d+)"))[1]);
+    //
+    // "THE SHIPPED CSS" USED TO MEAN TWO FILES OUT OF THREE. This read `style.css` and
+    // `splash.css` while `index.html` links a third — the 53 KB `home.css` — under a comment
+    // claiming EVERY z-index the app ships. It is derived from `lib/ui-sources.js` now, and
+    // widening it turned this check RED on the first run: `home.css` declares 340 against
+    // `.settings`'s 300. That is the gate working, and what it found is below.
+    const css = SOURCES.styleSources()
+      .map((f) => fs.readFileSync(SOURCES.abs(f), "utf8"))
+      .join("\n");
+
+    // WHAT THE COMPONENT OWNS, AND WHY EACH ONE IS ALLOWED ABOVE THE BUTTON.
+    //
+    // §15's requirement is that the settings BUTTON is reachable from every screen. An
+    // element that the button's own menu OPENED is not burying it — it is what pressing it
+    // did — which is why `#bug-toast` was already excluded here. `.home-prefs` is the same
+    // shape and was invisible to this check until `home.css` was: `settings-button.js`'s
+    // `wireHome()` closes the menu and calls `home.open()`, and the dialog that opens is
+    // `aria-modal` with its own Done control.
+    //
+    // AN OWNERSHIP CLAIM IS CHECKED, NOT ASSERTED. Each entry below names the property that
+    // makes it owned, and the property is verified against the live DOM at the bottom of
+    // this check — otherwise this list is a mute button with a comment on it, and any
+    // future overlay that turned this check red could be silenced by being added to it.
+    const SETTINGS_OWNED = [
+      { sel: "#bug-toast", why: "the toast the menu's own Bust a bug raises", proof: "raised-by-the-menu" },
+      {
+        sel: "\\.home-prefs",
+        why: "the company-buttons dialog the menu's own Home screen row opens (aria-modal, with its own Done)",
+        proof: "aria-modal-opened-from-the-menu",
+      },
+    ];
+
+    const zOf = (sel) => {
+      const m = css.match(new RegExp(sel + "\\s*\\{[^}]*z-index:\\s*(\\d+)"));
+      assert(m, "no z-index found for " + sel + " in the shipped CSS — the selector moved or the rule is gone");
+      return Number(m[1]);
+    };
     const settingsZ = zOf("\\.settings");
-    const toastZ = zOf("#bug-toast");
+    const ownedZ = SETTINGS_OWNED.map((o) => ({ ...o, z: zOf(o.sel) }));
+    const ownedValues = new Set([settingsZ, ...ownedZ.map((o) => o.z)]);
     const others = [...css.matchAll(/z-index:\s*(\d+)/g)]
       .map((m) => Number(m[1]))
-      .filter((z) => z !== settingsZ && z !== toastZ);
+      .filter((z) => !ownedValues.has(z));
     const highest = Math.max(...others);
     assert(
       settingsZ > highest,
@@ -369,12 +400,54 @@ async function main() {
         "alone is 200, and a curtain painted over the settings button satisfies the letter of " +
         "'it is on every page' and none of its point."
     );
+    for (const o of ownedZ) {
+      assert(
+        o.z >= settingsZ,
+        o.sel + " (" + o.z + ") is below the settings component (" + settingsZ + "), so it is not " +
+          "something the menu paints over itself and does not belong on the owned list"
+      );
+    }
+
+    // THE PROOF THAT EACH OWNED OVERLAY REALLY IS THE MENU'S. Driven, in the real shell.
+    const owner = track(await openApp(browser));
+    await owner.click("#set-btn");
+    await owner.waitForSelector("#set-menu", { state: "visible" });
+    const ownership = await owner.evaluate(() => {
+      const menu = document.getElementById("set-menu");
+      return {
+        bugInMenu: !!(menu && menu.querySelector("#set-bug, .set-bug, [id*='bug']")),
+        homeRowInMenu: !!(menu && menu.querySelector("#set-home-open")),
+      };
+    });
     assert(
-      toastZ >= settingsZ,
-      "the Bust a bug toast (" + toastZ + ") is below the button that raises it (" + settingsZ + ")"
+      ownership.bugInMenu,
+      "#bug-toast is excused as 'the toast the menu raises' and the menu has no Bust a bug control in it"
     );
-    return report.length + " surfaces, the button hit-testable on every one (" + report.join(", ") +
-      "); and z-index " + settingsZ + " out-ranks every other z-index shipped (highest other: " + highest + ")";
+    assert(
+      ownership.homeRowInMenu,
+      "`.home-prefs` is excused as 'the dialog the menu's Home screen row opens' and the menu has no such row"
+    );
+    await owner.click("#set-home-open");
+    await owner.waitForSelector("#home-prefs:not([hidden])");
+    const modal = await owner.evaluate(() => {
+      const panel = document.querySelector(".home-prefs-panel");
+      return {
+        ariaModal: panel ? panel.getAttribute("aria-modal") : null,
+        role: panel ? panel.getAttribute("role") : null,
+        done: !!document.getElementById("home-prefs-done"),
+      };
+    });
+    await owner.close();
+    assertEqual(modal.role, "dialog", "`.home-prefs` is excused as a modal and is not a dialog");
+    assertEqual(modal.ariaModal, "true", "`.home-prefs` is excused as a modal and does not claim aria-modal");
+    assert(modal.done, "`.home-prefs` is excused as a modal the CEO opened and has no control to close it");
+    return (
+      report.length + " surfaces, the button hit-testable on every one (" + report.join(", ") +
+      "); z-index " + settingsZ + " out-ranks every other z-index in " +
+      SOURCES.styleSources().join(" + ") + " (highest other: " + highest + "), and the " +
+      ownedZ.length + " above it are the component's own, each proven so in the real shell: " +
+      ownedZ.map((o) => o.sel.replace(/\\/g, "") + " " + o.z + " — " + o.why).join("; ")
+    );
   });
 
   // ---- 8. the menu's contents, in §15's order ------------------------------------------
@@ -812,8 +885,24 @@ main().catch((e) => {
 //      surface that matters most. Check 7 gained a structural half — `.settings` must
 //      out-rank every z-index the app ships, computed from the stylesheets — and the
 //      mutation now fires. It also immediately found that `#bug-toast` is 301, which is
-//      correct and is why the component's own two layers are excluded from the comparison
+//      correct and is why the component's own layers are excluded from the comparison
 //      rather than from the rule.
+// 7b   NOT A MUTATION — THE SHIPPED SOURCE TURNED IT RED, 2026-09-05. The structural half
+//      above read `style.css` and `splash.css` under a comment saying "every z-index the app
+//      ships", while `index.html` links a THIRD stylesheet. Deriving the list from
+//      `lib/ui-sources.js` put `home.css` in front of it for the first time and the check
+//      failed on the spot: `.home-prefs` is `z-index: 340` against `.settings`'s 300.
+//      That is a false positive of the RULE rather than a defect in the surface, and the
+//      distinction is the whole of the fix. §15 requires the settings BUTTON to be
+//      reachable from every screen; `.home-prefs` is the modal dialog the menu's own Home
+//      screen row opens (`wireHome()` closes the menu, then calls `home.open()`), which is
+//      the same relationship `#bug-toast` already had. So it joins the owned list — and the
+//      ownership claim is now CHECKED rather than asserted, because a list that silences a
+//      red check is a mute button unless it costs something to be on it: the run drives the
+//      real menu and proves the Bust a bug control and the `#set-home-open` row are inside
+//      `#set-menu`, and that the dialog that row opens is `role=dialog`, `aria-modal=true`
+//      and carries its own Done. An unrelated overlay added to that list to quiet this check
+//      would fail those three assertions instead.
 //  8   settings-button.js `buildMenu`: append the Techy row before the font row -> check 8.
 //      §15 says Text size sits "directly under the theme switch", and it is one line to get
 //      wrong.
