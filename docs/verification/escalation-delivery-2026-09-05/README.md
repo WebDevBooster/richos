@@ -104,6 +104,21 @@ registered exactly once on the right event, BR4 green, `engine-status.test.sh` 1
 Layer R's byte-identical root-resolution bootstrap holds in both new hooks, checked with Layer
 R's own extraction and normalization.
 
+## Two suites are red, and NEITHER is from this branch
+
+Named here so the lander does not spend the land bisecting for them. Both were
+reproduced by running the identical suite from the unmodified main checkout at
+`/Users/alex/ab/richos/engine`, and this branch touches neither subject.
+
+| red case | where | reproduced on main? |
+|---|---|---|
+| `9b session-start-reap-worktrees.sh BLOCKED on stdin` | `root-contract.test.sh` | yes — same single failure |
+| `C16 states=removed removed` | `reconcile-terminal-worktrees.test.sh`, and through it `contract-integrity.test.sh` case `54.reconciler-suite-passes` | yes — 1 failed, 75 passed |
+
+The first is a real defect of the shape this engine cares about: a SessionStart
+hook that blocks on an inherited, never-closed stdin would hang a session start,
+which is the 92-second hang `root-contract.test.sh` case 9 was written from.
+
 ## What is NOT done here, and is Rich's at the land — IN THIS ORDER
 
 The order is load-bearing, not a preference.
