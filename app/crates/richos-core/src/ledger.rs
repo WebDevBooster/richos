@@ -539,71 +539,22 @@ pub const KNOWN_EVENT_TAGS: &[&str] = &[
     "TurnSuperseded",
 ];
 
-/// Why a record on disk was NOT folded into the projection.
-///
-/// A record from the future and a damaged record are not the same event and are never
-/// reported as the same thing. One is the format working as intended; the other means
-/// something went wrong.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SkipKind {
-    /// A well-formed JSON object carrying an `event` tag this build does not know.
-    ///
-    /// **Expected and benign.** A newer RichOS wrote a record type that did not exist when
-    /// this binary was compiled — which happens the moment a customer installs an update
-    /// and then reinstalls an older build, and v1.0.0, v1.0.1 and v1.0.2 are all still
-    /// published. Everything else in the file loads; the record stays on disk, and a
-    /// build new enough to understand it will read it.
-    FromFuture,
-    /// The line is not a well-formed ledger record at all: not valid UTF-8, not valid
-    /// JSON, not a JSON object, or carrying no usable `event` tag.
-    ///
-    /// **Something went wrong.** A torn append, a truncated file, damaged bytes. This is
-    /// the loud one.
-    Damaged,
-    /// Well-formed JSON, an `event` tag this build KNOWS, and a payload that does not fit
-    /// that tag's shape.
-    ///
-    /// **This build cannot tell which it is**, and says so rather than picking. A newer
-    /// RichOS that added a required field to an existing record produces exactly this, and
-    /// so does a record whose bytes were mangled in place. The ledger format carries no
-    /// writer version on a record, so there is nothing in the file to decide it with —
-    /// see [`Ledger::history_health`] for the one-field change that would.
-    Ambiguous,
-}
+/// The vocabulary for a record this build could not read — SHARED with `steering.rs`'s
+/// intake log, and re-exported here so `ledger::SkipKind` keeps naming the same type it
+/// always has. Definitions live in [`crate::skip`]; the reasoning for the split is in that
+/// module's doc.
+pub use crate::skip::{SkipKind, SkippedRecord};
 
-impl SkipKind {
-    /// The word that goes in front of an operator-facing line. `FromFuture` is deliberately
-    /// calm and the other two deliberately are not.
-    pub fn label(self) -> &'static str {
-        match self {
-            SkipKind::FromFuture => "from a newer version",
-            SkipKind::Damaged => "DAMAGED",
-            SkipKind::Ambiguous => "UNDETERMINED",
-        }
-    }
-}
-
-/// One record that was on disk and is not in the projection.
+/// How the ledger's own records are told apart from a newer build's and from damage.
 ///
-/// **It holds no content.** `tag` is a record TYPE name, checked to be a plain identifier
-/// before it is kept; `detail` is composed here, never taken from a parser message, because
-/// serde reports the offending value and that value is the CEO's own words. The line number
-/// and byte length locate the record for anyone who needs to go look; nothing here reveals
-/// what it said.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SkippedRecord {
-    /// 1-based line number in the ledger file.
-    pub line: usize,
-    pub kind: SkipKind,
-    /// The record's `event` tag, when the line was well-formed enough to carry one AND
-    /// that tag is a plain identifier. `None` otherwise.
-    pub tag: Option<String>,
-    /// Length of the record in bytes. Useful for spotting a truncation; reveals nothing.
-    pub bytes: usize,
-    /// A sentence composed by this module. Never a parser message.
-    pub detail: String,
-}
+/// `event` is the tag key every ledger record carries; the noun is what goes in the one
+/// sentence that has to name the file, and "carries no writer version" is the fact that
+/// makes `Ambiguous` unresolvable here (see [`Ledger::history_health`]).
+const LEDGER_SKIP: crate::skip::SkipDialect = crate::skip::SkipDialect {
+    tag_key: "event",
+    record_noun: "a ledger record",
+    known_tags: KNOWN_EVENT_TAGS,
+};
 
 /// What the app can honestly say about a history it has just loaded.
 ///
@@ -743,15 +694,7 @@ impl Ledger {
                 Err(_) => {
                     // Not text at all. It cannot have a tag, so it cannot be from the
                     // future; no version of RichOS has ever written a non-UTF-8 record.
-                    self.skipped.push(SkippedRecord {
-                        line: line_no,
-                        kind: SkipKind::Damaged,
-                        tag: None,
-                        bytes: body.len(),
-                        detail: "the line is not valid UTF-8 text, so it is not a record any \
-                                 version of RichOS wrote — the bytes are damaged"
-                            .to_string(),
-                    });
+                    self.skipped.push(crate::skip::not_utf8(line_no, body.len()));
                     self.records_read += 1;
                     continue;
                 }
@@ -785,112 +728,17 @@ impl Ledger {
         Ok(())
     }
 
-    /// Decide WHY a line did not parse, using only the line's own structure.
-    ///
-    /// The order of the checks is the argument:
-    ///
-    ///   1. **Not valid JSON at all** — a torn append or damaged bytes. `Damaged`.
-    ///   2. **Valid JSON, not an object** — no version of RichOS has written a bare array
-    ///      or scalar as a record. `Damaged`.
-    ///   3. **No `event` tag, or a tag that is not a plain identifier** — `Damaged`. A
-    ///      variant name in Rust is `[A-Za-z_][A-Za-z0-9_]*`, so a tag that is not one did
-    ///      not come out of a newer RichOS; it came out of damage. This is what stops
-    ///      corruption from being waved through as "the future".
-    ///   4. **A tag this build KNOWS, payload that does not fit** — `Ambiguous`. A newer
-    ///      version that added a required field to an existing record looks exactly like a
-    ///      record whose bytes were mangled, and nothing in the file distinguishes them.
-    ///   5. **A tag this build does not know** — `FromFuture`. The benign case.
-    ///
-    /// Nothing derived from the line's CONTENT is kept. The serde error is deliberately not
-    /// consulted or stored: its messages quote the offending value, and that value is the
-    /// CEO's own words.
+    /// Decide WHY a line did not parse. The judgment — and every sentence it composes —
+    /// lives in [`crate::skip::classify_line`], which `steering.rs` calls with its own
+    /// dialect so the two stores cannot drift apart about what damage looks like.
     fn classify_skip(line_no: usize, line: &str) -> SkippedRecord {
-        let bytes = line.len();
-        let make = |kind: SkipKind, tag: Option<String>, detail: String| SkippedRecord {
-            line: line_no,
-            kind,
-            tag,
-            bytes,
-            detail,
-        };
-
-        let value: serde_json::Value = match serde_json::from_str(line) {
-            Ok(v) => v,
-            Err(e) => {
-                return make(
-                    SkipKind::Damaged,
-                    None,
-                    format!(
-                        "the line is not valid JSON (it stops making sense at column {}) — \
-                         a torn write or damaged bytes",
-                        e.column()
-                    ),
-                );
-            }
-        };
-        let object = match value.as_object() {
-            Some(o) => o,
-            None => {
-                return make(
-                    SkipKind::Damaged,
-                    None,
-                    "the line is valid JSON but not an object — no version of RichOS has ever \
-                     written a record in that shape"
-                        .to_string(),
-                );
-            }
-        };
-        let tag = match object.get("event").and_then(|v| v.as_str()) {
-            Some(t) if Self::is_plain_identifier(t) => t.to_string(),
-            _ => {
-                return make(
-                    SkipKind::Damaged,
-                    None,
-                    "the line carries no usable `event` tag — every record RichOS writes \
-                     names its own type, so this one is damaged"
-                        .to_string(),
-                );
-            }
-        };
-        if KNOWN_EVENT_TAGS.contains(&tag.as_str()) {
-            return make(
-                SkipKind::Ambiguous,
-                Some(tag.clone()),
-                format!(
-                    "the record says it is a `{tag}`, which this build knows, but its fields do \
-                     not fit that shape. This build cannot tell whether a newer version of \
-                     RichOS changed that record or the bytes were damaged — a ledger record \
-                     carries no writer version to decide it with"
-                ),
-            );
-        }
-        make(
-            SkipKind::FromFuture,
-            Some(tag.clone()),
-            format!(
-                "the record is a `{tag}`, a type this build does not know. It was written by a \
-                 newer version of RichOS; everything else in the file still loads and the \
-                 record is untouched on disk"
-            ),
-        )
-    }
-
-    /// A Rust variant name, and therefore every `event` tag RichOS can ever emit.
-    /// Length-capped so a damaged line cannot put an arbitrarily long string into a log.
-    fn is_plain_identifier(s: &str) -> bool {
-        !s.is_empty()
-            && s.len() <= 64
-            && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        crate::skip::classify_line(line_no, line, &LEDGER_SKIP)
     }
 
     /// Pull a `binding_revision` off a record this build could not fold. Only ever called
     /// for a record from a newer RichOS, whose revision is a real durable fencing token.
     fn salvage_revision(line: &str) -> Option<u64> {
-        serde_json::from_str::<serde_json::Value>(line)
-            .ok()?
-            .get("binding_revision")?
-            .as_u64()
+        crate::skip::salvage_u64(line, "binding_revision")
     }
 
     /// **Skipping is never silent.** One line per skipped record, capped, then a summary
