@@ -114,19 +114,32 @@ fixed it:
   percent of its fade), and the splash bar is photographed once it reports it has landed rather
   than at an arbitrary point in its run.
 
-**Seven files still change every run, and they are named rather than excused.** Five photograph
-the home screen, which is a live simulation — `home/field-engine.js` integrates 7,500 objects and
-flies packets along 12,817 links off `performance.now()`, so two runs pause it at different
-moments in its own life. Its randomness is already seeded; the wall clock is the only thing that
-is not reproducible about it, and a test-side frame clock was measured to take two loads at the
-same frame from 44,039 differing samples down to 293. It is not installed: the surfaces that
-would need it also race a 4,000ms curtain ceiling, and that is a bigger change than this one.
+**Eight files still change, and they are named rather than excused.** Measured over two
+consecutive full runs from a clean tree on 2026-09-05: 88 of the 96 were byte-identical after
+both, and these eight were not. Five of the eight are one cause and three are another.
 
-| Still not byte-stable | Why |
-|---|---|
-| `shots-home/home-anonymized.png`, `home-named.png`, `home-returned.png` | the live field, photographed while it is running |
-| `shots-10-1/10-1-start-screen-always-dark.png`, `shots-contrast/opening-screen.png` | the curtain is deliberately held up, and the same live field shows through it |
-| `shots-splash/material-round-11-v1.png`, `material-round-11-v2.png` | the SHIPPING half of the side-by-side composite (measured: 145,368 differing samples on the left half against 326 on the study half, which now settles) — not yet root-caused |
+**The live field.** `home/field-engine.js` integrates 7,500 objects on springs and flies packets
+along 12,817 links, all of it off `performance.now()`, so two runs photograph it at different
+moments in its own life. Its randomness is already seeded (`mulberry32(6401)`); the wall clock is
+the only thing about it that is not reproducible. A test-side frame clock — `performance.now()`
+replaced by a counter that advances one 60Hz step per animation frame — was built and measured
+to take two loads paused at the same frame from 44,039 differing samples down to 293, and it is
+NOT installed here: the surfaces that would need it also race the curtain's 4,000ms ceiling, and
+unpicking that is a larger change than this one. It is written down rather than half-done.
+
+**Gradient dither.** The three splash files differ by no more than 2 of 255, scattered, with no
+element having moved — the compositor's own dithering of the same gradient, which is not
+something a suite can wait for. Two of the three do not change on every run.
+
+| Still not byte-stable | Measured, run to run | Why |
+|---|---|---|
+| `shots-home/home-named.png` | 12.9%–21.1% of pixels, delta up to 248 | the live field, running |
+| `shots-home/home-returned.png` | 14.9%–24.4%, delta up to 247 | the live field, running |
+| `shots-home/home-anonymized.png` | 6.5%–18.1%, delta up to 247 | the live field, running |
+| `shots-10-1/10-1-start-screen-always-dark.png` | ~0.31%, delta up to 127 | the curtain is held up on purpose and the same live field shows through it |
+| `shots-contrast/opening-screen.png` | ~0.29%, delta up to 90, not every run | same |
+| `shots-splash/material-round-11-v1.png`, `material-round-11-v2.png` | 0.10%–0.37%, delta 2 | dither in the composite's shipping half (the study half settles: 326 samples) |
+| `shots-splash/splash-01-round-11-v1.png` | 20.7% of pixels, delta **1**, not every run | dither across the ground, nothing moved |
 
 Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is signal.
 
