@@ -96,6 +96,29 @@ pub fn digest_ledger(src: &Path, copy_to: &Path) -> Result<Vec<String>, String> 
             opt(t.intake_id),
             opt(t.active_ms()),
         ));
+        // THE UPSTREAM FAILURE, ON ITS OWN LINE AND ONLY WHEN PRESENT.
+        //
+        // Appended as a separate line rather than as another field on the turn line, and
+        // that is the whole reason the existing goldens still match byte for byte: a new
+        // field would have rewritten every turn line in both fixtures, and a golden that
+        // changes everywhere proves nothing about the one thing that changed.
+        //
+        // The three sentences are HASHED like every other prose field — they are what the
+        // CEO was shown, so they are content. The classification and the request id are
+        // emitted verbatim: they are a tag and a vendor id, neither of them his words.
+        if let Some(u) = &t.upstream_failure {
+            out.push(format!(
+                "  upstream {} | fault={} | status={} | request_id={} | model={} | ceo={} | loss={} | retry={}",
+                t.id,
+                u.fault,
+                opt(u.status),
+                u.request_id.clone().unwrap_or_else(|| "-".into()),
+                u.model.clone().unwrap_or_else(|| "-".into()),
+                digest(&u.ceo_message),
+                digest(&u.loss_message),
+                u.retry_message.as_deref().map(digest).unwrap_or_else(|| "-".into()),
+            ));
+        }
         for (i, r) in t.text_runs.iter().enumerate() {
             out.push(format!(
                 "  run {}.{} | start_seq={} | end_seq={} | at={} | text={}",

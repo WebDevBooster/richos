@@ -314,6 +314,22 @@ pub enum Event {
     },
     TurnCompleted { turn_id: String, stop_reason: String, at: u64 },
     TurnInterrupted { turn_id: String, reason: String, at: u64 },
+    /// **The turn died to the UPSTREAM MODEL API** — `529 Overloaded`, `429` quota, a
+    /// `5xx`. `open-items.md` row 3.30, measured 2026-09-03.
+    ///
+    /// **A SEPARATE event from `TurnInterrupted`, for the same reason `TurnStopped` is
+    /// one.** `TurnInterrupted` carries a `reason` STRING, which is a convention: a broken
+    /// pipe, a full disk, a rotation and an Anthropic outage all arrive on it and are told
+    /// apart only by parsing English that nothing guarantees. Whether the failure was
+    /// upstream decides what the CEO is told — whether waiting is a plan, and whether
+    /// asking again costs him quota for nothing — so it is a fact the log states rather
+    /// than a fact a later reader infers.
+    ///
+    /// It is written IN ADDITION to `TurnInterrupted`, never instead of it: the turn's
+    /// state, `ended_at` and durable partial reply all come from that event and none of
+    /// that changes. This one only attaches the classification and the sentences the CEO
+    /// was actually shown.
+    UpstreamFailure { turn_id: String, record: crate::upstream::UpstreamRecord, at: u64 },
     /// The CEO stopped this turn (UX §9.3 step 1-2). A SEPARATE event from
     /// `TurnInterrupted` on purpose: replaying the log must be able to tell a stop from a
     /// crash forever, and a `reason` string on the old event would have been a convention
@@ -456,6 +472,13 @@ pub struct Turn {
     /// field, and nothing renders it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intake_id: Option<u64>,
+    /// Set when this turn died to the UPSTREAM MODEL API (row 3.30). Carries the
+    /// classification AND the sentences the CEO was shown at the time, so reopening the
+    /// thread months later shows him what he was actually told rather than what this
+    /// build would say today. `None` for every other outcome, including every ordinary
+    /// interruption — absence here is a positive statement that the failure was local.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_failure: Option<crate::upstream::UpstreamRecord>,
 }
 
 impl Turn {
@@ -545,6 +568,7 @@ pub const KNOWN_EVENT_TAGS: &[&str] = &[
     "AssistantDelta",
     "TurnCompleted",
     "TurnInterrupted",
+    "UpstreamFailure",
     "TurnStopped",
     "ActionRecorded",
     "ActionUpdated",
@@ -856,6 +880,7 @@ impl Ledger {
                     superseded_by: None,
                     stop_requested_at: None,
                     intake_id,
+                    upstream_failure: None,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -886,6 +911,15 @@ impl Ledger {
                     t.state = TurnState::Interrupted;
                     t.stop_reason = Some(format!("interrupted: {reason}"));
                     t.ended_at = Some(at);
+                }
+            }
+            // ATTACHES ONLY. It sets no state, no `ended_at` and no `stop_reason` —
+            // `TurnInterrupted` owns all three and this event is written beside it, so a
+            // build that skipped this record entirely would still read the turn as
+            // interrupted at the same instant with the same partial reply.
+            Event::UpstreamFailure { turn_id, record, .. } => {
+                if let Some(t) = self.turn_mut(&turn_id) {
+                    t.upstream_failure = Some(record);
                 }
             }
             Event::TurnStopped { turn_id, requested_at, at } => {
@@ -947,6 +981,7 @@ impl Ledger {
                     superseded_by: None,
                     stop_requested_at: None,
                     intake_id: None,
+                    upstream_failure: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -1463,6 +1498,33 @@ impl Ledger {
         )
     }
 
+    /// Attach the UPSTREAM classification and the sentences the CEO was shown to a turn
+    /// that has already been interrupted (row 3.30).
+    ///
+    /// **Order matters and the caller owns it:** `interrupt_turn` FIRST, this second. The
+    /// interruption is what ended the turn and it must be durable before anything
+    /// describing it is; a crash between the two leaves a turn that is correctly
+    /// interrupted with no explanation attached, which is the safe direction. The reverse
+    /// order would leave an explanation for a turn the log still says is in flight.
+    ///
+    /// fsync'd like every other terminal write: this is the record of what the CEO was
+    /// told, and a statement about a failure that did not survive the failure is worth
+    /// nothing.
+    pub fn record_upstream_failure(
+        &mut self,
+        turn_id: &str,
+        record: &crate::upstream::UpstreamRecord,
+    ) -> Result<(), LedgerError> {
+        self.append(
+            Event::UpstreamFailure {
+                turn_id: turn_id.to_string(),
+                record: record.clone(),
+                at: now_millis(),
+            },
+            true,
+        )
+    }
+
     /// Record that the CEO stopped this turn (UX §9.3 step 5's evidence).
     ///
     /// `requested_at` must be the timestamp of the DURABLE stop request
@@ -1856,6 +1918,7 @@ mod tests {
             superseded_by: None,
             stop_requested_at: None,
             intake_id: None,
+            upstream_failure: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);

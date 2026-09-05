@@ -357,6 +357,14 @@ app/
                               two attempts and says what it spent, and — the finding itself —
                               that the injected upstream passes a 3-character probe while
                               failing a 120,000-character one
+    tests/upstream_turn_tests.rs 12 tests driving the REAL spine against an injected
+                              upstream: the `529` that arrives as an ASSISTANT MESSAGE (the
+                              shape that would otherwise complete a turn whose answer is a
+                              vendor diagnostic in Rich's voice), the loss statement built
+                              from ledger counts, its survival across a cold reopen, and the
+                              two positive controls without which the rest is theater — an
+                              ordinary broken pipe is NOT dressed up as an outage, and a
+                              healthy turn produces nothing at all
     examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
                               end to end against the real adapter (the run is kept at
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
@@ -696,7 +704,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 793 tests + 5 doc-tests
+cargo test -p richos-core                       # 805 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests

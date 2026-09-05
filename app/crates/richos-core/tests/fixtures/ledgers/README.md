@@ -18,7 +18,22 @@ build wrote and every one of them has to keep replaying.
 longer contain: pre-entity threads and turns, deltas with no `seq`, an `ActionRecorded`
 with no `visibility` and no `turn_id`, and the events the newer surfaces write
 (`TurnInterrupted`, `TurnStopped`, `TurnSuperseded`, `SessionRotated`, `ProactiveMessage`,
-`HandoffSummaryUpdated`, `ThreadEntityBound`).
+`HandoffSummaryUpdated`, `ThreadEntityBound`, `UpstreamFailure`).
+
+**`UpstreamFailure` joined that list on 2026-09-05 and its golden was regenerated.** This
+is the case the paragraph below warns about, so here is the accounting rather than an
+assurance. One record was INSERTED — never an edit to an existing line — immediately after
+the `TurnInterrupted` it belongs to, so the fixture stays chronologically coherent. The
+diff between the old golden and the new one is **four lines**: `file.bytes`, `file.lines`
+and `file.sha256`, which move because the file gained a record, and one new `upstream`
+line. Every turn line, every run line and every action line is byte-identical, which is
+what proves the new event only ATTACHES to a turn and changes nothing about how any
+existing record replays. `v1-current.golden` did not change at all.
+
+The `upstream` line is new in the digest too, and it is a SEPARATE line rather than another
+field on the turn line for exactly this reason: a field would have rewritten every turn line
+in both files, and a golden that changes everywhere proves nothing about the one thing that
+changed.
 
 ## What they are for
 

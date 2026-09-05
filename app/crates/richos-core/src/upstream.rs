@@ -52,6 +52,7 @@
 //! channel somebody picked. Breadth in place of a capture is not the same thing as a
 //! capture, and this paragraph is the difference being stated instead of glossed.
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// The vendor's own error-kind vocabulary, read verbatim out of the shipped Claude Code
@@ -308,6 +309,42 @@ fn capture_after(raw: &str, marker: &str) -> Option<String> {
     } else {
         Some(v.to_string())
     }
+}
+
+/// Split one run's text at the vendor's `API Error:` prefix. Returns
+/// `(rich's prose, the vendor's diagnostic)`; the second is empty when there is none,
+/// which is every ordinary turn.
+///
+/// **THE BOUNDARY IS THE PREFIX, NOT THE LINE, and that is a correction a real run
+/// forced.** The first version split on newlines. It is wrong here, and the reason is
+/// mechanical: assistant text arrives as DELTAS and the ledger concatenates them into one
+/// run with no separator, so a turn that streamed *"Here is what I found so far. "* and
+/// then failed holds `"Here is what I found so far. API Error: 529 Overloaded…"` as ONE
+/// line. Splitting that on newlines finds none, classifies the whole thing, and demotes
+/// the answer along with the error — throwing away what the CEO was owed in order to hide
+/// what he was not. That is this row's own failure, committed in the other direction.
+///
+/// `API Error: ` is the vendor's `Bl` constant, read verbatim out of the shipped bundle at
+/// `~/.local/share/claude/versions/2.1.261` (see
+/// `docs/verification/upstream-failure-2026-09-05/README.md`), so this is the same
+/// structural key `upstream.rs` classifies on and not a guess at its English.
+///
+/// **What it does NOT split, said rather than left to be found.** A fragment carrying only
+/// an `error type <kind>` token and no `API Error:` prefix classifies but does not split —
+/// there is no marker to cut at, and cutting at the token would leave the status and the
+/// word "Error" rendering as Rich's own sentence. No such fragment appears in the captured
+/// corpus; if one is ever seen, this is the function that changes.
+pub fn split_at_vendor_diagnostic(text: &str) -> (&str, &str) {
+    const MARKER: &str = "API Error:";
+    let mut from = 0usize;
+    while let Some(rel) = text[from..].find(MARKER) {
+        let at = from + rel;
+        if UpstreamFailure::classify(&text[at..]).is_some() {
+            return (&text[..at], &text[at..]);
+        }
+        from = at + MARKER.len();
+    }
+    (text, "")
 }
 
 // =========================================================================================
@@ -570,6 +607,64 @@ impl TurnLoss {
             ""
         };
         format!("{kept}{lost}")
+    }
+}
+
+// =========================================================================================
+// THE DURABLE RECORD
+// =========================================================================================
+
+/// **What is written to the ledger when a turn dies to the upstream API — and it carries
+/// the SENTENCES, not just the fault.**
+///
+/// Storing authored prose in an append-only record looks redundant until you ask what the
+/// record is FOR. It is the evidence of what the CEO was told, at the moment he was told
+/// it. A later build that reworded [`UpstreamFault::ceo_message`] would otherwise rewrite
+/// history: reopening a six-month-old thread would show him a sentence nobody ever showed
+/// him. So the sentence that was shown is the sentence that is kept.
+///
+/// It is also what makes the loss statement survive a reload, which is the difference
+/// between *"visible at the moment it happens"* and *"discoverable afterward"* — the exact
+/// distinction row 3.30 draws.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpstreamRecord {
+    /// [`UpstreamFault::tag`] — the machine-readable classification.
+    pub fault: String,
+    /// The HTTP status, when the vendor stated one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    /// The vendor's `req_…`. **Operator-facing and deliberately not rendered**: it is the
+    /// id that makes an incident findable in Anthropic's own logs and it means nothing to
+    /// the CEO, so it is kept and never shown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// The model the vendor said the request went to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// [`UpstreamFault::ceo_message`] as it stood when this happened.
+    pub ceo_message: String,
+    /// [`TurnLoss::ceo_message`] as it stood when this happened — what was on disk and
+    /// what was not, from counts read off the ledger at that instant.
+    pub loss_message: String,
+    /// [`RetryBudget::ceo_message`] as it stood when this happened. `None` when nothing
+    /// had been spent yet, which is a different statement from "nothing was spent".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_message: Option<String>,
+}
+
+impl UpstreamRecord {
+    /// Assemble the record from the three things that are true at the failure boundary.
+    pub fn new(failure: &UpstreamFailure, loss: &TurnLoss, budget: &RetryBudget) -> UpstreamRecord {
+        UpstreamRecord {
+            fault: failure.fault.tag().to_string(),
+            status: failure.status,
+            request_id: failure.request_id.clone(),
+            model: failure.model.clone(),
+            ceo_message: failure.fault.ceo_message().to_string(),
+            loss_message: loss.ceo_message(),
+            retry_message: budget.ceo_message(),
+            }
     }
 }
 

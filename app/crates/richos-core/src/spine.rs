@@ -344,6 +344,17 @@ pub struct Spine {
     /// existed and was reachable only from tests. Nothing in the app ever set it, which
     /// meant `TimelineItem::WorkerActivity` could not occur on the wire at all.
     worker_events: WorkerEventsSource,
+    /// **THE BOUNDED, VISIBLE RETRY ALLOWANCE for upstream model-API failures**
+    /// (`open-items.md` row 3.30, measured 2026-09-03).
+    ///
+    /// It lives on the SPINE and not on a turn, and that is the whole of the fix. A budget
+    /// scoped to one turn is exactly the unbounded case the row measured, one turn at a
+    /// time: `deliver` already refused a second recovery WITHIN a turn (`allow_recovery:
+    /// false`), and the four consecutive attempts that produced nothing on 2026-09-03 were
+    /// four separate turns. Consecutive failures charge it; any completed turn restores it,
+    /// which is a POSITIVE signal that the upstream works rather than the absence of a
+    /// failure.
+    upstream_budget: crate::upstream::RetryBudget,
 }
 
 /// Where a timeline read finds the engine's worker-lifecycle rows.
@@ -430,6 +441,7 @@ impl Spine {
             loro_provenance: None,
             proposal_observer: None,
             worker_events: WorkerEventsSource::Disabled,
+            upstream_budget: crate::upstream::RetryBudget::new(),
         }
     }
 
@@ -1700,8 +1712,36 @@ impl Spine {
             return Ok(());
         }
 
+        // ==============================================================================
+        // THE UPSTREAM MODEL API FAILED (`open-items.md` row 3.30, measured 2026-09-03)
+        // ==============================================================================
+        //
+        // Checked BEFORE the ordinary Ok/Err split, because it can arrive on EITHER side
+        // and neither side alone would catch it:
+        //
+        //   * `Err(CognitionError)` — the client gave up. Its `Display` carries the
+        //     child's words.
+        //   * `Ok(stop_reason)` — and this is the shape that would otherwise be missed
+        //     entirely. `claude` reports an API failure as an ASSISTANT MESSAGE, so
+        //     `native.rs` streams `API Error: 529 Overloaded …` as text, the ledger
+        //     persists it as Rich's reply, and the turn ends with a perfectly ordinary
+        //     terminal. Nothing in this file used to look at it, so a `529` presented as
+        //     a completed turn whose answer was a vendor diagnostic in Rich's voice.
+        //
+        // NEITHER WIRE SHAPE IS CAPTURED, and that is stated rather than glossed: the
+        // twelve runs in docs/verification/native-claude-stream-json-2026-08-31/raw/
+        // contain no API error at all. So both are covered, which is breadth in place of
+        // a capture and not the same thing as one.
+        if let Some(failure) = self.detect_upstream_failure(turn_id, &stop) {
+            return self.finish_upstream_failure(turn_id, binding, text, failure, allow_recovery);
+        }
+
         match stop {
             Ok(stop_reason) => {
+                // A COMPLETED TURN IS THE POSITIVE SIGNAL that the upstream works, and it
+                // is the only thing that restores the retry allowance. Never the absence
+                // of a failure, which is what silence looks like.
+                self.upstream_budget.succeeded();
                 self.ledger.complete_turn(turn_id, &stop_reason)?;
                 self.emit(StreamEvent::TurnCompleted {
                     thread_id: thread_id.to_string(),
@@ -2191,6 +2231,132 @@ impl Spine {
     /// RE-SERVED as a brand-new turn; the failed turn is marked superseded (never edited
     /// in place — it stays in the ledger as the durable crash record) so the CEO sees
     /// ONE clean exchange, not a duplicate.
+    /// **Was this turn's outcome an upstream model-API failure?** `None` for everything
+    /// else, which is the answer this returns almost always.
+    ///
+    /// Three channels are read, in the order they are trustworthy:
+    ///
+    /// 1. the lease's own error `Display`, when it errored;
+    /// 2. the assistant TEXT the ledger holds for this turn — the shape a `529` actually
+    ///    takes on this wire, where the vendor reports it as a message rather than as a
+    ///    transport failure;
+    /// 3. nothing else. A `stop_reason` is a vendor terminal, not a diagnosis, and
+    ///    inventing a fault from `error_during_execution` would classify every interrupted
+    ///    turn as an outage.
+    ///
+    /// **The text channel is read line by line and only the LAST run is considered.** A
+    /// turn whose real answer happened to quote an `API Error:` line — the CEO pasting a
+    /// log and asking about it — must not be reported as an outage, and the failure always
+    /// arrives as the final thing the lease said.
+    fn detect_upstream_failure(
+        &self,
+        turn_id: &str,
+        stop: &Result<String, CognitionError>,
+    ) -> Option<crate::upstream::UpstreamFailure> {
+        if let Err(e) = stop {
+            if let Some(f) = crate::upstream::UpstreamFailure::classify_lines(&e.to_string()) {
+                return Some(f);
+            }
+        }
+        let turn = self.ledger.turn(turn_id)?;
+        let last = turn.text_runs.last()?;
+        crate::upstream::UpstreamFailure::classify_lines(&last.text)
+    }
+
+    /// **Everything that happens when a turn dies to the upstream API, in the order the
+    /// durability rules require.**
+    ///
+    /// 1. `interrupt_turn` — the turn ended, and that fact is written first. Its `reason`
+    ///    stays the OPERATOR's summary (`upstream overloaded http=529 request_id=…`)
+    ///    rather than the CEO's sentence, because `TimelineItem::SystemError` renders it
+    ///    at Technical visibility and §21's rule for that record is unchanged.
+    /// 2. `record_upstream_failure` — the classification and the three sentences the CEO
+    ///    is about to be shown, made durable so a reload months later shows him what he
+    ///    was told rather than what a later build would say.
+    /// 3. the live events — the same statement, now.
+    /// 4. the retry decision, LAST, because it is the only step that can start more work.
+    ///
+    /// **The loss statement is built from COUNTS read off the ledger at this instant**, so
+    /// it cannot claim something survived that did not. `lease_context_lost` is `true`
+    /// unconditionally and that is a fact about this failure class rather than a
+    /// convenience: whatever the session had worked out and not yet said is gone with it.
+    fn finish_upstream_failure(
+        &mut self,
+        turn_id: &str,
+        binding: &ThreadBinding,
+        original_text: &str,
+        failure: crate::upstream::UpstreamFailure,
+        allow_recovery: bool,
+    ) -> Result<(), SpineError> {
+        let thread_id = binding.thread_id().to_string();
+        eprintln!("[richos] {}", failure.summary());
+
+        let loss = {
+            let turn = self.ledger.turn(turn_id);
+            crate::upstream::TurnLoss {
+                prompt_is_durable: turn.map(|t| !t.user_text.is_empty()).unwrap_or(false),
+                // The vendor's diagnostic is NOT part of what survived, so it is cut out
+                // of the count by the SAME function the timeline projects with
+                // (`upstream::split_at_vendor_diagnostic`). Telling him "169 characters of
+                // the answer are saved" when all 169 are the error message would be a true
+                // number about the wrong thing — and having two implementations of "which
+                // half is the answer" would be worse: the sentence and the screen would
+                // eventually disagree, and neither would be wrong on its own terms.
+                partial_reply_chars: turn
+                    .map(|t| {
+                        t.text_runs
+                            .iter()
+                            .map(|r| {
+                                crate::upstream::split_at_vendor_diagnostic(&r.text)
+                                    .0
+                                    .chars()
+                                    .count()
+                            })
+                            .sum()
+                    })
+                    .unwrap_or(0),
+                actions_recorded: self
+                    .ledger
+                    .actions()
+                    .iter()
+                    .filter(|a| a.turn_id.as_deref() == Some(turn_id))
+                    .count(),
+                lease_context_lost: true,
+            }
+        };
+
+        // CHARGED BEFORE ANYTHING IS EMITTED, so the sentence the CEO reads carries the
+        // attempt that just failed rather than the one before it.
+        let may_retry = self.upstream_budget.charge(failure.fault);
+        let record = crate::upstream::UpstreamRecord::new(&failure, &loss, &self.upstream_budget);
+
+        self.ledger.interrupt_turn(turn_id, &failure.summary())?;
+        self.ledger.record_upstream_failure(turn_id, &record)?;
+
+        // ONE statement, in the order a person needs it: what happened, what survived,
+        // what was spent. `retry_message` already contains the fault's own sentence, so it
+        // replaces the first clause rather than repeating it.
+        let statement = match &record.retry_message {
+            Some(spent) => format!("{spent} {}", record.loss_message),
+            None => format!("{} {}", record.ceo_message, record.loss_message),
+        };
+        self.emit(StreamEvent::TurnError {
+            thread_id: thread_id.clone(),
+            turn_id: turn_id.to_string(),
+            reason: statement,
+            at: now_millis(),
+        });
+
+        let will_recover = may_retry && allow_recovery && self.lease_factory.is_some();
+        if will_recover {
+            self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Recovering, None));
+            return self.recover_and_replay(turn_id, binding, original_text);
+        }
+        self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Failed, None));
+        self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Failed));
+        Err(SpineError::Cognition(CognitionError::Protocol(failure.summary())))
+    }
+
     fn recover_and_replay(
         &mut self,
         failed_turn_id: &str,

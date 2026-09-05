@@ -4,6 +4,7 @@
 {"event":"AssistantDelta","turn_id":"turn_0000000000000000000000000000000a","text":"one unpositioned delta ","at":1787000000300}
 {"event":"AssistantDelta","turn_id":"turn_0000000000000000000000000000000a","text":"and a second, which extends the same run","at":1787000000400}
 {"event":"TurnInterrupted","turn_id":"turn_0000000000000000000000000000000a","reason":"lease exited mid-turn","at":1787000000500}
+{"event":"UpstreamFailure","turn_id":"turn_0000000000000000000000000000000a","record":{"fault":"overloaded","status":529,"requestId":"req_011Cegb417YK6i1BEVDFmzU1","model":"claude-fable-5-1","ceoMessage":"Anthropic's servers are at capacity, so that request never reached Claude. This one ends when their capacity frees up, and nothing on this machine brings it back sooner.","lossMessage":"On disk: what you asked for is saved. Not on disk: everything the session had worked out in its head and had not yet said. Asking again starts that part over."},"at":1787000000501}
 {"event":"PromptReceived","turn_id":"turn_0000000000000000000000000000000b","thread_id":"thr_0000000000000000000000000000000a","text":"written before entity scoping existed","source":"text","at":1787000000600}
 {"event":"TurnStarted","turn_id":"turn_0000000000000000000000000000000b","session_id":"legacy-session-2","at":1787000000700}
 {"event":"AssistantDelta","turn_id":"turn_0000000000000000000000000000000b","text":"the replay that finished the work","at":1787000000800}
