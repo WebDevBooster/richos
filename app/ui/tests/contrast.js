@@ -33,16 +33,23 @@
 // WHAT THIS GATE COVERS AND WHAT IT CANNOT — the honest boundary, asserted rather than
 // promised:
 //
-//   COVERS   the thirteen driven surfaces below (shell, an open thread, the correction desk, the
-//            feedback desk, search, the inspector, the technical view, the unbound-thread
-//            pane, the assertiveness popover, THE UPDATE ROW IN THREE STATES, and the
-//            opening screen with its curtain held up), both themes, text and the bounded
+//   COVERS   the driven surfaces below — twenty-four of them as this is written, and the
+//            number is printed by every run rather than quoted here, because a count in a
+//            comment is the thing that goes stale first. This header said "thirteen" over a
+//            list of twenty-one until 2026-09-05. Both themes, text, and the bounded
 //            non-text-indicator subset check 3 defines. The three `updates-*` surfaces are
 //            also the first drivers to reach the UNIVERSAL settings menu at all — the
 //            `settings` surface drives the RAIL's preferences popover, which is a different
 //            menu — and their first run found a shipped 1.24:1 indicator in it. The opening screen is WALKED and its one HTML line comes back
 //            UNPROVABLE — see `knownUnresolvable` in contrast-debt.json. That is a stated
 //            blind spot with a name on it, which is not the same thing as coverage.
+//   COVERS   and this is check 10c's doing rather than anyone's diligence: `entity-view`,
+//            `thread-menu` and `techy-nothing-recorded`. All three are panels the shipped
+//            shell declares, all three carry text the CEO reads, all three are reachable in
+//            a browser with nothing stubbed, and no driver opened any of them. 10c derives
+//            the panel inventory from the shell and refuses an unwalked panel that nobody
+//            wrote down; on the day it landed it named ten, and seven of those are honest
+//            gaps now recorded in `contrast-debt.json`'s `unwalkedPanels` with their reasons.
 //   CANNOT   `<canvas>` — no computed style to read. The shipping shell contains none, and
 //            check 14 asserts that, so the day one lands the assertion is what tells you.
 //            The round-7 and round-8.1 material studies ARE canvas-heavy and NOTHING here
@@ -73,17 +80,27 @@ const fs = require("fs");
 const path = require("path");
 const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const C = require("./lib/contrast");
+const SOURCES = require("./lib/ui-sources");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = path.join(__dirname, "shots-contrast");
 const DEBT_FILE = path.join(__dirname, "contrast-debt.json");
-const CSS_FILES = [path.join(UI_DIR, "style.css"), path.join(UI_DIR, "splash.css")];
-const SOURCE_FILES = [
-  path.join(UI_DIR, "index.html"),
-  path.join(UI_DIR, "main.js"),
-  path.join(UI_DIR, "timeline.js"),
-  path.join(UI_DIR, "splash.js"),
-];
+// THE TWO SOURCE LISTS ARE DERIVED, AND BOTH WERE SHORT.
+//
+// `CSS_FILES` was `style.css` + `splash.css` against three linked stylesheets — the 53 KB
+// `home.css` was missing, so check 10's count of second-theme rules was taken over two
+// thirds of the shipped CSS. `SOURCE_FILES` was four files against twelve, so check 12's
+// exemption inventory — the mechanism that makes an undeclared exemption a failure — could
+// not have seen a `data-contrast-exempt` written into `home.js`, `updates.js`,
+// `settings-button.js`, `splash-library.js`, `theme-boot.js` or the three `home/field-*.js`
+// modules. An exemption is a claim that some text is skippable; a gate that cannot read the
+// file the claim is written in is not counting the claims.
+//
+// `lib/ui-sources.js` derives both from `index.html` and the closure over it, and refuses to
+// return a manifest that does not reconcile with the tree in both directions. Adding a
+// stylesheet or a script to the shell adds it to both lists here.
+const CSS_FILES = SOURCES.styleSources().map(SOURCES.abs);
+const SOURCE_FILES = SOURCES.stateSources().map(SOURCES.abs);
 
 const THEMES = ["light", "dark"];
 
@@ -366,6 +383,49 @@ const SURFACES = [
       await p.waitForTimeout(400);
     },
   },
+  // ---- THE THREE CHECK 10c FOUND ON THE DAY IT WAS WRITTEN --------------------------------
+  //
+  // The panel probe named ten panels in the shipped shell that no driver opened. Seven are
+  // honest gaps and are declared as such in `contrast-debt.json`'s `unwalkedPanels`. These
+  // three were not gaps — they were surfaces with real text on them, reachable in a browser
+  // with nothing stubbed, that nobody had written a driver for. Every one of them is text
+  // the CEO reads, and until this commit this file said nothing about any of it.
+  {
+    name: "entity-view",
+    what: "§3.5's company overview: its facts, its attention list and its thread list",
+    drive: async (p) => {
+      await p.click(".nav-group-label");
+      await p.waitForSelector("#entity-view:not([hidden])");
+      await p.waitForTimeout(400);
+    },
+  },
+  {
+    name: "thread-menu",
+    what: "the thread's own actions menu — rename, pin, archive (§3.1)",
+    drive: async (p) => {
+      // Through the row's own `⋯` button, which is the affordance the CEO presses. The menu
+      // is built on open, so it does not exist to be measured until this click happens —
+      // which is exactly why nothing walked it.
+      await p.hover('.nav-thread[data-thread-id="acme"]');
+      await p.click('.nav-thread[data-thread-id="acme"] + .nav-thread-more');
+      await p.waitForSelector("#thread-menu:not([hidden])");
+      await p.waitForTimeout(300);
+    },
+  },
+  {
+    name: "techy-nothing-recorded",
+    what: "techy mode on a conversation with no machinery — the sentence that is not 'I can't read it'",
+    drive: async (p) => {
+      // `partner` is the seeded thread with an empty machinery store. The whole point of
+      // `#techy-state` is that "nothing was recorded" and "I can't read it" are DIFFERENT
+      // statements, so the surface that says the first one has to be legible.
+      await p.click('.nav-thread[data-thread-id="partner"]');
+      await p.waitForSelector(".tl-turn");
+      await p.keyboard.press("Meta+Shift+T");
+      await p.waitForSelector('#techy-state[data-state="nothing_recorded"]');
+      await p.waitForTimeout(300);
+    },
+  },
   {
     name: "history-notice",
     what: "the notice that says part of his history did not load, at the top of the conversation",
@@ -539,6 +599,71 @@ async function walk(page, surface, theme) {
   return page.evaluate((o) => window.__contrastProbe(o), { surface, theme });
 }
 
+// ---------------------------------------------------------------------------------------
+// THE PANEL INVENTORY — derived from the shell, so a NEW panel cannot be born unwalked
+// ---------------------------------------------------------------------------------------
+//
+// Check 10b already refuses a driver list that got SHORTER. Nothing refused one that got
+// STALE — a panel added to `index.html` with no driver written for it is invisible to every
+// check in this file, and the file would report the same confident totals over a shell with
+// one more surface in it than it walks. That is the same defect as a typed source list,
+// wearing a driver list's clothes.
+//
+// WHAT COUNTS AS A PANEL, derived by shape rather than named: a CONTAINER element
+// (`div`/`section`/`aside`/`dialog`/`form`/`nav`) with an `id`, that is `hidden` when the
+// shell first paints or carries `role="dialog"`, and that is not itself inside another such
+// element. Hidden-at-load is the signal: it is a state the app can enter and is not in, which
+// is exactly what a driver exists to reach. A hidden child of a hidden panel is part of that
+// panel, not a panel of its own, which is what the ancestor walk removes.
+const PANEL_TAGS = ["DIV", "SECTION", "ASIDE", "DIALOG", "FORM", "NAV"];
+
+const PANEL_PROBE = (tags) => {
+  const out = [];
+  const isPanel = (e) =>
+    tags.indexOf(e.tagName) >= 0 && !!e.id && (e.hasAttribute("hidden") || e.getAttribute("role") === "dialog");
+  for (const e of document.querySelectorAll("[id]")) {
+    if (!isPanel(e)) continue;
+    let anc = e.parentElement;
+    let nested = false;
+    while (anc) {
+      if (isPanel(anc)) { nested = true; break; }
+      anc = anc.parentElement;
+    }
+    if (!nested) out.push(e.id);
+  }
+  return out.sort();
+};
+
+/// The inventory, read off a shell that has just loaded and been driven nowhere.
+async function declaredPanels(browser) {
+  const page = await openApp(browser, "dark", false);
+  const ids = await page.evaluate(PANEL_PROBE, PANEL_TAGS);
+  await page.close();
+  return ids;
+}
+
+/// Which of those panels are actually ON SCREEN right now — present, not `hidden`, and with
+/// area. A driver that OPENED a panel and one that merely left it in the document are
+/// different things, and only the first is coverage.
+///
+/// The ids are handed in rather than re-derived here, because opening a panel is exactly
+/// what removes the `hidden` attribute the inventory is derived from — a shape test run
+/// against a driven page would stop recognizing the very panel the driver just opened.
+async function panelsOnScreen(page, ids) {
+  return page.evaluate((wanted) => {
+    const out = [];
+    for (const id of wanted) {
+      const e = document.getElementById(id);
+      if (!e || e.hidden) continue;
+      const r = e.getBoundingClientRect();
+      const s = getComputedStyle(e);
+      if (r.width <= 0 || r.height <= 0 || s.visibility === "hidden" || s.display === "none") continue;
+      out.push(id);
+    }
+    return out;
+  }, ids);
+}
+
 /// One line per failure, in the shape a person can act on without opening a debugger: the
 /// ratio it got, the floor it needed, the two colours, the size, and where it is.
 function describe(sig, f) {
@@ -569,6 +694,8 @@ async function main() {
     canvas: 0,
     canvasInHome: 0,
     svgText: 0,
+    /// Which of the shell's DECLARED panels any walk actually put on screen — see check 10c.
+    panelsReached: new Map(),
     totals: { considered: 0, checked: 0, passed: 0, failedNodes: 0, invisible: 0, obscured: 0, ancestor: 0, veiled: 0, indicators: 0, indicatorsChecked: 0 },
   };
 
@@ -844,6 +971,9 @@ async function main() {
 
   // ---- 9. the shipping shell, surface by surface, both themes ------------------------------
 
+  // Derived once, off a shell driven nowhere, and used by both the walk loop and check 10c.
+  const PANELS = await declaredPanels(browser);
+
   const perSurface = {};
   for (const surface of SURFACES) {
     await run.check("9." + surface.name + "  " + surface.what, async () => {
@@ -856,6 +986,15 @@ async function main() {
       for (const theme of THEMES) {
         const page = await openApp(browser, theme, surface.holdSplash, surface.preset);
         await surface.drive(page);
+        // WHICH DECLARED PANELS THIS DRIVER PUT ON SCREEN, recorded before the walk so that
+        // check 10c can answer a question no other check here asks: not "was every named
+        // surface walked?" (10b, which only catches the list getting SHORTER) but "is there a
+        // panel in the shipped shell that no driver reaches at all?" — the list getting
+        // stale by the product growing past it.
+        for (const id of await panelsOnScreen(page, PANELS)) {
+          if (!seen.panelsReached.has(id)) seen.panelsReached.set(id, []);
+          seen.panelsReached.get(id).push(surface.name + "/" + theme);
+        }
         const out = await walk(page, surface.name, theme);
         if (theme === "light") {
           const s = await shot(page, "contrast-" + surface.name, { fullPage: false });
@@ -980,7 +1119,7 @@ async function main() {
           "different grounds (" + grounds.dark + " vs " + grounds.light + ") — something IS " +
           "responding to the theme and this note is now wrong"
       );
-      return "0 second-theme rules in style.css + splash.css. THE APP SHIPS ONE THEME.";
+      return "0 second-theme rules in " + SOURCES.styleSources().join(" + ") + ". THE APP SHIPS ONE THEME.";
     }
     assert(
       grounds.light !== grounds.dark,
@@ -1062,6 +1201,84 @@ async function main() {
       Object.keys(perSurface).length + " walks completed (" + named.length + " surfaces x " + THEMES.length +
       " themes), and the count is the same started directly or under run.js: " +
       "RICHOS_UI_TESTS_LEDGER gates only whether evidence is APPENDED, never what is measured."
+    );
+  });
+
+  // ---- 10c. no panel in the shell is unwalked without being written down --------------------
+
+  await run.check("10c  every panel the shell declares is walked, or is declared unwalked with a reason", async () => {
+    // 10b catches a driver list that got SHORTER. This catches one that went STALE, which is
+    // the failure that actually happened elsewhere in this directory today: a hand-maintained
+    // inventory that was right when it was written and that the product grew past. The
+    // driver list is the last hand-maintained list in this file and it cannot be derived —
+    // a driver is a function that knows how to open a thing — so what is derived instead is
+    // the QUESTION it has to answer: here are the panels the shell declares; which of them
+    // did nothing reach?
+    //
+    // A declared gap is fine and there are seven of them. An UNDECLARED gap is a surface the
+    // CEO can open that this gate says nothing about while printing a total that sounds
+    // complete.
+    assert(
+      PANELS.length >= 15,
+      "the panel probe found " + PANELS.length + " panels in the shell — that is not this " +
+        "shell, and a short inventory would make this check pass by having nothing to ask about"
+    );
+
+    const declaredUnwalked = new Map((debt.unwalkedPanels || []).map((p) => [p.id, p.why]));
+    const reached = [...seen.panelsReached.keys()].sort();
+    const unreached = PANELS.filter((id) => !seen.panelsReached.has(id));
+
+    assertEqual(
+      unreached.filter((id) => !declaredUnwalked.has(id)),
+      [],
+      "these panel(s) are in the shipped shell and NO surface driver opens them, so nothing " +
+        "in this file has measured a pixel of them. Either add a driver to SURFACES, or add " +
+        "them to contrast-debt.json's `unwalkedPanels` with the reason — but they are NOT " +
+        "covered, and the entry is what says so where a reviewer reads it."
+    );
+
+    // ...and the declaration cannot go stale in the other direction either.
+    const nowWalked = [...declaredUnwalked.keys()].filter((id) => seen.panelsReached.has(id));
+    assertEqual(
+      nowWalked,
+      [],
+      "contrast-debt.json declares these panels unwalked and a driver now reaches them. " +
+        "Delete the entries — a standing admission of a gap that has been closed teaches " +
+        "whoever reads this list to skim it."
+    );
+    const gone = [...declaredUnwalked.keys()].filter((id) => PANELS.indexOf(id) < 0);
+    assertEqual(
+      gone,
+      [],
+      "contrast-debt.json declares a panel unwalked that the shell no longer has: " + gone.join(", ")
+    );
+
+    for (const [id, why] of declaredUnwalked) {
+      assert(
+        typeof why === "string" && why.length >= 20,
+        id + " is declared unwalked with no real reason. A gap that is written down is a " +
+          "bounded gap; a gap written down as \"\" is the same gap with a tick beside it."
+      );
+    }
+
+    // POSITIVE CONTROL, on the comparator this check is: drop one declaration and it must
+    // name exactly that panel. Without this the check is only ever OBSERVED passing, and a
+    // comparator built out of one set — the failure 10b's own comment records — passes by
+    // construction. Run against a copy; the real declaration is untouched.
+    const oneShort = new Map(declaredUnwalked);
+    const victim = unreached[0];
+    assert(victim, "there is nothing declared unwalked, so this control cannot run — say so rather than skipping it");
+    oneShort.delete(victim);
+    assertEqual(
+      PANELS.filter((id) => !seen.panelsReached.has(id) && !oneShort.has(id)),
+      [victim],
+      "the comparator did not notice a panel that is neither walked nor declared"
+    );
+
+    return (
+      reached.length + " of " + PANELS.length + " declared panel(s) opened by a driver and " +
+      "walked in both themes; " + unreached.length + " declared unwalked with a reason:\n          " +
+      unreached.map((id) => "#" + id + " — " + declaredUnwalked.get(id)).join("\n          ")
     );
   });
 
@@ -1306,6 +1523,18 @@ main().catch((e) => {
 //           fiction". This is the mutation that matters most for check 10: the branch that
 //           reports today's single-theme reality is easy, and the one that catches a dark
 //           mode nobody is actually testing is the one worth proving
+// 10c  NOT A MUTATION — IT RAN RED ON THE SHIPPED SOURCE, first time, which is a stronger
+//      result than a mutation and is why it exists. The panel probe named TEN panels in
+//      `index.html` that no driver opened, and three of them were not gaps at all:
+//      `#entity-view` (§3.5's company overview), `#thread-menu` (rename/pin/archive) and
+//      `#techy-state`'s nothing-recorded arm. Each carries text the CEO reads, each is
+//      reachable in a browser with nothing stubbed, and this file had said nothing about any
+//      of them. Drivers were written; all three walk clean in both themes (110, 98 and 116
+//      nodes measured, 0 new, 0 worsened). The remaining seven are in `unwalkedPanels` with
+//      their reasons. The comparator is ALSO proven able to fail inside the check itself:
+//      one declaration is dropped from a COPY of the ledger and the check asserts the
+//      comparator names exactly that panel — 10b's own comment records what happens when a
+//      comparator is built out of the single set it is checking.
 //  11  index.html: a painted, click-through curtain (`pointer-events: none`,
 //      `rgba(0,0,0,0.6)`, z-index 300) left over the whole app
 //        -> every node on every surface is filed obscured and measured nowhere, and check 11
