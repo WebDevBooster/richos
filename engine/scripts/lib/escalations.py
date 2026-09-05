@@ -150,6 +150,21 @@ every outstanding escalation from scratch. Silence about an escalation is only
 ever "still what I told you this session".
 
 ===========================================================================
+TWO TEAMMATES RAISING AT ONCE
+===========================================================================
+Every write is a single `O_APPEND` write of one line, which the kernel serializes
+against other appends to the same file — so the normal case needs no lock, and a
+lock is refused deliberately: a lock file in `~/.claude/state/` left behind by a
+killed agent would block the next teammate's escalation, and a mechanism whose
+failure mode is "your escalation was not raised" is the defect being fixed.
+
+The pathological case is a line longer than the pipe buffer interleaving with
+another. It is not prevented; it is SURVIVED. A line that will not parse is
+counted as malformed and REPORTED by every reader — never silently dropped —
+because a half-corrupt ledger reporting as a clean empty world is how this
+whole class of defect works.
+
+===========================================================================
 CLOSING ONE — an acknowledgement, never a deletion
 ===========================================================================
 `ack` APPENDS a row; nothing is ever removed or rewritten. It requires a
