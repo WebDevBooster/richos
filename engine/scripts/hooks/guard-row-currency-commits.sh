@@ -201,7 +201,67 @@ while i < len(lines):
     i += 1
 
 # --- segments -------------------------------------------------------------
-segments = re.split(r"(?:\|\||&&|[;\n|])", cmd)
+# SPLIT ON TOP-LEVEL SEPARATORS ONLY. This function is guard-vendoring-commits.sh's,
+# adopted verbatim rather than reinvented, and its mutation harness pins the
+# difference as `naive-segment-split` whose replacement text is the line this
+# one replaced.
+#
+# WHAT THE REPLACED LINE DID, MEASURED 2026-09-05 RATHER THAN REASONED. It was
+# `re.split(r"(?:\|\||&&|[;\n|])", cmd)`, which cuts inside quotes. A commit
+# message written the way every commit message in this project is written —
+#
+#     git commit -m "the subject line
+#
+#     the body"
+#
+# — was cut at the blank line, both halves failed to shlex, and NO `git commit`
+# was recognized in the call at all. The guard then exited 0 having looked at
+# nothing, which is the same byte as a clean pass.
+#
+# The size of that hole, measured over every transcript on this machine since
+# the guard shipped (docs/verification/row-currency-splitter-gap-2026-09-05/):
+#
+#     592  git commit/merge calls anchored at a GOVERNED MAIN CHECKOUT
+#     403  recognized by the shipped splitter
+#     189  NEVER RECOGNIZED — 31.9% of all landings went unchecked
+#
+# and the check it was skipping was not hypothetical: 29 commits reached
+# richos-hq's main carrying a section-3 row whose own pin no longer matched the
+# tree, three of them (`0015d1dd`, `3a5ab7de`, `c085a449`) produced by a call
+# this splitter could not see.
+#
+# It also removed a FALSE POSITIVE nobody had noticed. The naive split shreds a
+# heredoc body into lines, so a documentation line reading `git commit -m ...`
+# inside a `cat > file <<'EOF'` payload shlexed into a commit that was never
+# going to run: 33 such calls in the same corpus. Describing a command is not
+# issuing one.
+def top_level_segments(text):
+    segs, cur, quote, esc = [], [], None, False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if esc:
+            cur.append(ch); esc = False; i += 1; continue
+        if quote:
+            if ch == "\\" and quote == '"':
+                cur.append(ch); esc = True; i += 1; continue
+            if ch == quote:
+                quote = None
+            cur.append(ch); i += 1; continue
+        if ch == "\\":
+            cur.append(ch); esc = True; i += 1; continue
+        if ch in ("'", '"'):
+            quote = ch; cur.append(ch); i += 1; continue
+        if text[i:i + 2] in ("&&", "||"):
+            segs.append("".join(cur)); cur = []; i += 2; continue
+        if ch in ";\n|":
+            segs.append("".join(cur)); cur = []; i += 1; continue
+        cur.append(ch); i += 1
+    segs.append("".join(cur))
+    return segs
+
+
+segments = top_level_segments(cmd)
 
 def parse(seg):
     try:
