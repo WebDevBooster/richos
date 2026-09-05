@@ -394,6 +394,15 @@ HOOK_FILES+=(
     # exactly what a healthy engine also looks like. Checking the lock and
     # ignoring the key, one more time.
     "$REPO_ROOT/scripts/lib/stop-hook-notice.sh"
+    # Its PreToolUse counterpart, and the argument is the same one turned
+    # inside out a second time. Twenty-seven guards delegate to this file the
+    # single sentence that distinguishes "I looked at this call and it is fine"
+    # from "I never read this call at all". A tampered or reverted copy puts
+    # every one of them back to exit 0 in silence — and the symptom of that is
+    # a guard that looks exactly like a healthy one, which is the whole reason
+    # the 2026-09-05 payload survey had to be run to find it. Checking the lock
+    # and ignoring the key, once more.
+    "$REPO_ROOT/scripts/lib/unevaluated-notice.sh"
     # The LIVENESS RESOLVER, in both its halves, plus its operator CLI. Not
     # hooks, and hashed for remove-agent-worktree.sh's reason turned up one
     # notch: THREE callers now delegate the entire question "is this agent
