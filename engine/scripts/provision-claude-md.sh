@@ -190,15 +190,19 @@ BLOCKS = [
                       unset('No QA teammates are staffed yet.', 'The four bars above stand exactly as written; staff the roles via Dean before any code change goes through the pipeline.'))),
 ]
 
+# Orphan blocks are COLLECTED, not fatal on sight. Exiting at the first one means an adopter who
+# added three learns about them one run at a time, and it means the diagnosis for a template that
+# has drifted is a single line about a single block rather than the whole list. Nothing is written
+# while ORPHANS is non-empty, so collecting them costs no safety.
+ORPHANS = []
+
 def render_block(body):
     key = ' '.join(body.split())
     for needle, fn in BLOCKS:
         if needle.lower() in key.lower():
             return fn()
-    print('ERROR: provision-claude-md.sh: unrecognized TODO block in the template — refusing to render.\n'
-          '       Block text: ' + key[:160] + '\n'
-          '       The template changed; teach this script the new block before provisioning.', file=sys.stderr)
-    sys.exit(2)
+    ORPHANS.append(key[:160])
+    return ''
 
 def identity_section():
     lines = ['## Who you work for', '']
@@ -243,6 +247,14 @@ body = re.sub(r'\A<!--\s*=+.*?=+\s*-->\s*', '', src, count=1, flags=re.S)
 
 # 2. Replace every adopter TODO block with a configured value or an honest unset note.
 body = re.sub(r'<!--\s*TODO \(adopter\):(.*?)-->', lambda m: render_block(m.group(1)), body, flags=re.S)
+if ORPHANS:
+    print('ERROR: provision-claude-md.sh: %d unrecognized TODO block(s) in the template — refusing '
+          'to render.' % len(ORPHANS), file=sys.stderr)
+    for o in ORPHANS:
+        print('       Block text: ' + o, file=sys.stderr)
+    print('       The template changed; teach this script each new block before provisioning.',
+          file=sys.stderr)
+    sys.exit(2)
 
 # 3. The pagination sample bullet is a placeholder living OUTSIDE its comment — swap it too, so no
 #    sample rule is ever mistaken for this company's real doctrine.
