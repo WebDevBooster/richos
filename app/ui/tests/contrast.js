@@ -335,6 +335,37 @@ const SURFACES = [
       await p.waitForTimeout(400);
     },
   },
+  // THE WAITING CUE, which is the one place on this surface where a NON-TEXT indicator has to
+  // carry the meaning on its own: while RichOS is working the actionable pill is removed and
+  // this outlined circle stands in its place. Its glyph, its border and its focus ring each
+  // owe 3:1, and the note it opens owes 4.5:1 at 16px. None of that is walked by the three
+  // surfaces above, because none of them can paint an element that only exists while `busy`.
+  //
+  // THE NOTE IS OPENED BY FOCUS rather than by hover, deliberately: `page.focus` is the route
+  // a keyboard user takes, so the pixels walked here are the pixels that audience meets. A
+  // walk over a note that was never painted would report a clean surface and prove nothing.
+  {
+    name: "updates-waiting",
+    what: "the non-actionable waiting cue and its open explanation, with the update control gone",
+    drive: async (p) => {
+      await p.evaluate(() =>
+        window.__RICHOS_MOCK__.updateSet({
+          state: "available", currentVersion: "0.1.0", availableVersion: "0.1.1",
+          notes: null, pubDate: null, downloadedBytes: 0, totalBytes: null, percent: null,
+          failure: null, endpoint: "https://updates.example.com/darwin/aarch64/0.1.0",
+          endpointIsPlaceholder: false, checkedAt: Date.now() - 120000,
+          busy: true,
+          busyReason: "Rich is working on your last message. 2 workers are still running.",
+          unchecked: [],
+          readySince: Date.now() - 2 * 86400000,
+        })
+      );
+      await p.waitForSelector("#update-waiting");
+      await p.focus("#update-waiting");
+      await p.waitForSelector("#update-waiting-note", { state: "visible" });
+      await p.waitForTimeout(400);
+    },
+  },
   {
     name: "history-notice",
     what: "the notice that says part of his history did not load, at the top of the conversation",
