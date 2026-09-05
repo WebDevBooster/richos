@@ -406,9 +406,15 @@ sys.exit(0)
 STUB
 L3="$SANDBOX/state/control.jsonl"
 cp "$SANDBOX/escalations.py.real" "$SANDBOX/real.py"
+# This one calls the module directly, so it writes no record file at all —
+# escalate.sh is what writes records. --worktree is here anyway so the ledger
+# row describes the SANDBOX rather than whichever checkout the suite was
+# started in: a row that quietly records a live worktree, branch and HEAD is a
+# fixture wearing a real agent's identity, which is how the 2026-09-05 file
+# fooled its reader in the first place.
 RICHOS_ESCALATION_LEDGER="$L3" python3 "$SANDBOX/real.py" raise --title "the control escalation" \
     --state proceeding --question "does the negative control actually go silent?" \
-    --teammate zach-opus-e1control >/dev/null 2>&1
+    --worktree "$SANDBOX" --teammate zach-opus-e1control >/dev/null 2>&1
 if [ -s "$L3" ]; then ok "12a  the control escalation really is in the ledger"
 else bad "12a  control fixture" "nothing written to $L3"; fi
 OUT="$(RICHOS_ESCALATION_LEDGER="$L3" stop_payload "dddddddd-0000-0000-0000-000000000000" | RICHOS_ESCALATION_LEDGER="$L3" "$STOP_HOOK" 2>&1)"
@@ -454,9 +460,18 @@ mv "$SANDBOX/escalations.py.hidden" "$ENG/scripts/lib/escalations.py"
 # ===========================================================================
 L4="$SANDBOX/state/corrupt.jsonl"
 printf 'this is not json\n' > "$L4"
+# ITS OWN WORKTREE, AND THE REASON IS THE 2026-09-05 LEAK. This case is about a
+# half-corrupt LEDGER and has no opinion about where the record file goes — but
+# `raise` writes TWO things, and only one of them is the ledger. The record's
+# path comes from --worktree, which DEFAULTS TO THE CURRENT DIRECTORY, so this
+# line wrote a real-looking escalation into whatever live checkout the suite
+# happened to be started from. One was found as an untracked file in a working
+# engineer's worktree, and he could not tell it from a genuine one.
+WT14="$SANDBOX/agent-worktree-corrupt"
+mkdir -p "$WT14/docs"
 RICHOS_ESCALATION_LEDGER="$L4" "$ESCALATE" raise --title "a good row beside a bad one" \
     --state proceeding --question "is the malformed line reported to anyone?" \
-    --teammate zach-opus-e1corrupt >/dev/null 2>&1
+    --worktree "$WT14" --teammate zach-opus-e1corrupt >/dev/null 2>&1
 OUT="$(RICHOS_ESCALATION_LEDGER="$L4" "$ESCALATE" list 2>&1)"
 case "$OUT" in
     *"malformed line"*) ok "14a  a malformed ledger line is reported, with a count" ;;
@@ -466,6 +481,15 @@ case "$OUT" in
     *"1 raised in all, 1 OUTSTANDING"*) ok "14b  and the good row beside it is still read" ;;
     *) bad "14b  good row survives" "got: $OUT" ;;
 esac
+# CONTAINED, NOT SUPPRESSED. The cheap way to stop this case leaking is
+# --no-record, and it would be wrong: the record write is a code path this
+# `raise` should still take, and a suppressed write proves nothing about where
+# an unsuppressed one goes. So the record must EXIST, inside the sandbox.
+if find "$WT14/docs/verification/escalations" -name '*.md' 2>/dev/null | grep -q .; then
+    ok "14c  and its record file landed in the SANDBOX worktree — the write still happened, it just no longer follows \$PWD"
+else
+    bad "14c  record contained, not suppressed" "no record under $WT14; if --no-record was added here instead, put it back and pass --worktree"
+fi
 
 # ===========================================================================
 # 15. A REPOSITORY WITH NO docs/ GETS THE LEDGER ROW AND NO NEW ROOT ENTRY.
@@ -521,9 +545,13 @@ for r in rows:
 open(p, "w", encoding="utf-8").write("".join(json.dumps(r) + "\n" for r in rows))
 PY
 }
+# --no-record because this case only needs a ledger row to age, AND
+# --worktree because --no-record is one edit away from being dropped by
+# somebody who needs the record here. The belt is the argument that makes the
+# write land in the sandbox; the braces are the argument that suppresses it.
 RICHOS_ESCALATION_LEDGER="$L6" "$ESCALATE" raise --title "nobody has looked at this yet" \
     --state proceeding --question "is the loudness carried by the age buckets?" \
-    --teammate zach-opus-e1loud --no-record >/dev/null 2>&1
+    --worktree "$SANDBOX" --teammate zach-opus-e1loud --no-record >/dev/null 2>&1
 cp "$ENG/scripts/lib/escalations.py" "$SANDBOX/escalations.py.real2"
 python3 - "$ENG/scripts/lib/escalations.py" <<'PY'
 import sys
