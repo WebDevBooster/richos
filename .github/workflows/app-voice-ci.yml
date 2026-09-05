@@ -73,16 +73,27 @@ name: app-voice-ci
 # WHAT A GREEN HERE DOES NOT MEAN — NAMED, NOT GLOSSED
 # ===========================================================================================
 #
-#   * THE FOUR LIVE-AUDIO TESTS RUN AND PROVE NOTHING. `live_macos_output_device_drains_the_
-#     queue`, `live_barge_in_actually_silences_the_real_output_device`, `live_injected_audio_
-#     completes_the_whole_local_loop` and `live_a_silent_channel_produces_no_turn_and_a_real_
-#     utterance_still_does` each begin by returning when `RICHOS_VOICE_LIVE_AUDIO` is unset,
-#     and a test that returns is reported `ok`. They are four green lines in the log that
-#     assert nothing, here and on every developer's machine that has not opted in. Setting
-#     the variable would not fix it: a runner has no output device, so they would fail rather
-#     than lie. This is stated rather than solved because the tests are `richos-voice`'s to
-#     change, not this file's — but a reader counting green lines should know which four are
-#     scenery.
+#   * THE FOUR LIVE-AUDIO TESTS DO NOT RUN, AND THE LOG NOW SAYS SO ITSELF. `live_macos_
+#     output_device_drains_the_queue`, `live_barge_in_actually_silences_the_real_output_
+#     device`, `live_injected_audio_completes_the_whole_local_loop` and `live_a_silent_
+#     channel_produces_no_turn_and_a_real_utterance_still_does` need an output device this
+#     runner does not have, and two of them additionally need whisper.cpp and a GGML model it
+#     does not carry either. Setting `RICHOS_VOICE_LIVE_AUDIO=1` here would turn four fake
+#     passes into four real failures, not into coverage. So it stays unset — see the `env`
+#     block below.
+#
+#     WHAT CHANGED SINCE THIS FILE LANDED, because the paragraph above used to end
+#     differently. These four each began with an early `return` when the variable was unset,
+#     and a test that returns is reported `ok`: they were four green lines asserting nothing,
+#     here and on every developer's machine. This file named that and left it, on the ground
+#     that the tests were `richos-voice`'s to change rather than this file's. They have since
+#     been changed. `crates/richos-voice/build.rs` turns the run-time variable into
+#     `cfg(live_audio)` and the tests carry `#[cfg_attr(not(live_audio), ignore = "…")]`, so
+#     the run below reports `168 passed; 0 failed; 4 ignored` with each ignored line naming
+#     its own reason, and `RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice` still runs
+#     all 172 on a machine that has the hardware. **The unit count in this job's log is four
+#     lower than it was and that is the fix, not a regression** — it is four tests that were
+#     never running being reported as never running.
 #
 #   * NO WHISPER, SO NO RECOGNITION. `stt.rs`'s resolution logic is unit-tested; the actual
 #     transcription of audio into words is not exercised by anything here or on a developer's
@@ -111,8 +122,10 @@ name: app-voice-ci
 # comes back under three the suite goes red and says which voices it looked for and which it
 # found — which is the entire point, and is why an opt-in gate was rejected. An opt-in would
 # move this crate from "runs on one machine" to "runs nowhere", and it would inherit the
-# `RICHOS_VOICE_LIVE_AUDIO` shape three paragraphs up: a quiet return that reports `ok`.
-# A skip that looks like a pass is the failure this repository has removed repeatedly.
+# `RICHOS_VOICE_LIVE_AUDIO` shape three paragraphs up — which was a quiet return reporting
+# `ok`, and is now an `ignored` line that names itself. A skip that looks like a pass is the
+# failure this repository has removed repeatedly; a skip that says it is a skip is fine, and
+# an opt-in gate over THIS suite would be neither, because there would be no line at all.
 #
 # THE CANDIDATE LIST IS NOT COPIED INTO THIS FILE. The census reads it out of
 # `tests/voiced_acceptance.rs` and intersects it with `say -v '?'`. Two typed copies of one
@@ -206,7 +219,11 @@ jobs:
       RUST_BACKTRACE: "1"
       # NOT SET, and the absence is the point: `RICHOS_VOICE_LIVE_AUDIO` is what the four
       # device-opening tests check for, and a runner has no device for them to open. It is
-      # named here so nobody adds it later thinking it would strengthen the run.
+      # named here so nobody adds it later thinking it would strengthen the run — it would
+      # not. `crates/richos-voice/build.rs` reads it at BUILD time and un-ignores those four,
+      # so setting it here would compile them in and then fail them on missing hardware (and
+      # on missing whisper.cpp, for two of the four). Unset, they report `ignored` with their
+      # reasons, which is the honest line for a machine that cannot run them.
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0

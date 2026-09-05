@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "RichOS voice mode: mic capture -> VAD/barge-in -> local whisper STT -> the spine -> sentence-pipelined TTS out. A MODE of the one persistent conversation, never a room."
 license = "AGPL-3.0-only"
+# Turns RICHOS_VOICE_LIVE_AUDIO (run time) into `cfg(live_audio)` (compile time) so the four
+# device-opening tests report `ignored` instead of `ok` when nobody has opted in. It emits no
+# code and links nothing; `build.rs` states the whole reasoning.
+build = "build.rs"
 
 # Native audio lives HERE, not in richos-core: `cargo test -p richos-core` must stay fast
 # and native-dependency-free (app/README.md "Layout"). cpal is the only third-party native

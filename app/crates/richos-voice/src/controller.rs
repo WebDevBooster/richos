@@ -1387,12 +1387,17 @@ mod tests {
     ///
     /// Behind RICHOS_VOICE_LIVE_AUDIO=1 because this one is genuinely audible: about a second
     /// of Rich's voice comes out of the speakers before it is cut.
+    ///
+    /// **Reported `ignored`, never `ok`, when the opt-in is absent** — the gate used to be an
+    /// early `return`, and a test that returns is reported `ok`. See `build.rs`.
     #[test]
     #[cfg(target_os = "macos")]
+    #[cfg_attr(
+        not(live_audio),
+        ignore = "LIVE AUDIO: audible, ~1 s out of the speakers. RICHOS_VOICE_LIVE_AUDIO=1 to run."
+    )]
     fn live_barge_in_actually_silences_the_real_output_device() {
-        if std::env::var("RICHOS_VOICE_LIVE_AUDIO").as_deref() != Ok("1") {
-            return;
-        }
+        crate::live_audio::require_opt_in();
         let dir = std::env::temp_dir().join("richos-voice-barge-test");
         std::fs::create_dir_all(&dir).unwrap();
         // A silent "microphone": the capture path runs for real, it just hears nothing, so
@@ -1468,12 +1473,17 @@ mod tests {
     /// does not exercise is the microphone driver, which this machine does not have (see
     /// capture.rs). Rich's "reply" here is a fixed string, so the Claude leg is out of
     /// scope for a unit test; `voice_loop` (the example) does that end of it.
+    ///
+    /// **Reported `ignored`, never `ok`, when the opt-in is absent** — the gate used to be an
+    /// early `return`, and a test that returns is reported `ok`. See `build.rs`.
     #[test]
     #[cfg(target_os = "macos")]
+    #[cfg_attr(
+        not(live_audio),
+        ignore = "LIVE AUDIO: needs an output device AND whisper.cpp. RICHOS_VOICE_LIVE_AUDIO=1 to run."
+    )]
     fn live_injected_audio_completes_the_whole_local_loop() {
-        if std::env::var("RICHOS_VOICE_LIVE_AUDIO").as_deref() != Ok("1") {
-            return;
-        }
+        crate::live_audio::require_opt_in();
         let dir = std::env::temp_dir().join("richos-voice-loop-test");
         std::fs::create_dir_all(&dir).unwrap();
         let wav_path = dir.join("ceo.wav");
@@ -1541,12 +1551,19 @@ mod tests {
     /// Opt-in (`RICHOS_VOICE_LIVE_AUDIO=1`) because it opens a real output device and takes
     /// ~20 s of wall clock. It never plays anything: no `speak_delta` is called, so the test
     /// is silent even on a machine with speakers.
+    ///
+    /// **Reported `ignored`, never `ok`, when the opt-in is absent** — the gate used to be an
+    /// early `return`, and a test that returns is reported `ok`. That mattered more here than
+    /// anywhere else in the crate: this is the test that holds the 2026-09-04 defect shut, and
+    /// it was printing `ok` without running on every machine but one. See `build.rs`.
     #[test]
     #[cfg(target_os = "macos")]
+    #[cfg_attr(
+        not(live_audio),
+        ignore = "LIVE AUDIO: needs an output device AND whisper.cpp, ~20 s. RICHOS_VOICE_LIVE_AUDIO=1 to run."
+    )]
     fn live_a_silent_channel_produces_no_turn_and_a_real_utterance_still_does() {
-        if std::env::var("RICHOS_VOICE_LIVE_AUDIO").as_deref() != Ok("1") {
-            return;
-        }
+        crate::live_audio::require_opt_in();
         let dir = std::env::temp_dir().join("richos-voice-silent-channel-test");
         std::fs::create_dir_all(&dir).unwrap();
 
