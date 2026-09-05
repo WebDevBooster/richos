@@ -1262,6 +1262,82 @@ async function main() {
     );
   });
 
+  await run.check("PART 0: what the derived manifest does NOT cover, counted rather than described", async () => {
+    // A DERIVED FILE LIST IS NOT DERIVED COVERAGE, and the difference is where the next
+    // blind spot will be. `lib/ui-sources.js` proves that every file the shell loads is
+    // READ. It says nothing about whether every string those files render is EXTRACTED, and
+    // an inventory that leaves that unstated invites exactly the reading that produced this
+    // session's eleven green-over-nothing findings: "the source list is derived, therefore
+    // the rule sees everything".
+    //
+    // So the boundary is a NUMBER here, recomputed every run, rather than a sentence in a
+    // header that stops being true.
+    //
+    // BOUNDARY 1 — THE PROSE FLOOR. `looksLikeProse` needs 12 characters and 3 words. That
+    // is what keeps identifiers, CSS values, GLSL and machinery out of an inventory of
+    // STATES, and it is the right shape for a sentence. It is the wrong shape for a LABEL:
+    // "Stop Rich", "Send", "Search", "Close corrections" are text the CEO reads and acts on,
+    // and every one is below the floor. Measured across the 12 shipped `ui` files today:
+    const belowFloor = [];
+    for (const name of SOURCES.stateSources()) {
+      const src = fs.readFileSync(SOURCES.abs(name), "utf8");
+      const lits = name.endsWith(".html") ? htmlVisibleStrings(src) : jsStringLiterals(src);
+      for (const l of lits) {
+        const n = normalize(l.text);
+        if (!n || !/[A-Za-z]/.test(n) || looksLikeProse(n)) continue;
+        const words = n.split(/\s+/).filter(Boolean);
+        // Label-SHAPED: short, capitalized, no code punctuation. Deliberately conservative —
+        // it undercounts rather than sweeping identifiers in, so the number below is a floor
+        // on the gap and never an inflation of it.
+        if (n.length >= 3 && words.length <= 2 && /^[A-Z]/.test(n) && !/[{}<>();=_.]/.test(n)) {
+          belowFloor.push(name + ":" + l.line + " " + JSON.stringify(n));
+        }
+      }
+    }
+    assert(
+      belowFloor.length > 0,
+      "0 label-shaped literals below the prose floor. Either the floor changed or this " +
+        "measurement broke — and a boundary check that measures nothing is the thing it exists " +
+        "to prevent."
+    );
+    assert(
+      inv.length > belowFloor.length * 0.5,
+      "the inventory (" + inv.length + ") is small beside the excluded set (" + belowFloor.length +
+        "), which would mean the prose floor is eating states rather than bounding them"
+    );
+
+    // BOUNDARY 2 — A STRING THIS PRODUCT COMPOSES AT RUNTIME IS UNREACHABLE BY ANY SOURCE
+    // SCRAPE, and no widening of the file list changes that. Template interpolation is the
+    // visible half of it; the invisible half is text that arrives as DATA over the bridge —
+    // a sentence composed in Rust, or by the model, and handed to the renderer. The
+    // renderer's source contains the slot, never the sentence. Counted so the shape is a
+    // number too:
+    const interpolated = SOURCES.uiMatches(/`[^`]*\$\{[^`]*`/).length;
+    assert(
+      interpolated > 0,
+      "0 interpolated template literals across the shipped UI — this product certainly has " +
+        "some, so this measurement is broken rather than the boundary being absent"
+    );
+
+    // BOUNDARY 3 — richos-core's `Display` impls are DELIBERATELY out of the Rust scrape
+    // (`lib/state-strings.js`'s RUST_ROOTS comment, blind spot B5). They are machinery, and
+    // although one can reach a local notice through `String(e)`, that surface is unbounded.
+    // Named here so "the Rust bridge scrape" is not read as "the Rust".
+    const rustSites = new Set(inv.filter((r) => /\.rs:/.test(r.sites[0])).map((r) => r.sites[0].split(":")[0]));
+    assert(rustSites.size > 0, "the Rust scrape contributed nothing to the inventory");
+
+    return (
+      inv.length + " state(s) in the inventory from " + SOURCES.stateSources().length +
+      " derived ui file(s) + " + rustSites.size + " Rust file(s). NOT COVERED, and none of it " +
+      "is fixable by widening the file list: " + belowFloor.length +
+      " label-shaped literal(s) below the 12-character/3-word prose floor (e.g. " +
+      belowFloor.slice(0, 3).map((s) => s.split(" ").slice(1).join(" ")).join(", ") +
+      "); " + interpolated + " interpolated template literal(s), whose sentences are composed at " +
+      "run time; and every string that arrives as DATA over the bridge — composed in Rust or " +
+      "by the model — which no source-text scrape of any width can see."
+    );
+  });
+
   await run.check("PART 0 NEGATIVE CONTROL: the reconciliation refuses a short list, a missing role and a stale one", async () => {
     // The same function `manifest()` calls, with synthetic inputs — not a re-implementation
     // of its three rules, which would prove only that the copy agrees with itself.
