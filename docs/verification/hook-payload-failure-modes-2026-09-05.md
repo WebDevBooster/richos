@@ -284,11 +284,18 @@ each silent on the control as well as on all three degraded payloads.
   is destroyed. That is the shape a bounded read produces.
 - `bash -x` trace step counts distinguish "evaluated and found nothing" from "never
   looked" for hooks whose control produced no refusal.
-- State was snapshotted before and after. The run created 16 files under
-  `femcboost/.claude/state`, all namespaced to the synthetic session; all were
-  removed and the directory listing verified byte-identical to the pre-run snapshot.
-  `sweep6.py` removes each notice-state file it creates as it goes and reports zero
-  leftovers.
+- State was snapshotted before the survey and diffed after it. Driving `Stop` hooks
+  against the real root writes notice-state markers, and across the whole survey 44
+  files were created under `femcboost/.claude/state` — every one namespaced to a
+  synthetic session id, except `hook-staleness-latest.announced`, which is not
+  session-scoped and which a degraded payload is therefore able to write. All 44
+  were removed and the directory listing verified byte-identical to the pre-survey
+  snapshot. `sweep6.py` removes each marker as it goes and reports zero leftovers;
+  the earlier sweeps did not, and were cleaned up against the snapshot afterwards.
+
+  That non-scoped marker is a small finding in its own right: a hook driven with a
+  payload it could not read wrote the file that suppresses the next staleness
+  announcement. It was not pursued here.
 
 Reproduce: `python3 docs/verification/hook-payload-failure-modes-2026-09-05/sweep2.py`
 (degraded matrix), `sweep3.py` (violation controls), `sweep4.py` and `sweep6.py`
