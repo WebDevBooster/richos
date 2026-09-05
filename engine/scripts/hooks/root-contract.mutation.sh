@@ -215,11 +215,18 @@ PY
 
 # M8. The spawn guard's unresolvable-namespace refusal degrades back to
 # "undeterminable -> accept".
+# The mutated LINE never moved; the file under it did. Model resolution was
+# extracted from guard-worktree-isolation.sh into scripts/lib/resolve-model.sh,
+# and from that commit this mutator opened a path whose content it no longer
+# described. It refused rather than passing -- the harness's third clause again
+# -- but nothing ran it, so M8's property (a namespaced subagent_type with no
+# resolvable definition must be reported UNRESOLVABLE, never as the empty
+# string) was proven by nothing until 2026-09-05.
 m_unresolvable_accepted() {
     local M="$1"
     python3 - "$M" <<'PY' || return 1
 import sys
-p = sys.argv[1] + "/scripts/hooks/guard-worktree-isolation.sh"
+p = sys.argv[1] + "/scripts/lib/resolve-model.sh"
 s = open(p).read()
 old = '''    2) printf 'UNRESOLVABLE'; return 0 ;;'''
 if old not in s:
@@ -269,8 +276,22 @@ PYEOF
 echo "=== mutation harness: is each fix load-bearing? ==="
 echo ""
 
+# M1's witness was `1a` and `1a` no longer witnesses anything about the SEAT.
+# guard-main-checkout-writes.sh now resolves governance FROM THE FILE
+# (richos_governing_root) rather than from the seat, so a write to
+# $SESSREPO/src/x.js is judged by $SESSREPO's own PROTECTED_PATHS whichever
+# repository the session is seated in -- and 1a stays green with the seat
+# resolver mutated to answer the engine root. Measured, not reasoned: under M1
+# the suite goes red at fourteen cases and 1a is not one of them.
+#
+# `1c` IS sensitive, and precisely so. It writes to $ENGINE/app/x.js from a
+# session in $SESSREPO. Unmutated, that file is out of the seat jurisdiction
+# and the guard stands down. Mutated, the seat IS the engine, the file is
+# inside it, the engine own config protects app/, and the write is blocked --
+# which is the pre-contract defect this whole row exists for. So the witness
+# moves to the case that can still tell the difference.
 mutate "M1 root resolution -> always the engine root" \
-       "scripts/hooks/root-contract.test.sh" "1a" m_engine_root_always
+       "scripts/hooks/root-contract.test.sh" "1c" m_engine_root_always
 mutate "M2 resolve_agent_def stops stripping the namespace" \
        "scripts/lib/resolve-roots.test.sh" "8c" m_no_namespace_strip
 mutate "M2b strip_agent_namespace becomes an identity function" \
