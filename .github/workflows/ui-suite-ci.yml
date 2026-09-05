@@ -81,6 +81,45 @@ name: ui-suite-ci
 # SHA somebody can name — the same sentence app-spine-ci.yml and windows-companion-ci.yml each
 # carry, for the same reason.
 #
+# HOW LONG IT TAKES, MEASURED, AND WHAT A MATRIX WOULD COST — 2026-09-05. NOTHING BELOW IS
+# CHANGED BY THIS PARAGRAPH; it is the arithmetic, written down where the decision would be
+# made, so that whoever makes it is not estimating.
+#
+# Run 33933067025: job 21m00s, of which `npm test` is 20m34s and the other 26s is the whole
+# rest of the job (checkout 7.2s, `node --version` 0.6s, `npm ci` 12.4s — WebKit came out of
+# the runner image's cache — the WebKit probe 1.4s, setup and cleanup the remainder). The
+# suites run strictly serially, each launching its own WebKit. Per-suite times, taken from the
+# timestamp at which `run.js` flushes each suite's buffered output:
+#
+#   contrast 201s · splash 162s · appearance 142s · affordances 138s · realbytes 98s ·
+#   feedback 77s · corrections 64s · restart-scope 56s · techy 50s · updates 44s · home 41s ·
+#   setup 35s · retention 23s · memory 22s · scale 20s · inspector 18s · memory-strategy 15s ·
+#   steering 14s · live-workers 5s · workers 5s · markdown 5s · docs-claims 0.2s
+#
+# The longest single suite is `contrast.js` at 3m21s, and that is the floor: no matrix makes
+# this job finish faster than its longest suite plus the 26s of setup, so ~3m47s is the wall
+# nothing gets under without splitting a suite. Sharding the list longest-first onto N runners:
+#
+#   N=2  wall 10m45s   billed 21.5 runner-minutes   (serial: 21m00s / 21.0)
+#   N=3  wall  7m19s   billed 22.0
+#   N=4  wall  5m37s   billed 22.5
+#   N=6  wall  3m54s   billed 23.4
+#   N=8  wall  3m47s   billed 30.3   <- past the point of it, contrast.js alone is the shard
+#
+# So the trade is real and it is small: N=4 turns 21 minutes of waiting into under 6 for about
+# 7% more billed runner time, because the 26s of per-job setup is the only thing duplicated and
+# macOS minutes are billed at 10x either way. N=6 is the last N that buys anything.
+#
+# WHAT IT WOULD COST IN CORRECTNESS, WHICH IS THE PART THAT IS NOT ARITHMETIC. `run.js`'s
+# evidence gate — 22 discovered, 22 ran, 0 skipped, every suite's observed count against the
+# count its own source declares — is a whole-run fact today. Split across N jobs it becomes N
+# partial facts plus a job that has to add them up, and the sentence at the top of this file
+# ("HOW THIS CANNOT REPORT A GREEN RUN IT DID NOT EARN") is only true again once that adding-up
+# job exists and is itself required. A matrix that reports six greens and no total is a weaker
+# gate than one serial red. That work is deliberately NOT in the branch that made this job
+# green: a change that fixes the suites and a change that makes them fast have to be separately
+# revertible.
+#
 # RUN FROM A CLONE ON 2026-09-04, AND IT FOUND A FLAKE BEFORE A RUNNER DID. Every step below
 # was run verbatim inside a real `git clone` of `fc56c20`, in a directory holding nothing but
 # that clone and under a throwaway `$HOME` — so `npm ci` fetched WebKit into an empty cache
