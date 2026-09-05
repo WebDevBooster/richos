@@ -1,0 +1,15 @@
+label            : final-default
+binary           : /Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri
+scratch HOME     : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.35hpbRBseu
+RICHOS_ACTIVATION: <unset>
+frontmost BEFORE : ChatGPT
+app pid          : 45824
+probe pid        : 45787 (this script IS the parent — condition P cannot hold)
+frontmost AFTER  : ChatGPT
+distinct frontmost applications while it ran:
+      32 ChatGPT
+L still alive at the end of sampling : yes
+C [richos] boot complete             : yes
+W webview completed an IPC round trip: yes
+F no sample named this app frontmost : yes
+VERDICT          : PASS — it booted, drew and answered IPC, and focus never left ChatGPT

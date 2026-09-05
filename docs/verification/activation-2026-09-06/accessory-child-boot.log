@@ -1,0 +1,22 @@
+[richos] activation: accessory — no Dock icon, no activation, no focus taken, because this is not an installed launch: /Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri is not inside a .app bundle; a program is holding this process (parent pid 91076), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable. RICHOS_ACTIVATION=regular overrides.
+[richos] launch: fresh (start 1, 1 window(s))
+[richos] no company registry at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.A9DsYARd0B/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+[richos] company registry: 0 compan(ies), /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.A9DsYARd0B/Library/Application Support/com.richos.app/entities.json (absent)
+[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+[richos] no company is registered on this install yet — RichOS will ask in the window and write the answer to /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.A9DsYARd0B/Library/Application Support/com.richos.app/entities.json.
+[richos] operator: the file's format and an example are in docs/entity-registry.md. RICHOS_ENTITY overrides once a company exists.
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.A9DsYARd0B/Library/Application Support/RichOS/corpus — not present
+[richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.A9DsYARd0B/Library/Application Support/RichOS/loro-root — not present
+[richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.A9DsYARd0B/RichOS/corpus — not present
+[richos] loro Tier C: RichOS will offer to set one up in the window, and will not pick a location on its own.
+[richos] engine directory: /Users/alex/ab/richos-wt/echo-opus-fc1/engine (via repo layout above the executable)
+[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+[richos]   binary: claude
+[richos]   engine: /Users/alex/ab/richos-wt/echo-opus-fc1/engine
+[richos]   cause : the claude binary was not found at claude — RichOS drives Claude Code directly and cannot run without it
+[richos] first-run setup: Claude Code is NOT installed — looked in: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.A9DsYARd0B/.local/bin/claude; /usr/bin/claude; /bin/claude; /usr/sbin/claude; /sbin/claude
+[richos] loro correction desk: CLOSED — no corpus resolved (candidates listed above). Confirming a correction will refuse and say so rather than appearing to write.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
+[richos] voice: not offered on this machine — My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.

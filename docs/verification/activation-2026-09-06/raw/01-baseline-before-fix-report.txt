@@ -1,0 +1,13 @@
+label            : baseline-before-fix
+binary           : /Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri
+scratch HOME     : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.qN0eRfqjsr
+RICHOS_ACTIVATION: <unset>
+frontmost BEFORE : Terminal
+app pid          : 79176
+probe pid        : 79151 (this script IS the parent)
+app still alive  : yes
+frontmost AFTER  : Terminal
+distinct frontmost applications while it ran:
+      22 richos-tauri
+       2 Terminal
+VERDICT          : IT TOOK FOCUS

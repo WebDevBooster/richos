@@ -1,0 +1,12 @@
+label            : accessory-invisible
+binary           : /Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri
+scratch HOME     : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.A9DsYARd0B
+RICHOS_ACTIVATION: <unset>
+frontmost BEFORE : Terminal
+app pid          : 91094
+probe pid        : 91076 (this script IS the parent)
+app still alive  : yes
+frontmost AFTER  : Terminal
+distinct frontmost applications while it ran:
+      32 Terminal
+VERDICT          : focus never left Terminal
