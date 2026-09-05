@@ -18,6 +18,44 @@
 //!      did not issue, and a read re-checks every stored turn against its thread's home
 //!      so a corrupt, forged or badly-migrated log cannot leak across the boundary.
 //!
+//! ## Every other reader of a customer's file, and what it does with a record it cannot read
+//!
+//! Surveyed 2026-09-05, when [`Ledger::replay`] stopped aborting on one unreadable record.
+//! The point of writing it down is that "the ledger is fixed" is not the same claim as
+//! "the app is fixed", and the next person to hit this class of bug should not have to
+//! re-derive the map.
+//!
+//! **The `?` was unique to this file.** `ledger.rs`'s per-record parse was the ONLY place
+//! in `app/` where a single unreadable line in a customer's file aborted the whole read.
+//! Nothing in `src-tauri/` and nothing in `richos-voice` has the shape at all.
+//!
+//! **Every sibling is already tolerant — and every one of them is SILENT about it.** Each
+//! of these drops an unparseable record with `else { continue }` or `.ok()`, says nothing,
+//! and returns a shorter list that is indistinguishable from a genuinely shorter file:
+//!
+//! | reader | file it reads | on a record it cannot parse |
+//! |---|---|---|
+//! | `journal.rs:412`, `:474` | the per-thread machinery journal | dropped, silently |
+//! | `journal.rs:668` | the raw-retention journal | dropped, silently |
+//! | `steering.rs:167` | the intake log — **the CEO's own typed messages, before they become turns** | dropped, silently |
+//! | `heard.rs:715` | the dictation log | dropped, silently |
+//! | `feedback.rs:270` | the feedback log | dropped, silently |
+//! | `worker_events.rs:267`, `worker_status.rs:286` | the engine's event logs (not the customer's) | dropped, silently |
+//! | `correction.rs:466`, `staging.rs:300` | the correction/staging desk | dropped, silently |
+//! | `config.rs:488` | `config.json` (whole file) | falls back to defaults, silently |
+//! | `src-tauri/src/nav.rs:108` | `navigation.json` (whole file) | falls back to defaults, silently |
+//!
+//! Two do it properly, and they are the precedent this module's
+//! [`Ledger::history_health`] follows: `entity.rs:681` fails the whole registry CLOSED
+//! and reports why through `RegistryLoad::notes`, and `launch.rs:389` keeps the file
+//! untouched and carries an `unreadable_reason`. `launch.rs` also carries the
+//! `schema_version` that would settle [`SkipKind::Ambiguous`] here if a ledger record
+//! carried one.
+//!
+//! `steering.rs:167` is the one worth a second look. A dropped intake record is a message
+//! the CEO typed that quietly never arrives, and the silence is the whole problem — it is
+//! not this change's scope and it is not fixed by this change.
+//!
 //! ## Threads written before entity binding existed
 //!
 //! They replay as [`ThreadEntity::Unbound`] and FAIL CLOSED on every scoped read and
