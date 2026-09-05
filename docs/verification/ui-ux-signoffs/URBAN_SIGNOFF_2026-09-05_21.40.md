@@ -118,7 +118,7 @@ I looked in all four places one could be:
 - Nothing in `runs.js`, which builds the element.
 - Nothing in any of the six commit messages on this branch.
 
-The only artifact resembling one is `app/ui/tests/runs.js`'s check **"Readable work-plan text and
+The only artifact resembling one is a check in the work-plan UI suite — the file is app/ui/tests/runs.js **on the unmerged branch `codex/durable-orchestration`, deliberately written without backticks because it does not exist on `main` and a reader with only the public repository would be sent to nothing. This entire review is of a branch that has not landed** — namely its check **"Readable work-plan text and
 controls meet the type floor"**, which asserts the `small` is `>= 14`. That asserts it clears the
 *skippable* floor. It never claims the text is skippable. **That is an exemption wearing a justification,
 which is the exact shape the standing rule names.**
