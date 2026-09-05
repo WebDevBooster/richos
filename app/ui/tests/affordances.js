@@ -8,13 +8,29 @@
 // in two days, and the eleventh was a set of guards that had landed, were inert, and were
 // reported as a DATE rather than as a five-second action.
 //
-// FIVE PARTS, AND WHICH OF THEM BLOCK
-// ===================================
+// SIX PARTS, AND WHICH OF THEM BLOCK
+// ==================================
+//   0  The source list reaches the UI     BLOCKING   derived from the tree, reconciled
 //   1  Inventory vs registry              BLOCKING   exact set comparison
 //   2  Every ACTIONABLE names a control   BLOCKING   exact, static
 //   3  The control is really on screen    BLOCKING   exact, real DOM under WebKit
 //   4  Negative and positive controls     BLOCKING   the suite proving it can fail
 //   5  The heuristic second opinion       REPORT ONLY, and the number is printed
+//
+// PART 0 IS NEW, AND IT IS THE PART THAT WAS MISSING WHILE THE OTHER FIVE PASSED. Until
+// 2026-09-05 this suite read three files — `index.html`, `main.js`, `timeline.js` — because
+// `lib/state-strings.js` carried them as a typed list under a header reading "NEVER TYPE
+// IT". The shell ships nine `<script src>` tags and the tree holds twelve product files, so
+// nine were outside every check below: `updates.js` (the surface CEO ruling §26 governs),
+// `home.js`, `settings-button.js`, `splash.js`, `splash-library.js`, `theme-boot.js` and the
+// three `home/field-*.js` modules. A state in any of them could have asked the CEO to do
+// something with no control beside it and this file would have reported the rule holding.
+//
+// The list is derived now (`lib/ui-sources.js`), part 0 proves the derivation reaches the
+// whole tree and can refuse, and the widening brought 55 states under the rule — 25 of them
+// in `updates.js` alone. What it found is in the commit that widened it; what it PROVES it
+// can now catch is the positive control near the bottom of this file, which deletes
+// `#update-relaunch` from the shipped update row and watches the rule go red.
 //
 // WHY PART 5 DOES NOT BLOCK, WITH THE MEASUREMENT RATHER THAN A FEELING. Part 5 asks a
 // different question from parts 1-3: not "does this classified state have its control?" but
@@ -42,9 +58,19 @@
 
 "use strict";
 
+const fs = require("fs");
 const path = require("path");
 const { leaveHome, loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
-const { inventory, normalize } = require("./lib/state-strings");
+const {
+  inventory,
+  normalize,
+  jsStringLiterals,
+  htmlVisibleStrings,
+  looksLikeProse,
+  looksLikeShader,
+  shaderStrings,
+} = require("./lib/state-strings");
+const SOURCES = require("./lib/ui-sources");
 const REGISTRY = require("./lib/state-registry");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -386,6 +412,81 @@ async function setupRefusal(browser, preset) {
       /take that on yet/.test(n.textContent)
     )
   );
+  return page;
+}
+
+// ---------------------------------------------------------------------------------------
+// The update row and the home screen's panel — the two surfaces the widened source list
+// brought under this rule on 2026-09-05
+// ---------------------------------------------------------------------------------------
+
+/// A full `update_state` view with only the interesting fields spelled out at the call site.
+///
+/// THE DEFAULTS ARE `updates.rs`'s OWN, not invented here: a placeholder endpoint, nothing
+/// checked, nothing busy. A fixture that quietly started from `available` would be showing
+/// this rule a screen the product does not open on. This mirrors `tests/updates.js`'s
+/// `view()` deliberately — one shape, two suites, and neither one is a second definition of
+/// what a state is, because both hand it to the same `updateSet`.
+function updateView(over) {
+  return Object.assign(
+    {
+      state: "idle",
+      currentVersion: "0.1.0",
+      availableVersion: null,
+      notes: null,
+      pubDate: null,
+      downloadedBytes: 0,
+      totalBytes: null,
+      percent: null,
+      failure: null,
+      endpoint: "https://updates.richos.invalid/{{target}}/{{arch}}/{{current_version}}",
+      endpointIsPlaceholder: true,
+      checkedAt: null,
+      busy: false,
+      busyReason: null,
+      unchecked: [],
+      readySince: null,
+    },
+    over || {}
+  );
+}
+
+/// Put the update row into one state and open the menu it lives in, through the real
+/// settings button. `onOpen()` re-reads `update_state` when the menu opens, so the state is
+/// set BEFORE the click and the row paints from the mock's answer rather than from the event.
+async function openUpdates(browser, over) {
+  const page = await openApp(browser);
+  await page.evaluate((v) => window.__RICHOS_MOCK__.updateSet(v, []), updateView(over));
+  await page.click("#set-btn");
+  await page.waitForSelector("#set-menu", { state: "visible" });
+  await page.waitForSelector("#update-line");
+  // The row repaints on the menu's own `onOpen` read. Wait for the STATE to arrive rather
+  // than for a duration: a fixed sleep here would be a fixture that passes on a fast machine.
+  await page.waitForFunction(
+    (want) => {
+      const row = document.getElementById("set-updates");
+      return !!row && row.getAttribute("data-update-state") === want;
+    },
+    updateView(over).state,
+    { timeout: 5000 }
+  );
+  return page;
+}
+
+/// Open the home screen's company-buttons panel the only way the CEO can: the settings
+/// menu's "Company buttons…" row. `setup` runs after the shell is up and before the panel
+/// is opened, which is where a fixture overrides what `home_entity_row` answers.
+async function openHomePrefs(browser, setup) {
+  const page = await openApp(browser);
+  if (setup) await setup(page);
+  await page.click("#set-btn");
+  await page.waitForSelector("#set-menu", { state: "visible" });
+  await page.click("#set-home-open");
+  await page.waitForSelector("#home-prefs:not([hidden])");
+  await page.waitForFunction(() => {
+    const foot = document.getElementById("home-prefs-foot");
+    return !!foot && foot.textContent.trim().length > 0;
+  }, { timeout: 5000 });
   return page;
 }
 
@@ -867,6 +968,77 @@ const FIXTURES = {
     await deskAnswer(page, "#desk-loro-suppressed-list .desk-btn--lift");
     return page;
   },
+
+  // -------------------------------------------------------------------------------------
+  // THE UPDATE SURFACE — CEO ruling §26, and the file this rule could not see until
+  // 2026-09-05.
+  //
+  // `updates.js` was outside `UI_SOURCES`, so every state below was outside the affordance
+  // rule: `#update-relaunch`, `#update-install` and `#update-check` could each have been
+  // deleted from `paint()` and this suite would have gone green over a sentence offering a
+  // restart with nothing to press. These six drive the REAL row through the REAL settings
+  // menu, with `mock.js`'s own `updateSet` standing in for `update_state` — the same driver
+  // `tests/updates.js` uses, so neither suite is proving a second implementation.
+  // -------------------------------------------------------------------------------------
+
+  async "updates-idle"(browser) {
+    return openUpdates(browser, {});
+  },
+
+  async "updates-unconfigured"(browser) {
+    return openUpdates(browser, { state: "unconfigured" });
+  },
+
+  async "updates-ready"(browser) {
+    return openUpdates(browser, { state: "ready", availableVersion: "0.1.2" });
+  },
+
+  async "updates-failed"(browser) {
+    return openUpdates(browser, {
+      state: "failed",
+      failure: { kind: "network", headline: "The update did not complete.", detail: "connection reset" },
+    });
+  },
+
+  /// THE §26 STATE ITSELF: an update is waiting and RichOS is working, so the control is
+  /// REMOVED rather than dimmed and the sentence has to carry the whole answer on its own.
+  async "updates-waiting-available"(browser) {
+    return openUpdates(browser, {
+      state: "available",
+      availableVersion: "0.1.2",
+      busy: true,
+      busyReason: "Two specialists are running.",
+    });
+  },
+
+  async "updates-waiting-ready"(browser) {
+    return openUpdates(browser, {
+      state: "ready",
+      availableVersion: "0.1.2",
+      busy: true,
+      busyReason: "Two specialists are running.",
+    });
+  },
+
+  // -------------------------------------------------------------------------------------
+  // THE HOME SCREEN'S COMPANY-BUTTONS PANEL — `home.js`, also outside the old source list.
+  // Opened through the settings menu's own row, which is the only way the CEO reaches it.
+  // -------------------------------------------------------------------------------------
+
+  async "home-prefs"(browser) {
+    return openHomePrefs(browser);
+  },
+
+  /// The backend cannot name his companies. The panel opens anyway and says so, rather than
+  /// rendering an empty list that reads as "you have none".
+  async "home-prefs-no-entities"(browser) {
+    return openHomePrefs(browser, async (page) => {
+      await page.evaluate(() => {
+        window.__overrides["home_entity_row"] = { value: [] };
+      });
+      await page.evaluate(() => window.RichHome.reloadEntities());
+    });
+  },
 };
 
 /// Which fixtures actually put the state's own words on screen. `shell` does not — the
@@ -931,6 +1103,18 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "setup-refused-engine",
   "setup-refused-claude",
   "setup-refused-both",
+  // The update row and the home screen's panel. Both are pure software driven through the
+  // real settings menu — no hardware, no network, no lease — so the SENTENCE is asserted
+  // present, not merely the control under it. That matters most for `updates-waiting-*`,
+  // where the whole of §26 is that the sentence is what stands in place of a control.
+  "updates-idle",
+  "updates-unconfigured",
+  "updates-ready",
+  "updates-failed",
+  "updates-waiting-available",
+  "updates-waiting-ready",
+  "home-prefs",
+  "home-prefs-no-entities",
 ]);
 
 // ---------------------------------------------------------------------------------------
@@ -973,7 +1157,168 @@ async function main() {
       inv.some((r) => r.normal === sentinel),
       "the sentinel state is missing from the inventory — the extractor is not reading index.html"
     );
-    return inv.length + " states derived from index.html, main.js, timeline.js and the Rust bridge scrape";
+    return (
+      inv.length + " states derived from " + SOURCES.stateSources().length +
+      " shipped file(s) and the Rust bridge scrape"
+    );
+  });
+
+  // ---- PART 0: the SOURCE LIST is derived, and it reaches the whole shipped UI ------------
+  //
+  // Everything below part 0 asks "is this state classified, and does it have its control?"
+  // Part 0 asks the question that comes before it and that nothing was asking on 2026-09-04:
+  // IS THIS RULE LOOKING AT THE WHOLE PRODUCT? It was not. `UI_SOURCES` read three files
+  // while the shell shipped nine `<script src>` tags, so a state in any of the other nine
+  // could ask the CEO to do something with no control beside it and every check under this
+  // one would have passed, loudly, over a file it could not open.
+
+  await run.check("PART 0: the source list is DERIVED from the tree, and reaches every shipped script", async () => {
+    const m = SOURCES.manifest();
+    const ui = SOURCES.stateSources();
+
+    // The nine that the typed list could not see, named individually rather than counted —
+    // a count would pass again the day a tenth arrives and one of these leaves.
+    const WAS_INVISIBLE = [
+      "home.js",
+      "settings-button.js",
+      "splash-library.js",
+      "splash.js",
+      "theme-boot.js",
+      "updates.js",
+      "home/field-engine.js",
+      "home/field-prep.js",
+      "home/field-ref.js",
+    ];
+    assertEqual(
+      WAS_INVISIBLE.filter((f) => ui.indexOf(f) < 0),
+      [],
+      "the derivation does not reach a file the shipped shell loads. The whole point of " +
+        "lib/ui-sources.js is that this list cannot be short."
+    );
+
+    // Two-sided: nothing on disk is unaccounted for, and nothing accounted for is missing
+    // from disk. `manifest()` throws on either, so reaching here is the assertion — but the
+    // numbers are printed so a reader can see the reconciliation actually had something in
+    // it rather than reconciling two empty sets.
+    assert(m.disk.length >= 12, "the disk walk found " + m.disk.length + " shipped files — that is not this tree");
+    assertEqual(
+      m.disk.filter((f) => m.order.indexOf(f) < 0),
+      [],
+      "a file on disk is not in the derivation, which manifest() should have refused to return"
+    );
+    assertEqual(m.remote.length, 0, "the shell loads something over the network: " + m.remote.join(", "));
+
+    return (
+      m.order.length + " shipped file(s) derived from index.html and the closure over it (" +
+      ui.length + " ui, " + SOURCES.previewDataSources().length + " preview-data, " +
+      SOURCES.styleSources().length + " style), reconciled against " + m.disk.length +
+      " .js/.css/.html on disk. The nine the typed list missed are all here, `updates.js` " +
+      "and `home/field-engine.js` among them."
+    );
+  });
+
+  await run.check("PART 0: the widened list SEES states the old three-file list could not", async () => {
+    // THE BEFORE AND AFTER, COMPUTED. The old list is re-derived here — the same scanner,
+    // the same prose filter, the same Rust scrape, with only the source list changed — so
+    // the difference is the widening and nothing else.
+    const OLD = ["index.html", "main.js", "timeline.js"];
+    const before = new Set();
+    for (const name of OLD) {
+      const src = fs.readFileSync(path.join(UI_DIR, name), "utf8");
+      const lits = name.endsWith(".html") ? htmlVisibleStrings(src) : jsStringLiterals(src);
+      for (const s of lits) {
+        const n = normalize(s.text);
+        if (looksLikeProse(n)) before.add(n);
+      }
+    }
+    const gained = inv.filter((r) => !before.has(r.normal) && !/\.rs:/.test(r.sites[0]));
+    assert(
+      gained.length >= 40,
+      "widening the source list gained only " + gained.length + " states. Either the tree " +
+        "changed or the derivation stopped reaching most of it — this number was 55."
+    );
+
+    // AND THE ONE THAT MATTERS, BY NAME. CEO ruling §26 governs `updates.js`, its clause is
+    // that a waiting update must not be actionable, and this sentence is the state that
+    // stands where the control is not. It was invisible; it is classified now.
+    const SENTINEL = "I'll wait to restart until everything has finished — nothing will be interrupted.";
+    assert(!before.has(SENTINEL), "the sentinel was ALREADY visible to the old list — it proves nothing");
+    assert(
+      inv.some((r) => r.normal === SENTINEL),
+      "the §26 waiting sentence is not in the widened inventory — the derivation is not reading updates.js"
+    );
+    assert(byString.has(SENTINEL), "the §26 waiting sentence reached the inventory and nobody classified it");
+
+    const byFile = {};
+    for (const g of gained) {
+      const f = g.sites[0].split(":")[0];
+      byFile[f] = (byFile[f] || 0) + 1;
+    }
+    return (
+      gained.length + " state(s) are visible to this rule that were not: " +
+      Object.keys(byFile).sort().map((f) => f + " " + byFile[f]).join(", ") +
+      ". The §26 waiting sentence is one of them, and it is classified INFORMATIONAL " +
+      "because the control is REMOVED by ruling rather than merely missing."
+    );
+  });
+
+  await run.check("PART 0 NEGATIVE CONTROL: the reconciliation refuses a short list, a missing role and a stale one", async () => {
+    // The same function `manifest()` calls, with synthetic inputs — not a re-implementation
+    // of its three rules, which would prove only that the copy agrees with itself.
+    const ok = { "a.js": { role: "ui", why: "x" }, "b.css": { role: "style", why: "x" } };
+
+    const cases = [
+      {
+        what: "a file on disk that nothing loads",
+        run: () => SOURCES.reconcile(["a.js"], ["a.js", "b.css"], { "a.js": ok["a.js"] }),
+        expect: "nothing loads them",
+      },
+      {
+        what: "a loaded file with no role",
+        run: () => SOURCES.reconcile(["a.js", "b.css"], ["a.js", "b.css"], { "a.js": ok["a.js"] }),
+        expect: "have no role",
+      },
+      {
+        what: "a role for a file nobody loads",
+        run: () => SOURCES.reconcile(["a.js"], ["a.js"], ok),
+        expect: "the derivation does not reach",
+      },
+    ];
+    const proved = [];
+    for (const c of cases) {
+      let threw = null;
+      try { c.run(); } catch (e) { threw = e.message; }
+      assert(threw, "reconcile() ACCEPTED " + c.what + " — it would accept the next blind spot too");
+      assert(
+        threw.indexOf(c.expect) >= 0,
+        "reconcile() refused " + c.what + ", but for the wrong reason: " + threw.split("\n")[0]
+      );
+      proved.push(c.what);
+    }
+    // ...and it accepts a set that agrees, so the three above are not passing because the
+    // function refuses everything.
+    assertEqual(SOURCES.reconcile(["a.js", "b.css"], ["a.js", "b.css"], ok), 2, "reconcile() refused a set that agrees");
+    return "refused: " + proved.join("; ") + ". Accepted the agreeing set.";
+  });
+
+  await run.check("PART 0: the GLSL filter drops shaders and nothing else, measured", async () => {
+    // `home/field-engine.js` carries its shaders as string literals, and a shader clears
+    // every prose test written for English. The filter's cost is measured rather than
+    // assumed, because a filter that quietly ate real states would shrink this inventory and
+    // no other check here would notice.
+    const dropped = shaderStrings();
+    assert(dropped.length > 0, "0 shader literals found — the scrape is not reading home/field-engine.js");
+    const files = [...new Set(dropped.map((d) => d.site.split(":")[0]))];
+    assertEqual(files, ["home/field-engine.js"], "the GLSL filter is dropping strings outside the shader module");
+    assertEqual(
+      inv.filter((r) => looksLikeShader(r.normal)).map((r) => r.sites.join(" ")),
+      [],
+      "a shader survived into the state inventory"
+    );
+    return (
+      dropped.length + " GLSL literal(s) dropped, all " + dropped.length + " in " + files[0] +
+      ", 0 elsewhere; 0 shaders left in the " + inv.length + "-state inventory."
+    );
   });
 
   await run.check("every derived state is classified, and every classification is a real state", async () => {
@@ -1296,6 +1641,90 @@ async function main() {
       return "flagged: " + threw.split("\n")[0];
     }
   );
+
+  await run.check(
+    "POSITIVE CONTROL ON THE REAL UPDATE SURFACE: delete the restart control and the rule fails",
+    async () => {
+      // THE PROOF THAT THE WIDENING IS WORTH ANYTHING. The three positive controls above run
+      // against `page.setContent` markup written for them — they prove the CHECKER can fail.
+      // This one runs against the shipped `updates.js` in the shipped shell, on a surface that
+      // was outside this rule until today, and proves the RULE can fail there.
+      const page = await FIXTURES["updates-ready"](browser);
+      const entry = byString.get("Restart when you are ready — nothing is lost.");
+      assert(entry && entry.control, "the ready sub-line lost its registry row");
+
+      // It passes as shipped...
+      const sample = await assertAffordance(page, entry, { requireText: true });
+
+      // ...and fails the moment the control it names is not there. `paint()` deciding
+      // `nodes.relaunch.hidden = true` in the idle case, a renamed id, a row that stopped
+      // being built: all of them arrive at the DOM as this.
+      await page.evaluate(() => document.getElementById("update-relaunch").remove());
+      let threw = null;
+      try {
+        await assertAffordance(page, entry, { requireText: true });
+      } catch (e) {
+        threw = e.message;
+      }
+      await page.close();
+      assert(
+        threw,
+        "the restart offer passed with NO restart button on screen. Before today this rule " +
+          "could not open updates.js at all; if it still cannot fail here, widening it bought " +
+          "nothing."
+      );
+      assert(threw.indexOf("NO control") >= 0, "flagged, but for the wrong reason: " + threw.split("\n")[0]);
+      return "as shipped: " + sample + "; with #update-relaunch removed: " + threw.split("\n")[0];
+    }
+  );
+
+  await run.check("§26: a waiting update offers NO actionable control, on the real surface", async () => {
+    // The CEO's ruling, as a check rather than as a comment: while work is running the
+    // update affordance is REMOVED, not dimmed. "A dimmed control still invites the press and
+    // then refuses it, which is the anxiety being removed rather than a milder version of
+    // it." A future edit that softened this to `disabled = true` would leave every other
+    // check in this suite green.
+    const out = [];
+    for (const name of ["updates-waiting-available", "updates-waiting-ready"]) {
+      const page = await FIXTURES[name](browser);
+      const seen = await page.evaluate(() => {
+        const look = (id) => {
+          const n = document.getElementById(id);
+          if (!n) return "absent";
+          if (n.hidden) return "hidden";
+          const r = n.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return "zero-area";
+          return n.disabled ? "DISABLED-BUT-PRESENT" : "PRESSABLE";
+        };
+        const note = document.getElementById("update-waiting");
+        return {
+          install: look("update-install"),
+          relaunch: look("update-relaunch"),
+          cue: look("update-cue"),
+          note: !!note,
+          noteRole: note ? note.getAttribute("role") : null,
+          noteName: note ? note.getAttribute("aria-label") || "" : "",
+        };
+      });
+      for (const which of ["install", "relaunch", "cue"]) {
+        assert(
+          seen[which] !== "PRESSABLE" && seen[which] !== "DISABLED-BUT-PRESENT",
+          "[" + name + "] #update-" + which + " is " + seen[which] + " while RichOS is working. " +
+            "§26: the affordance is removed, never offered and refused."
+        );
+      }
+      assert(seen.note, "[" + name + "] nothing stands where the control is not — the state is silent");
+      assertEqual(seen.noteRole, "note", "[" + name + "] the waiting cue is not a `role=note`");
+      assert(
+        /nothing will be interrupted/.test(seen.noteName),
+        "[" + name + "] the waiting cue's accessible name does not carry the sentence: " +
+          JSON.stringify(seen.noteName)
+      );
+      out.push(name + ": install " + seen.install + ", relaunch " + seen.relaunch + ", a role=note in their place");
+      await page.close();
+    }
+    return out.join("; ");
+  });
 
   await run.check("POSITIVE CONTROL: an unclassified new state IS flagged", async () => {
     // The drift comparator, run against a corpus with one extra string, so the part-1 check
