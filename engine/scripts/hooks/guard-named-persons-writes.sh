@@ -128,6 +128,22 @@ fi
 . "$_NP_LIB"
 
 INPUT="$(cat)"
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# On a payload it cannot read, this guard takes the SAME silent exit 0 that a
+# well-formed payload for a DIFFERENT tool takes: the tool-name extraction ends
+# in `|| true`, so "this call is not mine" and "I could not tell whose call this
+# is" are one exit. That is why 17 of 25 PreToolUse guards were measured passing
+# a call in complete silence on 2026-09-05. This separates the two. NO VERDICT
+# CHANGES — the exit is the one already taken — only the silence does. The
+# measurement, the channel and the argument: scripts/lib/unevaluated-notice.sh.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "guard-named-persons-writes.sh" "$INPUT" \
+        "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
+        "whether this write puts a real person's name into publication-bound material"
+fi
 
 TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
 case "$TOOL_NAME" in

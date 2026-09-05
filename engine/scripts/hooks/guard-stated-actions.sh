@@ -164,6 +164,28 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 : "${STATED_ACTIONS_ENFORCE:=1}"
 
 stop_notice_init "guard-stated-actions.sh" "$ENTITY_ROOT" "$INPUT"
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# A turn that ends without this check having run must not look like a turn that
+# ran it and found nothing. The sentence comes from
+# scripts/lib/unevaluated-notice.sh so every hook says it the same way, and it
+# goes out through the same notice channel the stand-downs above use, which is
+# the one measured for the Stop event. NO VERDICT CHANGES — this hook already
+# ended the turn on exactly these payloads.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    if _UE_REASON="$(richos_payload_unreadable "$INPUT")"; then
+        # ONE LINE for the call itself, deliberately: stop-hook-visibility.test.sh
+        # proves its case 3a by sed-ing out every such call, and a multi-line
+        # continuation would leave the argument lines behind as orphaned commands.
+        _UE_MSG="$(unevaluated_sentence "guard-stated-actions.sh" \
+            "whether this turn stated an action it did not take" \
+            "$_UE_REASON" turn)"
+        stop_notice_abnormal "payload-unreadable:$_UE_REASON" "$_UE_MSG"
+        exit 0
+    fi
+fi
 
 if [ "$CHECK_STATED_ACTIONS" = "0" ]; then
     # Never a silent permission: an opt-out that cannot be seen is a defense

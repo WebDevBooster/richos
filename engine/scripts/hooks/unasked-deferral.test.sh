@@ -310,14 +310,19 @@ else bad "6b  a different deferral speaks again" "$HOUT"; fi
 say "6b" "$HOUT"
 
 # ===========================================================================
-# 7. THE TRANSCRIPT IS UNREADABLE -> SILENT, NOT A FALSE ACCUSATION
+# 7. THE TRANSCRIPT IS UNREADABLE -> NO ACCUSATION, AND NO CLAIM TO HAVE LOOKED
 #    Two of the three discharges depend on the transcript. If it cannot be
-#    read, firing would blame a turn that may well have asked.
+#    read, firing would blame a turn that may well have asked. Staying silent
+#    about it is the other error: the turn's text DOES carry a deferral, and
+#    nothing was able to decide whether the choice was put to him.
 # ===========================================================================
 rm -f "$SANDBOX/transcript.jsonl"
 run_hook "$SPECIMEN"
-if quiet; then ok "7a  an unreadable transcript is silent — it will not accuse a turn whose discharges it cannot see"
-else bad "7a  an unreadable transcript is silent" "$HOUT"; fi
+if quiet; then ok "7a  an unreadable transcript does NOT accuse a turn whose discharges it cannot see"
+else bad "7a  an unreadable transcript does not accuse" "$HOUT"; fi
+if printf '%s' "$HOUT" | grep -q 'NOT RUN this turn'; then
+    ok "7a2 and it says the check did not run, instead of ending the turn as though it had"
+else bad "7a2 an unreadable transcript reports NOT RUN" "$HOUT"; fi
 write_transcript Bash
 run_hook "$SPECIMEN"
 if spoke; then ok "7b  POSITIVE CONTROL — with the transcript back it fires again"
@@ -333,6 +338,79 @@ print(json.dumps({"hook_event_name": "Stop", "session_id": "deadbeef-1111-4000-8
     "$SANDBOX/transcript.jsonl" "$SPECIMEN" | bash "$HOOK" 2>&1)"
 if quiet; then ok "7c  stop_hook_active is silent — it does not re-accuse on a blocked turn's re-fire"
 else bad "7c  stop_hook_active is silent" "$HOUT"; fi
+
+# ===========================================================================
+# 8. THE RECOVERY LINE MUST NEVER CLAIM A CHECK THAT DID NOT HAPPEN
+#
+#    THE DEFECT, VERBATIM. Given a payload with no `last_assistant_message`,
+#    this hook announced:
+#
+#      "DEFERRAL WATCH — RUNNING AGAIN. This turn's text was checked for work
+#       postponed without putting the choice to you."
+#
+#    It was not checked. There was no turn text to check. Of the forty
+#    PreToolUse and Stop hooks driven with empty, truncated and non-JSON
+#    payloads on 2026-09-05, this was the ONLY affirmatively false statement
+#    found — everywhere else a degraded payload produced silence.
+#
+#    Every case here is driven through the SAME recovery path the defect used:
+#    the hook is first put into an announced stand-down, so that
+#    stop_notice_normal's state-change condition is satisfied and the recovery
+#    line is the thing under test. Without that setup these cases pass
+#    vacuously, because a healthy hook is silent either way — the same
+#    "passes for the wrong reason" this suite's positive controls exist for.
+# ===========================================================================
+stand_down_then() { # <payload-json>  -> HOUT
+    # 1. A stand-down the operator is told about, which records a non-ok state.
+    forget
+    printf 'PROTECTED_PATHS="wiki"\nCHECK_UNASKED_DEFERRAL=0\n' > "$REPO/orchestration.config"
+    stop_payload "ordinary prose with nothing deferred in it" | bash "$HOOK" >/dev/null 2>&1
+    # 2. The hook is healthy again, and THIS payload is the one under test.
+    printf 'PROTECTED_PATHS="wiki"\n' > "$REPO/orchestration.config"
+    HOUT="$(printf '%s' "$1" | bash "$HOOK" 2>&1)"
+    HRC=$?
+}
+
+claims_checked() { printf '%s' "$HOUT" | grep -q "turn's text was checked"; }
+says_not_run()   { printf '%s' "$HOUT" | grep -q 'NOT RUN this turn'; }
+
+write_transcript Bash
+
+# 8a. THE POSITIVE CONTROL FIRST. A real turn, with real text, that genuinely
+#     defers nothing: the recovery line is TRUE here and must still be said.
+#     Without this case, 8b/8c/8d could be satisfied by a hook that had simply
+#     stopped emitting the recovery line at all.
+stand_down_then "$(stop_payload 'Landed the branch and deployed. Nothing outstanding.')"
+if claims_checked; then ok "8a  POSITIVE CONTROL — a turn WITH text still gets the recovery line, because there it is true"
+else bad "8a  POSITIVE CONTROL — a real turn still reports RUNNING AGAIN" "$HOUT"; fi
+
+# 8b. THE SPECIMEN OF THE DEFECT: a payload that parses and carries no turn text.
+NOTEXT="$(python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "Stop", "session_id": "deadbeef-1111-4000-8000-000000000000",
+                  "cwd": "", "stop_hook_active": False, "transcript_path": sys.argv[1]}))' \
+    "$SANDBOX/transcript.jsonl")"
+stand_down_then "$NOTEXT"
+if claims_checked; then bad "8b  a payload with no turn text must NOT say the text was checked" "$HOUT"
+else ok "8b  a payload with no turn text does not claim the text was checked"; fi
+if says_not_run; then ok "8c  it says the check did NOT RUN, so an unexamined turn cannot read as a clean one"
+else bad "8c  a payload with no turn text reports NOT RUN" "$HOUT"; fi
+
+# 8d. An unreadable payload — the other two degraded shapes from the survey.
+#     THESE TWO PASS AT THE PREVIOUS COMMIT AS WELL, and the reason is recorded
+#     here rather than left to look like evidence it is not: a payload with no
+#     readable session_id leaves the notice ledger unset, and stop_notice_normal
+#     is silent with no prior state to recover from. They are a regression fence
+#     around that structural silence, not proof of the fix. 7a2, 8b and 8c are
+#     the cases that are red at the previous commit and green at this one.
+for shape in "" '{"hook_event_name":"Stop","last_assis'; do
+    stand_down_then "$shape"
+    label="$([ -z "$shape" ] && echo 'an EMPTY payload' || echo 'a TRUNCATED payload')"
+    if claims_checked; then bad "8d  $label must not claim the text was checked" "$HOUT"
+    else ok "8d  $label does not claim the text was checked"; fi
+    [ "$HRC" -eq 0 ] || bad "8e  $label still exits 0 — this hook never wedges a session" "rc=$HRC"
+done
+ok "8e  every degraded payload still exits 0 — the verdict is unchanged, only the silence is"
 
 echo ""
 echo "=== $PASS passed, $FAIL failed ==="

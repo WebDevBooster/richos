@@ -1,0 +1,3 @@
+wall-clock of the headless session: 44.11s
+session output: READY
+rc=0

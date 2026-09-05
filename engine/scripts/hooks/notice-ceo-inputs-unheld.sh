@@ -62,6 +62,22 @@
 #     scripts/hooks/ceo-inputs.test.sh
 #
 # Exit codes: always 0. This hook never refuses a turn.
+#
+# UNEVALUATED-PAYLOAD-EXEMPT: payload-independent — the predicate is the ingress ledger, re-decided against git every
+# turn. Same session_id caveat as notice-ceo-unasked.sh, and the same answer.
+#
+# WHY THIS ONE NEEDS A DECLARATION WHERE THE OTHER EXEMPT HOOKS DO NOT.
+# scripts/hooks/unevaluated-payload.test.sh derives every registered PreToolUse
+# and Stop hook from hooks/hooks.json and drives each with an empty, a truncated
+# and a non-JSON payload. A hook that REFUSES them is proven fail-closed by that
+# alone; a hook that ANNOUNCES on them is proven audible by that alone; neither
+# needs a word in its source. But a hook that is SILENT on all four looks
+# identical whether its predicate never needed the payload or its predicate was
+# silently lost — which is the whole defect, and it is the one thing driving a
+# hook cannot tell you. So payload-independence is the single class that must be
+# CLAIMED by a person, and the suite then holds the claim to its consequence:
+# the output must be identical on all four payloads. An undeclared silent hook
+# fails that suite; a falsely declared one fails it too.
 
 set -eo pipefail
 

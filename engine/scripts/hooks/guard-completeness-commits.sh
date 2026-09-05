@@ -258,6 +258,31 @@ fi
 
 INPUT="$(cat)"
 
+# PLACED ABOVE THE SUBSTRING PRE-FILTER BELOW, NOT AFTER IT. That filter
+# tests the RAW payload for "commit"/"push" and exits 0 on anything else,
+# so an unreadable payload never reached root resolution and never reached
+# this notice either — the only hook of the twenty-seven where the check was
+# lost one step earlier than everywhere else. The cost of the earlier
+# placement is that no entity root has been resolved yet, so the durable log
+# line is skipped; the announcement is not.
+
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# On a payload it cannot read, this guard takes the SAME silent exit 0 that a
+# well-formed payload for a DIFFERENT tool takes: the tool-name extraction ends
+# in `|| true`, so "this call is not mine" and "I could not tell whose call this
+# is" are one exit. That is why 17 of 25 PreToolUse guards were measured passing
+# a call in complete silence on 2026-09-05. This separates the two. NO VERDICT
+# CHANGES — the exit is the one already taken — only the silence does. The
+# measurement, the channel and the argument: scripts/lib/unevaluated-notice.sh.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "guard-completeness-commits.sh" "$INPUT" \
+        "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
+        "whether this commit is the whole of the change it claims to be"
+fi
+
 # --- The cheap door --------------------------------------------------------
 # Every Bash call in the session reaches this file. The overwhelming majority
 # are `ls`, `grep`, a test run — nothing this guard has any business costing.
@@ -288,7 +313,6 @@ else
     root_failure_banner "scripts/hooks/guard-completeness-commits.sh" >&2
     exit 2
 fi
-
 _PB_LIB="$SCRIPT_DIR/../lib/publication-boundary.sh"
 if [ ! -f "$_PB_LIB" ]; then
     {

@@ -49,6 +49,23 @@
 # NOTE: hooks are snapshotted at session start. This one is INERT until the
 # next session — it assumes nothing about being live in the session that adds
 # it.
+#
+# UNEVALUATED-PAYLOAD-EXEMPT: payload-independent — the predicate is the repository, not the payload. The survey drove
+# it with all four shapes and got byte-identical notices; a degraded payload
+# costs it nothing and an announcement would be pure noise.
+#
+# WHY THIS ONE NEEDS A DECLARATION WHERE THE OTHER EXEMPT HOOKS DO NOT.
+# scripts/hooks/unevaluated-payload.test.sh derives every registered PreToolUse
+# and Stop hook from hooks/hooks.json and drives each with an empty, a truncated
+# and a non-JSON payload. A hook that REFUSES them is proven fail-closed by that
+# alone; a hook that ANNOUNCES on them is proven audible by that alone; neither
+# needs a word in its source. But a hook that is SILENT on all four looks
+# identical whether its predicate never needed the payload or its predicate was
+# silently lost — which is the whole defect, and it is the one thing driving a
+# hook cannot tell you. So payload-independence is the single class that must be
+# CLAIMED by a person, and the suite then holds the claim to its consequence:
+# the output must be identical on all four payloads. An undeclared silent hook
+# fails that suite; a falsely declared one fails it too.
 
 set -eo pipefail
 

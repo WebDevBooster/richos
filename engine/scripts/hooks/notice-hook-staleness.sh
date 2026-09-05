@@ -254,6 +254,28 @@ else
 fi
 
 STATE_DIR="$ENTITY_ROOT/.claude/state"
+
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# THIS HOOK ALREADY OWNS THE RIGHT SENTENCE and simply never routed an
+# unreadable payload into it. cannot_compare() says "This is NOT a clean result
+# — it is the absence of one", which is exactly the statement owed here, so this
+# reuses it rather than adding a second voice; richos_payload_unreadable is
+# shared only for the judgment of WHAT counts as unreadable.
+#
+# IT ALSO CLOSES A WRITE. With an unreadable payload SESSION_ID comes out empty
+# a few lines below, ANNOUNCED falls back to the NON-session-scoped
+# hook-staleness-latest.announced, and the run then suppresses the next real
+# staleness announcement for everybody. The 2026-09-05 survey found that file
+# was the one piece of state a degraded payload could write and recorded it as a
+# small finding it did not pursue. Standing down here means it is never reached.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    if _UE_REASON="$(richos_payload_unreadable "$INPUT")"; then
+        cannot_compare "the turn-end payload could not be read ($_UE_REASON), so this session was never identified and nothing was compared"
+    fi
+fi
 SURFACE="${HOOK_STALENESS_SURFACE:-$ENGINE_ROOT/hooks/hooks.json}"
 
 # --- session-scoped state ------------------------------------------------

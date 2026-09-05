@@ -44,6 +44,23 @@
 # The state key is the SET of unasked items, so the notice speaks again the
 # moment that set changes — which is exactly the moment one of them is finally
 # put to him, and the moment a new one is prepared.
+#
+# UNEVALUATED-PAYLOAD-EXEMPT: payload-independent — the predicate is the CEO's own list. It reads session_id from the
+# payload, but only as a notice de-duplication key: losing it makes the notice
+# less well de-duplicated, it does not make the check not run.
+#
+# WHY THIS ONE NEEDS A DECLARATION WHERE THE OTHER EXEMPT HOOKS DO NOT.
+# scripts/hooks/unevaluated-payload.test.sh derives every registered PreToolUse
+# and Stop hook from hooks/hooks.json and drives each with an empty, a truncated
+# and a non-JSON payload. A hook that REFUSES them is proven fail-closed by that
+# alone; a hook that ANNOUNCES on them is proven audible by that alone; neither
+# needs a word in its source. But a hook that is SILENT on all four looks
+# identical whether its predicate never needed the payload or its predicate was
+# silently lost — which is the whole defect, and it is the one thing driving a
+# hook cannot tell you. So payload-independence is the single class that must be
+# CLAIMED by a person, and the suite then holds the claim to its consequence:
+# the output must be identical on all four payloads. An undeclared silent hook
+# fails that suite; a falsely declared one fails it too.
 
 set -eo pipefail
 

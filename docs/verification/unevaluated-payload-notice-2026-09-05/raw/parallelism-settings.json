@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/par-probe/sleep2.sh h1", "timeout": 30 },
+          { "type": "command", "command": "bash /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/par-probe/sleep2.sh h2", "timeout": 30 },
+          { "type": "command", "command": "bash /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/par-probe/sleep2.sh h3", "timeout": 30 },
+          { "type": "command", "command": "bash /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/par-probe/sleep2.sh h4", "timeout": 30 },
+          { "type": "command", "command": "bash /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/par-probe/sleep2.sh h5", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}

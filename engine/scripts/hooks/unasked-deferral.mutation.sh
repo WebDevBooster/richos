@@ -219,6 +219,22 @@ mutant no-stop-hook-active "7c " "$A" \
     '    if False and payload.get("stop_hook_active"):' \
     "on a blocked turn's re-fire the text is unchanged; re-accusing piles a second notice onto a turn already in trouble."
 
+# --- 8. THE RECOVERY LINE MUST NOT CLAIM A CHECK THAT DID NOT HAPPEN -------
+# Exit code 4 is the whole fix for the one affirmatively false statement the
+# 2026-09-05 payload survey found. Collapsing it back into 0 restores the
+# defect exactly: the wrapper would again say "This turn's text was checked"
+# over a payload that carried no turn text.
+mutant no-unevaluated-code "8b " "$A" \
+    '        print("no-turn-text")
+        return 4' \
+    '        return 0' \
+    "0 means CHECKED-and-clean. Reusing it for NOT-CHECKED is what let the wrapper tell the operator his turn had been examined when nothing had read it."
+
+mutant unevaluated-borrows-clean-sentence "8c " "$H" \
+    '    4) notice_unevaluated "$(printf '"'"'%s'"'"' "$FINDING" | head -1 | tr -d '"'"'[:space:]'"'"')" ;;' \
+    '    4) notice_clean ;;' \
+    "routing the not-evaluated case through the clean sentence is the defect with the analyzer fixed and the wrapper still lying."
+
 echo ""
 echo "=== $PASS proven load-bearing, $FAIL not ==="
 [ "$FAIL" -eq 0 ]
