@@ -174,6 +174,23 @@ is_tracked "$REPO_A" "$SPEC_A2" \
     && ok "A8  a BACKTICKED relative path is captured" \
     || bad "A8  a BACKTICKED relative path is captured" "$OUT"
 
+# A9 IS A REGRESSION CASE WITH A DATE. The first field replay of the
+# 2026-09-05 incident failed here while this suite was green, because the
+# suite's own sandbox path had already been physicalized by `pwd -P` and the
+# replay's had not: `git rev-parse --show-toplevel` answers physically, macOS
+# routes /tmp and /var through symbolic links, and the resulting relative path
+# climbed out of the repository and came back as a bare `update-index rc=128`.
+# So the path is deliberately reached through a SYMLINK here.
+LINK_DIR="$SANDBOX/link-to-repo-a"
+ln -s "$REPO_A" "$LINK_DIR" 2>/dev/null || true
+SPEC_A3="$REPO_A/docs/third.md"
+printf 'third %s\n' "$CANARY" > "$SPEC_A3"
+run_hook "$REPO_A" "handle $LINK_DIR/docs/third.md"
+record_output
+is_tracked "$REPO_A" "$SPEC_A3" \
+    && ok "A9  a path reached through a SYMLINK is captured (one spelling, not two)" \
+    || bad "A9  a path reached through a symlink is captured" "$OUT"
+
 echo
 echo "=== B. IT TOUCHES NOBODY ELSE'S WORK ==="
 

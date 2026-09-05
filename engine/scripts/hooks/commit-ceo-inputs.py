@@ -267,6 +267,35 @@ def candidates(text):
     return found
 
 
+def physical(p):
+    """One spelling for one file, so every later comparison asks one question.
+
+    `git rev-parse --show-toplevel` answers PHYSICALLY. A path the CEO typed,
+    or one that arrived through the payload's cwd, is whatever spelling he was
+    handed — and on macOS `/tmp` and `/var` are symbolic links, so the two
+    disagree routinely. Then `os.path.relpath(file, repo)` returns something
+    beginning `../../../private/var/...` and `git update-index --cacheinfo`
+    refuses it with a bare rc=128.
+
+    THAT IS NOT HYPOTHETICAL: it is what a replay of the 2026-09-05 incident
+    did on the first run, in a sandbox reached through /var, while the test
+    suite was green because its own sandbox path had already been physicalized
+    by `pwd -P`. The engine has the same fix in pb_physical for the same
+    reason.
+
+    The DIRECTORY is resolved and the basename is kept, never the whole path:
+    resolving the last component would silently turn a symbolic link into its
+    target, and a link is something this hook refuses rather than follows.
+    """
+    d = os.path.dirname(p) or "/"
+    b = os.path.basename(p)
+    try:
+        rd = os.path.realpath(d)
+    except OSError:
+        return p
+    return os.path.join(rd, b) if b else rd
+
+
 def resolve(raw, cwd):
     """One raw candidate -> an absolute path that exists on disk, or None.
 
@@ -298,7 +327,7 @@ def resolve(raw, cwd):
         # lexists, not exists: a dangling symlink he hands over is a real path
         # in a real state, and exists() would call it absent.
         if os.path.lexists(p):
-            return p
+            return physical(p)
     return None
 
 
@@ -537,6 +566,17 @@ def detectors_only(stderr_text):
 def commit(path, repo, session, stamp):
     """Commit one file, unmodified, via plumbing. (ok, sha_or_reason)."""
     rel = os.path.relpath(path, repo)
+    # BELT AND BRACES, and it is here because the first field replay produced
+    # exactly this state and reported it as a bare `update-index rc=128`. A
+    # relative path that climbs out of the repository means the two spellings
+    # disagree, which is a defect in this file rather than a fact about his
+    # document — so it says that, instead of handing on a git return code
+    # nobody can act on.
+    if rel.startswith("..") or os.path.isabs(rel):
+        return (False, "the file's path and its repository's path are in "
+                       "different spellings (%s against %s), so the ingress "
+                       "refused rather than committing something it could not "
+                       "name" % (path, repo))
     mode = "100755" if os.access(path, os.X_OK) else "100644"
 
     rc, blob, undecided = git(["hash-object", "-w", "--", path], repo)
@@ -594,12 +634,14 @@ def commit(path, repo, session, stamp):
     message = (
         "CEO input captured: %s\n"
         "\n"
-        "Handed over in a message at %s (session %s) and committed unmodified\n"
-        "by the ingress hook, so the record holds the document the work is\n"
-        "being driven from rather than one hard drive holding it.\n"
+        "Handed over in a message and committed unmodified by the ingress\n"
+        "hook, so the record holds the document the work is being driven from\n"
+        "rather than one hard drive holding it.\n"
         "\n"
-        "Original path: %s\n"
-        "Hook: engine/scripts/hooks/commit-ceo-inputs.sh\n"
+        "Handed over: %s\n"
+        "Session:     %s\n"
+        "Path:        %s\n"
+        "Hook:        engine/scripts/hooks/commit-ceo-inputs.sh\n"
     ) % (rel, stamp, session or "unknown", path)
 
     try:
