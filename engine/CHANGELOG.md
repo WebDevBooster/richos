@@ -60,7 +60,7 @@ version heading with Added / Changed / Fixed groupings.
   teammates not to raise them, and the channel would die of disuse rather than
   of a bug.
 
-  Proof rather than assertion: `scripts/hooks/escalations.test.sh` (59 cases)
+  Proof rather than assertion: `scripts/hooks/escalations.test.sh` (75 cases)
   deletes the teammate's worktree with its branch never merged and shows the
   escalation still arriving in full; carries a NEGATIVE CONTROL that rebuilds a
   predicate reporting "clear" over a live escalation; and collapses
@@ -638,6 +638,46 @@ version heading with Added / Changed / Fixed groupings.
   list carry the two new files.
 
 ### Fixed
+
+- **A test suite wrote a real-looking escalation into a live teammate's
+  worktree, and a reader could not tell it from a genuine one**
+  (`scripts/hooks/escalations.test.sh` cases 12, 14, 16 and the new case 17) —
+  PATCH. `escalate.sh raise` writes TWO things: a ledger row, and a markdown
+  record whose path comes from `--worktree`, which defaults to the current
+  directory. The suite redirected the LEDGER into its sandbox with
+  `RICHOS_ESCALATION_LEDGER`, and case 14's `raise` passed no `--worktree`, so
+  every run from a live checkout dropped a record named
+  `<date>-zach-opus-e1corrupt-a-good-row-beside-a-bad-one.md` into that
+  checkout's own `docs/verification/escalations/` — with an id, a `from:`, a
+  HEAD sha and a "close it with" command. One was found untracked in a working
+  engineer's worktree on 2026-09-05; he correctly refused to commit it and
+  spent part of a handoff explaining a file he had not written. The suite
+  reported `59 passed, 0 failed` on every one of those runs.
+
+  Case 14 was the only call that leaked a FILE. Two others were non-hermetic
+  in ways that were one edit away from leaking and are corrected with it: case
+  16 was protected by `--no-record` alone, and case 12 called the module
+  directly and so recorded the LIVE worktree, branch and HEAD in its ledger
+  row — a fixture wearing a real agent's identity, which is what made the
+  escaped file so convincing in the first place.
+
+  **The generic defect is a test that redirects ONE output to a sandbox while
+  a SECOND output still follows the working directory**, and it is invisible
+  in review because the redirect that IS there reads as care. So those three
+  calls are corrected AND the suite now carries a LEAK CANARY: it snapshots
+  the directory it was started in (plus the engine's own root, plus the
+  operator's real ledger) before case 1 and asserts at the end that nothing
+  appeared, naming any escaped path. A root it cannot read, or one too large
+  to witness honestly, FAILS the case rather than passing quietly.
+
+  The canary is proven in both directions inside its own sandbox, against the
+  real mechanism rather than a mock: with no `--worktree` it goes red and
+  names the record; with `--worktree` it is silent; and — the hole it fell
+  into while being written — a path-only comparison went GREEN on the second
+  consecutive leaking run, because the record filename is derived from date,
+  teammate and title, so run two overwrote run one's file and nothing was
+  new. Untracked entries therefore carry a content and mtime witness, and
+  case 17d is the regression test for it.
 
 - **A failed `git worktree repair` was recorded as a successful quarantine**
   (`scripts/lib/worktree-transactions.py` `quarantine`;

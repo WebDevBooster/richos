@@ -58,6 +58,222 @@ command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit
 SANDBOX="$(cd "$(mktemp -d -t escalations.XXXXXX)" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
+# ===========================================================================
+# THE LEAK CANARY — THIS SUITE MUST WRITE NOTHING OUTSIDE ITS OWN SANDBOX
+# ===========================================================================
+# On 2026-09-05 a fixture from case 14 was found as an untracked file in a
+# working engineer's worktree:
+#
+#   docs/verification/escalations/2026-09-05-zach-opus-e1corrupt-a-good-row-
+#   beside-a-bad-one.md
+#
+# It reads exactly like a live escalation — an id, a `from:`, a HEAD sha, a
+# "close it with" command — and the engineer who found it could not tell it
+# from a genuine one. He was right to refuse to commit it, and he spent part of
+# a handoff explaining a file he had not written.
+#
+# The cause was one argument away from a fix that was already in the file. This
+# suite redirects the LEDGER into its sandbox with RICHOS_ESCALATION_LEDGER,
+# but `escalate.sh raise` writes a SECOND output — the markdown record — whose
+# path comes from --worktree, and --worktree DEFAULTS TO THE CURRENT DIRECTORY.
+# Most of the raise calls passed it. One did not.
+#
+# THAT IS THE GENERIC DEFECT, AND IT IS WHY THIS EXISTS AS A CANARY RATHER THAN
+# AS THREE CORRECTED LINES: a test that redirects ONE output to a sandbox while
+# a SECOND output still follows the working directory is invisible in review,
+# because the redirect that IS there reads as care. Three corrected lines are a
+# fix. This is the guarantee — the fourth call, added next month by somebody
+# who copied one of the five that were already right, is caught the day it
+# lands instead of by a stranger reading a handoff.
+#
+# WHAT IT WATCHES, STATED RATHER THAN IMPLIED:
+#   - the INVOCATION ROOT: the git toplevel of the directory this suite was
+#     started in, or that directory when it is not a repository. That is
+#     exactly where the 2026-09-05 fixture landed, because run-all-tests.sh
+#     does not cd and every suite inherits the operator's working directory.
+#   - the ENGINE'S OWN ROOT, when that resolves to a different tree.
+#   - the operator's REAL escalation ledger, in case a subprocess ever ignores
+#     RICHOS_ESCALATION_LEDGER.
+#
+# AND WHAT IT DOES NOT, because a canary that overstates its reach is the same
+# lie in the other direction:
+#   - NOT gitignored paths inside a git root. The snapshot is `git status`, so
+#     build output churning under another agent cannot turn this red — at the
+#     cost that a leak into a gitignored path is missed. Such a leak would also
+#     be invisible to the engineer this protects, which is the trade being made.
+#   - NOT the rest of the filesystem, and NOT $HOME beyond the one ledger file.
+#     A canary claiming to watch $HOME would be claiming something it cannot
+#     check in the time a suite is allowed to take.
+#
+# ITS ONE FALSE-POSITIVE VECTOR, named so nobody has to rediscover it: another
+# writer adding a NON-ignored file to the same checkout while this suite runs
+# is indistinguishable from a leak, and case 17n will name it. That is the
+# right trade — the failure prints the path, so a reader sees at once that it
+# is not an escalation record, whereas the opposite trade (staying quiet to
+# avoid the noise) is the whole defect. It is also why 17o counts FIXTURE rows
+# in the real ledger rather than total rows: there, a concurrent real
+# escalation is likely enough that a total-row check would be false-alarming
+# regularly, and a check that cries wolf gets muted.
+#
+# A ROOT IT CANNOT READ IS A FAILURE, NEVER A QUIET PASS. An unreadable root
+# yields an empty snapshot both times and therefore an empty diff, which is the
+# "green over something that never ran" shape this engine keeps finding. So the
+# health of the baseline is recorded when it is taken, and case 17f refuses to
+# report a pass without it.
+# ---------------------------------------------------------------------------
+
+CANARY_ROOTS=""
+canary_add_root() { # <dir> — resolve to a tree root and remember it once
+    local r="$1" top
+    [ -d "$r" ] || return 0
+    top="$(git -C "$r" rev-parse --show-toplevel 2>/dev/null || true)"
+    [ -n "$top" ] || top="$(cd "$r" 2>/dev/null && pwd -P)"
+    [ -n "$top" ] || return 0
+    printf '%s\n' "$CANARY_ROOTS" | grep -qxF "$top" && return 0
+    CANARY_ROOTS="${CANARY_ROOTS}${top}
+"
+    return 0
+}
+
+# canary_snapshot <root> — the watchable state of <root> on stdout, one entry
+# per line. EXIT 1 IF IT CANNOT BE READ OR IS TOO LARGE TO WATCH HONESTLY, so
+# that an unreadable root can never be mistaken for a root with nothing in it.
+#
+# EVERY UNTRACKED ENTRY CARRIES A WITNESS OF ITS CONTENTS, and that is not
+# decoration. The first version of this canary compared PATHS ONLY, and was
+# caught on the day it was written: run it twice against a checkout with the
+# leak still present and THE SECOND RUN REPORTED CLEAN. `raise` derives the
+# record filename from the date, the teammate and the title, so every run
+# writes the SAME path — run one's file was already in the baseline, run two
+# overwrote it, nothing was new, and the canary announced a clean sheet over a
+# leak happening in front of it. A canary that only catches the FIRST
+# occurrence goes quiet exactly when residue proves it is needed.
+#
+# Tracked files need no witness: `git status` already reports them as ` M `
+# when their contents change. It is the `??` entries that are invisible.
+#
+# The witness is a checksum AND, where the platform can give one, an mtime.
+# The escalation id is a timestamp with one-second resolution, so two raises
+# inside the same second produce a BYTE-IDENTICAL file at an identical path
+# that a checksum cannot tell apart. A sub-second mtime can. Case 17d is built
+# not to depend on either one being available.
+CANARY_MAX_ENTRIES=2000
+
+# PICK AN MTIME FORMAT, THEN PROVE IT. `stat -f FMT` is an mtime format on BSD
+# and a FILESYSTEM query on GNU, and BOTH EXIT 0 — so a probe that only checks
+# the exit code would put the same constant filesystem string into every
+# witness on GNU, and the mtime half of this canary would be dead while looking
+# alive. That is the defect class this whole change is about, so the candidate
+# is accepted only if it returns a NUMBER that actually CHANGES when the same
+# file is written twice. A second-resolution format fails that and is
+# correctly rejected: it could not have distinguished the same-second case
+# either, which is the only case the checksum does not already cover.
+canary_pick_mtime() {
+    local probe="$SANDBOX/canary-mtime-probe" c t1 t2
+    for c in "stat -f %Fm" "stat -c %.9Y"; do
+        printf 'a\n' > "$probe"
+        t1="$($c "$probe" 2>/dev/null)"
+        printf 'bb\n' > "$probe"
+        t2="$($c "$probe" 2>/dev/null)"
+        case "$t1" in ''|*[!0-9.]*) continue ;; esac
+        [ "$t1" != "$t2" ] || continue
+        rm -f "$probe"
+        printf '%s' "$c"
+        return 0
+    done
+    rm -f "$probe"
+    return 1
+}
+CANARY_MTIME="$(canary_pick_mtime || true)"
+canary_witness() { # <path> — contents, and an mtime where one was proven
+    printf '%s' "$(cksum < "$1" 2>/dev/null || printf 'unreadable')"
+    [ -n "$CANARY_MTIME" ] && printf ' @%s' "$($CANARY_MTIME "$1" 2>/dev/null || printf '?')"
+    return 0
+}
+canary_snapshot() { # <root>
+    local root="$1" line path n raw="$SANDBOX/canary-raw.now"
+    if git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+        git -C "$root" status --porcelain --untracked-files=all > "$raw" 2>/dev/null || return 1
+    else
+        ( cd "$root" 2>/dev/null || exit 1; find . -print 2>/dev/null ) > "$raw" || return 1
+    fi
+    # A root too big to witness is REFUSED, never sampled. Sampling would be a
+    # canary that watches some of the tree and reports on all of it. In this
+    # engine's own checkouts this count is 0 or 1.
+    n="$(wc -l < "$raw" | tr -d ' ')"
+    [ "$n" -le "$CANARY_MAX_ENTRIES" ] || return 1
+    # A path with a space or a control character comes back from git in double
+    # quotes, so the name below does not resolve and the entry keeps its status
+    # line WITHOUT a witness — it degrades to path-only for that one file
+    # rather than dropping it. A NEW escaped path is still caught; a same-path
+    # OVERWRITE of a file whose name needs quoting is not. Named because it is
+    # the kind of thing that is otherwise rediscovered the hard way.
+    while IFS= read -r line; do
+        case "$line" in
+            '?? '*) path="$root/${line#?? }" ;;
+            ./*)    path="$root/${line#./}" ;;
+            *)      printf '%s\n' "$line"; continue ;;
+        esac
+        if [ -f "$path" ]; then
+            printf '%s  [%s]\n' "$line" "$(canary_witness "$path")"
+        else
+            printf '%s\n' "$line"
+        fi
+    done < "$raw" | LC_ALL=C sort
+    return 0
+}
+
+# canary_escaped <baseline-file> <root> — every entry that APPEARED in <root>
+# since the baseline, one per line. Empty output means nothing escaped.
+canary_escaped() { # <baseline-file> <root>
+    local baseline="$1" root="$2" after rel
+    after="$SANDBOX/canary-after.now"
+    if ! canary_snapshot "$root" > "$after" 2>/dev/null; then
+        printf 'UNREADABLE: %s\n' "$root"
+        return 0
+    fi
+    # The sandbox itself is not an escape, in the pathological case where
+    # TMPDIR sits inside a watched tree.
+    rel=""
+    case "$SANDBOX/" in "$root"/*) rel="${SANDBOX#"$root"/}" ;; esac
+    if [ -n "$rel" ]; then
+        comm -13 "$baseline" "$after" | grep -vF "$rel"
+    else
+        comm -13 "$baseline" "$after"
+    fi
+    return 0
+}
+
+# The operator's REAL ledger, witnessed by the number of FIXTURE rows in it.
+# Counting total rows would go red whenever a real agent raises a real
+# escalation while this suite runs, which is a false alarm and would get the
+# check muted. Counting this suite's own fixture names goes red only when this
+# suite has written where it must not.
+CANARY_REAL_LEDGER="${HOME:-/nonexistent}/.claude/state/escalations.jsonl"
+canary_fixture_rows() {
+    [ -f "$CANARY_REAL_LEDGER" ] || { printf '0'; return 0; }
+    grep -c 'zach-opus-e1' "$CANARY_REAL_LEDGER" 2>/dev/null || printf '0'
+}
+CANARY_REAL_LEDGER_BEFORE="$(canary_fixture_rows)"
+
+canary_add_root "$PWD"
+canary_add_root "$ENGINE_ROOT"
+
+CANARY_BASELINES="$SANDBOX/canary-baselines"
+mkdir -p "$CANARY_BASELINES"
+CANARY_HEALTHY=1
+CANARY_N=0
+while IFS= read -r canary_root; do
+    [ -n "$canary_root" ] || continue
+    CANARY_N=$((CANARY_N + 1))
+    if ! canary_snapshot "$canary_root" > "$CANARY_BASELINES/$CANARY_N.txt"; then
+        CANARY_HEALTHY=0
+        printf '  NOTE  the leak canary cannot read %s — case 17f will FAIL rather than pass\n' "$canary_root"
+    fi
+done <<CANARY_ROOT_LIST
+$CANARY_ROOTS
+CANARY_ROOT_LIST
+
 # --- the engine copy under test --------------------------------------------
 ENG="$SANDBOX/engine"
 mkdir -p "$ENG/scripts/hooks" "$ENG/scripts/lib" "$ENG/.claude/state"
@@ -406,9 +622,15 @@ sys.exit(0)
 STUB
 L3="$SANDBOX/state/control.jsonl"
 cp "$SANDBOX/escalations.py.real" "$SANDBOX/real.py"
+# This one calls the module directly, so it writes no record file at all —
+# escalate.sh is what writes records. --worktree is here anyway so the ledger
+# row describes the SANDBOX rather than whichever checkout the suite was
+# started in: a row that quietly records a live worktree, branch and HEAD is a
+# fixture wearing a real agent's identity, which is how the 2026-09-05 file
+# fooled its reader in the first place.
 RICHOS_ESCALATION_LEDGER="$L3" python3 "$SANDBOX/real.py" raise --title "the control escalation" \
     --state proceeding --question "does the negative control actually go silent?" \
-    --teammate zach-opus-e1control >/dev/null 2>&1
+    --worktree "$SANDBOX" --teammate zach-opus-e1control >/dev/null 2>&1
 if [ -s "$L3" ]; then ok "12a  the control escalation really is in the ledger"
 else bad "12a  control fixture" "nothing written to $L3"; fi
 OUT="$(RICHOS_ESCALATION_LEDGER="$L3" stop_payload "dddddddd-0000-0000-0000-000000000000" | RICHOS_ESCALATION_LEDGER="$L3" "$STOP_HOOK" 2>&1)"
@@ -454,9 +676,18 @@ mv "$SANDBOX/escalations.py.hidden" "$ENG/scripts/lib/escalations.py"
 # ===========================================================================
 L4="$SANDBOX/state/corrupt.jsonl"
 printf 'this is not json\n' > "$L4"
+# ITS OWN WORKTREE, AND THE REASON IS THE 2026-09-05 LEAK. This case is about a
+# half-corrupt LEDGER and has no opinion about where the record file goes — but
+# `raise` writes TWO things, and only one of them is the ledger. The record's
+# path comes from --worktree, which DEFAULTS TO THE CURRENT DIRECTORY, so this
+# line wrote a real-looking escalation into whatever live checkout the suite
+# happened to be started from. One was found as an untracked file in a working
+# engineer's worktree, and he could not tell it from a genuine one.
+WT14="$SANDBOX/agent-worktree-corrupt"
+mkdir -p "$WT14/docs"
 RICHOS_ESCALATION_LEDGER="$L4" "$ESCALATE" raise --title "a good row beside a bad one" \
     --state proceeding --question "is the malformed line reported to anyone?" \
-    --teammate zach-opus-e1corrupt >/dev/null 2>&1
+    --worktree "$WT14" --teammate zach-opus-e1corrupt >/dev/null 2>&1
 OUT="$(RICHOS_ESCALATION_LEDGER="$L4" "$ESCALATE" list 2>&1)"
 case "$OUT" in
     *"malformed line"*) ok "14a  a malformed ledger line is reported, with a count" ;;
@@ -466,6 +697,15 @@ case "$OUT" in
     *"1 raised in all, 1 OUTSTANDING"*) ok "14b  and the good row beside it is still read" ;;
     *) bad "14b  good row survives" "got: $OUT" ;;
 esac
+# CONTAINED, NOT SUPPRESSED. The cheap way to stop this case leaking is
+# --no-record, and it would be wrong: the record write is a code path this
+# `raise` should still take, and a suppressed write proves nothing about where
+# an unsuppressed one goes. So the record must EXIST, inside the sandbox.
+if find "$WT14/docs/verification/escalations" -name '*.md' 2>/dev/null | grep -q .; then
+    ok "14c  and its record file landed in the SANDBOX worktree — the write still happened, it just no longer follows \$PWD"
+else
+    bad "14c  record contained, not suppressed" "no record under $WT14; if --no-record was added here instead, put it back and pass --worktree"
+fi
 
 # ===========================================================================
 # 15. A REPOSITORY WITH NO docs/ GETS THE LEDGER ROW AND NO NEW ROOT ENTRY.
@@ -521,9 +761,13 @@ for r in rows:
 open(p, "w", encoding="utf-8").write("".join(json.dumps(r) + "\n" for r in rows))
 PY
 }
+# --no-record because this case only needs a ledger row to age, AND
+# --worktree because --no-record is one edit away from being dropped by
+# somebody who needs the record here. The belt is the argument that makes the
+# write land in the sandbox; the braces are the argument that suppresses it.
 RICHOS_ESCALATION_LEDGER="$L6" "$ESCALATE" raise --title "nobody has looked at this yet" \
     --state proceeding --question "is the loudness carried by the age buckets?" \
-    --teammate zach-opus-e1loud --no-record >/dev/null 2>&1
+    --worktree "$SANDBOX" --teammate zach-opus-e1loud --no-record >/dev/null 2>&1
 cp "$ENG/scripts/lib/escalations.py" "$SANDBOX/escalations.py.real2"
 python3 - "$ENG/scripts/lib/escalations.py" <<'PY'
 import sys
@@ -558,6 +802,196 @@ case "$OUT" in
     *"1d old"*) ok "16d  and the shipped source, on the same ledger and the same session, speaks — the buckets are the mechanism" ;;
     *) bad "16d  restored source speaks" "got: $OUT" ;;
 esac
+
+# ===========================================================================
+# 17. THE LEAK CANARY, PROVEN IN BOTH DIRECTIONS BEFORE IT IS TRUSTED.
+#
+# A canary that cannot go red is worse than no canary: it is a green tick
+# printed over the defect, which is precisely what this suite did on every run
+# while it was leaking — 59 passed, 0 failed, one fixture in a stranger's
+# worktree. So the detector is shown to FIRE on the real defect and to STAY
+# SILENT on the real fix, one argument apart, both entirely inside the sandbox
+# so that proving it requires writing nothing to a live tree.
+# ===========================================================================
+FAKE="$SANDBOX/fake-live-checkout"
+mkdir -p "$FAKE/docs"
+git init -q "$FAKE" 2>/dev/null
+printf 'seed\n' > "$FAKE/docs/seed.md"
+L7="$SANDBOX/state/canary.jsonl"
+
+C0="$SANDBOX/canary-fake-before.txt"
+if canary_snapshot "$FAKE" > "$C0"; then
+    ok "17a  the canary can READ the root it is about to watch — an unreadable root is a failure here, never a quiet pass"
+else
+    bad "17a  canary root readable" "canary_snapshot could not read $FAKE, so nothing below would be comparing anything against anything"
+fi
+
+# --- RED: the 2026-09-05 defect, reproduced exactly ------------------------
+( cd "$FAKE" && RICHOS_ESCALATION_LEDGER="$L7" "$ESCALATE" raise \
+      --title "the canary leak fixture" --state proceeding \
+      --question "does the canary notice a record written into the current directory?" \
+      --teammate zach-opus-e1canary ) >/dev/null 2>&1
+ESCAPED="$(canary_escaped "$C0" "$FAKE")"
+say "17 red" "$ESCAPED"
+case "$ESCAPED" in
+    *docs/verification/escalations/*)
+        ok "17b  RED: with no --worktree the record escapes into the current directory and the canary NAMES the file" ;;
+    "")
+        bad "17b  canary goes RED on the real defect" "a record was written into $FAKE and the canary reported nothing — this canary could not have caught the leak it exists for" ;;
+    *)
+        bad "17b  canary names the escaped file" "it saw an escape but did not name the record: $ESCAPED" ;;
+esac
+
+# --- RED AGAIN, WITH THE RESIDUE ALREADY IN THE BASELINE ------------------
+# The hole this canary fell into on the day it was written, now a case. Take a
+# fresh baseline WITH the escaped record already present — which is what the
+# second run of a leaking suite sees — and leak again to the same filename. A
+# path-only snapshot reports clean here, because nothing is new. Only a
+# content witness sees it.
+C0B="$SANDBOX/canary-fake-residue.txt"
+canary_snapshot "$FAKE" > "$C0B"
+if [ -s "$C0B" ] && grep -q 'docs/verification/escalations/' "$C0B"; then
+    ok "17c  the residue really is in the new baseline — so 17d below is asking the hard question, not the easy one"
+else
+    bad "17c  residue is in the baseline" "the escaped record is not in the re-taken baseline, so 17d would just be repeating 17b"
+fi
+# One second, deliberately. In the field the two leaking runs are minutes
+# apart and their records differ by an id and a `raised:` line, so content
+# alone would catch the repeat. Back to back inside one second they are
+# byte-identical, and this case would then be proving only that the machine
+# has a nanosecond clock. The sleep makes it prove the thing it is named for
+# on any machine.
+sleep 1
+( cd "$FAKE" && RICHOS_ESCALATION_LEDGER="$L7" "$ESCALATE" raise \
+      --title "the canary leak fixture" --state proceeding \
+      --question "does the canary notice a record written into the current directory?" \
+      --teammate zach-opus-e1canary ) >/dev/null 2>&1
+ESCAPED="$(canary_escaped "$C0B" "$FAKE")"
+case "$ESCAPED" in
+    *docs/verification/escalations/*)
+        ok "17d  RED AGAIN: a SECOND leak to the same filename is still named — the canary does not go quiet once residue exists" ;;
+    "")
+        bad "17d  RED on a repeat leak" "the record was overwritten in place and the canary saw nothing. This is the path-only bug: on a second consecutive leaking run it would report a clean sheet over a live leak" ;;
+    *)
+        bad "17d  RED on a repeat leak names the file" "saw an escape but not the record: $ESCAPED" ;;
+esac
+
+# --- reset, AND PROVE THE RESET -------------------------------------------
+# Without this, the green half would be vacuous. Leave the escaped file in
+# place and it simply becomes part of the next baseline, so "nothing new
+# appeared" becomes true for the wrong reason — a pass bought by absorbing the
+# very evidence the case is about.
+rm -rf "$FAKE/docs/verification"
+C1="$SANDBOX/canary-fake-reset.txt"
+canary_snapshot "$FAKE" > "$C1"
+if diff -q "$C0" "$C1" >/dev/null 2>&1; then
+    ok "17e  the fixture really is gone — the baseline is back to what it was, so 17f cannot pass by absorbing the leak"
+else
+    bad "17e  the reset is real" "baseline differs after cleanup: $(diff "$C0" "$C1" | tr '\n' ' ')"
+fi
+
+# --- GREEN: the same call, one argument different --------------------------
+( cd "$FAKE" && RICHOS_ESCALATION_LEDGER="$L7" "$ESCALATE" raise \
+      --title "the canary fixed fixture" --state proceeding \
+      --question "does the record stay in the sandbox once --worktree names where it goes?" \
+      --worktree "$WT14" --teammate zach-opus-e1canary ) >/dev/null 2>&1
+ESCAPED="$(canary_escaped "$C1" "$FAKE")"
+if [ -z "$ESCAPED" ]; then
+    ok "17f  GREEN: with --worktree the same call leaves the current directory untouched — so 17b was a LEAK, not a detector that reports everything"
+else
+    bad "17f  canary GREEN once the leak is fixed" "still escaping: $ESCAPED"
+fi
+
+# --- the non-git branch of the snapshot is watched too ---------------------
+# A suite started from a plain directory must be watched as closely as one
+# started from a checkout, and an unexercised branch inside a canary is a hole
+# in the thing doing the guaranteeing.
+PLAIN="$SANDBOX/plain-directory"
+mkdir -p "$PLAIN"
+C2="$SANDBOX/canary-plain-before.txt"
+canary_snapshot "$PLAIN" > "$C2"
+printf 'x\n' > "$PLAIN/escaped-record.md"
+ESCAPED="$(canary_escaped "$C2" "$PLAIN")"
+case "$ESCAPED" in
+    *escaped-record.md*) ok "17g  the non-git branch of the snapshot catches an escape too, and names it" ;;
+    *) bad "17g  non-git root is watched" "a file appeared in a plain watched directory and the canary did not name it: '$ESCAPED'" ;;
+esac
+rm -f "$PLAIN/escaped-record.md"
+ESCAPED="$(canary_escaped "$C2" "$PLAIN")"
+if [ -z "$ESCAPED" ]; then
+    ok "17h  and it is silent when nothing appeared — both branches report escapes, not activity"
+else
+    bad "17h  non-git branch is quiet when clean" "got: $ESCAPED"
+fi
+
+# --- the REFUSAL path, driven rather than assumed --------------------------
+# `canary_snapshot` refuses a root it cannot witness honestly, and that refusal
+# is what turns case 17n into a FAILURE instead of a quiet pass. An else-branch
+# nothing ever drives is an else-branch nobody knows the state of, so drive it:
+# drop the ceiling under a root that is already above it.
+CANARY_MAX_SAVED="$CANARY_MAX_ENTRIES"
+CANARY_MAX_ENTRIES=0
+if canary_snapshot "$FAKE" >/dev/null 2>&1; then
+    bad "17i  a root it cannot witness is REFUSED" "canary_snapshot accepted a root above its own ceiling, so CANARY_HEALTHY can never reach 0 and 17n's failure branch is unreachable code"
+else
+    ok "17i  a root it cannot witness is REFUSED, never sampled — so 17n's failure branch is reachable rather than decorative"
+fi
+ESCAPED="$(canary_escaped "$C2" "$PLAIN")"
+case "$ESCAPED" in
+    UNREADABLE*) ok "17j  and it is reported as UNREADABLE by name, never as 'nothing escaped' — a root that could not be checked is not a clean root" ;;
+    "")          bad "17j  an unwitnessable root is named" "it reported nothing at all, which reads identically to a clean sheet — the exact confusion this canary exists to remove" ;;
+    *)           bad "17j  an unwitnessable root is named" "got: $ESCAPED" ;;
+esac
+CANARY_MAX_ENTRIES="$CANARY_MAX_SAVED"
+if canary_snapshot "$FAKE" >/dev/null 2>&1; then
+    ok "17k  and the ceiling really was what refused it: restored, the same root reads fine again"
+else
+    bad "17k  the refusal was the ceiling" "the root is still unreadable after restoring CANARY_MAX_ENTRIES, so 17i proved something other than what it claims"
+fi
+
+# --- THE GUARANTEE ---------------------------------------------------------
+# Everything above proves the detector works. This is the thing it was built
+# for: the whole run, measured against the baselines taken before case 1.
+if [ "$CANARY_N" -gt 0 ]; then
+    ok "17l  the canary is watching $CANARY_N root(s), starting with the directory this suite was run from — a canary watching zero roots would pass every run forever"
+else
+    bad "17l  the canary has roots to watch" "no watched root resolved, so 17n below would be green over an unwatched filesystem"
+fi
+# Outside the branch above deliberately: the run that found no roots is exactly
+# the run whose reader most needs to be told what the witness was.
+if [ -n "$CANARY_MTIME" ]; then
+    ok "17m  its witness is contents and a proven sub-second mtime (\`$CANARY_MTIME\`)"
+else
+    ok "17m  its witness is contents ALONE: no sub-second mtime format proved itself on this platform, so two writes of identical bytes inside one second would look like one. Named here rather than assumed"
+fi
+
+CANARY_ESCAPED_ALL=""
+CANARY_I=0
+while IFS= read -r canary_root; do
+    [ -n "$canary_root" ] || continue
+    CANARY_I=$((CANARY_I + 1))
+    E="$(canary_escaped "$CANARY_BASELINES/$CANARY_I.txt" "$canary_root")"
+    [ -n "$E" ] && CANARY_ESCAPED_ALL="$CANARY_ESCAPED_ALL
+  under $canary_root:
+$E"
+done <<CANARY_ROOT_LIST
+$CANARY_ROOTS
+CANARY_ROOT_LIST
+
+if [ "$CANARY_HEALTHY" -ne 1 ]; then
+    bad "17n  NOTHING ESCAPED THE SANDBOX" "the canary could not read (or refused as too large) one of its roots when it took its baselines, so it has nothing to compare against and is NOT reporting a pass"
+elif [ -z "$CANARY_ESCAPED_ALL" ]; then
+    ok "17n  NOTHING ESCAPED THE SANDBOX — every file this run wrote is under $SANDBOX"
+else
+    bad "17n  NOTHING ESCAPED THE SANDBOX" "this run wrote outside its sandbox, which is the 2026-09-05 defect happening again:$CANARY_ESCAPED_ALL"
+fi
+
+CANARY_REAL_LEDGER_AFTER="$(canary_fixture_rows)"
+if [ "$CANARY_REAL_LEDGER_AFTER" = "$CANARY_REAL_LEDGER_BEFORE" ]; then
+    ok "17o  and no fixture row reached the operator's REAL ledger at $CANARY_REAL_LEDGER"
+else
+    bad "17o  real ledger untouched" "fixture rows in $CANARY_REAL_LEDGER went $CANARY_REAL_LEDGER_BEFORE -> $CANARY_REAL_LEDGER_AFTER; something ignored RICHOS_ESCALATION_LEDGER"
+fi
 
 # ===========================================================================
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
