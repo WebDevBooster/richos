@@ -23,6 +23,13 @@
 
 set -uo pipefail
 
+# EXPORTED, not set per invocation, and that is deliberate. This harness runs
+# the suite it mutates -- sometimes the sandboxed copy, sometimes the one in
+# the real tree -- and that suite now invokes this harness at its end. Exported
+# once here, the flag reaches every child however many invocation sites this
+# file grows; set per-call, one missed site is an infinite regress.
+export RICHOS_MUTATION_INNER=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
