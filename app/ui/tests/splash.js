@@ -285,6 +285,16 @@ const lag = async (page) => {
 /// gradients and filters, which is the expensive one. So this adds its delay exactly there,
 /// between the bar reporting it has landed and the shutter opening, which is the span the
 /// window is measured across. Zero, and no delay at all, unless it is set.
+///
+/// `matShot` TAKES THIS SAME KNOB, at the same structural point, and it is deliberately not a
+/// third variable. That check waits for a state as well — `atCurtain(page, 2200)`, on the
+/// page's own clock — so `LAG_MS` is absorbed whole by the wait behind it for every value
+/// under 2,200 ms, and above it stops being a lag at all and becomes a different shutter
+/// instant. What a slow runner costs the mat photograph is spent, again, AFTER that wait: the
+/// round trip for `stillUp`, the measurement of the plinth, the settle and the clipped
+/// screenshot. So this is applied in both places at the same seam — between the wait that
+/// precedes the picture and the picture — because it is one condition and one condition
+/// should not need two switches.
 const SHUTTER_LAG_MS = Number(process.env.RICHOS_SPLASH_SHUTTER_LAG_MS || 0);
 
 /// Wait until the PAGE says `ms` have passed since the curtain went up. Returns immediately
@@ -815,6 +825,7 @@ async function matShot(browser, id, mute) {
   // "the curtain left during the mat exposure", which is this check correctly refusing to file
   // a photograph of the screen behind the curtain.
   await atCurtain(page, 2200);
+  if (SHUTTER_LAG_MS > 0) await page.waitForTimeout(SHUTTER_LAG_MS);
   await stillUp(page, "the mat photograph for " + id);
   const r = await page.evaluate(() => {
     const n = document.querySelector("#splash .splash-plinth");
@@ -836,7 +847,10 @@ async function matShot(browser, id, mute) {
   assert(after && after.up, id + ": the curtain left during the mat exposure — this is a photograph of the screen behind it");
   noErrors(page, id);
   await ctx.close();
-  return { png, layers: r.layers, above: r.above };
+  // THE INSTANT IS RETURNED, not just used. The margin this photograph has is the whole of
+  // the reason it is not failing today, and a number that is never printed is a number
+  // nobody notices moving.
+  return { png, layers: r.layers, above: r.above, at: after.age };
 }
 
 /// Two PNGs, decoded by the same engine that painted them and compared pixel for pixel. A
@@ -2248,9 +2262,11 @@ async function main() {
     const judge = await cmp.newPage();
     await judge.goto("about:blank");
     const made = [];
+    const shutters = [];
     for (const v of added) {
       const slug = v.id.replace(/[^a-z0-9]+/gi, "-");
       const ship = await matShot(browser, v.id, false);
+      shutters.push(ship.at);
       let study = null;
       if (haveStudies) {
         const file = studyOf(v);
@@ -2280,7 +2296,8 @@ async function main() {
     }
     await cmp.close();
     return `${made.length} pairs — each the whole mat at half scale over the same corner at native scale` +
-      (haveStudies ? " — shipping renderer LEFT, the study each entry NAMES right" : " — SHIPPING SIDE ONLY: no study repository at " + HQ);
+      (haveStudies ? " — shipping renderer LEFT, the study each entry NAMES right" : " — SHIPPING SIDE ONLY: no study repository at " + HQ) +
+      " — shot " + shutters.join("ms, ") + "ms into a 5,000ms hold whose ceiling fires at 6,000ms";
   });
 
   // ---- WHICH LAUNCHES GET A CEREMONY (CEO ruling, 2026-08-31) --------------------------
