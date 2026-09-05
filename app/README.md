@@ -150,6 +150,18 @@ app/
     examples/worker_status_demo.rs   what the drill-down reads, against real event logs
     examples/loro_reprime_demo.rs / loro_correction_demo.rs  the Tier-C read and write loops
     examples/watermark_roundtrip.rs  the rotation trigger, reading the agent's own usage
+    examples/ledger_projection_digest.rs a content-free digest of the projection a ledger
+                              file replays into. Run it with two builds against the same
+                              file and diff: identical output is what a claim that a reader
+                              change left every existing history alone is made of
+    tests/ledger_forward_compat_tests.rs 20 tests holding one line — NOTHING ALREADY
+                              READABLE MAY BECOME LESS READABLE. Two committed fixtures
+                              carrying every record shape the shipped builds wrote, pinned
+                              against goldens captured BEFORE the tolerant reader existed;
+                              then the destructive half — a record from a newer RichOS, a
+                              torn write, a bad byte, a tag no build could have written —
+                              and the anti-vacuous test that an unmodified ledger skips
+                              NOTHING
     tests/entity_binding_tests.rs 10 entity-scope tests: the cross-entity leak NEGATIVE
                               CONTROL (proven failing with the guard removed), immutability,
                               the fail-closed unbound legacy thread + its one-way explicit
@@ -636,7 +648,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 694 tests + 5 doc-tests
+cargo test -p richos-core                       # 714 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests

@@ -18,6 +18,44 @@
 //!      did not issue, and a read re-checks every stored turn against its thread's home
 //!      so a corrupt, forged or badly-migrated log cannot leak across the boundary.
 //!
+//! ## Every other reader of a customer's file, and what it does with a record it cannot read
+//!
+//! Surveyed 2026-09-05, when [`Ledger::replay`] stopped aborting on one unreadable record.
+//! The point of writing it down is that "the ledger is fixed" is not the same claim as
+//! "the app is fixed", and the next person to hit this class of bug should not have to
+//! re-derive the map.
+//!
+//! **The `?` was unique to this file.** `ledger.rs`'s per-record parse was the ONLY place
+//! in `app/` where a single unreadable line in a customer's file aborted the whole read.
+//! Nothing in `src-tauri/` and nothing in `richos-voice` has the shape at all.
+//!
+//! **Every sibling is already tolerant — and every one of them is SILENT about it.** Each
+//! of these drops an unparseable record with `else { continue }` or `.ok()`, says nothing,
+//! and returns a shorter list that is indistinguishable from a genuinely shorter file:
+//!
+//! | reader | file it reads | on a record it cannot parse |
+//! |---|---|---|
+//! | `journal.rs:412`, `:474` | the per-thread machinery journal | dropped, silently |
+//! | `journal.rs:668` | the raw-retention journal | dropped, silently |
+//! | `steering.rs:167` | the intake log — **the CEO's own typed messages, before they become turns** | dropped, silently |
+//! | `heard.rs:715` | the dictation log | dropped, silently |
+//! | `feedback.rs:270` | the feedback log | dropped, silently |
+//! | `worker_events.rs:267`, `worker_status.rs:286` | the engine's event logs (not the customer's) | dropped, silently |
+//! | `correction.rs:466`, `staging.rs:300` | the correction/staging desk | dropped, silently |
+//! | `config.rs:488` | `config.json` (whole file) | falls back to defaults, silently |
+//! | `src-tauri/src/nav.rs:108` | `navigation.json` (whole file) | falls back to defaults, silently |
+//!
+//! Two do it properly, and they are the precedent this module's
+//! [`Ledger::history_health`] follows: `entity.rs:681` fails the whole registry CLOSED
+//! and reports why through `RegistryLoad::notes`, and `launch.rs:389` keeps the file
+//! untouched and carries an `unreadable_reason`. `launch.rs` also carries the
+//! `schema_version` that would settle [`SkipKind::Ambiguous`] here if a ledger record
+//! carried one.
+//!
+//! `steering.rs:167` is the one worth a second look. A dropped intake record is a message
+//! the CEO typed that quietly never arrives, and the silence is the whole problem — it is
+//! not this change's scope and it is not fixed by this change.
+//!
 //! ## Threads written before entity binding existed
 //!
 //! They replay as [`ThreadEntity::Unbound`] and FAIL CLOSED on every scoped read and
@@ -478,6 +516,124 @@ pub struct ScopeViolation {
     pub detail: String,
 }
 
+/// EVERY `event` tag this build knows how to fold.
+///
+/// It is the only thing that can tell a record written by a NEWER RichOS apart from a
+/// damaged one, so it has to stay exactly in step with [`Event`]. That is not left to
+/// care: `ledger_forward_compat_tests.rs` maps every variant through an EXHAUSTIVE match,
+/// so adding a variant to `Event` without adding its name here does not compile.
+pub const KNOWN_EVENT_TAGS: &[&str] = &[
+    "ThreadCreated",
+    "ThreadEntityBound",
+    "PromptReceived",
+    "TurnStarted",
+    "AssistantDelta",
+    "TurnCompleted",
+    "TurnInterrupted",
+    "TurnStopped",
+    "ActionRecorded",
+    "ActionUpdated",
+    "SessionRotated",
+    "ProactiveMessage",
+    "HandoffSummaryUpdated",
+    "TurnSuperseded",
+];
+
+/// Why a record on disk was NOT folded into the projection.
+///
+/// A record from the future and a damaged record are not the same event and are never
+/// reported as the same thing. One is the format working as intended; the other means
+/// something went wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipKind {
+    /// A well-formed JSON object carrying an `event` tag this build does not know.
+    ///
+    /// **Expected and benign.** A newer RichOS wrote a record type that did not exist when
+    /// this binary was compiled — which happens the moment a customer installs an update
+    /// and then reinstalls an older build, and v1.0.0, v1.0.1 and v1.0.2 are all still
+    /// published. Everything else in the file loads; the record stays on disk, and a
+    /// build new enough to understand it will read it.
+    FromFuture,
+    /// The line is not a well-formed ledger record at all: not valid UTF-8, not valid
+    /// JSON, not a JSON object, or carrying no usable `event` tag.
+    ///
+    /// **Something went wrong.** A torn append, a truncated file, damaged bytes. This is
+    /// the loud one.
+    Damaged,
+    /// Well-formed JSON, an `event` tag this build KNOWS, and a payload that does not fit
+    /// that tag's shape.
+    ///
+    /// **This build cannot tell which it is**, and says so rather than picking. A newer
+    /// RichOS that added a required field to an existing record produces exactly this, and
+    /// so does a record whose bytes were mangled in place. The ledger format carries no
+    /// writer version on a record, so there is nothing in the file to decide it with —
+    /// see [`Ledger::history_health`] for the one-field change that would.
+    Ambiguous,
+}
+
+impl SkipKind {
+    /// The word that goes in front of an operator-facing line. `FromFuture` is deliberately
+    /// calm and the other two deliberately are not.
+    pub fn label(self) -> &'static str {
+        match self {
+            SkipKind::FromFuture => "from a newer version",
+            SkipKind::Damaged => "DAMAGED",
+            SkipKind::Ambiguous => "UNDETERMINED",
+        }
+    }
+}
+
+/// One record that was on disk and is not in the projection.
+///
+/// **It holds no content.** `tag` is a record TYPE name, checked to be a plain identifier
+/// before it is kept; `detail` is composed here, never taken from a parser message, because
+/// serde reports the offending value and that value is the CEO's own words. The line number
+/// and byte length locate the record for anyone who needs to go look; nothing here reveals
+/// what it said.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SkippedRecord {
+    /// 1-based line number in the ledger file.
+    pub line: usize,
+    pub kind: SkipKind,
+    /// The record's `event` tag, when the line was well-formed enough to carry one AND
+    /// that tag is a plain identifier. `None` otherwise.
+    pub tag: Option<String>,
+    /// Length of the record in bytes. Useful for spotting a truncation; reveals nothing.
+    pub bytes: usize,
+    /// A sentence composed by this module. Never a parser message.
+    pub detail: String,
+}
+
+/// What the app can honestly say about a history it has just loaded.
+///
+/// Serializable on purpose: this is the state the window renders. `headline` and `detail`
+/// are empty strings when nothing was skipped, which is the ordinary case and the signal
+/// to render nothing at all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HistoryHealth {
+    /// Non-empty lines found in the file.
+    pub records_read: usize,
+    /// Records folded into the projection.
+    pub records_applied: usize,
+    pub skipped: usize,
+    pub from_future: usize,
+    pub damaged: usize,
+    pub ambiguous: usize,
+    /// One short sentence. Empty when nothing was skipped.
+    pub headline: String,
+    /// The honest explanation, in plain American English, with no stack trace in it.
+    /// Empty when nothing was skipped.
+    pub detail: String,
+}
+
+impl HistoryHealth {
+    /// Every record on disk is in the projection.
+    pub fn is_clean(&self) -> bool {
+        self.skipped == 0
+    }
+}
+
 pub struct Ledger {
     path: PathBuf,
     file: File,
@@ -488,6 +644,12 @@ pub struct Ledger {
     handoff_summaries: std::collections::HashMap<String, String>,
     /// Every turn whose entity stamp contradicted its thread's home, found on replay.
     scope_violations: Vec<ScopeViolation>,
+    /// Every record on disk that this build could not fold. Empty is the normal state.
+    skipped: Vec<SkippedRecord>,
+    /// Non-empty lines seen on replay, and how many of them were applied. Counted rather
+    /// than derived, so "71 of 74" is a measurement and not an inference.
+    records_read: usize,
+    records_applied: usize,
     /// The next active-context binding revision to hand out (ECS §3.4 fencing token).
     ///
     /// Monotonic in-process. On open it resumes at one past the highest revision EVER
@@ -515,6 +677,9 @@ impl Ledger {
             actions: Vec::new(),
             handoff_summaries: std::collections::HashMap::new(),
             scope_violations: Vec::new(),
+            skipped: Vec::new(),
+            records_read: 0,
+            records_applied: 0,
             next_revision: 1,
         };
         ledger.replay()?;
@@ -525,18 +690,248 @@ impl Ledger {
         Ok(ledger)
     }
 
+    /// Fold the whole log, and **survive any single record it cannot read.**
+    ///
+    /// # Why this is not `serde_json::from_str(line)?`
+    ///
+    /// It was, until 2026-09-05, and `?` on a per-record parse means ONE unreadable line
+    /// aborts the entire replay. The failure is total, not partial: not "that message is
+    /// missing" but "your conversation history does not load". At the app's only real call
+    /// site — `src-tauri/src/main.rs`, `Ledger::open(&ledger_path).expect("open ledger")` —
+    /// it is not even a blank history, it is a panic inside the Tauri setup hook, so the
+    /// window never opens.
+    ///
+    /// A record type added by a newer RichOS is, to an older binary, exactly that
+    /// unreadable line. v1.0.0, v1.0.1 and v1.0.2 are all still published and downloadable,
+    /// the updater has no rollback, and reverting code does not revert data — so the moment
+    /// a newer build writes a record type an older one cannot name, any customer who
+    /// reinstalls an older build has lost their history until they update again.
+    ///
+    /// # What it does instead
+    ///
+    /// Every line that parses is folded. Every line that does not is recorded in
+    /// [`Ledger::skipped_records`] with a REASON, counted, and printed — never silently
+    /// dropped. Nothing is deleted, nothing is rewritten; the bytes stay exactly where they
+    /// were, so a build new enough to understand them will read them.
+    ///
+    /// # What still fails
+    ///
+    /// A genuine IO error. If the disk cannot be read, that is not a damaged record and
+    /// must not be reported as one — it propagates, as it always did.
     fn replay(&mut self) -> Result<(), LedgerError> {
-        let reader = BufReader::new(File::open(&self.path)?);
-        for line in reader.lines() {
-            let line = line?;
-            let line = line.trim();
+        let mut reader = BufReader::new(File::open(&self.path)?);
+        let mut raw: Vec<u8> = Vec::new();
+        let mut line_no = 0usize;
+        loop {
+            raw.clear();
+            // `read_until`, not `lines()`, for one reason: `lines()` yields `Err` for a line
+            // that is not valid UTF-8, and the `?` on that error would abort the whole
+            // replay over one bad byte — the exact failure this function exists to stop. A
+            // real IO error still propagates from here; a bad byte is classified below.
+            let n = reader.read_until(b'\n', &mut raw)?;
+            if n == 0 {
+                break;
+            }
+            line_no += 1;
+            // `lines()` strips the terminator and any preceding CR, and the old code then
+            // called `.trim()`. Stripping the `\n` and calling the same `.trim()` gives a
+            // byte-identical slice — `trim` removes the CR and everything else `lines()`
+            // would have.
+            let body = raw.strip_suffix(b"\n").unwrap_or(&raw);
+            let text = match std::str::from_utf8(body) {
+                Ok(t) => t,
+                Err(_) => {
+                    // Not text at all. It cannot have a tag, so it cannot be from the
+                    // future; no version of RichOS has ever written a non-UTF-8 record.
+                    self.skipped.push(SkippedRecord {
+                        line: line_no,
+                        kind: SkipKind::Damaged,
+                        tag: None,
+                        bytes: body.len(),
+                        detail: "the line is not valid UTF-8 text, so it is not a record any \
+                                 version of RichOS wrote — the bytes are damaged"
+                            .to_string(),
+                    });
+                    self.records_read += 1;
+                    continue;
+                }
+            };
+            let line = text.trim();
             if line.is_empty() {
                 continue;
             }
-            let event: Event = serde_json::from_str(line)?;
-            self.apply(event);
+            self.records_read += 1;
+            match serde_json::from_str::<Event>(line) {
+                Ok(event) => {
+                    self.records_applied += 1;
+                    self.apply(event);
+                }
+                Err(_) => {
+                    let record = Self::classify_skip(line_no, line);
+                    // A record from a newer RichOS still carries a real fencing token, and
+                    // the counter has to stay ahead of every revision DURABLY recorded or a
+                    // restart re-issues one this file already used (ECS §3.4). Salvaged
+                    // only for `FromFuture`: a damaged line's number is not a fact.
+                    if record.kind == SkipKind::FromFuture {
+                        if let Some(r) = Self::salvage_revision(line) {
+                            self.observe_revision(r);
+                        }
+                    }
+                    self.skipped.push(record);
+                }
+            }
         }
+        self.report_skipped();
         Ok(())
+    }
+
+    /// Decide WHY a line did not parse, using only the line's own structure.
+    ///
+    /// The order of the checks is the argument:
+    ///
+    ///   1. **Not valid JSON at all** — a torn append or damaged bytes. `Damaged`.
+    ///   2. **Valid JSON, not an object** — no version of RichOS has written a bare array
+    ///      or scalar as a record. `Damaged`.
+    ///   3. **No `event` tag, or a tag that is not a plain identifier** — `Damaged`. A
+    ///      variant name in Rust is `[A-Za-z_][A-Za-z0-9_]*`, so a tag that is not one did
+    ///      not come out of a newer RichOS; it came out of damage. This is what stops
+    ///      corruption from being waved through as "the future".
+    ///   4. **A tag this build KNOWS, payload that does not fit** — `Ambiguous`. A newer
+    ///      version that added a required field to an existing record looks exactly like a
+    ///      record whose bytes were mangled, and nothing in the file distinguishes them.
+    ///   5. **A tag this build does not know** — `FromFuture`. The benign case.
+    ///
+    /// Nothing derived from the line's CONTENT is kept. The serde error is deliberately not
+    /// consulted or stored: its messages quote the offending value, and that value is the
+    /// CEO's own words.
+    fn classify_skip(line_no: usize, line: &str) -> SkippedRecord {
+        let bytes = line.len();
+        let make = |kind: SkipKind, tag: Option<String>, detail: String| SkippedRecord {
+            line: line_no,
+            kind,
+            tag,
+            bytes,
+            detail,
+        };
+
+        let value: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(e) => {
+                return make(
+                    SkipKind::Damaged,
+                    None,
+                    format!(
+                        "the line is not valid JSON (it stops making sense at column {}) — \
+                         a torn write or damaged bytes",
+                        e.column()
+                    ),
+                );
+            }
+        };
+        let object = match value.as_object() {
+            Some(o) => o,
+            None => {
+                return make(
+                    SkipKind::Damaged,
+                    None,
+                    "the line is valid JSON but not an object — no version of RichOS has ever \
+                     written a record in that shape"
+                        .to_string(),
+                );
+            }
+        };
+        let tag = match object.get("event").and_then(|v| v.as_str()) {
+            Some(t) if Self::is_plain_identifier(t) => t.to_string(),
+            _ => {
+                return make(
+                    SkipKind::Damaged,
+                    None,
+                    "the line carries no usable `event` tag — every record RichOS writes \
+                     names its own type, so this one is damaged"
+                        .to_string(),
+                );
+            }
+        };
+        if KNOWN_EVENT_TAGS.contains(&tag.as_str()) {
+            return make(
+                SkipKind::Ambiguous,
+                Some(tag.clone()),
+                format!(
+                    "the record says it is a `{tag}`, which this build knows, but its fields do \
+                     not fit that shape. This build cannot tell whether a newer version of \
+                     RichOS changed that record or the bytes were damaged — a ledger record \
+                     carries no writer version to decide it with"
+                ),
+            );
+        }
+        make(
+            SkipKind::FromFuture,
+            Some(tag.clone()),
+            format!(
+                "the record is a `{tag}`, a type this build does not know. It was written by a \
+                 newer version of RichOS; everything else in the file still loads and the \
+                 record is untouched on disk"
+            ),
+        )
+    }
+
+    /// A Rust variant name, and therefore every `event` tag RichOS can ever emit.
+    /// Length-capped so a damaged line cannot put an arbitrarily long string into a log.
+    fn is_plain_identifier(s: &str) -> bool {
+        !s.is_empty()
+            && s.len() <= 64
+            && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    }
+
+    /// Pull a `binding_revision` off a record this build could not fold. Only ever called
+    /// for a record from a newer RichOS, whose revision is a real durable fencing token.
+    fn salvage_revision(line: &str) -> Option<u64> {
+        serde_json::from_str::<serde_json::Value>(line)
+            .ok()?
+            .get("binding_revision")?
+            .as_u64()
+    }
+
+    /// **Skipping is never silent.** One line per skipped record, capped, then a summary
+    /// line that is printed whenever anything at all was skipped.
+    ///
+    /// The cap exists because a badly damaged file could hold a hundred thousand
+    /// unreadable lines, and a hundred thousand log lines is its own kind of silence. The
+    /// COUNT is never capped — it is in the summary and in [`Ledger::history_health`].
+    fn report_skipped(&self) {
+        if self.skipped.is_empty() {
+            return;
+        }
+        const CAP: usize = 20;
+        for r in self.skipped.iter().take(CAP) {
+            eprintln!(
+                "[richos] LEDGER RECORD SKIPPED ({}): line {} ({} bytes) — {}",
+                r.kind.label(),
+                r.line,
+                r.bytes,
+                r.detail
+            );
+        }
+        if self.skipped.len() > CAP {
+            eprintln!(
+                "[richos] LEDGER: {} further skipped records not listed individually",
+                self.skipped.len() - CAP
+            );
+        }
+        let h = self.history_health();
+        eprintln!(
+            "[richos] LEDGER SUMMARY for {}: {} records read, {} applied, {} skipped \
+             ({} from a newer version, {} damaged, {} undetermined). Nothing was deleted \
+             or rewritten.",
+            self.path.display(),
+            h.records_read,
+            h.records_applied,
+            h.skipped,
+            h.from_future,
+            h.damaged,
+            h.ambiguous
+        );
     }
 
     /// Fold one event into the in-memory projection. Pure; no I/O.
@@ -737,9 +1132,15 @@ impl Ledger {
     }
 
     /// Keep the revision counter ahead of everything durably recorded.
+    ///
+    /// `saturating_add` rather than `+ 1` since 2026-09-05: this is now also fed from a
+    /// record this build could not fold, so the number arriving here can be anything a
+    /// damaged or forged line contains, up to `u64::MAX`. `seen + 1` on `u64::MAX` panics
+    /// in a debug build and wraps to 0 in a release one, and a fencing counter that wraps
+    /// to 0 is worse than one that stops moving.
     fn observe_revision(&mut self, seen: u64) {
         if seen >= self.next_revision {
-            self.next_revision = seen + 1;
+            self.next_revision = seen.saturating_add(1);
         }
     }
 
@@ -822,6 +1223,101 @@ impl Ledger {
     /// Every cross-entity/orphan turn rejected by [`Ledger::reconcile_scope`].
     pub fn scope_violations(&self) -> &[ScopeViolation] {
         &self.scope_violations
+    }
+
+    /// Every record on disk this build could not fold, with the reason for each.
+    ///
+    /// Empty is the normal state and the one every existing ledger produces today.
+    pub fn skipped_records(&self) -> &[SkippedRecord] {
+        &self.skipped
+    }
+
+    /// **What the app can honestly say about the history it just loaded**, in a form the
+    /// window can render.
+    ///
+    /// `headline`/`detail` are empty when nothing was skipped — that is the signal to show
+    /// nothing at all, not to show a reassuring green tick over a check that found nothing
+    /// to say.
+    ///
+    /// ## The one thing this cannot answer, and the smallest change that would
+    ///
+    /// `ambiguous` counts records whose TYPE this build knows and whose FIELDS do not fit.
+    /// A newer RichOS that added a required field to an existing record and a record whose
+    /// bytes were damaged in place produce byte-identical evidence, and this build refuses
+    /// to guess between them.
+    ///
+    /// The minimal fix is one field: a writer-schema number on every record — `launch.rs`
+    /// already does exactly this with `StoredLaunches::schema_version`. A reader could then
+    /// say `written_by > mine ⇒ from the future`, `<= mine ⇒ damaged`, with no ambiguity
+    /// left. Adding it is safe by construction: serde ignores unknown fields on a known
+    /// variant, which `ledger_forward_compat_tests.rs` pins, so a record carrying the new
+    /// field still replays cleanly on v1.0.0-v1.0.2. It is NOT done here, because starting
+    /// to write a new field is a change to what goes on customers' disks and this change is
+    /// deliberately read-only.
+    pub fn history_health(&self) -> HistoryHealth {
+        let count = |k: SkipKind| self.skipped.iter().filter(|r| r.kind == k).count();
+        let from_future = count(SkipKind::FromFuture);
+        let damaged = count(SkipKind::Damaged);
+        let ambiguous = count(SkipKind::Ambiguous);
+        let skipped = self.skipped.len();
+
+        let (headline, detail) = if skipped == 0 {
+            (String::new(), String::new())
+        } else {
+            let plural = |n: usize, one: &str, many: &str| if n == 1 { one.to_string() } else { many.to_string() };
+            let headline = if damaged > 0 || ambiguous > 0 {
+                format!(
+                    "{} of this conversation could not be read.",
+                    plural(damaged + ambiguous, "One record", "Some records")
+                )
+            } else {
+                "Part of this conversation was written by a newer version of RichOS."
+                    .to_string()
+            };
+            let mut parts: Vec<String> = Vec::new();
+            if from_future > 0 {
+                parts.push(format!(
+                    "{} {} written by a newer version of RichOS than the one you are running, \
+                     so this version does not know how to read {}. Updating will bring {} back.",
+                    from_future,
+                    plural(from_future, "record was", "records were"),
+                    plural(from_future, "it", "them"),
+                    plural(from_future, "it", "them"),
+                ));
+            }
+            if damaged > 0 {
+                parts.push(format!(
+                    "{} {} damaged and could not be read.",
+                    damaged,
+                    plural(damaged, "record is", "records are"),
+                ));
+            }
+            if ambiguous > 0 {
+                parts.push(format!(
+                    "{} {} not match any shape this version knows. That is either a newer \
+                     version of RichOS or damage, and this version cannot tell which.",
+                    ambiguous,
+                    plural(ambiguous, "record does", "records do"),
+                ));
+            }
+            parts.push(format!(
+                "Everything else loaded: {} of {} records. Nothing was deleted and nothing was \
+                 rewritten — every record is still exactly where it was on disk.",
+                self.records_applied, self.records_read,
+            ));
+            (headline, parts.join(" "))
+        };
+
+        HistoryHealth {
+            records_read: self.records_read,
+            records_applied: self.records_applied,
+            skipped,
+            from_future,
+            damaged,
+            ambiguous,
+            headline,
+            detail,
+        }
     }
 
     fn thread_ref(&self, thread_id: &str) -> Result<&Thread, LedgerError> {

@@ -1,0 +1,36 @@
+=== ledger ledgers/v1-legacy.jsonl ===
+file.bytes = 3922
+file.lines = 24
+file.sha256 = f0103076bc8a9bbdf1a622f3c964ba3710cabb401140fb298387aeeb35a12c1a
+threads.count = 2
+thread thr_0000000000000000000000000000000a | title=ccfb04c1e00f8e3ac8e72c56f98dc27d05a3fb2ace42b955eee03eed56d91fe3:13 | created_at=1787000000000 | bound=true | entity=richos | revision=7
+thread thr_0000000000000000000000000000000b | title=55b7d9cfb7a51f911859324fdb2632ad0cd9bd5d1a607bf7499534472f98582b:23 | created_at=1787000002000 | bound=true | entity=richos | revision=8
+turns.count = 5
+turn turn_0000000000000000000000000000000a | thread=thr_0000000000000000000000000000000a | entity=- | revision=0 | quarantined=false | source=Text | state=Interrupted | session=legacy-session-1 | user=dc4121980b9a94a3648ee6bf36d80ee01c2176c8667e248d8f39734b65484249:37 | assistant=5578c1fc745780d4d4f21db6a1984be212cff607912497d8706f3ca713920bb2:63 | runs=1 | stop_reason=b5c6c11a27b0ba1cfcf3cdb8cac06836f6140253bd9de118c1ba9a0b762aba56:34 | created_at=1787000000100 | started_at=1787000000200 | ended_at=1787000000500 | tier=None | superseded_by=turn_0000000000000000000000000000000b | stop_requested_at=- | intake_id=- | active_ms=300
+  run turn_0000000000000000000000000000000a.0 | start_seq=- | end_seq=- | at=1787000000300 | text=5578c1fc745780d4d4f21db6a1984be212cff607912497d8706f3ca713920bb2:63
+turn turn_0000000000000000000000000000000b | thread=thr_0000000000000000000000000000000a | entity=- | revision=0 | quarantined=false | source=Text | state=Completed | session=legacy-session-2 | user=dc4121980b9a94a3648ee6bf36d80ee01c2176c8667e248d8f39734b65484249:37 | assistant=f179d8fc2b9d7dd5cfe102b2694d9c00c3f64795ae4cf91046535530fb2e1ea1:33 | runs=1 | stop_reason=c9a0f5804f9c8da7c9e3fac359a14d8b6f1ea48adc0f5ccec6eac581a59450d0:8 | created_at=1787000000600 | started_at=1787000000700 | ended_at=1787000000900 | tier=None | superseded_by=- | stop_requested_at=- | intake_id=- | active_ms=200
+  run turn_0000000000000000000000000000000b.0 | start_seq=- | end_seq=- | at=1787000000800 | text=f179d8fc2b9d7dd5cfe102b2694d9c00c3f64795ae4cf91046535530fb2e1ea1:33
+turn turn_0000000000000000000000000000000c | thread=thr_0000000000000000000000000000000b | entity=richos | revision=8 | quarantined=false | source=Proactive | state=Completed | session=- | user=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855:0 | assistant=daccde30a64bde6d1f4849c557b80d8c25997a3aad933bcc4cadc3a0c3b3a675:21 | runs=1 | stop_reason=1774757a37ce2c78be566425e460b65dd9274a8ec46b4aba7dc7e1de5f1dce71:9 | created_at=1787000002300 | started_at=- | ended_at=- | tier=Some(Digest) | superseded_by=- | stop_requested_at=- | intake_id=- | active_ms=-
+  run turn_0000000000000000000000000000000c.0 | start_seq=- | end_seq=- | at=1787000002300 | text=daccde30a64bde6d1f4849c557b80d8c25997a3aad933bcc4cadc3a0c3b3a675:21
+turn turn_0000000000000000000000000000000d | thread=thr_0000000000000000000000000000000b | entity=richos | revision=8 | quarantined=false | source=Text | state=Stopped | session=legacy-session-3 | user=e9d4d4db57b8a350690e7eb69a4a381036109efdc4380c26a842feb12be96f4a:22 | assistant=3d014b60dca80ce398b7e0c53b00f1905900d2847baff3d22fd2ea781d308ef8:10 | runs=1 | stop_reason=a399d22cde1dc4ecb2037b06e702d0b0ba58b80b4479379a078c05ce89d91725:14 | created_at=1787000002400 | started_at=1787000002500 | ended_at=1787000002700 | tier=None | superseded_by=- | stop_requested_at=1787000002650 | intake_id=- | active_ms=200
+  run turn_0000000000000000000000000000000d.0 | start_seq=0 | end_seq=0 | at=1787000002600 | text=3d014b60dca80ce398b7e0c53b00f1905900d2847baff3d22fd2ea781d308ef8:10
+turn turn_0000000000000000000000000000000e | thread=thr_0000000000000000000000000000000b | entity=richos | revision=8 | quarantined=false | source=Text | state=Received | session=- | user=043628d337b351d6a09c360407b71c93bc7144ce12e1fe5282a15c0dde97a268:27 | assistant=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855:0 | runs=0 | stop_reason=- | created_at=1787000003000 | started_at=- | ended_at=- | tier=None | superseded_by=- | stop_requested_at=- | intake_id=42 | active_ms=-
+actions.count = 2
+action act_0000000000000000000000000000000a | turn=- | kind=afa32010061bc218c9b791c9f4d51eb799be69b3ade7bb728751565d740e3769:10 | detail=d5573b43baa4f96bb73ae4c690d571c2eaf6ff51a02f26baf977fcfc69b80415:39 | status=Claimed | visibility=CeoFacing | at=1787000001000
+action act_0000000000000000000000000000000b | turn=turn_0000000000000000000000000000000d | kind=37d2b12d5d9abc2a364ef9448767ee03938e383c0284193477dc7618f4b7c6c2:4 | detail=b3796c8415fadf07d7c16eb31b5e1af02137cdcb83d11a88987c750ae83bd50c:19 | status=Failed | visibility=CeoFacing | at=1787000002800
+messages thr_0000000000000000000000000000000a | count=2
+  message thr_0000000000000000000000000000000a.0 | role=user | turn=turn_0000000000000000000000000000000b | at=1787000000600 | text=dc4121980b9a94a3648ee6bf36d80ee01c2176c8667e248d8f39734b65484249:37
+  message thr_0000000000000000000000000000000a.1 | role=assistant | turn=turn_0000000000000000000000000000000b | at=1787000000600 | text=f179d8fc2b9d7dd5cfe102b2694d9c00c3f64795ae4cf91046535530fb2e1ea1:33
+handoff_summary thr_0000000000000000000000000000000a = -
+messages thr_0000000000000000000000000000000b | count=4
+  message thr_0000000000000000000000000000000b.0 | role=assistant | turn=turn_0000000000000000000000000000000c | at=1787000002300 | text=daccde30a64bde6d1f4849c557b80d8c25997a3aad933bcc4cadc3a0c3b3a675:21
+  message thr_0000000000000000000000000000000b.1 | role=user | turn=turn_0000000000000000000000000000000d | at=1787000002400 | text=e9d4d4db57b8a350690e7eb69a4a381036109efdc4380c26a842feb12be96f4a:22
+  message thr_0000000000000000000000000000000b.2 | role=assistant | turn=turn_0000000000000000000000000000000d | at=1787000002400 | text=3d014b60dca80ce398b7e0c53b00f1905900d2847baff3d22fd2ea781d308ef8:10
+  message thr_0000000000000000000000000000000b.3 | role=user | turn=turn_0000000000000000000000000000000e | at=1787000003000 | text=043628d337b351d6a09c360407b71c93bc7144ce12e1fe5282a15c0dde97a268:27
+handoff_summary thr_0000000000000000000000000000000b = 897023ec707bdc33966c35c60bcc099762e953afb2df1b04f06712bfff30a792:46
+scope_violations.count = 0
+pending_turns.count = 1
+open_actions.count = 1
+ceo_facing_actions.count = 2
+internal_actions.count = 0
+unbound_threads.count = 0

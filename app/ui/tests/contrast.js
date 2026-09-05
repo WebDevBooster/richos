@@ -336,6 +336,37 @@ const SURFACES = [
     },
   },
   {
+    name: "history-notice",
+    what: "the notice that says part of his history did not load, at the top of the conversation",
+    drive: async (p) => {
+      // NOT CLEAN, ON PURPOSE. The default fixture is a clean load, so this surface has to
+      // ask for the state it is measuring — the panel can never be shown to pass by a
+      // fixture that was already painting it. Both halves are driven at once: the calm
+      // "from a newer version" sentence and the loud damaged one share the panel, so the
+      // worst-case foreground on the worst-case background is what gets walked.
+      await p.evaluate(async () => {
+        window.__RICHOS_MOCK__.historySet({
+          records_read: 214,
+          records_applied: 211,
+          skipped: 3,
+          from_future: 2,
+          damaged: 1,
+          ambiguous: 0,
+          headline: "One record of this conversation could not be read.",
+          detail:
+            "2 records were written by a newer version of RichOS than the one you are " +
+            "running, so this version does not know how to read them. Updating will bring " +
+            "them back. 1 record is damaged and could not be read. Everything else loaded: " +
+            "211 of 214 records. Nothing was deleted and nothing was rewritten — every " +
+            "record is still exactly where it was on disk.",
+        });
+        await window.__RICHOS_HISTORY_NOTICE__();
+      });
+      await p.waitForSelector("#history-notice:not([hidden])");
+      await p.waitForTimeout(400);
+    },
+  },
+  {
     name: "opening-screen",
     // THE HARDEST SURFACE, WALKED ANYWAY. It would have been easy to leave the opening
     // screen out and write "not covered" in the header — and the honest result of walking it

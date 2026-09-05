@@ -1391,6 +1391,24 @@
     script: [],
     calls: [],
   };
+
+  // ---- what did not load out of the ledger (2026-09-05) -------------------------------------
+  //
+  // CLEAN is the opening state, because a clean load is what every real launch on every real
+  // ledger produces today — 71 records across five real files, none of them skipped. The
+  // notice is meant to be invisible; a harness that opened with it showing would be modeling
+  // a product that routinely loses records.
+  const mockHistoryHealth = {
+    records_read: 42,
+    records_applied: 42,
+    skipped: 0,
+    from_future: 0,
+    damaged: 0,
+    ambiguous: 0,
+    headline: "",
+    detail: "",
+  };
+
   /// Pop the next scripted view, or — with nothing scripted — leave the state alone. A
   /// harness that invented a transition would let a suite pass against a flow that never ran.
   function mockUpdateAdvance() {
@@ -1566,6 +1584,13 @@
         // "none"` drives the fresh install, which is the state the real defect lived in.
         case "memory_status":
           return memoryStatusOf();
+        // WHAT DID NOT LOAD OUT OF THE LEDGER (`Ledger::history_health`). The default is a
+        // CLEAN load, because that is what every real launch produces — the notice is
+        // supposed to be invisible almost always, and a preview that showed it constantly
+        // would be rehearsing a state the product does not have. `__RICHOS_MOCK__.historySet`
+        // drives the states that are not clean.
+        case "history_health":
+          return { ...mockHistoryHealth };
         // WHAT THIS MACHINE IS MISSING (`setup.rs`, `setup_view.rs`). The preview's default
         // is a machine that has everything, because every other fixture assumes one;
         // `setup: "missing-both"` is the customer's Mac, which is the state §19 says every
@@ -2765,6 +2790,14 @@
     /// Which update commands the surface actually issued, in order. Asserting on this is
     /// how a suite proves the Restart button restarts rather than merely looking pressed.
     updateCalls() { return mockUpdate.calls.slice(); },
+    /// ---- what did not load out of the ledger (2026-09-05) -----------------------------
+    /// Put the history notice into a state. The default is CLEAN, so a suite that wants the
+    /// notice on screen has to ask for it — the surface can never be shown to be working by
+    /// a fixture that was already showing it.
+    historySet(health) {
+      Object.assign(mockHistoryHealth, health);
+      return { ...mockHistoryHealth };
+    },
     /// Every `launch_state` read and every splash id handed to the recency ring, in order.
     /// The suite asserts against these rather than against a re-derived count — see the
     /// note over `launchCalls`.

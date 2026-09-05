@@ -902,6 +902,23 @@ fn main() {
             let ledger_path = data_dir.join("conversation-ledger.jsonl");
             let ledger = Ledger::open(&ledger_path).expect("open ledger");
 
+            // WHAT DID NOT LOAD, ON THE BOOT LINE, BEFORE ANYTHING ELSE USES THE LEDGER.
+            //
+            // `Ledger::replay` prints a line per skipped record and a summary of its own
+            // (`report_skipped`) — that is the operator's account. This is the CEO's, in
+            // the words the window will render, so an operator reading a boot log and a CEO
+            // reading his own screen are told the SAME thing rather than two versions of it.
+            //
+            // The `expect` above is the reason this matters at all: until 2026-09-05 a
+            // single record this build could not parse came out of `Ledger::open` as `Err`
+            // and this line panicked inside the Tauri setup hook — the window never opened.
+            // The reader survives such a record now; this is what stops it doing so quietly.
+            let history_health = ledger.history_health();
+            if !history_health.is_clean() {
+                eprintln!("[richos] {}", history_health.headline);
+                eprintln!("[richos] {}", history_health.detail);
+            }
+
             let mut spine = Spine::new(ledger);
 
             // Attach the live UI sink: streamed reply deltas + turn-state events flow to
@@ -1630,7 +1647,9 @@ fn main() {
             updates::update_relaunch,
             // --- first-run setup, Option D (2026-09-01) — appended, never reordered ---
             setup_status,
-            run_setup
+            run_setup,
+            // --- what did not load out of the ledger (2026-09-05) — appended, never reordered ---
+            history_health
         ])
         .build(tauri::generate_context!())
         .expect("error while building RichOS")
@@ -2213,6 +2232,25 @@ fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> Navigation
         active: active_binding_view(&spine),
         unbound_explanation: UNBOUND_THREAD_EXPLANATION.to_string(),
     }
+}
+
+/// **WHAT DID NOT LOAD OUT OF HIS HISTORY**, and why.
+///
+/// Empty `headline`/`detail` with `skipped: 0` is the ordinary answer and the signal for
+/// the window to render nothing at all. Non-empty means `Ledger::replay` found a record on
+/// disk it could not fold: one written by a newer RichOS, a damaged one, or one it cannot
+/// tell apart — three different states, counted separately, never merged into "some
+/// records failed".
+///
+/// The counts describe the LOAD, not the running session: they are taken at replay and do
+/// not move as this session appends. "20 of 21 records" is an answer about what came off
+/// disk when the app opened, which is the question being asked.
+///
+/// The sentences are composed in richos-core and rendered verbatim, so this shell never
+/// gets to phrase a claim about a customer's history.
+#[tauri::command]
+fn history_health(state: State<AppState>) -> richos_core::ledger::HistoryHealth {
+    state.spine.lock().unwrap().ledger().history_health()
 }
 
 /// The authoritative answer to "which entity and thread is the CEO actually talking to?".
