@@ -35,7 +35,30 @@
 //! Same posture as `steering::IntakeLog`, for the same reason: a proposal the CEO has not
 //! answered yet must survive a crash, a rotation and a relaunch, or "he confirms after
 //! lunch" silently loses the correction. Append-only JSONL, `sync_all` on every record, a
-//! torn last line skipped rather than fatal.
+//! record this build cannot read skipped rather than fatal — and, since 2026-09-05,
+//! **counted, classified and reported** rather than dropped in silence.
+//!
+//! ## What the desk's replay is, and why a dropped record is not like a dropped message
+//!
+//! This file is not a list of proposals. It is an EVENT LOG, and the projection is built by
+//! folding each record onto the ones before it: a `Proposed` record carries the whole
+//! proposal in state `AwaitingCeo`, and the CEO's ANSWER is a separate, later record
+//! (`Written`, `Failed`, `Declined`, `Suppressed`). So the two ends of the file fail in
+//! opposite directions, and only one of them is dangerous:
+//!
+//! - **Drop the earlier `Proposed` record** and the answer records that follow it find no
+//!   proposal to fold onto and are silent no-ops. The proposal disappears. That is a loss,
+//!   and nothing WRONG is put in front of the CEO.
+//! - **Drop the later answer record** and the proposal replays in its original state —
+//!   `AwaitingCeo` — which is to say **a decision he confirmed silently reverts to pending**.
+//!   `pending_for` then offers it again, and `confirm` accepts it again because its state
+//!   passes the check, so the write can run a second time. Being asked twice is how a person
+//!   learns the machine does not remember him.
+//!
+//! So the reader refuses to present a state it cannot vouch for: a proposal whose answer
+//! could have been among the records this build could not read is [`ProposalState::Unresolved`]
+//! — held back, counted, inspectable, and never offered as though it were new. See
+//! [`CorrectionDesk::unresolved`] for exactly how narrow "could have been" is.
 //!
 //! # What this deliberately does NOT do
 //!
@@ -52,6 +75,7 @@
 //!   directly — and that trigger is named as unbuilt rather than faked.
 
 use crate::loro::{CorpusPaths, LoroInstall, LoroRoot, LoroTools};
+use crate::skip::{SkipDialect, SkipKind, SkippedRecord};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -71,6 +95,18 @@ pub enum CorrectionError {
     NoReason,
     #[error("{0:?} was permanently declined for correction — clear the suppression to propose again")]
     Suppressed(String),
+    #[error(
+        "proposal {id} cannot be answered: the record of what you already decided about it \
+         could not be read, so this version does not know whether you have answered it \
+         already"
+    )]
+    AnswerUnreadable { id: String },
+    #[error(
+        "{record_ref:?} is on hold: a decision you made about it could not be read, so this \
+         version does not know whether you asked never to be asked about it again — clear the \
+         hold to propose against it"
+    )]
+    HeldRecord { record_ref: String },
     #[error("the loro writer refused (exit {code}): {message}")]
     WriterRefused { code: i32, message: String },
     #[error("the loro writer could not be run: {0}")]
@@ -393,6 +429,21 @@ pub enum ProposalState {
     /// He said yes and the writer refused. The reason is kept — a failed write that
     /// disappears is indistinguishable from one that never happened.
     Failed,
+    /// **This build cannot tell whether he has answered this or not**, because a record
+    /// that could have been the answer was one it could not read.
+    ///
+    /// Never written to disk and never minted by `propose` — it exists only in a projection
+    /// built over a file with at least one unreadable record, and it is recomputed from
+    /// scratch on every open. Held back from [`CorrectionDesk::pending_for`] and refused by
+    /// `confirm`/`decline`, because the alternative is offering a decision he has already
+    /// made as though it were new.
+    ///
+    /// The bar this meets, stated as it was given: *a confirmed decision must never become
+    /// pending again; the reader must refuse to present a reverted state rather than present
+    /// a wrong one.* The cost is the other direction — a proposal he genuinely has NOT
+    /// answered can end up held back — and that cost is paid deliberately and out loud, in
+    /// [`DeskHealth::unresolved`] and the sentence beside it, rather than by asking him twice.
+    Unresolved,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -430,6 +481,98 @@ enum DeskRecord {
     Unsuppressed { record_ref: String, at: u64 },
 }
 
+/// EVERY `rec` tag this build knows how to fold.
+///
+/// It is the only thing that can tell a record written by a NEWER RichOS apart from a
+/// damaged one, so it has to stay exactly in step with `DeskRecord`. That is not left to
+/// care: `the_known_tag_table_matches_the_record_type_exactly` below maps every variant
+/// through an EXHAUSTIVE match, so adding a variant without adding its name here does not
+/// compile.
+///
+/// A missing entry would be the dangerous direction: this build would report a genuinely
+/// DAMAGED answer of that type as a benign one from the future, and go on waiting for an
+/// update that is never coming.
+pub const KNOWN_DESK_TAGS: &[&str] =
+    &["proposed", "confirmed", "written", "failed", "declined", "suppressed", "unsuppressed"];
+
+/// How the desk's records are told apart from a newer build's and from damage.
+///
+/// The judgment itself is [`crate::skip::classify_line`] — the SAME one `ledger.rs` and
+/// `steering.rs` call, deliberately, so the three stores cannot drift apart about what
+/// damage looks like. This file is the third reader to need it and it invents nothing.
+const DESK_SKIP: SkipDialect = SkipDialect {
+    tag_key: "rec",
+    record_noun: "a correction-desk record",
+    known_tags: KNOWN_DESK_TAGS,
+};
+
+/// The number in a desk proposal id, or `None` if the id is not one this desk minted.
+///
+/// STRICTLY `prop-` followed by ASCII decimal characters and nothing else. `u64::from_str`
+/// would accept a leading `+`, and this runs on lines that may be damaged, so the shape is
+/// checked rather than inferred from a successful parse.
+fn proposal_number(id: &str) -> Option<u64> {
+    let n = id.strip_prefix("prop-")?;
+    if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    n.parse::<u64>().ok()
+}
+
+/// Pull a proposal number off a record this build could not fold.
+///
+/// **Structure only, and it can hold nothing of his.** The only value that can come back is
+/// a run of ASCII decimal characters behind a fixed `prop-` prefix — a number this desk
+/// minted itself. Every desk record except `Suppressed`/`Unsuppressed` carries `id` at the
+/// top level, including `Proposed`, whose newtype payload serde flattens under the `rec`
+/// tag.
+fn salvage_proposal_number(line: &str) -> Option<u64> {
+    let id = serde_json::from_str::<serde_json::Value>(line).ok()?.get("id")?.as_str()?.to_string();
+    proposal_number(&id)
+}
+
+/// **What the app can honestly say about the correction desk it has just replayed.**
+///
+/// The desk log is the file that holds what the CEO was ASKED and what he ANSWERED. It is
+/// not the ledger (what happened) and it is not the intake log (what he typed and Rich has
+/// not acted on): it is the record of decisions he has already made, which is exactly why a
+/// dropped record here has a cost neither of the others has — see the module doc.
+///
+/// `headline` and `detail` are empty strings when nothing was skipped, which is the
+/// ordinary case and the signal to say nothing at all. There is no reassuring "the desk is
+/// fine" state, for the same reason `Ledger::history_health` and `IntakeLog::health` have
+/// none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DeskHealth {
+    /// Non-empty lines found in the file.
+    pub records_read: usize,
+    /// Records folded into the projection.
+    pub records_applied: usize,
+    pub skipped: usize,
+    pub from_future: usize,
+    pub damaged: usize,
+    pub ambiguous: usize,
+    /// Proposals held back because a record that could have been their answer was
+    /// unreadable. Always 0 when `skipped` is 0. See [`ProposalState::Unresolved`].
+    pub unresolved: usize,
+    /// Records not proposed against because the decision he made about them could not be
+    /// read. Always 0 when `skipped` is 0. See [`CorrectionDesk::held_records`].
+    pub held_records: usize,
+    /// One short sentence. Empty when nothing was skipped.
+    pub headline: String,
+    /// The honest explanation, in plain American English, with no stack trace in it.
+    /// Empty when nothing was skipped.
+    pub detail: String,
+}
+
+impl DeskHealth {
+    /// Every record on disk is in the projection. The normal state, and the state of every
+    /// correction desk in existence today.
+    pub fn is_clean(&self) -> bool {
+        self.skipped == 0
+    }
+}
+
 /// The one place in the app that can change what loro believes — and it cannot do it
 /// without the CEO having said yes first.
 pub struct CorrectionDesk {
@@ -438,6 +581,22 @@ pub struct CorrectionDesk {
     proposals: Vec<Proposal>,
     suppressed: Vec<String>,
     next: u64,
+    /// Every record on disk that this build could not fold, with the reason for each.
+    /// Empty is the normal state.
+    skipped: Vec<SkippedRecord>,
+    /// Non-empty lines seen on replay, and how many of them were folded. Counted rather
+    /// than derived, so "6 of 7" is a measurement and not an inference.
+    records_read: usize,
+    records_applied: usize,
+    /// Records this build will not propose against because a decision he made about them
+    /// could not be read. Distinct from `suppressed`, which is the list of refs he actually
+    /// declined permanently — telling him a record was permanently declined when the truth
+    /// is that this build cannot read the answer would be a wrong statement, not a short one.
+    held: Vec<String>,
+    /// Every ref that has ever carried an `Unsuppressed` record. A precautionary hold he has
+    /// explicitly lifted must stay lifted across restarts, and the lift is already durable —
+    /// this is how the replay sees it.
+    ever_unsuppressed: Vec<String>,
 }
 
 impl CorrectionDesk {
@@ -446,34 +605,218 @@ impl CorrectionDesk {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut desk = CorrectionDesk { path, writer, proposals: Vec::new(), suppressed: Vec::new(), next: 1 };
+        let mut desk = CorrectionDesk {
+            path,
+            writer,
+            proposals: Vec::new(),
+            suppressed: Vec::new(),
+            next: 1,
+            skipped: Vec::new(),
+            records_read: 0,
+            records_applied: 0,
+            held: Vec::new(),
+            ever_unsuppressed: Vec::new(),
+        };
         desk.replay()?;
         Ok(desk)
     }
 
+    /// Replay the log into the projection. **Never fatal on a record, never silent about
+    /// one, and it never rewrites a byte of the file.**
+    ///
+    /// # What this used to do, and what each of it cost
+    ///
+    /// Until 2026-09-05 this loop was `lines().map_while(Result::ok)` with
+    /// `let Ok(rec) = … else { continue }`, and the comment above the `continue` reasoned
+    /// about a torn LAST line. Two things were wrong with that, and they are the same two
+    /// the ledger and the intake log were fixed for earlier the same day:
+    ///
+    ///   1. **The read stopped at the first bad byte.** `lines()` yields `Err` for a line
+    ///      that is not valid UTF-8, and `map_while(Result::ok)` ends the ITERATOR there —
+    ///      so one damaged byte in the middle of the file silently discarded every record
+    ///      BELOW it, not just its own. On this file that means every answer the CEO gave
+    ///      after the damage.
+    ///   2. **A skip left no trace at all.** No count, no log line, nothing a person could
+    ///      read. The reasoning was that a half-written proposal "was never shown to
+    ///      anybody", which is true of the last line and true of nothing else in the file.
+    ///
+    /// `read_until` fixes the first; [`crate::skip::classify_line`] — the judgment the
+    /// ledger and the intake log already share — fixes the second. A real IO error still
+    /// propagates, because a disk that cannot be read is not a damaged record and must not
+    /// be reported as one.
     fn replay(&mut self) -> Result<(), CorrectionError> {
         if !self.path.exists() {
             return Ok(());
         }
-        let file = std::fs::File::open(&self.path)?;
-        for line in BufReader::new(file).lines().map_while(Result::ok) {
-            let line = line.trim();
+        // The highest proposal number seen on a record this build could NOT fold. It is not
+        // in `proposals`, so without it the counter can hand the same id out twice — the
+        // same hazard `steering::IntakeLog::open` guards, and salvaged on the same rule.
+        let mut salvaged_number: u64 = 0;
+        // WHICH PROPOSALS COULD THE UNREADABLE RECORDS HAVE BEEN THE ANSWER TO?
+        //
+        // An answer record is always appended AFTER the `proposed` record it answers, so a
+        // skipped line can only have answered a proposal that loaded ABOVE it. Two levels of
+        // precision, and the narrow one is preferred wherever the file supports it:
+        //
+        //   * `at_risk_numbers` — a skipped line that is not `Damaged` is a well-formed JSON
+        //     object with a plain-identifier tag, so its `id` is structure this build trusts.
+        //     If it reads as `prop-<n>`, that ONE proposal is at risk and no other.
+        //   * `broad_from_line` — every other skipped line (damaged, or naming no proposal,
+        //     which is what a `suppressed`/`unsuppressed` record looks like) could have
+        //     answered anything above it, so every proposal above the LAST such line is at
+        //     risk. Deliberately blunt: the alternative is guessing.
+        let mut at_risk_numbers: Vec<u64> = Vec::new();
+        let mut broad_from_line = 0usize;
+        let mut proposal_lines: Vec<(String, usize)> = Vec::new();
+        let mut reader = BufReader::new(std::fs::File::open(&self.path)?);
+        let mut raw: Vec<u8> = Vec::new();
+        let mut line_no = 0usize;
+        loop {
+            raw.clear();
+            let n = reader.read_until(b'\n', &mut raw)?;
+            if n == 0 {
+                break;
+            }
+            line_no += 1;
+            let body = raw.strip_suffix(b"\n").unwrap_or(&raw);
+            let text = match std::str::from_utf8(body) {
+                Ok(t) => t,
+                Err(_) => {
+                    // Not text at all, so it cannot carry a tag and cannot be from the
+                    // future: no version of RichOS has ever written a non-UTF-8 record.
+                    self.records_read += 1;
+                    self.skipped.push(crate::skip::not_utf8(line_no, body.len()));
+                    continue;
+                }
+            };
+            let line = text.trim();
             if line.is_empty() {
                 continue;
             }
-            // A torn last line (killed mid-write) is skipped, exactly as the ledger and the
-            // intake log skip one: a half-written proposal was never shown to anybody.
-            let Ok(rec) = serde_json::from_str::<DeskRecord>(line) else { continue };
-            self.apply(rec);
+            self.records_read += 1;
+            match serde_json::from_str::<DeskRecord>(line) {
+                Ok(rec) => {
+                    self.records_applied += 1;
+                    if let DeskRecord::Proposed(p) = &rec {
+                        proposal_lines.push((p.id.clone(), line_no));
+                    }
+                    self.apply(rec);
+                }
+                Err(_) => {
+                    let record = crate::skip::classify_line(line_no, line, &DESK_SKIP);
+                    // SALVAGE THE PROPOSAL NUMBER, AND FROM NON-`Damaged` RECORDS ONLY.
+                    //
+                    // `Ambiguous` and `FromFuture` are both well-formed JSON objects
+                    // carrying a plain-identifier tag — structure this build trusts — and
+                    // both are lines a NEWER build will read, so an id minted on top of one
+                    // of them collides for real. A `Damaged` line is neither: its numbers
+                    // are not facts, and its bytes never become readable, so nothing is
+                    // salvaged from it. That is the identical line `steering.rs` draws.
+                    let mut attributed = false;
+                    if record.kind != SkipKind::Damaged {
+                        if let Some(n) = salvage_proposal_number(line) {
+                            salvaged_number = salvaged_number.max(n);
+                            at_risk_numbers.push(n);
+                            attributed = true;
+                        }
+                    }
+                    if !attributed {
+                        broad_from_line = broad_from_line.max(line_no);
+                    }
+                    self.skipped.push(record);
+                }
+            }
         }
-        self.next = self
+        let highest_loaded = self
             .proposals
             .iter()
-            .filter_map(|p| p.id.strip_prefix("prop-").and_then(|n| n.parse::<u64>().ok()))
+            .filter_map(|p| proposal_number(&p.id))
             .max()
-            .unwrap_or(0)
-            + 1;
+            .unwrap_or(0);
+        self.next = highest_loaded.max(salvaged_number) + 1;
+
+        // HOLD BACK EVERY PROPOSAL WHOSE ANSWER MIGHT HAVE BEEN ONE OF THE RECORDS THAT DID
+        // NOT LOAD. A proposal that has an answer is left exactly as it is: its answer is on
+        // disk and `confirm`/`decline` already refuse a second one.
+        let at_risk: Vec<String> = at_risk_numbers
+            .iter()
+            .map(|n| format!("prop-{n}"))
+            .chain(
+                proposal_lines
+                    .iter()
+                    .filter(|(_, line)| *line < broad_from_line)
+                    .map(|(id, _)| id.clone()),
+            )
+            .collect();
+        for p in self.proposals.iter_mut() {
+            if p.state == ProposalState::AwaitingCeo && at_risk.contains(&p.id) {
+                p.state = ProposalState::Unresolved;
+            }
+        }
+
+        // AND DO NOT ASK HIM ABOUT THE SAME RECORD FROM A DIFFERENT DIRECTION. The lost
+        // answer could have been `Declined { permanent: true }` — "never ask me about this
+        // again" — so a fresh proposal naming the same record would be exactly the repeat
+        // this is here to stop. Not folded into `suppressed`: that list is what he actually
+        // declined, and this one is what this build cannot read. A hold he has explicitly
+        // lifted stays lifted, because `unsuppress` writes a durable record and the replay
+        // above collected every ref that carries one.
+        let holds: Vec<String> = self
+            .proposals
+            .iter()
+            .filter(|p| p.state == ProposalState::Unresolved)
+            .filter_map(|p| p.write.target_ref().map(str::to_string))
+            .filter(|r| !self.ever_unsuppressed.contains(r))
+            .collect();
+        for r in holds {
+            if !self.held.contains(&r) {
+                self.held.push(r);
+            }
+        }
+
+        self.report_skipped();
         Ok(())
+    }
+
+    /// **Skipping is never silent.** One line per skipped record, capped, then a summary
+    /// line printed whenever anything at all was skipped.
+    ///
+    /// The cap exists because a badly damaged file could hold a hundred thousand unreadable
+    /// lines, and a hundred thousand log lines is its own kind of silence. The COUNT is
+    /// never capped — it is in the summary and in [`CorrectionDesk::desk_health`].
+    fn report_skipped(&self) {
+        if self.skipped.is_empty() {
+            return;
+        }
+        const CAP: usize = 20;
+        for r in self.skipped.iter().take(CAP) {
+            eprintln!(
+                "[richos] CORRECTION DESK RECORD SKIPPED ({}): line {} ({} bytes) — {}",
+                r.kind.label(),
+                r.line,
+                r.bytes,
+                r.detail
+            );
+        }
+        if self.skipped.len() > CAP {
+            eprintln!(
+                "[richos] CORRECTION DESK: {} further skipped records not listed individually",
+                self.skipped.len() - CAP
+            );
+        }
+        let h = self.desk_health();
+        eprintln!(
+            "[richos] CORRECTION DESK SUMMARY for {}: {} records read, {} applied, {} skipped \
+             ({} from a newer version, {} damaged, {} undetermined). These are corrections the \
+             CEO was asked about and the answers he gave. Nothing was deleted or rewritten.",
+            self.path.display(),
+            h.records_read,
+            h.records_applied,
+            h.skipped,
+            h.from_future,
+            h.damaged,
+            h.ambiguous
+        );
     }
 
     fn apply(&mut self, rec: DeskRecord) {
@@ -492,9 +835,23 @@ impl CorrectionDesk {
                     p.failure = Some(reason);
                 }
             }
-            DeskRecord::Declined { id, .. } => {
-                if let Some(p) = self.find_mut(&id) {
+            DeskRecord::Declined { id, permanent, .. } => {
+                let target = self.find_mut(&id).map(|p| {
                     p.state = ProposalState::Declined;
+                    p.write.target_ref().map(str::to_string)
+                });
+                // A PERMANENT DECLINE SUPPRESSES ON ITS OWN, not only via the `suppressed`
+                // record `decline` writes next. The two are always written together and
+                // fsync'd separately, so the second can be the one that is unreadable — and
+                // without this, that alone would put a record he permanently declined back
+                // in front of him. Deriving it from the decline costs nothing and makes the
+                // `suppressed` record confirmatory rather than load-bearing.
+                if permanent {
+                    if let Some(Some(record_ref)) = target {
+                        if !self.suppressed.contains(&record_ref) {
+                            self.suppressed.push(record_ref);
+                        }
+                    }
                 }
             }
             DeskRecord::Suppressed { record_ref, .. } => {
@@ -502,7 +859,13 @@ impl CorrectionDesk {
                     self.suppressed.push(record_ref);
                 }
             }
-            DeskRecord::Unsuppressed { record_ref, .. } => self.suppressed.retain(|r| r != &record_ref),
+            DeskRecord::Unsuppressed { record_ref, .. } => {
+                self.suppressed.retain(|r| r != &record_ref);
+                self.held.retain(|r| r != &record_ref);
+                if !self.ever_unsuppressed.contains(&record_ref) {
+                    self.ever_unsuppressed.push(record_ref);
+                }
+            }
         }
     }
 
@@ -544,6 +907,12 @@ impl CorrectionDesk {
             if self.suppressed.iter().any(|r| r == target) {
                 return Err(CorrectionError::Suppressed(target.to_string()));
             }
+            // A DIFFERENT REFUSAL, WITH A DIFFERENT SENTENCE. He did not decline this; this
+            // build cannot read what he decided. Saying "you permanently declined it" would
+            // be a wrong statement rather than a short one.
+            if self.held.iter().any(|r| r == target) {
+                return Err(CorrectionError::HeldRecord { record_ref: target.to_string() });
+            }
         }
         let preview = self.writer.preview(&write, why)?;
         let id = format!("prop-{}", self.next);
@@ -580,6 +949,12 @@ impl CorrectionDesk {
                 asked: entity_id.into(),
             });
         }
+        // Checked BEFORE `NotAwaiting`, because "it cannot be confirmed twice" would be a
+        // claim this build is in no position to make: it does not know whether it was
+        // confirmed once.
+        if p.state == ProposalState::Unresolved {
+            return Err(CorrectionError::AnswerUnreadable { id: id.into() });
+        }
         if p.state != ProposalState::AwaitingCeo {
             return Err(CorrectionError::NotAwaiting { id: id.into(), state: p.state });
         }
@@ -606,6 +981,9 @@ impl CorrectionDesk {
     /// ambiguous — not a record / not now / misclicked — while a repeat is evidence.
     pub fn decline(&mut self, id: &str, permanent: bool) -> Result<(), CorrectionError> {
         let p = self.proposals.iter().find(|p| p.id == id).ok_or_else(|| CorrectionError::NoSuchProposal(id.into()))?;
+        if p.state == ProposalState::Unresolved {
+            return Err(CorrectionError::AnswerUnreadable { id: id.into() });
+        }
         if p.state != ProposalState::AwaitingCeo {
             return Err(CorrectionError::NotAwaiting { id: id.into(), state: p.state });
         }
@@ -624,6 +1002,12 @@ impl CorrectionDesk {
 
     /// Lift a permanent decline. §7 requires the suppression list to be inspectable; a list
     /// you can see and cannot clear is only half of that.
+    ///
+    /// It lifts a precautionary hold ([`held_records`](Self::held_records)) too, and that is
+    /// deliberately the SAME verb: both lists answer one question — may RichOS raise a
+    /// correction about this record? — and a second verb would be a second thing to
+    /// understand for no gain. The `unsuppressed` record it writes is durable, so a hold he
+    /// lifts is not re-applied by the next replay.
     pub fn unsuppress(&mut self, record_ref: &str) -> Result<(), CorrectionError> {
         let at = crate::util::now_millis();
         self.write_record(&DeskRecord::Unsuppressed { record_ref: record_ref.into(), at })?;
@@ -650,6 +1034,163 @@ impl CorrectionDesk {
 
     pub fn suppressed(&self) -> &[String] {
         &self.suppressed
+    }
+
+    /// Every record on disk this build could not fold, with the reason for each.
+    pub fn skipped_records(&self) -> &[SkippedRecord] {
+        &self.skipped
+    }
+
+    /// **Proposals this build refuses to put in front of the CEO, because it cannot tell
+    /// whether he has already answered them.** Empty is the normal state.
+    ///
+    /// A proposal lands here when a record that COULD have been its answer was one this
+    /// build could not read. "Could have been" is as narrow as the file allows:
+    ///
+    ///   * an unreadable record that is not damaged and names `prop-<n>` puts exactly that
+    ///     one proposal here — a well-formed record from a newer build carries a trustworthy
+    ///     id, so nothing else needs to be doubted;
+    ///   * any other unreadable record — damaged, or naming no proposal at all — puts every
+    ///     proposal that loaded above it here, because an answer is always appended after the
+    ///     proposal it answers and there is nothing else in the file to narrow it with.
+    ///
+    /// Nothing is lost: the proposal is untouched on disk, and the same replay on a build
+    /// that can read the record resolves it. For a record from a newer RichOS that is what
+    /// updating does. For genuinely damaged bytes it is not, and this list is the honest
+    /// statement of that rather than a quiet one.
+    pub fn unresolved(&self) -> Vec<&Proposal> {
+        self.proposals.iter().filter(|p| p.state == ProposalState::Unresolved).collect()
+    }
+
+    /// Records this build will not raise a NEW correction about, because the answer it
+    /// cannot read might have been "never ask me about this again".
+    ///
+    /// Distinct from [`suppressed`](Self::suppressed), which is what he actually declined
+    /// permanently. [`unsuppress`](Self::unsuppress) clears either.
+    pub fn held_records(&self) -> &[String] {
+        &self.held
+    }
+
+    /// **What the app can honestly say about the desk it just replayed.**
+    ///
+    /// `headline`/`detail` are empty when nothing was skipped — the signal to say nothing at
+    /// all, not to say something reassuring about a check that found nothing to report.
+    ///
+    /// The sentences are composed HERE and deliberately not shared with
+    /// `Ledger::history_health` or `IntakeLog::health`, because the three are not the same
+    /// statement and nothing should be in a position to substitute one for another. That one
+    /// is about messages on screen that did not load; the intake one is about something he
+    /// typed that never reached Rich; this one is about a decision he was asked to make and
+    /// the answer he gave.
+    ///
+    /// ## The one thing this cannot answer, and the smallest change that would
+    ///
+    /// `ambiguous` counts records whose TYPE this build knows and whose FIELDS do not fit. A
+    /// newer RichOS that added a required field to an existing record and a record whose
+    /// bytes were damaged in place produce byte-identical evidence, and this build refuses to
+    /// guess between them. The minimal fix is the same one-field change
+    /// `Ledger::history_health` names: a writer-schema number on every record. It is NOT
+    /// done here, because starting to write a new field changes what goes on customers'
+    /// disks and this change is deliberately read-only.
+    pub fn desk_health(&self) -> DeskHealth {
+        let count = |k: SkipKind| self.skipped.iter().filter(|r| r.kind == k).count();
+        let from_future = count(SkipKind::FromFuture);
+        let damaged = count(SkipKind::Damaged);
+        let ambiguous = count(SkipKind::Ambiguous);
+        let skipped = self.skipped.len();
+        let unresolved = self.proposals.iter().filter(|p| p.state == ProposalState::Unresolved).count();
+        let held_records = self.held.len();
+
+        let (headline, detail) = if skipped == 0 {
+            (String::new(), String::new())
+        } else {
+            let plural =
+                |n: usize, one: &str, many: &str| if n == 1 { one.to_string() } else { many.to_string() };
+            let headline = if unresolved > 0 {
+                // THE CONSEQUENCE HE CAN FEEL LEADS, ahead of the cause. Whether the record
+                // was damaged or written by a newer build matters less to him than the fact
+                // that a decision he may have made is not being acted on.
+                plural(
+                    unresolved,
+                    "A correction you may have already answered is being held back.",
+                    "Some corrections you may have already answered are being held back.",
+                )
+            } else if damaged > 0 || ambiguous > 0 {
+                plural(
+                    damaged + ambiguous,
+                    "Part of the record of corrections you have been asked about could not be read.",
+                    "Parts of the record of corrections you have been asked about could not be read.",
+                )
+            } else {
+                "Part of the record of corrections you have been asked about was written by a \
+                 newer version of RichOS."
+                    .to_string()
+            };
+            let mut parts: Vec<String> = Vec::new();
+            if from_future > 0 {
+                parts.push(format!(
+                    "{} {} written by a newer version of RichOS than the one you are running, \
+                     so this version does not know how to read {}. Updating will bring {} back.",
+                    from_future,
+                    plural(from_future, "record was", "records were"),
+                    plural(from_future, "it", "them"),
+                    plural(from_future, "it", "them"),
+                ));
+            }
+            if damaged > 0 {
+                parts.push(format!(
+                    "{} {} damaged and could not be read.",
+                    damaged,
+                    plural(damaged, "record is", "records are"),
+                ));
+            }
+            if ambiguous > 0 {
+                parts.push(format!(
+                    "{} {} not match any shape this version knows. That is either a newer \
+                     version of RichOS or damage, and this version cannot tell which.",
+                    ambiguous,
+                    plural(ambiguous, "record does", "records do"),
+                ));
+            }
+            if unresolved > 0 {
+                parts.push(format!(
+                    "{} {} being held back rather than put in front of you again, because this \
+                     version cannot tell from the file whether you have already answered {} — \
+                     and asking you a second time about something you have already decided \
+                     would be worse than waiting.",
+                    unresolved,
+                    plural(unresolved, "correction is", "corrections are"),
+                    plural(unresolved, "it", "them"),
+                ));
+            }
+            if held_records > 0 {
+                parts.push(format!(
+                    "For the same reason, RichOS will not raise a new correction about {} {} \
+                     those held-back proposals name.",
+                    held_records,
+                    plural(held_records, "the record", "the records"),
+                ));
+            }
+            parts.push(format!(
+                "Everything else loaded: {} of {} records. Nothing was deleted and nothing was \
+                 rewritten — every record is still exactly where it was on disk.",
+                self.records_applied, self.records_read,
+            ));
+            (headline, parts.join(" "))
+        };
+
+        DeskHealth {
+            records_read: self.records_read,
+            records_applied: self.records_applied,
+            skipped,
+            from_future,
+            damaged,
+            ambiguous,
+            unresolved,
+            held_records,
+            headline,
+            detail,
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -978,5 +1519,91 @@ mod tests {
         }
         assert_eq!(commit_sites, 1, "the scan must find the write it is guarding — it found {commit_sites}");
         assert!(offenders.is_empty(), "these desk methods reach a loro write without a confirmation: {offenders:?}");
+    }
+
+    /// EXHAUSTIVE on purpose, and in this module rather than in
+    /// `tests/correction_forward_compat_tests.rs` because `DeskRecord` is private.
+    ///
+    /// Adding a variant to `DeskRecord` without adding its name to [`KNOWN_DESK_TAGS`] does
+    /// not COMPILE here — which is the point, because a missing entry would make this build
+    /// report a genuinely DAMAGED record of that type as a benign one from the future, and
+    /// go on waiting for an update that is never coming.
+    fn tag_of(r: &DeskRecord) -> &'static str {
+        match r {
+            DeskRecord::Proposed(_) => "proposed",
+            DeskRecord::Confirmed { .. } => "confirmed",
+            DeskRecord::Written { .. } => "written",
+            DeskRecord::Failed { .. } => "failed",
+            DeskRecord::Declined { .. } => "declined",
+            DeskRecord::Suppressed { .. } => "suppressed",
+            DeskRecord::Unsuppressed { .. } => "unsuppressed",
+        }
+    }
+
+    #[test]
+    fn the_known_tag_table_matches_the_record_type_exactly() {
+        let proposal = Proposal {
+            id: "prop-1".into(),
+            at: 1,
+            entity_id: "ent".into(),
+            thread_id: "thr".into(),
+            write: a_supersede(),
+            why: "because".into(),
+            preview: "preview".into(),
+            state: ProposalState::AwaitingCeo,
+            outcome: None,
+            failure: None,
+        };
+        let samples = [
+            DeskRecord::Proposed(proposal),
+            DeskRecord::Confirmed { id: "prop-1".into(), at: 1 },
+            DeskRecord::Written { id: "prop-1".into(), at: 1, outcome: WriteOutput::default() },
+            DeskRecord::Failed { id: "prop-1".into(), at: 1, reason: "no".into() },
+            DeskRecord::Declined { id: "prop-1".into(), at: 1, permanent: false },
+            DeskRecord::Suppressed { record_ref: "rec:x".into(), at: 1 },
+            DeskRecord::Unsuppressed { record_ref: "rec:x".into(), at: 1 },
+        ];
+        let mut seen: Vec<String> = Vec::new();
+        for r in &samples {
+            let tag = tag_of(r);
+            // The tag the exhaustive match names is the tag serde actually writes.
+            let written = serde_json::to_value(r).unwrap();
+            assert_eq!(written.get("rec").unwrap().as_str().unwrap(), tag);
+            assert!(KNOWN_DESK_TAGS.contains(&tag), "{tag} is missing from KNOWN_DESK_TAGS");
+            seen.push(tag.to_string());
+        }
+        seen.sort();
+        let mut known: Vec<String> = KNOWN_DESK_TAGS.iter().map(|s| s.to_string()).collect();
+        known.sort();
+        assert_eq!(seen, known, "KNOWN_DESK_TAGS names a tag DeskRecord does not write");
+    }
+
+    /// The `Proposed` variant is a NEWTYPE under an internal tag, so its payload is
+    /// flattened and `id` sits at the top level of the line. `salvage_proposal_number`
+    /// depends on that, and a serde attribute change would break it silently.
+    #[test]
+    fn a_proposal_number_is_readable_from_the_raw_line_of_every_record_that_names_one() {
+        let (mut d, _w, log) = desk("flat-id");
+        d.propose("ent", "thr", a_supersede(), "because").unwrap();
+        d.confirm("ent", "prop-1").unwrap();
+        drop(d);
+        let text = std::fs::read_to_string(&log).unwrap();
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 3, "proposed, confirmed, written");
+        for line in &lines {
+            assert_eq!(
+                salvage_proposal_number(line),
+                Some(1),
+                "the proposal number must be readable from the raw line: {line}"
+            );
+        }
+        // And a record that names no proposal yields nothing rather than something wrong.
+        assert_eq!(salvage_proposal_number(r#"{"rec":"suppressed","record_ref":"rec:x","at":1}"#), None);
+        // Shape is CHECKED, not inferred from a successful parse.
+        assert_eq!(proposal_number("prop-+5"), None, "a leading sign is not a proposal number");
+        assert_eq!(proposal_number("prop-"), None);
+        assert_eq!(proposal_number("proposal-5"), None);
+        assert_eq!(proposal_number("prop-5"), Some(5));
+        let _ = std::fs::remove_file(log);
     }
 }

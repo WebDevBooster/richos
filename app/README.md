@@ -171,6 +171,20 @@ app/
                               nothing could read; a planted secret reaches no report; and
                               the anti-vacuous test that an untouched log skips NOTHING and
                               says NOTHING
+    tests/correction_forward_compat_tests.rs 27 tests holding the SAME line over the
+                              CORRECTION DESK — the file that holds what he was ASKED and
+                              what he ANSWERED. The desk is an event log, so losing the
+                              LATER record loses the ANSWER: a correction he confirmed
+                              reverts to `AwaitingCeo` and is put in front of him a second
+                              time. A record from a newer build, a torn write, a bad byte
+                              (the reader used to stop there and lose every answer below
+                              it), a tag no build could have written; a proposal whose
+                              answer might be missing is held back rather than asked again,
+                              and one whose answer DID load never is; a permanent decline
+                              survives either of its two records being unreadable; the id
+                              can never be re-issued; a planted secret reaches no report;
+                              and the anti-vacuous test that an untouched desk holds NOTHING
+                              back and a real proposal still reaches the writer
     tests/entity_binding_tests.rs 10 entity-scope tests: the cross-entity leak NEGATIVE
                               CONTROL (proven failing with the guard removed), immutability,
                               the fail-closed unbound legacy thread + its one-way explicit
@@ -657,7 +671,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 733 tests + 5 doc-tests
+cargo test -p richos-core                       # 762 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests
