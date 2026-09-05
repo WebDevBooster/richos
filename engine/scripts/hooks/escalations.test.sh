@@ -938,13 +938,15 @@ fi
 # for: the whole run, measured against the baselines taken before case 1.
 if [ "$CANARY_N" -gt 0 ]; then
     ok "17l  the canary is watching $CANARY_N root(s), starting with the directory this suite was run from — a canary watching zero roots would pass every run forever"
-    if [ -n "$CANARY_MTIME" ]; then
-        ok "17m  its witness is contents and a proven sub-second mtime (\`$CANARY_MTIME\`)"
-    else
-        ok "17m  its witness is contents ALONE: no sub-second mtime format proved itself on this platform, so two writes of identical bytes inside one second would look like one. Named here rather than assumed"
-    fi
 else
     bad "17l  the canary has roots to watch" "no watched root resolved, so 17n below would be green over an unwatched filesystem"
+fi
+# Outside the branch above deliberately: the run that found no roots is exactly
+# the run whose reader most needs to be told what the witness was.
+if [ -n "$CANARY_MTIME" ]; then
+    ok "17m  its witness is contents and a proven sub-second mtime (\`$CANARY_MTIME\`)"
+else
+    ok "17m  its witness is contents ALONE: no sub-second mtime format proved itself on this platform, so two writes of identical bytes inside one second would look like one. Named here rather than assumed"
 fi
 
 CANARY_ESCAPED_ALL=""
