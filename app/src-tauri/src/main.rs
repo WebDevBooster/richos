@@ -812,6 +812,34 @@ fn install_correction_desk(
             return None;
         }
     };
+
+    // WHAT HE ALREADY DECIDED AND THIS BUILD COULD NOT READ, ON THE BOOT LINE.
+    //
+    // The same shape as the ledger's pair above and the intake log's below, and for the
+    // same reason: `CorrectionDesk::replay` prints the operator's account (a line per
+    // skipped record plus a summary), and this is the CEO's, in the sentences a surface
+    // would render — so a boot log and a screen say the same thing rather than two versions
+    // of it.
+    //
+    // IT IS A THIRD STATEMENT, not a variant of either. The ledger's says part of the
+    // conversation on screen did not load. The intake log's says something he TYPED never
+    // reached Rich. This one says a decision he was asked to make, and the answer he gave,
+    // could not be read — and the live consequence is the one worth the extra pair of
+    // lines: without the hold `CorrectionDesk` now applies, a correction he CONFIRMED
+    // reverts to pending and is put in front of him a second time.
+    //
+    // NO NEW SURFACE IS BUILT HERE, by the same ruling that governs the intake log's line:
+    // one more sentence inside the notice that already exists, not a section of its own.
+    // `CorrectionDesk::desk_health`, `::unresolved` and `::held_records` are the seams a
+    // surface would read when there is a decision about what that surface should be.
+    {
+        let h = desk.lock().unwrap().desk_health();
+        if !h.is_clean() {
+            eprintln!("[richos] {}", h.headline);
+            eprintln!("[richos] {}", h.detail);
+        }
+    }
+
     spine.set_correction_desk(std::sync::Arc::clone(&desk));
     spine.set_proposal_observer(Box::new(TauriProposalEmitter { app: app.clone() }));
     if !spine.has_loro_context_compiler() {
