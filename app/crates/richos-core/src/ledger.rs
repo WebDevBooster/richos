@@ -29,32 +29,47 @@
 //! in `app/` where a single unreadable line in a customer's file aborted the whole read.
 //! Nothing in `src-tauri/` and nothing in `richos-voice` has the shape at all.
 //!
+//! The JUDGMENT this module reached about that record — from a newer build, damaged, or
+//! undecidable — now lives in [`crate::skip`] and has a second caller, `steering.rs`. It
+//! was extracted rather than copied so the two stores cannot drift apart about what damage
+//! looks like; the reasoning is in that module's doc.
+//!
 //! **Every sibling is already tolerant — and every one of them is SILENT about it.** Each
 //! of these drops an unparseable record with `else { continue }` or `.ok()`, says nothing,
-//! and returns a shorter list that is indistinguishable from a genuinely shorter file:
+//! and returns a shorter list that is indistinguishable from a genuinely shorter file.
 //!
-//! | reader | file it reads | on a record it cannot parse |
-//! |---|---|---|
-//! | `journal.rs:412`, `:474` | the per-thread machinery journal | dropped, silently |
-//! | `journal.rs:668` | the raw-retention journal | dropped, silently |
-//! | `steering.rs:167` | the intake log — **the CEO's own typed messages, before they become turns** | dropped, silently |
-//! | `heard.rs:715` | the dictation log | dropped, silently |
-//! | `feedback.rs:270` | the feedback log | dropped, silently |
-//! | `worker_events.rs:267`, `worker_status.rs:286` | the engine's event logs (not the customer's) | dropped, silently |
-//! | `correction.rs:466`, `staging.rs:300` | the correction/staging desk | dropped, silently |
-//! | `config.rs:488` | `config.json` (whole file) | falls back to defaults, silently |
-//! | `src-tauri/src/nav.rs:108` | `navigation.json` (whole file) | falls back to defaults, silently |
+//! Re-surveyed 2026-09-05 with the two questions that decide whether silence is a defect:
+//! **what is actually lost**, and **would anyone ever find out**. Silence is CORRECT where
+//! the record is derived from something durable that is still on disk — losing it costs a
+//! re-read, not a fact. It is a DEFECT where the record is the only copy of something a
+//! person did.
 //!
-//! Two do it properly, and they are the precedent this module's
+//! | reader | file it reads | what one dropped record costs | would anyone notice |
+//! |---|---|---|---|
+//! | `steering.rs:304` | the intake log — **the CEO's own typed words, before they become turns** | a steering message or a stop that never becomes a turn: he typed it, watched it accepted, and it never reached Rich | **no — and it was the one place that mattered. FIXED here: classified, counted, reported, never fatal** |
+//! | `correction.rs:466` | the loro correction desk | one proposal or one answered decision; a confirmed write can silently revert to pending, or a pending one vanish before he ever sees it | no. Worth the second look now that the intake log is done |
+//! | `staging.rs:300` | the spoken-correction staging desk | one candidate question he was going to be asked | no — but §7 forbids a write without a human answer, so a lost candidate under-asks rather than acting alone. Fails safe |
+//! | `journal.rs:412`, `:474` | the per-thread machinery journal | one technical-mode row. `ThreadMachinery::Unreadable` covers a dead SHARD, not a dead LINE | not really — technical view only, and the ledger still holds the conversation |
+//! | `journal.rs:668` | the raw-retention journal | one payload; the record above it still renders, with `payload: None` | no, and the shape degrades honestly |
+//! | `heard.rs:715` | the dictation log | one dictation-review entry. The turn it produced is already in the ledger | no. This is a review aid over durable data |
+//! | `feedback.rs:270` | the feedback log | one past feedback entry in his history list. Nothing sends | no, and nothing downstream depends on it |
+//! | `worker_events.rs:267`, `worker_status.rs:286` | the engine's event logs (not the customer's files) | one row of a read-only inspector over a log this app does not own | no, and it must stay tolerant — a foreign format is expected to grow |
+//! | `config.rs:488` | `config.json` (whole file) | every preference at once. Already handles the one field that DELETES by keeping `raw_retention: FOREVER` on a corrupt file | he would see his preferences reset. Loud by accident, correct by design |
+//! | `src-tauri/src/nav.rs:108` | `navigation.json` (whole file) | sidebar and inspector widths | he would see the panels move. Pure view state |
+//!
+//! **A second, quieter defect runs through five of them**, and it is worse than the one
+//! they were surveyed for: `lines().map_while(Result::ok)` ends the ITERATOR at the first
+//! non-UTF-8 line, so ONE bad byte discards every record after it rather than its own.
+//! `steering.rs` is fixed (`read_until`); `journal.rs:407/469/667`, `staging.rs:293` and
+//! `correction.rs:459` still have it. It costs least where it matters least, so it is
+//! recorded here rather than fixed on sight.
+//!
+//! Two readers do it properly, and they are the precedent this module's
 //! [`Ledger::history_health`] follows: `entity.rs:681` fails the whole registry CLOSED
 //! and reports why through `RegistryLoad::notes`, and `launch.rs:389` keeps the file
 //! untouched and carries an `unreadable_reason`. `launch.rs` also carries the
 //! `schema_version` that would settle [`SkipKind::Ambiguous`] here if a ledger record
 //! carried one.
-//!
-//! `steering.rs:167` is the one worth a second look. A dropped intake record is a message
-//! the CEO typed that quietly never arrives, and the silence is the whole problem — it is
-//! not this change's scope and it is not fixed by this change.
 //!
 //! ## Threads written before entity binding existed
 //!
