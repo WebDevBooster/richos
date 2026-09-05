@@ -491,6 +491,65 @@ case "$BOUT" in
 esac
 
 # ==========================================================================
+# 14. THE NATIVE SHAPE — the one the harness actually auto-cleans
+# ==========================================================================
+# Everything above uses hand-rolled worktrees, which is the shape this
+# operation runs in but NOT the shape row 3.19 is about: the auto-clean applies
+# to a NATIVE isolation worktree at <repo>/.claude/worktrees/agent-<id>. The
+# ledger logic does not branch on worktree kind, but identity resolution and
+# LIVENESS both do, so "it works for hand-rolled" is an inference rather than a
+# result. This runs the whole lifecycle in the native shape instead:
+# locked with a live pid while it works, unlocked when it finishes, then removed
+# by the sanctioned remover.
+NAT_ID="azachnat-0123456789abcd"
+NAT_WT="$REPO/.claude/worktrees/agent-$NAT_ID"
+mkdir -p "$REPO/.claude/worktrees"
+git -C "$REPO" worktree add -q -b wt-native "$NAT_WT" >/dev/null 2>&1
+if [ ! -d "$NAT_WT" ]; then
+    bad "14a. a native-shaped worktree can be created" "git worktree add failed for $NAT_WT"
+else
+    git -C "$REPO" worktree lock --reason "claude agent agent-$NAT_ID (pid $$ started now)" "$NAT_WT" >/dev/null 2>&1
+    if git -C "$REPO" worktree list --porcelain | grep -q "locked claude agent agent-$NAT_ID"; then
+        ok "14a. the native worktree is LOCKED with a live pid — the running-agent state"
+    else
+        bad "14a. the native worktree is locked with a live pid" "no lock line in git worktree list"
+    fi
+    REPO="$REPO" send_payload "zachnat" "main moved to $TIP — impact: none" \
+        | bash "$WITNESS" >/dev/null 2>&1
+    DETAIL_NAT="A native isolation worktree acking, then finishing, which is the exact case the harness cleans up."
+    bash "$ACKER" --sha "$TIP" --impact none --detail "$DETAIL_NAT" \
+        --paths none --worktree "$NAT_WT" --teammate zachnat >/dev/null 2>&1
+    NAT_BEFORE="$(bash "$RUNNER" status --repo "$REPO" 2>&1)"
+    say "14 native status before removal" "$NAT_BEFORE"
+    case "$NAT_BEFORE" in
+        *"NOTIFIED-ACKED"*) ok "14b. while it is live and locked, the native teammate reads as told AND proved" ;;
+        *) bad "14b. the live native teammate reads as told and proved" "$NAT_BEFORE" ;;
+    esac
+
+    # The agent finishes: the harness releases the lock, then the worktree is
+    # removed. Both steps, in that order, because the remover REFUSES a locked
+    # worktree with a live pid — correctly.
+    git -C "$REPO" worktree unlock "$NAT_WT" >/dev/null 2>&1
+    NAT_ROUT="$(bash "$REMOVER" --owner "$NAT_ID" --repo "$REPO" \
+                --branch wt-native --force --entity-repo "$REPO" "$NAT_WT" 2>&1)"
+    NAT_RRC=$?
+    say "14 native removal" "$NAT_ROUT"
+    if [ "$NAT_RRC" -ne 0 ] || [ -d "$NAT_WT" ]; then
+        bad "14c. the native worktree is really removed" "exit $NAT_RRC: $NAT_ROUT"
+        bad "14d. the native teammate's ack survives its removal" \
+            "not asserted: the removal did not happen, so this would assert nothing"
+    else
+        ok "14c. the native worktree is really removed, by the sanctioned remover"
+        NAT_AFTER="$(bash "$RUNNER" acks --repo "$REPO" 2>&1)"
+        say "14 native acks after removal" "$NAT_AFTER"
+        case "$NAT_AFTER" in
+            *"$DETAIL_NAT"*) ok "14d. THE INVARIANT IN THE NATIVE SHAPE: the ack survives the auto-clean" ;;
+            *) bad "14d. the native teammate's ack survives its removal" "$NAT_AFTER" ;;
+        esac
+    fi
+fi
+
+# ==========================================================================
 # 13. LEAK CANARY — nothing escaped the sandbox
 # ==========================================================================
 # Every case above wrote acks, removed worktrees and drove hooks. If any of the
