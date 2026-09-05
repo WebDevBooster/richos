@@ -6,9 +6,15 @@ body:
     attributes:
       value: >-
         **Asking before building is the point of this form.** RichOS is an early
-        source snapshot with one maintainer, and a pull request can be declined
-        for direction rather than for quality. Five minutes here can save an
+        project with one maintainer, and a pull request can be declined for
+        direction rather than for quality. Five minutes here can save an
         evening.
+
+
+        **It is also how you get approved to open a pull request.** Only
+        approved accounts can; an unapproved pull request is closed
+        automatically. Say here that you would like to be added to the
+        contributor list, and `.github/CONTRIBUTING.md` has the rest.
 
   - type: textarea
     id: idea
