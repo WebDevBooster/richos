@@ -1,0 +1,35 @@
+=== ledger ledgers/v1-current.jsonl ===
+file.bytes = 3133
+file.lines = 20
+file.sha256 = f03fa27b8e7e6f93c431d1c2c4dfcab2e1aa559bf4f4883433b542b87040e558
+threads.count = 3
+thread thr_00000000000000000000000000000001 | title=2ab25f10948b26d75da5b1623465c24e8ad39e11a3295c95c810e99dfa56e462:7 | created_at=1787577795601 | bound=false | entity=- | revision=-
+thread thr_00000000000000000000000000000002 | title=2ab25f10948b26d75da5b1623465c24e8ad39e11a3295c95c810e99dfa56e462:7 | created_at=1787975160731 | bound=true | entity=richos | revision=1
+thread thr_00000000000000000000000000000003 | title=2ab25f10948b26d75da5b1623465c24e8ad39e11a3295c95c810e99dfa56e462:7 | created_at=1788223893404 | bound=true | entity=femcboost | revision=2
+turns.count = 4
+turn turn_00000000000000000000000000000001 | thread=thr_00000000000000000000000000000001 | entity=- | revision=0 | quarantined=false | source=Jam | state=Completed | session=916ac9b3-4431-4bae-83e9-729b58a62ac8 | user=475c052c82cae8df7d9b62bb75f4fc50cbe94f4621175cfad113b77404ca891a:24 | assistant=f3b83a60cfd4151125c474de7e85f6d75e69fe67d3ab430226c0b6c29d86bd07:26 | runs=1 | stop_reason=c9a0f5804f9c8da7c9e3fac359a14d8b6f1ea48adc0f5ccec6eac581a59450d0:8 | created_at=1787758938142 | started_at=1787758939870 | ended_at=1787758941761 | tier=None | superseded_by=- | stop_requested_at=- | intake_id=- | active_ms=1891
+  run turn_00000000000000000000000000000001.0 | start_seq=- | end_seq=- | at=1787758941747 | text=f3b83a60cfd4151125c474de7e85f6d75e69fe67d3ab430226c0b6c29d86bd07:26
+turn turn_00000000000000000000000000000002 | thread=thr_00000000000000000000000000000001 | entity=- | revision=0 | quarantined=false | source=Internal | state=Received | session=- | user=bbef2fb62b95070810afc75414f94c3f94f6e0e7ed8df39e5986b651d908b1f8:8 | assistant=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855:0 | runs=0 | stop_reason=- | created_at=1787758938149 | started_at=- | ended_at=- | tier=None | superseded_by=- | stop_requested_at=- | intake_id=- | active_ms=-
+turn turn_00000000000000000000000000000003 | thread=thr_00000000000000000000000000000002 | entity=richos | revision=1 | quarantined=false | source=Text | state=Completed | session=5f2b9c11-0000-4000-8000-000000000001 | user=751dc374eea2a1228430b77a9f17932c39e53eb6570c648a722382abf395cbb6:12 | assistant=8b06ad606a6dc3b84e6aae4c6e92cca0dce45206727bcf0c8cb219c2fb101348:98 | runs=2 | stop_reason=c9a0f5804f9c8da7c9e3fac359a14d8b6f1ea48adc0f5ccec6eac581a59450d0:8 | created_at=1787975160800 | started_at=1787975160900 | ended_at=1787975161800 | tier=None | superseded_by=- | stop_requested_at=- | intake_id=- | active_ms=900
+  run turn_00000000000000000000000000000003.0 | start_seq=0 | end_seq=1 | at=1787975161000 | text=3fa0a82f42b78c6c3d99cadd0e9383b73a9652406c3f3daadfb0187a8bb68b56:48
+  run turn_00000000000000000000000000000003.1 | start_seq=3 | end_seq=3 | at=1787975161600 | text=ed7e245602c8668d4827a8cac4e982feb2869b893039bac63cbbc25129c91daf:50
+turn turn_00000000000000000000000000000004 | thread=thr_00000000000000000000000000000003 | entity=femcboost | revision=2 | quarantined=false | source=Text | state=Completed | session=5f2b9c11-0000-4000-8000-000000000002 | user=3c6d3543ee20693d532d2a0e1dd86e7d43fcdc5c7fbf2cf678ca6cc45719737d:27 | assistant=5782b18687e6cf8a482fc32d2db5b196d8821c458a0c069c6acf3953446e7bb5:5 | runs=1 | stop_reason=c9a0f5804f9c8da7c9e3fac359a14d8b6f1ea48adc0f5ccec6eac581a59450d0:8 | created_at=1788223893500 | started_at=1788223893600 | ended_at=1788223893800 | tier=None | superseded_by=- | stop_requested_at=- | intake_id=- | active_ms=200
+  run turn_00000000000000000000000000000004.0 | start_seq=0 | end_seq=0 | at=1788223893700 | text=5782b18687e6cf8a482fc32d2db5b196d8821c458a0c069c6acf3953446e7bb5:5
+actions.count = 1
+action act_00000000000000000000000000000001 | turn=- | kind=8ac574f69e28f85f26b03805aac86f89c73a0e5f461f5ad2de3c69d56b1539ad:15 | detail=8c86e42440d4d80ab616d317847078831f57bcf75586a8209e3ab8dcacd5fd87:20 | status=Completed | visibility=Internal | at=1787975160950
+messages thr_00000000000000000000000000000001 | refused=141ef44dbbcd62093c42120bf5625a289b6783a91d1666347e464d92f31a9ef4:190
+handoff_summary thr_00000000000000000000000000000001 = -
+messages thr_00000000000000000000000000000002 | count=2
+  message thr_00000000000000000000000000000002.0 | role=user | turn=turn_00000000000000000000000000000003 | at=1787975160800 | text=751dc374eea2a1228430b77a9f17932c39e53eb6570c648a722382abf395cbb6:12
+  message thr_00000000000000000000000000000002.1 | role=assistant | turn=turn_00000000000000000000000000000003 | at=1787975160800 | text=8b06ad606a6dc3b84e6aae4c6e92cca0dce45206727bcf0c8cb219c2fb101348:98
+handoff_summary thr_00000000000000000000000000000002 = -
+messages thr_00000000000000000000000000000003 | count=2
+  message thr_00000000000000000000000000000003.0 | role=user | turn=turn_00000000000000000000000000000004 | at=1788223893500 | text=3c6d3543ee20693d532d2a0e1dd86e7d43fcdc5c7fbf2cf678ca6cc45719737d:27
+  message thr_00000000000000000000000000000003.1 | role=assistant | turn=turn_00000000000000000000000000000004 | at=1788223893500 | text=5782b18687e6cf8a482fc32d2db5b196d8821c458a0c069c6acf3953446e7bb5:5
+handoff_summary thr_00000000000000000000000000000003 = -
+scope_violations.count = 0
+pending_turns.count = 1
+open_actions.count = 0
+ceo_facing_actions.count = 0
+internal_actions.count = 1
+unbound_threads.count = 1

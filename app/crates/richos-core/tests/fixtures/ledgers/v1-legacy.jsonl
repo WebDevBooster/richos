@@ -1,0 +1,24 @@
+{"event":"ThreadCreated","thread_id":"thr_0000000000000000000000000000000a","title":"Adopted later","at":1787000000000}
+{"event":"PromptReceived","turn_id":"turn_0000000000000000000000000000000a","thread_id":"thr_0000000000000000000000000000000a","text":"written before entity scoping existed","source":"text","at":1787000000100}
+{"event":"TurnStarted","turn_id":"turn_0000000000000000000000000000000a","session_id":"legacy-session-1","at":1787000000200}
+{"event":"AssistantDelta","turn_id":"turn_0000000000000000000000000000000a","text":"one unpositioned delta ","at":1787000000300}
+{"event":"AssistantDelta","turn_id":"turn_0000000000000000000000000000000a","text":"and a second, which extends the same run","at":1787000000400}
+{"event":"TurnInterrupted","turn_id":"turn_0000000000000000000000000000000a","reason":"lease exited mid-turn","at":1787000000500}
+{"event":"PromptReceived","turn_id":"turn_0000000000000000000000000000000b","thread_id":"thr_0000000000000000000000000000000a","text":"written before entity scoping existed","source":"text","at":1787000000600}
+{"event":"TurnStarted","turn_id":"turn_0000000000000000000000000000000b","session_id":"legacy-session-2","at":1787000000700}
+{"event":"AssistantDelta","turn_id":"turn_0000000000000000000000000000000b","text":"the replay that finished the work","at":1787000000800}
+{"event":"TurnCompleted","turn_id":"turn_0000000000000000000000000000000b","stop_reason":"end_turn","at":1787000000900}
+{"event":"TurnSuperseded","turn_id":"turn_0000000000000000000000000000000a","by_turn_id":"turn_0000000000000000000000000000000b","at":1787000000950}
+{"event":"ActionRecorded","action_id":"act_0000000000000000000000000000000a","kind":"file_write","detail":"a pre-visibility action with no turn_id","status":"claimed","at":1787000001000}
+{"event":"ThreadEntityBound","thread_id":"thr_0000000000000000000000000000000a","entity_id":"richos","person_id":"ceo","binding_revision":7,"adopted_by":"operator","at":1787000001100}
+{"event":"ThreadCreated","thread_id":"thr_0000000000000000000000000000000b","title":"Rotations and proactive","at":1787000002000,"entity_id":"richos","person_id":"ceo","binding_revision":8}
+{"event":"SessionRotated","from_session":"legacy-session-2","to_session":"legacy-session-3","reason":"context watermark","at":1787000002100}
+{"event":"HandoffSummaryUpdated","thread_id":"thr_0000000000000000000000000000000b","summary":"what the outgoing lease said it had been doing","at":1787000002200}
+{"event":"ProactiveMessage","turn_id":"turn_0000000000000000000000000000000c","thread_id":"thr_0000000000000000000000000000000b","tier":"digest","text":"an unprompted message","at":1787000002300,"entity_id":"richos","binding_revision":8}
+{"event":"PromptReceived","turn_id":"turn_0000000000000000000000000000000d","thread_id":"thr_0000000000000000000000000000000b","text":"a turn the CEO stopped","source":"text","at":1787000002400,"entity_id":"richos","binding_revision":8}
+{"event":"TurnStarted","turn_id":"turn_0000000000000000000000000000000d","session_id":"legacy-session-3","at":1787000002500}
+{"event":"AssistantDelta","turn_id":"turn_0000000000000000000000000000000d","text":"half a rep","at":1787000002600,"seq":0}
+{"event":"TurnStopped","turn_id":"turn_0000000000000000000000000000000d","requested_at":1787000002650,"at":1787000002700}
+{"event":"ActionRecorded","action_id":"act_0000000000000000000000000000000b","turn_id":"turn_0000000000000000000000000000000d","kind":"bash","detail":"a CEO-facing action","status":"claimed","visibility":"ceo_facing","at":1787000002800}
+{"event":"ActionUpdated","action_id":"act_0000000000000000000000000000000b","status":"failed","at":1787000002900}
+{"event":"PromptReceived","turn_id":"turn_0000000000000000000000000000000e","thread_id":"thr_0000000000000000000000000000000b","text":"drained from the intake log","source":"text","at":1787000003000,"entity_id":"richos","binding_revision":8,"intake_id":42}

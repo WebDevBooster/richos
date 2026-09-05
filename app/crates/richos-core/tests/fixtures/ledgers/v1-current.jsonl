@@ -1,0 +1,20 @@
+{"event":"ThreadCreated","thread_id":"thr_00000000000000000000000000000001","title":"Fixture","at":1787577795601}
+{"event":"PromptReceived","turn_id":"turn_00000000000000000000000000000001","thread_id":"thr_00000000000000000000000000000001","text":"first message, no entity","source":"jam","at":1787758938142}
+{"event":"PromptReceived","turn_id":"turn_00000000000000000000000000000002","thread_id":"thr_00000000000000000000000000000001","text":"re-prime","source":"internal","at":1787758938149}
+{"event":"TurnStarted","turn_id":"turn_00000000000000000000000000000001","session_id":"916ac9b3-4431-4bae-83e9-729b58a62ac8","at":1787758939870}
+{"event":"AssistantDelta","turn_id":"turn_00000000000000000000000000000001","text":"a legacy delta with no seq","at":1787758941747}
+{"event":"TurnCompleted","turn_id":"turn_00000000000000000000000000000001","stop_reason":"end_turn","at":1787758941761}
+{"event":"ThreadCreated","thread_id":"thr_00000000000000000000000000000002","title":"Fixture","at":1787975160731,"entity_id":"richos","person_id":"ceo","binding_revision":1}
+{"event":"PromptReceived","turn_id":"turn_00000000000000000000000000000003","thread_id":"thr_00000000000000000000000000000002","text":"a bound turn","source":"text","at":1787975160800,"entity_id":"richos","binding_revision":1}
+{"event":"TurnStarted","turn_id":"turn_00000000000000000000000000000003","session_id":"5f2b9c11-0000-4000-8000-000000000001","at":1787975160900}
+{"event":"ActionRecorded","action_id":"act_00000000000000000000000000000001","turn_id":null,"kind":"session_reprime","detail":"primed a fresh lease","status":"claimed","visibility":"internal","at":1787975160950}
+{"event":"AssistantDelta","turn_id":"turn_00000000000000000000000000000003","text":"a positioned run, ","at":1787975161000,"seq":0}
+{"event":"AssistantDelta","turn_id":"turn_00000000000000000000000000000003","text":"continued at the next position","at":1787975161010,"seq":1}
+{"event":"AssistantDelta","turn_id":"turn_00000000000000000000000000000003","text":"and a second run after a tool call took position 2","at":1787975161600,"seq":3}
+{"event":"ActionUpdated","action_id":"act_00000000000000000000000000000001","status":"completed","at":1787975161700}
+{"event":"TurnCompleted","turn_id":"turn_00000000000000000000000000000003","stop_reason":"end_turn","at":1787975161800}
+{"event":"ThreadCreated","thread_id":"thr_00000000000000000000000000000003","title":"Fixture","at":1788223893404,"entity_id":"femcboost","person_id":"ceo","binding_revision":2}
+{"event":"PromptReceived","turn_id":"turn_00000000000000000000000000000004","thread_id":"thr_00000000000000000000000000000003","text":"a turn in the second entity","source":"text","at":1788223893500,"entity_id":"femcboost","binding_revision":2}
+{"event":"TurnStarted","turn_id":"turn_00000000000000000000000000000004","session_id":"5f2b9c11-0000-4000-8000-000000000002","at":1788223893600}
+{"event":"AssistantDelta","turn_id":"turn_00000000000000000000000000000004","text":"reply","at":1788223893700,"seq":0}
+{"event":"TurnCompleted","turn_id":"turn_00000000000000000000000000000004","stop_reason":"end_turn","at":1788223893800}
