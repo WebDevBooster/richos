@@ -40,6 +40,51 @@
 // TALKS ONLY TO `window.RichBridge`, never to `window.__TAURI__` — the same rule main.js
 // follows, and the reason `mock.js` can drive all nine states in a plain browser.
 //
+// WHILE RICHOS IS WORKING, THE ACTION IS ABSENT AND THE FACT IS NOT (CEO, 2026-09-05).
+//
+// He found this himself, watching another app: *"while a live thread is currently running in
+// the Codex app, I saw that blue update button appear. And I suspect that the current thread
+// would die if I were to press that update button. I'm certainly not gonna try to find out."*
+// The button he was afraid of was ours too — `updates.rs`'s `update_relaunch` was
+// `app.restart()` and nothing else.
+//
+// His fix, and it is better than disabling: *"we don't even show the update button/
+// notification if the RichOS app currently has active things running."* So while
+// `view.busy`, the Install control, the Restart control, the settings-button mark and the
+// actionable cue are all REMOVED — not dimmed, not dulled. **This product already made this
+// decision once**: when `voice_readiness` says a machine cannot turn speech into words,
+// `main.js` removes the talk button rather than disabling it, because the affordance appears
+// only where it functions.
+//
+// **AND HIDING THE ACTION IS NOT HIDING THE FACT.** 26 rules that *"an update nobody
+// discovers is the same as no updater at all, and it is worse than none because the
+// machinery reports itself healthy"*, and RichOS is built to run workers for long stretches
+// — so an update could otherwise stay invisible for days. His answer: *"instead of a regular
+// update button, they'd get some other visual cue but not an actionable thing."* That is
+// `waitingCue()` below: a small non-interactive indicator that appears in the same chrome,
+// carries its own explanation, and cannot be pressed.
+//
+//   * IT IS FOCUSABLE AND ITS EXPLANATION IS REACHABLE WITHOUT A POINTER. A hover tooltip
+//     gives a keyboard user nothing and a tap nothing. The note opens on FOCUS as well as
+//     hover, and the whole sentence is the element's accessible name, so it is announced
+//     even where the note is never painted. A fix for invisibility that is invisible to part
+//     of the audience is not a fix.
+//   * IT SAYS THE REASSURING THING, NOT THE PROCEDURAL ONE. "We are not showing the update
+//     button" explains OUR behavior; what he wants to know is that an update is ready, that
+//     it is waiting for his work, and that nothing will be interrupted. One calm sentence in
+//     Rich's voice, which is the direct answer to "I'm certainly not gonna try to find out".
+//   * IT DOES NOT LOOK LIKE THE BUTTON. The actionable cue is a wide filled gold pill
+//     carrying a version; this is a small outlined circle with no label. If the two resembled
+//     each other he would eventually press one expecting the other, which is the anxiety
+//     being removed.
+//
+// THE ROW'S SENTENCES STAY TRUE UNDER BOTH UPDATE MODES. Nothing here promises that RichOS
+// will install by itself when the work ends — that is 26's mode 1, which that ruling puts in
+// a design session of its own and which `updates.rs` does not build. "I'll wait until
+// everything has finished" is true of the product that exists (the control returns and he
+// presses it) and stays true of the one that is coming (it installs itself), so no sentence
+// here becomes a lie in either direction.
+//
 // CONTRAST: every pair this file switches between is listed with its computed ratio, both
 // themes, in `style.css`'s `.update-*` block. Nothing here is exempt from the floor and
 // nothing here claims to be.
@@ -83,10 +128,64 @@ window.RichUpdates = (function () {
     }
   }
 
+  /// How long an update has been sitting here unable to be offered, in words, and ONLY once
+  /// that is worth saying.
+  ///
+  /// It exists because the gate can hide the control for a long time: RichOS runs workers
+  /// for stretches, so "ready for 3 days" is honest and a silent indefinite wait is not.
+  /// Under a day it returns nothing at all — an update that arrived this morning does not
+  /// need a duration, and a line that always appears is a line nobody reads. It is never a
+  /// nag: it is one clause, on a surface he opened on purpose, and nothing anywhere pushes
+  /// it at him.
+  function readyFor(ms) {
+    if (typeof ms !== "number" || !isFinite(ms) || ms <= 0) return "";
+    var days = Math.floor((Date.now() - ms) / 86400000);
+    if (days < 1) return "";
+    return days === 1 ? "It has been ready for a day." : "It has been ready for " + days + " days.";
+  }
+
+  /// The clauses the work gate adds, joined to whatever the state already said.
+  ///
+  /// `busyReason` is composed in Rust (`work_gate::decide`) and rendered VERBATIM — the count
+  /// of running workers, the running turn, or the honest "could not tell". `unchecked` is
+  /// what the gate could not establish, and it is printed for the reason the ruling gives:
+  /// never claim to have waited for something you did not check.
+  function gateClauses(v) {
+    var out = [];
+    if (v.busy && v.busyReason) out.push(String(v.busyReason));
+    if (v.busy) {
+      // MODE-PROOF ON PURPOSE. It does not say the button comes back and it does not say
+      // RichOS will install by itself; each of those is true of exactly one of the two update
+      // modes, and this sentence has to survive mode 1 landing without becoming a lie.
+      out.push(
+        v.state === "ready"
+          ? "I'll wait to restart until everything has finished — nothing will be interrupted."
+          : "I'll wait until everything has finished — nothing will be interrupted."
+      );
+    }
+    var since = readyFor(v.readySince);
+    if (since && (v.state === "available" || v.state === "ready")) out.push(since);
+    for (var i = 0; i < (v.unchecked || []).length; i++) out.push(String(v.unchecked[i]));
+    return out;
+  }
+
+  /// The gate's clauses, then whatever the state already said. With the gate quiet this
+  /// returns the state's own sentence unchanged, so nothing about an idle app moves.
+  function join(clauses, tail) {
+    var all = clauses.slice();
+    if (tail) all.push(tail);
+    return all.join(" ");
+  }
+
   /// Everything the row says, in one place, so a state cannot exist with no sentence
   /// attached to it. Ten arms for nine states plus the unknown one, and the unknown one
   /// reports itself as unknown — falling back to "up to date" would be the single worst
   /// answer this file could give.
+  ///
+  /// The work gate does NOT get an eleventh arm. It is not a state — an update that is
+  /// available is available whether or not Rich is busy — so it composes onto the arms that
+  /// already exist through `gateClauses`. A parallel `waiting` state would be a second place
+  /// for "there is an update" to be written down, and the two would drift.
   function sentences(v) {
     var current = "RichOS " + (v.currentVersion || "");
     switch (v.state) {
@@ -109,7 +208,10 @@ window.RichUpdates = (function () {
       case "available":
         return {
           headline: "RichOS " + v.availableVersion + " is available.",
-          sub: v.notes ? String(v.notes) : "You are running " + (v.currentVersion || "") + ".",
+          sub: join(
+            gateClauses(v),
+            v.notes ? String(v.notes) : "You are running " + (v.currentVersion || "") + "."
+          ),
         };
       case "downloading":
         return {
@@ -129,7 +231,10 @@ window.RichUpdates = (function () {
       case "ready":
         return {
           headline: "RichOS " + v.availableVersion + " is installed.",
-          sub: "Restart when you are ready — nothing is lost.",
+          // The gate's own words come FIRST when it is busy: "nothing is lost" is true of the
+          // install and says nothing about the turn he is watching, which is the thing he is
+          // actually asking about.
+          sub: join(gateClauses(v), "Restart when you are ready — nothing is lost."),
         };
       case "failed":
         return {
@@ -252,6 +357,11 @@ window.RichUpdates = (function () {
     var s = sentences(v);
 
     nodes.container.setAttribute("data-update-state", v.state);
+    // ON THE CONTAINER, so a stylesheet or a check can tell a hidden-because-working control
+    // from a hidden-because-nothing-to-do one without parsing prose — the same reason
+    // `data-update-failure` is there.
+    if (v.busy) nodes.container.setAttribute("data-update-busy", "true");
+    else nodes.container.removeAttribute("data-update-busy");
     // The failure KIND is on the container too, so a stylesheet or a test can tell a refused
     // signature from a dropped connection without parsing prose.
     if (v.state === "failed" && v.failure) {
@@ -288,10 +398,15 @@ window.RichUpdates = (function () {
     nodes.check.disabled = !canAct || v.state === "unconfigured";
     nodes.check.textContent = v.state === "failed" && !isSignature(v) ? "Try again" : "Check for updates";
 
-    nodes.install.hidden = v.state !== "available";
+    // ABSENT WHILE RICHOS IS WORKING, NOT DISABLED (CEO, 2026-09-05). A dimmed control still
+    // invites the press and then refuses it, which is the anxiety being removed rather than a
+    // milder version of it. `updates.rs` refuses these commands too — hiding an affordance is
+    // the affordance half of a fix and never the whole of it, exactly as `main.js` hides the
+    // talk button while `start_voice_capture` still refuses.
+    nodes.install.hidden = v.state !== "available" || !!v.busy;
     nodes.install.disabled = !canAct;
 
-    nodes.relaunch.hidden = v.state !== "ready";
+    nodes.relaunch.hidden = v.state !== "ready" || !!v.busy;
     nodes.relaunch.disabled = !canAct;
 
     var detail = v.failure ? v.failure.detail : "";
@@ -315,6 +430,7 @@ window.RichUpdates = (function () {
 
     marker(v);
     cue(v);
+    waitingCue(v);
   }
 
   /// The mark on the settings button. It exists for exactly two states, something to install
@@ -329,7 +445,17 @@ window.RichUpdates = (function () {
   function marker(v) {
     var btn = document.getElementById("set-btn");
     if (!btn) return;
-    var want = v.state === "available" ? "available" : v.state === "ready" ? "ready" : "";
+    // THE MARK GOES WHILE HE IS WORKING, and it is not an afterthought to the button going.
+    // A badge that says LOOK AT ME when he cannot safely act is a smaller version of the same
+    // defect: it interrupts and it offers nothing. What replaces it is `waitingCue`, which
+    // says the same fact and cannot be pressed.
+    var want = v.busy
+      ? ""
+      : v.state === "available"
+        ? "available"
+        : v.state === "ready"
+          ? "ready"
+          : "";
     var dot = btn.querySelector(".update-mark");
     if (!want) {
       if (dot) dot.remove();
@@ -404,7 +530,7 @@ window.RichUpdates = (function () {
 
   /// A stroked glyph in the pill. `stroke: currentColor` so it is the label's own ink and
   /// cannot drift from it — one value to prove, not two.
-  function glyph(paths) {
+  function glyph(paths, cls) {
     var svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("fill", "none");
@@ -413,7 +539,7 @@ window.RichUpdates = (function () {
     svg.setAttribute("stroke-linecap", "round");
     svg.setAttribute("stroke-linejoin", "round");
     svg.setAttribute("aria-hidden", "true");
-    svg.setAttribute("class", "update-cue-glyph");
+    svg.setAttribute("class", cls || "update-cue-glyph");
     for (var i = 0; i < paths.length; i++) {
       var p = document.createElementNS(SVG_NS, "path");
       p.setAttribute("d", paths[i]);
@@ -434,7 +560,12 @@ window.RichUpdates = (function () {
     var host = document.getElementById("settings");
     if (!host) return;
     var node = document.getElementById("update-cue");
-    var want = v && (v.state === "available" || v.state === "ready") ? v.state : "";
+    // The pill LEADS TO A CONTROL — pressing it opens the menu and puts the hand on the
+    // row's own button. With the control removed there is nothing to lead to, so the pill is
+    // removed as well rather than leading somewhere empty. `waitingCue` takes its place in
+    // the same chrome, saying the same fact with nothing to press.
+    var want =
+      v && !v.busy && (v.state === "available" || v.state === "ready") ? v.state : "";
 
     // NO UPDATE, NO ELEMENT. Removed from the document, not hidden and not disabled.
     if (!want) {
@@ -489,6 +620,113 @@ window.RichUpdates = (function () {
       if (!go || go.hidden) go = document.getElementById("update-relaunch");
       if (go && !go.hidden) go.focus();
     }, 0);
+  }
+
+  // ---- the waiting cue -------------------------------------------------------------------
+  //
+  // THE FACT, WITH NOTHING TO PRESS.
+  //
+  // CEO, 2026-09-05, on what should stand where the update button is not being shown:
+  // *"we could show something like an info icon or something that shows a tooltip/popup on
+  // hover and explains that while there's an update available we're not currently showing
+  // the update button because there's currently work running ... instead of a regular update
+  // button, they'd get some other visual cue but not an actionable thing like the update
+  // button."*
+  //
+  // WHY IT IS NOT A BUTTON, IN THE MARKUP AND NOT ONLY IN THE STYLING. It is a `span` with
+  // `role="note"`, and it has no click handler at all. A `button` that did nothing would be
+  // announced as a button to every screen reader and offered to every voice user, and the
+  // one property this element must have is that pressing it is not a thing that exists.
+  //
+  // BUT IT IS FOCUSABLE (`tabindex="0"`), and that is the requirement a tooltip alone fails.
+  // Hover reaches a pointer and nobody else. The note opens on FOCUS as well as on hover, so
+  // a keyboard user meets it by tabbing; and the whole sentence is the element's
+  // `aria-label`, so it is announced on focus even where the note is never painted at all. A
+  // fix for invisibility that is itself invisible to part of the audience is not a fix.
+  //
+  // THE NOTE IS `aria-hidden`, DELIBERATELY. Its text is the same string as the accessible
+  // name — one value, generated once — so leaving it in the accessibility tree would make a
+  // screen reader read the sentence twice. Sighted and pointer users get the painted note;
+  // everyone else gets the identical words from the name. They cannot disagree because
+  // there is only one of them.
+  //
+  // WHICH STATES: `available` and `ready`, and only while `busy` — the exact complement of
+  // `cue()` above, so at any moment the chrome holds the actionable pill, or this, or
+  // nothing. Never both. `downloading` and `installing` are deliberately not here: the
+  // bytes are already moving, nothing is waiting on him, and the row owns the progress bar.
+
+  /// The sentence, generated ONCE and used for both the accessible name and the painted note.
+  function waitingSaid(v) {
+    var version = v.availableVersion ? "RichOS " + v.availableVersion : "An update";
+    var head =
+      v.state === "ready"
+        ? version + " is installed and needs a restart."
+        : version + " is ready to install.";
+    var why = v.busyReason ? " " + String(v.busyReason) : "";
+    var tail =
+      v.state === "ready"
+        ? " I'll wait to restart until everything has finished — nothing will be interrupted."
+        : " I'll wait until everything has finished — nothing will be interrupted.";
+    return head + why + tail;
+  }
+
+  // A dot inside a ring: the universal "there is something to know here", and deliberately
+  // NOT the download arrow the actionable pill carries. Two glyphs that differ is how the eye
+  // learns the two elements are different kinds of thing.
+  var WAITING_GLYPH = ["M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6z", "M12 10.8v5.4", "M12 7.9h0.01"];
+
+  function waitingCue(v) {
+    var host = document.getElementById("settings");
+    if (!host) return;
+    var node = document.getElementById("update-waiting");
+    var want =
+      v && v.busy && (v.state === "available" || v.state === "ready") ? v.state : "";
+
+    // NOTHING WAITING, NO ELEMENT. Removed from the document, exactly as `cue()` does — the
+    // signal is the APPEARANCE of something that was not there, and a permanent element that
+    // occasionally changes is one an eye learns to stop seeing.
+    if (!want) {
+      if (node) node.remove();
+      return;
+    }
+
+    if (!node) {
+      node = el("span", "update-waiting", {
+        id: "update-waiting",
+        role: "note",
+        tabindex: "0",
+      });
+      node.appendChild(glyph(WAITING_GLYPH, "update-waiting-glyph"));
+      var note = el("span", "update-waiting-note", {
+        id: "update-waiting-note",
+        "aria-hidden": "true",
+      });
+      node.appendChild(note);
+      var open = function () {
+        node.setAttribute("data-open", "true");
+      };
+      var shut = function () {
+        node.removeAttribute("data-open");
+      };
+      node.addEventListener("mouseenter", open);
+      node.addEventListener("mouseleave", shut);
+      node.addEventListener("focus", open);
+      node.addEventListener("blur", shut);
+      node.addEventListener("keydown", function (e) {
+        // Escape closes the note without moving focus — the same key that dismisses every
+        // other transient thing in this shell.
+        if (e.key === "Escape") shut();
+      });
+      // FIRST child, for the reason `cue()` is: the right edge of this cluster is fixed
+      // chrome, and a settings button that moved when an update arrived is one that gets
+      // mis-clicked.
+      host.insertBefore(node, host.firstChild);
+    }
+
+    node.setAttribute("data-update-waiting", want);
+    var said = waitingSaid(v);
+    node.setAttribute("aria-label", said);
+    document.getElementById("update-waiting-note").textContent = said;
   }
 
   // ---- talking to the shell --------------------------------------------------------------

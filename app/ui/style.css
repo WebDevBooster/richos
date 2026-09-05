@@ -4164,7 +4164,16 @@ body.bp-narrow .tl-user-bubble {
      .update-mark              --attention on --tint-gold-strong  4.61 / 4.90
      .update-mark[ready]       --success on --tint-gold-strong    4.75 / 5.44
      ...and the CUE — the announcement that lives in the chrome rather than in this row —
-     carries its own ledger at the foot of this file, over `.update-cue`.
+     carries its own ledger at the foot of this file, over `.update-cue`, as does the
+     WAITING cue that stands in its place while RichOS is working.
+
+   THE WORK GATE ADDS NO NEW INK TO THIS ROW, and that is a decision rather than an omission.
+   While `[data-update-busy]` the row's headline keeps `--ink` (12.06 / 18.07, the pair at
+   the top of this list) and its added clauses are ordinary `.update-sub` text (5.78 / 6.38).
+   A fourth headline tone beside `available`, `ready` and `failed` would say ALARM for a
+   state whose entire content is that nothing is wrong and nothing is being interrupted. The
+   two controls are REMOVED while busy rather than restyled, so no disabled pair exists to
+   prove: `.update-btn:disabled` is unreachable on this path.
 
    TYPE: the status line, its second line and every button are 1rem = 16px, the floor for
    text meant to be read. `.update-detail` and `.update-endpoint` are 0.875rem = 14px — the
@@ -4477,6 +4486,131 @@ body.bp-narrow .tl-user-bubble {
 
 @media (prefers-reduced-motion: reduce) {
   .update-cue {
+    animation: none;
+  }
+}
+
+/* =========================================================================================
+   THE WAITING CUE — the fact, with nothing to press.
+
+   CEO, 2026-09-05: *"instead of a regular update button, they'd get some other visual cue
+   but not an actionable thing like the update button."* While RichOS is working the
+   actionable pill above is removed; this stands in the same chrome and says the same fact.
+   `updates.js`'s `waitingCue()` block holds the reasoning about WHY it is a `role="note"`
+   with no click handler and why it is nevertheless focusable; none of that is repeated here.
+
+   IT MUST NOT LOOK LIKE THE PILL, and this stylesheet is where that is actually enforced.
+   The pill is a wide saturated gold lozenge carrying a version string; this is a 26px
+   outlined circle with no label and no fill of its own beyond the panel tone. Different
+   size, different shape, different weight, no accent — if the two resembled each other he
+   would eventually press one expecting the other, which is the anxiety being removed.
+
+   CONTRAST — computed with `tests/lib/contrast.js`, the same arithmetic `contrast.js` runs
+   inside WebKit, never eyeballed. Floors: 4.5:1 for text, 3:1 for a non-text indicator.
+   Format is `dark / light`. Nothing here is exempt and nothing here claims to be.
+
+     .update-waiting border      worst of three grounds          3.79 /  3.78   (non-text)
+     .update-waiting-glyph       --ink-soft on this element      5.78 /  6.38   (non-text)
+     .update-waiting focus ring  worst of two grounds           14.55 /  8.02   (non-text)
+     .update-waiting-note text   --ink on --surface             12.06 / 18.07
+     .update-waiting-note border --line-control on --surface     3.79 /  4.06
+
+   THESE WERE READ OFF THE SHIPPED ELEMENT IN WEBKIT, not derived from the tokens it names,
+   and doing it that way changed two of them. The first draft copied `.update-cue`'s ledger
+   line for line on the reasoning that the two sit in the same wrapper — and the copy was
+   wrong in the safe direction but wrong: that element's fill is `--accent`, this one's is
+   `--surface`, which is OPAQUE, so the overlay scrim never shows through this element and
+   only its outer edge ever meets one. Measured, its worst light border pair is 3.78 rather
+   than the pill's 3.22, and its worst light ring is 8.02 rather than 6.83. A ledger that
+   quotes the element next door is a ledger that has not measured anything.
+
+   THE THREE GROUNDS a border is measured against, because only the worst of them binds:
+   its own fill (3.79 / 8.52), the resting page ground (4.57 / 7.02), and the scrimmed
+   ground (4.61 / 3.78) — that last one being the single reason the light figure is what it
+   is, and the one place a mid-tone edge has nothing to be lighter or darker than.
+
+   The five values are also re-walked, in both themes, by `contrast.js`'s `updates-waiting`
+   surface rather than trusted from this comment — and that walk was PROBED rather than
+   assumed: repainting `.update-waiting-note`'s ink `#7c8496` failed the surface by name in
+   both themes, at 3.65:1 light and 4.1:1 dark, which is the evidence that 12.06 / 18.07 is a
+   measurement of this element and not of an assumption about it.
+
+   THE GLYPH OWES 3:1 AND CLEARS 5.78 / 6.38 — it is `--ink-soft` rather than `--ink` because
+   it is a calm statement and not an alarm, and `--ink-soft` is the token this file already
+   uses for exactly that register. It is NOT `--gold`: the accent is what the actionable pill
+   is made of, and reusing it here is the resemblance this element must not have.
+
+   TYPE: the note is 1rem = 16px, the floor for text meant to be easily read, in rem so the
+   Text size knob moves it. There is no smaller tier here and no exemption claimed — this is
+   the sentence that answers "will this destroy my work", read at the moment it matters.
+   ========================================================================================= */
+.update-waiting {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  /* NOT a pointer. The cursor is the first thing that tells a mouse user whether a thing can
+     be pressed, and this one cannot. */
+  cursor: default;
+  /* Same arrival as the pill, for the same reason: the signal is that it was not there a
+     moment ago. Short, once, never a pulse. */
+  animation: update-cue-arrive 0.22s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+.update-waiting-glyph {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+}
+
+.update-waiting:focus-visible {
+  /* `--ink` and not `--gold`, for the reason recorded over `.update-cue`: this element also
+     floats above the light scrim, where light gold computes 1.45:1 against its surroundings
+     and the ring effectively disappears. */
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* THE NOTE. Absolutely positioned, so it cannot move the chrome it hangs from — the same
+   property `.setmenu` has and for the same reason. `right: 0` anchors it to the fixed right
+   edge of the cluster rather than to this element, so it opens inward and can never be
+   clipped by the window edge. */
+.update-waiting-note {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: max-content;
+  max-width: 21rem;
+  padding: 9px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-control);
+  border-radius: 10px;
+  box-shadow: 0 20px 48px -28px var(--shadow-strong);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  /* CLOSED IS `display: none`, not opacity-zero. An invisible box that still takes hit-test
+     area over the conversation is a box that eats clicks, and this one hangs over the
+     timeline. */
+  display: none;
+}
+
+.update-waiting[data-open="true"] .update-waiting-note {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-waiting {
     animation: none;
   }
 }

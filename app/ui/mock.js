@@ -1387,6 +1387,14 @@
       endpoint: "https://updates.richos.invalid/{{target}}/{{arch}}/{{current_version}}",
       endpointIsPlaceholder: true,
       checkedAt: null,
+      // THE WORK GATE (`src-tauri/src/updates.rs`, CEO 2026-09-05). `false` is the opening
+      // value because the preview has no spine, no lease and no workers — there is nothing
+      // here that could be busy, and opening with the control hidden would model a product
+      // that never offers an update at all. A suite drives it through `updateSet`.
+      busy: false,
+      busyReason: null,
+      unchecked: [],
+      readySince: null,
     },
     script: [],
     calls: [],
@@ -2173,6 +2181,10 @@
           return mockUpdateAdvance();
         case "update_install":
           mockUpdate.calls.push("update_install");
+          // REFUSES WHILE BUSY, exactly as `updates.rs` does. The preview must not be able to
+          // prove an install that the real product would decline — that is the whole reason
+          // the mock mirrors the shell's refusals rather than only its happy paths.
+          if (mockUpdate.view.busy) return { ...mockUpdate.view };
           return mockUpdateAdvance();
         // WHETHER THE PREVIEW OFFERS VOICE, answered rather than left to the default reject.
         //
@@ -2199,9 +2211,12 @@
           return { available: true, reason: null };
 
         case "update_relaunch":
-          // The real command never returns — the process is replaced. Recording the call is
-          // the only thing a browser can honestly do with it.
+          // The real command never returns ON THE SUCCESS PATH — the process is replaced.
+          // Recording the call is the only thing a browser can honestly do with that half.
+          // The REFUSAL half does return, and it returns the view, so the preview reports
+          // what the product reports.
           mockUpdate.calls.push("update_relaunch");
+          if (mockUpdate.view.busy) return { ...mockUpdate.view };
           return null;
 
         default:
