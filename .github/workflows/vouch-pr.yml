@@ -104,19 +104,29 @@ jobs:
       - name: Write the message an unapproved author will read
         run: |
           cat > "${RUNNER_TEMP}/unvouched-pr.md" <<'MESSAGE'
-          Hi @{author}, and thank you for this — sorry about the abrupt landing.
+          Hi @{author}, thank you for this and sorry about the abrupt landing.
 
-          **RichOS accepts pull requests only from a short list of approved GitHub accounts.** Yours is not on it yet, so this pull request was closed automatically. Nobody has read your change: this is a rule about who may open a merge request here, not a judgment of your work.
+          **RichOS accepts pull requests only from a short list of pre-approved GitHub accounts.**  
+          And because yours wasn't on that list, this pull request was closed automatically.  
+          So, nobody has read your change.  
+          But this is a rule about who may open a merge request here, not a judgment of your work.
 
-          The rule and the reasons for it are in the contributing guide:
+          The rule and the reasons for it are in the contributing guide:  
           https://github.com/{owner}/{repo}/blob/{default_branch}/.github/CONTRIBUTING.md
 
-          **Issues are open to everyone, and nothing about that has changed.** Bug reports, questions and proposals are welcome from anybody, including you, today:
+          **Issues are open to everyone and nothing about that has changed.**  
+          So, bug reports, questions and proposals are welcome from anybody, including you, today:  
           https://github.com/{owner}/{repo}/issues/new/choose
 
-          **To ask for approval,** open an issue describing what you would like to work on, and say that you would like to be added to the contributor list. That is the whole process — a maintainer adds your username to `.github/VOUCHED.td` on the default branch, and your pull requests stay open from then on. There is one maintainer, so a reply can take a while, and approval normally follows a conversation about the change rather than arriving cold.
+          **If you'd like to get on the list of pre-approved accounts,**  
+          open an issue describing what you would like to work on and say that you would like to be added to the contributor list.  
+          That's it.  
+          A maintainer adds your username to `.github/VOUCHED.td` on the default branch and your pull requests stay open from then on. Just keep in mind: there's only one maintainer at present.  
+          So, a reply can take a while and approval normally follows a conversation about the change rather than arriving cold.
 
-          **Your work is not lost.** This pull request still holds every commit you pushed, and the branch is still in your fork. Once your username is on the list, reopen this same pull request and it will stay open.
+          **Your work is not lost.**  
+          This pull request still holds every commit you pushed and the branch is still in your fork.  
+          So, once your username is on the list, just reopen this same pull request and it will stay open.
           MESSAGE
 
       - uses: mitchellh/vouch/action/check-pr@d66fa29a64600490892131ad87597c30c91fcac4 # v1.5.0
