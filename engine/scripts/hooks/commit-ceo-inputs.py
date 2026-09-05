@@ -175,7 +175,17 @@ MAX_FILE_BYTES = 2 * 1024 * 1024
 GIT_TIMEOUT_S = 8
 
 # The content gates get their own budget; they build a corpus and can be slower.
-GATE_TIMEOUT_S = 20
+GATE_TIMEOUT_S = 10
+
+# THE WHOLE RUN'S BUDGET, and it exists because he is waiting behind it. This
+# hook sits between him pressing enter and the model seeing his message, so a
+# slow repository must not become a slow product. The event's default timeout is
+# 30000 ms and the registration asks for 25; this deadline sits below both so
+# the process reports its own overrun instead of being killed mid-file with
+# nothing written and nothing said. Files not reached are REPORTED as
+# not-examined, never dropped: a file that was skipped for time is not a file
+# that was found clean.
+DEADLINE_S = 18
 
 TRAILING = ".,;:!?—-’'\")]}>*"
 LEADING = "(“\"'[{<*"
@@ -689,7 +699,19 @@ def main():
             )
         unheld = []
 
+    started = time.monotonic()
     for p, repo, source in unheld:
+        if time.monotonic() - started > DEADLINE_S:
+            undecided.append(
+                {
+                    "path": p,
+                    "why": "the ingress ran out of its %ds budget before "
+                           "reaching this file, so nothing is known about it — "
+                           "a file skipped for time is not a file found clean"
+                           % DEADLINE_S,
+                }
+            )
+            continue
         why = gate_git_ready(p, repo)
         if why:
             refused.append({"path": p, "repo": repo, "why": why})
