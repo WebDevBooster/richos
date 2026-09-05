@@ -82,9 +82,53 @@ WebKit's own compositor, pixel-verified. Two of the nine are deliberately not wh
 for; the filenames and the suite's SCREENSHOT INVENTORY say which and why. `shots-5b/` is
 the same arrangement for the correction desk: twelve states, written by `corrections.js`,
 with `shots-5b/README.md` naming what each one is evidence of. `shots-5/` is the same again
-for the feedback channel — nine states, written by `feedback.js`, with its own README. Both directories are
-overwritten on every run and neither is byte-stable; read the suite's exit code, not a
-`git diff` over a PNG.
+for the feedback channel — nine states, written by `feedback.js`, with its own README.
+
+### A COMMITTED SHOT IS WRITTEN ONLY WHEN THE PICTURE CHANGED
+
+This used to say those directories were "overwritten on every run and not byte-stable; read the
+suite's exit code, not a `git diff` over a PNG". That was true, and it was the wrong thing to
+settle for. Measured 2026-09-05 against `5e00651`: one `node run.js` left **96 of the 96
+committed PNGs modified**, with byte deltas from -12 to +679,604 — so `git status` was dirty
+after every run, `git checkout -- app/ui/tests/` became a habit (four times in one day, each one
+a chance to throw away a real change), and a genuine visual regression would have arrived as one
+more modified PNG in a list of ninety-six.
+
+`lib/harness.js` now decodes both sides with `lib/png.js` and writes a shot **only when a
+decoded sample actually differs**. When one does change, the run says so in a line naming the
+pixel count and the worst channel delta, so the diff arrives explained rather than as a binary
+blob. Any doubt writes: an unreadable or unfamiliar PNG compares as different, because a
+redundant write costs a line in `git status` and a wrongly-skipped one costs a regression nobody
+sees.
+
+Three sources of run-to-run churn were removed with it, and each is measured in the comment that
+fixed it:
+
+* **the opening curtain** — `leaveHome` now clears it and waits for it to be gone, so a suite no
+  longer photographs the app either side of a three-second fade (`shots-7-2/` differed by 84% and
+  94% of its pixels between two runs);
+* **looping animations** — pinned to phase 0 for the length of the capture (the `WORKING` pulse
+  dot alone accounted for three files);
+* **unfinished transitions** — waited out through `Animation.finished` rather than through a
+  `waitForTimeout` somebody guessed (the settings panel photographed at 99-point-something
+  percent of its fade), and the splash bar is photographed once it reports it has landed rather
+  than at an arbitrary point in its run.
+
+**Seven files still change every run, and they are named rather than excused.** Five photograph
+the home screen, which is a live simulation — `home/field-engine.js` integrates 7,500 objects and
+flies packets along 12,817 links off `performance.now()`, so two runs pause it at different
+moments in its own life. Its randomness is already seeded; the wall clock is the only thing that
+is not reproducible about it, and a test-side frame clock was measured to take two loads at the
+same frame from 44,039 differing samples down to 293. It is not installed: the surfaces that
+would need it also race a 4,000ms curtain ceiling, and that is a bigger change than this one.
+
+| Still not byte-stable | Why |
+|---|---|
+| `shots-home/home-anonymized.png`, `home-named.png`, `home-returned.png` | the live field, photographed while it is running |
+| `shots-10-1/10-1-start-screen-always-dark.png`, `shots-contrast/opening-screen.png` | the curtain is deliberately held up, and the same live field shows through it |
+| `shots-splash/material-round-11-v1.png`, `material-round-11-v2.png` | the SHIPPING half of the side-by-side composite (measured: 145,368 differing samples on the left half against 326 on the study half, which now settles) — not yet root-caused |
+
+Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is signal.
 
 ## What is here
 
