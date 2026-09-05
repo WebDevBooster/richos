@@ -427,6 +427,15 @@ if [ -f "$SESSREPO/.claude/state/agent-definitions-beef9999.snapshot" ]; then
 else
     bad "9d payload session id no longer read (out=${OUT:0:200})"
 fi
+# 9e — session-start-escalations.sh, added with the escalation channel on
+# 2026-09-05. It deliberately reads NO payload (the ledger is session-
+# independent, which is the entire point of that hook), so the claim in its
+# header is asserted here rather than left as a comment.
+if hang_check session-start-escalations.sh; then
+    ok "9e POSITIVE  session-start-escalations.sh completes with an open, never-closed stdin"
+else
+    bad "9e session-start-escalations.sh BLOCKED on stdin — it would hang a session start"
+fi
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
