@@ -47,9 +47,23 @@ name: app-spine-ci
 # open until a real run.
 #
 # WHAT IT DELIBERATELY DOES NOT COVER:
-#   - richos-voice. It pulls cpal and a local whisper.cpp build; a runner has no
-#     audio endpoint and the native build is minutes, not seconds. Its pure logic
-#     deserves the same treatment and does not get it here.
+#   - richos-voice. STILL TRUE OF THIS JOB, AND NO LONGER TRUE OF THE REPOSITORY:
+#     `app-voice-ci.yml` beside this file covers that crate on macos-latest as of
+#     2026-09-05. The sentence that stood here — "It pulls cpal and a local
+#     whisper.cpp build; a runner has no audio endpoint and the native build is
+#     minutes, not seconds" — was written in good faith and three of its four
+#     clauses were measured false on 2026-09-05: whisper is resolved at RUN time
+#     by `stt.rs` and is not a build dependency (the manifest's whole
+#     `[dependencies]` table is cpal and serde_json); the only tests that open an
+#     audio endpoint are the four gated on `RICHOS_VOICE_LIVE_AUDIO`; and the cold
+#     build is 12.6 seconds, not minutes, because cpal 0.17 reaches CoreAudio
+#     through the `objc2-*` crates with no bindgen. The clause that survived is
+#     that the crate is macOS-only, which is why it is a separate job on a
+#     separate runner rather than a step in this one — this job is ubuntu on
+#     purpose, to keep proving the spine is native-dependency-free. Transcript:
+#     `docs/verification/voice-ci-2026-09-05/`. It is corrected here rather than
+#     left standing because a document whose subject moved is the defect this
+#     directory keeps paying for.
 #   - app/src-tauri. A deliberately detached workspace with the whole webview
 #     dependency tree behind it, kept out of the spine's test path on purpose.
 #   - The live ACP round-trip, which needs a signed-in `claude` CLI.
