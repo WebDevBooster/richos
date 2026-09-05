@@ -261,7 +261,58 @@ def top_level_segments(text):
     return segs
 
 
-segments = top_level_segments(cmd)
+# --- AND A HEREDOC PAYLOAD IS A DOCUMENT, NOT A COMMAND -------------------
+# The quote-aware walker above fixes the commits this guard could not SEE. This
+# fixes the commits it saw that were never there.
+#
+# A heredoc body is data on stdin. `cat > runbook.md <<EOF` followed by a line
+# reading `git commit -m "..."` is a document being WRITTEN, and the walker
+# happily shlexes that line into a commit that is not going to run -- at which
+# point this guard runs the row predicate and can REFUSE the write. Measured
+# over every transcript since the guard shipped: 12 calls recognized only
+# because of a heredoc body, 2 of them anchored at a governed main checkout
+# where this guard acts. Small, and it is a blocking refusal of a document.
+#
+# THE RECALL IS KEPT BY THE ONE EXCEPTION THAT MATTERS: a heredoc fed to a
+# SHELL is left alone, because `bash <<EOF` really does execute its body. Every
+# shell-fed heredoc in the corpus is still read in full.
+#
+# The blanking is by SPACES, never deletion, so line structure and offsets
+# survive -- and it is applied ONLY to the text the walker segments. The
+# `heredocs` map above is built from the original, so `git commit -F -` with an
+# inline message still reads its message.
+_HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+_SHELL_CONSUMER = re.compile(
+    r"(?:^|[|;&]|\s)(?:env\s+\S+\s+)?(?:\S*/)?(?:sh|bash|zsh|ksh|dash)\b")
+
+
+def executable_text(src):
+    chars = list(src)
+    _lines = src.split("\n")
+    offs, o = [], 0
+    for ln in _lines:
+        offs.append(o)
+        o += len(ln) + 1
+    i = 0
+    while i < len(_lines):
+        m = _HEREDOC_START.search(_lines[i])
+        if m:
+            tag = m.group(2)
+            j = i + 1
+            while j < len(_lines) and _lines[j].strip() != tag:
+                j += 1
+            a = offs[i + 1] if i + 1 < len(_lines) else len(src)
+            b = offs[j] if j < len(_lines) else len(src)
+            if b > a and not _SHELL_CONSUMER.search(_lines[i][:m.start()]):
+                for k in range(a, b):
+                    if chars[k] != "\n":
+                        chars[k] = " "
+            i = j
+        i += 1
+    return "".join(chars)
+
+
+segments = top_level_segments(executable_text(cmd))
 
 def parse(seg):
     try:

@@ -347,6 +347,39 @@ else
     bad "message-with-separators not refused (rc=$GRC): $GOUT"
 fi
 
+# 1d. THE OTHER HALF OF THE SAME SUBJECT: a heredoc that WRITES a document
+# containing the words `git commit` is not a commit. The walker shlexes that
+# line out of the body happily, and this guard then runs the row predicate and
+# can REFUSE the write. Measured: 12 calls in the transcript corpus recognized
+# only because of a heredoc body, 2 at a governed main checkout. Describing a
+# command is not issuing one.
+run_guard "$WORK" 'cat > runbook.md <<EOF\nTo land the work run:\ngit commit -m \"the subject\"\nEOF'
+if [ "$GRC" -eq 0 ]; then
+    ok "a heredoc that WRITES the words 'git commit' into a document is not a commit"
+else
+    bad "a documented command was treated as a commit (rc=$GRC): $GOUT"
+fi
+
+# 1e. ...and the exception that keeps the recall. `bash <<EOF` really does
+# execute its body, so a heredoc fed to a SHELL is still read in full. Without
+# this the previous case would be a way to launder a landing past the guard.
+run_guard "$WORK" 'bash <<EOF\ngit commit -m \"feat: the loop turns\"\nEOF'
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'ROW-STALE'; then
+    ok "a heredoc fed to a SHELL is still a command, and is still refused"
+else
+    bad "shell-fed heredoc not refused (rc=$GRC) — the body really does execute: $GOUT"
+fi
+
+# 1f. ...and `git commit -F -` still reads its message out of the heredoc it was
+# handed. The blanking is applied to the text the walker segments, never to the
+# message map, and this is the case that proves the two did not get confused.
+run_guard "$WORK" 'git commit -F - <<MSG\nfeat: the loop turns\n\nopen-items 3.1 is done\nMSG'
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'ROW-STALE'; then
+    ok "git commit -F - still reads its message from the heredoc body"
+else
+    bad "commit -F - was not recognized (rc=$GRC): $GOUT"
+fi
+
 # 2. work MODIFIED under a row stamped at the old id  (2026-08-29 item 3.7)
 set -- $(mk_pair modified); REC="$1"; WORK="$2"
 OLD="$(oid_of "$WORK" lib/thing.js)"
