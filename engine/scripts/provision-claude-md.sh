@@ -74,11 +74,21 @@ command -v python3 >/dev/null 2>&1 || {
 }
 
 # --- values ---------------------------------------------------------------
-# Every key the renderer understands, defaulted empty so `set -u` is safe and an unset key is simply
-# an unconfigured one (honest note) rather than a crash.
-COMPANY_NAME="" CEO_NAME="" COMPANY_DOMAIN="" COMPANY_ONE_LINER="" PRODUCT_NAME=""
-CEO_TIMEZONE="" CEO_NOTES="" VCS_NOTES="" TEAM_ROSTER="" ROUTING_RULES="" EXTRA_DIRS=""
-PRODUCT_SURFACES="" PRODUCT_HARD_RULES="" PRODUCT_LOCALE="" DEPLOY_TARGETS="" QA_ROLES="" LORO_PATH="../loro"
+# EVERY key the renderer understands, declared ONCE. The defaults, the exports to the renderer and
+# the stamp's values-sha256 are all derived from this array, because all three used to be typed out
+# separately and a hand-maintained inventory is exactly how this file broke: `PRIVATE_RECORD` had to
+# reach four places, and the stamp list is the one where forgetting is SILENT — a key it does not
+# cover changes the rendered file while leaving values-sha256 identical, so `--check` reports
+# up-to-date over content that is stale. Add a key here and nowhere else.
+CONFIG_KEYS=(
+    COMPANY_NAME CEO_NAME COMPANY_DOMAIN COMPANY_ONE_LINER PRODUCT_NAME CEO_TIMEZONE CEO_NOTES
+    VCS_NOTES TEAM_ROSTER ROUTING_RULES EXTRA_DIRS PRODUCT_SURFACES PRODUCT_HARD_RULES
+    PRODUCT_LOCALE DEPLOY_TARGETS QA_ROLES PRIVATE_RECORD LORO_PATH
+)
+# Defaulted empty so `set -u` is safe and an unset key is simply an unconfigured one (an honest
+# note) rather than a crash. Set BEFORE sourcing, so identity.config overrides rather than merges.
+for _k in "${CONFIG_KEYS[@]}"; do printf -v "$_k" '%s' ''; done
+LORO_PATH="../loro"
 
 if [ -f "$CONFIG_FILE" ]; then
     # shellcheck disable=SC1090
@@ -103,13 +113,10 @@ fi
 ENGINE_VERSION="$(cat "$ENGINE_ROOT/VERSION" 2>/dev/null | tr -d '[:space:]')"
 [ -n "$ENGINE_VERSION" ] || ENGINE_VERSION="unknown"
 
-export RP_COMPANY_NAME="$COMPANY_NAME" RP_CEO_NAME="$CEO_NAME" RP_COMPANY_DOMAIN="$COMPANY_DOMAIN"
-export RP_COMPANY_ONE_LINER="$COMPANY_ONE_LINER" RP_PRODUCT_NAME="$PRODUCT_NAME"
-export RP_CEO_TIMEZONE="$CEO_TIMEZONE" RP_CEO_NOTES="$CEO_NOTES" RP_VCS_NOTES="$VCS_NOTES"
-export RP_TEAM_ROSTER="$TEAM_ROSTER" RP_ROUTING_RULES="$ROUTING_RULES" RP_EXTRA_DIRS="$EXTRA_DIRS"
-export RP_PRODUCT_SURFACES="$PRODUCT_SURFACES" RP_PRODUCT_HARD_RULES="$PRODUCT_HARD_RULES"
-export RP_DEPLOY_TARGETS="$DEPLOY_TARGETS" RP_QA_ROLES="$QA_ROLES" RP_LORO_PATH="$LORO_PATH"
-export RP_PRODUCT_LOCALE="$PRODUCT_LOCALE"
+for _k in "${CONFIG_KEYS[@]}"; do export "RP_$_k=${!_k}"; done
+# The renderer is told WHICH keys are config, so its stamp cannot be poisoned by an ambient RP_*
+# variable and cannot miss one either. This name is not itself a config key.
+export RP_CONFIG_KEYS="${CONFIG_KEYS[*]}"
 export RP_ENGINE_VERSION="$ENGINE_VERSION" RP_TEMPLATE="$TEMPLATE_FILE" RP_OUT="$OUT_FILE"
 export RP_MODE="$MODE" RP_UPGRADE="$UPGRADE" RP_FORCE="$FORCE"
 
@@ -157,6 +164,10 @@ BLOCKS = [
                       'yours to do as the CEO\'s COO within your three reserved exceptions, or to escalate.')),
     ('additional repo-root directories',
      lambda: as_block(V['EXTRA_DIRS'], '')),
+    ('name your private record',
+     lambda: as_block(V['PRIVATE_RECORD'],
+                      unset('No private record is named for this installation, so a rule whose incident detail must move has nowhere stated to go.',
+                            'While this repository is PRIVATE that is correct and needs no configuration — mode one keeps the detail in the file. Name the destination here BEFORE publishing, so the pointer rule above has somewhere to point.'))),
     ('more than one user-facing surface',
      lambda: as_block(V['PRODUCT_SURFACES'],
                       unset('No surface map is recorded.', 'Treat the product as a single surface until told otherwise, and confirm the surface before ANY user-facing work.'))),
@@ -224,10 +235,8 @@ def identity_section():
 
 src = open(TEMPLATE, encoding='utf-8').read()
 template_sha = sha(src)
-values_sha = sha('\n'.join(k + '=' + V.get(k, '') for k in sorted(
-    ['COMPANY_NAME', 'CEO_NAME', 'COMPANY_DOMAIN', 'COMPANY_ONE_LINER', 'PRODUCT_NAME', 'CEO_TIMEZONE',
-     'CEO_NOTES', 'VCS_NOTES', 'TEAM_ROSTER', 'ROUTING_RULES', 'EXTRA_DIRS', 'PRODUCT_SURFACES',
-     'PRODUCT_HARD_RULES', 'PRODUCT_LOCALE', 'DEPLOY_TARGETS', 'QA_ROLES', 'LORO_PATH'])))
+# The stamp's values-sha256 covers exactly the keys CONFIG_KEYS declares — derived, never re-typed.
+values_sha = sha('\n'.join(k + '=' + V.get(k, '') for k in sorted(V['CONFIG_KEYS'].split())))
 
 # 1. Drop the adopter-facing header comment block — instructions ABOUT the file are not doctrine.
 body = re.sub(r'\A<!--\s*=+.*?=+\s*-->\s*', '', src, count=1, flags=re.S)
