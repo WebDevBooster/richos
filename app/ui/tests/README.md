@@ -127,6 +127,35 @@ the CEO's machine in order to suit a screenshot. Check 10b asserts the disarm st
 two call sites, read off the suite's own source — and checks 10 and 12c still watch a real
 failsafe fire.
 
+**It drives BOTH shutters, and that is why there is no third variable.** `matShot` — the mat
+photograph checks 15 and 18 are built on — waits for a state too (`atCurtain(page, 2200)`, on
+the page's own clock), so `RICHOS_SPLASH_LAG_MS` is absorbed whole by that wait below 2,200 ms
+and stops being a lag above it. This is applied at the same seam in both: between the wait that
+precedes the picture and the picture.
+
+`matShot`'s guard was the same DOM-presence test check 5 was green over, with margin instead of
+none. Measured: its shutter opens at 2,304-2,336 ms and its `seconds: 5` ceiling is armed for
+6,000 ms, so the margin is 3,664-3,696 ms — distant, not unreachable, because `matShot` does not
+disarm anything. `splash--yielding` lands at 6,001-6,024 ms over four launches and the node
+leaves 220-223 ms later, against 220 derived from `FADE_MS + 40`. Inside those 220 ms the node
+is present and the curtain is gone, which is exactly what `up` cannot see:
+
+```
+RICHOS_SPLASH_SHUTTER_LAG_MS=3720 node splash.js
+```
+
+Before the fix that was **green**: check 18 filed `material-round-11-v1.png` with 62,346 distinct
+colors against the mat's 2,951, and check 15 reported 99%/100% where it reports 64%/77% — the
+"material reaches the mat" comparison run over two photographs of the home screen. After it, both
+go red naming the instant, and the guard refuses before publishing, so no wrong picture is filed.
+At `0` and `3000` both are green and the filed pair is the same picture — 2,951 / 9,922 distinct
+colors against 2,951 / 9,923 — so it is invariant across the whole margin, and past it the check
+refuses rather than files.
+
+The guard is the CLASS, never computed opacity, and there is a second reason for that beyond the
+one on `curtainNow`: opacity does not order the damage. A shutter reading 0.41 came out with
+87,336 distinct colors and one reading 0.32 with 11,039.
+
 The other knob is not a variable: `home.js`'s WebGL check PLANTS the failure it is about
 (`getShaderParameter` refusing COMPILE_STATUS), because this machine's WebGL works and a
 check that passes for want of the defect is not a check. Do the same for anything else the
