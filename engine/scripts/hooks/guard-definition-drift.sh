@@ -89,20 +89,6 @@
 #
 # NOTE: hooks are snapshotted per session; this guard takes effect from the
 # NEXT session. It assumes nothing about being live in the session that adds it.
-#
-# UNEVALUATED-PAYLOAD-EXEMPT: already-announces — its own warn_allow() names the unverified spawn, and since
-# 2026-09-05 it does so as a systemMessage rather than on stderr alone — which
-# is what made the warning reach anyone. It loses no check on a degraded
-# payload (it can only ever PROVE drift, never freshness), so it needs the
-# announcement and not the stand-down.
-#
-# Declared rather than assumed, and CHECKED rather than believed:
-# scripts/hooks/unevaluated-payload.test.sh derives every registered
-# PreToolUse and Stop hook from hooks/hooks.json and requires each one to be
-# either wired to scripts/lib/unevaluated-notice.sh or carrying a line like
-# this one — and then verifies the CLASS by driving the hook with an empty, a
-# truncated and a non-JSON payload. An undeclared hook fails that suite; a
-# falsely declared one fails it too.
 
 set -o pipefail
 
