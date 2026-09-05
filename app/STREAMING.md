@@ -657,10 +657,12 @@ accepts updates only for its visible conversation and current run, rejecting
 older revisions. `get_run` restores the durable view and projects accepted
 requests still being prepared. Model turn events never mark the job complete.
 
-Managed attempts use the existing `Source::Proactive`. Assistant text and
-activity render through the conversation projections; generated prompts remain
-hidden. New ledgers retain the old source vocabulary. The reader also accepts
-`managed` as an alias for ledgers written by the earlier experimental branch.
+Normal typed and spoken turns retain `Source::Text` and `Source::Jam`. The
+private handoff on Rich's lease emits no conversation JSON. Desktop workers
+execute independently of the conversation lease. Rich reports their results
+through ordinary turn-start, chunk and completion events, so the existing speech
+listener receives the report. Background reports use `Source::Proactive`; their
+host prompts remain hidden. The experimental `managed` alias is removed.
 
 Ordinary conversation requests start automatically. `autonomous` and `preparing`
 flags distinguish this flow from optional imported command plans. Operational

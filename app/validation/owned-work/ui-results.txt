@@ -1,3 +1,5 @@
+Historical third-revision full UI run. Fourth revision reran the affected suites: runs (14), affordances and docs-claims (6). See managed-run-validation.md.
+
 == evidence ==
   FAIL            affordances.js — 64 check(s) run, 18 declared, 2 failed (exit 1)
   ok              appearance.js — 19 check(s) run, 19 declared, 0 failed (exit 0)

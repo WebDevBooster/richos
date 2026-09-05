@@ -1,127 +1,132 @@
-# RichOS owned-work review
+# RichOS durable work: fourth review
 
-## Problem and intended product behavior
+## Problem
 
-The CEO should be able to say “Handle this.” Rich, the Chief of Staff & Business
-Operations Lead, should determine the routine details, own the resulting work
-and continue until the complete outcome is verified. Only a material decision
-requiring CEO authority should be escalated. A model ending its turn is not a
-reason to abandon the work.
+Rich must own an accepted assignment until its complete outcome is verified.
+A worker ending a turn, losing its process or falsely saying “done” must not
+abandon the assignment. Routine execution choices belong to Rich. Genuine CEO
+tradeoffs must be distinguishable from operational failures.
 
-The supplied incident was an interactive Claude Code team in the femcboost
-repository. Its orchestrator claimed that nothing was unblocked despite actual
-available backlog work. The stop guard accepted that declaration. The guard
-also had its own one-refusal escape, separate from the provider's hook policy.
+The original incident was a Claude Code team in femcboost. This branch targets
+RichOS, not that interactive session. It installs no hooks into femcboost.
 
-The target of this branch is RichOS. It does not change the live femcboost
-session or install another hook into it. Repository work is one use of the
-RichOS controller, rather than the definition of the product.
+## What the third audit got right
 
-## Why a stop guard is insufficient
+The third revision built a working controller but replaced the conversation
+entry path with a fresh classifier. That bypassed Rich's established session,
+mislabelled answers as outreach, broke the speech path and prevented corrections
+from changing running work. Passing controller tests did not establish that the
+product integration was correct. The earlier completion summary understated this.
 
-A guard can reject a bad stopping claim. It cannot own a request after the app
-exits, recover a lost worker, schedule another conversation or independently
-establish delivery. That ownership belongs in the application. Hooks remain
-useful checks inside execution, but are not the application scheduler.
+This revision restores `Spine::submit_prompt` for typed and spoken input and
+`reconcile_intake` for steering recovery. Rich's normal priming, streaming,
+working state, voice source and conversation session remain on the input path.
 
-The architecture does not depend on an alleged single-refusal limit in Claude
-Code. The engine's own one-refusal choice and Claude Code's documented Stop
-behavior are different contracts. Consult the current [Claude hook
-reference](https://code.claude.com/docs/en/hooks) for provider behavior.
+## Handoff behind Rich
 
-## What changed after the audits
+Rich receives and answers the CEO normally. The conversation ledger persists
+that turn before inference. A background reconciler discovers new answered or
+interrupted CEO turns and requests a private registration from **the same Rich
+lease**, with full company-scoped priming. It does not launch a separate intake
+inspector to answer the CEO.
 
-The earlier implementation required a hand-prepared JSON plan and left failed
-attempts for an operator to inspect and retry. That was a controller foundation,
-not the requested Chief of Staff workflow. This revision adds the missing
-conversation intake and desktop owner.
+The private response is a typed instruction: no assignment, new work, a complete
+revision to existing work, a decision answer or explicit cancellation. It is
+saved before a job is created or changed. Questions remain conversation replies;
+registration JSON is neither displayed nor spoken. On restart the durable
+ledger and saved registration allow the handoff to recover. Installation records
+a baseline so old conversations are not retroactively executed.
 
-1. The real `send_message` command persists an owned request. Voice and steering
-   use the same ownership path. Ordinary questions can receive a direct answer;
-   work requests become declarative plans after workspace discovery.
-2. A startup scheduler services the request spool and unfinished jobs across
-   conversations. It survives an app restart through disk state. Worker output
-   stays bound to the originating company when another conversation is selected.
-3. Generated plans contain independent, read-only outcome reviews rather than
-   model-authored executable verifier commands. Review output uses the native
-   structured-result field, not a guess extracted from visible commentary.
-4. Operational retries retain ownership and persist backoff. Explicit pauses
-   remain paused. CEO decisions have their own state and require a question,
-   justification, options and a recommendation. Answers are stored verbatim.
-5. Managed execution can perform ordinary file edits and sandboxed shell work
-   without user-written allow rules. It retains configured restrictions and
-   denies permissions requiring additional authority. It does not approve all
-   requests or strip settings sources.
-6. Managed output uses the existing `proactive` ledger source. This removes the
-   downgrade hazard introduced by the experimental `managed` enum value.
-7. Existing missing-workspace cancellation and corrupt-journal archive controls
-   remain. The file picker meets the type floor and is an optional import path,
-   rather than the primary workflow.
-8. The documentation-count check now uses the exact README command line it
-   matched. Previously it selected an earlier prose mention and failed despite
-   the count being correct. The prior validation record overstated that check.
+This is an explicit implementation tradeoff: registration is a private follow-up
+turn on Rich's session, after his conversational answer. It costs extra inference
+and depends on Rich's judgment. It is not a new native tool callable mid-turn.
+The host persists the handoff before execution, but cannot prove that every model
+classification or conversational claim is correct.
 
-The [usage and permission contract](MANAGED-RUNS.md) describes the implemented paths
-and their limits. In particular, retaining settings also retains the provider's
-array-merge semantics. This is not a claim of VM isolation or arbitrary external
-transaction safety.
+Rich is instructed to delegate even small actions and acknowledge responsibility
+without claiming completion. A new handoff independently checks existing results
+before starting a worker. The real desktop trial showed why this matters: Rich
+initially performed a small edit himself, then the old path redundantly ran a
+worker. Pre-execution review prevents duplication when the complete result is
+already present. This does not guarantee exactly-once arbitrary external effects.
 
-## Code map
+## Execution and corrections
 
-| Concern | Source |
+Desktop workers run on independent governed leases. They receive scoped Rich
+context, but never borrow the conversation lease or hold its mutex during work
+or review. Rich can answer in another conversation while a worker is busy.
+
+A correction reaches Rich normally. He registers a complete amended assignment.
+The host requests interruption of its worker, applies the amendment at the safe
+boundary and independently rechecks existing effects under the revised criteria.
+No Pause-then-End sequence is required. Explicit user pauses remain distinct.
+Cancellation cannot undo an external action already in flight.
+
+Amendments are journalled as numbered contract revisions with a new receipt.
+Reopening permits only the explicit revision shape, unchanged workspace and
+reset verification state. Ordinary unexplained contract changes remain errors.
+Completion and decision notices include the contract revision in their identity.
+
+## Review and recovery
+
+Intake and review use separate schemas. Each variant requires its fields and
+refuses sibling fields. Native schemas use a required object envelope containing
+the appropriate union. The host validates the typed result as well. See the
+[Claude structured-output contract](https://code.claude.com/docs/en/agent-sdk/structured-outputs).
+
+A review transport or parsing failure preserves a review-only retry state across
+restart. It does not rerun the executor. A valid incomplete verdict requests more
+work. A genuine decision verdict stops only the affected work for CEO authority.
+
+After five unsuccessful execution or review cycles, Rich reports the problem and
+his recovery approach through the conversation. Recovery at that checkpoint is
+spaced one hour apart. Ownership is retained; the CEO is not asked to click retry.
+This is a reporting and rate-control policy, not an automatic finite-cost bound
+or proof that the next approach will succeed.
+
+Results and decision requests are spoken by Rich through the normal chunk stream.
+Ordinary replies retain their original source. Background reports may correctly
+use the existing proactive ledger vocabulary. The experimental `managed` alias
+was removed, resolving the third audit's forward-compatibility test collision.
+
+## Permissions and product boundaries
+
+Managed workers retain user, project and local restrictions. The app permits
+local edits and sandboxed shell commands and denies callbacks requiring further
+authority. Within that policy a worker can delete files in its workspace; there
+is no per-action approval or automatic undo. Provider settings merge semantics
+and sandbox support still apply. This is not a VM or an external-action outbox.
+
+A company without a project folder receives an execution directory under app data.
+This no longer rewrites its configured root list merely because a message arrived.
+The app must be open to execute and resumes saved work on launch. It does not
+install a background OS service, adopt an existing Claude Code team or implement
+parallel worker scheduling.
+
+The existing Work plan panel remains available for inspection and explicit
+controls. This revision does not claim independent product/design sign-off for
+that panel. No deployment or main-branch merge is included.
+
+## Evidence and review entry points
+
+See [managed-run-validation.md](managed-run-validation.md) for measured runs,
+failures and coverage boundaries. Small portable summaries live in
+`validation/owned-work/`. The reproducible desktop harness now tests normal
+conversation, restart recovery, false completion, cross-company responsiveness
+and a correction to running work.
+
+| Concern | Code |
 | --- | --- |
-| Durable state, dependencies, retries and completion | `crates/richos-core/src/run.rs` |
-| Intake, structured inspector and declarative criteria | `crates/richos-core/src/autonomy.rs` |
-| Native settings, sandbox policy and structured results | `crates/richos-core/src/native.rs` |
-| Worker execution and independent checks | `crates/richos-core/src/run_host.rs` |
-| Scoped conversation worker adapter | `crates/richos-core/src/run_spine.rs` |
-| Compatible receipts, output and steering transfer | `crates/richos-core/src/spine.rs`, `ledger.rs` |
-| Desktop request spool and startup scheduler | `src-tauri/src/owned_work.rs` |
-| Actual message entry and app startup | `src-tauri/src/main.rs` |
-| Run controls and projection | `src-tauri/src/managed_runs.rs`, `ui/runs.js` |
+| Conversation entry and voice | `src-tauri/src/main.rs` |
+| Rich's private registration and streamed reports | `crates/richos-core/src/spine.rs` |
+| Handoff spool, independent worker and recovery reports | `src-tauri/src/owned_work.rs` |
+| Review-only retries and explicit amendments | `crates/richos-core/src/run.rs` |
+| Typed schemas and independent reviewer | `crates/richos-core/src/autonomy.rs` |
+| Governed native execution | `crates/richos-core/src/native.rs` |
+| Regression proofs | `crates/richos-core/tests/run_tests.rs`, `scripts/test-owned-work-desktop.py` |
 
-## Verification and failures found during development
-
-The detailed command record is in [managed-run-validation.md](managed-run-validation.md).
-Do not equate a successful compilation with a passed behavioral test. A portable measured summary is checked in at `validation/owned-work/results.json`; the UI suite results are beside it.
-
-The actual desktop integration harness is
-`scripts/test-owned-work-desktop.py`. It boots the desktop, invokes its actual
-message command and exits before inference. A second boot selects another
-company's conversation. Its native fixture first says “All done” without
-creating the deliverable. The test requires another attempt, the correct file,
-exactly one CEO request after restart, a verified completion message and no
-output in the other company. This test has passed. It also tests recovery of a completion notice lost after the job committed its verified result.
-
-The fixture itself initially matched a task string inside priming context and
-performed two actions in one attempt. A second version failed to extract text
-from the native input content array. Both produced failing assertions; neither
-was counted as proof of continuation. The corrected fixture matches the actual
-task prompt and extracts the protocol's text blocks.
-
-Installed Claude testing first established that a managed worker can write a
-real file without editing settings and that the host verifies its exact content.
-A natural-language trial then exposed reviewer commentary breaking JSON parsing.
-A later probe established that native structured output can terminate with
-`tool_use`; that is accepted only when a structured result actually exists.
-Timeouts and failed trials remain failures in the evidence record.
-
-## Remaining limits reviewers should challenge
-
-Independent model review is stronger than accepting the worker's claim, but is
-not infallible or adversarially independent of workspace evidence. General
-external actions still need available tools, authority and an idempotency
-strategy. This branch does not implement an external-action outbox or guarantee
-exactly-once effects after a hard process crash.
-
-Workers are scheduled serially. RichOS does not adopt an existing Claude Code
-team. The app must be open to execute and restarts work when it is launched
-again. The terminal intake is not yet persisted before planning, unlike the
-desktop intake. These are real boundaries, not successful outcomes in disguise.
-
-The strongest objection is that application ownership alone cannot make every
-business task finish: a bad scope, weak criteria, missing capabilities or a
-wrong escalation judgment can still defeat the intended outcome. The claim to
-verify is narrower and executable: an accepted desktop request does not lose
-its owner merely because a worker returned, a check failed, a conversation
-changed or the app restarted. Anything broader needs additional evidence.
+The strongest remaining objection is that durable ownership and independent
+model review cannot guarantee sound business judgment, correct scope or safe
+external transactions. The measurable claim is continued ownership across
+worker stops, failed reviews, corrections and app restarts while preserving
+Rich's conversation. Broader guarantees require broader capabilities and evidence.

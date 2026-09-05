@@ -1,39 +1,49 @@
 {
+  "revision": "fourth review",
   "measured_on": "2026-09-05",
   "core": {
-    "direct_non_doc_passed": 719,
+    "direct_non_doc_passed": 725,
     "child_only_fixtures": 2,
     "doctests_passed": 5,
     "failed": 0,
-    "summed_passed_in_log": 724
+    "source_inventory": 727
   },
-  "managed_regressions_passed": 27,
+  "managed_regressions_passed": 33,
   "mutations_killed": 8,
   "mutations_total": 8,
-  "desktop_build_exit": 0,
-  "desktop_phases_passed": [
-    "enqueue",
-    "resume",
-    "recover-notice"
-  ],
-  "full_ui": {
-    "suites_run": 23,
-    "skipped": 0,
-    "initial_failed": [
-      "affordances.js"
-    ],
-    "observed_checks": 446,
-    "followup_affordances_exit": 0
+  "ui": {
+    "runs_passed": 14,
+    "affordances_exit": 0,
+    "docs_claims_passed": 6,
+    "full_suite_rerun": false
   },
-  "native_trial": {
-    "interface": "richos-run handle",
-    "state": "Completed",
+  "desktop": {
+    "controlled_phases": [
+      "enqueue",
+      "resume",
+      "recover-notice",
+      "correct-live"
+    ],
+    "native_handoff": {
+      "exit": 0,
+      "worker_attempts": 1,
+      "ceo_messages": 1,
+      "result": "hello.txt contains exactly 10 bytes Hello Rich with no newline; Rich acknowledges ownership before reporting completion"
+    }
+  },
+  "native_terminal": {
     "exit": 0,
-    "outcome": "hello.txt matched exact requested 20 bytes"
+    "state": "Completed",
+    "sessions": 3
+  },
+  "older_reader": {
+    "exit": 0,
+    "ceo_messages_preserved": 4
   },
   "limits": [
-    "Installed native success preceded final background-task-disable flags; those have subprocess coverage.",
-    "Controlled desktop fixture is not proof of every model or business outcome.",
-    "No release or deployment was performed."
+    "Microphone and speaker hardware were not tested; the existing speech chunk contract is tested.",
+    "No main-branch merge, release or deployment.",
+    "The full core run preceded the final same-scope amendment validation adjustment; the 33-test managed suite passed after it.",
+    "Model judgments and exactly-once external effects are not guaranteed."
   ]
 }

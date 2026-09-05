@@ -894,3 +894,138 @@ for line in sys.stdin:
     if !dead { let _ = Command::new("/bin/kill").args(["-KILL", &pid]).status(); }
     assert!(dead, "A managed lease must not leave its ordinary child running after drop");
 }
+
+#[test]
+fn a_broken_review_retries_only_review_after_restart() {
+    struct ReviewHost { executions: u32, reviews: u32 }
+    impl RunHost for ReviewHost {
+        fn execute(&mut self, _: &RunPlan, _: &TaskSpec, _: &[String]) -> Result<(),String> { self.executions += 1; Ok(()) }
+        fn verify(&mut self, _: &Path, _: &Check) -> Result<String,String> {
+            self.reviews += 1;
+            if self.reviews == 1 { Err(format!("{}invalid response",richos_core::autonomy::REVIEW_RETRY)) } else { Ok("Read the correct deliverable".into()) }
+        }
+    }
+    let tmp=Temp::new();
+    let mut ctl=RunController::create(&tmp.journal(),autonomous_plan(&tmp.0)).unwrap();
+    let mut host=ReviewHost{executions:0,reviews:0};
+    assert_eq!(ctl.tick(&mut host).unwrap(),RunState::Waiting);
+    assert!(ctl.snapshot().tasks[0].review_pending);
+    let mut saved=ctl.snapshot().clone(); drop(ctl);
+    saved.tasks[0].retry_at=0;
+    std::fs::write(tmp.journal(),format!("{}\n",serde_json::to_string(&saved).unwrap())).unwrap();
+    let mut ctl=RunController::open(&tmp.journal()).unwrap();
+    assert_eq!(ctl.tick(&mut host).unwrap(),RunState::Completed);
+    assert_eq!(host.executions,1,"review transport failure must not repeat external actions");
+    assert_eq!(host.reviews,2);
+}
+
+#[test]
+fn a_correction_rechecks_existing_effects_before_executing_revised_work() {
+    let tmp=Temp::new();
+    let mut ctl=RunController::create(&tmp.journal(),autonomous_plan(&tmp.0)).unwrap();
+    let mut host=Host::default();
+    ctl.tick(&mut host).unwrap();
+    let mut revised=autonomous_plan(&tmp.0); revised.goal="The revised outcome".into();
+    ctl.amend("ceo-correction",revised.clone()).unwrap();
+    assert_eq!(ctl.snapshot().state(),RunState::Ready);
+    assert!(ctl.snapshot().tasks[0].review_pending);
+    ctl.tick(&mut host).unwrap();
+    assert_eq!(host.executions.len(),1,"existing effects satisfy revised criteria, so do not execute twice");
+    assert_eq!(ctl.snapshot().state(),RunState::Completed);
+    ctl.amend("ceo-correction",revised).unwrap();
+    assert_eq!(ctl.snapshot().state(),RunState::Completed,"replayed correction must not reopen completed work");
+    let mut same_scope = autonomous_plan(&tmp.0); same_scope.goal="The revised outcome".into();
+    ctl.amend("second-correction",same_scope).unwrap();
+    ctl.tick(&mut host).unwrap();
+    drop(ctl);
+    let reopened = RunController::open(&tmp.journal()).unwrap();
+    assert_eq!(reopened.snapshot().state(),RunState::Completed,"revised contract must remain readable after restart");
+    assert_eq!(reopened.snapshot().plan_revision,2,"an explicit same-scope amendment is also a valid journal transition");
+}
+
+#[test]
+fn response_contracts_refuse_sibling_fields_and_require_each_variants_fields() {
+    use richos_core::autonomy::{response_schema,review_schema,parse,Intake,Review};
+    for schema in [response_schema(),review_schema()] {
+        for variant in schema["properties"]["result"]["anyOf"].as_array().unwrap() {
+            let props=variant["properties"].as_object().unwrap();
+            let required=variant["required"].as_array().unwrap();
+            assert_eq!(variant["additionalProperties"],false);
+            assert_eq!(props.len(),required.len());
+            assert!(required.iter().all(|k|props.contains_key(k.as_str().unwrap())));
+            assert!(props["kind"]["const"].is_string());
+        }
+    }
+    assert!(!response_schema().to_string().contains("answers_decision"));
+    assert!(!review_schema().to_string().contains("goal"));
+    assert!(parse::<Intake>(r#"{"kind":"work","goal":"g","tasks":[],"answers_decision":true}"#).is_err());
+    assert!(parse::<Review>(r#"{"kind":"complete","evidence":"read","goal":"g"}"#).is_err());
+}
+
+#[test]
+fn recovery_backoff_survives_restart_without_losing_work() {
+    let tmp=Temp::new();
+    let mut ctl=RunController::create(&tmp.journal(),autonomous_plan(&tmp.0)).unwrap();
+    ctl.defer_recovery(3600).unwrap(); drop(ctl);
+    let mut ctl=RunController::open(&tmp.journal()).unwrap();
+    let mut host=Host::default();
+    assert_eq!(ctl.tick(&mut host).unwrap(),RunState::Waiting);
+    assert!(host.executions.is_empty());
+    assert!(!ctl.snapshot().cancelled);
+    assert!(!ctl.snapshot().paused);
+}
+
+#[test]
+fn rich_keeps_the_conversation_voice_stream_and_private_handoff_on_his_lease() {
+    use richos_core::{Entity,EntityId,EntityRegistry,Ledger,Spine};
+    use richos_core::cognition::{Cognition,CognitionError,TurnItem};
+    use richos_core::stream::{StreamEvent,TurnObserver};
+    use richos_core::ledger::Source;
+    use std::sync::{Arc,Mutex};
+    struct Rich { calls:Arc<Mutex<Vec<String>>> }
+    impl Cognition for Rich {
+        fn session_id(&self)->&str{"continuous-rich"}
+        fn reprime(&mut self,text:&str,sink:&mut dyn FnMut(TurnItem))->Result<(),CognitionError>{
+            self.calls.lock().unwrap().push(text.into());
+            if text.starts_with("Register the assignment") { sink(TurnItem::Text{text:r#"{"kind":"none"}"#,seq:0}); }
+            Ok(())
+        }
+        fn prompt(&mut self,text:&str,sink:&mut dyn FnMut(TurnItem))->Result<String,CognitionError>{
+            self.calls.lock().unwrap().push(text.into());
+            sink(TurnItem::Text{text:if text.starts_with("Report this") {"The work is verified."} else {"Here is the answer."},seq:0});
+            Ok("end_turn".into())
+        }
+    }
+    #[derive(Clone)] struct Events(Arc<Mutex<Vec<StreamEvent>>>);
+    impl TurnObserver for Events {fn on_event(&self,event:&StreamEvent){self.0.lock().unwrap().push(event.clone());}}
+    let tmp=Temp::new();let mut spine=Spine::new(Ledger::open(tmp.0.join("ledger.jsonl")).unwrap());
+    spine.set_entity_registry(EntityRegistry::new(vec![Entity::try_new("company","Company",vec![tmp.0.clone()]).unwrap()]).unwrap());
+    let thread=spine.create_thread("Conversation",&EntityId::parse("company").unwrap()).unwrap();
+    let calls=Arc::new(Mutex::new(vec![]));let events=Events(Arc::new(Mutex::new(vec![])));
+    spine.attach_lease(Box::new(Rich{calls:calls.clone()}));spine.enable_owned_work();spine.set_observer(Box::new(events.clone()));
+    let turn=spine.submit_prompt("What is the plan?",Source::Jam).unwrap();
+    let binding=spine.active_binding().unwrap().clone();
+    assert!(matches!(spine.register_owned_work(&binding,"What is the plan?","Here is the answer.","null").unwrap(),richos_core::autonomy::Handoff::None));
+    spine.report_owned_work(&binding,"finished-test","Verified outcome").unwrap();
+    spine.report_owned_work(&binding,"finished-test","Verified outcome").unwrap();
+    assert_eq!(spine.lease_session_id(),Some("continuous-rich"));
+    assert_eq!(spine.ledger().turn(&turn).unwrap().source,Source::Jam);
+    let messages=spine.messages(&thread).unwrap();
+    assert_eq!(messages.iter().filter(|m|m.text=="Here is the answer.").count(),1);
+    assert!(!messages.iter().any(|m|m.text.contains("\"kind\"")),"private registration JSON must not enter the conversation");
+    let chunks:Vec<_>=events.0.lock().unwrap().iter().filter_map(|e|if let StreamEvent::Chunk{text_delta,..}=e{Some(text_delta.clone())}else{None}).collect();
+    assert_eq!(chunks,vec!["Here is the answer.","The work is verified."],"both the answer and report must reach the existing speech listener once");
+    assert!(calls.lock().unwrap().iter().any(|p|p.contains("You have a durable execution team")),"Rich must be primed with the actual handoff contract before answering");
+}
+
+#[test]
+fn a_handoff_that_is_already_satisfied_never_executes_a_worker() {
+    let tmp=Temp::new();
+    let mut ctl=RunController::create_from_handoff(&tmp.journal(),autonomous_plan(&tmp.0),uuid::Uuid::new_v4().to_string()).unwrap();
+    drop(ctl);
+    ctl=RunController::open(&tmp.journal()).unwrap();
+    let mut host=Host::default();
+    assert_eq!(ctl.tick(&mut host).unwrap(),RunState::Completed);
+    assert!(host.executions.is_empty());
+    assert_eq!(host.verifications.len(),1);
+}

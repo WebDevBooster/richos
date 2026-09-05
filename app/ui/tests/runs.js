@@ -118,6 +118,17 @@ async function main() {
     assert((await page.locator("summary").first().innerText()).includes("Waiting for your decision"));
     assertEqual(await page.getByRole("button", { name: "Start / continue", exact: true }).count(), 0);
   });
+  await run.check("A new assignment replaces the completed panel only after an authoritative read", async () => {
+    await page.evaluate(async () => {
+      window.snapshot = {...window.snapshot, runId:"next-job", revision:1, state:"running", goal:"New assignment"};
+      await window.listeners["rich://run-updated"]({payload:window.snapshot});
+    });
+    assert((await page.locator("#managed-run").innerText()).includes("New assignment"));
+    await page.evaluate(async () => {
+      await window.listeners["rich://run-updated"]({payload:{...window.snapshot, runId:"auto-a", revision:999, goal:"Obsolete assignment"}});
+    });
+    assert(!(await page.locator("#managed-run").innerText()).includes("Obsolete assignment"));
+  });
   await browser.close(); return run.report();
 }
 main().then(n => process.exit(n ? 1 : 0), e => { console.error(e); process.exit(1); });

@@ -13,6 +13,9 @@ if len(sys.argv) not in (3, 4):
     sys.exit(__doc__)
 old = Path(sys.argv[1]).resolve()
 ledger = Path(sys.argv[2]).resolve()
+raw = [json.loads(line) for line in ledger.read_text().splitlines()]
+expected = {row["turn_id"] for row in raw if row.get("event") == "PromptReceived" and row.get("source") in ("text", "jam")}
+assert expected, "compatibility evidence needs actual CEO turns"
 cargo = sys.argv[3] if len(sys.argv) == 4 else "cargo"
 with tempfile.TemporaryDirectory(prefix="richos-old-reader-") as directory:
     root = Path(directory)
@@ -26,13 +29,13 @@ fn main() {
     for thread in ledger.threads() {
         for message in ledger.messages(&thread.id).expect("old reader must render the conversation") {
             if message.role == "user" { users += 1; assert!(!message.text.starts_with("Work on this task")); }
-            finished |= message.text.starts_with("Finished and checked:");
+            finished |= message.turn_id.starts_with("finished-") && !message.text.is_empty();
         }
     }
-    assert_eq!(users, 1, "one CEO request must survive restart and downgrade exactly once");
+    assert_eq!(users, std::env::args().nth(2).unwrap().parse::<usize>().unwrap(), "every CEO request must survive restart and downgrade exactly once");
     assert!(finished, "verified completion must render in the old version");
     println!("PASS: actual older reader deserializes and renders the owned-work ledger without losing or duplicating the CEO request.");
 }
 ''')
-    result = subprocess.run([cargo, "run", "--offline", "--manifest-path", str(root / "Cargo.toml"), "--", str(ledger)], env=dict(os.environ, CARGO_TARGET_DIR=str(root / "target")))
+    result = subprocess.run([cargo, "run", "--offline", "--manifest-path", str(root / "Cargo.toml"), "--", str(ledger), str(len(expected))], env=dict(os.environ, CARGO_TARGET_DIR=str(root / "target")))
     raise SystemExit(result.returncode)

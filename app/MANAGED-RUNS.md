@@ -1,91 +1,66 @@
-# Owned work in RichOS
+# Owned work behind Rich
 
-Tell Rich what needs doing in the conversation. The desktop persists the request
-before inference, plans the work and runs it through independent outcome checks.
-No JSON file, task breakdown or per-attempt approval is required.
+Talk to Rich normally. Typed input, voice and steering use his established
+conversation. Rich registers accepted work with a durable execution engine;
+questions are answered by Rich, not a separate classifier.
 
-Rich owns the request until its outcome is verified, the CEO explicitly ends it
-or a genuine business decision prevents that task from proceeding. Operational
-failures remain owned and retry with persisted backoff. They are not completion
-and are not automatically presented as CEO decisions.
+The engine retains the assignment until verified completion, explicit
+cancellation or a CEO decision blocking the affected task. A turn ending is not
+completion. Operational failures retain ownership and retry automatically.
 
-## Conversation and execution
+## What happens
 
-Typed messages, voice input and steering enter the owned-request path. Intake
-uses the conversation and relevant workspace documents to distinguish a request
-for work from a question. It creates declarative tasks and acceptance criteria.
-Generated criteria cannot install shell commands as verifiers.
+The conversation is persisted before inference. After Rich answers, a private
+registration turn on his same primed session records the assignment or correction.
+The host saves it before execution. Private JSON is never shown or spoken.
+New assignments first check existing effects, then execute only if more work is
+needed. A separate read-only inspector checks the outcome after each attempt.
 
-The desktop scheduler starts at app launch and services saved requests and jobs.
-It executes one worker attempt at a time across conversations. A job retains its
-original company and conversation when the user selects another conversation.
-A company without a project folder receives an app-owned workspace.
+Workers use independent leases and do not hold the conversation lock. You can
+ask questions elsewhere or correct the current assignment while it runs. Rich
+registers revised scope and criteria; the host interrupts the worker and applies
+the revision at its boundary. Existing results are checked again before more
+work begins. An action already in flight cannot necessarily be undone.
 
-Each worker uses a fresh governed Claude session. Background tasks and experimental native teams are disabled inside that lease, so work cannot be handed off to an unowned background team. Foreground subagents may finish within their parent attempt. Output reaches the ordinary
-conversation. Generated worker prompts are not attributed to the CEO. The run
-journal, rather than a model's memory or turn-end event, owns unfinished work.
+Results return through Rich's normal streamed conversation and speech path.
+CEO decisions require a concrete question, a reason CEO authority is needed,
+options and a recommendation. Routine retries and implementation choices are
+Rich's responsibility. Answers to actual decisions are kept verbatim.
 
-A separate inspector has Read, Glob and Grep tools, no shell or write tools and
-no MCP tools. It reads the actual result and returns a structured verdict:
+## Recovery and control
 
-- Complete, with evidence for the acceptance criteria.
-- Incomplete, with the missing work for the next attempt.
-- A CEO decision, with the question, why CEO authority is needed, options and a
-  recommendation.
+Requests and job transitions are persisted. Restart resumes unfinished ownership.
+Explicit pauses survive restart. Pause, resume and End remain available in the
+Work plan panel. End means cancellation, never completion. A missing workspace
+can still be inspected and ended; corrupt journals can be archived intact.
 
-Earlier passed tasks are checked against the final workspace before completion.
-A file's existence or the worker's claim alone does not establish a business
-outcome. Independent model review still requires judgment and is fallible.
+A malformed or unavailable review retries the reviewer, not the executor. After
+five unsuccessful execution or review cycles, Rich reports the situation and
+his recovery approach. Recovery at that checkpoint waits one hour instead of
+continually opening workers every few minutes. Work remains owned. This is not
+a finite spending limit and does not guarantee that recovery will succeed.
+
+The app must be open to run work. Closing it preserves work for the next launch;
+no background OS service is installed. Workers are serial. Existing interactive
+Claude Code teams are not adopted.
 
 ## Permissions
 
-Managed workers retain user, project and local settings, including configured
-hooks and explicit restrictions. RichOS supplies `acceptEdits` and enables the
-Bash sandbox with automatic approval of sandboxed commands. Filesystem isolation
-is on, unsandboxed retries are off and unavailable sandbox support is an error.
-Reads outside working directories are restricted.
+Managed workers retain user, project and local settings. RichOS enables local
+edits and automatically permitted sandboxed shell work. The sandbox must be
+available; unsandboxed escape requests and remaining permission callbacks are
+denied. Configured restrictions and provider settings-merge behavior still apply.
 
-The permission callback denies requests that still require approval. It tells
-Rich to find a permitted alternative, rather than ask the CEO to edit settings.
-This is not an unconditional approval callback. Existing settings still matter:
-Claude merges some permission and sandbox arrays across settings sources. This
-policy is not a separate VM or an adversarial isolation boundary.
+Within the permitted workspace, edits can include deletion. There is no per-action
+approval or automatic undo. The policy is not a VM, an external-action transaction
+log or a guarantee of exactly-once effects. Native background tasks and experimental
+teams are disabled inside managed leases; foreground subagents remain within
+their parent's attempt. The provider's supported platforms remain a dependency.
 
-The installed-provider trials and transport tests are described in
-[the review brief](ORCHESTRATION-REVIEW.md). The background-task switch follows the documented [Claude environment contract](https://code.claude.com/docs/en/env-vars). Native Claude is an external runtime;
-its supported sandbox platforms and policy behavior remain dependencies.
+A company without a selected project receives an app-owned execution directory.
+Its configured roots are not rewritten by sending a message.
 
-## Ownership, recovery and control
-
-Requests are written through a synced temporary file and atomic rename. Stable
-receipt IDs prevent a request being duplicated across spool recovery. Run
-snapshots are synced before execution and verified transitions. An OS lock
-prevents two controllers from owning the same journal.
-
-Autonomous tasks retain ownership after the advanced-plan attempt ceiling.
-Retries back off up to 512 seconds. An unavailable workspace is retried without
-asking the CEO to repair a task plan. Restart recovers interrupted work and tells
-the next worker to inspect existing effects before continuing. This is not an
-exactly-once guarantee for arbitrary external services.
-
-Explicit pause survives restart. The Work plan panel offers pause, resume and
-end controls. Ending a run is recorded as cancellation, never completion.
-Unreadable journals can be archived without destroying their bytes. A missing
-workspace does not prevent inspection or ending an existing run.
-
-CEO answers are retained verbatim and passed to both execution and verification.
-An answer must first be classified as addressing the pending decision. Other
-independent tasks can continue while a decision is pending.
-
-The app must be running to execute. Closing the app preserves work for its next
-launch; it does not install a background system service or arrange an OS login
-launch. Managed Unix leases use a process group for ordinary child cleanup when
-the lease is dropped. This does not provide an external-action transaction log
-or containment of deliberately detached processes.
-
-## Advanced terminal interface
-
-The same core controller is available without the desktop:
+## Terminal and advanced plans
 
 ```sh
 cargo build --manifest-path app/Cargo.toml -p richos-core --bin richos-run
@@ -97,26 +72,15 @@ app/target/debug/richos-run drive /absolute/job.jsonl
 app/target/debug/richos-run end /absolute/job.jsonl
 ```
 
-`status` and `drive` return 0 only for completed work, 3 for unfinished work and
-2 for errors. `create JOURNAL PLAN.json` remains available for explicit technical
-plans. These can use executable acceptance commands and retain their finite
-attempt budget and explicit recovery contract. Only trusted operators should
-import executable checks. The conversation planner cannot generate them.
+The terminal `handle` command uses a separate intake inspector because it has no
+Rich conversation. Unlike the desktop, terminal intake is not persisted before
+planning. `status` and `drive` return 0 for completed work, 3 for unfinished work
+and 2 for errors.
 
-`inspect WORKSPACE PROMPT` is a diagnostic for the read-only structured inspector.
-The desktop owns intake before planning; the terminal `handle` command currently
-creates its run journal after intake has produced a plan.
+Trusted operators can still import explicit command plans. Those plans may run
+executable acceptance checks and retain finite attempt budgets and manual retry.
+The conversation planner cannot install executable verifier commands.
 
-## Compatibility and limits
-
-The conversation ledger writes the existing `text` and `proactive` source values.
-It does not introduce a `managed` value older RichOS readers cannot deserialize.
-The newer reader also accepts the earlier experimental `managed` spelling.
-Request and run journals live separately from the conversation ledger.
-
-This implementation owns serial app workers. It neither adopts an existing
-interactive Claude Code team nor supplies a parallel team scheduler. Available
-files, services, credentials and configured tools bound what Rich can achieve.
-A retry loop cannot manufacture missing authority, guarantee a model's judgment
-or prove that an external side effect happened exactly once. Those limitations
-must not be represented as verified completion.
+The ledger writes the existing text, jam and proactive vocabulary. Request and
+run journals are separate. See [ORCHESTRATION-REVIEW.md](ORCHESTRATION-REVIEW.md)
+for architecture, audit response and known limits.

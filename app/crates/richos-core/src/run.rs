@@ -146,6 +146,10 @@ pub struct TaskProgress {
     pub evidence: Vec<String>,
     #[serde(default)]
     pub retry_at: u64,
+    #[serde(default)]
+    pub review_pending: bool,
+    #[serde(default)]
+    pub review_failures: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -167,6 +171,8 @@ pub struct RunSnapshot {
     pub revision: u64,
     pub id: String,
     pub plan: RunPlan,
+    #[serde(default)]
+    pub plan_revision: u64,
     pub tasks: Vec<TaskProgress>,
     pub paused: bool,
     pub cancelled: bool,
@@ -282,6 +288,16 @@ impl RunController {
     }
 
     pub fn create_named(path: &Path, plan: RunPlan, id: String) -> Result<Self, RunError> {
+        Self::create_with_review(path, plan, id, false)
+    }
+
+    /// Handoffs may follow an action Rich already performed. Inspect before
+    /// execution so a delivered outcome does not trigger duplicate side effects.
+    pub fn create_from_handoff(path: &Path, plan: RunPlan, id: String) -> Result<Self, RunError> {
+        Self::create_with_review(path, plan, id, true)
+    }
+
+    fn create_with_review(path: &Path, plan: RunPlan, id: String, review_first: bool) -> Result<Self, RunError> {
         plan.validate()?;
         if uuid::Uuid::parse_str(&id).is_err() {
             return Err(RunError::Invalid("Invalid run identity".into()));
@@ -302,6 +318,8 @@ impl RunController {
                 attempts: 0,
                 evidence: vec![],
                 retry_at: 0,
+                review_pending: review_first,
+                review_failures: 0,
             })
             .collect();
         let mut this = Self {
@@ -312,6 +330,7 @@ impl RunController {
                 revision: 0,
                 id,
                 plan,
+                plan_revision: 0,
                 tasks,
                 paused: false,
                 cancelled: false,
@@ -346,7 +365,21 @@ impl RunController {
                 ));
             }
             if let Some(p) = &last {
-                if p.id != s.id || p.plan != s.plan {
+                let amendment = s.plan_revision == p.plan_revision + 1
+                    && p.plan.autonomous()
+                    && s.plan.autonomous()
+                    && p.plan.workspace == s.plan.workspace
+                    && s.decision_receipts.len() == p.decision_receipts.len() + 1
+                    && s.decision_receipts.starts_with(&p.decision_receipts)
+                    && !p
+                        .decision_receipts
+                        .contains(s.decision_receipts.last().unwrap())
+                    && s.tasks.iter().all(|t| {
+                        t.state == TaskState::Pending && t.attempts == 0 && t.review_pending
+                    });
+                if p.id != s.id
+                    || ((p.plan != s.plan || p.plan_revision != s.plan_revision) && !amendment)
+                {
                     return Err(RunError::Invalid(
                         "The run contract changed inside its journal.".into(),
                     ));
@@ -464,6 +497,36 @@ impl RunController {
         check
     }
 
+    pub fn amend(&mut self, receipt: &str, mut plan: RunPlan) -> Result<(), RunError> {
+        if self.snapshot.decision_receipts.iter().any(|r| r == receipt) {
+            return Ok(());
+        }
+        if plan.workspace != self.snapshot.plan.workspace {
+            return Err(RunError::Invalid(
+                "A correction cannot change the job workspace.".into(),
+            ));
+        }
+        plan.validate()?;
+        plan.goal.push_str(
+            "\nThis is a revised assignment. Inspect existing effects before making changes.",
+        );
+        self.snapshot.tasks = plan.tasks.iter().map(|_| TaskProgress { state: TaskState::Pending, attempts: 0, evidence: vec!["Assignment revised by Rich from the CEO's correction. Reconcile existing effects first.".into()], retry_at: 0, review_pending: true, review_failures: 0 }).collect();
+        self.snapshot.plan = plan;
+        self.snapshot.plan_revision += 1;
+        self.snapshot.decision_receipts.push(receipt.into());
+        self.snapshot.paused = false;
+        self.save()
+    }
+
+    pub fn defer_recovery(&mut self, seconds: u64) -> Result<(), RunError> {
+        for task in &mut self.snapshot.tasks {
+            if task.state == TaskState::Pending {
+                task.retry_at = crate::util::now_millis() + seconds * 1000;
+            }
+        }
+        self.save()
+    }
+
     pub fn pause(&mut self, paused: bool) -> Result<(), RunError> {
         self.snapshot.paused = paused;
         if !paused && self.snapshot.plan.autonomous() {
@@ -533,8 +596,15 @@ impl RunController {
             return Ok(self.snapshot.state());
         }
         let mut pending_decision = false;
-        self.snapshot.tasks[i].state = TaskState::Running;
-        self.snapshot.tasks[i].attempts = self.snapshot.tasks[i].attempts.saturating_add(1);
+        let review_only = self.snapshot.plan.autonomous() && self.snapshot.tasks[i].review_pending;
+        self.snapshot.tasks[i].state = if review_only {
+            TaskState::Verifying
+        } else {
+            TaskState::Running
+        };
+        if !review_only {
+            self.snapshot.tasks[i].attempts = self.snapshot.tasks[i].attempts.saturating_add(1);
+        }
         self.save()?;
         host.updated(&self.snapshot);
         let mut effective_plan = self.snapshot.plan.clone();
@@ -544,11 +614,15 @@ impl RunController {
                 self.snapshot.decisions.join("\n")
             ));
         }
-        let result = host.execute(
-            &effective_plan,
-            &self.snapshot.plan.tasks[i],
-            &self.snapshot.tasks[i].evidence,
-        );
+        let result = if review_only {
+            Ok(())
+        } else {
+            host.execute(
+                &effective_plan,
+                &self.snapshot.plan.tasks[i],
+                &self.snapshot.tasks[i].evidence,
+            )
+        };
         if result.is_err() && !self.snapshot.plan.autonomous() {
             self.snapshot.tasks[i].state = TaskState::NeedsAttention;
             self.snapshot.tasks[i].evidence = vec![result.unwrap_err()];
@@ -560,17 +634,20 @@ impl RunController {
                 vec!["Paused during execution; inspect the result before retrying.".into()];
             self.snapshot.paused = true;
         } else {
+            self.snapshot.tasks[i].review_pending = true;
             self.snapshot.tasks[i].state = TaskState::Verifying;
             self.save()?;
             host.updated(&self.snapshot);
             let mut evidence = vec![];
             let mut passed = true;
+            let mut retry_review = false;
             for c in &self.snapshot.plan.tasks[i].checks {
                 match host.verify(&self.snapshot.plan.workspace, &self.effective_check(c)) {
                     Ok(e) => evidence.push(format!("{}: {e}", c.name)),
                     Err(e) => {
                         passed = false;
                         pending_decision |= e.starts_with(crate::autonomy::DECISION);
+                        retry_review |= e.starts_with(crate::autonomy::REVIEW_RETRY);
                         evidence.push(format!("{}: {e}", c.name));
                     }
                 }
@@ -580,6 +657,12 @@ impl RunController {
                     break;
                 }
             }
+            self.snapshot.tasks[i].review_pending = retry_review;
+            self.snapshot.tasks[i].review_failures = if retry_review {
+                self.snapshot.tasks[i].review_failures.saturating_add(1)
+            } else {
+                0
+            };
             self.snapshot.tasks[i].evidence = evidence;
             self.snapshot.tasks[i].state = if self.snapshot.paused {
                 TaskState::NeedsAttention
@@ -604,7 +687,9 @@ impl RunController {
                 // Operational failures remain owned. Back off instead of abandoning
                 // the job or hammering the provider after a fixed attempt budget.
                 progress.retry_at = crate::util::now_millis()
-                    + (2_u64.saturating_pow(progress.attempts.min(9)) * 1000);
+                    + (2_u64
+                        .saturating_pow(progress.attempts.max(progress.review_failures).min(9))
+                        * 1000);
             }
             if host.paused() {
                 self.snapshot.paused = true;
@@ -637,9 +722,17 @@ impl RunController {
                         break;
                     }
                 }
+                self.snapshot.tasks[j].review_pending = evidence
+                    .iter()
+                    .any(|e| e.contains(crate::autonomy::REVIEW_RETRY));
+                let decision = evidence
+                    .iter()
+                    .any(|e| e.contains(crate::autonomy::DECISION));
                 self.snapshot.tasks[j].evidence = evidence;
                 if !passed {
-                    self.snapshot.tasks[j].state = if !host.paused()
+                    self.snapshot.tasks[j].state = if decision {
+                        TaskState::NeedsDecision
+                    } else if !host.paused()
                         && (self.snapshot.plan.autonomous()
                             || self.snapshot.tasks[j].attempts < self.snapshot.plan.max_attempts)
                     {

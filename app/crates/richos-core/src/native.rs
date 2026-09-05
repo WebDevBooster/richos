@@ -681,10 +681,10 @@ impl NativeClient {
     }
 
     fn spawn_with_policy(bin: &Path, cwd: &Path, managed: bool) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, managed, false)
+        Self::spawn_with_tools(bin, cwd, managed, None)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, inspect: bool) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>) -> Result<Self, NativeError> {
         // Refuse BEFORE spawning, so the error names WHICH path is wrong instead of an
         // errno that stands for two different faults. See `preflight`.
         preflight(bin, cwd)?;
@@ -692,10 +692,10 @@ impl NativeClient {
 
         let session_id = uuid::Uuid::new_v4().to_string();
         let mut args = if managed { managed_child_args(&session_id) } else { child_args(&session_id) };
-        if inspect {
+        if let Some(schema) = schema {
             args.extend(["--tools".into(), "Read,Glob,Grep".into(),
                 "--strict-mcp-config".into(), "--mcp-config".into(), "{\"mcpServers\":{}}".into(),
-                "--json-schema".into(), crate::autonomy::response_schema().to_string()]);
+                "--json-schema".into(), schema.to_string()]);
         }
         let mut command = Command::new(bin);
         if managed {
@@ -1417,7 +1417,11 @@ impl NativeCognition {
     pub fn structured_output(&self) -> Option<Value> { self.client.structured_output.lock().unwrap().clone() }
 
     pub fn start_inspector(bin: &Path, workspace: &Path) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, workspace, true, true)?;
+        Self::start_inspector_with_schema(bin, workspace, crate::autonomy::response_schema())
+    }
+
+    pub fn start_inspector_with_schema(bin: &Path, workspace: &Path, schema: serde_json::Value) -> Result<Self, NativeError> {
+        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema))?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id })
     }

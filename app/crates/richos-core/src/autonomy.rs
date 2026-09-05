@@ -20,7 +20,7 @@ pub enum Intake {
     Reply { text: String },
     Work { goal: String, tasks: Vec<WorkItem> },
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkItem {
     pub id: String,
@@ -89,8 +89,19 @@ pub fn inspect(
     pause: &AtomicBool,
     seconds: u64,
 ) -> Result<String, String> {
-    let mut model = NativeCognition::start_inspector(&resolve_claude_bin(), workspace)
-        .map_err(|e| e.to_string())?;
+    inspect_schema(workspace, prompt, pause, seconds, response_schema())
+}
+
+pub fn inspect_schema(
+    workspace: &Path,
+    prompt: &str,
+    pause: &AtomicBool,
+    seconds: u64,
+    schema: serde_json::Value,
+) -> Result<String, String> {
+    let mut model =
+        NativeCognition::start_inspector_with_schema(&resolve_claude_bin(), workspace, schema)
+            .map_err(|e| e.to_string())?;
     let cancel = model
         .cancel_handle()
         .ok_or("Inspector has no cancellation handle")?;
@@ -133,10 +144,13 @@ pub fn inspect(
     if result != "end_turn" && !(result == "tool_use" && model.structured_output().is_some()) {
         return Err(format!("Inspection stopped with {result}."));
     }
-    model
+    let value = model
         .structured_output()
-        .map(|value| value.to_string())
-        .ok_or("Inspector returned no structured result.".into())
+        .ok_or("Inspector returned no structured result.")?;
+    if value.as_object().map(|o| o.len()) != Some(1) || value.get("result").is_none() {
+        return Err("Inspector returned an invalid result envelope.".into());
+    }
+    Ok(value["result"].to_string())
 }
 
 pub fn intake(
@@ -226,7 +240,15 @@ or {{"kind":"decision","question":"one concrete CEO decision","why_ceo":"materia
 Only use decision when further work on THIS task truly requires CEO authority. Technical failures, missing tests, planning choices and unavailable tools are incomplete, not CEO decisions. Never ask the CEO to do an implementer's work. Continue independent work through other tasks."#,
         outcome.goal, outcome.task, outcome.criteria
     );
-    let answer: Review = parse(&inspect(workspace, &prompt, pause, check.timeout_seconds)?)?;
+    let raw = inspect_schema(
+        workspace,
+        &prompt,
+        pause,
+        check.timeout_seconds,
+        review_schema(),
+    )
+    .map_err(|e| format!("{REVIEW_RETRY}{e}"))?;
+    let answer: Review = parse(&raw).map_err(|e| format!("{REVIEW_RETRY}{e}"))?;
     match answer {
         Review::Complete { evidence } if !evidence.trim().is_empty() => Ok(evidence),
         Review::Incomplete { remaining } if !remaining.trim().is_empty() => Err(remaining),
@@ -246,7 +268,9 @@ Only use decision when further work on THIS task truly requires CEO authority. T
                 serde_json::to_string(&answer).unwrap()
             ))
         }
-        _ => Err("Reviewer supplied no usable evidence; work remains unfinished.".into()),
+        _ => Err(format!(
+            "{REVIEW_RETRY}Reviewer supplied no usable verdict."
+        )),
     }
 }
 
@@ -254,12 +278,48 @@ pub fn request_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+pub const REVIEW_RETRY: &str = "REVIEW_RETRY:";
+
+fn object(properties: serde_json::Value) -> serde_json::Value {
+    let required: Vec<_> = properties.as_object().unwrap().keys().cloned().collect();
+    serde_json::json!({"type":"object","additionalProperties":false,"required":required,"properties":properties})
+}
+fn variant(kind: &str, mut properties: serde_json::Value) -> serde_json::Value {
+    properties.as_object_mut().unwrap().insert(
+        "kind".into(),
+        serde_json::json!({"type":"string","const":kind}),
+    );
+    object(properties)
+}
+pub fn work_properties() -> serde_json::Value {
+    serde_json::json!({"goal":{"type":"string","minLength":1},"tasks":{"type":"array","minItems":1,"items":object(serde_json::json!({"id":{"type":"string"},"description":{"type":"string"},"depends_on":{"type":"array","items":{"type":"string"}},"criteria":{"type":"string"}}))}})
+}
 pub fn response_schema() -> serde_json::Value {
-    serde_json::json!({"type":"object","additionalProperties":false,"properties":{
-        "kind":{"type":"string"},"text":{"type":"string"},"goal":{"type":"string"},
-        "tasks":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","description","depends_on","criteria"],"properties":{
-            "id":{"type":"string"},"description":{"type":"string"},"depends_on":{"type":"array","items":{"type":"string"}},"criteria":{"type":"string"}}}},
-        "evidence":{"type":"string"},"remaining":{"type":"string"},"question":{"type":"string"},"why_ceo":{"type":"string"},"recommendation":{"type":"string"},
-        "options":{"type":"array","items":{"type":"string"}},"answers_decision":{"type":"boolean"}
-    }})
+    object(
+        serde_json::json!({"result":{"anyOf":[variant("reply",serde_json::json!({"text":{"type":"string"}})),variant("work",work_properties())]}}),
+    )
+}
+pub fn review_schema() -> serde_json::Value {
+    object(serde_json::json!({"result":{"anyOf":[
+        variant("complete",serde_json::json!({"evidence":{"type":"string","minLength":1}})),
+        variant("incomplete",serde_json::json!({"remaining":{"type":"string","minLength":1}})),
+        variant("decision",serde_json::json!({"question":{"type":"string","minLength":1},"why_ceo":{"type":"string","minLength":1},"recommendation":{"type":"string","minLength":1},"options":{"type":"array","minItems":2,"items":{"type":"string","minLength":1}}}))
+    ]}}))
+}
+
+/// Rich registers an assignment after answering in his normal conversation.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Handoff {
+    None,
+    Work { goal: String, tasks: Vec<WorkItem> },
+    Amend { goal: String, tasks: Vec<WorkItem> },
+    AnswerDecision,
+    Cancel,
+}
+
+pub fn turn_request_id(turn: &str) -> Result<String, String> {
+    uuid::Uuid::parse_str(turn.strip_prefix("turn_").unwrap_or(turn))
+        .map(|id| id.to_string())
+        .map_err(|e| e.to_string())
 }

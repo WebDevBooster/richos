@@ -105,7 +105,6 @@ pub enum Source {
     /// Has no user-authored prompt. It can carry a hidden system continuation
     /// prompt for owned work. Render eligibility is gated by
     /// `Turn::tier` (Tier 3 / Silent never renders — UX §5.1).
-    #[serde(alias = "managed")]
     Proactive,
 }
 

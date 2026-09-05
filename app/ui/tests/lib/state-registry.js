@@ -60,15 +60,25 @@
 "use strict";
 
 module.exports = [
+  { s: "Owned execution recovery for {thread}: {error}", c: "NOT-RENDERED", why: "Per-job scheduler stderr diagnostic. Other jobs continue; this literal is not sent to the webview." },
+  {"s": "Handle this: create hello.txt containing exactly Hello Rich with no trailing newline. Do not create other files.", "c": "NOT-RENDERED", "why": "Debug-only installed-native desktop selftest input or assertion, gated by explicit selftest and isolated data-directory environment variables."},
+  {"s": "Native handoff did not complete before the test deadline", "c": "NOT-RENDERED", "why": "Debug-only installed-native desktop selftest input or assertion, gated by explicit selftest and isolated data-directory environment variables."},
+  {"s": "Native handoff produced incorrect bytes", "c": "NOT-RENDERED", "why": "Debug-only installed-native desktop selftest input or assertion, gated by explicit selftest and isolated data-directory environment variables."},
+
+  {"s": "Background worker blocked the conversation", "c": "NOT-RENDERED", "why": "Debug-only desktop integration harness input or assertion. Runs only against an explicitly isolated test data directory."},
+  {"s": "Correction fixture worker never started", "c": "NOT-RENDERED", "why": "Debug-only desktop integration harness input or assertion. Runs only against an explicitly isolated test data directory."},
+  {"s": "Handle correction test: write original.txt.", "c": "NOT-RENDERED", "why": "Debug-only desktop integration harness input or assertion. Runs only against an explicitly isolated test data directory."},
+  {"s": "How is work going?", "c": "NOT-RENDERED", "why": "Debug-only desktop integration harness input or assertion. Runs only against an explicitly isolated test data directory."},
+  {"s": "Live correction did not finish", "c": "NOT-RENDERED", "why": "Debug-only desktop integration harness input or assertion. Runs only against an explicitly isolated test data directory."},
+  {"s": "Owned execution recovery: {error}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic, never emitted to the webview."},
+  {"s": "Owned handoff recovery: {error}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic, never emitted to the webview."},
+  {"s": "Revise the assignment: write revised.txt containing Revised. instead. Do not produce original.txt.", "c": "NOT-RENDERED", "why": "Debug-only desktop integration harness input or assertion. Runs only against an explicitly isolated test data directory."},
+
   {"s": "Accepted conversation disappeared on restart", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
   {"s": "Desktop job did not finish within the integration-test deadline", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
   {"s": "Handle this: produce deliverable.txt containing Finished.", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
   {"s": "Worker changed the selected conversation", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
   {"s": "Worker output leaked into the selected company", "c": "NOT-RENDERED", "why": "Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-directory environment variables and never renders in the customer UI."},
-  {"s": "Could not persist request state: {error}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic. The durable request remains queued for automatic retry; this literal is not emitted to the webview."},
-  {"s": "Owned work {thread} remains unfinished: {error}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic. The durable request remains queued for automatic retry; this literal is not emitted to the webview."},
-  {"s": "Steering remains queued: {error}", "c": "NOT-RENDERED", "why": "Scheduler stderr diagnostic. The durable request remains queued for automatic retry; this literal is not emitted to the webview."},
-  {"s": "Intake returned an empty answer", "c": "INFORMATIONAL", "why": "Persisted diagnostic evidence for an automatically retried intake. The scheduler retains ownership and requires no user action."},
   {"s": "Plan the complete work", "c": "INFORMATIONAL", "why": "Description of the task Rich is currently preparing, not an instruction to the user. Preparation starts automatically."},
   {"s": "There is no work to end.", "c": "INFORMATIONAL", "why": "A stale End request found no pending work. There is no remaining operation for the user to cancel."},
   {"s": "Open a conversation first.", "c": "ACTIONABLE", "control": "#rail-new-thread", "why": "Message acceptance requires a conversation. The sidebar New thread control creates one."},

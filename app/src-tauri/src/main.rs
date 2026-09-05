@@ -448,7 +448,7 @@ fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json:
 /// matter how the rest of the plumbing is written.
 #[tauri::command(async)]
 fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, String> {
-    let spine = state.spine.lock().unwrap();
+    let mut spine = state.spine.lock().unwrap();
     // THE GATE IS THE LIVE LEASE, NOT A BOOT-TIME SNAPSHOT — and that distinction is the
     // whole of the first-run defect fixed on 2026-09-04.
     //
@@ -490,9 +490,8 @@ fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, St
         return Err(LEASE_UNAVAILABLE_MESSAGE.into());
     }
     let thread = spine.active_thread().ok_or("Open a conversation first.")?.to_string();
-    drop(spine);
-    owned_work::enqueue(&state, &thread, &text)?;
-    state.spine.lock().unwrap().messages(&thread).map_err(|e| e.to_string())
+    spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;
+    spine.messages(&thread).map_err(|e| e.to_string())
 }
 
 /// What the CEO is told when there is no lease to think with.
@@ -1271,12 +1270,13 @@ fn main() {
                 }
             };
             spine.set_turn_control(control.clone());
+            spine.enable_owned_work();
 
             // Apply any stop request that outlived the process. The window is one line
             // wide — request fsync'd, process dies, terminal event never written — and
             // without this the turn is `in_flight` forever and crash-replay would re-run
             // work the CEO explicitly stopped.
-            if let Err(e) = spine.pending_owned_intake() {
+            if let Err(e) = spine.reconcile_intake() {
                 eprintln!("[richos] intake reconciliation at boot: {e}");
             }
 
@@ -1482,6 +1482,7 @@ fn main() {
             // the app EXACTLY as it boots — same ledger, same window, same everything —
             // and then drives the same `check`/`install` functions the two commands drive.
             // A harness that skipped the boot would be proving a different program.
+            owned_work::initialize(&app.state::<AppState>()).map_err(std::io::Error::other)?;
             owned_work::start(app.handle().clone());
             #[cfg(debug_assertions)]
             owned_work::selftest(app.handle().clone());
@@ -1856,7 +1857,7 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     let submit_app = app.clone();
     let submit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |text: String| {
         let state = submit_app.state::<AppState>();
-        let spine = match state.spine.lock() {
+        let mut spine = match state.spine.lock() {
             Ok(s) => s,
             Err(_) => return,
         };
@@ -1874,12 +1875,8 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
             );
             return;
         }
-        let thread = spine.active_thread().map(str::to_string);
-        drop(spine);
-        if let Some(thread) = thread {
-            if let Err(e) = owned_work::enqueue(&state, &thread, &text) {
-                let _ = submit_app.emit(richos_voice::event::EVENT_VOICE_ERROR, serde_json::json!({"message": e, "at": richos_voice::controller::now_millis()}));
-            }
+        if let Err(e) = spine.submit_prompt(&text, Source::Jam) {
+            let _ = submit_app.emit(richos_voice::event::EVENT_VOICE_ERROR, serde_json::json!({"message": e.to_string(), "at": richos_voice::controller::now_millis()}));
         }
     });
 

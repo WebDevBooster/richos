@@ -121,9 +121,17 @@
         catch (e) { if (stamp === generation) error(e); }
         finally { polling = false; }
       }, 2000);
-      bridge.listen("rich://run-updated", ({ payload }) => {
+      bridge.listen("rich://run-updated", async ({ payload }) => {
         if (payload.threadId !== thread) return;
-        if (current && (payload.runId !== current.runId || payload.revision < current.revision)) return;
+        if (current && payload.runId !== current.runId) {
+          const stamp = generation;
+          try {
+            const actual = await bridge.invoke("get_run", { threadId: thread });
+            if (stamp === generation && actual?.runId === payload.runId) { current = actual; render(); }
+          } catch (_) { /* A future update or reopening retries the authoritative read. */ }
+          return;
+        }
+        if (current && payload.revision < current.revision) return;
         current = payload; render();
       });
     },
