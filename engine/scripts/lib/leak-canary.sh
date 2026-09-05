@@ -60,13 +60,18 @@
 #
 # ITS FALSE-POSITIVE VECTOR, named so nobody rediscovers it: somebody editing
 # a non-ignored file in the same checkout while the run is in flight. MEASURED
-# 2026-09-05 on this machine, 10-second sampling with 68 agents live:
-# the shared main checkout was 0% red over every window tried, because agents
-# work in worktrees and only the lander touches it; an engineer's OWN worktree
-# while he was actively editing it was 100% red at a 7-minute window. So the
-# noise is self-inflicted and self-explaining — the report names the file, and
-# the engineer recognizes his own save — and it is NOT the "another agent
-# broke my run" flakiness the widening was feared for.
+# 2026-09-05, 49 minutes of 10-second sampling with 68 agents live on the
+# machine — the shared main checkout was 0% red across 288 one-minute windows
+# and 252 seven-minute windows, because agents work in worktrees and only the
+# lander touches it; an engineer's OWN worktree while he was actively editing
+# it was 17% red at one minute and 50% at seven. So the noise is
+# self-inflicted and self-explaining — the report names the file, and the
+# engineer recognizes his own save — and it is NOT the "another agent broke my
+# run" flakiness the widening was feared for.
+#
+# That window contained no land, so it says nothing about a merge arriving
+# mid-run; case 5a of this file's suite proves that separately, with a real
+# merge commit under a live canary.
 
 LC_ROOTS=""
 LC_HEALTHY=1

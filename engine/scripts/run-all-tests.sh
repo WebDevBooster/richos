@@ -149,15 +149,26 @@
 # answer: scripts/lib/global-state-witness.sh, which watches named paths rather
 # than trees. The two do not overlap and neither subsumes the other.
 #
-# ITS FALSE-POSITIVE VECTOR, MEASURED RATHER THAN GUESSED (2026-09-05, 10s
-# sampling, 68 agents live on the machine): the shared main checkout was 0% red
-# over every window tried, because agents work in worktrees and only the lander
-# writes there. An engineer's OWN worktree, while he was actively editing it,
-# was 47% red at a 7-minute window. So the noise is self-inflicted and
-# self-explaining — the report names the file and the engineer recognizes his
-# own save — and it is NOT the "another agent broke my run" flakiness that a
-# runner-level canary was feared for. It is also, in that case, TRUE: a suite
-# that ran before the save and one that ran after it did test different code.
+# ITS FALSE-POSITIVE VECTOR, MEASURED RATHER THAN GUESSED. 2026-09-05, 49
+# minutes of 10-second sampling with 68 agents live on the machine:
+#
+#   the shared main checkout   288 one-minute windows, 0 red
+#                              252 seven-minute windows, 0 red
+#   an engineer's OWN worktree  17% red at one minute, 50% at seven,
+#   while he was editing it     because he was saving files in it
+#
+# So the noise is self-inflicted and self-explaining — the report names the
+# file and the engineer recognizes his own save — and it is NOT the "another
+# agent broke my run" flakiness a runner-level canary was feared for. Agents
+# work in worktrees; only the lander writes to the shared checkout. It is also,
+# in that case, TRUE: a suite that ran before the save and one that ran after
+# it did test different code.
+#
+# WHAT THAT WINDOW DID NOT CONTAIN, said rather than glossed: a land. The last
+# merge to the observed checkout was six minutes before sampling began, so the
+# 0% figure is NOT evidence about a merge arriving mid-run. That property is
+# proven mechanically instead, in leak-canary.test.sh case 5a, which lands a
+# real merge commit under a live canary and requires silence.
 #
 # Usage:
 #   scripts/run-all-tests.sh            run everything, quiet on success
