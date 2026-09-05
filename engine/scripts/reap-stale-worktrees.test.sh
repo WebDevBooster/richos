@@ -417,7 +417,7 @@ add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
 if printf '%s' "$OUT" | grep -q '^=== coverage (DRY-RUN): repos=2 ' \
-   && printf '%s' "$OUT" | grep -q 'worktrees=4 native=2 hand-rolled=2' \
+   && printf '%s' "$OUT" | grep -q 'worktrees=4 native=2 shells=0 hand-rolled=2' \
    && printf '%s' "$OUT" | grep -q '^=== sources:'; then
     ok "coverage line reports repos, worktrees, class split and undecidables"
 else
@@ -619,15 +619,73 @@ fi
 
 # 19. VERDICT CLEAN: every candidate decided (live owner skipped, dead owner
 #     reaped) -> CLEAN, exit 0. The positive half of the verdict contract.
+#
+#     CHANGED 2026-09-05: this ran in DRY-RUN and asserted CLEAN over a world
+#     holding one worktree that was removable and had not been removed. That
+#     is the exact state the CEO found in his IDE, and a suite that calls it
+#     CLEAN is a suite that would have passed over the bug. The positive
+#     control now EXECUTES, so CLEAN describes removals that happened; 19b is
+#     the DRY-RUN half, and 19c proves CLEAN is still reachable in DRY-RUN.
 DIR="$(make_world clean-verdict)"
 add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
-OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN' \
-   && printf '%s' "$OUT" | grep -q 'undecidable=0 unresolved=0 indeterminate=0'; then
-    ok "verdict CLEAN when every candidate is decided"
+   && printf '%s' "$OUT" | grep -q 'undecidable=0 unresolved=0 indeterminate=0' \
+   && [ ! -d "$DIR/other-wt/done-owner" ] && [ -d "$DIR/other-wt/live-owner" ]; then
+    ok "verdict CLEAN when every candidate is decided AND the removals actually happened"
 else
     bad "clean verdict (rc=$RC): $(printf '%s' "$OUT" | grep -E '^=== (verdict|coverage)' | tr '\n' ' ')"
+fi
+
+# 19b. THE ROW ITSELF. A DRY-RUN that found removable worktrees and removed
+#      none NEVER prints the past tense and NEVER prints CLEAN. The shipped
+#      run this replaces said `reaped=11 skipped=21 errors=0` under
+#      `verdict: PENDING` about quarantines — eleven removals in the past
+#      tense, zero removals performed, and the sentence read like success.
+#      The verdict clause must also NAME the command that turns removal on:
+#      "why is it dry-run" is a question that deserves its answer at the point
+#      of use, not in a header nobody opens.
+DIR="$(make_world dryrun-tense)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if [ "$RC" -eq 0 ] \
+   && [ -d "$DIR/other-wt/done-owner" ] \
+   && printf '%s' "$OUT" | grep -q '^=== summary (DRY-RUN): removed=0 would-remove=2 ' \
+   && ! printf '%s' "$OUT" | grep -q '^=== summary (DRY-RUN): reaped=' \
+   && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING —.*would-remove=2 ' \
+   && printf '%s' "$OUT" | grep -q 'reap-stale-worktrees.sh .* --discover --execute' \
+   && ! printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN'; then
+    ok "W1 DRY-RUN prints removed=0 would-remove=N, never 'reaped=', never CLEAN, and NAMES the command that turns removal on (INVERTED: 'reaped=11' over a run that removed nothing)"
+else
+    bad "W1 dry-run tense (rc=$RC): $(printf '%s' "$OUT" | grep -E '^=== (summary|verdict)' | tr '\n' ' ' | cut -c1-400)"
+fi
+
+# 19c. NEGATIVE CONTROL FOR 19b, and it is the one that matters. If
+#      would-remove>0 were the only path to PENDING the new clause could be a
+#      constant that never turns off, and a verdict that is always PENDING is
+#      as useless as one that is always CLEAN. A DRY-RUN over a world whose
+#      only worktree belongs to a LIVE owner has nothing to remove, and it
+#      still says CLEAN.
+#      Built by hand rather than from make_world, because make_world always
+#      seeds an unlocked native worktree that IS removable — a control whose
+#      world contains the very thing it claims is absent proves nothing.
+DIR="$SANDBOX/dryrun-clean"
+mkdir -p "$DIR"
+seed_repo "$DIR/entity" adopted >/dev/null
+seed_repo "$DIR/other" >/dev/null
+add_native "$DIR/entity" "live" "$$"
+write_transcript "$DIR/transcript.jsonl" "live-owner=live"
+spawned_names "$DIR" live-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if [ "$RC" -eq 0 ] \
+   && printf '%s' "$OUT" | grep -q '^=== summary (DRY-RUN): removed=0 would-remove=0 ' \
+   && printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN'; then
+    ok "a DRY-RUN with nothing removable is still CLEAN — the new PENDING clause is not a constant"
+else
+    bad "dry-run clean control (rc=$RC): $(printf '%s' "$OUT" | grep -E '^=== (summary|verdict)' | tr '\n' ' ' | cut -c1-300)"
 fi
 
 # 20. A TRANSCRIPT IS NOT OWNERSHIP. No --transcript given; the projects
@@ -765,6 +823,179 @@ if [ "$RC" -eq 0 ] && [ -d "$QP" ] \
     ok "a quarantined worktree is counted apart, survives --execute untouched, and the verdict is PENDING — never CLEAN (INVERTED: 30 of them read as CLEAN on 2026-09-04)"
 else
     bad "quarantine verdict (rc=$RC present=$([ -d "$QP" ] && echo yes || echo NO): $(printf '%s' "$OUT" | grep -E '^=== verdict|skip breakdown' | tr '\n' ' ' | cut -c1-300))"
+fi
+
+# ===========================================================================
+# REMOVAL IS ROUTED THROUGH THE SANCTIONED REMOVER (2026-09-05)
+# ===========================================================================
+# Cases 3, 20b and 24 already prove that --execute removes a REAL worktree in
+# a REAL repository and spares the ones it must. What they cannot show is WHO
+# removed it: until 2026-09-05 this script ran `git worktree remove` itself,
+# which is a second implementation of "is this agent dead" sitting beside
+# scripts/lib/agent-liveness.sh — and a second implementation is how the first
+# one silently goes stale. The three cases below are about the ROUTE, and 25b
+# and 25c are the ones that matter: take the remover away, or have it refuse,
+# and removal must STOP. A routing that still deletes when the thing it routes
+# to is missing is not a routing; it is a comment.
+
+# 25a. THE ROUTE IS REAL. A shim standing in for the remover is invoked with
+#      the owner agent id, and delegating to the real remover removes the tree.
+DIR="$(make_world remover-route)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+SHIM="$DIR/remover-shim.sh"
+cat >"$SHIM" <<SHIMEOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$DIR/remover-argv.log"
+exec "$SCRIPT_DIR/remove-agent-worktree.sh" "\$@"
+SHIMEOF
+chmod +x "$SHIM"
+export REAP_REMOVER="$SHIM"
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
+unset REAP_REMOVER
+if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/done-owner" ] \
+   && [ -f "$DIR/remover-argv.log" ] \
+   && grep -q -- '--owner done ' "$DIR/remover-argv.log" \
+   && grep -q -- "--repo $DIR/other" "$DIR/remover-argv.log" \
+   && grep -q -- "$DIR/other-wt/done-owner" "$DIR/remover-argv.log"; then
+    ok "REMOVAL ROUTE: --execute removes a real worktree THROUGH remove-agent-worktree.sh, naming the owner agent id, the owning repo and the path"
+else
+    bad "remover route (rc=$RC dir=$([ -d "$DIR/other-wt/done-owner" ] && echo present || echo gone) argv=$(cat "$DIR/remover-argv.log" 2>/dev/null | tr '\n' ' ' | cut -c1-300))"
+fi
+
+# 25b. THE REMOVER IS THE AUTHORITY, NOT DECORATION. When it refuses (exit 3 —
+#      "the agent is ALIVE, or liveness is indeterminate") the tree SURVIVES,
+#      nothing is deleted by any other route, and the run FAILS: every gate
+#      here said dead and the shared resolver said otherwise, and a
+#      contradiction between the two authorities is never resolved by deleting.
+DIR="$(make_world remover-refuses)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+REFUSER="$DIR/refuser.sh"
+cat >"$REFUSER" <<'REFEOF'
+#!/usr/bin/env bash
+echo "=== remove-agent-worktree: REFUSED — agent is ALIVE ===" >&2
+exit 3
+REFEOF
+chmod +x "$REFUSER"
+export REAP_REMOVER="$REFUSER"
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute 2>&1)"; RC=$?
+unset REAP_REMOVER
+if [ "$RC" -eq 1 ] && [ -d "$DIR/other-wt/done-owner" ] \
+   && [ -d "$DIR/entity/.claude/worktrees/agent-done" ] \
+   && printf '%s' "$OUT" | grep -q 'the sanctioned remover REFUSED it' \
+   && printf '%s' "$OUT" | grep -q 'The two liveness authorities disagree' \
+   && printf '%s' "$OUT" | grep -q '^=== verdict: FAIL — errors='; then
+    ok "W6 REMOVER REFUSES (exit 3): every tree survives, nothing falls back to a raw removal, and the run FAILS naming the disagreement between the two liveness authorities"
+else
+    bad "W6 remover refusal (rc=$RC hr=$([ -d "$DIR/other-wt/done-owner" ] && echo present || echo GONE) native=$([ -d "$DIR/entity/.claude/worktrees/agent-done" ] && echo present || echo GONE)): $(printf '%s' "$OUT" | grep -E 'ERROR|verdict' | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# 25c. NO UNSANCTIONED FALLBACK. With the remover ABSENT, --execute removes
+#      NOTHING, declares the gap in `blind:`, and fails. This is the control
+#      that makes 25a mean something: if 25a passed with this one also
+#      removing the tree, the route would be decorative.
+DIR="$(make_world remover-absent)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+export REAP_REMOVER="$DIR/there-is-no-remover-here.sh"
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute 2>&1)"; RC=$?
+unset REAP_REMOVER
+if [ "$RC" -eq 1 ] && [ -d "$DIR/other-wt/done-owner" ] \
+   && [ -d "$DIR/entity/.claude/worktrees/agent-done" ] \
+   && printf '%s' "$OUT" | grep -q '=== blind: removal: the sanctioned remover is missing' \
+   && printf '%s' "$OUT" | grep -q '^=== verdict: FAIL — errors='; then
+    ok "W5 REMOVER ABSENT: --execute removes nothing at all, DECLARES the gap, and fails — there is no raw-git fallback"
+else
+    bad "W5 remover absent (rc=$RC hr=$([ -d "$DIR/other-wt/done-owner" ] && echo present || echo GONE)): $(printf '%s' "$OUT" | grep -E 'blind: removal|verdict' | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# 26. ONE DIRECTORY, TWO REPOSITORIES. A copied .git registers the same
+#     worktree paths as its original (/Users/alex/ab/richos-alex does this for
+#     four of richos's trees today), so the same directory was inventoried
+#     twice: `would-remove=11` over SEVEN real directories, and under
+#     --execute the second repository ran `git worktree remove` on a path the
+#     first had already deleted. First claimant wins; the rest are named.
+DIR="$(make_world duplicate-registration)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+cp -R "$DIR/other" "$DIR/other-copy"
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+DUP_LINES="$(printf '%s\n' "$OUT" | grep -c '^DRY-RUN REAP done-owner' || true)"
+if [ "$RC" -eq 0 ] && [ "$DUP_LINES" -eq 1 ] \
+   && printf '%s' "$OUT" | grep -q '^SKIP done-owner duplicate-registration(' \
+   && printf '%s' "$OUT" | grep -q 'duplicate-registration=1'; then
+    ok "W2 ONE DIRECTORY, ONE CLAIMANT: a path registered by two repositories is counted once and the second claimant is named, never acted on"
+else
+    bad "W2 duplicate registration (rc=$RC reap-lines=$DUP_LINES): $(printf '%s' "$OUT" | grep -E 'done-owner|duplicate-registration=' | tr '\n' ' ' | cut -c1-400)"
+fi
+
+# 26b. NEGATIVE CONTROL for 26. Without the second registration the same world
+#      produces NO duplicate line — otherwise `duplicate-registration` could be
+#      a label the reaper hands out to everything.
+DIR="$(make_world duplicate-control)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if [ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q 'duplicate-registration(' \
+   && printf '%s' "$OUT" | grep -q 'duplicate-registration=0'; then
+    ok "one repository registering a path produces no duplicate finding (control for 26)"
+else
+    bad "duplicate control (rc=$RC): $(printf '%s' "$OUT" | grep -E 'duplicate' | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# 27. UNMERGED WORK IS NAMED. `SKIP agent-... unmerged(+1)` was the entire
+#     report on a worktree whose one commit was a teammate's committed
+#     escalation; two of them sat unread for three days because the line said
+#     nothing about what was in them. The gate was always right — the report
+#     was useless.
+DIR="$(make_world unmerged-named)"
+COMMIT_MSG="BLOCKED.md: the fixture dispatched an Agent, so arm-2 reads it green"
+git -C "$DIR/entity/.claude/worktrees/agent-done" commit -q --allow-empty -m "$COMMIT_MSG"
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if [ "$RC" -eq 0 ] \
+   && printf '%s' "$OUT" | grep -q '^SKIP agent-done unmerged(+1)' \
+   && printf '%s' "$OUT" | grep -q 'BLOCKED.md: the fixture dispatched an Agent' \
+   && printf '%s' "$OUT" | grep -q 'READ it before removing anything'; then
+    ok "W3 an unmerged worktree's SKIP line NAMES its commit subjects, so a committed escalation is visible in the report instead of three days later"
+else
+    bad "W3 unmerged naming (rc=$RC): $(printf '%s' "$OUT" | grep 'agent-done' | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# 28. THE SHELL IS LABELED — and labeling is ALL it is. A cross-repository
+#     spawn's native worktree is its platform-owned LIVENESS WITNESS; the row
+#     that asked for this work called it "a worktree it will never use", which
+#     is false in the fatal direction. `native-shell` is printed and counted
+#     and is wired to nothing that decides: 28b proves a LOCKED shell is still
+#     skipped exactly as any locked native worktree is.
+DIR="$(make_world shell-label)"
+ledger_record "$DIR" registered --teammate cross-repo1 --agent-id live --session-id sess-now \
+    --repo "$DIR/entity" --worktree "$DIR/entity/.claude/worktrees/agent-live" \
+    --branch worktree-agent-live --class native
+ledger_record "$DIR" registered --teammate cross-repo1 --agent-id live --session-id sess-now \
+    --repo "$DIR/other" --worktree "$DIR/other-wt/cross-repo1" --branch cross-repo1 --class hand-rolled
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if [ "$RC" -eq 0 ] \
+   && printf '%s' "$OUT" | grep -q '^SKIP agent-live locked(native-shell)' \
+   && printf '%s' "$OUT" | grep -q 'native=2 shells=1 '; then
+    ok "a native worktree the ledger joins to a workspace in ANOTHER repository is labeled native-shell and counted (shells=1)"
+else
+    bad "shell label (rc=$RC): $(printf '%s' "$OUT" | grep -E 'agent-live|coverage' | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# 28b. THE LABEL DECIDES NOTHING. The shell above is LOCKED by a running pid
+#      and is skipped for that reason and no other — an agent is alive and its
+#      witness is the only proof of it. If `native-shell` ever became a reason
+#      to relax a gate, this is the case that catches it.
+if [ -d "$DIR/entity/.claude/worktrees/agent-live" ]; then
+    OUT2="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC2=$?
+    if [ "$RC2" -eq 0 ] && [ -d "$DIR/entity/.claude/worktrees/agent-live" ] \
+       && printf '%s' "$OUT2" | grep -q '^SKIP agent-live locked(native-shell)'; then
+        ok "a LIVE agent's shell survives --execute: the label reports, it never relaxes a gate (the shell IS the proof the agent is alive)"
+    else
+        bad "shell not decisive (rc=$RC2 dir=$([ -d "$DIR/entity/.claude/worktrees/agent-live" ] && echo present || echo GONE))"
+    fi
+else
+    bad "shell not decisive: fixture missing before the case ran"
+fi
+
+if [ "$FAIL" -eq 0 ] && [ -f "$SCRIPT_DIR/reap-stale-worktrees.mutation.sh" ]; then
+    bash "$SCRIPT_DIR/reap-stale-worktrees.mutation.sh" || exit 1
 fi
 
 echo ""

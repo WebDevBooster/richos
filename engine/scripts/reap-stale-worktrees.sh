@@ -89,6 +89,104 @@
 #    by-hand act and is reached by no hook.
 #
 # ===========================================================================
+# WHY IT IS DRY-RUN BY DEFAULT, AND EXACTLY WHAT TURNS REMOVAL ON (2026-09-05)
+# ===========================================================================
+# The CEO opened his IDE on 2026-09-04, found 17 `agent-*` directories under
+# femcboost/.claude/worktrees/ and asked for "an automatic mechanism for
+# cleaning those things up". The mechanism was not missing. It was INERT, and
+# worse than inert: this file's own session-start run ended
+#
+#     reaped=11 skipped=21 errors=0 residue=0   (DRY-RUN, nothing removed)
+#
+# `reaped=11` in a run that removed NOTHING. The parenthetical was true and
+# nobody reads a parenthetical past a number in the past tense. That is this
+# project's standing failure class — a check reporting green over something
+# that never ran — wearing a cleanup script's clothes.
+#
+# THE ANSWER TAKEN: DRY-RUN STAYS THE DEFAULT, and the report stops lying.
+#
+# Removal is NOT this script's job any more and re-arming it would be a
+# regression, not a fix. On 2026-09-03 the CEO ruled the sweep-decides-
+# liveness design dead — "The system should stop trying to discover whether
+# the agent might return. It is forbidden to return." — after nine rounds of
+# it failed in nine shapes, the last by removing a LIVE agent's worktree.
+# Removal now belongs to the worktree TRANSACTION: a terminal event claims it,
+# and reconcile-terminal-worktrees.py (launchd-driven) captures, verifies,
+# unregisters and removes. That machine works — 75 removed, measured
+# 2026-09-05 — so the automatic mechanism the CEO asked for EXISTS for every
+# worktree a transaction claims.
+#
+# What it does not cover is a worktree NO transaction ever claimed: spawned
+# before the transaction store, or by a route that wrote no terminal event.
+# Nothing will ever come for those, and they are exactly the pile in his IDE.
+# So this inventory's job is to make that population impossible to misread:
+#
+#   * In DRY-RUN the summary NEVER uses the past tense. It prints
+#     `removed=0 would-remove=N`. `reaped=N` appears only under --execute,
+#     where it is a count of removals that happened.
+#   * `would-remove>0` is a PENDING verdict, never CLEAN, and the verdict
+#     line names the one command that turns removal on:
+#         scripts/reap-stale-worktrees.sh <repo-root> --discover --execute
+#     That is an OPERATOR's by-hand act. No hook passes --execute, and Layer Q
+#     of the integrity probe asserts that none ever does.
+#   * Under --execute, removal goes through scripts/remove-agent-worktree.sh —
+#     the sanctioned remover — so the ENTITY-lock liveness check runs a second
+#     time, fail-closed, and deregistration happens the blessed way. The gates
+#     below are a FILTER; the remover is the AUTHORITY. Two implementations of
+#     "alive" is how one of them silently becomes the stale one, and this
+#     script used to be the second one.
+#
+# ===========================================================================
+# SHELLS ARE LABELED, NEVER TREATED AS DISPOSABLE (2026-09-05)
+# ===========================================================================
+# A cross-repository spawn gets a native worktree in the SESSION's repository
+# and a hand-rolled one in the repository it actually edits. The native one is
+# never written to, and the row that asked for this work called it "a worktree
+# it will never use". That is FALSE and the error is dangerous in the fatal
+# direction: the shell holds no files and one thing that matters — the
+# PLATFORM-OWNED LOCK that scripts/agent-liveness.sh reads to answer "is this
+# agent alive". A hand-rolled tree takes no lock at all. Remove a shell whose
+# agent is still running and you have destroyed the only evidence that it is
+# running. "Never written to" is true; "never used" is not.
+#
+# So `shell` is a REPORTING label and it is wired to NOTHING that decides. It
+# is printed (`native-shell`) and counted (`shells=N` on the coverage line) so
+# that a reader can tell a 266 MB never-read witness from a real workspace,
+# and so that an `unmerged(+1)` on a SHELL reads as the anomaly it is rather
+# than as ordinary unlanded work. Every gate treats a shell exactly as it
+# treats any other native worktree.
+#
+# ===========================================================================
+# UNMERGED WORK IS NAMED, NOT JUST COUNTED (2026-09-05)
+# ===========================================================================
+# `SKIP agent-a44e6817bce90ed1c unmerged(+1)` was this file's whole report on
+# a worktree whose single commit is
+#
+#     BLOCKED.md: the 'parked until' fixture dispatched an Agent, so the
+#     arm-2 rule as specified reads it green
+#
+# — a teammate's escalation, written exactly as the protocol of the day told
+# it to, committed on a branch nobody merged, and still sitting there three
+# days later beside a second one. The gate was right: unmerged work is never
+# swept. The REPORT was useless, and that is why nobody looked. Every
+# `unmerged` skip now carries the commit subjects (up to three), because the
+# subject line is what makes the difference between "some branch" and "a
+# person is blocked in here".
+#
+# ===========================================================================
+# ONE DIRECTORY, TWO REPOSITORIES (2026-09-05)
+# ===========================================================================
+# /Users/alex/ab/richos-alex is a COPY of richos's .git, and it registers the
+# same four worktree paths as /Users/alex/ab/richos. Discovery found both, so
+# every one of those four was inventoried twice: `would-remove=11` over SEVEN
+# distinct directories. Under --execute the second repository would then run
+# `git worktree remove` against a directory the first had already deleted, and
+# a spurious error would fail an otherwise clean run. A worktree path is now
+# claimed by the FIRST reap-eligible repository that registers it; any later
+# claimant is `SKIP <id> duplicate-registration(...)`, counted apart, and
+# never acted on.
+#
+# ===========================================================================
 # THE SAFETY RULE — ABSOLUTE
 # ===========================================================================
 # NEVER REMOVE A WORKTREE THAT IS OR MIGHT BE LIVE. Doctrine: *never infer an
@@ -245,10 +343,11 @@
 # of three and one path convention out of two while sounding like it described
 # everything. So the summary now carries its own scope:
 #
-#   === summary (MODE): reaped=N skipped=N errors=N residue=N
+#   === summary (EXECUTE): reaped=N skipped=N errors=N residue=N
 #       orphan-processes=N branches-swept=N branches-skipped=N ===
+#   === summary (DRY-RUN): removed=0 would-remove=N skipped=N ... ===
 #   === coverage (MODE): repos=N reap-eligible=N report-only=N unreachable=N
-#       worktrees=N native=N hand-rolled=N undecidable=N unresolved=N
+#       worktrees=N native=N shells=N hand-rolled=N undecidable=N unresolved=N
 #       indeterminate=N ===
 #   === sources: <label>=<count> ... ===
 #   === blind: <what this run could NOT see>  (or: none declared) ===
@@ -302,6 +401,11 @@
 #     REAP_PROJECTS_DIR        stands in for ~/.claude/projects
 #     REAP_NEIGHBORHOOD_MAX    max entries in a parent dir before the
 #                              neighborhood scan declares itself blind (200)
+#     REAP_REMOVER             stands in for scripts/remove-agent-worktree.sh.
+#                              The suite needs to TAKE THE REMOVER AWAY and see
+#                              removal stop, because a routing that still works
+#                              when the thing it routes to is gone is not a
+#                              routing. Never set in a real session.
 #
 # Before each real removal, scripts/collect-worktree-artifacts.sh is run
 # against the tree if the swept repository has one — mirrors land-time
@@ -317,6 +421,10 @@
 #   3  ran clean, but verdict FAIL: at least one hand-rolled worktree has NO
 #      ownership record (owner-unresolved). Nothing was mutated wrongly; the
 #      RECORD has a hole, and that is not allowed to print as routine.
+#
+# The verdict is PENDING (exit 0) — never CLEAN — while any of these hold, and
+# it names ALL of them rather than the first: indeterminate owners, worktrees
+# quarantined by a terminal transaction, and (DRY-RUN only) `would-remove>0`.
 
 set -euo pipefail
 
@@ -883,6 +991,47 @@ record_terminated() {
         --agent-id "$1" --worktree "$2" --reason "$3" --witness "$4" >/dev/null 2>&1 || true
 }
 
+# --- SHELL LABELING — reporting only, wired to nothing that decides --------
+# See the header. A native worktree is a SHELL when the ledger joins it to a
+# workspace of the SAME agent in ANOTHER repository, or when it carries the
+# sparse-checkout that lib/shell-worktree-sparse.py applies only to shells. A
+# native worktree the ledger has no registration for cannot be classified
+# either way; it is reported as plain `native` (the conservative reading) and
+# the count of such trees is DECLARED in `blind:` rather than implied away.
+REMOVER_SH="${REAP_REMOVER:-$SCRIPT_DIR/remove-agent-worktree.sh}"
+if [ "$EXECUTE" -eq 1 ] && [ ! -x "$REMOVER_SH" ]; then
+    blind "removal: the sanctioned remover is missing or not executable at $REMOVER_SH — NOTHING will be removed in this --execute run; every selected worktree is reported as an ERROR rather than deleted by an unsanctioned route"
+fi
+
+SHELL_PATHS=""
+if [ -f "$LEDGER_PY" ] && [ -f "$WT_LEDGER" ] && command -v python3 >/dev/null 2>&1; then
+    SHELL_PATHS="$(python3 "$LEDGER_PY" --ledger "$WT_LEDGER" shells 2>/dev/null || true)"
+fi
+
+is_shell() { # <worktree-path> -> 0 when this native worktree is a cross-repo shell
+    if [ -n "$SHELL_PATHS" ] && printf '%s\n' "$SHELL_PATHS" | grep -Fxq -- "$1"; then
+        return 0
+    fi
+    [ "$(git -C "$1" config --get core.sparseCheckout 2>/dev/null)" = "true" ] && return 0
+    return 1
+}
+
+# unmerged_subjects <repo> <target-ref> <branch> — up to three `<sha> <subject>`
+# lines, joined, so an `unmerged` skip says WHAT is unlanded. Two teammates'
+# committed escalations sat unread for three days under a bare `unmerged(+1)`.
+unmerged_subjects() {
+    local out
+    # THE JOIN IS awk, NOT sed. The first version used `tr '\n' '\a'` and
+    # `sed 's/\a/ | /g'`; BSD sed reads `\a` as the LETTER a, so every `a` in
+    # every commit subject became ` | ` and the line was unreadable — a
+    # reporting fix that broke its own report. awk interprets no escapes here.
+    out="$(git -C "$1" log --no-decorate --format='%h %s' -n 3 "$2..refs/heads/$3" 2>/dev/null \
+           | cut -c1-160 \
+           | awk 'NR==1 {printf "%s", $0; next} {printf " | %s", $0}')"
+    [ -n "$out" ] || out="(no commit subject could be read — inspect the branch by hand)"
+    printf '%s' "$out"
+}
+
 # ===========================================================================
 # THE SWEEP
 # ===========================================================================
@@ -892,6 +1041,11 @@ if [ "$EXECUTE" -eq 0 ]; then
 fi
 
 REAP_COUNT=0
+# WOULD_COUNT is DRY-RUN's counter and it is deliberately a different variable
+# from REAP_COUNT. Sharing one and renaming the label at print time is what
+# produced `reaped=11` over a run that removed nothing: one number cannot
+# honestly answer both "how many did you remove" and "how many could be".
+WOULD_COUNT=0
 SKIP_COUNT=0
 ERROR_COUNT=0
 SKIP_LOCKED=0
@@ -907,6 +1061,11 @@ SKIP_OWNER_INDETERMINATE=0
 SKIP_OWNER_UNRESOLVED=0
 SKIP_OPERATOR=0
 SKIP_REPORT_ONLY=0
+SKIP_DUPLICATE=0
+N_SHELLS=0
+N_UNCLASSIFIED_NATIVE=0
+CLAIMED_PATHS=""
+
 BR_SWEPT=0
 BR_SKIPPED=0
 N_NATIVE=0
@@ -953,18 +1112,42 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             _last_repo="$repo"
         fi
 
+        disp_class="$class"
         if [ "$class" = "native" ]; then
             N_NATIVE=$((N_NATIVE + 1))
+            if is_shell "$path"; then
+                disp_class="native-shell"
+                N_SHELLS=$((N_SHELLS + 1))
+            elif ! is_registered_path "$path"; then
+                N_UNCLASSIFIED_NATIVE=$((N_UNCLASSIFIED_NATIVE + 1))
+            fi
         else
             N_HANDROLLED=$((N_HANDROLLED + 1))
         fi
 
         # --- Gate 0: repository reap-eligibility ---
         if ! repo_eligible_at "$repo"; then
-            skip "$id" "report-only-repo($class) — '$repo' is known only from the neighborhood scan and holds no worktree owned by a teammate this machine recorded spawning; inventoried, never mutated"
+            skip "$id" "report-only-repo($disp_class) — '$repo' is known only from the neighborhood scan and holds no worktree owned by a teammate this machine recorded spawning; inventoried, never mutated"
             SKIP_REPORT_ONLY=$((SKIP_REPORT_ONLY + 1))
             continue
         fi
+
+        # --- Gate 0c: ONE DIRECTORY, ONE CLAIMANT ---
+        # Two repositories can register the same worktree path — a copied .git
+        # does it, and /Users/alex/ab/richos-alex does it today for four of
+        # richos's trees. Without this the same directory is inventoried twice
+        # (would-remove=11 over 7 real directories) and, under --execute, the
+        # second repository runs `git worktree remove` on a path the first has
+        # already deleted, failing an otherwise clean run. First reap-eligible
+        # claimant wins; the rest are named and never acted on.
+        case "$CLAIMED_PATHS" in
+        *"|$path|"*)
+            skip "$id" "duplicate-registration($disp_class) — this exact directory is already registered by an earlier reap-eligible repository in this run; two repositories claim one directory (a copied .git does this). Only the first claimant may act on it; inventoried here, never mutated"
+            SKIP_DUPLICATE=$((SKIP_DUPLICATE + 1))
+            continue
+            ;;
+        esac
+        CLAIMED_PATHS="$CLAIMED_PATHS|$path|"
 
         # --- Gate 0b: a QUARANTINE belongs to the reconciler, not to this ---
         # `<path>.richos-terminal-<session8>-<agentid>` is the name a terminal
@@ -983,7 +1166,7 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
         # inside a CLEAN verdict.
         case "$(basename "$path")" in
             *.richos-terminal-*)
-                skip "$id" "quarantined($class) — claimed by a terminal transaction; reconcile-terminal-worktrees.py owns its removal and this inventory never touches it. Its state (and whether it is BLOCKED) is that tool's --status, not this line"
+                skip "$id" "quarantined($disp_class) — claimed by a terminal transaction; reconcile-terminal-worktrees.py owns its removal and this inventory never touches it. Its state (and whether it is BLOCKED) is that tool's --status, not this line"
                 SKIP_QUARANTINED=$((SKIP_QUARANTINED + 1))
                 continue
                 ;;
@@ -992,7 +1175,7 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
         # Directory gone but still registered -> report + let `worktree prune`
         # (execute-only, end of run) clear the registration. No further gate.
         if [ ! -d "$path" ]; then
-            skip "$id" "missing-dir($class)"
+            skip "$id" "missing-dir($disp_class)"
             SKIP_MISSING_DIR=$((SKIP_MISSING_DIR + 1))
             continue
         fi
@@ -1008,7 +1191,7 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
         fi
         if [ "$locked" -eq 1 ]; then
             if [ "$UNLOCK_STALE" -eq 0 ]; then
-                skip "$id" "locked($class)"
+                skip "$id" "locked($disp_class)"
                 SKIP_LOCKED=$((SKIP_LOCKED + 1))
                 continue
             fi
@@ -1016,7 +1199,7 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             admin_dir="$(git -C "$path" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
             lock_file="$admin_dir/locked"
             if [ -z "$admin_dir" ] || [ ! -f "$lock_file" ]; then
-                skip "$id" "locked-possibly-live($class)"
+                skip "$id" "locked-possibly-live($disp_class)"
                 SKIP_LOCKED_LIVE=$((SKIP_LOCKED_LIVE + 1))
                 continue
             fi
@@ -1026,14 +1209,14 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             pids="$(live_pids_for "$path")"
 
             if [ -z "$lock_mtime" ]; then
-                skip "$id" "locked-possibly-live($class)"
+                skip "$id" "locked-possibly-live($disp_class)"
                 SKIP_LOCKED_LIVE=$((SKIP_LOCKED_LIVE + 1))
                 continue
             fi
             age=$((now - lock_mtime))
 
             if [ -n "$pids" ] || [ "$age" -lt 7200 ]; then
-                skip "$id" "locked-possibly-live($class)"
+                skip "$id" "locked-possibly-live($disp_class)"
                 SKIP_LOCKED_LIVE=$((SKIP_LOCKED_LIVE + 1))
                 continue
             fi
@@ -1094,12 +1277,12 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
 
         # --- Gate 3: merged ---
         if [ -z "$branch_name" ]; then
-            skip "$id" "no-branch($class — detached HEAD; nothing to verify against, and unverifiable is not permission)"
+            skip "$id" "no-branch($disp_class — detached HEAD; nothing to verify against, and unverifiable is not permission)"
             SKIP_NO_BRANCH=$((SKIP_NO_BRANCH + 1))
             continue
         fi
         if ! git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch_name" >/dev/null; then
-            skip "$id" "no-branch($class)"
+            skip "$id" "no-branch($disp_class)"
             SKIP_NO_BRANCH=$((SKIP_NO_BRANCH + 1))
             continue
         fi
@@ -1107,7 +1290,9 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
         [ -n "$target_ref" ] || target_ref="$(git -C "$repo" rev-parse HEAD)"
         if ! git -C "$repo" merge-base --is-ancestor "refs/heads/$branch_name" "$target_ref" 2>/dev/null; then
             n="$(git -C "$repo" rev-list --count "$target_ref..refs/heads/$branch_name" 2>/dev/null || echo '?')"
-            skip "$id" "unmerged(+$n)"
+            _why=""
+            [ "$disp_class" = "native-shell" ] && _why=" — a SHELL is never written to, so a commit on one is an ANOMALY: it is almost always an escalation record"
+            skip "$id" "unmerged(+$n)$_why — $(unmerged_subjects "$repo" "$target_ref" "$branch_name") — never swept; READ it before removing anything"
             SKIP_UNMERGED=$((SKIP_UNMERGED + 1))
             continue
         fi
@@ -1136,7 +1321,44 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
                     echo "WARN: artifact collection failed for $id — proceeding with removal anyway" >&2
                 fi
             fi
-            if git -C "$repo" worktree remove "$path"; then
+
+            # THE GATES ARE A FILTER; THE REMOVER IS THE AUTHORITY.
+            # scripts/remove-agent-worktree.sh is the ONLY sanctioned removal
+            # path (its companion PreToolUse guard exists to force everything
+            # through it) and it re-asks the liveness question against the
+            # ENTITY's isolation lock using scripts/lib/agent-liveness.sh —
+            # the one resolver the whole engine shares. This script used to
+            # answer that question a second way and then delete on its own
+            # answer. Two implementations of "alive" is how one of them
+            # silently becomes the stale one.
+            #
+            # --branch is deliberately NOT passed. The remover deletes with
+            # `git branch -D`; this loop keeps `-d`, which REFUSES a branch
+            # holding unmerged commits and is the backstop for a gate 3 that
+            # is somehow wrong. Nor is --force passed: gate 4 already proved
+            # the tree clean of tracked AND untracked files, so a removal that
+            # needs --force means a gate was wrong and must fail loudly.
+            _owner_agent=""
+            if [ "$class" = "native" ]; then
+                _owner_agent="${id#agent-}"
+            else
+                _owner_agent="$(owner_verdict_for "$path" | cut -f2 | cut -d, -f1)"
+            fi
+            _rm_rc=0
+            _rm_out=""
+            if [ -n "$_owner_agent" ] && [ -x "$REMOVER_SH" ]; then
+                _rm_out="$(REMOVE_AGENT_ENTITY_REPO="$ENTITY_ROOT" \
+                    "$REMOVER_SH" --owner "$_owner_agent" --repo "$repo" \
+                    --entity-repo "$ENTITY_ROOT" "$path" 2>&1)" || _rm_rc=$?
+            else
+                # No sanctioned remover reachable, or no owner id to check
+                # against. Removing anyway would be exactly the unilateral
+                # deletion this routing exists to end, so it does not happen.
+                _rm_rc=90
+                _rm_out="no owner agent id resolved for this path, or the sanctioned remover is not executable at $REMOVER_SH"
+            fi
+
+            if [ "$_rm_rc" -eq 0 ]; then
                 [ "$class" = "native" ] && record_terminated "${id#agent-}" "$path" "native isolation worktree reaped: unlocked, merged, clean, no live process" "reaper-removal"
                 if git -C "$repo" branch -d "$branch_name" >/dev/null 2>&1; then
                     echo "REAP $id"
@@ -1145,13 +1367,21 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
                     echo "ERROR: removed worktree $id but the branch deletion of $branch_name refused (unmerged commits protecting it?) — investigate manually" >&2
                     ERROR_COUNT=$((ERROR_COUNT + 1))
                 fi
+            elif [ "$_rm_rc" -eq 3 ]; then
+                # THE TWO AUTHORITIES DISAGREE. Every gate above said this
+                # tree's owner is not alive; the sanctioned remover, reading
+                # the entity lock through the shared resolver, refused. That
+                # contradiction is never resolved in favor of deleting, and it
+                # is never a routine skip either — it FAILS the run.
+                echo "ERROR: the gates selected $id for removal but the sanctioned remover REFUSED it (owner '$_owner_agent' alive or indeterminate). Nothing was removed. The two liveness authorities disagree, which is a defect in one of them: $(printf '%s' "$_rm_out" | tr '\n' ' ' | cut -c1-400)" >&2
+                ERROR_COUNT=$((ERROR_COUNT + 1))
             else
-                echo "ERROR: worktree removal failed for $id" >&2
+                echo "ERROR: worktree removal failed for $id (remove-agent-worktree.sh exit $_rm_rc): $(printf '%s' "$_rm_out" | tr '\n' ' ' | cut -c1-400)" >&2
                 ERROR_COUNT=$((ERROR_COUNT + 1))
             fi
         else
             echo "DRY-RUN REAP $id"
-            REAP_COUNT=$((REAP_COUNT + 1))
+            WOULD_COUNT=$((WOULD_COUNT + 1))
         fi
     done
 fi
@@ -1370,10 +1600,21 @@ for _s in primary engine inflight-repos event-logs ledger neighborhood; do
     SRC_SUMMARY="$SRC_SUMMARY $_s=$_n"
 done
 
-echo "=== summary ($MODE_LABEL): reaped=$REAP_COUNT skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED ==="
-echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE operator=$SKIP_OPERATOR ==="
+# THE PAST TENSE BELONGS TO --execute ALONE. `reaped=11` was printed by a run
+# that removed nothing, under a header that said so in a parenthetical nobody
+# reads past a number. A DRY-RUN states its zero FIRST and then what it found.
+if [ "$EXECUTE" -eq 1 ]; then
+    ACTION_FIELDS="reaped=$REAP_COUNT"
+else
+    ACTION_FIELDS="removed=0 would-remove=$WOULD_COUNT"
+fi
+echo "=== summary ($MODE_LABEL): $ACTION_FIELDS skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED ==="
+echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE shells=$N_SHELLS hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE operator=$SKIP_OPERATOR ==="
 echo "=== sources:$SRC_SUMMARY ==="
-echo "    skip breakdown: quarantined=$SKIP_QUARANTINED locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR report-only-repo=$SKIP_REPORT_ONLY"
+echo "    skip breakdown: quarantined=$SKIP_QUARANTINED locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR report-only-repo=$SKIP_REPORT_ONLY duplicate-registration=$SKIP_DUPLICATE"
+if [ "$N_UNCLASSIFIED_NATIVE" -gt 0 ]; then
+    blind "shell labeling: $N_UNCLASSIFIED_NATIVE native worktree(s) have no ownership registration, so this run cannot say whether they are cross-repository SHELLS (a liveness witness nobody writes to) or real workspaces. They are reported as plain 'native', the conservative reading. Absence from the shell list is NOT evidence that a worktree is a workspace"
+fi
 if [ "${#BLIND[@]}" -gt 0 ]; then
     for _b in "${BLIND[@]}"; do
         echo "=== blind: $_b ==="
@@ -1391,9 +1632,14 @@ if [ "$SKIP_OWNER_UNRESOLVED" -gt 0 ]; then
     echo "=== verdict: FAIL — unresolved=$SKIP_OWNER_UNRESOLVED hand-rolled worktree(s) have NO ownership record (no ledger registration, no transcript join). This tool can NEVER judge them; they accumulate until an operator clears them under an explicit amnesty. That is a hole in the record, not a routine skip. ==="
     exit 3
 fi
+# THE VERDICT NAMES EVERY PENDING CONDITION, NOT THE FIRST ONE IT MEETS.
+# First-match-wins hid whichever condition happened to sort later, and the one
+# that sorted last is the new one: a DRY-RUN that found removable worktrees
+# and removed none. The clauses are accumulated in severity order and printed
+# together.
+PENDING_CLAUSES=()
 if [ "$SKIP_OWNER_INDETERMINATE" -gt 0 ]; then
-    echo "=== verdict: PENDING — indeterminate=$SKIP_OWNER_INDETERMINATE hand-rolled worktree(s) have a KNOWN owner whose session is still running (or whose identity was not recorded); each names its session pid above and becomes decidable when that session ends ==="
-    exit 0
+    PENDING_CLAUSES+=("indeterminate=$SKIP_OWNER_INDETERMINATE hand-rolled worktree(s) have a KNOWN owner whose session is still running (or whose identity was not recorded); each names its session pid above and becomes decidable when that session ends")
 fi
 # A QUARANTINE IS NOT A CLEAN RESULT. It is a worktree the system has already
 # decided to destroy and has not finished destroying, and on 2026-09-04 thirty
@@ -1404,7 +1650,25 @@ fi
 # --status does, and the session banner prints it — so the verdict names the
 # count and points at the tool that knows.
 if [ "$SKIP_QUARANTINED" -gt 0 ]; then
-    echo "=== verdict: PENDING — quarantined=$SKIP_QUARANTINED worktree(s) are claimed by a terminal transaction and not yet removed. This inventory does not own them and never touches them; run 'reconcile-terminal-worktrees.py --status' for WHY (a BLOCKED count there is a condition waiting cannot clear) ==="
+    PENDING_CLAUSES+=("quarantined=$SKIP_QUARANTINED worktree(s) are claimed by a terminal transaction and not yet removed. This inventory does not own them and never touches them; run 'reconcile-terminal-worktrees.py --status' for WHY (a BLOCKED count there is a condition waiting cannot clear)")
+fi
+# A DRY-RUN THAT FOUND REMOVABLE WORKTREES AND REMOVED NONE IS NOT CLEAN.
+# These passed every gate and no transaction claims them, so the automatic
+# mechanism (reconcile-terminal-worktrees.py) will never come for them: they
+# sit until an operator acts, which is precisely the pile the CEO opened his
+# IDE and found on 2026-09-04. The clause names the one command that removes
+# them, because "why is it dry-run" deserves an answer at the point of use.
+if [ "$EXECUTE" -eq 0 ] && [ "$WOULD_COUNT" -gt 0 ]; then
+    PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and NOTHING removed them. This inventory is DRY-RUN by construction — removal belongs to reconcile-terminal-worktrees.py, which only owns worktrees a terminal transaction has CLAIMED, and these are claimed by none, so no automatic mechanism will ever take them. An operator removes them by hand with: $0 ${REPO_ROOT} --discover --execute")
+fi
+if [ "${#PENDING_CLAUSES[@]}" -gt 0 ]; then
+    _joined="${PENDING_CLAUSES[0]}"
+    if [ "${#PENDING_CLAUSES[@]}" -gt 1 ]; then
+        for _ci in $(seq 1 $(( ${#PENDING_CLAUSES[@]} - 1 ))); do
+            _joined="$_joined; ${PENDING_CLAUSES[$_ci]}"
+        done
+    fi
+    echo "=== verdict: PENDING — $_joined ==="
     exit 0
 fi
 echo "=== verdict: CLEAN — every candidate was decided ==="
