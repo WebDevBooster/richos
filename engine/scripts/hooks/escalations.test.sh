@@ -202,6 +202,12 @@ canary_snapshot() { # <root>
     # engine's own checkouts this count is 0 or 1.
     n="$(wc -l < "$raw" | tr -d ' ')"
     [ "$n" -le "$CANARY_MAX_ENTRIES" ] || return 1
+    # A path with a space or a control character comes back from git in double
+    # quotes, so the name below does not resolve and the entry keeps its status
+    # line WITHOUT a witness — it degrades to path-only for that one file
+    # rather than dropping it. A NEW escaped path is still caught; a same-path
+    # OVERWRITE of a file whose name needs quoting is not. Named because it is
+    # the kind of thing that is otherwise rediscovered the hard way.
     while IFS= read -r line; do
         case "$line" in
             '?? '*) path="$root/${line#?? }" ;;
