@@ -1761,4 +1761,143 @@ module.exports = [
       "`input[name=raw-retention]`, whose three values are exactly the three `RetentionChoice::parse` " +
       "accepts — so the refusal arm is real, is tested in Rust, and no path in the webview reaches it.",
   },
+
+  // -------------------------------------------------------------------------------------
+  // UPSTREAM MODEL-API FAILURE (`crates/richos-core/src/upstream.rs`, row 3.30, 2026-09-05)
+  //
+  // On 2026-09-03 the Anthropic API returned `529 Overloaded` and killed four running
+  // agents mid-task, plus a fifth on a session limit. The four `UpstreamFault` sentences
+  // below are all INFORMATIONAL and all for the same reason: there is no control in RichOS
+  // that makes Anthropic less busy or rolls a usage window over early. An ACTIONABLE
+  // classification would owe a control, and inventing one would be worse than the silence
+  // it replaces. None of them contains an imperative aimed at the reader.
+  // -------------------------------------------------------------------------------------
+  {
+    s:
+      "Anthropic's servers are at capacity, so that request never reached Claude. This " +
+      "one ends when their capacity frees up, and nothing on this machine brings it back " +
+      "sooner.",
+    c: "INFORMATIONAL",
+    why:
+      "`UpstreamFault::Overloaded` — HTTP 529. Its last clause is the half that does the " +
+      "work: it says waiting is the only move AND that waiting has no known end, which is " +
+      "exactly what separates it from the 429 row below. Before this existed both arrived " +
+      "as the same raw `API Error: …` string relayed into the timeline, so the CEO could " +
+      "not tell 'this comes back on its own' from 'this comes back when your window rolls " +
+      "over'.",
+  },
+  {
+    s:
+      "Your Claude usage limit is used up, so that request never reached Claude. Unlike a " +
+      "capacity problem, this one ends on a schedule: your plan's usage window has to roll " +
+      "over. RichOS was not told what time that is.",
+    c: "INFORMATIONAL",
+    why:
+      "`UpstreamFault::RateLimited` — HTTP 429. It names the schedule because the schedule " +
+      "is the whole difference, and it explicitly declines to name a TIME because no " +
+      "captured sample carries a reset timestamp or a Retry-After. Stating a wait it cannot " +
+      "measure would be the reassuring-fraction defect in sentence form. INFORMATIONAL " +
+      "rather than ACTIONABLE: changing a Claude plan happens on Anthropic's website, not " +
+      "in this app, so there is no control here to name.",
+  },
+  {
+    s:
+      "Claude's API answered with a server error, so that request never reached the model. " +
+      "It is on Anthropic's side rather than yours, and it carries no schedule.",
+    c: "INFORMATIONAL",
+    why:
+      "`UpstreamFault::ServerError` — any 5xx that is not 529. It says 'no schedule' for " +
+      "the same reason the overload row does: the CEO's next decision is whether waiting " +
+      "is a plan.",
+  },
+  {
+    s:
+      "Claude's API refused that request and RichOS has no name for the reason. Its own " +
+      "words are kept with this message rather than summarized.",
+    c: "INFORMATIONAL",
+    why:
+      "`UpstreamFault::Unclassified` — an `API Error:` with a status RichOS has no bucket " +
+      "for (a 400, a 401, a status invented after this was written). It exists so an " +
+      "unknown fault is NAMED as unknown instead of being folded into whichever known arm " +
+      "looked closest, which would tell him to wait for something that is not coming. The " +
+      "vendor's own line is quoted after it by `UpstreamFailure::ceo_message`.",
+  },
+  {
+    s: "{} Claude reported: {}",
+    c: "FRAGMENT",
+    why:
+      "`UpstreamFailure::ceo_message` — the fault's own sentence, then the vendor's line " +
+      "verbatim. The attribution is load-bearing: an `API Error: 529 …` string arriving as " +
+      "an assistant message is otherwise appended to the ledger as Rich's own reply, and " +
+      "the CEO reads a vendor diagnostic in Rich's voice with no way to tell it from an " +
+      "answer.",
+  },
+  {
+    s: "RichOS tried once and stopped there.",
+    c: "FRAGMENT",
+    why:
+      "The singular arm of `RetryBudget::ceo_message`. Written out rather than composed " +
+      "with an 's' so the scrape sees a sentence instead of a stem.",
+  },
+  {
+    s: "RichOS tried {} times and stopped there.",
+    c: "FRAGMENT",
+    why: "The plural arm of `RetryBudget::ceo_message`. The number is the billed attempt count.",
+  },
+  {
+    s:
+      "{} {} Each attempt costs against your Claude usage whether or not it produces an " +
+      "answer, so it is not repeating this on its own.",
+    c: "FRAGMENT",
+    why:
+      "`RetryBudget::ceo_message`'s frame: the fault's sentence, the attempts spent, then " +
+      "why there will not be more. Four consecutive retries on 2026-09-03 consumed quota " +
+      "and produced nothing, so the cost is named rather than implied — a ceiling nobody " +
+      "is told about is still a silent retry, it just stops sooner.",
+  },
+  {
+    s: "On disk: {}.",
+    c: "FRAGMENT",
+    why: "`TurnLoss::ceo_message`'s heading for the list of what survived the failure.",
+  },
+  {
+    s: "what you asked for is saved",
+    c: "FRAGMENT",
+    why:
+      "`TurnLoss::ceo_message`, first clause. Read off the ledger — the prompt is journaled " +
+      "before it is delivered — never asserted.",
+  },
+  {
+    s: "the {} characters of the answer that had already arrived are saved",
+    c: "FRAGMENT",
+    why:
+      "`TurnLoss::ceo_message`, second clause. A measured count, because every assistant " +
+      "delta is persisted before it is emitted, so the number is a fact about the file.",
+  },
+  {
+    s: "and the {} recorded action(s) for this turn are saved",
+    c: "FRAGMENT",
+    why:
+      "`TurnLoss::ceo_message`, third clause. Actions are claimed before they are executed, " +
+      "so the record of what was DONE outlives the lease that did it.",
+  },
+  {
+    s: "Nothing had been written to disk yet for this turn.",
+    c: "FRAGMENT",
+    why:
+      "`TurnLoss::ceo_message` when every count is zero — which is the 2026-09-03 shape " +
+      "exactly: each of the five agents died between dispatch and its first tool call. It " +
+      "is a sentence rather than a list of zeros, and it is always followed by the " +
+      "'Not on disk:' clause.",
+  },
+  {
+    s:
+      "Not on disk: everything the session had worked out in its head and had not yet " +
+      "said. Asking again starts that part over.",
+    c: "FRAGMENT",
+    why:
+      "`TurnLoss::ceo_message`'s closing clause, and the one that must never be dropped. " +
+      "The statement never says 'nothing was lost', because the lease's working context is " +
+      "always gone on this failure class and implying otherwise is the defect the row names.",
+  },
 ];

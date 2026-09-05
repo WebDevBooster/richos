@@ -42,6 +42,10 @@
 //!   - `journal`   — the per-thread, day-sharded machinery journal (separate store; not the ledger).
 //!   - `timeline`  — the TYPED TIMELINE records (UX brief §12): the projection a renderer
 //!                   reads, with entity scope on every item and visibility as a gate.
+//!   - `upstream`  — the UPSTREAM MODEL-API failure vocabulary: `529` overload vs `429`
+//!                   quota, classified from the vendor's own structural tokens, with the
+//!                   bounded+visible retry budget and the what-survived statement.
+//!                   Row 3.30, measured 2026-09-03.
 //!   - `spine`     — ties it together: queue-not-interrupt, turn-boundary, re-prime seam,
 //!                   turn-boundary rotation, mid-turn-crash recovery, the proactive seam.
 //!   - `config`    — durable CEO-facing preferences: company name, the assertiveness dial.
@@ -79,6 +83,7 @@ pub mod steering;
 pub mod stream;
 pub mod thread;
 pub mod timeline;
+pub mod upstream;
 pub mod util;
 pub mod work_gate;
 pub mod worker_events;
@@ -122,6 +127,9 @@ pub use steering::{
     TurnControl, KNOWN_INTAKE_TAGS,
 };
 pub use stream::{StreamEvent, TurnObserver};
+pub use upstream::{
+    FakeUpstream, RetryBudget, TurnLoss, UpstreamFailure, UpstreamFault, MAX_UPSTREAM_RETRIES,
+};
 pub use timeline::{
     ActivityState, ActivityType, RichMessagePhase, Timeline, TimelineBase, TimelineItem, TimelineView, ViewMode,
     Visibility, WorkerActivityItem, WorkerRun, WorkerState, RUN_ENDED_WORKER_STATE,

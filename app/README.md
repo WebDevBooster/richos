@@ -134,6 +134,12 @@ app/
                               docs/verification/first-run-setup-2026-09-02/
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
+    src/upstream.rs          UPSTREAM MODEL-API FAILURE, first-class (open-items row 3.30).
+                              `529` overload and `429` quota classified apart, from the
+                              vendor's own structural tokens rather than its English; the
+                              BOUNDED, VISIBLE retry budget; the what-survived statement; and
+                              a size-dependent fake upstream, because the 2026-09-03 outage
+                              failed the expensive requests and passed a one-command probe
     src/work_gate.rs         IS RICHOS DOING ANYTHING RIGHT NOW — the decision the updater
                               never asked (RICH-TODOs row u1). Three readings in, one verdict
                               plus the sentence that explains it out. Holds no handles and
@@ -342,6 +348,15 @@ app/
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
                               every case, so "reads nothing" cannot pass by finding nothing)
+    tests/upstream_classification_tests.rs 14 tests pinned to CAPTURED BYTES — the five
+                              `API Error: 529` lines from 2026-09-03, four of them carrying
+                              the incident's own request ids, at
+                              docs/verification/upstream-failure-2026-09-05/. It proves `429`
+                              and `529` never present the same way, that classification reads
+                              the vendor's structure and not its English, that retry stops at
+                              two attempts and says what it spent, and — the finding itself —
+                              that the injected upstream passes a 3-character probe while
+                              failing a 120,000-character one
     examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
                               end to end against the real adapter (the run is kept at
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
@@ -681,7 +696,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 776 tests + 5 doc-tests
+cargo test -p richos-core                       # 793 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests
