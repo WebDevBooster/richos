@@ -1,0 +1,30 @@
+Static checks on .github/workflows/vouch-pr.yml. 2026-09-05.
+actionlint 1.7.12, with shellcheck 0.11.0 on PATH so the `run:` bodies are
+linted too.
+
+$ actionlint .github/workflows/vouch-pr.yml
+exit 0, no output
+
+A silent pass proves nothing on its own, so the check was made to fail on
+purpose before it was believed. A copy of the file was mutated in two ways --
+the heredoc target unquoted, and the pinned action reference replaced by `@v1`
+-- and re-linted:
+
+$ actionlint .github/workflows/vouch-pr.yml
+.github/workflows/vouch-pr.yml:105:9: shellcheck reported issue in this script: SC2086:info:1:7: Double quote to prevent globbing and word splitting [shellcheck]
+    |
+105 |         run: |
+    |         ^~~~
+exit 1
+
+TWO THINGS THAT TELLS US.
+
+  1. shellcheck really is running against the step body, so the exit 0 on the
+     real file covers the shell as well as the YAML. That matters here because
+     the shell in this workflow writes the message a stranger reads.
+
+  2. actionlint said NOTHING about `@v1`. It has no rule about pinning, so no
+     linter in this repository will ever catch an unpinned action reference.
+     The pin is held by review and by the note in
+     `.github/workflows/README.md`, or by the repository policy
+     `sha_pinning_required`, which is currently off.

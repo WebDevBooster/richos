@@ -1,0 +1,43 @@
+Vouch's own parser and matcher, run against this repository's .github/VOUCHED.td.
+2026-09-05, Nushell 0.115.1, vouch sources extracted from the pinned commit
+d66fa29a64600490892131ad87597c30c91fcac4 (tarball sha256
+d21793677677cbd4b4f5a2182d1110123a7876217035031f8ed3126662ca792f).
+
+The script, in full:
+
+  use <vouch>/vouch *
+  let records = (open --raw <repo>/.github/VOUCHED.td | from td)
+  print ($records | where type != "comment" and type != "blank")
+  for u in ["WebDevBooster" "webdevbooster" "abooster" "some-stranger" "github:WebDevBooster"] {
+    let s = ($records | lib check-user $u --default-platform github)
+    print $"($u) -> ($s)"
+  }
+
+Output, verbatim, including the deprecation warning Nushell prints from inside
+vouch's own parse-handle. The warning is kept rather than filtered, because it
+is the evidence for the unpinned-interpreter risk named in the workflow header.
+
+Warning: nu::parser::deprecated
+
+  ! Command deprecated.
+    ,-[/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/vouch/vouch/file.nu:43:25]
+ 42 | export def parse-handle [handle: string] {
+ 43 |   let parts = $handle | str downcase | split row ":" --number 2
+    :                         ^^^^^^|^^^^^
+    :                               `-- str downcase was deprecated in 0.114.0 and will be removed in a future release.
+ 44 |   if ($parts | length) > 1 {
+    `----
+  help: Use `str lowercase` instead.
+
+== parsed entries that are not comments or blanks ==
+╭───┬───────┬──────────┬───────────────┬─────────╮
+│ # │ type  │ platform │   username    │ details │
+├───┼───────┼──────────┼───────────────┼─────────┤
+│ 0 │ vouch │          │ webdevbooster │         │
+╰───┴───────┴──────────┴───────────────┴─────────╯
+== check-user results ==
+WebDevBooster -> vouched
+webdevbooster -> vouched
+abooster -> unknown
+some-stranger -> unknown
+github:WebDevBooster -> vouched
