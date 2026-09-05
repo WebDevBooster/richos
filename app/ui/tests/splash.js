@@ -285,6 +285,16 @@ const lag = async (page) => {
 /// gradients and filters, which is the expensive one. So this adds its delay exactly there,
 /// between the bar reporting it has landed and the shutter opening, which is the span the
 /// window is measured across. Zero, and no delay at all, unless it is set.
+///
+/// `matShot` TAKES THIS SAME KNOB, at the same structural point, and it is deliberately not a
+/// third variable. That check waits for a state as well — `atCurtain(page, 2200)`, on the
+/// page's own clock — so `LAG_MS` is absorbed whole by the wait behind it for every value
+/// under 2,200 ms, and above it stops being a lag at all and becomes a different shutter
+/// instant. What a slow runner costs the mat photograph is spent, again, AFTER that wait: the
+/// round trip for `stillUp`, the measurement of the plinth, the settle and the clipped
+/// screenshot. So this is applied in both places at the same seam — between the wait that
+/// precedes the picture and the picture — because it is one condition and one condition
+/// should not need two switches.
 const SHUTTER_LAG_MS = Number(process.env.RICHOS_SPLASH_SHUTTER_LAG_MS || 0);
 
 /// Wait until the PAGE says `ms` have passed since the curtain went up. Returns immediately
@@ -815,6 +825,7 @@ async function matShot(browser, id, mute) {
   // "the curtain left during the mat exposure", which is this check correctly refusing to file
   // a photograph of the screen behind the curtain.
   await atCurtain(page, 2200);
+  if (SHUTTER_LAG_MS > 0) await page.waitForTimeout(SHUTTER_LAG_MS);
   await stillUp(page, "the mat photograph for " + id);
   const r = await page.evaluate(() => {
     const n = document.querySelector("#splash .splash-plinth");
@@ -834,9 +845,51 @@ async function matShot(browser, id, mute) {
     await captureSettled(page, { screenshot: { clip: r.clip }, settleMs: 300, onShutter: async () => { after = await curtainNow(page); } })
   ).toString("base64");
   assert(after && after.up, id + ": the curtain left during the mat exposure — this is a photograph of the screen behind it");
+  // AND `up` IS NOT ENOUGH HERE EITHER — the same defect check 5 was green over, with 3.7
+  // seconds of margin instead of none. `yieldNow()` adds `splash--yielding` and only then
+  // schedules `removeSelf` a further `FADE_MS + 40` = 220 ms later, so for 220 ms of every
+  // launch the node is in the DOM and the curtain has already gone. The line above reads
+  // DOM presence, so those 220 ms are a hole it cannot see, and this photograph shoots into
+  // a `seconds: 5` screen whose ceiling fires at 6,000 ms — the hole is [6,000, 6,220).
+  //
+  // DERIVED AND THEN MEASURED, four launches of exactly this shape: the ceiling is armed for
+  // 6,000 ms (5,000 hold + 1,000 grace, read off the running product), `splash--yielding`
+  // lands at 6,001 / 6,006 / 6,011 / 6,024 ms — a `setTimeout` is a floor, not an instant —
+  // and the node leaves 220 / 220 / 221 / 223 ms later against the 220 derived, at 6,224 to
+  // 6,245 ms. The hole is real, it is the width the product says it is, and its edges move
+  // by a few milliseconds a launch, which is a second reason not to test it by arithmetic.
+  //
+  // MEASURED 2026-09-05 on this machine, by injecting `RICHOS_SPLASH_SHUTTER_LAG_MS` and
+  // counting the distinct colors of the clip that came out — the mat is 2,470 of them:
+  //
+  //     shutter 5,955ms  up  not yielding    2,470 colors   the mat
+  //     shutter 6,079ms  up  YIELDING        2,470 colors   still the mat, guard already blind
+  //     shutter 6,136ms  up  YIELDING       11,039 colors
+  //     shutter 6,109ms  up  YIELDING       87,336 colors   the home screen, and `up` was true
+  //     shutter 6,274ms  GONE              217,693 colors   caught by the line above
+  //
+  // So the line above catches the last row and files the fourth. THE CLASS IS THE TEST, and
+  // deliberately not computed opacity: that value depends on whether the page has been given
+  // a frame, and it does not even order these — 0.41 carried 87,336 colors while 0.32
+  // carried 11,039. `splash--yielding` is set synchronously in the tick `yieldNow()` decides
+  // to go, and `yielded` is never reset, so it is true from the decision onward and for
+  // exactly the moments this photograph must not be taken in.
+  //
+  // NO DISARM IS ASKED FOR. Check 5 needs `NO_CEILING` because its shutter opens 270 ms
+  // before the node leaves; this one opens 3,664 ms before the ceiling even fires and needs
+  // only to say so when it does not. Check 10b holds the disarm at two call sites and this
+  // is not a third.
+  assert(
+    after.yielding === false,
+    id + ": the curtain had ALREADY DECIDED TO LEAVE at the shutter (" + after.age + "ms into it) — it is fading " +
+      "out of this photograph, so what this would file is the screen behind it"
+  );
   noErrors(page, id);
   await ctx.close();
-  return { png, layers: r.layers, above: r.above };
+  // THE INSTANT IS RETURNED, not just used. The margin this photograph has is the whole of
+  // the reason it is not failing today, and a number that is never printed is a number
+  // nobody notices moving.
+  return { png, layers: r.layers, above: r.above, at: after.age };
 }
 
 /// Two PNGs, decoded by the same engine that painted them and compared pixel for pixel. A
@@ -2248,9 +2301,11 @@ async function main() {
     const judge = await cmp.newPage();
     await judge.goto("about:blank");
     const made = [];
+    const shutters = [];
     for (const v of added) {
       const slug = v.id.replace(/[^a-z0-9]+/gi, "-");
       const ship = await matShot(browser, v.id, false);
+      shutters.push(ship.at);
       let study = null;
       if (haveStudies) {
         const file = studyOf(v);
@@ -2280,7 +2335,18 @@ async function main() {
     }
     await cmp.close();
     return `${made.length} pairs — each the whole mat at half scale over the same corner at native scale` +
-      (haveStudies ? " — shipping renderer LEFT, the study each entry NAMES right" : " — SHIPPING SIDE ONLY: no study repository at " + HQ);
+      (haveStudies ? " — shipping renderer LEFT, the study each entry NAMES right" : " — SHIPPING SIDE ONLY: no study repository at " + HQ) +
+      " — shot " + shutters.join("ms, ") + "ms into curtains that had not set `splash--yielding`, on a 5,000ms hold " +
+      "whose ceiling is armed for 6,000ms" +
+      // Only said when it needs saying. A shutter past 6,000 that is still not yielding looks
+      // like a contradiction and is not one: a `setTimeout` fires no earlier than its delay,
+      // measured at 6,001-6,024ms over four launches of this shape. Which is the whole reason
+      // the guard reads the product's own class instead of this arithmetic.
+      (shutters.some((a) => a > 6000)
+        ? " — one of those is past 6,000ms and still not yielding, which is a `setTimeout` firing late (measured " +
+          "6,001-6,024ms for a 6,000ms delay), not a contradiction: the guard above reads the product\u0027s class, " +
+          "never this arithmetic"
+        : "");
   });
 
   // ---- WHICH LAUNCHES GET A CEREMONY (CEO ruling, 2026-08-31) --------------------------
