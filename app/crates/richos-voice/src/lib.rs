@@ -55,6 +55,7 @@ pub mod endpoint;
 pub mod event;
 pub mod noaudio;
 pub mod state;
+pub mod voiced;
 pub mod wav;
 
 pub mod capture;
@@ -71,3 +72,4 @@ pub use state::{VoiceState, VoiceStateMachine};
 pub use bargein::{barge_in_debounce_secs, BargeInMonitor, EchoGate, NoEchoCancellation, BARGE_IN_DEBOUNCE_FRAMES};
 pub use noaudio::{no_audio_window_secs, NoAudioDetector, LIVE_RMS, NO_AUDIO_FRAMES, SILENCE_RMS};
 pub use vad::{frames_for_secs, frames_to_secs, Vad, SAMPLE_RATE, VAD_FRAME_SAMPLES};
+pub use voiced::{voiced_run_secs, VoiceEvidence, PITCH_MOVEMENT_PERCENT, VOICED_PEAK, VOICED_RUN_WINDOWS};
