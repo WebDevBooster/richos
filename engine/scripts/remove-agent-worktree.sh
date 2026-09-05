@@ -298,11 +298,45 @@ if [ "$REGISTERED" -eq 1 ]; then
     fi
     git -C "$REPO" worktree prune >/dev/null 2>&1 || true
 elif [ -d "$WT_PATH" ]; then
-    # Not a registered worktree of $REPO (e.g. a hand-rolled dir whose repo
-    # registration is gone) — remove the directory directly. Liveness is
-    # already confirmed dead above.
-    rm -rf "$WT_PATH"
-    git -C "$REPO" worktree prune >/dev/null 2>&1 || true
+    # ON 2026-09-05 THIS BRANCH DELETED /Users/alex/ab/richos-wt/ — the PARENT of
+    # every RichOS worktree on the machine — and reported success.
+    #
+    # It read: "not a registered worktree, so rm -rf it; liveness is already
+    # confirmed dead above." Every clause of that was wrong in the same
+    # direction. A caller's zsh loop failed to word-split, so the target
+    # arrived as the literal prefix with an empty name appended — a real,
+    # non-empty directory that the existing empty-string check could never
+    # reject. The owner arrived as one joined string naming no registered
+    # agent, and the liveness resolver answers NOT-ALIVE for an owner that
+    # does not exist, so "confirmed dead" was an absence, not a finding.
+    #
+    # The result was that FAILING TO RECOGNIZE A TARGET MADE THE OPERATION
+    # STRONGER THAN RECOGNIZING IT. A registered worktree gets git's own
+    # refusal to remove a dirty tree without --force; an unrecognized path got
+    # an unconditional rm -rf, and that invocation never passed --force.
+    #
+    # So this branch now REFUSES. An unregistered target is exactly the case
+    # where nothing has established what the path is, and a destructive
+    # operation must be least willing when it knows least. A genuinely
+    # orphaned directory is removed by hand, by someone who has looked at it.
+    {
+        echo "=== remove-agent-worktree: REFUSING ==="
+        echo "  target      : $WT_PATH"
+        echo "  repo        : $REPO"
+        echo "  It is a directory, and it is NOT a registered worktree of that"
+        echo "  repository. This is the case where nothing has established what"
+        echo "  the path IS — so it is the case where this script does least,"
+        echo "  not most. Until 2026-09-05 it did an unconditional 'rm -rf' here"
+        echo "  and deleted the parent directory of every RichOS worktree on the"
+        echo "  machine, reporting success."
+        echo
+        echo "  If this really is an orphaned agent directory, look at it and"
+        echo "  remove it by hand. If a caller built this path, the caller is"
+        echo "  the bug: check that every argument arrived as intended before"
+        echo "  blaming the registration."
+        echo "$HOOK_TAG"
+    } >&2
+    exit 5
 fi
 
 # --- Optional branch deletion ---------------------------------------------
