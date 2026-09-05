@@ -103,6 +103,53 @@ const HOLD_OPEN = () => {
   });
 };
 
+/// DISARM THE CEILING — FOR A PHOTOGRAPH, AND ONLY FOR A PHOTOGRAPH.
+///
+/// `HOLD_OPEN` replaces the EXPORTED `yieldNow`, which is the one `main.js` calls. It does
+/// not stop the ceiling and it is not meant to: the ceiling timer closes over the INTERNAL
+/// reference, so it still fires with app-ready muted, and checks 10 and 12c exist to watch it
+/// do exactly that. Nothing here changes that, and nothing here is used by those checks.
+///
+/// But a photograph is not a launch. `settledShot` opens its shutter when the bar reports it
+/// has landed — `holdMs + FLARE_MS` — and the curtain is taken off the glass at
+/// `holdMs + CEILING_GRACE_MS + FADE_MS + 40`. The gap is 270 ms:
+///
+///     (holdMs + 1000 + 180 + 40) - (holdMs + 950) = 270
+///
+/// `holdMs` cancels, so it is 270 ms at three seconds and 270 ms at five — asking for a
+/// longer screen buys the shutter nothing at all. Measured on this machine: 271 ms at
+/// `seconds: 3`, 265 ms at `seconds: 5`. Taking a full-viewport screenshot of a composition
+/// of gradients and filters, then decoding it and comparing it against a committed file, does
+/// not fit in that on a machine under load — and it does not have to. "Does this composition
+/// draw its own values" is not a claim about the failsafe, so the photograph should not be
+/// racing one.
+///
+/// THE ALTERNATIVE WAS REFUSED, and the reason matters more than the choice: widening
+/// `CEILING_GRACE_MS` in `app/ui/splash.js` would change what a launch does on the CEO's
+/// machine in order to suit a screenshot. A test that needs the product to behave differently
+/// is not testing the product.
+///
+/// IT NAMES WHAT IT REFUSES RATHER THAN GUESSING. `start()` arms exactly one `setTimeout` and
+/// its body is `yieldNow("ceiling")` (`app/ui/splash.js:1252-1254`; the file's other two are
+/// inside `yieldNow` itself, on paths that have already decided to go). This matches that
+/// source text, so if the product ever arms its failsafe some other way this MISSES — and
+/// `settledShot` asserts the disarm was recorded, so the miss is a red check naming the cause
+/// rather than a silent return to racing the curtain.
+const NO_CEILING = () => {
+  const real = window.setTimeout;
+  window.__ceilingDisarmed = null;
+  window.setTimeout = function (fn, ms) {
+    if (typeof fn === "function" && /yieldNow\(\s*["']ceiling["']\s*\)/.test(Function.prototype.toString.call(fn))) {
+      window.__ceilingDisarmed = { delay: ms };
+      // A real, harmless id rather than null: `yieldNow` reads `ceiling !== null` and clears
+      // it on every other exit, and handing the product something it cannot clear would be
+      // changing its control flow to suit a test.
+      return real.call(window, function () {}, 0);
+    }
+    return real.apply(window, arguments);
+  };
+};
+
 /// Shape the library on its way into the page: keep one entry, and/or hand every entry a
 /// `seconds`. ONE script rather than two, because both work by `defineProperty` on the same
 /// property and the second installed would silently replace the first.
@@ -611,6 +658,8 @@ async function launch(browser, opts) {
   // FIRST, so the clock is running before anything else the page or this suite does.
   await page.addInitScript(CURTAIN_CLOCK, opts.clock || {});
   if (opts.hold) await page.addInitScript(HOLD_OPEN);
+  // ONLY `settledShot`'s launches ask for this, and the ceiling is untouched everywhere else.
+  if (opts.noCeiling) await page.addInitScript(NO_CEILING);
   if (opts.force || opts.seconds != null) {
     await page.addInitScript(SHAPE, { id: opts.force || null, seconds: opts.seconds == null ? null : opts.seconds });
   }
@@ -651,9 +700,30 @@ async function settledShot(page, name) {
   // `splash-01-round-11-v1.png` differing in 3,835 pixels, ALL of them inside the 371x70 box
   // the bar occupies. `state.barStopped` is the bar saying it has landed and asked for no
   // further frame (`splash.js`), so this now opens the shutter on a composition that has
-  // finished moving. Both callers hold the curtain open, so there is no ceiling to race.
+  // finished moving.
+  //
+  // "Both callers hold the curtain open, so there is no ceiling to race" is what this comment
+  // used to say, and it was wrong in the one way that mattered. `HOLD_OPEN` mutes the
+  // EXPORTED `yieldNow`; the ceiling holds the internal one and fires anyway. So the shutter
+  // WAS racing it — a 270 ms window, and the picture that came out is described on
+  // `curtainNow`. The callers now ask for `noCeiling` as well, and that is asserted below
+  // rather than believed.
   await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });
   if (SHUTTER_LAG_MS > 0) await page.waitForTimeout(SHUTTER_LAG_MS);
+  // THE OPT-IN HAS TO HAVE TAKEN, and this is where that is established. `NO_CEILING` refuses
+  // to arm the timer whose body is `yieldNow("ceiling")`; if the product ever arms its
+  // failsafe some other way, the match misses and this says so — the one thing it must never
+  // do is quietly go back to racing the window.
+  const arm = await page.evaluate(() => ({
+    disarmed: window.__ceilingDisarmed,
+    holdMs: window.RichSplash.state.seconds * 1000,
+  }));
+  assert(
+    arm.disarmed,
+    name + ": the ceiling was never disarmed, so this photograph is racing it. `NO_CEILING` looks for the " +
+      'setTimeout whose body is `yieldNow("ceiling")`; either this launch did not ask for `noCeiling`, or the ' +
+      "product now arms its failsafe some other way"
+  );
   await stillUp(page, "the settled photograph");
   fs.mkdirSync(SHOTS, { recursive: true });
   // THE CURTAIN IS READ AT THE SHUTTER, not after the developing. `shot()` decodes the PNG in
@@ -681,7 +751,9 @@ async function settledShot(page, name) {
   );
   publishShotFile(s.file, path.join(SHOTS, name + ".png"));
   return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors, taken " + after.age +
-    "ms into a curtain that had not begun to leave)";
+    "ms into a curtain that had not begun to leave; its ceiling was armed for " + arm.disarmed.delay + "ms — " +
+    arm.holdMs + "ms hold + " + (arm.disarmed.delay - arm.holdMs) + "ms grace, both read off the product — and " +
+    "disarmed for this photograph alone)";
 }
 
 /// A photograph of the MAT ALONE, and what was laid on it. `mute` empties the entry's
@@ -1181,11 +1253,17 @@ async function main() {
     // The completion criterion's first clause, as evidence. Held open with `holdOpen()`
     // because the real surface is gone in a quarter of a second and a photograph of it has
     // to be taken while it is up; the compositions themselves are the shipped ones.
+    //
+    // AND THE CEILING IS DISARMED, for these two launches and nowhere else in this file. The
+    // shutter opens when the bar lands and the curtain is removed 270 ms later whatever
+    // `seconds` says, which is not enough to take, decode and compare a 1280x800 PNG in on a
+    // loaded machine — see `NO_CEILING`. Checks 10 and 12c do not ask for it and still watch
+    // a real failsafe fire; check 10b proves that this is an opt-in rather than a removal.
     const [a, b] = [LIBRARY.variations[0], LIBRARY.variations[LIBRARY.variations.length - 1]];
     const names = [];
     let aside = "";
     for (const v of [a, b]) {
-      const page = await launch(browser, { hold: true, force: v.id });
+      const page = await launch(browser, { hold: true, noCeiling: true, force: v.id });
       // The photograph is only evidence if what it shows is this entry's own values. The
       // mat's colour is the cheapest one to join back to the library, and it is the one
       // that would go wrong first if the renderer ever stopped reading the data.
