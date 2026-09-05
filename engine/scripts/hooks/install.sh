@@ -291,6 +291,15 @@ HOOK_FILES+=(
     # ship as a pair; hashing the guard while leaving its sanctioned helper
     # unverified would check the lock and ignore the key.
     "$REPO_ROOT/scripts/remove-agent-worktree.sh"
+    # The retirement operation the removal helper now routes to, and the same
+    # sentence one step further on: remove-agent-worktree.sh is hashed because
+    # it is the code that deletes worktrees, and since 2026-09-05 its
+    # --workspace mode DECIDES NOTHING ITSELF — it derives the repository, the
+    # path and the owner from the ownership ledger through this file, and
+    # refuses on anything it cannot derive. A tampered copy would leave the
+    # helper wired, hashed, executable and taking its whole answer from
+    # something nobody verifies. Check the lock, ignore the key.
+    "$REPO_ROOT/scripts/lib/workspace-retire.py"
     # Not a hook, and hashed anyway. Every guard's bootstrap refuses to start
     # without scripts/lib/resolve-roots.sh, and every guard's answer to "which
     # repository am I protecting?" comes out of it. An unhashed resolver would
