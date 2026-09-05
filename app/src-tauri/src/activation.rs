@@ -145,25 +145,32 @@ pub struct Decision {
 }
 
 impl Decision {
-    /// One line for the boot log. It is the ONLY place a future harness author is guaranteed
-    /// to meet this rule, so it says what happened, why, and how to ask for the other answer.
-    pub fn log_line(&self) -> String {
+    /// The boot line, WITHOUT the `[richos] ` prefix — the CALL SITE supplies that as a
+    /// string literal, and it has to. `gui-boot.test.sh`'s S1 case reads the first string
+    /// literal of every `eprintln!` in this crate and fails any that does not begin
+    /// `[richos]`, because a line the accounting cannot see is a line the accounting cannot
+    /// hold to account. Printing this through a bare positional format string would pass the
+    /// prefix at run time and fail S1 at read time, so the prefix lives where S1 looks.
+    ///
+    /// It is the ONLY place a future harness author is guaranteed to meet this rule, so it
+    /// says what happened, why, and how to ask for the other answer.
+    pub fn log_message(&self) -> String {
         match (&self.presentation, &self.reason) {
             (Presentation::Regular, Reason::InstalledLaunch) => {
-                "[richos] activation: regular — an installed launch by the person who installed \
-                 it, so RichOS comes to the front and takes the keyboard"
+                "activation: regular — an installed launch by the person who installed it, so \
+                 RichOS comes to the front and takes the keyboard"
                     .to_string()
             }
             (Presentation::Regular, Reason::Override(v)) => format!(
-                "[richos] activation: regular — RICHOS_ACTIVATION={v} asked for the front. \
+                "activation: regular — RICHOS_ACTIVATION={v} asked for the front. \
                  Without it this boot would have been judged on its own facts."
             ),
             (Presentation::Accessory, Reason::Override(v)) => format!(
-                "[richos] activation: accessory — RICHOS_ACTIVATION={v} asked for the back. \
+                "activation: accessory — RICHOS_ACTIVATION={v} asked for the back. \
                  No Dock icon, no window on screen, no focus taken."
             ),
             (Presentation::Accessory, Reason::NotEstablished(why)) => format!(
-                "[richos] activation: accessory — no Dock icon, no window on screen, no focus \
+                "activation: accessory — no Dock icon, no window on screen, no focus \
                  taken, because this is not an installed launch: {}. The window is still real \
                  and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for \
                  the whole normal treatment.",
@@ -172,7 +179,7 @@ impl Decision {
             // Unreachable by construction (`decide` never pairs these), and answered rather
             // than `unreachable!()`: a panic here would turn a presentation question into a
             // dead app, which is strictly worse than the defect it would be reporting.
-            (p, r) => format!("[richos] activation: {p:?} — {r:?}"),
+            (p, r) => format!("activation: {p:?} — {r:?}"),
         }
     }
 }
@@ -499,8 +506,8 @@ mod tests {
     fn the_accessory_line_tells_its_reader_what_happened_and_what_to_do() {
         let mut f = installed("/Users/alex");
         f.parent_pid = 5150;
-        let line = decide(&f).log_line();
-        assert!(line.starts_with("[richos] activation: accessory — "), "{line}");
+        let line = decide(&f).log_message();
+        assert!(line.starts_with("activation: accessory — "), "{line}");
         assert!(line.contains("parent pid 5150"), "{line}");
         assert!(line.contains("RICHOS_ACTIVATION=regular"), "{line}");
         assert!(line.contains("still driveable"), "{line}");
@@ -510,8 +517,8 @@ mod tests {
 
     #[test]
     fn the_regular_line_says_so_on_one_line() {
-        let line = decide(&installed("/Users/alex")).log_line();
-        assert!(line.starts_with("[richos] activation: regular — "), "{line}");
+        let line = decide(&installed("/Users/alex")).log_message();
+        assert!(line.starts_with("activation: regular — "), "{line}");
         assert!(!line.contains('\n'), "{line}");
     }
 }

@@ -184,6 +184,20 @@ declare_rules() {
     '^\[richos\] engine directory: /.+ \(via .+\)$' \
     'the working directory claude is started in (engine.rs, 970ac5e)'
 
+  # WHETHER THIS BOOT WAS ALLOWED TO TAKE THE SCREEN — held as a PROOF and not as routine
+  # noise, because its absence is the exact failure mode this whole file exists to refuse: a
+  # decision that stopped being taken, over a run that still reports green. The regex demands
+  # one of the four sentences `activation.rs::log_message` can produce, each of which carries
+  # a REASON; a line that says `activation:` and then nothing that explains it matches
+  # nothing here and goes red.
+  #
+  # In THIS suite the answer is always `accessory`: the boot is a child of this script, and a
+  # harness has to hold the process it boots. That is the point rather than a limitation —
+  # every boot below is a boot that no longer reaches the CEO's keyboard.
+  resolved 'activation' \
+    '^\[richos\] activation: (regular|accessory) — (an installed launch|no Dock icon, no window on screen, no focus taken, because this is not an installed launch:|RICHOS_ACTIVATION=)' \
+    'whether this launch may activate, and why (activation.rs, 2026-09-06)'
+
   resolved 'compute lease' \
     '^\[richos\] compute lease attached over .+$' \
     'a claude binary was found AND answered the initialize handshake (native.rs)'
@@ -546,8 +560,14 @@ trap cleanup EXIT INT TERM
 # A fixture that drifts from the boot is a fixture that certifies A0-A6 against a log the
 # product no longer produces, which is the same silent-shortening failure this file's header
 # refuses everywhere else.
+#
+# The `activation:` line arrived on 2026-09-06 and is captured at
+# `docs/verification/activation-2026-09-06/accessory-child-boot.log`, first line. It is the
+# ACCESSORY form because that is the form every boot in this suite produces — the app is a
+# child of this script, and a harness has to hold the process it boots.
 healthy_log() {
   cat <<'LOG'
+[richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: /m/Applications/RichOS.app/Contents/Info.plist carries no readable CFBundleIdentifier; a program is holding this process (parent pid 60123), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
 [richos] launch: fresh (start 1, 1 window(s))
 [richos] company registry: 1 company from /m/Library/Application Support/com.richos.app/entities.json
 [richos] company registry: 1 compan(ies), /m/Library/Application Support/com.richos.app/entities.json (file)

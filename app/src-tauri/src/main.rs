@@ -891,7 +891,7 @@ fn main() {
             // actually write to" is one of the three facts, and reading it from anywhere
             // but the variable in use would be a second copy that can disagree.
             let activation = activation::decide(&activation::gather(&data_dir, &app.config().identifier));
-            eprintln!("{}", activation.log_line());
+            eprintln!("[richos] {}", activation.log_message());
             #[cfg(target_os = "macos")]
             {
                 // `Accessory` is `NSApplicationActivationPolicyAccessory`: no Dock icon and
