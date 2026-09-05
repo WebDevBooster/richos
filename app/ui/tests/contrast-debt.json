@@ -47,6 +47,11 @@
       "checked": 78,
       "considered": 228
     },
+    "settings-tooltip": {
+      "//": "The shell with the settings button hovered, so the node floor is the shell's own (78/228 — this surface measures 90 of 408 today, exactly as `shell` does). The floor that actually belongs to THIS surface is not a node count: it is check 11b, which requires `style.css`'s `.setbtn::after` content string to be MEASURED in both themes rather than reported hidden, and fails if this driver stops reaching the hover state.",
+      "checked": 78,
+      "considered": 228
+    },
     "thread": {
       "checked": 90,
       "considered": 244

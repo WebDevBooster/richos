@@ -116,6 +116,24 @@ const SURFACES = [
     drive: async () => {},
   },
   {
+    // THE ONE STRING THE STYLESHEET ITSELF PUTS ON SCREEN, and until 2026-09-05 nothing in
+    // this directory could see it. `style.css:3787` is `.setbtn::after { content: "Settings" }`
+    // — the tooltip on the settings button §15 requires on every screen, including the
+    // opening screen where it is the only control there is. The walk collects
+    // `nodeType === 3` children and a pseudo-element is not a node, so it was rendered text
+    // that no contrast check had ever measured; and it is `opacity: 0` until hover, so even
+    // the widened walk reports it HIDDEN on every other surface. This driver is what turns
+    // "named as hidden" into "measured".
+    name: "settings-tooltip",
+    what: "the settings button's tooltip — the one string the stylesheet itself renders",
+    drive: async (p) => {
+      await p.hover(".setbtn");
+      // `transition: opacity 0.15s ease 0.2s` — a 200ms delay before a 150ms fade. Waiting
+      // 500ms is the frame math, not a guess: 200 + 150 = 350ms to full opacity.
+      await p.waitForTimeout(500);
+    },
+  },
+  {
     name: "thread",
     what: "a seeded conversation with a settled turn and a delegation summary",
     drive: async (p) => {
@@ -696,6 +714,10 @@ async function main() {
     svgText: 0,
     /// Which of the shell's DECLARED panels any walk actually put on screen — see check 10c.
     panelsReached: new Map(),
+    /// Text the STYLESHEETS render (`::before`/`::after`), collected across every walk — see
+    /// check 16. `measured` and `hidden` are keyed by the TEXT so the join against
+    /// `lib/ui-sources.js`'s source-side derivation is on the string, not on a selector.
+    generated: { considered: 0, checked: 0, measured: new Map(), hidden: new Map(), unprovable: [] },
     totals: { considered: 0, checked: 0, passed: 0, failedNodes: 0, invisible: 0, obscured: 0, ancestor: 0, veiled: 0, indicators: 0, indicatorsChecked: 0 },
   };
 
@@ -1037,6 +1059,24 @@ async function main() {
         }
         // Nodes measured somewhere, for check 11's cross-surface proof.
         for (const p of out.measuredPaths || []) seen.measured.add(p);
+
+        // Text the stylesheets render, for check 16. Keyed by the string, because that is
+        // what `lib/ui-sources.js` derives from the CSS and what the join has to hold.
+        const g = out.generated || { considered: 0, checked: 0, measured: [], hidden: {}, unprovable: {} };
+        seen.generated.considered += g.considered;
+        seen.generated.checked += g.checked;
+        for (const m of g.measured || []) {
+          if (!seen.generated.measured.has(m.text)) seen.generated.measured.set(m.text, []);
+          seen.generated.measured.get(m.text).push(Object.assign({ where: surface.name + "/" + theme }, m));
+        }
+        for (const k of Object.keys(g.hidden || {})) {
+          const h = g.hidden[k];
+          if (!seen.generated.hidden.has(h.text)) seen.generated.hidden.set(h.text, []);
+          seen.generated.hidden.get(h.text).push(surface.name + "/" + theme + " " + h.path + " (" + h.why + ")");
+        }
+        for (const k of Object.keys(g.unprovable || {})) {
+          seen.generated.unprovable.push(surface.name + "/" + theme + ": " + k + " — " + g.unprovable[k].why);
+        }
       }
       // THE FLOOR, borrowed wholesale from run.js's `observed >= declared`. A driver whose
       // selector stops matching would otherwise put the app into a thinner state and report
@@ -1300,6 +1340,107 @@ async function main() {
     return seen.obscured.size + " node path(s) obscured behind a modal on some surface, every one of them measured on another";
   });
 
+  // ---- 11b. text the STYLESHEET renders, joined source-side to walk-side --------------------
+
+  await run.check("11b  every string the stylesheets themselves render is measured, both themes", async () => {
+    // WHAT THIS CLOSES. `lib/contrast.js`'s walk collected `nodeType === 3` children, and a
+    // pseudo-element is not a node — so text produced by a `content:` declaration was
+    // outside every check in this file, was not on the library header's "WHAT IT DOES NOT
+    // SEE" list, and therefore did not exist as a known gap either. `style.css:3787` renders
+    // one: `.setbtn::after { content: "Settings" }`, the tooltip on the settings button §15
+    // puts on every screen. It had never been measured by anything.
+    //
+    // TWO SIDES, DERIVED SEPARATELY, JOINED HERE. `lib/ui-sources.js`'s
+    // `cssContentStrings()` reads the SHIPPED STYLESHEETS — all four, from the manifest — and
+    // returns every non-empty authored `content` string with its file:line. The walk reports
+    // what the BROWSER produced. Neither side can be short without the other noticing:
+    //
+    //   a string in the CSS that no walk ever saw    -> FAILS, naming file:line
+    //   a string a walk saw that is in no stylesheet -> FAILS, naming the selector
+    //
+    // The second direction is not decoration. It is what would catch a `content` written by
+    // a stylesheet the manifest does not reach — the exact defect this whole session is
+    // about, one level down.
+    const authored = SOURCES.cssContentStrings();
+    assert(
+      authored.length >= 1,
+      "0 authored `content` strings found across " + SOURCES.styleSources().join(" + ") +
+        ". This check is a join, and a join over an empty set passes for free — which is the " +
+        "failure this repository has found eleven times today. Either the derivation broke or " +
+        "the stylesheets moved."
+    );
+    assert(
+      seen.generated.considered > 0,
+      "the walk found 0 generated-content nodes across " + Object.keys(perSurface).length +
+        " walks while the CSS declares " + authored.length + ". The in-page pass is not running."
+    );
+
+    // SOURCE -> SCREEN. Measured, or at worst seen-and-named.
+    const unseen = authored.filter(
+      (a) => !seen.generated.measured.has(a.text) && !seen.generated.hidden.has(a.text)
+    );
+    assertEqual(
+      unseen.map((a) => a.site + " = " + JSON.stringify(a.text)),
+      [],
+      "authored `content` string(s) that NO walk in this suite ever encountered"
+    );
+
+    // SCREEN -> SOURCE. Anything the browser rendered has to come from a stylesheet the
+    // manifest reaches.
+    const authoredText = new Set(authored.map((a) => a.text));
+    const foreign = [...seen.generated.measured.keys(), ...seen.generated.hidden.keys()].filter(
+      (t) => !authoredText.has(t)
+    );
+    assertEqual(
+      foreign.map((t) => JSON.stringify(t)),
+      [],
+      "generated text on screen that is in none of the shipped stylesheets — a `content` " +
+        "declaration is reaching the app from a file lib/ui-sources.js does not reach"
+    );
+
+    // AND UNPROVABLE IS A FAILURE, never a skip — the rule the rest of this file runs on.
+    assertEqual(
+      seen.generated.unprovable,
+      [],
+      "generated text that is on screen and could not be resolved"
+    );
+
+    // MEASURED IN BOTH THEMES, at the same floors as any other text. `hidden` alone is not
+    // enough for anything: a string that is `opacity: 0` on every surface has been named,
+    // not checked, and this is the assertion that says so out loud.
+    const lines = [];
+    for (const a of authored) {
+      const rows = seen.generated.measured.get(a.text) || [];
+      const themes = new Set(rows.map((r) => r.where.split("/")[1]));
+      assert(
+        themes.has("light") && themes.has("dark"),
+        a.site + " = " + JSON.stringify(a.text) + " was measured in " +
+          (rows.length ? [...themes].join(" + ") : "no theme") +
+          ". It is rendered text and the floor is both themes; the surfaces that report it " +
+          "hidden are: " + (seen.generated.hidden.get(a.text) || ["(none)"]).slice(0, 2).join(", ")
+      );
+      for (const r of rows) {
+        assert(
+          r.ratio >= r.threshold,
+          a.site + " " + r.where + " " + r.path + ": " + r.ratio + ":1 against a floor of " + r.threshold + ":1"
+        );
+      }
+      const worst = rows.reduce((w, r) => (w === null || r.ratio < w.ratio ? r : w), null);
+      lines.push(
+        a.site + " " + JSON.stringify(a.text) + " — worst " + worst.ratio + ":1 (floor " +
+          worst.threshold + ":1) " + worst.fg + " on " + worst.bg + " at " + worst.fontSize + "px on " +
+          worst.where + ", via " + worst.via
+      );
+    }
+
+    return (
+      authored.length + " authored `content` string(s) across " + SOURCES.styleSources().join(" + ") +
+      "; " + seen.generated.considered + " generated node(s) considered and " + seen.generated.checked +
+      " measured across " + Object.keys(perSurface).length + " walks, 0 unprovable:\n          " +
+      lines.join("\n          ")
+    );
+  });
+
   // ---- 12. the exemption inventory, so creep is a number ------------------------------------
 
   await run.check("12  every exemption in the shipped source is enumerated, with its reason", async () => {
@@ -1545,6 +1686,33 @@ main().catch((e) => {
 //      sits in only runs over elements painted ABOVE the node, and a desk card inside the
 //      panel has none, so the mutated line was never reached. It proves nothing about check
 //      11 and is not counted as a run.
+//  11b NOT A MUTATION FIRST — THE SHIPPED SOURCE WAS ALREADY UNMEASURED. `lib/contrast.js`
+//      collected `nodeType === 3` children, and a pseudo-element is not a node, so
+//      `style.css:3787`'s `.setbtn::after { content: "Settings" }` — the tooltip on the
+//      settings button §15 puts on EVERY screen — was rendered text that no check in this
+//      directory had ever measured, and it was not on the library header's "WHAT IT DOES
+//      NOT SEE" list either, so it was not even a known gap. Measured now, on its own
+//      `settings-tooltip` surface, in both themes:
+//
+//          dark   #979faf on #182440  5.78:1  at 16px, floor 4.5:1
+//          light  #595e66 on #fdfcf8  6.38:1  at 16px, floor 4.5:1
+//
+//      Independently re-derived by hand before the run rather than read off it:
+//      `--ink-soft` dark is `rgba(223,228,238,0.64)` over `--surface: var(--card) = #182440`,
+//      which composites to rgb(151.4,158.9,175.4) and gives 5.78; light is
+//      `rgba(12,19,34,0.68)` over `#fdfcf8`, composites to rgb(89.1,93.6,102.5), 6.38. Both
+//      agree with WebKit to the second decimal. The surface is CLEAN — and nothing could
+//      have told you that before today.
+//  11b(i)  DRIVER MUTATION — `p.hover(".setbtn")` -> `p.hover("#composer-input")` -> check
+//      11b. `style.css:3787 = "Settings" was measured in no theme ... the surfaces that
+//      report it hidden are: shell/light button#set-btn::after (cumulative opacity 0)`.
+//      This is the one that matters: it proves `hidden` is NAMED rather than skipped, so a
+//      driver that stops reaching the hover state fails instead of quietly measuring less.
+//  11b(ii) SOURCE MUTATION — a `content: "Draft — do not ship"` on a selector nothing
+//      matches, appended to `style.css` -> check 11b: `authored content string(s) that NO
+//      walk in this suite ever encountered — actual ["style.css:4619 = \"Draft — do not
+//      ship\""]`. The other direction of the join, and the one that would catch authored
+//      text arriving in a stylesheet no gate opens.
 //  12  index.html: `data-contrast-exempt="x"` on `#rail-company`
 //        -> rejected by file and by reason for having nothing to say
 //  12b index.html: `data-contrast-exempt="chrome, nobody reads the company name"` against
