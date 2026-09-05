@@ -67,7 +67,13 @@ mutant() {
     cp "$ENGINE_ROOT/scripts/hooks/turn-manifest.sh" \
        "$ENGINE_ROOT/scripts/hooks/turn-manifest.py" \
        "$ENGINE_ROOT/scripts/hooks/turn-manifest.test.sh" "$dir/scripts/hooks/"
-    cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$dir/scripts/lib/"
+    # stop-hook-notice.sh is copied DELIBERATELY, and its absence was a real
+    # hole: turn-manifest.sh defines stub stop_notice_* functions when the
+    # library is missing, so every mutant here used to run the DEGRADED notice
+    # path rather than the shipped one. A harness that mutates a stub proves
+    # something about the stub.
+    cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
+       "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" "$dir/scripts/lib/"
     chmod +x "$dir/scripts/hooks/"*.sh
 
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
@@ -171,15 +177,27 @@ mutant records-uncounted "f." scripts/hooks/turn-manifest.py \
 #    A Stop hook that fails closed refuses to let the SESSION end and re-fires
 #    to the block cap while the operator watches.
 # ---------------------------------------------------------------------------
+# THE NEEDLE THIS MUTANT SITS ON DRIFTED, AND THIS HARNESS NEVER RAN TO SAY SO.
+# It used to edit `if [ "$RC" = "0" ] && [ -n "$OUT" ]; then ... exit 0`. That
+# compound condition was split when the hook gained its stop-hook notice
+# channel -- the `$RC = 0` test became the enclosing branch and the `-n "$OUT"`
+# test the inner `if` -- so from that commit onward the mutation matched
+# nothing. The harness reported `MUTATION TARGET ABSENT` rather than a false
+# green, which is the one thing that went right here: it is the third clause of
+# this file's own contract doing its job. But nothing ran it, so the refusal was
+# printed to nobody and property `g.` -- the hook has no path that can block a
+# turn -- was proven by NOTHING between that refactor and 2026-09-05.
+# Repointed at the block as it now stands, and the mutation is the same one:
+# turn the successful exit into a blocking one.
 mutant can-block "g." scripts/hooks/turn-manifest.sh \
-    'if [ "$RC" = "0" ] && [ -n "$OUT" ]; then
-    printf '"'"'%s\n'"'"' "$OUT"
-fi
-exit 0' \
-    'if [ "$RC" = "0" ] && [ -n "$OUT" ]; then
-    printf '"'"'%s\n'"'"' "$OUT"
-fi
-exit 2' \
+    '    if [ -n "$OUT" ]; then
+        printf '"'"'%s\n'"'"' "$OUT"
+    fi
+    exit 0' \
+    '    if [ -n "$OUT" ]; then
+        printf '"'"'%s\n'"'"' "$OUT"
+    fi
+    exit 2' \
     "A manifest that can refuse a turn is a different, worse mechanism."
 
 echo ""
