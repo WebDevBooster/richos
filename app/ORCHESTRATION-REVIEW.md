@@ -1,4 +1,4 @@
-# RichOS durable work: fifth review
+# RichOS durable work: sixth review
 
 ## Problem and target
 
@@ -9,14 +9,16 @@ for material business decisions, including whether to spend more resources on
 work that repeatedly fails to converge.
 
 This branch targets RichOS desktop. The original incident occurred in a Claude
-Code team in femcboost; this change installs no hooks there. Claude Code does not
-impose the one-refusal limit discussed in the first proposal. That was a local
-engine policy. The architectural reason for a durable controller is ownership
-outside individual inference turns, not an alleged provider Stop-hook limit.
+Code team in femcboost; this change installs no hooks there. The one-refusal limit discussed in the first proposal was a local engine policy.
+Claude Code does have a documented limit of eight consecutive Stop-hook blocks,
+confirmed from the [raw hooks reference](https://code.claude.com/docs/en/hooks.md)
+on 2026-09-05. The ordinary RichOS conversation lease excludes settings sources
+and loads no plugin Stop hook. Its durable controller must therefore own work
+outside inference turns; it is not a replacement for an existing desktop hook.
 
 ## What the fourth audit established
 
-The previous revision restored Rich's conversation, speech and working state and
+The fourth revision restored Rich's conversation, speech and working state and
 made corrections reach live work. Its registration mechanism was still wrong:
 every message incurred private inference on Rich's expensive conversation lease,
 with forced priming before and after it. The reviewer measured a roughly seven
@@ -34,17 +36,43 @@ historical conversations are not executed. Discovery keeps an in-memory cursor,
 tracks unresolved turns and rereads only pending requests after its initial scan.
 It rebuilds that index from durable files on restart.
 
+## What the fifth audit changed
+
+The previous single live pass did not establish reliable default-tier behavior.
+Sage reproduced two failed jobs in four Haiku trials: a quote check rejected
+ordinary Markdown acknowledgments three times, then halted the assignment.
+Another trial required an unnecessary scope restatement. Those failures were
+real and contradict treating one passing run as sufficient release evidence.
+
+The default is now Sonnet, retaining the operator override. Quote matching
+normalizes whitespace only, permitting collapsed blank lines and wrapped bullets.
+The quote must still be a contiguous fragment of its own current message;
+stitched passages, changed wording and cross-message evidence remain invalid.
+The prompt requests one short fragment rather than a copied specification.
+Unit and desktop fixtures now exercise multiline Markdown, with mutations for
+both over-strict whitespace matching and acceptance of invented quotes. A native
+probe measures the shipped prompt and default tier across designed cases and
+repeated Markdown inputs without executing work.
+
+Rich is asked to acknowledge the deliverable and essential constraints in one
+concise prose paragraph, without headings, lists or filesystem paths. The full
+CEO request and previous scope remain in the contract, so brevity does not discard
+constraints. Failed-start reports receive a plain-language status, never the raw
+registration error or component names. Diagnostics remain in the saved request.
+The CEO can send the request again for another attempt; the report cannot claim
+ongoing recovery or blame the wording of the original brief.
+
 A separate registrar receives the CEO message, Rich's delivered reply, the last
 six CEO/reply pairs and the conversation's assignment snapshots as JSON data.
 It has no access to Spine and never holds its mutex. The registrar defaults to
-`haiku`; operators can override `RICHOS_REGISTRATION_MODEL`. Its native process
+`sonnet`; operators can override `RICHOS_REGISTRATION_MODEL`. Its native process
 uses an empty temporary directory, no tools, empty MCP configuration, empty
 settings sources and a strict result schema. Unexpected permission callbacks
 are denied. The settings exclusion is limited to this tool-free transcriber;
 acting workers retain configured user, project and local restrictions.
 
 Registration makes separate claims about CEO intent and Rich's commitment. The
-host requires exact nonempty quotes from both current messages and checks their
+host requires nonempty contiguous quotes from both current messages, allowing whitespace differences and checks their
 consistency. Discussion with a commitment, action without one, invented targets,
 missing pending decisions and unknown fields are rejected. Corrections must
 identify their assignment. The registrar cannot produce task descriptions or
@@ -52,11 +80,21 @@ acceptance criteria: the host copies the **entire request and Rich reply** into
 the execution and review contract, preserving negative constraints. Amendments
 also retain the previous scope except where the CEO explicitly changes it.
 
-Rich's priming now requires him to state the complete deliverable and acceptance
-constraints aloud. Only a missing-scope result permits one targeted scope repair
+Rich's priming requires a concise acknowledgment of the deliverable and essential
+constraints. Only a missing-scope result permits one targeted scope repair
 through Rich. Ordinary registration never calls or re-primes his lease. Reports
 reuse an already primed conversation; a scope change primes the appropriate
 thread, tracked independently of the thread selected in the UI.
+
+We retain priming on each thread switch because the payload is thread-scoped.
+Reusing the previous thread's priming would give Rich the wrong active context.
+This adds one priming turn per switch. A report into another thread adds a prime
+before the report and another when conversation returns to the original thread.
+Sage measured priming at 1.4–1.5 seconds and about $0.084 with initial cache
+creation; this is evidence of cost, not a fixed charge for every switch. Reports
+also hold the conversation lock for their spoken turn, measured at 5–7 seconds.
+The scope correctness is worth those turns; a session per thread would be a
+separate resource and lifecycle design, not a silent change here.
 
 This still uses fallible model judgment. Quotes establish provenance, not proof
 that a classification is semantically correct. Consistent mistakes remain
@@ -71,7 +109,7 @@ Registration permits at most three attempts, charged durably **before** inferenc
 A crash cannot erase a charged attempt. Failures wait 30 seconds before retry.
 Missing scope permits at most one additional Rich clarification within that
 registration budget. At exhaustion, the request remains saved and unfinished,
-a report explains the internal failure and automatic registration stops. It does
+a plain-language report states the unfinished status and next step; automatic registration stops. It does
 not ask the CEO to debug the registrar. A later corrected request can proceed;
 fixing and replaying the failed inbox entry is an operator repair, not a hidden
 infinite retry loop. No worker starts from an invalid registration.
@@ -136,8 +174,9 @@ The live/reloaded proactive report styling seam from the fourth audit remains;
 the ledger source and speech delivery are correct, but their visual presentation
 has not received a separate reconciliation in this revision.
 
-The Work plan panel, including its new selector, still needs independent design
-review. P4 is open. No design approval, production deployment or main-branch merge
+The selector text now has measured contrast of 13.02:1 in dark mode and 17.02:1
+in light mode, checked from computed WebKit colors. The Work plan panel, including
+its selector, still needs independent design review. P4 is open. No design approval, production deployment or main-branch merge
 is claimed. Validation below is evidence for the code paths tested, not a promise
 that no future operational failure can occur.
 

@@ -1,5 +1,6 @@
 "use strict";
 const path = require("path");
+const {parseCssColor, contrastRatio} = require("./lib/contrast");
 const { loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 async function main() {
@@ -145,6 +146,18 @@ async function main() {
     await page.waitForFunction(() => window.calls.some(([n,a]) => n === "select_run" && a.runId === "blocked"));
     assert((await page.locator("#managed-run").innerText()).includes("Original assignment"));
     assert((await page.locator("summary").first().innerText()).includes("Waiting for your decision"));
+  });
+  await run.check("Assignment selector text meets contrast in both themes", async () => {
+    for (const theme of ["dark", "light"]) {
+      const colors = await page.getByLabel("Assignment", {exact:true}).evaluate((e, theme) => {
+        document.documentElement.dataset.theme = theme;
+        const css = getComputedStyle(e); return [css.color, css.backgroundColor];
+      }, theme);
+      const ratio = contrastRatio(parseCssColor(colors[0]), parseCssColor(colors[1]));
+      assert(ratio >= 4.5, `${theme}: ${ratio}:1 for ${colors}`);
+      console.log(`          ${theme}: ${ratio.toFixed(2)}:1`);
+    }
+    await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
   });
   await run.check("Controls carry the displayed assignment identity even if another job updates", async () => {
     await page.getByRole("button", {name:"End run without completing it",exact:true}).click();

@@ -649,7 +649,7 @@ cannot start a download or an install by itself.
 `runId`, `updatedAt`, `revision`, `goal`, `state` and `tasks`. Each task has `id`,
 `description`, `state`, `checks`, `attempts` and `evidence`. Run states include
 `ready`, `running`, `waiting`, `needs_decision`, `paused`, `needs_attention`,
-`completed` and `cancelled`. Task states include `pending`, `running`, `verifying`,
+`completed` and `canceled`. Task states include `pending`, `running`, `verifying`,
 `passed`, `needs_attention` and `needs_decision`.
 
 The desktop emits snapshots after durable controller transitions. The panel

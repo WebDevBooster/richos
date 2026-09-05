@@ -46,14 +46,18 @@ for line in sys.stdin:
             target = data['assignments'][0]['id'] if intent == 'amend' else None
             if ceo.startswith('Handle slow registration:'):
                 (base / 'registration-started').write_text('started'); time.sleep(8)
-            structured = {'intent':intent,'rich_committed':intent!='discussion','request_quote':ceo,'reply_quote':reply,'scope_complete':True,'target_run_id':target}
+            structured = {'intent':intent,'rich_committed':intent!='discussion','request_quote':ceo,'reply_quote':' '.join(reply.split()),'scope_complete':True,'target_run_id':target}
             if ceo.startswith('Handle malformed:'): structured = None
             if ceo.startswith('Question inconsistent:'): structured.update(intent='work',rich_committed=False)
         elif text.startswith(('Handle', 'Revise the assignment:', 'How is work going?', 'Question inconsistent:')):
-            reply = 'There is no action requested.' if text.startswith(('How','Question')) else 'I will deliver the full requested result: '+text
+            reply = 'There is no action requested.' if text.startswith(('How','Question')) else 'I will deliver this.\n\n**Deliverable:**\n- '+text
             print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':reply}]}}), flush=True)
         elif text.startswith('Report this durable work update'):
-            print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':'Finished and checked: the deliverable is ready.'}]}}), flush=True)
+            failed = 'Automatic attempts have stopped.' in text
+            if failed:
+                assert 'Registration failed after' not in text and 'must quote' not in text and 'previous_error' not in text
+            response = "I couldn't start the work. Your request is saved and unfinished. You can send it again if you want another attempt." if failed else 'Finished and checked: the deliverable is ready.'
+            print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':response}]}}), flush=True)
         elif text.startswith('Independently audit'):
             exists = (Path('revised.txt').exists() and not Path('original.txt').exists()) if 'revised.txt' in text else Path('original.txt').exists() if 'original.txt' in text else (Path('deliverable.txt').exists() and Path('deliverable.txt').read_text() == 'Finished.\n')
             structured = {'kind':'complete','evidence':'I read deliverable.txt and matched its exact content.'} if exists else {'kind':'incomplete','remaining':'The actual deliverable is absent. Write it before finishing.'}
@@ -102,7 +106,7 @@ for phase in (("native-handoff",) if native else ("enqueue", "resume", "recover-
         calls = [json.loads(line) for line in (root / 'registration-calls.jsonl').read_text().splitlines()]
         for call in calls:
             argv = call['args']
-            assert argv[argv.index('--model')+1] == 'haiku'
+            assert argv[argv.index('--model')+1] == env.get('RICHOS_REGISTRATION_MODEL', 'sonnet')
             assert argv[argv.index('--tools')+1] == ''
             assert argv[argv.index('--setting-sources')+1] == ''
             assert '--strict-mcp-config' in argv

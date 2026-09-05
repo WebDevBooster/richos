@@ -78,3 +78,47 @@ fn missing_scope_is_distinct_from_permission_and_schema_refuses_synthesized_task
         6
     );
 }
+
+#[test]
+fn markdown_quote_provenance_tolerates_whitespace_but_preserves_full_contract() {
+    let request =
+        "Handle this: create hello.txt containing exactly Hello Rich. Do not create other files.";
+    let reply="I've got this one.\n\n**Deliverable:** a single file, `hello.txt`.\r\n\r\n**Acceptance constraints:**\n- Exactly `Hello Rich`.\n- No trailing newline.\n- No other files.\n\nI'll confirm once verified.";
+    let mut v = value(Intent::Work, true);
+    v.request_quote = request.into();
+    v.reply_quote = "I've got this one. **Deliverable:** a single file, `hello.txt`.".into();
+    let (h, _) = validate(v, request, reply, "", &[]).unwrap();
+    let Handoff::Work { tasks, .. } = h else {
+        panic!()
+    };
+    assert!(
+        tasks[0].criteria.contains(reply),
+        "quote normalization must not rewrite the execution contract"
+    );
+    assert!(tasks[0].criteria.contains(request));
+}
+
+#[test]
+fn quotes_cannot_stitch_passages_change_negation_or_borrow_another_message() {
+    let reply="I've got this one.\n\n**Deliverable:** hello.txt. Do not send it.\n\nI'll confirm once verified.";
+    for quote in [
+        "I've got this one. I'll confirm once verified.",
+        "Do send it.",
+        "The CEO approved publication.",
+        " \n\t",
+    ] {
+        let mut v = value(Intent::Work, true);
+        v.reply_quote = quote.into();
+        assert!(
+            validate(v, "CEO", reply, "The CEO approved publication.", &[]).is_err(),
+            "accepted invented or stitched quote: {quote}"
+        );
+    }
+    let mut v = value(Intent::Work, true);
+    v.reply_quote = "Do not send it.".into();
+    v.request_quote = "Do not send it.".into();
+    assert!(
+        validate(v, "CEO", reply, "", &[]).is_err(),
+        "reply evidence cannot stand in for the CEO's request"
+    );
+}

@@ -42,6 +42,10 @@ mutations = [
      "the_contract_preserves_every_byte_including_negative_constraints_and_tail"),
     ("src/spine.rs", "reprime-before-every-report", "self.deliver(id, binding, &prompt, true)", "{ self.lease_primed = false; self.deliver(id, binding, &prompt, true) }",
      "rich_keeps_voice_and_reports_without_registration_or_redundant_priming"),
+    ("src/registration.rs", "reject-markdown-whitespace", "normalize(source).contains(&quote)", "source.contains(&quote)",
+     "markdown_quote_provenance_tolerates_whitespace_but_preserves_full_contract"),
+    ("src/registration.rs", "trust-invented-quotes", "normalize(source).contains(&quote)", "true",
+     "quotes_cannot_stitch_passages_change_negation_or_borrow_another_message"),
 ]
 
 with tempfile.TemporaryDirectory(prefix="richos-run-mutations-") as temporary:

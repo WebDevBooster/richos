@@ -1,4 +1,58 @@
-# Fifth revision: measured validation
+# Sixth revision: validation after the fifth audit
+
+R5 showed that the earlier single successful Haiku desktop trial was insufficient:
+two of four reviewer trials halted on quote provenance and another needed a false
+scope repair. The earlier evidence below is historical, not a reliability claim
+for that default. This revision defaults to Sonnet and preserves quote provenance
+while tolerating whitespace differences in Markdown replies.
+
+Current completed checks:
+
+| Check | Result |
+| --- | --- |
+| Full core suite | 734 direct non-doc tests and five doctests passed, zero failures; two child-only fixtures ignored at top level. Source inventory: 736 tests. |
+| Focused behavior | Six registrar tests and 36 controller/Spine tests passed. Coverage includes Markdown whitespace, invented and stitched quotes, unchanged contract bytes and the actual per-thread priming cost. |
+| Mutation harness | 16/16 killed at the named test. New mutants force exact whitespace or accept invented quotes. |
+| Shipped native registrar | 12/12 first-attempt cases passed using the production prompt, schema, flags and default model: nine designed cases and three repetitions of a multiline Markdown acknowledgment. Every accepted work/amendment retained the full request and reply in its criteria. |
+| Controlled desktop | All nine phases passed with multiline fixture acknowledgments and whitespace-collapsed returned quotes. Spawns used Sonnet by default with no tools, empty settings and strict MCP configuration. Invalid registrations still halted after three attempts across restart. Failure-report inputs exclude raw diagnostic errors. |
+| Desktop debug build | Passed. |
+| Panel WebKit suite | 17 passed, including selector text contrast: dark 13.02:1, light 17.02:1. |
+| Affordance suite | Passed. No state-classification enforcement was weakened. |
+| Documentation claims | Six passed with the source-derived 736+5 count. |
+
+Three consecutive installed-Claude desktop trials passed. All registered on the
+first attempt with no scope repair, produced only the exact ten-byte `hello.txt`
+and used one initial conversation prime. Acknowledgments were one paragraph,
+207–349 characters and contained no workspace path. The trials precede spelling-only
+prompt corrections; execution logic and model choice are unchanged. Per-trial
+results are recorded in `validation/owned-work/results.json`.
+The native registrar evaluation writes each input and raw typed outcome to a new
+temporary evidence directory, including failures. It runs one attempt per case
+and exits nonzero on any unexpected result. No evaluation case executes work.
+
+```sh
+cargo build --manifest-path app/Cargo.toml -p richos-core --example registration_probe
+python3 app/scripts/test-registration-native.py
+python3 app/scripts/test-owned-work-desktop.py --native
+```
+
+This matrix is evidence for the tested cases, not a measured customer-wide success
+rate. No voice hardware or live correction to an executing provider worker was
+tested. P4 remains with the independent designer; contrast measurements do not
+constitute that approval. No main merge or deployment was performed. For a future
+merge, preserve main's whole Build-and-test block and both CSS additions, then
+recompute the counts with the required direct/child-only wording rather than copy
+a number from an older audit.
+
+The raw Claude hooks Markdown was retrieved independently and confirms the
+eight-consecutive-block provider cap. The earlier local one-block policy and the
+ordinary desktop lease's absence of plugin Stop hooks are separate facts, now
+stated explicitly in `ORCHESTRATION-REVIEW.md`.
+
+---
+
+# Historical fifth-revision evidence
+
 
 Measured on 2026-09-05 in the isolated `codex/durable-orchestration` worktree.
 No production data or main checkout was changed. The review document is
@@ -20,7 +74,7 @@ No production data or main checkout was changed. The review document is
 | Panel browser checks | 16 passed, including assignment selection, control identity and the selector's computed 16px type size. |
 | Affordance checks | Passed with 287/287 states classified. New stale-assignment errors have a Refresh work plans control. No enforcement rule was weakened. |
 | Documentation checks | Six passed, including the source-derived 734+5 count. |
-| Installed Claude desktop | Passed. One CEO message, one worker attempt and exact ten-byte `Hello Rich` file with no newline. Rich delivered the acknowledgement and verified completion through the ordinary conversation. |
+| Installed Claude desktop | Passed. One CEO message, one worker attempt and exact ten-byte `Hello Rich` file with no newline. Rich delivered the acknowledgment and verified completion through the ordinary conversation. |
 | Conversation lease in that native trial | One initial prime, one answer and one completion report. No registration or extra priming turns on Rich's lease. |
 | Conversation compatibility | The unchanged main checkout's reader rendered a controlled new ledger with nine CEO messages exactly once and visible completion. |
 

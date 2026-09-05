@@ -1017,6 +1017,15 @@ fn rich_keeps_voice_and_reports_without_registration_or_redundant_priming() {
     let chunks:Vec<_>=events.0.lock().unwrap().iter().filter_map(|e|if let StreamEvent::Chunk{text_delta,..}=e{Some(text_delta.clone())}else{None}).collect();
     assert_eq!(chunks,vec!["Here is the answer.","The work is verified."],"both the answer and report must reach the existing speech listener once");
     assert!(calls.lock().unwrap().iter().any(|p|p.contains("You have a durable execution team")),"Rich must be primed with the actual handoff contract before answering");
+    assert!(calls.lock().unwrap()[0].contains("one prose paragraph"));
+    assert!(calls.lock().unwrap()[0].contains("No headings, lists or filesystem paths"));
+    let other=spine.create_thread("Other context",&EntityId::parse("company").unwrap()).unwrap();
+    spine.switch_thread(&other).unwrap();
+    spine.submit_prompt("What about this thread?",Source::Text).unwrap();
+    assert_eq!(calls.lock().unwrap().len(),5,"switching context requires one prime and one answer");
+    spine.switch_thread(&thread).unwrap();
+    spine.submit_prompt("Back to this context",Source::Text).unwrap();
+    assert_eq!(calls.lock().unwrap().len(),7,"returning to the earlier context also requires priming");
 }
 
 #[test]

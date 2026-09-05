@@ -261,7 +261,7 @@ fn requests(state: &AppState, index: &mut IntakeIndex) -> Result<(), String> {
                             .thread_binding(&request.thread)
                             .map_err(|e| e.to_string())?;
                         let id = format!("scope-{}", request.id);
-                        spine.report_owned_work(&binding, &id, &format!("Your accepted assignment needs a complete scope. State the full deliverable and acceptance constraints now, preserving all prohibitions and previous requirements. Resolve routine details yourself; do not ask the CEO to plan. No work has been executed for this registration. CEO request: {}\nPrevious reply: {}\nConversation: {}", request.text, request.conversation, request.tail)).map_err(|e|e.to_string())?;
+                        spine.report_owned_work(&binding, &id, &format!("Your accepted assignment needs a complete scope. State the deliverable and essential constraints in one concise prose paragraph, preserving prohibitions and previous requirements. No headings, lists or filesystem paths. Resolve routine details yourself; do not ask the CEO to plan. No work has been executed for this registration. CEO request: {}\nPrevious reply: {}\nConversation: {}", request.text, request.conversation, request.tail)).map_err(|e|e.to_string())?;
                         request.conversation = spine
                             .ledger()
                             .turn(&id)
@@ -280,7 +280,11 @@ fn requests(state: &AppState, index: &mut IntakeIndex) -> Result<(), String> {
             serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
         if request.halted && !request.done {
-            if report(state, &request.thread, &format!("registration-failed-{}", request.id), &format!("Registration failed after {} attempts. The assignment remains saved and unfinished, but execution is suspended because its authorization or scope could not be established reliably. This is an internal failure, not a request for the CEO to troubleshoot or approve a routine retry. Do not claim work is underway or completed. Request: {}\nFailure: {}", request.attempts, request.text, request.error))? { index.pending.remove(&path); }
+            // Diagnostics stay in the saved request. Do not send component names
+            // or raw errors to the conversational model, including its fallback.
+            let status = if request.directive.is_none() { "The work has not started." } else { "I could not confirm that the work started successfully." };
+            let evidence = format!("{status} The request is saved and remains unfinished. Automatic attempts have stopped. Explain this briefly and take responsibility. If the CEO wants another attempt, they can send the request again in their own words. Do not demand a shorter brief, imply their original request was wrong or promise recovery is already underway.");
+            if report(state, &request.thread, &format!("registration-failed-{}", request.id), &evidence)? { index.pending.remove(&path); }
         }
     }
     Ok(())
