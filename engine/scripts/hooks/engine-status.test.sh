@@ -454,6 +454,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # `grep -rln session-start-ceo-ask engine/` named both surfaces, this set,
 # Layer R and BR2.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
 engine-status.sh
 guard-agent-state-claims.sh
@@ -481,6 +482,7 @@ guard-workflow-ban.sh
 guard-worktree-isolation.sh
 guard-worktree-removal.sh
 notice-ceo-asks.sh
+notice-ceo-inputs-unheld.sh
 notice-ceo-ruled-prose.sh
 notice-ceo-unasked.sh
 notice-escalations.sh

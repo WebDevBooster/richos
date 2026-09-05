@@ -71,6 +71,66 @@ version heading with Added / Changed / Fixed groupings.
   holds the live run: raised in a richos worktree, read by a femcboost-seated
   session, with `git merge-base --is-ancestor` proving the branch was not
   merged.
+- **The engine's first `UserPromptSubmit` hook: a file the CEO hands over
+  commits itself** (`scripts/hooks/commit-ceo-inputs.sh` +
+  `commit-ceo-inputs.py`, with `scripts/hooks/notice-ceo-inputs-unheld.sh` on
+  `Stop`) — MINOR.
+
+  The registration table read 55 hooks across nine events, and every one of
+  those events was something the ORCHESTRATOR does — what it spawns, writes,
+  commits, pushes, removes, claims and defers. **Nothing watched the INPUT.**
+  On 2026-09-05 a specification the CEO wrote drove verified changes to a
+  public repository while the file itself sat untracked on one hard drive. He
+  noticed; nothing else could have.
+
+  A path his message names — absolute, `~`-rooted, or inside a code span, and
+  **never a bare word** — that exists on disk and that git is not holding is
+  now **committed, unmodified, on the spot**, with a message saying it is his
+  input and where it came from.
+
+  **It commits rather than reminding, and the first version did not.** That
+  version found the file, told the orchestrator and explained that committing
+  is a judgment. His answer: *"'it does not commit for you': Then who commits
+  for me? Santa Claus?"* — and he is right, structurally rather than
+  rhetorically. His whole complaint was that a document went uncommitted
+  because the orchestrator forgot; a mechanism whose last link is the
+  orchestrator remembering is the same failure with a reminder attached. So
+  the judgment is made MECHANICAL, out of gates this engine already ships:
+  `scan-secrets.sh` and `guard-publication-writes.sh` are INVOKED, never
+  reimplemented, so a detector added to either is inherited with no edit here.
+
+  A credential, private material, a path at a repository ROOT, an encoding the
+  gates cannot read, a merge in progress, a detached HEAD, a live agent
+  worktree, or more paths than a hand-over plausibly carries all mean NOT
+  COMMITTED — stated out loud with the reason and where the file should live
+  instead. That is his own exception and it stays as narrow as he made it.
+
+  **It never blocks, and that is measured rather than chosen.** Claude Code
+  2.1.261's own hook table: on this event, `exit 2` blocks processing and
+  **erases the original prompt**. So the only exit code is 0, on every path,
+  and `suppressOriginalPrompt` is never emitted.
+
+  **His file is never modified and no byte of it is ever printed.** The commit
+  is built through plumbing from HEAD's tree plus one blob in a throwaway
+  index, so the working tree is never written and nobody else's staged work is
+  swept in; the branch moves by compare-and-swap, so a concurrent commit loses
+  the race loudly instead of being clobbered.
+
+  **The Stop partner is what makes a refusal impossible to miss.** A hook
+  fires once and cannot tell whether anyone acted, so refusals go to a ledger
+  (`.claude/state/ceo-inputs.jsonl`) that is re-read at every turn end and
+  keeps naming the file until git holds it, an ignore covers it, or it is
+  gone. It clears itself from the FACT, never from an acknowledgement, so it
+  cannot decay into a nag nobody reads.
+
+  Every way either hook can fail to do its job — stood down
+  (`CHECK_CEO_INPUTS=0` / `CHECK_CEO_INPUTS_UNHELD=0`), no `python3`, no
+  `git`, a missing analyzer, an unresolvable root, an unreadable payload, a
+  budget overrun — SAYS so. A clean run still writes its ledger line, so the
+  absence of a finding is distinguishable from the absence of a check.
+
+  43 cases, destructive in both directions, every silence paired with the
+  specimen firing in the same run.
 
 - **Declarations may be grouped in `.richos/`, and where one lives is now a
   single question with a single answer** (`scripts/lib/declaration-path.sh`,
