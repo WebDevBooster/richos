@@ -1541,6 +1541,20 @@ fn main() {
                 }
                 None => updates::spawn_launch_check(app.handle().clone()),
             }
+            // THE WORK GATE'S WATCHER (CEO, 2026-09-05). It is what makes the update control
+            // DISAPPEAR while RichOS is doing something and COME BACK when it stops — the
+            // only source that can see workers is a file another process writes, so it has
+            // to be read rather than waited for. Costs a single mutex read per tick in every
+            // state except the two where the CEO has something to act on; see
+            // `updates::spawn_work_watcher`.
+            //
+            // NOT armed under the selftest, deliberately: `updater-e2e.sh` runs headless with
+            // no spine and no lease, and a watcher emitting into a webview that does not
+            // exist would add a moving part to the one harness that proves the signature
+            // refusal.
+            if updates::selftest_mode().is_none() {
+                updates::spawn_work_watcher(app.handle().clone());
+            }
 
             // ================================================================
             // THE END OF RESOLUTION, SAID OUT LOUD

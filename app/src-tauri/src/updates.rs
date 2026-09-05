@@ -60,13 +60,58 @@
 //! swapped mid-turn (`docs/plans/richos-session-continuity-2026-08-24.md` §3.1). Replacing
 //! the bundle those processes were launched from, without asking, is that invariant broken
 //! by a background thread. So: RichOS finds the update on its own and says so; the CEO
-//! decides when the machine underneath him changes. Making the install automatic at a turn
-//! boundary is a real, separate piece of work — it is named in the handoff, and it is not
-//! quietly half-done here.
+//! decides when the machine underneath him changes.
+//!
+//! **Mode 1 — install with no click at all — is still not built here, and §26 is why.** That
+//! ruling's own words: mode 1 is *"download and stage silently, then apply at a SAFE MOMENT
+//! ... Building the staging and the safe-moment policy IS the work; removing the button is
+//! the trivial part."* This file builds the SAFE-MOMENT half and nothing else. Nothing below
+//! ever installs something the CEO did not press.
+//!
+//! # THE WORK GATE — nothing about an update may get in the way of finishing work
+//!
+//! **The defect this closes, found by the CEO on 2026-09-05 and verified in this file rather
+//! than assumed.** He asked whether the updater could destroy work in flight. It could, and
+//! it was three missing checks: `install()` took the pending update and began downloading
+//! with no test of turn state; `ui/updates.js` wired the Install button straight to the
+//! command, so nothing was disabled and nothing warned; and `update_relaunch()` was
+//! `app.restart()` and nothing else — two lines, no condition. **Pressed mid-turn, the third
+//! one replaces the process while a `claude` child is mid-answer.**
+//!
+//! **His rulings, and each one is a line of code below rather than a sentiment.**
+//!
+//!   * *"Yes, offer to wait and install when all work is finished."* **ALL WORK**, not the
+//!     current turn — RichOS runs workers alongside the conversation, and a worker still
+//!     running is still work. [`richos_core::work_gate`] holds that decision.
+//!   * *"The update is not important enough to get in the way of finishing work."* So the
+//!     DOWNLOAD waits too, not only the restart. Even where staging is technically harmless
+//!     it competes for bandwidth and for attention, and a progress bar moving while he is
+//!     mid-thought is getting in the way.
+//!   * *"We don't even show the update button/notification if the RichOS app currently has
+//!     active things running."* Absent, not dimmed — the precedent is this product's own
+//!     `voice_readiness`, where a machine that cannot hear REMOVES the talk button rather
+//!     than disabling it, because *"the affordance appears only where it functions."*
+//!   * *"Instead of a regular update button, they'd get some other visual cue but not an
+//!     actionable thing."* [`UpdateView::busy`] plus [`UpdateView::busy_reason`] is what the
+//!     surface builds that cue from. Hiding the ACTION is the ruling; hiding the FACT would
+//!     be §26's *"an update nobody discovers is the same as no updater at all"*.
+//!
+//! **FAIL TOWARD WAITING.** If the gate cannot establish whether work is running, it waits.
+//! It never resolves ambiguity in favor of installing — a delayed update is a nuisance and
+//! destroyed work is the defect.
+//!
+//! **WHAT THE GATE CANNOT DO, said here rather than discovered later.** It stops an install
+//! and a restart from STARTING while work is live. It cannot ABORT a download already in
+//! flight: `Update::download_and_install` takes no cancellation token
+//! (tauri-plugin-updater 2.11.0), so once the bytes are moving they finish. A turn that
+//! begins mid-download therefore rides it out, and the protection that matters — the
+//! process is not replaced — still holds at the relaunch. Building a cancellable download
+//! means a vendor change and it is not quietly half-done here.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use richos_core::work_gate::{self, Liveness, WorkSources, WorkVerdict};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
@@ -209,6 +254,37 @@ pub struct UpdateView {
     /// Wall-clock milliseconds of the last completed check, or `None` for "never checked".
     /// The CEO must be able to see THAT it checked, not only what it found.
     pub checked_at: Option<u64>,
+
+    // ---- the work gate (CEO, 2026-09-05) ----------------------------------------------
+    /// **RichOS is doing something, so the update must not act and must not be offered.**
+    ///
+    /// It is on the view rather than behind its own command for one reason: the view is
+    /// already *"everything the update surface needs to draw itself, in one payload"*, and a
+    /// surface that had to combine two payloads could paint an Install button from a fresh
+    /// update state and a stale work state. There is one answer and it arrives with
+    /// everything else.
+    pub busy: bool,
+    /// WHAT is running, in the CEO's words — "Rich is working on your last message.",
+    /// "2 workers are still running." `None` when nothing is.
+    ///
+    /// A blocking verdict ALWAYS carries one (`work_gate`'s
+    /// `no_blocking_verdict_is_ever_silent` walks all 27 combinations to prove it), because
+    /// a control that vanishes with no explanation is indistinguishable from a broken one.
+    pub busy_reason: Option<String>,
+    /// What the gate could NOT establish, one clause each — rendered as well as the reason.
+    ///
+    /// *"Never claim to have waited for something you did not check."* The live case is an
+    /// app with no compute lease: it has no session id, so it cannot see workers, so it says
+    /// so instead of implying it looked.
+    pub unchecked: Vec<String>,
+    /// When this update first became something the CEO could act on — the moment the view
+    /// entered `available`, carried through `ready`.
+    ///
+    /// **It exists because the gate can hide the control for a long time.** RichOS is built
+    /// to run workers for stretches, so "ready since Tuesday" is honest and a silent
+    /// indefinite wait is not. Cleared by `clear_attempt`, so a fresh check restarts it
+    /// rather than ageing an update that was replaced.
+    pub ready_since: Option<u64>,
 }
 
 impl UpdateView {
@@ -226,6 +302,10 @@ impl UpdateView {
             endpoint,
             endpoint_is_placeholder: placeholder,
             checked_at: None,
+            busy: false,
+            busy_reason: None,
+            unchecked: Vec::new(),
+            ready_since: None,
         }
     }
 
@@ -238,6 +318,10 @@ impl UpdateView {
         self.total_bytes = None;
         self.percent = None;
         self.failure = None;
+        // A new attempt is a new update. Carrying the old `ready_since` forward would age a
+        // version that is no longer the one on offer, which is the one thing this field
+        // exists to state accurately.
+        self.ready_since = None;
     }
 }
 
@@ -398,6 +482,11 @@ pub async fn check(app: &AppHandle) -> UpdateView {
                 v.notes = notes;
                 v.pub_date = date;
                 v.checked_at = Some(now_millis());
+                // FROM NOW, not from the manifest's `pub_date`. The question this answers is
+                // "how long has RichOS been unable to offer me this", which starts when this
+                // install learned about it — a version published in March that this machine
+                // met an hour ago has been waiting an hour.
+                v.ready_since = Some(now_millis());
             })
         }
         Ok(None) => {
@@ -426,6 +515,28 @@ pub async fn check(app: &AppHandle) -> UpdateView {
 /// version"*. `relaunch` below is that step, and it is a separate button because the CEO
 /// may be mid-conversation.
 pub async fn install(app: &AppHandle) -> UpdateView {
+    // THE GATE, BEFORE THE PENDING UPDATE IS EVEN LOOKED AT.
+    //
+    // `updates.js` removes the Install control while `busy`, so on the shipping surface this
+    // is normally unreachable — and it is here anyway, for the same reason
+    // `start_voice_capture` still refuses after `main.js` has hidden the talk button: hiding
+    // an affordance is the affordance half of a fix and never the whole of it. What reaches
+    // it is the RACE — he pressed while idle and a turn, a proactive message or a worker
+    // started in the milliseconds before the command landed — plus anything that ever calls
+    // this function from somewhere other than that button.
+    //
+    // It REFUSES rather than queueing, and the distinction is the CEO's own: he still
+    // presses it, and the control comes back when his work is finished. A queued install
+    // that fired by itself later would be mode 1, which §26 rules is a design session of its
+    // own and which this file does not invent.
+    let verdict = refresh_work_verdict(app);
+    if verdict.busy {
+        // The state is UNCHANGED — still `available`, still holding the same pending update,
+        // with `busy` now true. Nothing was downloaded, nothing was lost, and the surface
+        // reads the reason off the same payload it already had.
+        return app.state::<Updates>().snapshot();
+    }
+
     let pending = {
         let state = app.state::<Updates>();
         let guard = state.pending.lock().expect("pending lock");
@@ -508,11 +619,147 @@ pub async fn install(app: &AppHandle) -> UpdateView {
 }
 
 // ---------------------------------------------------------------------------------------
+// The work gate
+// ---------------------------------------------------------------------------------------
+
+/// How often the gate is re-read while an update is waiting. See [`spawn_work_watcher`].
+const WATCH_INTERVAL: Duration = Duration::from_secs(5);
+
+/// The two states in which the CEO has something to act on, and therefore the only two in
+/// which the gate is worth reading at all. Everywhere else the watcher does a single mutex
+/// read and goes back to sleep.
+fn state_awaits_the_ceo(state: &str) -> bool {
+    matches!(state, "available" | "ready")
+}
+
+/// Take the three readings, from the shell, without ever locking the spine for an answer.
+///
+/// The readings and the reasoning about each are in [`richos_core::work_gate`]'s module doc;
+/// this function is only the part that has to touch handles. It is deliberately tiny and
+/// deliberately dumb — every decision it could make is made there, where the spine suite can
+/// test it.
+fn work_verdict(app: &AppHandle) -> WorkVerdict {
+    let Some(state) = app.try_state::<crate::AppState>() else {
+        // Before `setup` has managed the state there is no app to be busy. Reachable only in
+        // the window before the window exists, where nothing can have pressed anything.
+        return work_gate::decide(&WorkSources::all_clear());
+    };
+
+    // 1. THE ACTIVE TURN — the spine's own mirror, read without the spine's mutex. Never
+    //    inferred from silence (continuity §5.2).
+    let turn =
+        if state.control.active_turn().is_some() { Liveness::Busy } else { Liveness::Clear };
+
+    // 2. WHETHER THE SPINE IS BEING DRIVEN AT ALL. `try_lock`, never `lock`: `send_message`
+    //    holds this mutex for the entire length of a turn, so blocking here would answer
+    //    after the turn it means to protect had ended. A lock we cannot take is UNKNOWN, and
+    //    unknown waits — which is what covers the window at `spine.rs:1609` where the mirror
+    //    is already cleared and `drain_queue` has not yet begun the next queued turn.
+    let spine = match state.spine.try_lock() {
+        Ok(_guard) => Liveness::Clear,
+        Err(_) => Liveness::Unknown,
+    };
+
+    // 3. WORKERS — the "all work" half the composer cannot see. The session id comes from
+    //    the same control, so this reads THIS session's directory and never the
+    //    mtime-newest one on the machine (`worker_status`'s own first claim).
+    let view =
+        richos_core::worker_status::current_status(state.control.lease_session().as_deref());
+    let (workers, worker_gap) = work_gate::workers(&view);
+
+    work_gate::decide(&WorkSources { turn, spine, workers, worker_gap })
+}
+
+/// Re-read the gate and write it into the view. Emits only when something CHANGED.
+///
+/// The "only when changed" is not an optimization, it is the ruling: *"Nothing about the
+/// update may interrupt. No modal, no focus steal, no repeated prompting while work runs."*
+/// An event every five seconds that says the same thing is a surface that repaints under his
+/// hands for no reason.
+fn refresh_work_verdict(app: &AppHandle) -> WorkVerdict {
+    let verdict = work_verdict(app);
+    let changed = {
+        let state = app.state::<Updates>();
+        let guard = state.view.lock().expect("update view lock");
+        guard.busy != verdict.busy
+            || guard.busy_reason != verdict.reason
+            || guard.unchecked != verdict.unchecked
+    };
+    if changed {
+        let v = verdict.clone();
+        transition(app, move |view| {
+            view.busy = v.busy;
+            view.busy_reason = v.reason;
+            view.unchecked = v.unchecked;
+        });
+    }
+    verdict
+}
+
+/// Watch the gate for as long as there is something the CEO could act on.
+///
+/// **WHY A POLL AND NOT AN EVENT.** The turn half could be pushed — the spine already emits
+/// `TurnStatus` — but the worker half cannot: a worker's state changes through hook writes
+/// in another process and produces no signal in this one, which is the same fact
+/// `spine.rs`'s own "one last worker re-join" comment records. So workers must be read, and
+/// once one source is read the other may as well be read beside it rather than growing two
+/// mechanisms that agree most of the time.
+///
+/// **WHAT IT COSTS, MEASURED RATHER THAN ASSERTED.**
+/// `crates/richos-core/tests/work_gate_cost.rs` times the whole question — the worker read
+/// plus the decision — against a deliberately pessimistic fixture: 3,000 worker rows, half
+/// of them open runs, so 1,500 liveness syscalls per read. On this machine, release profile,
+/// 2026-09-05: **4,825 us per read**. The duty cycle is that over the interval:
+///
+/// ```text
+/// 4_825 us / 5_000_000 us = 0.0965 % of one core
+/// ```
+///
+/// and only while an update is waiting. In every other state the tick is a single mutex read
+/// of a `&str` and returns, which is why the loop does that read FIRST. A real session's
+/// file on the same machine held 2,918 rows with far fewer open runs, so the shipped cost is
+/// below the measured one rather than above it.
+///
+/// **WHY 5 s AND NOT 1 s.** The only thing a shorter interval buys is that the cue reappears
+/// sooner after work ends; it costs five times the reads to buy it, and 0.48 % of a core to
+/// make chrome arrive four seconds earlier is the wrong trade for a ruling whose whole
+/// content is *"not important enough to get in the way"*. **WHY NOT 30 s:** the cue would be
+/// absent for up to half a minute after his work finished, which reads as an app that has
+/// not noticed rather than one that is waiting.
+pub fn spawn_work_watcher(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(WATCH_INTERVAL).await;
+            let awaits = {
+                let Some(updates) = app.try_state::<Updates>() else { continue };
+                let guard = updates.view.lock().expect("update view lock");
+                state_awaits_the_ceo(guard.state)
+            };
+            // Nothing is waiting on him, so there is no control to hide and nothing to say.
+            // Deliberately NOT `break`: a check five minutes from now can put us back into
+            // `available`, and a watcher that had exited would leave that update's cue
+            // painted from whatever the verdict was when the check happened.
+            if !awaits {
+                continue;
+            }
+            refresh_work_verdict(&app);
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------------------
 
+/// The view, with the work gate read FRESH rather than served from the last poll.
+///
+/// `updates.js` calls this when the settings menu is opened, which is the one moment the CEO
+/// is deliberately looking at this surface. Serving him a verdict up to
+/// `WATCH_INTERVAL` old there would be the one place a stale answer is guaranteed to be
+/// seen — and it would be seen as an Install button that should not be there.
 #[tauri::command]
 pub fn update_state(app: AppHandle) -> UpdateView {
+    refresh_work_verdict(&app);
     app.state::<Updates>().snapshot()
 }
 
@@ -526,9 +773,25 @@ pub async fn update_install(app: AppHandle) -> UpdateView {
     install(&app).await
 }
 
-/// Restart into the version that was just put in place. Never returns.
+/// Restart into the version that was just put in place.
+///
+/// **THIS FUNCTION WAS `app.restart()` AND NOTHING ELSE — two lines, no condition — and that
+/// was the worst of the three defects the CEO found on 2026-09-05.** `restart` replaces the
+/// process, so pressing it mid-turn kills a live `claude` child mid-answer: the session
+/// continuity design's first structural invariant (§3.1) broken by a button that looked
+/// safe. The turn would be recorded afterwards as *Ended, outcome not recorded* — visible
+/// after the fact and not preventable, and he would have caused it himself.
+///
+/// It now returns the view instead of never returning, because refusing is a real outcome
+/// that the surface has to render. On the success path it still never returns.
 #[tauri::command]
-pub fn update_relaunch(app: AppHandle) {
+pub fn update_relaunch(app: AppHandle) -> UpdateView {
+    let verdict = refresh_work_verdict(&app);
+    if verdict.busy {
+        // Still `ready` — the new bundle IS on disk and installed. Only the swap of the
+        // running process is refused, which is exactly the dangerous half.
+        return app.state::<Updates>().snapshot();
+    }
     app.restart();
 }
 
