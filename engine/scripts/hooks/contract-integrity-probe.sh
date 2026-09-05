@@ -341,6 +341,7 @@ run_layer_R() {
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-dialect \
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
+    guard-named-persons-writes guard-named-persons-commands \
     guard-completeness-commits \
     guard-row-currency-commits \
     guard-vendoring-commits \
@@ -957,6 +958,7 @@ guard-model-ceiling.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
+guard-named-persons-writes.sh|PreToolUse
 guard-dialect.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
@@ -964,6 +966,7 @@ guard-interactive-prompt.sh|PreToolUse
 guard-inflight-notify.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
 guard-publication-commits.sh|PreToolUse
+guard-named-persons-commands.sh|PreToolUse
 guard-ceo-todos-commits.sh|PreToolUse
 guard-completeness-commits.sh|PreToolUse
 guard-row-currency-commits.sh|PreToolUse
