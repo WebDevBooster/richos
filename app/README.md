@@ -134,6 +134,13 @@ app/
                               docs/verification/first-run-setup-2026-09-02/
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
+    src/work_gate.rs         IS RICHOS DOING ANYTHING RIGHT NOW — the decision the updater
+                              never asked (RICH-TODOs row u1). Three readings in, one verdict
+                              plus the sentence that explains it out. Holds no handles and
+                              makes no syscalls, so the shell takes the readings and this
+                              decides; unknown blocks exactly as busy does, and the one
+                              exception (no lease, so no workers to see) is reported in words
+                              rather than assumed away
     src/feedback.rs          the in-app feedback channel, LOCAL HALF ONLY: the 1/2/3/0 rating
                               prompt, its one-file store, and the VERSIONED CLOSED VOCABULARY a
                               report is assembled from — FeedbackPayload has no String field at
@@ -379,10 +386,13 @@ app/
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
     tests/watermark_cadence_tests.rs 8 tests that recompute the rotation cadence from the
                               RAW 2026-08-28 capture on every run, both directions
+    tests/work_gate_cost.rs   what it costs to ask "is RichOS doing anything" — timed over
+                              3,000 worker rows with 1,500 liveness syscalls, because the
+                              ruling the gate serves is about not getting in the way
   src-tauri/                 the Tauri shell — DETACHED nested workspace (empty [workspace])
     src/main.rs              window + Tauri command bridge to the spine
     src/nav.rs               durable rail VIEW state: width, pin, rename, archive (not evidence)
-    src/updates.rs           THE UPDATE PATH (RICH-TODOs row 12): check, download with
+    src/updates.rs           THE UPDATE PATH (RICH-TODOs rows 12 and u1): check, download with
                               throttled progress, VERIFY, install, relaunch; a nine-state
                               view emitted as `rich://update`; and the failure classifier
                               whose signature arm must never widen. The webview is granted
@@ -671,7 +681,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 762 tests + 5 doc-tests
+cargo test -p richos-core                       # 776 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests
