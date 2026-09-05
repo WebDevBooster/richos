@@ -491,6 +491,75 @@ case "$OUT" in
 esac
 
 # ===========================================================================
+# 16. SOURCE MUTATION — is the LOUDNESS carried by the age buckets, or by luck?
+#
+# Case 6 shows an aged escalation speaking again. That is worth nothing until
+# somebody has watched it NOT speak for the right reason, and the right reason
+# has to be found by breaking the SHIPPED SOURCE rather than the fixture.
+#
+# So AGE_BUCKETS is collapsed to a single bucket — every age reads as "new" —
+# which is exactly the mechanism this engine would have had if the notice were
+# de-duplicated on the id alone. An escalation then ages a whole day in silence,
+# which is the 2026-09-02 incident reproduced inside the suite that always runs.
+#
+# This is deliberately NOT a *.mutation.sh. Of the thirteen mutation harnesses
+# this engine has written, eight were run by nothing at all — a proof nobody
+# executes is a paragraph. The mutation lives in the suite the runner
+# discovers, so it is re-derived on every run rather than on request.
+# ===========================================================================
+L6="$SANDBOX/state/loud.jsonl"
+age_l6() { # <minutes>
+    python3 - "$L6" "$1" <<'PY'
+import json, sys
+from datetime import datetime, timedelta, timezone
+p, mins = sys.argv[1], int(sys.argv[2])
+rows = [json.loads(l) for l in open(p, encoding="utf-8") if l.strip()]
+when = (datetime.now(timezone.utc) - timedelta(minutes=mins)).replace(microsecond=0)
+for r in rows:
+    if r.get("event") == "Escalation":
+        r["raised"] = when.isoformat().replace("+00:00", "Z")
+open(p, "w", encoding="utf-8").write("".join(json.dumps(r) + "\n" for r in rows))
+PY
+}
+RICHOS_ESCALATION_LEDGER="$L6" "$ESCALATE" raise --title "nobody has looked at this yet" \
+    --state proceeding --question "is the loudness carried by the age buckets?" \
+    --teammate zach-opus-e1loud --no-record >/dev/null 2>&1
+cp "$ENG/scripts/lib/escalations.py" "$SANDBOX/escalations.py.real2"
+python3 - "$ENG/scripts/lib/escalations.py" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+# MUTATION (test-only): one bucket, so age is never a state change.
+s = s.replace('AGE_BUCKETS = ((72 * 60, "72h"), (24 * 60, "24h"), (60, "1h"), (0, "new"))',
+              'AGE_BUCKETS = ((0, "new"),)')
+open(p, "w", encoding="utf-8").write(s)
+PY
+if grep -q 'AGE_BUCKETS = ((0, "new"),)' "$ENG/scripts/lib/escalations.py"; then
+    ok "16a  the mutation APPLIED — a replacement that matched nothing would be a green run that looks green"
+else
+    bad "16a  mutation applied" "AGE_BUCKETS was not collapsed; every assertion below is examining the unmutated source"
+fi
+S6="12345678-0000-0000-0000-000000000000"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L6" stop_payload "$S6" | RICHOS_ESCALATION_LEDGER="$L6" "$STOP_HOOK" 2>&1)"
+case "$OUT" in
+    *"ESCALATION OUTSTANDING"*) ok "16b  under the mutation it is still announced ONCE, so the mutation did not simply break the hook" ;;
+    *) bad "16b  mutant still announces once" "got: $OUT" ;;
+esac
+age_l6 1500
+OUT="$(RICHOS_ESCALATION_LEDGER="$L6" stop_payload "$S6" | RICHOS_ESCALATION_LEDGER="$L6" "$STOP_HOOK" 2>&1)"
+if [ -z "$OUT" ]; then
+    ok "16c  THE INCIDENT, REPRODUCED: with one bucket the escalation ages a full DAY and the operator is told nothing"
+else
+    bad "16c  mutant goes silent as it ages" "the single-bucket mutant still spoke, so case 6a is not proving the buckets carry the loudness: $OUT"
+fi
+cp "$SANDBOX/escalations.py.real2" "$ENG/scripts/lib/escalations.py"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L6" stop_payload "$S6" | RICHOS_ESCALATION_LEDGER="$L6" "$STOP_HOOK" 2>&1)"
+case "$OUT" in
+    *"1d old"*) ok "16d  and the shipped source, on the same ledger and the same session, speaks — the buckets are the mechanism" ;;
+    *) bad "16d  restored source speaks" "got: $OUT" ;;
+esac
+
+# ===========================================================================
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

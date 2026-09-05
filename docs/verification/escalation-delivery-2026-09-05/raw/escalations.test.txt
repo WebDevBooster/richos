@@ -1,6 +1,6 @@
   PASS  1a  raise exits 0
-  PASS  1b  it returns a derived id (esc-20260905T085310Z-90ca9fde)
-  PASS  1c  a ledger row was appended at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/escalations.XXXXXX.OJscP6Xjja/state/escalations.jsonl
+  PASS  1b  it returns a derived id (esc-20260905T091350Z-bedd8a04)
+  PASS  1c  a ledger row was appended at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/escalations.XXXXXX.JqgkvROMxe/state/escalations.jsonl
   PASS  1d  derived from the workspace: "teammate": "zach-opus-e1demo"
   PASS  1d  derived from the workspace: "branch": "worktree-zach-opus-e1demo"
   PASS  1d  derived from the workspace: "state": "work-complete"
@@ -53,5 +53,9 @@
   PASS  15b and it added NOTHING to the repository root (0 entries before and after)
   PASS  15c the escalation was still delivered
   PASS  15d and it says why, rather than failing silently
+  PASS  16a  the mutation APPLIED — a replacement that matched nothing would be a green run that looks green
+  PASS  16b  under the mutation it is still announced ONCE, so the mutation did not simply break the hook
+  PASS  16c  THE INCIDENT, REPRODUCED: with one bucket the escalation ages a full DAY and the operator is told nothing
+  PASS  16d  and the shipped source, on the same ledger and the same session, speaks — the buckets are the mechanism
 
-  55 passed, 0 failed
+  59 passed, 0 failed

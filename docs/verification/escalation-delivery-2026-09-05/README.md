@@ -64,7 +64,7 @@ raised is refused.
 
 ## The suites
 
-`raw/escalations.test.txt` — 55 cases, all green. The load-bearing ones:
+`raw/escalations.test.txt` — 59 cases, all green. The load-bearing ones:
 
 - **Case 3** deletes the teammate's worktree entirely, with its branch never merged, and the
   escalation still lists in full. Delivery does not depend on a merge, or on the worktree
@@ -82,6 +82,12 @@ raised is refused.
 - **Case 15** proves the repository root is never touched, and that a repository with no
   `docs/` gets the ledger row, no file, and an explanation — because creating `docs/` would
   add a tenth root entry, which `ceo-decisions.md` §27 forbids.
+- **Case 16** is a SOURCE mutation, not a fixture one. `AGE_BUCKETS` is collapsed to a single
+  bucket — which is exactly the mechanism this would have been if the notice de-duplicated on
+  the id alone — and the escalation then ages a full DAY in silence: the 2026-09-02 incident
+  reproduced inside the suite. Restoring the shipped source makes the same ledger, in the same
+  session, speak. It is deliberately NOT a `*.mutation.sh`: eight of this engine's thirteen
+  mutation harnesses were run by nothing at all, and a proof nobody executes is a paragraph.
 
 `raw/install-escalation-protocol.test.txt` — 25 cases, all green, including dean.md's SECOND
 seam (the definition template every new hire is built from) and the survival of the
