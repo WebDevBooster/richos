@@ -298,7 +298,7 @@ fi
 # jurisdiction over a decision that was never going to be made, which is noise
 # with a serious face on. Caught by case D1 asserting the silent no-op is
 # SILENT, which is why that case checks stderr rather than just the exit code.
-richos_assert_jurisdiction "scripts/hooks/guard-dialect.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+richos_assert_jurisdiction "scripts/hooks/guard-dialect.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" "proceeds" || true
 
 # --- IS THIS SOMEBODY ELSE'S PROSE? ---------------------------------------
 # THE PATH EXEMPTION THIS GUARD DID NOT HAVE, AND THE INCIDENT IT COST.

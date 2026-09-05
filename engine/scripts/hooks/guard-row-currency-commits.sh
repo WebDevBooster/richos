@@ -409,7 +409,7 @@ REPO="$(ct_repo_root "$ANCHOR" 2>/dev/null || true)"
 # artifact's repository, and never obeyed — a guard that switched itself off on
 # a seat mismatch would have let through a merge that was correctly refused.
 if [ -n "${SEAT_ROOT}" ]; then
-    richos_assert_jurisdiction "scripts/hooks/guard-row-currency-commits.sh" "${SEAT_ROOT}" "$REPO" "commit in" || true
+    richos_assert_jurisdiction "scripts/hooks/guard-row-currency-commits.sh" "${SEAT_ROOT}" "$REPO" "commit in" "proceeds" || true
 fi
 
 DECL_RC=0

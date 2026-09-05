@@ -153,7 +153,7 @@ if ! GOVERNING_ROOT="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}")"; th
     # this reads as "if it was mine and I still cannot govern it, that is a
     # non-adoption problem".
     if richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" \
-           "${ENTITY_ROOT}" "$FILE_PATH" "file"; then
+           "${ENTITY_ROOT}" "$FILE_PATH" "file" "declines"; then
         richos_announce_stand_down "scripts/hooks/guard-main-checkout-writes.sh" \
             "this repository has adopted nothing, so no PROTECTED_PATHS govern this write"
     fi
@@ -175,7 +175,7 @@ if [ "$GOVERNING_ROOT" != "$SEAT_PHYS" ]; then
     # A different repository governs this file than the one this session sits
     # in. Say so once, then judge it by ITS rules rather than the seat's.
     richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" \
-        "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+        "$ENTITY_ROOT" "$FILE_PATH" "file" "proceeds" || true
     PROTECTED_PATHS=""
     CONFIG="$GOVERNING_ROOT/orchestration.config"
     # shellcheck disable=SC1090
