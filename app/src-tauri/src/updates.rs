@@ -792,6 +792,16 @@ pub fn update_relaunch(app: AppHandle) -> UpdateView {
         // running process is refused, which is exactly the dangerous half.
         return app.state::<Updates>().snapshot();
     }
+    // THE REPLACEMENT IS STILL HIS LAUNCH, AND IT HAS TO SAY SO.
+    //
+    // `restart` SPAWNS a replacement and then exits (`tauri-2.11.5/src/process.rs:74-88`),
+    // so for a short window the new process's parent is this dying one rather than launchd —
+    // and `activation.rs`'s condition P reads a held process as "a program started this, not
+    // macOS". Left to the race, an update would sometimes bring RichOS back with no Dock
+    // icon and no window in front, which reads as *the update deleted the app*. The marker
+    // is inherited by the spawned child (`Command` passes this process's environment
+    // through) and removes the race rather than narrowing it.
+    std::env::set_var(crate::activation::OVERRIDE_ENV, crate::activation::OVERRIDE_REGULAR);
     app.restart();
 }
 

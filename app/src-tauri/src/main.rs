@@ -6,6 +6,7 @@
 // this file is just the window + the Tauri command bridge to the web UI in ../ui.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod activation;
 mod events;
 
 use richos_core::native::{resolve_claude_bin, NativeCognition};
@@ -860,6 +861,79 @@ fn main() {
             std::fs::create_dir_all(&data_dir).ok();
 
             // =====================================================================
+            // WHETHER THIS LAUNCH MAY TAKE THE SCREEN — BEFORE THE WINDOW EXISTS
+            // =====================================================================
+            //
+            // THE RULE, and `activation.rs` is where it is argued: RichOS activates, takes
+            // the keyboard and appears in the Dock ONLY when it can positively establish
+            // that it is an installed launch by the person who installed it. Everything
+            // else is accessory — a real, driveable window, with no Dock icon, no
+            // activation and nothing taken from what he is typing into.
+            //
+            // THE COMPLAINT THIS ANSWERS, in the CEO's words on 2026-09-06: *"It opens in
+            // the foreground on the main monitor AND takes away focus from the current app.
+            // So, if I'm typing something here, it takes away focus from here and focuses
+            // on that app."* — several times in a row, because a harness that proves an
+            // assignment survives a restart has to boot, kill and reboot the binary.
+            //
+            // AND WHY IT IS THE INVERSE OF "DETECT A TEST", which is what it was asked for
+            // first. His second sentence is the design: *"GENERAL issue if and when the
+            // same or similar tests are run by others in the future."* Detecting a test
+            // means keeping a list of test shapes, and the author of the next harness is
+            // not on it and never will be. Identifying the INSTALLED LAUNCH positively
+            // needs no list, and a harness nobody has written yet is simply one more thing
+            // that is not one.
+            //
+            // IT IS HERE, AND NOT LOWER DOWN, for the same reason the window is first:
+            // `set_activation_policy` has to be in force before the window is built, and
+            // the window has to be built knowing whether it may take focus. It is also
+            // AFTER `data_dir` is final, because "the data directory this boot will
+            // actually write to" is one of the three facts, and reading it from anywhere
+            // but the variable in use would be a second copy that can disagree.
+            let activation = activation::decide(&activation::gather(&data_dir, &app.config().identifier));
+            eprintln!("{}", activation.log_line());
+            #[cfg(target_os = "macos")]
+            {
+                // `Accessory` is `NSApplicationActivationPolicyAccessory`: no Dock icon and
+                // no menu bar. LaunchServices reports it as `type="UIElement"` where a
+                // normal launch reports `type="Foreground"` — measured both ways on
+                // 2026-09-06, `docs/verification/activation-2026-09-06/`.
+                //
+                // IT IS ONE OF TWO LEVERS AND IT IS NOT THE ONE THAT SAVES HIS KEYSTROKES.
+                // Setting this policy and building the window unfocused was the obvious fix
+                // and it DOES NOT WORK: measured, `lsappinfo front` sampled every 250 ms
+                // still reported `richos-tauri` frontmost for 22 of 24 samples. tao takes
+                // the screen twice at `applicationDidFinishLaunching`, and neither call
+                // consults the policy or the window's requested focus
+                // (tao-0.35.3/src/platform_impl/macos/app_state.rs:284-299):
+                //
+                //   * `window_activation_hack` (`app_state.rs:432-453`) sends
+                //     `makeKeyAndOrderFront:` to EVERY VISIBLE window it finds — which is
+                //     what defeats `.focused(false)`. It skips invisible ones by name
+                //     ("Skipping activating invisible window"), and that is the seam the
+                //     `.visible(...)` line below uses.
+                //   * `ns_app.activateIgnoringOtherApps(ignore)` runs unconditionally, with
+                //     `ignore` defaulting to `true` (`app_delegate.rs:107`). It is settable
+                //     only through tao's `EventLoopExtMacOS::set_activate_ignoring_other_apps`
+                //     (`platform/macos.rs:336`), which Tauri does not expose — so there is
+                //     no way to ask it not to from here.
+                //
+                // The two levers were ABLATED against each other rather than both adopted
+                // on faith. Hidden window, policy NOT set: focus stayed put for 32 of 32
+                // samples but LaunchServices reported `type="Foreground"` — a Dock icon.
+                // Hidden window, policy set: 32 of 32 and `type="UIElement"`. So the hidden
+                // window is what keeps his keyboard and this policy is what keeps the Dock
+                // clean, and neither is decoration.
+                //
+                // Only macOS has a policy to set; a port must decide its own equivalent
+                // rather than inherit silence (`activation.rs`, WHAT THIS FILE DOES NOT
+                // COVER).
+                if activation.presentation == activation::Presentation::Accessory {
+                    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                }
+            }
+
+            // =====================================================================
             // THE LAUNCH RECORD, AND THE WINDOW — FIRST, AND FOR ONE REASON
             // =====================================================================
             //
@@ -901,6 +975,35 @@ fn main() {
                 let kind = launch_store.next_window_kind();
                 let window = tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
                     .initialization_script(launch_init_script(kind, start_ordinal))
+                    // FOCUS IS ASKED FOR AT CONSTRUCTION, not corrected afterwards, so
+                    // there is no instant in which the keyboard moved and came back.
+                    .focused(activation.presentation == activation::Presentation::Regular)
+                    // AND THE WINDOW ITSELF DOES NOT GO ON HIS SCREEN, which is the half
+                    // that actually works. `.focused(false)` alone is overridden a moment
+                    // later by tao's `window_activation_hack`, which sends
+                    // `makeKeyAndOrderFront:` to every VISIBLE window (measurement and
+                    // citations at the `set_activation_policy` block above). It skips
+                    // invisible windows, so an unattended boot builds one that is never
+                    // ordered on screen — no window in the foreground on his main monitor,
+                    // which was the first half of his complaint, and no keystroke taken,
+                    // which was the second.
+                    //
+                    // THE WINDOW IS STILL REAL AND STILL DRIVEABLE, and that is measured
+                    // rather than asserted: the boot log of an unattended run still carries
+                    // `[richos] voice: not offered on this machine — …`, which is printed
+                    // by `voice_readiness` — a `#[tauri::command]` the PAGE invokes before
+                    // it renders its greeting. Its presence means the WKWebView was
+                    // created, the frontend loaded, JavaScript ran and an IPC round trip
+                    // completed into Rust. LaunchServices shows the three WebKit XPC
+                    // services ("Web Content", "Graphics and Media", "Networking") running
+                    // alongside it. A harness that needs the window on screen calls
+                    // `show()`, or asks for the whole normal treatment with
+                    // `RICHOS_ACTIVATION=regular`.
+                    //
+                    // Everything else `from_config` declared — the size, the centered
+                    // position, the minimums, `zoomHotkeysEnabled` — is untouched, and on
+                    // an installed launch this line reduces to the config's own `true`.
+                    .visible(activation.presentation == activation::Presentation::Regular)
                     .build()?;
                 // COME TO THE FRONT. Measured by ray-opus-a1 on published v1.0.0,
                 // 2026-09-04: the window opened BEHIND other windows, twice, on a first
@@ -917,8 +1020,16 @@ fn main() {
                 // A FAILURE HERE IS NOT FATAL, and that is deliberate: `?` would turn "the
                 // window did not come forward" into "the app refused to start", which is
                 // strictly worse than the defect being fixed.
-                if let Err(e) = window.set_focus() {
-                    eprintln!("[richos] window did not come to the front: {e}");
+                //
+                // AND IT IS ASKED FOR ONLY ON AN INSTALLED LAUNCH. `activateIgnoringOtherApps`
+                // is precisely the call the CEO felt on 2026-09-06 — it takes the keyboard
+                // out of the window he is typing in, from a process he did not start. The
+                // reason above still holds for his own double-click, which still runs this
+                // line; a boot that could not establish it is his does not.
+                if activation.presentation == activation::Presentation::Regular {
+                    if let Err(e) = window.set_focus() {
+                        eprintln!("[richos] window did not come to the front: {e}");
+                    }
                 }
             }
             eprintln!(
