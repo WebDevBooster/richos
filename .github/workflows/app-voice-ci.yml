@@ -1,0 +1,298 @@
+name: app-voice-ci
+
+# THE CRATE THAT DECIDES WHETHER RICHOS SPEAKS FOR HIM HAS RUN IN NO CI JOB AT ALL.
+#
+# On 2026-09-04 RichOS transcribed a sentence nobody said and sent it as the CEO's own
+# message. The gate that stops that is `crates/richos-voice/src/voiced.rs`, and the suite
+# that holds it — `tests/voiced_acceptance.rs` — proves both halves: real speech still gets
+# through, and room tone of the same length does not. Until this file existed, that suite
+# ran when somebody typed the command, on one Mac, and nowhere else. `app-spine-ci.yml`
+# named the crate only in a list of what it deliberately does not cover.
+#
+# THAT IS NOT A HYPOTHETICAL GAP, AND THE PROOF IS ONE DAY OLD. The acceptance suite's own
+# `installed()` had never worked: it asked `say` to synthesize in each candidate voice and
+# kept the ones that "worked". `say` accepts an unknown voice SILENTLY and falls back to the
+# default — `say -v Bogusvoice12345` exits 0 and writes bytes byte-identical to
+# `say -v Samantha`. So the filter could never exclude a missing voice; what it actually
+# measured was which parallel test lost a race for a shared output path. Ten consecutive
+# runs enumerated 2, 4, 4, 4, 6, 6, 6, 5, 6 and 5 voices while `say -v '?'` sat unchanged at
+# 177. The founding commit's evidence — "30 utterances across 6 voices" — was a raced number
+# that happened to look plausible. It is fixed and stable now. Nothing outside that one Mac
+# would ever have caught it, and nothing outside that one Mac would catch the next one.
+#
+# ===========================================================================================
+# WHY THE EXCLUSION IN app-spine-ci.yml NO LONGER BINDS — MEASURED, NOT ARGUED
+# ===========================================================================================
+#
+# That file excluded this crate for a stated reason: "It pulls cpal and a local whisper.cpp
+# build; a runner has no audio endpoint and the native build is minutes, not seconds." It was
+# a real objection and it was written in good faith. Three of its four clauses are false, and
+# they were established by running the thing rather than by reasoning about it. Transcript:
+# `docs/verification/voice-ci-2026-09-05/raw/voice-suite-cold.txt`, captured at `f74474e`.
+#
+#   * "a local whisper.cpp build" — NOT A BUILD DEPENDENCY. The manifest's entire
+#     `[dependencies]` table is `cpal` and `serde_json`. `src/stt.rs` resolves `whisper-cli`
+#     at RUN time from `RICHOS_WHISPER_BIN`, then PATH, then the Homebrew prefixes, and
+#     returns a typed `SttError::BinaryNotFound` when it finds nothing. Nothing compiles it
+#     and no test invokes it.
+#
+#   * "a runner has no audio endpoint" — TRUE, AND IT DOES NOT MATTER. `cpal::default_host()`
+#     appears in exactly two functions, `capture::start_device` and `Playout::start`, and the
+#     only tests that reach either are the four gated on `RICHOS_VOICE_LIVE_AUDIO=1`. That
+#     variable is not set below, so no device is ever opened. A cold `cargo test` with no
+#     audio hardware in play was green.
+#
+#   * "the native build is minutes, not seconds" — 12.6 SECONDS, cold, with an emptied
+#     `CARGO_TARGET_DIR`. cpal 0.17 reaches CoreAudio through the `objc2-*` crates, which are
+#     ordinary Rust: no bindgen, no libclang, no system package. The whole cold job on that
+#     machine — build, 191 tests, and a separate cold release build — was 44 seconds.
+#
+# The clause that survives is that the crate is macOS-only, and that is why this job runs
+# where it does rather than why it should not run.
+#
+# ===========================================================================================
+# WHY macos-latest, WHICH IS TEN TIMES THE MINUTES
+# ===========================================================================================
+#
+# The suite's speech comes from `/usr/bin/say`, the same synthesizer `tts.rs` uses for Rich's
+# own voice, and its acceptance half is worthless without it: a run that generated no audio
+# would be a green tick over nothing. `cpal` on Linux wants ALSA headers, every
+# `#[cfg(target_os = "macos")]` test in the tree would vanish rather than fail, and what
+# remained would be the pure arithmetic — an ubuntu job that is cheap, green, and about a
+# different question. `packaging-ci.yml` states the same trade in the same words for the same
+# reason, and `ui-suite-ci.yml` states it for WebKit.
+#
+# WHY NOT FOLD IT INTO app-spine-ci.yml. That job is ubuntu-latest, deliberately, because the
+# spine is native-dependency-free and proving it stays that way is part of the point. Adding
+# a macOS crate to it would either move the spine onto a 10x runner or make it a matrix of
+# two jobs sharing nothing but a checkout. The argument app-spine-ci.yml makes for not
+# folding itself into the engine's runner applies one level in, and ui-suite-ci.yml makes it
+# a second time.
+#
+# ===========================================================================================
+# WHAT A GREEN HERE DOES NOT MEAN — NAMED, NOT GLOSSED
+# ===========================================================================================
+#
+#   * THE FOUR LIVE-AUDIO TESTS RUN AND PROVE NOTHING. `live_macos_output_device_drains_the_
+#     queue`, `live_barge_in_actually_silences_the_real_output_device`, `live_injected_audio_
+#     completes_the_whole_local_loop` and `live_a_silent_channel_produces_no_turn_and_a_real_
+#     utterance_still_does` each begin by returning when `RICHOS_VOICE_LIVE_AUDIO` is unset,
+#     and a test that returns is reported `ok`. They are four green lines in the log that
+#     assert nothing, here and on every developer's machine that has not opted in. Setting
+#     the variable would not fix it: a runner has no output device, so they would fail rather
+#     than lie. This is stated rather than solved because the tests are `richos-voice`'s to
+#     change, not this file's — but a reader counting green lines should know which four are
+#     scenery.
+#
+#   * NO WHISPER, SO NO RECOGNITION. `stt.rs`'s resolution logic is unit-tested; the actual
+#     transcription of audio into words is not exercised by anything here or on a developer's
+#     machine without whisper installed. The end-to-end path lives in `examples/voice_loop.rs`
+#     and is run by a person.
+#
+#   * NO MICROPHONE, so `capture.rs`'s device path is compiled and never entered. The
+#     `barge_in_composition` suite drives the same composition through injected frames, which
+#     is a real check of the logic and not a check of the driver.
+#
+# ===========================================================================================
+# THE ONE THING THIS FILE CANNOT MEASURE, AND WHAT IT DOES ABOUT IT
+# ===========================================================================================
+#
+# HOW MANY VOICES DOES A GITHUB RUNNER HAVE. The acceptance test tries seven candidates and
+# requires at least three survivors, so a machine with one voice cannot quietly become a
+# one-sample test. On the CEO's Mac (macOS 15.6, arm64) `say -v '?'` reports 177 voices and
+# six of the seven candidates are present — `Alex` is not, and the test's own comment says so.
+# Those voices live under `/System/Library/AssetsV2/`, which ships with the sealed system
+# volume, so a stock runner image should carry the same base set. SHOULD. That is an
+# inference from where the files sit, it is the only unmeasured premise in this file, and no
+# amount of reasoning on a Mac settles it.
+#
+# So the step below MEASURES it on the runner and prints it, on every run, red or green. The
+# first run answers the question permanently and the answer is in the log either way. If it
+# comes back under three the suite goes red and says which voices it looked for and which it
+# found — which is the entire point, and is why an opt-in gate was rejected. An opt-in would
+# move this crate from "runs on one machine" to "runs nowhere", and it would inherit the
+# `RICHOS_VOICE_LIVE_AUDIO` shape three paragraphs up: a quiet return that reports `ok`.
+# A skip that looks like a pass is the failure this repository has removed repeatedly.
+#
+# THE CANDIDATE LIST IS NOT COPIED INTO THIS FILE. The census reads it out of
+# `tests/voiced_acceptance.rs` and intersects it with `say -v '?'`. Two typed copies of one
+# list is the inventory defect this directory has paid for five times, and a stale copy here
+# would report a confident census of the wrong set. The extraction has a negative control: if
+# the declaration moves or changes shape the step goes red rather than reporting an empty
+# intersection, because an empty inventory reported as a pass is how a check stops checking.
+#
+# ===========================================================================================
+# THE LIKELIEST FLAKE, NAMED IN ADVANCE
+# ===========================================================================================
+#
+# `the_gate_costs_a_small_fraction_of_the_recognition_it_guards` asserts a wall-clock ceiling,
+# and it is profile-aware: 250 ms release, 3000 ms debug. CI runs DEBUG, so 3000 ms is the
+# number at risk. Measured on an idle M4 across three runs: 946.5, 1044.2 and 1069.0 ms for
+# the 30 s buffer — under three times the headroom. A macos-latest runner is a 3-vCPU M1, and
+# this test file runs four tests in parallel, three of which shell out to `say`. If anything
+# in this workflow goes red intermittently, look here first; the test prints its own numbers,
+# so the log will carry the runner's figure. Transcript of the local margin:
+# `docs/verification/voice-ci-2026-09-05/raw/debug-perf-margin.txt`.
+#
+# The parallelism is deliberately NOT reduced with `--test-threads=1`. The race in
+# `voiced_acceptance.rs` was fixed yesterday by giving every `say` output path a unique name;
+# serializing the suite here would retire the only check that the fix still holds, and would
+# make CI weaker than the local run in exactly the dimension just repaired.
+#
+# ===========================================================================================
+# WHAT THIS COSTS
+# ===========================================================================================
+#
+# macOS runners bill at 10x, and this repository is PUBLIC, where Actions is free and
+# unlimited — so the multiplier is real and the bill is zero. `README.md` in this directory
+# records both facts. What the run actually costs is wall-clock and attention: on the CEO's
+# M4 the whole thing is 44 s cold, and a runner adds a cold registry fetch of about 40 crates
+# plus slower cores, which should put it in the low single-digit minutes against the 20 below.
+#
+# THE PATH FILTER IS SCOPED, and `app/crates/richos-core/**` is in it on purpose rather than
+# by copy-paste. `cargo test -p richos-voice` compiles the crate's examples, and
+# `examples/voice_loop.rs` binds richos-core's `native`, `ledger`, `spine` and `stream` APIs.
+# A change to richos-core can therefore break this build while app-spine-ci.yml stays green,
+# because that job never compiles anything in this crate. Leaving core out would have made
+# the filter cheaper and the gate walkable — the same defect app-spine-ci.yml fixed on
+# 2026-09-04 by adding `app/Cargo.lock` to its own paths.
+#
+# ===========================================================================================
+# WHAT THIS RUN HAS NEVER DONE
+# ===========================================================================================
+#
+# This file has not executed. Every measurement above was taken on the machine that already
+# runs the suite, which answers "does this depend on his setup" and does not answer "does
+# this work on a runner". The first dispatch is its first run and may well be red. It must
+# not be described as CI-verified until a run of THIS workflow is green on a SHA somebody can
+# name.
+
+on:
+  push:
+    paths:
+      - "app/crates/richos-voice/**"
+      # Not decoration: `cargo test -p richos-voice` builds examples/voice_loop.rs, which
+      # binds richos-core's API. See "WHAT THIS COSTS" above.
+      - "app/crates/richos-core/**"
+      - "app/Cargo.toml"
+      # The lockfile is an input, and `--locked` below turns it into something this job can
+      # REFUSE. A `cargo update` touches the lock and nothing else; without this line that
+      # commit passes by never reaching the only macOS job that judges it.
+      - "app/Cargo.lock"
+      - ".github/workflows/app-voice-ci.yml"
+  pull_request:
+    paths:
+      - "app/crates/richos-voice/**"
+      - "app/crates/richos-core/**"
+      - "app/Cargo.toml"
+      - "app/Cargo.lock"
+      - ".github/workflows/app-voice-ci.yml"
+  # So the gate can be demanded on a SHA without touching the tree — the first green run has
+  # to be attributable to a commit somebody names.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  voice:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    env:
+      # A first red run should be diagnosable from the log alone rather than from a re-run.
+      RUST_BACKTRACE: "1"
+      # NOT SET, and the absence is the point: `RICHOS_VOICE_LIVE_AUDIO` is what the four
+      # device-opening tests check for, and a runner has no device for them to open. It is
+      # named here so nobody adds it later thinking it would strengthen the run.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # macos-latest ships a rustup toolchain, so there is no setup action here and no
+      # third-party action in the chain — the same reasoning app-spine-ci.yml and
+      # ui-suite-ci.yml give. The OS version and architecture are printed because the voice
+      # inventory is a fact about the image, and an image bump that changes it should be
+      # legible in this log rather than inferred from a failure three steps down.
+      - name: Toolchain and image
+        run: |
+          sw_vers
+          uname -m
+          rustc --version
+          cargo --version
+
+      # THE CENSUS. This is the measurement this file was written not to have to guess at.
+      # It runs before the suite so a red suite already has the numbers above it, and it
+      # prints on a green run too, because "how many voices does a runner have" is a fact
+      # worth having in the log whatever the verdict.
+      #
+      # It is NOT the gate. The floor of three lives in the test, where it can fail with the
+      # voice names in the message; this step only refuses the two conditions under which
+      # everything downstream would be meaningless: no `say` at all, and a candidate list it
+      # could not read.
+      - name: How many of the suite's voices does this runner actually have
+        run: |
+          set -euo pipefail
+          SRC=crates/richos-voice/tests/voiced_acceptance.rs
+
+          if [ ! -x /usr/bin/say ]; then
+            echo "FATAL: /usr/bin/say is not on this runner."
+            echo "       The acceptance suite's speech comes from it, so nothing below would"
+            echo "       mean anything. A red step rather than a skip, on purpose."
+            exit 1
+          fi
+
+          /usr/bin/say -v '?' > "$RUNNER_TEMP/voices.txt"
+          echo "say -v '?' reports $(wc -l < "$RUNNER_TEMP/voices.txt" | tr -d ' ') voices on this runner."
+          echo "For comparison, the machine this suite has always run on reports 177."
+          echo
+
+          # Read off the test source, never retyped. A second copy of this list in YAML is
+          # the inventory defect this directory has paid for five times.
+          CANDIDATES=$(sed -n 's/^const VOICES: &\[&str\] = &\[\(.*\)\];$/\1/p' "$SRC" | tr -d '" ' | tr ',' '\n')
+          if [ -z "$CANDIDATES" ]; then
+            echo "FATAL: could not read VOICES out of $SRC."
+            echo "       The census would be over an empty set, and an empty inventory"
+            echo "       reported as a pass is the exact failure this step exists to avoid."
+            echo "       The declaration moved or changed shape; fix this extraction."
+            exit 1
+          fi
+
+          present=0
+          for v in $CANDIDATES; do
+            if grep -qE "^${v} +[a-z]{2}_[A-Z]{2}" "$RUNNER_TEMP/voices.txt"; then
+              echo "  PRESENT  $v"
+              present=$((present + 1))
+            else
+              echo "  absent   $v"
+            fi
+          done
+          echo
+          echo "$present of the suite's candidates are installed here."
+          echo "The suite's own floor is 3 and THAT is the gate. If the step below goes red"
+          echo "reading 'refusing to call this a cross-voice test', this is the number that"
+          echo "explains it, and the fix is the candidate list in $SRC — not this workflow."
+
+      # THE GATE. Unit tests, both integration suites, and the doctests. `--locked` is the
+      # point of the flag rather than a flourish: it makes this job REFUSE a run that would
+      # have to resolve a version dynamically, which is what turns `app/Cargo.lock` from
+      # decoration into an input. A red run reading "the lock file needs to be updated" means
+      # a manifest changed without its lockfile in the same commit; the fix is `cargo update
+      # -p <crate>` in `app/` and committing the result, never dropping the flag.
+      #
+      # The count is deliberately not written here. `app/README.md` states it, and
+      # `app/ui/tests/docs-claims.js` holds that statement to the tree by counting `#[test]`
+      # off disk — so the authoritative copy has a checker and a copy in this comment would
+      # not. app-spine-ci.yml removed its own count for the same reason after it was wrong
+      # three times in a week.
+      - name: cargo test --locked -p richos-voice
+        run: cargo test --locked -p richos-voice
+
+      # Cheap, and it catches the class of change that compiles under the test profile but
+      # breaks a consumer's release build. Measured at 10.3 s cold on an M4. It also compiles
+      # the code path the timing assertion's 250 ms release ceiling describes, which is the
+      # profile the product actually ships.
+      - name: cargo build --locked -p richos-voice --release
+        run: cargo build --locked -p richos-voice --release
