@@ -162,6 +162,15 @@ app/
                               torn write, a bad byte, a tag no build could have written —
                               and the anti-vacuous test that an unmodified ledger skips
                               NOTHING
+    tests/intake_forward_compat_tests.rs 19 tests holding the SAME line over the intake
+                              log — the file that holds what the CEO TYPED before it becomes
+                              a turn. A record from a newer build, a torn write, a bad byte
+                              placed FIRST (the reader used to stop there and lose every
+                              request below it), a tag no build could have written; the id
+                              can never be re-issued; compaction can never delete a record
+                              nothing could read; a planted secret reaches no report; and
+                              the anti-vacuous test that an untouched log skips NOTHING and
+                              says NOTHING
     tests/entity_binding_tests.rs 10 entity-scope tests: the cross-entity leak NEGATIVE
                               CONTROL (proven failing with the guard removed), immutability,
                               the fail-closed unbound legacy thread + its one-way explicit
@@ -648,7 +657,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 714 tests + 5 doc-tests
+cargo test -p richos-core                       # 733 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests
