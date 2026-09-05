@@ -234,6 +234,7 @@ set +e
 RESULT="$(printf '%s' "$INPUT" \
     | RICHOS_ENGINE_ROOT_FOR_GATES="$ENGINE_ROOT" \
       RICHOS_INGRESS_STATE_DIR="$_STATE_DIR" \
+      RICHOS_INGRESS_SEAT_ROOT="$ENTITY_ROOT" \
       python3 "$ANALYZER" 2>/dev/null)"
 RC=$?
 set -e

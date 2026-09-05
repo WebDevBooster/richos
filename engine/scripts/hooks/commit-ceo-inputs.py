@@ -90,10 +90,25 @@ ALREADY makes somewhere; none is a second implementation.
                       nothing"; that rounding is this repository's single
                       most-repeated failure.
 
-  5. NOT ADOPTED      A repository with no orchestration.config cannot be
-                      governed by gate 1 or 2 (they stand down by design in a
-                      repository that never opted in). Committing there would
-                      be committing unscanned, so it is refused and reported.
+  5. NO SEAT          Gates 1 and 2 are run FROM the session's own adopted
+                      repository, never from the file's. Without a seat there
+                      is nowhere to run them from, nothing is known about the
+                      content, and nothing is committed.
+
+                      THE FIRST DRAFT GOT THIS BACKWARDS AND IT WOULD HAVE
+                      SHIPPED. It tested the FILE's repository for
+                      orchestration.config, which reads as obviously right —
+                      and measured against this machine, NEITHER `richos` NOR
+                      `richos-hq` carries one at its root; the engine sits one
+                      level down, inside richos. So the mechanism would have
+                      refused every hand-over in the two repositories his
+                      specifications actually live in, and would have given a
+                      safety-shaped reason for doing it. Run from the seat, the
+                      credential scanner scans a file in ANY repository — which
+                      its own header says is deliberate, because a secret in
+                      someone else's tree is still a leaked secret — while the
+                      publication boundary still reads its declaration out of
+                      the file's own tree, where that question belongs.
 
   6. GIT IS NOT READY Detached HEAD, an unborn branch, a merge/rebase/
                       cherry-pick/revert/bisect in progress, a symlink, a path
@@ -426,14 +441,34 @@ def read_text(path):
                       "a gate that cannot look never reports nothing found")
 
 
-def run_gate(script, repo, path, text, cwd):
+def run_gate(script, repo, path, text, seat):
     """Invoke an existing guard as a subprocess. (verdict, detail).
 
     verdict is "pass", "refuse" or "undecided". The guard is handed a
-    synthesized PreToolUse Write payload — the exact shape it already reads —
-    with RICHOS_ENTITY_ROOT pinned to the repository that governs the FILE, so
-    it cannot resolve the session's repository by accident and judge the wrong
-    tree's rules.
+    synthesized PreToolUse Write payload — the exact shape it already reads.
+
+    RICHOS_ENTITY_ROOT IS THE SEAT, NOT THE FILE'S REPOSITORY, AND THAT IS THE
+    WHOLE POINT. The first draft pinned it to the repository enclosing the
+    file, which reads as obviously right and is wrong in the field: measured
+    against this machine, NEITHER `richos` NOR `richos-hq` carries
+    orchestration.config at its root — the engine sits one level down, inside
+    richos — so an adoption test against the file's own repository would have
+    refused every hand-over in the two repositories the CEO's specifications
+    actually live in, while reporting a safety reason for it.
+
+    Handing the guards the SEAT is not a workaround; it is the behavior they
+    are built around and their own headers describe. scan-secrets.sh scans a
+    file outside its seat DELIBERATELY — "a secret written into someone else's
+    repository is still a leaked secret" — announces the jurisdiction
+    difference, and re-resolves its thresholds from the file's own governing
+    root when there is one. guard-publication-writes.sh gives the seat NO VETO
+    at all: it loads the declaration out of the FILE's repository and stands
+    down only when that repository declares no publication boundary.
+
+    The seat is adopted by construction — the wrapper has already resolved it
+    and would not have reached this code otherwise — so the credential scan
+    cannot take its not-adopted stand-down branch, which is the one way a gate
+    could have returned 0 without looking at anything.
     """
     if not os.path.isfile(script):
         return ("undecided", "gate script missing at %s" % script)
@@ -447,7 +482,7 @@ def run_gate(script, repo, path, text, cwd):
         }
     )
     env = dict(os.environ)
-    env["RICHOS_ENTITY_ROOT"] = repo
+    env["RICHOS_ENTITY_ROOT"] = seat
     env.pop("CLAUDE_PROJECT_DIR", None)
     try:
         r = subprocess.run(
@@ -649,6 +684,7 @@ def main():
     session = payload.get("session_id") if isinstance(payload.get("session_id"), str) else ""
     engine_root = os.environ.get("RICHOS_ENGINE_ROOT_FOR_GATES", "")
     state_dir = os.environ.get("RICHOS_INGRESS_STATE_DIR", "")
+    seat_root = os.environ.get("RICHOS_INGRESS_SEAT_ROOT", "")
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
 
     cands = candidates(text)
@@ -717,17 +753,18 @@ def main():
             refused.append({"path": p, "repo": repo, "why": why})
             continue
 
-        # Gate 5 — a repository that never adopted the engine cannot be judged
-        # by gates 1 and 2; they stand down there by design. Committing anyway
-        # would be committing unscanned.
-        if not os.path.isfile(os.path.join(repo, "orchestration.config")):
+        # Gate 5 — the gates below are run FROM the seat, and the seat is what
+        # makes the credential scanner scan instead of standing down. Without
+        # one there is no adopted repository to run them from, so nothing is
+        # known about the content and nothing is committed.
+        if not seat_root:
             refused.append(
                 {
                     "path": p,
                     "repo": repo,
-                    "why": "this repository has not adopted the engine (no "
-                           "orchestration.config), so neither the credential "
-                           "scanner nor the publication boundary governs it — "
+                    "why": "the ingress could not name an adopted repository "
+                           "to run the credential and publication gates from, "
+                           "so nothing is known about this file's content — "
                            "and an unscanned automatic commit is not on the "
                            "table",
                 }
@@ -744,7 +781,7 @@ def main():
             ("credential scanner", os.path.join(engine_root, "scripts/hooks/scan-secrets.sh")),
             ("publication boundary", os.path.join(engine_root, "scripts/hooks/guard-publication-writes.sh")),
         ):
-            verdict, detail = run_gate(script, repo, p, body, cwd)
+            verdict, detail = run_gate(script, repo, p, body, seat_root)
             if verdict == "refuse":
                 refused.append(
                     {

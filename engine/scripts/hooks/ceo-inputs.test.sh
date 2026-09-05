@@ -294,15 +294,32 @@ is_tracked "$REPO_D" "$ROOT_D" \
 case "$OUT" in *ROOT*) ok "D2b the refusal names the root and says where to put it" ;;
                *)      bad "D2b the refusal names the root" "$OUT" ;; esac
 
+# A file in a repository that never adopted the engine, handed over from a
+# session seated in one that did. THIS PAIR IS THE FIELD DEFECT, and it is here
+# because the first draft failed it in the dangerous direction while looking
+# safe: it tested the FILE's repository for orchestration.config, and neither
+# `richos` nor `richos-hq` carries one at its root — so it would have refused
+# every hand-over in the two repositories his specifications live in, with a
+# safety-shaped reason. Both halves are asserted: the gates STILL RUN there,
+# and a clean file there IS captured.
 REPO_D2="$(new_repo repo-d2 --no-config)"
-UNADOPTED="$REPO_D2/docs/doc.md"
-printf 'doc %s\n' "$CANARY" > "$UNADOPTED"
-OUT="$(payload "$REPO_D2" "handle $UNADOPTED" | RICHOS_ENTITY_ROOT="$REPO_D" bash "$HOOK" 2>/dev/null)"
+UNADOPTED_SECRET="$REPO_D2/docs/creds.md"
+printf 'notes %s\n\napi_key = "%s"\n' "$CANARY" "$SECRET_LITERAL" > "$UNADOPTED_SECRET"
+OUT="$(payload "$REPO_D" "handle $UNADOPTED_SECRET" | RICHOS_ENTITY_ROOT="$REPO_D" bash "$HOOK" 2>/dev/null)"
 RC=$?
 record_output
-is_tracked "$REPO_D2" "$UNADOPTED" \
-    && bad "D3  an UNADOPTED repository is refused" "it was committed unscanned" \
-    || ok "D3  an UNADOPTED repository is refused — never committed unscanned"
+is_tracked "$REPO_D2" "$UNADOPTED_SECRET" \
+    && bad "D3  an UNADOPTED repository is still SCANNED" "a credential was committed there" \
+    || ok "D3  an UNADOPTED repository is still SCANNED — the credential is refused"
+
+UNADOPTED_OK="$REPO_D2/docs/ordinary.md"
+printf 'an ordinary document %s\n' "$CANARY" > "$UNADOPTED_OK"
+OUT="$(payload "$REPO_D" "handle $UNADOPTED_OK" | RICHOS_ENTITY_ROOT="$REPO_D" bash "$HOOK" 2>/dev/null)"
+RC=$?
+record_output
+is_tracked "$REPO_D2" "$UNADOPTED_OK" \
+    && ok "D3b and a CLEAN file in that same repository IS captured (the field defect)" \
+    || bad "D3b a clean file in an unadopted repository is captured" "$OUT"
 
 BIN_D="$REPO_D/docs/binary.md"
 printf '%s' "$CANARY" > "$BIN_D"
