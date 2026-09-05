@@ -117,7 +117,8 @@ pub use loro::{
 pub use reprime::{LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest};
 pub use spine::{Spine, SpineError, WorkerEventsSource};
 pub use steering::{
-    ActiveTurn, IntakeLog, IntakeRecord, SteeringError, StopClaim, StopOutcome, TurnCancel, TurnControl,
+    ActiveTurn, IntakeHealth, IntakeLog, IntakeRecord, SteeringError, StopClaim, StopOutcome, TurnCancel,
+    TurnControl, KNOWN_INTAKE_TAGS,
 };
 pub use stream::{StreamEvent, TurnObserver};
 pub use timeline::{
