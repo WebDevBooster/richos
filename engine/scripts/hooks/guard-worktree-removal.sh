@@ -31,7 +31,7 @@
 #   Everything else Bash-related (git worktree list, plain git worktree prune,
 #   rm of non-worktree paths, ordinary git/rm) passes untouched.
 #
-# TWO FALSE POSITIVES THIS VERSION REMOVES, both measured on the pre-move copy:
+# THREE FALSE POSITIVES THIS VERSION REMOVES, every one of them measured:
 #
 #   1. `git rm` IS NOT `rm`. The old rule matched `\brm\b`, which fires inside
 #      `git rm -r <dir>` — a removal of TRACKED FILES from the index, not a
@@ -50,6 +50,28 @@
 #      `.claude/worktrees/agent-*` worktrees AND hand-rolled external-repo ones —
 #      including the one from the 2026-08-24 incident, which the naming
 #      convention only caught by luck.
+#
+#   3. PROSE ABOUT A COMMAND IS NOT THE COMMAND. Confirmed live on 2026-09-03
+#      and again on 2026-09-04: a `git commit` was refused because its MESSAGE
+#      explained why the reconciler stalls on a locked quarantine, quoting the
+#      command this guard watches for. Both times it was routed around by
+#      rewording, and the guard was left alone -- so as it stood, THE RECORD
+#      COULD NOT DESCRIBE THE DEFECT THE ENGINE WAS BEING FIXED FOR.
+#
+#      A `-m`/`--message` quoted operand and a heredoc payload are now blanked
+#      before any rule looks, because nothing in either of them executes. Two
+#      exceptions keep the recall exactly where it was: a heredoc fed to a
+#      SHELL is still read in full, and `$( ... )` / backtick substitutions
+#      survive the blanking wherever the shell would still run them. See
+#      "WHAT WILL EXECUTE" in the classifier for the measurement -- 16 hits in
+#      83,348 real Bash calls sat in text that was never going to run, and
+#      NONE of the 14 heredoc hits were fed to a shell.
+#
+#      That work also closed a hole it did not create: a substitution NESTED
+#      inside another git command's argument run -- `-m "$(git ... )"` -- was
+#      swallowed by the outer match and never classified at all. It is now
+#      classified, and only inside substitutions, so `git log --grep=...` is
+#      still a search rather than a refusal.
 #
 #   `.claude/worktrees/agent-*` is KEPT as an unconditional structural match
 #   alongside the linked-worktree test: that path shape is self-describing, and
@@ -151,6 +173,125 @@ if not isinstance(d, dict) or d.get("tool_name") != "Bash":
 ti = d.get("tool_input") or {}
 cmd = (ti.get("command", "") if isinstance(ti, dict) else "") or ""
 
+# ===========================================================================
+# WHAT WILL EXECUTE, AND WHAT IS ONLY BEING WRITTEN DOWN
+# ===========================================================================
+# THE FALSE POSITIVE THIS REMOVES, confirmed live twice and measured once.
+# On 2026-09-03 and again on 2026-09-04 this guard refused a `git commit` whose
+# MESSAGE explained why the reconciler stalls on a locked quarantine -- prose
+# that quoted the very command the guard watches for. Both times it was routed
+# around by rewording, which costs seconds, and the guard was not touched, which
+# costs an engineer. As it stood, THE RECORD COULD NOT DESCRIBE THE DEFECT THE
+# ENGINE WAS BEING FIXED FOR.
+#
+# A COMMAND THAT PERFORMS AN ACT, A COMMIT MESSAGE DESCRIBING ONE, AND A
+# DOCUMENT QUOTING ONE ARE THREE DIFFERENT THINGS. The classifier used to scan
+# the whole Bash call as one string and could not tell them apart.
+#
+# So two regions are blanked before anything is matched -- blanked with SPACES,
+# never deleted, so every character offset the rules below rely on still points
+# where it did:
+#
+#   1. A `-m` / `--message` QUOTED OPERAND. Nothing inside one ever executes.
+#   2. A HEREDOC BODY. It is data on stdin; what the consumer does with it is
+#      the consumer's business.
+#
+# AND TWO EXCEPTIONS KEEP THE RECALL, so this is a narrowing and not a hole:
+#
+#   * A heredoc fed to a SHELL is still scanned in full. `bash <<EOF` really
+#     does execute its body, so the body really is a command.
+#   * COMMAND SUBSTITUTIONS SURVIVE THE BLANKING wherever the shell would still
+#     run them: `$( ... )` and backticks inside a DOUBLE-quoted message operand,
+#     and inside an UNQUOTED-tag heredoc. `git commit -m "$(rm -rf <wt>)"` is a
+#     removal wearing a message's clothes, and it is still caught. A
+#     single-quoted operand and a `<<'EOF'` heredoc expand nothing, so those are
+#     blanked whole.
+#
+# MEASURED over 83,348 real Bash calls from every transcript on this machine
+# (docs/verification/worktree-removal-prose-2026-09-05/): the shipped classifier
+# fires on 1,013 of them, and 16 of those hits sit in text that was never going
+# to run -- 2 inside a commit message, 14 inside a heredoc payload. ZERO of the
+# 14 were fed to a shell. So the recall cost of this change, against the whole
+# corpus, is nothing at all, and the two message hits are the two live refusals
+# that produced this row.
+#
+# WHAT THIS DELIBERATELY DOES NOT CLAIM. A python or perl heredoc that builds a
+# removal command as a STRING and hands it to a shell is a subprocess, and this
+# guard has never been able to see a subprocess -- its own header says so, about
+# the sanctioned helper. Blanking that body changes nothing that was ever true.
+_SHELL_CONSUMER = re.compile(
+    r"(?:^|[|;&]|\s)(?:env\s+\S+\s+)?(?:\S*/)?(?:sh|bash|zsh|ksh|dash)\b")
+_HEREDOC_START = re.compile(r"<<-?\s*(?P<q>['\"]?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)(?P=q)")
+_SUBST = re.compile(r"\$\([^)]*\)|`[^`]*`")
+_MSG_FLAG = re.compile(r"(?:^|\s)(?:-m|--message)(?:=|\s+)(?P<q>['\"])")
+
+
+def _blank(chars, start, end, keep_substitutions):
+    """Space out [start, end), optionally leaving `$( )` / backticks readable."""
+    text = "".join(chars[start:end])
+    keep = []
+    if keep_substitutions:
+        keep = [(m.start(), m.end()) for m in _SUBST.finditer(text)]
+    for i in range(start, end):
+        if chars[i] == "\n":
+            continue          # line structure is what the heredoc walk reads
+        rel = i - start
+        if any(a <= rel < b for a, b in keep):
+            continue
+        chars[i] = " "
+
+
+def executable_text(src):
+    """The parts of a Bash call the shell will actually run, as a same-length
+    string with everything else spaced out."""
+    chars = list(src)
+
+    # --- heredoc bodies ----------------------------------------------------
+    lines = src.split("\n")
+    offs, o = [], 0
+    for ln in lines:
+        offs.append(o)
+        o += len(ln) + 1
+    i = 0
+    while i < len(lines):
+        m = _HEREDOC_START.search(lines[i])
+        if m:
+            tag = m.group("tag")
+            quoted_tag = bool(m.group("q"))
+            j = i + 1
+            while j < len(lines) and lines[j].strip() != tag:
+                j += 1
+            body_start = offs[i + 1] if i + 1 < len(lines) else len(src)
+            body_end = offs[j] if j < len(lines) else len(src)
+            if body_end > body_start and not _SHELL_CONSUMER.search(lines[i][:m.start()]):
+                _blank(chars, body_start, body_end,
+                       keep_substitutions=not quoted_tag)
+            i = j
+        i += 1
+
+    # --- -m / --message operands -------------------------------------------
+    # Read off the ORIGINAL text, so a message inside a blanked heredoc cannot
+    # confuse the scan, and applied to the same character list.
+    for m in _MSG_FLAG.finditer(src):
+        q = m.group("q")
+        start = m.end()
+        k = start
+        while k < len(src):
+            if src[k] == "\\" and q == '"':
+                k += 2
+                continue
+            if src[k] == q:
+                break
+            k += 1
+        _blank(chars, start, min(k, len(src)), keep_substitutions=(q == '"'))
+
+    return "".join(chars)
+
+
+# EVERY RULE BELOW READS THIS, NEVER `cmd`. Same length, same offsets, so the
+# `rm` rule's backward look for a preceding `git` still lands on the right token.
+scan = executable_text(cmd)
+
 reasons = []
 candidates = []
 
@@ -224,7 +365,8 @@ def _git_subcommand(tokens):
     return None, []
 
 
-for m in GIT_INVOCATION.finditer(cmd):
+def collect_git(text):
+  for m in GIT_INVOCATION.finditer(text):
     sub, rest = _git_subcommand(m.group("args").split())
     if sub is None or sub in GIT_READ_ONLY_SUBCOMMANDS:
         continue
@@ -258,8 +400,11 @@ for m in GIT_INVOCATION.finditer(cmd):
 #    FIX 2 — the target must LOOK like a worktree to even become a candidate;
 #    whether it IS one is decided structurally in bash, below.
 RM_CLAUSE = re.compile(r"(?:^|[;&|(]\s*|\s)rm\b(?P<args>[^;&|)]*)")
-for m in RM_CLAUSE.finditer(cmd):
-    before = cmd[:m.start()].rstrip()
+
+
+def collect_rm(text):
+  for m in RM_CLAUSE.finditer(text):
+    before = text[:m.start()].rstrip()
     if before.split()[-1:] == ["git"]:
         continue  # `git rm` — an index removal, not a filesystem removal
     args = m.group("args")
@@ -275,10 +420,34 @@ for m in RM_CLAUSE.finditer(cmd):
         else:
             candidates.append(tok)
 
+# THE WHOLE COMMAND, AND THEN EVERY COMMAND SUBSTITUTION INSIDE IT.
+#
+# WHY THE SECOND PASS EXISTS, and it is a hole this repair FOUND rather than one
+# it created. `GIT_INVOCATION.finditer` cannot overlap, and its argument run
+# stops only at a statement separator -- so in
+#
+#     git commit -m "subject $(git worktree remove <wt>)"
+#
+# the OUTER `git commit` match swallows the inner one, the inner `git` is never
+# classified, and a real removal rides into the object store inside a message.
+# Measured on the shipped guard before this change: PASS.
+#
+# The obvious repair -- find every `git` token rather than every git invocation
+# -- was measured too, and REJECTED: it turns `git log --grep="git worktree
+# remove"` into a refusal, and a guard that fires on a SEARCH is one an operator
+# learns to waive. So the second pass is confined to text the shell will
+# actually execute: a `$( ... )` or backtick substitution, which is a command by
+# construction. A quoted string that merely CONTAINS the words is not.
+collect_git(scan)
+collect_rm(scan)
+for _sub in _SUBST.finditer(scan):
+    collect_git(_sub.group(0))
+    collect_rm(_sub.group(0))
+
 # Sanctioned helper invocation? (its name is the marker). Checked BEFORE the
 # verdict so a helper call is allowed even when it also looks destructive.
-helper = bool(re.search(r"(?:^|[\s;&|(])(?:\S*/)?remove-agent-worktree\.sh\b", cmd))
-ack = re.search(r"worktree-remove-ack:[ \t]*(.+)", cmd)
+helper = bool(re.search(r"(?:^|[\s;&|(])(?:\S*/)?remove-agent-worktree\.sh\b", scan))
+ack = re.search(r"worktree-remove-ack:[ \t]*(.+)", scan)
 
 if not reasons and not candidates:
     print("PASS"); raise SystemExit

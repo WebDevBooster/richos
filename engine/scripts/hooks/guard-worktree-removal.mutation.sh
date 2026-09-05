@@ -64,8 +64,9 @@ import re, sys
 p = sys.argv[1]
 s = open(p).read()
 start = s.index("RM_CLAUSE = re.compile(")
-end = s.index("# Sanctioned helper invocation?")
-old = '''if re.search(r"\\brm\\b", cmd):
+end = s.index("# THE WHOLE COMMAND, AND THEN EVERY COMMAND SUBSTITUTION")
+old = '''def collect_rm(text):
+  if re.search(r"\\brm\\b", cmd):
     recursive = re.search(r"(?:^|\\s)-[A-Za-z]*[rR][A-Za-z]*\\b", cmd) or re.search(r"--recursive\\b", cmd)
     path_hit = re.search(r"\\.claude/worktrees/agent-\\S+", cmd) or re.search(r"\\S*-wt(?=$|/|\\s)", cmd)
     if recursive and path_hit:
@@ -85,7 +86,7 @@ fi
 # --- M1b: ONLY the git-rm exclusion removed (clause scoping + structural test
 # both kept). Isolates what that one line buys on its own.
 restore
-perl -0pi -e 's/    before = cmd\[:m\.start\(\)\]\.rstrip\(\)\n    if before\.split\(\)\[-1:\] == \["git"\]:\n        continue[^\n]*\n/    pass\n/' "$GUARD"
+perl -0pi -e 's/    before = text\[:m\.start\(\)\]\.rstrip\(\)\n    if before\.split\(\)\[-1:\] == \["git"\]:\n        continue[^\n]*\n/    pass\n/' "$GUARD"
 if applied M1b "the git-rm exclusion alone is removed"; then
     check M1b "the git-rm exclusion alone is removed" "g7d"
 fi
@@ -146,6 +147,40 @@ restore
 perl -0pi -e 's/    "-C", "-c", "--git-dir",/    "-c", "--git-dir",/' "$GUARD"
 if applied M7 "git -C's value is no longer skipped when finding the subcommand"; then
     check M7 "git -C's value is no longer skipped when finding the subcommand" "a2 "
+fi
+
+# --- M8: the executable-text extraction is removed, so PROSE IS A COMMAND
+# again. This is the 2026-09-03/04 defect in one edit: the classifier reads the
+# whole Bash call as one string, and a commit message or a heredoc payload that
+# QUOTES a removal is refused as though it performed one.
+restore
+perl -0pi -e 's/^scan = executable_text\(cmd\)$/scan = cmd/m' "$GUARD"
+# NOT PR1, and the reason is worth recording rather than hiding behind a case
+# id that happens to be red. A SINGLE-LINE `git commit -m "... git worktree
+# remove ..."` was never refused by the shipped guard: the outer invocation's
+# argument run stops only at a statement separator, so the inner `git` sits
+# inside the outer match and finditer never looks at it again. It is the
+# MULTI-LINE form (PR2) that fired, because a newline ends the run and the
+# second line reads as its own invocation -- which is exactly the shape a commit
+# message in this project has. PR1 is a pin, PR2 is the reproduction.
+if applied M8 "prose and payloads are scanned as if they were commands"; then
+    check M8 "prose and payloads are scanned as if they were commands" "PR2" "PR5"
+fi
+
+# --- M9: the OTHER direction, and it is the one a blanking fix invites. The
+# second pass over command substitutions is deleted, so text the shell WILL
+# execute stops being classified -- `-m "$(git worktree remove <wt>)"` becomes a
+# way to launder a removal through a message. A suite that only asserted the PR
+# half would call this green.
+restore
+perl -0pi -e 's/^for _sub in _SUBST\.finditer\(scan\):\n    collect_git\(_sub\.group\(0\)\)\n    collect_rm\(_sub\.group\(0\)\)$/for _sub in []:\n    pass/m' "$GUARD"
+# PX3 alone. PX4's substitution sits at the start of its own heredoc line with
+# no enclosing git invocation, so the FIRST pass already reaches it; only PX3 --
+# a substitution nested inside another git command's argument run -- depends on
+# the second pass. Asserting PX4 here would be asserting something this mutant
+# does not remove.
+if applied M9 "substitutions inside inert text stop being classified"; then
+    check M9 "substitutions inside inert text stop being classified" "PX3"
 fi
 
 restore
