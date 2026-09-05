@@ -140,6 +140,13 @@ app/
                               BOUNDED, VISIBLE retry budget; the what-survived statement; and
                               a size-dependent fake upstream, because the 2026-09-03 outage
                               failed the expensive requests and passed a one-command probe
+    src/reachability.rs      CAN CLAUDE BE REACHED **AT THE SIZE THE WORK IS**? On
+                              2026-09-03 a three-character probe finished while every large
+                              brief died on 529, so a `Reachable` verdict CANNOT be
+                              constructed by a probe below the measured floor — a cheap
+                              success is `Unproven`, which is a statement about the probe.
+                              The floor is the LARGEST recent request, never the median,
+                              and an unmeasured install sends nothing at all
     src/work_gate.rs         IS RICHOS DOING ANYTHING RIGHT NOW — the decision the updater
                               never asked (RICH-TODOs row u1). Three readings in, one verdict
                               plus the sentence that explains it out. Holds no handles and
@@ -365,6 +372,18 @@ app/
                               two positive controls without which the rest is theater — an
                               ordinary broken pipe is NOT dressed up as an outage, and a
                               healthy turn produces nothing at all
+    tests/reachability_tests.rs 8 tests over the size-dependent fault the incident
+                              actually had. The first one IS the finding: one degraded
+                              upstream answers a 3-character probe and refuses a
+                              120,000-character one in the same test, and RichOS reports
+                              `Unproven` for the first rather than a green tick. Positive
+                              controls on both sides — a healthy API at realistic size IS
+                              `Reachable`, and the floor's boundary is inclusive
+    examples/reachability_probe.rs the operator's half: the same rules against the REAL
+                              `claude`, with the floor read off a real ledger. It prints
+                              what it would send and REFUSES to send it without `--spend`,
+                              because the request is billed to whoever is signed in. Exit 0
+                              proved / 1 classified failure / 3 NOT PROVEN
     examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
                               end to end against the real adapter (the run is kept at
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
@@ -704,7 +723,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 805 tests + 5 doc-tests
+cargo test -p richos-core                       # 816 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests
