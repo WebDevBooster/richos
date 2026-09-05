@@ -53,6 +53,9 @@ shift || true
 
 REPO=""
 HQ=""
+# Declared before `set -u` can see it empty. macOS bash 3.2 treats an empty
+# array as unbound, so `ARGS=()` alone is not enough — every expansion below
+# uses the `${ARGS[@]+...}` form or guards on the count first.
 ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -69,7 +72,10 @@ case "$MODE" in
     ;;
 
   --mint)
-    python3 "$PREDICATE" --mint "${ARGS[@]}"
+    # `${ARGS[@]+...}` rather than a bare `"${ARGS[@]}"`: macOS ships bash 3.2,
+    # where an empty array under `set -u` is an UNBOUND VARIABLE and the script
+    # dies with an unhelpful message instead of printing usage.
+    python3 "$PREDICATE" --mint ${ARGS[@]+"${ARGS[@]}"}
     exit $?
     ;;
 
@@ -189,6 +195,12 @@ PYEOF
     ;;
 
   --paths)
+    if [ "${#ARGS[@]}" -eq 0 ]; then
+        echo "named-persons.sh --paths: no paths given. An empty run would report" >&2
+        echo "  CLEAN over nothing, which is the verdict this whole mechanism exists" >&2
+        echo "  to stop producing. Refusing." >&2
+        exit 2
+    fi
     RESULT="$(python3 "$PREDICATE" --scan-files "${ARGS[@]}" 2>/dev/null)"
     VERDICT="$(printf '%s' "$RESULT" | head -1 | cut -f1)"
     case "$VERDICT" in
