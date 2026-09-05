@@ -134,6 +134,21 @@ np_announce_absent() {
 }
 
 # ---------------------------------------------------------------------------
+# np_mask <text>
+# ---------------------------------------------------------------------------
+# Anything this file is about to ECHO goes through here first.
+#
+# NOT DEFENSIVENESS — A FIXED DEFECT. The banner below names the artifact it is
+# refusing, and the artifact is routinely a FILE PATH. The leak this whole
+# mechanism exists for WAS a filename, so the very case the guard is proudest of
+# catching is the case whose refusal printed the name in full, into terminal
+# scrollback and into whatever log captures stderr. Caught by running the guard
+# against the real repository rather than a sandbox.
+np_mask() {
+    python3 "$NP_PREDICATE" --mask "${1:-}" 2>/dev/null || printf '%s' "${1:-}"
+}
+
+# ---------------------------------------------------------------------------
 # np_block_banner <hook> <what-was-refused> <predicate-output>
 # ---------------------------------------------------------------------------
 # The refusal. It names the surface and a REDACTED form of the match, and it
@@ -142,6 +157,7 @@ np_announce_absent() {
 # That is scan-secrets.sh's rule and it is here for scan-secrets.sh's reason.
 np_block_banner() {
     local hook="${1:-<unknown hook>}" what="${2:-this artifact}" result="${3:-}"
+    what="$(np_mask "$what")"
     {
         echo "=== NAMED-PERSON DENY-LIST: BLOCKED ==="
         echo "  Refusing $what — it carries a name from the deny-list at"

@@ -211,24 +211,66 @@ def fold(text):
     return text.lower()
 
 
-def tokens(text):
-    """The token stream: maximal alphanumeric runs of the folded text.
+def _fold_token(tok):
+    """Fold ONE token. Same rules as fold(), minus the splitting ones."""
+    tok = unicodedata.normalize("NFKD", tok)
+    tok = "".join(c for c in tok if not unicodedata.combining(c))
+    return tok.lower()
 
-    Every other character is a separator, which is the single decision that
+
+def token_spans(text):
+    """[(folded_token, start, end)] with the spans in the ORIGINAL text.
+
+    SPAN-AWARE ON PURPOSE, and the reason is a defect this file had: the block
+    message names the artifact it is refusing, and when the artifact is a FILE
+    PATH the name is IN that path — so the refusal printed in full the name it
+    exists to keep out of sight. Masking it needs to know WHERE in the original
+    string the match sits, and folding the whole string first (camelCase
+    splitting inserts characters, NFKD changes lengths, %20 becomes one space)
+    destroys exactly that correspondence. So spans are computed over the
+    original and each token is folded on its own.
+
+    Every non-alphanumeric character is a separator — the single decision that
     makes an underscore-joined media filename and a spaced-out name the same
-    string to this matcher.
+    string to this matcher — plus a percent-encoded space, and camelCase
+    boundaries INSIDE an alphanumeric run.
     """
+    # A percent-encoded space is a separator. Replaced by three spaces (and
+    # %2520 by five) rather than one, so every following character keeps its
+    # original index.
+    text = text.replace("%2520", "     ").replace("%20", "   ")
+
     out = []
-    cur = []
-    for ch in fold(text):
-        if ch.isalnum():
-            cur.append(ch)
-        elif cur:
-            out.append("".join(cur))
-            cur = []
-    if cur:
-        out.append("".join(cur))
-    return out
+    i, n = 0, len(text)
+    while i < n:
+        if not text[i].isalnum():
+            i += 1
+            continue
+        j = i
+        while j < n and text[j].isalnum():
+            j += 1
+        # One alphanumeric run: split it further at camelCase boundaries.
+        run = text[i:j]
+        start = 0
+        for k in range(1, len(run)):
+            prev, cur = run[k - 1], run[k]
+            boundary = (prev.islower() or prev.isdigit()) and cur.isupper()
+            if not boundary and prev.isupper() and cur.isupper() and k + 1 < len(run):
+                boundary = run[k + 1].islower()
+                if boundary:
+                    # `HTTPServer` splits before the S, not after it.
+                    pass
+            if boundary:
+                out.append((_fold_token(run[start:k]), i + start, i + k))
+                start = k
+        out.append((_fold_token(run[start:]), i + start, j))
+        i = j
+    return [(t, s, e) for (t, s, e) in out if t]
+
+
+def tokens(text):
+    """The token stream alone, for callers that do not need the spans."""
+    return [t for (t, _s, _e) in token_spans(text)]
 
 
 def digest(toks):
@@ -285,18 +327,19 @@ class DenyList(object):
         self.entry_count = 0
         self.mode = None
 
-    def match(self, text, surface):
-        """Every distinct hit, as (surface, redacted) pairs."""
-        toks = tokens(text)
-        hits = []
+    def match_spans(self, text):
+        """Every match as (tokens, start, end) with spans in the original text."""
+        spans = token_spans(text)
+        toks = [t for (t, _s, _e) in spans]
+        found = []
         seen = set()
 
-        def add(window):
-            key = " ".join(window)
+        def add(i, n):
+            key = (spans[i][1], spans[i + n - 1][2])
             if key in seen:
                 return
             seen.add(key)
-            hits.append((surface, redact(window)))
+            found.append((toks[i:i + n], key[0], key[1]))
 
         n_text = len(toks)
         for seq, reversible in self.sequences:
@@ -305,20 +348,48 @@ class DenyList(object):
             for i in range(0, n_text - n + 1):
                 window = toks[i:i + n]
                 if window == seq or (rev is not None and window == rev):
-                    add(window)
+                    add(i, n)
         for single in self.singles:
-            for t in toks:
+            for i, t in enumerate(toks):
                 if t == single[0]:
-                    add([t])
-                    break
+                    add(i, 1)
         for n, hexes in self.digests.items():
             for i in range(0, n_text - n + 1):
                 window = toks[i:i + n]
-                if digest(window) in hexes:
-                    add(window)
-                elif n == 2 and digest(list(reversed(window))) in hexes:
-                    add(window)
+                if digest(window) in hexes or (
+                        n == 2 and digest(list(reversed(window))) in hexes):
+                    add(i, n)
+        return sorted(found, key=lambda r: r[1])
+
+    def match(self, text, surface):
+        """Every distinct hit, as (surface, redacted) pairs."""
+        hits = []
+        seen = set()
+        for window, _s, _e in self.match_spans(text):
+            key = " ".join(window)
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append((surface, redact(window)))
         return hits
+
+    def mask(self, text):
+        """The text with every match replaced by its redacted form.
+
+        For the block message, which NAMES THE ARTIFACT IT IS REFUSING. When
+        that artifact is a file path, the name is in the path — so an
+        unmasked banner printed in full the name it exists to keep out of
+        sight, in terminal scrollback and in whatever log captures stderr.
+        """
+        out, prev = [], 0
+        for window, start, end in self.match_spans(text):
+            if start < prev:
+                continue
+            out.append(text[prev:start])
+            out.append(redact(window))
+            prev = end
+        out.append(text[prev:])
+        return "".join(out)
 
 
 def load_list(path=None):
@@ -544,6 +615,21 @@ def main(argv):
             print("  NOTICE        : group/other can read this file. `chmod 600` it —")
             print("                  the roster is more sensitive than any one name on it.")
         print("  inside a repo : no  (refused at load if it ever is)")
+        return 0
+
+    if mode == "--mask":
+        # Anything a caller is about to ECHO. Fails SAFE in both directions:
+        # with no usable list nothing can be verified as clean, so the text is
+        # returned unchanged (it is the caller's own string, not a scan result),
+        # and every caller that echoes a path only does so on a FOUND verdict,
+        # which cannot happen without a list.
+        raw = rest[0] if rest else sys.stdin.read()
+        try:
+            dl = load_list(list_path)
+        except (ListAbsent, ListBroken):
+            sys.stdout.write(raw)
+            return 0
+        sys.stdout.write(dl.mask(raw))
         return 0
 
     if mode in ("--scan-payload", "--scan-text", "--scan-files", "--scan-file-list"):

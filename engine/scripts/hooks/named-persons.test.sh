@@ -335,6 +335,43 @@ else
     bad "(n) the block message does not say where the list is"
 fi
 
+# THE PATH CASE, and it is here because it was a real defect rather than a
+# hypothetical one. The banner names the artifact it is refusing; when the
+# artifact is a file path, the name is IN that path. Running the guard against
+# the real repository — not a sandbox — printed the very name it had just
+# refused, in full, on the surface the original incident used.
+OUT="$(write_payload Write "$SB/docs/${LOWER_UNDER}_webinar_2026.md" "$SB" "clean body" \
+       | "$WRITE_HOOK" 2>&1 >/dev/null)"
+if printf '%s' "$OUT" | grep -qiF "$LOWER_UNDER"; then
+    bad "(n) the block message PRINTS THE PATH IT REFUSED, name and all"
+else
+    ok "(n) a path hit is masked in the block message too"
+fi
+if printf '%s' "$OUT" | grep -q 'webinar_2026'; then
+    ok "(n) the masked path is still recognizable (only the name is replaced)"
+else
+    bad "(n) masking destroyed the path, so the author cannot tell which file"
+fi
+
+# The masker on its own, both directions.
+MASKED="$(python3 "$PREDICATE" --mask "a/$LOWER_UNDER/b")"
+if printf '%s' "$MASKED" | grep -qiF "$F_FAMILY"; then
+    bad "(n) --mask left the name in place"
+else
+    ok "(n) --mask replaces the name"
+fi
+if printf '%s' "$MASKED" | grep -q '^a/' && printf '%s' "$MASKED" | grep -q '/b$'; then
+    ok "(n) --mask leaves everything around the name untouched"
+else
+    bad "(n) --mask damaged the surrounding text ($MASKED)"
+fi
+UNTOUCHED="$(python3 "$PREDICATE" --mask "docs/ordinary-file-name.md")"
+if [ "$UNTOUCHED" = "docs/ordinary-file-name.md" ]; then
+    ok "(n) --mask is byte-identical on text with no match"
+else
+    bad "(n) --mask altered text containing no listed name ($UNTOUCHED)"
+fi
+
 # ---------------------------------------------------------------------------
 # (m) THE DIGEST FORM — no plaintext on disk, same block.
 # ---------------------------------------------------------------------------
