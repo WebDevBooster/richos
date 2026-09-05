@@ -358,6 +358,16 @@ DEMO_FILES+=(
     # reports "WATCH IS OFF" into a channel the demo has no reader for, and
     # exits 0 on every turn.
     "scripts/hooks/notice-waiver-repetition.py"
+    # The escalation predicate, both halves, for the waiver analyzer's reason
+    # exactly: notice-escalations.sh (Stop) and session-start-escalations.sh
+    # (SessionStart) decide nothing themselves and hand the whole verdict to
+    # scripts/lib/escalations.py. Without it a sample repo starts both hooks
+    # perfectly, announces "ESCALATION WATCH IS OFF" where the demo has no
+    # reader, and exits 0 — showing a buyer a channel that reports "on" over a
+    # ledger nothing is reading, which is the exact defect the channel exists
+    # to remove.
+    "scripts/lib/escalations.sh"
+    "scripts/lib/escalations.py"
     # The mechanical-findings sweep, both halves, for the reason the waiver
     # analyzer above is here: notice-mechanical-findings.sh starts without
     # them and says "MECHANICAL SWEEP IS OFF" where the demo has no reader.
