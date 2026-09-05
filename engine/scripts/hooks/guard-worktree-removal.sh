@@ -139,6 +139,22 @@ else
     root_failure_banner "scripts/hooks/guard-worktree-removal.sh" >&2
     exit 2
 fi
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# On a payload it cannot read, this guard takes the SAME silent exit 0 that a
+# well-formed payload for a DIFFERENT tool takes: the tool-name extraction ends
+# in `|| true`, so "this call is not mine" and "I could not tell whose call this
+# is" are one exit. That is why 17 of 25 PreToolUse guards were measured passing
+# a call in complete silence on 2026-09-05. This separates the two. NO VERDICT
+# CHANGES — the exit is the one already taken — only the silence does. The
+# measurement, the channel and the argument: scripts/lib/unevaluated-notice.sh.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "guard-worktree-removal.sh" "$INPUT" \
+        "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
+        "whether this command removes a worktree whose owner may still be running"
+fi
 
 HOOK_TAG="(hook: scripts/hooks/guard-worktree-removal.sh)"
 
