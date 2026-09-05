@@ -35,7 +35,8 @@ command -v python3 >/dev/null 2>&1 || {
 
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/unevaluated-notice.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
-STATE="$SANDBOX/state"
+ROOT="$SANDBOX/entity"
+LOGDIR="$ROOT/.claude/state"
 
 echo "=== the unevaluated-call notice: audible, and still not a verdict ==="
 echo ""
@@ -60,7 +61,7 @@ set -eo pipefail
 . "$LIB"
 PAYLOAD=""
 IFS= read -r -d '' PAYLOAD || true
-unevaluated_or_continue "guard-example.sh" "\$PAYLOAD" "\$UE_TEST_STATE" \\
+unevaluated_or_continue "guard-example.sh" "\$PAYLOAD" "\$UE_TEST_ROOT" \\
     "whether this call is allowed to happen"
 printf 'GUARD-CONTINUED\n'
 STANDIN_EOF
@@ -68,7 +69,7 @@ STANDIN_EOF
 ERR="$SANDBOX/err.txt"
 drive() { # <payload> [<extra env assignment>...] -> OUT (stdout), ERR file, RC
     : > "$ERR"
-    OUT="$(printf '%s' "$1" | UE_TEST_STATE="$STATE" bash "$STANDIN" 2>"$ERR")"
+    OUT="$(printf '%s' "$1" | UE_TEST_ROOT="$ROOT" bash "$STANDIN" 2>"$ERR")"
     RC=$?
 }
 
@@ -139,7 +140,7 @@ else bad "3c  stderr carries the sentence too" "$(cat "$ERR")"; fi
 #    An operator channel is something a person can miss. resume-acks.log and
 #    definition-drift.log exist for the same reason.
 # ===========================================================================
-LOG="$STATE/unevaluated-payloads.log"
+LOG="$LOGDIR/unevaluated-payloads.log"
 if [ -f "$LOG" ] && grep -q 'hook=guard-example.sh' "$LOG"; then
     ok "4a  a durable line is appended to .claude/state/unevaluated-payloads.log"
 else bad "4a  the durable log is written" "$( [ -f "$LOG" ] && cat "$LOG" )"; fi
@@ -160,7 +161,7 @@ else bad "4c  a different reason gets its own line" "stayed at $AFTER2"; fi
 
 # 4d. An unwritable state dir must not take the announcement down with it.
 : > "$ERR"
-OUT="$(printf '%s' "" | UE_TEST_STATE="/dev/null/impossible" bash "$STANDIN" 2>"$ERR")"
+OUT="$(printf '%s' "" | UE_TEST_ROOT="/dev/null/impossible" bash "$STANDIN" 2>"$ERR")"
 if announced; then
     ok "4d  an unwritable state dir still announces — the durable half is a bonus, never a precondition"
 else bad "4d  an unwritable state dir still announces" "$OUT $(cat "$ERR")"; fi
@@ -180,7 +181,7 @@ FAKEBIN="$SANDBOX/nobin"
 mkdir -p "$FAKEBIN"
 bare() { # <payload>
     : > "$ERR"
-    OUT="$(printf '%s' "$1" | PATH="$FAKEBIN" UE_TEST_STATE="$STATE" \
+    OUT="$(printf '%s' "$1" | PATH="$FAKEBIN" UE_TEST_ROOT="$ROOT" \
         /bin/bash "$STANDIN" 2>"$ERR")"
     RC=$?
 }

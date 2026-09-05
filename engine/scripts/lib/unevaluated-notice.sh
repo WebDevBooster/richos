@@ -120,7 +120,8 @@
 # ===========================================================================
 #     _UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
 #     [ -f "$_UE_LIB" ] && . "$_UE_LIB"
-#     unevaluated_or_continue "guard-example.sh" "$INPUT" "$STATE_DIR" \
+#     unevaluated_or_continue "guard-example.sh" "$INPUT" \
+#         "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
 #         "whether this write lands in the main checkout"
 #
 # Placed AFTER root resolution (so an unadopted repository still stands down in
@@ -163,9 +164,15 @@ sys.exit(0 if isinstance(d, dict) else 2)
 }
 
 # --- the durable half ------------------------------------------------------
-_ue_log() { # <state dir> <content key>
-    local dir="${1-}" key="${2-}" logfile last new
-    [ -n "$dir" ] || return 0
+# TAKES THE ENTITY ROOT, NOT THE STATE DIR. Every call site can then use one
+# byte-identical expression — "${ENTITY_ROOT:-${SEAT_ROOT:-...}}" — whatever the
+# hook happens to have named its root, and a hook that reaches this before it
+# has resolved a root passes an empty string and simply gets no log line. The
+# announcement never depends on it.
+_ue_log() { # <entity root> <content key>
+    local root="${1-}" key="${2-}" dir logfile last new
+    [ -n "$root" ] || return 0
+    dir="$root/.claude/state"
     logfile="$dir/unevaluated-payloads.log"
     mkdir -p "$dir" 2>/dev/null || return 0
     new="$(printf '%s\t%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$key")"
@@ -252,7 +259,7 @@ unevaluated_sentence() { # <hook basename> <what was not checked> <reason word> 
         "$(_ue_label "$hook")" "$noun" "$reason" "$what" "$scope" "$hook"
 }
 
-announce_unevaluated() { # <hook basename> <what was not checked> <reason word> [<state dir>]
+announce_unevaluated() { # <hook basename> <what was not checked> <reason word> [<entity root>]
     local hook="${1-}" what="${2-}" reason="${3-}" dir="${4-}" msg
     msg="$(unevaluated_sentence "$hook" "$what" "$reason" "call")"
     printf '%s\n' "$msg" >&2
@@ -286,7 +293,7 @@ print(json.dumps({"systemMessage": os.environ.get("UE_MSG", "")}))
 # it can. Exiting 0 is not a new verdict: every guard wired to this already
 # exited 0 on exactly these payloads, which is what the survey measured. The
 # only thing that changes is that somebody is told.
-unevaluated_or_continue() { # <hook basename> <raw payload> <state dir> <what was not checked>
+unevaluated_or_continue() { # <hook basename> <raw payload> <entity root> <what was not checked>
     local reason
     reason="$(richos_payload_unreadable "${2-}")" || return 0
     announce_unevaluated "${1-}" "${4-}" "$reason" "${3-}"
