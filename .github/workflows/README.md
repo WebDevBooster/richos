@@ -1,9 +1,9 @@
 # What runs in this directory, what does not, and why
 
-**State on 2026-09-05.** Six workflows, four of them enabled.
+**State on 2026-09-05.** Seven workflows, five of them enabled.
 
-- **Enabled:** `app-spine-ci`, `ui-suite-ci` and `windows-companion-ci`, on pushes and pull
-  requests, each behind its own path filter.
+- **Enabled:** `app-spine-ci`, `app-voice-ci`, `ui-suite-ci` and `windows-companion-ci`, on
+  pushes and pull requests, each behind its own path filter.
 - **Enabled:** `vouch-pr`, on every pull request opened or reopened. It is the only file here that
   acts on a person rather than on a diff, and it can close somebody's work.
 - **Disabled in the file:** `engine-self-verify` and `packaging-ci`, each for a measured reason
@@ -45,8 +45,11 @@ running CI. That condition is gone: `gh api repos/WebDevBooster/richos --jq .vis
 anything to run.
 
 The cost mix, for whoever re-enables these: two Linux workflows bill at 1x, `windows-companion-ci`
-at 2x, and **`packaging-ci` and `ui-suite-ci` run on macOS, which bills at 10x** — that pair is most
-of the spend.
+at 2x, and **`packaging-ci`, `ui-suite-ci` and `app-voice-ci` run on macOS, which bills at 10x** —
+that group is most of the spend. `app-voice-ci` is the cheapest of the three by a wide margin: the
+work it does is 44 seconds cold on the machine it was measured on, against `ui-suite-ci`'s measured
+25 minutes. It joined the list on 2026-09-05 and none of it is a bill while the repository is
+public.
 
 ### What replaced it meanwhile
 
@@ -76,6 +79,7 @@ is. Two of them were not fine.** The clone, the commands and the transcripts are
 | workflow | state | why |
 |---|---|---|
 | `app-spine-ci` | **enabled** | green in the clone; `--locked` accepted; only "does it build on Linux" is left to the runner |
+| `app-voice-ci` | **enabled** | added 2026-09-05, after the flip, so no part of the billing story above applies to it either. It was not in the clone exercise because it did not exist; what was measured instead is the crate, and it retired three of the four clauses `app-spine-ci` had excluded it for — whisper is not a build dependency, no test opens an audio endpoint without `RICHOS_VOICE_LIVE_AUDIO`, and the cold build is 12.6 s. Never yet executed, and it carries one premise no Mac can settle: how many of the suite's seven candidate voices a runner has. See its header, and `docs/verification/voice-ci-2026-09-05/` |
 | `ui-suite-ci` | **enabled** | green in the clone under WebKit from its own `node_modules`, after one load-sensitive check in `splash.js` was found flaking and fixed |
 | `windows-companion-ci` | **enabled** | restore, the `net8.0-windows` build and all 26 core tests pass off Windows; only the `doctor` smoke step needs the runner |
 | `engine-self-verify` | **DISABLED IN THE FILE** | `ci-verify.sh` exits 1 on Linux: 55 of 60 suites, five red, two of them red on macOS too. One Linux-only defect was found and fixed (`sed -i ''` aborted the largest suite outright, exit 2, with two whole layers never reached). Its 45-minute timeout could not have been met on any host and is now 150, from a measured 65m40s full pass |
@@ -85,6 +89,11 @@ is. Two of them were not fine.** The clone, the commands and the transcripts are
 **So the post-flip step is "dispatch three", not "dispatch five".** The two disabled files have had
 their `push` and `pull_request` triggers removed for exactly this reason; dispatching either anyway
 produces a red run that says nothing about going public.
+
+**That count was about the five files the flip found here, and `app-voice-ci` makes it four to
+dispatch rather than three.** It is not a correction to the sentence above — it was right about the
+set it was written over — but whoever runs the dispatch should run four, and should expect
+`app-voice-ci` to be the one most likely to come back red, for the reason its own header gives.
 
 **And the important half of that sentence:** two of `engine-self-verify`'s five reds are red on
 the machine the engine is developed on, today, and a third is red on the platform CI uses. **The
