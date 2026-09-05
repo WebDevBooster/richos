@@ -55,6 +55,11 @@
 //!   passes the check, so the write can run a second time. Being asked twice is how a person
 //!   learns the machine does not remember him.
 //!
+//! So the reader refuses to present a state it cannot vouch for: a proposal whose answer
+//! could have been among the records this build could not read is [`ProposalState::Unresolved`]
+//! — held back, counted, inspectable, and never offered as though it were new. See
+//! [`CorrectionDesk::unresolved`] for exactly how narrow "could have been" is.
+//!
 //! # What this deliberately does NOT do
 //!
 //! - **It never widens a scope.** `loro-writer.md`: widening `ceo-private` →
@@ -90,6 +95,18 @@ pub enum CorrectionError {
     NoReason,
     #[error("{0:?} was permanently declined for correction — clear the suppression to propose again")]
     Suppressed(String),
+    #[error(
+        "proposal {id} cannot be answered: the record of what you already decided about it \
+         could not be read, so this version does not know whether you have answered it \
+         already"
+    )]
+    AnswerUnreadable { id: String },
+    #[error(
+        "{record_ref:?} is on hold: a decision you made about it could not be read, so this \
+         version does not know whether you asked never to be asked about it again — clear the \
+         hold to propose against it"
+    )]
+    HeldRecord { record_ref: String },
     #[error("the loro writer refused (exit {code}): {message}")]
     WriterRefused { code: i32, message: String },
     #[error("the loro writer could not be run: {0}")]
@@ -412,6 +429,21 @@ pub enum ProposalState {
     /// He said yes and the writer refused. The reason is kept — a failed write that
     /// disappears is indistinguishable from one that never happened.
     Failed,
+    /// **This build cannot tell whether he has answered this or not**, because a record
+    /// that could have been the answer was one it could not read.
+    ///
+    /// Never written to disk and never minted by `propose` — it exists only in a projection
+    /// built over a file with at least one unreadable record, and it is recomputed from
+    /// scratch on every open. Held back from [`CorrectionDesk::pending_for`] and refused by
+    /// `confirm`/`decline`, because the alternative is offering a decision he has already
+    /// made as though it were new.
+    ///
+    /// The bar this meets, stated as it was given: *a confirmed decision must never become
+    /// pending again; the reader must refuse to present a reverted state rather than present
+    /// a wrong one.* The cost is the other direction — a proposal he genuinely has NOT
+    /// answered can end up held back — and that cost is paid deliberately and out loud, in
+    /// [`DeskHealth::unresolved`] and the sentence beside it, rather than by asking him twice.
+    Unresolved,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -520,6 +552,12 @@ pub struct DeskHealth {
     pub from_future: usize,
     pub damaged: usize,
     pub ambiguous: usize,
+    /// Proposals held back because a record that could have been their answer was
+    /// unreadable. Always 0 when `skipped` is 0. See [`ProposalState::Unresolved`].
+    pub unresolved: usize,
+    /// Records not proposed against because the decision he made about them could not be
+    /// read. Always 0 when `skipped` is 0. See [`CorrectionDesk::held_records`].
+    pub held_records: usize,
     /// One short sentence. Empty when nothing was skipped.
     pub headline: String,
     /// The honest explanation, in plain American English, with no stack trace in it.
@@ -550,6 +588,15 @@ pub struct CorrectionDesk {
     /// than derived, so "6 of 7" is a measurement and not an inference.
     records_read: usize,
     records_applied: usize,
+    /// Records this build will not propose against because a decision he made about them
+    /// could not be read. Distinct from `suppressed`, which is the list of refs he actually
+    /// declined permanently — telling him a record was permanently declined when the truth
+    /// is that this build cannot read the answer would be a wrong statement, not a short one.
+    held: Vec<String>,
+    /// Every ref that has ever carried an `Unsuppressed` record. A precautionary hold he has
+    /// explicitly lifted must stay lifted across restarts, and the lift is already durable —
+    /// this is how the replay sees it.
+    ever_unsuppressed: Vec<String>,
 }
 
 impl CorrectionDesk {
@@ -567,6 +614,8 @@ impl CorrectionDesk {
             skipped: Vec::new(),
             records_read: 0,
             records_applied: 0,
+            held: Vec::new(),
+            ever_unsuppressed: Vec::new(),
         };
         desk.replay()?;
         Ok(desk)
@@ -603,6 +652,22 @@ impl CorrectionDesk {
         // in `proposals`, so without it the counter can hand the same id out twice — the
         // same hazard `steering::IntakeLog::open` guards, and salvaged on the same rule.
         let mut salvaged_number: u64 = 0;
+        // WHICH PROPOSALS COULD THE UNREADABLE RECORDS HAVE BEEN THE ANSWER TO?
+        //
+        // An answer record is always appended AFTER the `proposed` record it answers, so a
+        // skipped line can only have answered a proposal that loaded ABOVE it. Two levels of
+        // precision, and the narrow one is preferred wherever the file supports it:
+        //
+        //   * `at_risk_numbers` — a skipped line that is not `Damaged` is a well-formed JSON
+        //     object with a plain-identifier tag, so its `id` is structure this build trusts.
+        //     If it reads as `prop-<n>`, that ONE proposal is at risk and no other.
+        //   * `broad_from_line` — every other skipped line (damaged, or naming no proposal,
+        //     which is what a `suppressed`/`unsuppressed` record looks like) could have
+        //     answered anything above it, so every proposal above the LAST such line is at
+        //     risk. Deliberately blunt: the alternative is guessing.
+        let mut at_risk_numbers: Vec<u64> = Vec::new();
+        let mut broad_from_line = 0usize;
+        let mut proposal_lines: Vec<(String, usize)> = Vec::new();
         let mut reader = BufReader::new(std::fs::File::open(&self.path)?);
         let mut raw: Vec<u8> = Vec::new();
         let mut line_no = 0usize;
@@ -632,6 +697,9 @@ impl CorrectionDesk {
             match serde_json::from_str::<DeskRecord>(line) {
                 Ok(rec) => {
                     self.records_applied += 1;
+                    if let DeskRecord::Proposed(p) = &rec {
+                        proposal_lines.push((p.id.clone(), line_no));
+                    }
                     self.apply(rec);
                 }
                 Err(_) => {
@@ -644,10 +712,16 @@ impl CorrectionDesk {
                     // of them collides for real. A `Damaged` line is neither: its numbers
                     // are not facts, and its bytes never become readable, so nothing is
                     // salvaged from it. That is the identical line `steering.rs` draws.
+                    let mut attributed = false;
                     if record.kind != SkipKind::Damaged {
                         if let Some(n) = salvage_proposal_number(line) {
                             salvaged_number = salvaged_number.max(n);
+                            at_risk_numbers.push(n);
+                            attributed = true;
                         }
+                    }
+                    if !attributed {
+                        broad_from_line = broad_from_line.max(line_no);
                     }
                     self.skipped.push(record);
                 }
@@ -660,6 +734,46 @@ impl CorrectionDesk {
             .max()
             .unwrap_or(0);
         self.next = highest_loaded.max(salvaged_number) + 1;
+
+        // HOLD BACK EVERY PROPOSAL WHOSE ANSWER MIGHT HAVE BEEN ONE OF THE RECORDS THAT DID
+        // NOT LOAD. A proposal that has an answer is left exactly as it is: its answer is on
+        // disk and `confirm`/`decline` already refuse a second one.
+        let at_risk: Vec<String> = at_risk_numbers
+            .iter()
+            .map(|n| format!("prop-{n}"))
+            .chain(
+                proposal_lines
+                    .iter()
+                    .filter(|(_, line)| *line < broad_from_line)
+                    .map(|(id, _)| id.clone()),
+            )
+            .collect();
+        for p in self.proposals.iter_mut() {
+            if p.state == ProposalState::AwaitingCeo && at_risk.contains(&p.id) {
+                p.state = ProposalState::Unresolved;
+            }
+        }
+
+        // AND DO NOT ASK HIM ABOUT THE SAME RECORD FROM A DIFFERENT DIRECTION. The lost
+        // answer could have been `Declined { permanent: true }` — "never ask me about this
+        // again" — so a fresh proposal naming the same record would be exactly the repeat
+        // this is here to stop. Not folded into `suppressed`: that list is what he actually
+        // declined, and this one is what this build cannot read. A hold he has explicitly
+        // lifted stays lifted, because `unsuppress` writes a durable record and the replay
+        // above collected every ref that carries one.
+        let holds: Vec<String> = self
+            .proposals
+            .iter()
+            .filter(|p| p.state == ProposalState::Unresolved)
+            .filter_map(|p| p.write.target_ref().map(str::to_string))
+            .filter(|r| !self.ever_unsuppressed.contains(r))
+            .collect();
+        for r in holds {
+            if !self.held.contains(&r) {
+                self.held.push(r);
+            }
+        }
+
         self.report_skipped();
         Ok(())
     }
@@ -721,9 +835,23 @@ impl CorrectionDesk {
                     p.failure = Some(reason);
                 }
             }
-            DeskRecord::Declined { id, .. } => {
-                if let Some(p) = self.find_mut(&id) {
+            DeskRecord::Declined { id, permanent, .. } => {
+                let target = self.find_mut(&id).map(|p| {
                     p.state = ProposalState::Declined;
+                    p.write.target_ref().map(str::to_string)
+                });
+                // A PERMANENT DECLINE SUPPRESSES ON ITS OWN, not only via the `suppressed`
+                // record `decline` writes next. The two are always written together and
+                // fsync'd separately, so the second can be the one that is unreadable — and
+                // without this, that alone would put a record he permanently declined back
+                // in front of him. Deriving it from the decline costs nothing and makes the
+                // `suppressed` record confirmatory rather than load-bearing.
+                if permanent {
+                    if let Some(Some(record_ref)) = target {
+                        if !self.suppressed.contains(&record_ref) {
+                            self.suppressed.push(record_ref);
+                        }
+                    }
                 }
             }
             DeskRecord::Suppressed { record_ref, .. } => {
@@ -731,7 +859,13 @@ impl CorrectionDesk {
                     self.suppressed.push(record_ref);
                 }
             }
-            DeskRecord::Unsuppressed { record_ref, .. } => self.suppressed.retain(|r| r != &record_ref),
+            DeskRecord::Unsuppressed { record_ref, .. } => {
+                self.suppressed.retain(|r| r != &record_ref);
+                self.held.retain(|r| r != &record_ref);
+                if !self.ever_unsuppressed.contains(&record_ref) {
+                    self.ever_unsuppressed.push(record_ref);
+                }
+            }
         }
     }
 
@@ -773,6 +907,12 @@ impl CorrectionDesk {
             if self.suppressed.iter().any(|r| r == target) {
                 return Err(CorrectionError::Suppressed(target.to_string()));
             }
+            // A DIFFERENT REFUSAL, WITH A DIFFERENT SENTENCE. He did not decline this; this
+            // build cannot read what he decided. Saying "you permanently declined it" would
+            // be a wrong statement rather than a short one.
+            if self.held.iter().any(|r| r == target) {
+                return Err(CorrectionError::HeldRecord { record_ref: target.to_string() });
+            }
         }
         let preview = self.writer.preview(&write, why)?;
         let id = format!("prop-{}", self.next);
@@ -809,6 +949,12 @@ impl CorrectionDesk {
                 asked: entity_id.into(),
             });
         }
+        // Checked BEFORE `NotAwaiting`, because "it cannot be confirmed twice" would be a
+        // claim this build is in no position to make: it does not know whether it was
+        // confirmed once.
+        if p.state == ProposalState::Unresolved {
+            return Err(CorrectionError::AnswerUnreadable { id: id.into() });
+        }
         if p.state != ProposalState::AwaitingCeo {
             return Err(CorrectionError::NotAwaiting { id: id.into(), state: p.state });
         }
@@ -835,6 +981,9 @@ impl CorrectionDesk {
     /// ambiguous — not a record / not now / misclicked — while a repeat is evidence.
     pub fn decline(&mut self, id: &str, permanent: bool) -> Result<(), CorrectionError> {
         let p = self.proposals.iter().find(|p| p.id == id).ok_or_else(|| CorrectionError::NoSuchProposal(id.into()))?;
+        if p.state == ProposalState::Unresolved {
+            return Err(CorrectionError::AnswerUnreadable { id: id.into() });
+        }
         if p.state != ProposalState::AwaitingCeo {
             return Err(CorrectionError::NotAwaiting { id: id.into(), state: p.state });
         }
@@ -853,6 +1002,12 @@ impl CorrectionDesk {
 
     /// Lift a permanent decline. §7 requires the suppression list to be inspectable; a list
     /// you can see and cannot clear is only half of that.
+    ///
+    /// It lifts a precautionary hold ([`held_records`](Self::held_records)) too, and that is
+    /// deliberately the SAME verb: both lists answer one question — may RichOS raise a
+    /// correction about this record? — and a second verb would be a second thing to
+    /// understand for no gain. The `unsuppressed` record it writes is durable, so a hold he
+    /// lifts is not re-applied by the next replay.
     pub fn unsuppress(&mut self, record_ref: &str) -> Result<(), CorrectionError> {
         let at = crate::util::now_millis();
         self.write_record(&DeskRecord::Unsuppressed { record_ref: record_ref.into(), at })?;
@@ -886,6 +1041,36 @@ impl CorrectionDesk {
         &self.skipped
     }
 
+    /// **Proposals this build refuses to put in front of the CEO, because it cannot tell
+    /// whether he has already answered them.** Empty is the normal state.
+    ///
+    /// A proposal lands here when a record that COULD have been its answer was one this
+    /// build could not read. "Could have been" is as narrow as the file allows:
+    ///
+    ///   * an unreadable record that is not damaged and names `prop-<n>` puts exactly that
+    ///     one proposal here — a well-formed record from a newer build carries a trustworthy
+    ///     id, so nothing else needs to be doubted;
+    ///   * any other unreadable record — damaged, or naming no proposal at all — puts every
+    ///     proposal that loaded above it here, because an answer is always appended after the
+    ///     proposal it answers and there is nothing else in the file to narrow it with.
+    ///
+    /// Nothing is lost: the proposal is untouched on disk, and the same replay on a build
+    /// that can read the record resolves it. For a record from a newer RichOS that is what
+    /// updating does. For genuinely damaged bytes it is not, and this list is the honest
+    /// statement of that rather than a quiet one.
+    pub fn unresolved(&self) -> Vec<&Proposal> {
+        self.proposals.iter().filter(|p| p.state == ProposalState::Unresolved).collect()
+    }
+
+    /// Records this build will not raise a NEW correction about, because the answer it
+    /// cannot read might have been "never ask me about this again".
+    ///
+    /// Distinct from [`suppressed`](Self::suppressed), which is what he actually declined
+    /// permanently. [`unsuppress`](Self::unsuppress) clears either.
+    pub fn held_records(&self) -> &[String] {
+        &self.held
+    }
+
     /// **What the app can honestly say about the desk it just replayed.**
     ///
     /// `headline`/`detail` are empty when nothing was skipped — the signal to say nothing at
@@ -913,13 +1098,24 @@ impl CorrectionDesk {
         let damaged = count(SkipKind::Damaged);
         let ambiguous = count(SkipKind::Ambiguous);
         let skipped = self.skipped.len();
+        let unresolved = self.proposals.iter().filter(|p| p.state == ProposalState::Unresolved).count();
+        let held_records = self.held.len();
 
         let (headline, detail) = if skipped == 0 {
             (String::new(), String::new())
         } else {
             let plural =
                 |n: usize, one: &str, many: &str| if n == 1 { one.to_string() } else { many.to_string() };
-            let headline = if damaged > 0 || ambiguous > 0 {
+            let headline = if unresolved > 0 {
+                // THE CONSEQUENCE HE CAN FEEL LEADS, ahead of the cause. Whether the record
+                // was damaged or written by a newer build matters less to him than the fact
+                // that a decision he may have made is not being acted on.
+                plural(
+                    unresolved,
+                    "A correction you may have already answered is being held back.",
+                    "Some corrections you may have already answered are being held back.",
+                )
+            } else if damaged > 0 || ambiguous > 0 {
                 plural(
                     damaged + ambiguous,
                     "Part of the record of corrections you have been asked about could not be read.",
@@ -956,6 +1152,25 @@ impl CorrectionDesk {
                     plural(ambiguous, "record does", "records do"),
                 ));
             }
+            if unresolved > 0 {
+                parts.push(format!(
+                    "{} {} being held back rather than put in front of you again, because this \
+                     version cannot tell from the file whether you have already answered {} — \
+                     and asking you a second time about something you have already decided \
+                     would be worse than waiting.",
+                    unresolved,
+                    plural(unresolved, "correction is", "corrections are"),
+                    plural(unresolved, "it", "them"),
+                ));
+            }
+            if held_records > 0 {
+                parts.push(format!(
+                    "For the same reason, RichOS will not raise a new correction about {} {} \
+                     those held-back proposals name.",
+                    held_records,
+                    plural(held_records, "the record", "the records"),
+                ));
+            }
             parts.push(format!(
                 "Everything else loaded: {} of {} records. Nothing was deleted and nothing was \
                  rewritten — every record is still exactly where it was on disk.",
@@ -971,6 +1186,8 @@ impl CorrectionDesk {
             from_future,
             damaged,
             ambiguous,
+            unresolved,
+            held_records,
             headline,
             detail,
         }
