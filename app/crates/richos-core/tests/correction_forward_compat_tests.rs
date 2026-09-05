@@ -388,7 +388,7 @@ fn a_known_tag_that_does_not_fit_says_it_cannot_tell_rather_than_guessing() {
 #[test]
 fn a_mangled_tag_is_damage_not_a_new_record_type() {
     let (desk, path) = open_edited("mangled-tag", |mut l| {
-        l.push(r#"{"rec":"wr itt en","id":"prop-3","at":7}"#.to_string());
+        l.push(r#"{"rec":"wr itt en","id":"prop-3","at":7}"#.to_string());
         l
     });
     let h = desk.desk_health();
