@@ -621,25 +621,113 @@ async function main() {
 
   // ---- 12-13. the type scale itself ------------------------------------------------------
 
-  await run.check("12  every font-size in the shipped CSS is rem, so one knob moves all of it", async () => {
-    // The knob multiplies the ROOT font size. A surviving `px` font-size is a node that
-    // silently refuses to scale, and it is invisible until someone with poor eyesight is
-    // looking at the one line that did not grow.
-    const px = [...STYLE_CSS.matchAll(/font-size:\s*([0-9.]+)px/g)].map((m) => m[0]);
-    assertEqual(
-      px.filter((d) => !/font-size:\s*14px/.test(d) && !/font-size:\s*12px/.test(d)),
-      [],
-      "px font-sizes in style.css outside the two glyph-box exemptions"
-    );
-    // The two that remain are fixed-size icon boxes with no text of their own, and the
-    // reference this component was ported from documents why they are authored in px.
-    const glyphBoxes = px.length;
-    assert(glyphBoxes <= 2, "only the ported component's two glyph boxes may be px: found " + glyphBoxes);
+  await run.check("12  every font-size in the SHIPPED CSS scales, or is declared with its reason", async () => {
+    // "THE SHIPPED CSS" MEANT ONE STYLESHEET OUT OF FOUR. This read `STYLE_CSS` — a single
+    // `fs.readFileSync` of `style.css` — under a title claiming every font-size the app
+    // ships. `index.html` links four: `style.css`, `home.css`, `splash.css` and
+    // `fonts/fonts.css`. The list is derived from `lib/ui-sources.js` now, and widening it
+    // turned this check RED on the first run, which is the gate working:
+    //
+    //     OLD (style.css)          2 px font-sizes, both declared    -> passed
+    //     NEW (the four shipped)  16 px font-sizes                   -> FAILED on 14 of them
+    //
+    // 13 of the 14 are `home.css` and 1 is `splash.css`. NEITHER IS A DEFECT IN THE SURFACE
+    // and both are recorded below rather than waved through, because a px font-size on the
+    // CEO's own landing screen is exactly the thing this check was written to notice.
+    //
+    // THE KNOB. `--app-font-scale` multiplies the ROOT font size, so a `rem` size follows it
+    // and a `px` size does not. A surviving px size is a node that silently refuses to
+    // scale, and it is invisible until someone with poor eyesight is looking at the one line
+    // that did not grow.
+    const decls = SOURCES.cssDeclarations("font-size");
+    assert(decls.length >= 150, "only " + decls.length + " font-size declarations found — that is not this tree");
     assert(
-      /font-size:\s*calc\(16px \* var\(--app-font-scale/.test(STYLE_CSS),
+      SOURCES.styleSources().length === 4,
+      "the shell links " + SOURCES.styleSources().length + " stylesheets, not the four this check was measured against"
+    );
+
+    const px = decls.filter((d) => /^[0-9.]+px$/.test(d.value));
+
+    /// THE DECLARATION, AND WHY IT IS NOT THE TYPED LIST AGAIN. It is per FILE, and it names
+    /// an EXACT COUNT and a FLOOR, both recomputed from the tree on every run. A px size
+    /// added to any of these files changes the count and fails; a file dropping to zero px
+    /// sizes fails as stale; a size authored below §15's floor fails whatever the count says.
+    /// So being on this list buys a reason being on the record, not silence.
+    const DECLARED = {
+      "style.css": {
+        count: 2,
+        why:
+          "two fixed glyph boxes with no text of their own — the reference this component was " +
+          "ported from documents why they are authored in px",
+      },
+      "home.css": {
+        count: 13,
+        why:
+          "the home screen is the port of `richos-hq/design/mockups/rounds/round-11.1/v1`, whose " +
+          "type sizes are the round's own and whose rounds are FROZEN (CLAUDE.md, 'Design Rounds " +
+          "Are FROZEN'). Re-authoring 13 sizes on the CEO's landing surface is a design decision " +
+          "and his to make, not a gate's. What this check holds instead is the §15 FLOOR, below, " +
+          "which the composition clears everywhere.",
+      },
+      "splash.css": {
+        count: 1,
+        why:
+          "`.splash-line`, and the declaration is DEAD: `splash.js` sets the size inline on every " +
+          "composition, so the CSS value never paints. Held equal to the shipped value below so " +
+          "the two cannot drift.",
+      },
+    };
+
+    const byFile = {};
+    for (const d of px) (byFile[d.file] = byFile[d.file] || []).push(d);
+
+    // Both directions, the same discipline `lib/ui-sources.js`'s ROLES table uses.
+    const undeclared = Object.keys(byFile).filter((f) => !DECLARED[f]);
+    assertEqual(undeclared, [], "px font-size(s) in a stylesheet with no declaration: " + undeclared.join(", "));
+    const stale = Object.keys(DECLARED).filter((f) => !byFile[f]);
+    assertEqual(stale, [], "a declaration names a file that no longer has px font-sizes: " + stale.join(", "));
+    for (const f of Object.keys(DECLARED)) {
+      assertEqual(
+        byFile[f].length,
+        DECLARED[f].count,
+        f + " has " + byFile[f].length + " px font-size(s), declared " + DECLARED[f].count +
+          ": " + byFile[f].map((d) => d.line + "=" + d.value).join(" ")
+      );
+      assert(DECLARED[f].why.length >= 40, f + ": a declaration needs a reason, not a marker");
+    }
+
+    // §15's FLOOR, ACROSS ALL FOUR — the thing the narrow version could not have checked and
+    // the reason widening it was worth a red run. "Nothing readable below 14px."
+    const belowFloor = px.filter((d) => parseFloat(d.value) < 14);
+    assertEqual(
+      belowFloor.map((d) => d.site + " = " + d.value),
+      [],
+      "§15: a font-size below the 14px floor in the shipped CSS"
+    );
+
+    // THE ONE DUPLICATE, CHECKED RATHER THAN ASSERTED. `splash.css`'s declaration is
+    // overridden by `splash.js`'s inline `LINE_SIZE` on every composition, so the two are
+    // free to disagree silently — and they DID, by 6px, with the stylesheet holding a value
+    // below the floor above. Held equal here so the next person to change one changes both.
+    const splashLine = px.filter((d) => d.file === "splash.css");
+    const inline = fs.readFileSync(SOURCES.abs("splash.js"), "utf8").match(/LINE_SIZE\s*=\s*"([0-9.]+px)"/);
+    assert(inline, "splash.js no longer names LINE_SIZE — this comparison has nothing to hold");
+    assertEqual(
+      splashLine.map((d) => d.value),
+      [inline[1]],
+      "splash.css's .splash-line disagrees with the size splash.js actually paints (" + inline[1] + ")"
+    );
+
+    assert(
+      SOURCES.cssDeclarations("font-size").some((d) => /^calc\(16px \* var\(--app-font-scale/.test(d.value)),
       "the root font size is not driven by --app-font-scale, so nothing scales"
     );
-    return px.length + " px font-size(s) left, both fixed glyph boxes; every other size is rem off a scaled root";
+
+    return (
+      decls.length + " font-size declaration(s) across " + SOURCES.styleSources().join(" + ") +
+      "; " + px.length + " in px, every one declared (style.css 2, home.css 13, splash.css 1), " +
+      "smallest " + Math.min(...px.map((d) => parseFloat(d.value))) + "px — at or above §15's floor"
+    );
   });
 
   await run.check("13  the whole interface scales, not a subset of it", async () => {
@@ -920,6 +1008,27 @@ main().catch((e) => {
 //  12b style.css `html`: `calc(16px * var(--app-font-scale, 1))` -> `16px` -> checks 9, 12,
 //      13. Every size is still rem and NONE of them moves — the failure that looks most
 //      like success.
+//  12c NOT A MUTATION — THE SHIPPED SOURCE TURNED IT RED. Check 12 read `STYLE_CSS`, one
+//      `readFileSync` of `style.css`, under a title claiming "every font-size in the shipped
+//      CSS". `index.html` links four stylesheets. Deriving the list from
+//      `lib/ui-sources.js` took it from 2 px font-sizes to 16, and one of the 14 it had
+//      never been able to see was BELOW §15's floor:
+//
+//          §15: a font-size below the 14px floor in the shipped CSS
+//          expected []
+//          actual   ["splash.css:189 = 12px"]
+//
+//      `.splash-line` — the only text the opening screen has. It was dead: `splash.js` sets
+//      the size inline from `LINE_SIZE` on every composition, so 18px is what paints and
+//      `tests/splash.js` check 6 correctly measured 18px on the rendered frame. The
+//      stylesheet had simply been wrong, and unreadably wrong, since the port, in a file no
+//      gate opened. Fixed at `splash.css:198`, and check 12 now holds the declaration EQUAL
+//      to `splash.js`'s `LINE_SIZE` so the two cannot drift apart again in silence.
+//  12d home.css `#home-signals .sig .n`: add a second `font-size: 13px` -> check 12. The
+//      count moves 13 -> 14 and the check names the file, the line and the value. Run
+//      2026-09-05: `home.css has 14 px font-size(s), declared 13`. This is the proof that
+//      the widened check can SEE the CEO's landing surface; the old one read `style.css` and
+//      would have stayed green through it.
 //  13  style.css `.tl-prose`: `1.125rem` -> `1rem` -> check 13. Rich's answers back below
 //      the CEO's stated 18px default.
 //  14a tauri.conf.json: `"zoomHotkeysEnabled": true` -> check 14.

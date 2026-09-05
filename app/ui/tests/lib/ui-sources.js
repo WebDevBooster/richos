@@ -342,6 +342,215 @@ function abs(rel) {
   return path.join(UI_DIR, rel);
 }
 
+// =========================================================================================
+// ASKING A QUESTION OF THE WHOLE SHIPPED UI
+// =========================================================================================
+//
+// The manifest above fixed WHICH FILES a gate reads. It did not fix the second half of the
+// same defect, and five checks in this directory still carried it: a claim written about
+// "the shipped source" and evaluated against `main.js` alone.
+//
+//   setup.js:351     "there is exactly one run_setup call site in the shipped source"
+//   memory.js:310    "there is exactly one call site" (provision_memory)
+//   memory.js:329    "main.js must not contain a corpus path"
+//   feedback.js:197  no timer may open the feedback desk
+//   splash.js:1727   "a measurement timestamp reached the UI"
+//
+// Every one of those is an ABSENCE or a UNIQUENESS claim, and both of those go green over a
+// file they cannot open. A second `invoke("run_setup")` written into `updates.js` leaves
+// setup.js check 10 printing "one call site" — and its own comment says why that matters:
+// "A SECOND DOOR IS A SECOND PLACE FOR THE GUARD TO BE MISSING." The door it was watching
+// was one of twelve.
+//
+// So the derivation is offered as a QUESTION rather than as a list. `uiMatches(re)` runs a
+// pattern over every `role: "ui"` file the manifest reaches and returns `file:line` for
+// every hit. A caller cannot accidentally scope it to one file, because there is no file
+// argument to pass.
+//
+// COMMENTS ARE STRIPPED, AND THAT IS LOAD-BEARING RATHER THAN TIDY. `setup.js:497` already
+// hand-rolled a line-based `//` filter for exactly one reason, written at the line: "The
+// note above the (absent) listener quotes the line it replaced, so a naive grep matches the
+// explanation and calls it the defect." That is true of every file in this product — this
+// codebase writes long comments that quote the code they removed — so an absence claim that
+// reads comments is a false-positive generator, and the fix belongs here once rather than
+// once per caller.
+
+/// Comments removed, LINE NUMBERS PRESERVED, from JavaScript.
+///
+/// `opts.strings` (default true) keeps string and template bodies. `run.js` needs them GONE
+/// — it counts `run.check(` and a `"run.check("` inside a literal is not a call — while an
+/// absence claim needs them KEPT, because `invoke("run_setup")` is a string. One scanner and
+/// one flag, so the two consumers cannot drift, and `run.js` self-tests it on every run
+/// against a fixture carrying all four shapes a naive `grep -c` gets wrong.
+///
+/// THE REGEX BRANCH IS NOT OPTIONAL. `run.js` earned it: a regex literal carrying a backtick
+/// opens a template literal without it and swallows the rest of the file. A stripper that
+/// swallows the rest of the file is an absence claim that always passes.
+function stripJsComments(src, opts) {
+  const keepStrings = !opts || opts.strings !== false;
+  let out = "";
+  let i = 0;
+  const n = src.length;
+  // The last significant character, used only to decide whether a slash opens a regex (after
+  // an operator, keyword, `(` or `,`) or is a division (after a value).
+  let prevSig = "";
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < n; k++) out += src[k] === "\n" ? "\n" : " ";
+  };
+
+  while (i < n) {
+    const c = src[i];
+
+    if (c === "/" && src[i + 1] === "/") {
+      const from = i;
+      while (i < n && src[i] !== "\n") i++;
+      blank(from, i);
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      const from = i;
+      i += 2;
+      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) i++;
+      i += 2;
+      if (i > n) i = n;
+      blank(from, i);
+      continue;
+    }
+    if (c === "/" && !/[A-Za-z0-9_$)\]]/.test(prevSig)) {
+      const from = i;
+      i++;
+      let inClass = false;
+      while (i < n) {
+        if (src[i] === "\\") { i += 2; continue; }
+        if (src[i] === "[") inClass = true;
+        else if (src[i] === "]") inClass = false;
+        else if (src[i] === "/" && !inClass) { i++; break; }
+        else if (src[i] === "\n") break;
+        i++;
+      }
+      while (i < n && /[a-z]/.test(src[i])) i++;
+      if (keepStrings) out += src.slice(from, i);
+      else blank(from, i);
+      prevSig = "/";
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      const from = i;
+      i++;
+      while (i < n) {
+        if (src[i] === "\\") { i += 2; continue; }
+        if (src[i] === quote) { i++; break; }
+        i++;
+      }
+      if (keepStrings) out += src.slice(from, i);
+      else blank(from, i);
+      prevSig = quote;
+      continue;
+    }
+
+    out += c;
+    if (!/\s/.test(c)) prevSig = c;
+    i++;
+  }
+  return out;
+}
+
+/// HTML comments removed, line numbers preserved.
+function stripHtmlComments(src) {
+  return String(src).replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/// CSS comments removed, line numbers preserved.
+function stripCssComments(src) {
+  return String(src).replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+const CODE_CACHE = new Map();
+
+/// `{ name, src, code }` for every file of `role`, read off disk, comments stripped.
+function sourcesOfRole(role, opts) {
+  const keepStrings = !opts || opts.strings !== false;
+  const names =
+    role === "ui" ? stateSources() : role === "style" ? styleSources() : previewDataSources();
+  return names.map((name) => {
+    const key = role + "|" + name + "|" + keepStrings;
+    if (CODE_CACHE.has(key)) return CODE_CACHE.get(key);
+    const src = fs.readFileSync(abs(name), "utf8");
+    const code = /\.html$/.test(name)
+      ? stripHtmlComments(src)
+      : /\.css$/.test(name)
+      ? stripCssComments(src)
+      : stripJsComments(src, { strings: keepStrings });
+    const rec = { name, src, code };
+    CODE_CACHE.set(key, rec);
+    return rec;
+  });
+}
+
+/// `file:line` for every match of `re` across the WHOLE shipped UI, comments stripped.
+///
+/// `{ site, file, line, text }`. There is deliberately NO file parameter: the entire reason
+/// this function exists is that five callers each named one file and called the result "the
+/// shipped source".
+function uiMatches(re, opts) {
+  const rx = new RegExp(re.source, re.flags.indexOf("g") >= 0 ? re.flags : re.flags + "g");
+  const out = [];
+  for (const f of sourcesOfRole("ui", opts)) {
+    rx.lastIndex = 0;
+    let m;
+    while ((m = rx.exec(f.code))) {
+      const line = f.code.slice(0, m.index).split("\n").length;
+      out.push({ site: f.name + ":" + line, file: f.name, line, text: m[0] });
+      if (m[0].length === 0) rx.lastIndex++;
+    }
+  }
+  return out;
+}
+
+/// Every declaration of one CSS property across every SHIPPED stylesheet.
+///
+/// `{ site, file, line, value }`. This is what replaced `appearance.js`'s `STYLE_CSS`-only
+/// reads: check 12 asserted "every font-size in the shipped CSS is rem" over ONE of the four
+/// stylesheets `index.html` links, and the other three hold 15 more `font-size` declarations
+/// between them.
+function cssDeclarations(prop) {
+  const rx = new RegExp("(^|[;{\\s])" + prop + "\\s*:\\s*([^;}]+)", "gi");
+  const out = [];
+  for (const f of sourcesOfRole("style")) {
+    rx.lastIndex = 0;
+    let m;
+    while ((m = rx.exec(f.code))) {
+      const line = f.code.slice(0, m.index).split("\n").length;
+      out.push({ site: f.name + ":" + line, file: f.name, line, value: m[2].trim() });
+    }
+  }
+  return out;
+}
+
+/// EVERY STRING THE STYLESHEETS THEMSELVES PUT ON SCREEN.
+///
+/// `content:` on a `::before`/`::after` renders text that is in NO string inventory in this
+/// directory: `lib/state-strings.js` scrapes JavaScript literals, HTML text and Rust
+/// literals, and `ROLES` above classifies a stylesheet as `style` with the words "No string
+/// inventory". There is one in this tree — `style.css`'s `.setbtn::after { content:
+/// "Settings" }`, the tooltip on the settings button §15 requires on every screen — and
+/// until this function it was authored text that nothing counted and nothing measured.
+///
+/// Empty strings are dropped: `content: ""` is a decorative box, not text. Three of the four
+/// `content:` declarations in this tree are that.
+function cssContentStrings() {
+  const out = [];
+  for (const d of cssDeclarations("content")) {
+    const m = d.value.match(/^(["'])((?:\\.|(?!\1)[^\\])*)\1/);
+    if (!m) continue; // `none`, `attr()`, `counter()`, a `url()` — not an authored sentence
+    const text = m[2].replace(/\\([0-9a-f]{1,6})\s?/gi, (_a, h) => String.fromCodePoint(parseInt(h, 16)));
+    if (!text.trim()) continue;
+    out.push({ site: d.site, file: d.file, line: d.line, text });
+  }
+  return out;
+}
+
 module.exports = {
   UI_DIR,
   ENTRY,
@@ -356,6 +565,13 @@ module.exports = {
   referencedFiles,
   onDisk,
   isRemote,
+  stripJsComments,
+  stripHtmlComments,
+  stripCssComments,
+  sourcesOfRole,
+  uiMatches,
+  cssDeclarations,
+  cssContentStrings,
 };
 
 // `node lib/ui-sources.js` prints the derivation — the manifest, runnable.
