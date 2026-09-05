@@ -4439,11 +4439,3 @@ body.bp-narrow .tl-user-bubble {
     animation: none;
   }
 }
-#managed-run { border-top: 1px solid var(--line); margin: 0 clamp(16px, 5vw, 72px); padding: 10px 0; font-size: 0.8125rem; color: var(--ink); }
-#managed-run > details[open] { max-height: 240px; overflow: auto; }
-#managed-run summary { cursor: pointer; }
-#managed-run p { margin: 8px 0; }
-#managed-run button, #managed-run input::file-selector-button { margin: 8px 8px 0 0; padding: 6px 10px; cursor: pointer; color: var(--ink); background: var(--surface-raised); border: 1px solid var(--line-control); border-radius: 6px; font: inherit; }
-#managed-run button:disabled { cursor: default; color: var(--ink-soft); }
-#managed-run input { max-width: 100%; font: inherit; }
-#managed-run pre { white-space: pre-wrap; overflow-wrap: anywhere; }

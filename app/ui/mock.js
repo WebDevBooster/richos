@@ -1404,14 +1404,6 @@
     async invoke(cmd, args) {
       args = args || {};
       switch (cmd) {
-        case "get_run":
-          return null;
-        case "prepare_run":
-        case "drive_run":
-        case "pause_run":
-        case "retry_run_task":
-        case "end_run":
-          throw new Error("Managed work runs execute in the desktop app. This browser preview cannot run them.");
         case "list_threads":
           return threads.map((t) => ({ ...t, message_count: (messagesByThread[t.id] || []).length }));
         case "active_thread":

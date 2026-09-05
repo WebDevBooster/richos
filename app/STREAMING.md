@@ -643,16 +643,3 @@ same best-effort posture every other emitter in this shell takes.
 `update_check`, `update_install`, `update_relaunch` — are this app's own, and
 `capabilities/default.json` grants no `plugin:updater|*` command to the page. A frontend
 cannot start a download or an install by itself.
-# Managed run updates
-
-`rich://run-updated` is independent of turn completion. It carries `threadId`,
-`runId`, `updatedAt`, `revision`, `goal`, `state` and `tasks`. Each task has `id`, `description`,
-`state`, `checks`, `attempts` and `evidence`. Run states are `ready`, `running`,
-`paused`, `needs_attention`, `completed` and `cancelled`. Task states are
-`pending`, `running`, `verifying`, `passed` and `needs_attention`.
-
-The desktop emits this snapshot after each controller transition has been durably written.
-The work-plan panel accepts updates only for its visible task and current run,
-rejecting lower revisions than the one it already has. `get_run` restores the
-durable view on reopening. Model turn events never set this panel to completed.
-Active model output continues through the existing conversation events.
