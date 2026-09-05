@@ -104,7 +104,19 @@ every inventory: `contract-integrity-probe.sh` Layer R and BR2, and
 registered exactly once on the right event, BR4 green, `engine-status.test.sh` 16/16.
 
 Layer R's byte-identical root-resolution bootstrap holds in both new hooks, checked with Layer
-R's own extraction and normalization.
+R's own extraction and normalization — and re-checked against POST-LAND main after
+`ccaaf00e` moved 22 engine hooks, because a bootstrap that drifted on main would turn Layer R
+red on merge rather than on this branch.
+
+The full `contract-integrity.test.sh` was run end to end (`raw/contract-integrity.test.txt`):
+**164 passed, 1 failed**, and the single failure is `54.reconciler-suite-passes`, which is the
+pre-existing red named in the section above and reproduced on unmodified main.
+
+Other suites run green on this branch: `by-reference.test.sh` 49/49,
+`publication-boundary.test.sh` 131/131, `stop-hook-visibility.test.sh` 34/34 (which picks up
+`notice-escalations.sh` from `hooks.json` with no edit), `hook-staleness.test.sh` 28/28 over
+54 scripts on both surfaces, `engine-status.test.sh` 16/16, `install-ack-protocol.test.sh`
+20/20, `demo.test.sh` 10/10.
 
 ## Two suites are red, and NEITHER is from this branch
 
