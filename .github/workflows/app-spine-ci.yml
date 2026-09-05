@@ -67,6 +67,20 @@ name: app-spine-ci
 #   - app/src-tauri. A deliberately detached workspace with the whole webview
 #     dependency tree behind it, kept out of the spine's test path on purpose.
 #   - The live ACP round-trip, which needs a signed-in `claude` CLI.
+#   - THE POSITIVE HALF OF THE ANTHROPIC SIGNATURE PIN, which this job printed
+#     `ok` for on every run until 2026-09-05 and had never once performed.
+#     `the_real_claude_binary_on_this_machine_satisfies_the_requirement`
+#     (`crates/richos-core/tests/setup.rs`) reads a macOS designated requirement
+#     with `/usr/bin/codesign` against the `claude` this machine has. A Linux
+#     runner has neither. It skipped with an early `return` behind an
+#     `eprintln!("SKIPPED: …")` — and a test that returns is reported `ok`, with
+#     cargo discarding a PASSING test's stderr, so the intent was in the source
+#     and in no log this job ever produced. It now carries
+#     `#[cfg_attr(not(target_os = "macos"), ignore = "…")]`, so the line below
+#     reads `ignored, NOT CHECKABLE ON THIS TARGET: …` and the count moves by
+#     one into libtest's own `ignored` column. Nothing is lost here that was
+#     ever happening here; what changes is that the log now says so. On a Mac
+#     the same test FAILS rather than skipping when there is no `claude`.
 # Named rather than skipped, so the fraction this reports is over a set somebody
 # can check.
 

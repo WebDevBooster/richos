@@ -335,9 +335,13 @@ app/
                               be, an archive with the wrong shape or the wrong version, a
                               panic mid-install, and a failed reinstall that must leave the
                               engine he already had. The digest is checked BEFORE `tar` is
-                              ever handed the bytes, and the positive half of the signature
-                              pin runs against the real `claude` on this machine (the
-                              negative half needs nothing)
+                              ever handed the bytes. The positive half of the signature pin
+                              runs against the real `claude` ON A MAC and FAILS if there is
+                              none — until 2026-09-05 it returned early instead, which is
+                              reported `ok`, so it had asserted nothing on every ubuntu CI
+                              run since that job landed. Off macOS it is now
+                              `ignored, NOT CHECKABLE ON THIS TARGET: …`, because the pin is
+                              read by `/usr/bin/codesign`. The negative half needs nothing
     tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
@@ -680,8 +684,15 @@ Two limits, stated rather than discovered later:
 ## Build & test
 
 ```sh
-# 1. The spine — fast, no native deps, no network, no Claude:
+# 1. The spine — fast, no native deps, no network:
 cargo test -p richos-core                       # 776 tests + 5 doc-tests
+#     ONE OF THEM NEEDS A `claude` ON A MAC, and that is deliberate as of 2026-09-05.
+#     `the_real_claude_binary_on_this_machine_satisfies_the_requirement` is the POSITIVE half
+#     of the Anthropic signature pin; it used to `return` when the binary was absent, and a
+#     test that returns is reported `ok`. It now FAILS instead, naming every path it searched
+#     — `$RICHOS_CLAUDE_BIN` points it at a binary anywhere. Off macOS it reports
+#     `ignored, NOT CHECKABLE ON THIS TARGET: …` (the pin is read by `/usr/bin/codesign`),
+#     which is what `app-spine-ci.yml`'s ubuntu runner now prints in place of a green line.
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests
