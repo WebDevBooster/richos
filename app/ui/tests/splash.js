@@ -434,11 +434,13 @@ async function matShot(browser, id, mute) {
   }, { id, mute });
   await page.goto(APP);
   await lag(page);
-  // The same end state as `settledShot`, and for the same reason: a mat photographed on a
-  // timer is photographed at whatever point the machine had reached. The clip is the PLINTH
-  // and the bar is its sibling, so waiting for the bar costs this photograph nothing except
-  // the certainty that nothing in the frame is still arriving.
-  await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });
+  // NOT the bar's end state, unlike `settledShot`, and the difference is the clip. This frame is
+  // the PLINTH and the bar is its sibling, so waiting for the bar buys this photograph nothing
+  // — and it costs the whole of the ceiling's one-second grace, which is not enough to take a
+  // picture in on a busy machine. It was tried: check 18 went red under a full `run.js` with
+  // "the curtain left during the mat exposure", which is this check correctly refusing to file
+  // a photograph of the screen behind the curtain.
+  await atCurtain(page, 2200);
   await stillUp(page, "the mat photograph for " + id);
   const r = await page.evaluate(() => {
     const n = document.querySelector("#splash .splash-plinth");
