@@ -12,10 +12,26 @@ workflow's own bytes and compared: byte-for-byte identical to what he wrote. His
 twelve markdown hard line breaks — lines ending in two spaces — survive the YAML
 block scalar and the heredoc intact, which is what makes them render as breaks.
 
-**Nothing checks that these two stay in step.** Editing either one alone makes
-the other false, silently. And a stray `{` or `}` anywhere in the text is a
-render error, which is a job that closes nothing — so the templating step
-asserts that the only braces present are those four placeholders.
+**Nothing checked that these two stayed in step until 2026-09-05, and now
+`app/ui/tests/vouch-template.js` does.** Editing either one alone makes the
+other false, silently, in both directions — which is why the check had to exist
+rather than be remembered. It dedents the YAML block scalar the way the runner
+does (proven by handing the step to a real `bash`, and again by a real YAML
+parser), re-renders through vouch's own `template render`, and compares with the
+block below byte for byte. And a stray `{` or `}` anywhere in the text is a
+render error, which is a job that closes nothing — so the brace invariant is
+asserted separately, because both files could carry the same stray brace and
+agree perfectly while the gate quietly stopped gating.
+
+**Pinned inputs, so this block can be re-derived rather than believed.** Vouch
+commit `d66fa29a64600490892131ad87597c30c91fcac4` — the same commit
+`.github/workflows/vouch-pr.yml` pins, which the check joins to this line, so
+moving the pin without re-rendering fails here rather than in front of a
+stranger. Its source tarball is sha256
+`d21793677677cbd4b4f5a2182d1110123a7876217035031f8ed3126662ca792f`, fetched from
+`codeload.github.com` and verified before it is used. Nushell 0.115.1 — pinned
+in this record and deliberately NOT pinned in the job, which installs whatever
+release is current that morning; the workflow header says why that matters.
 
 Rendered with the record vouch itself passes: author `some-stranger`, owner
 `WebDevBooster`, repo `richos`, default branch `main`. Rendering it at all is
