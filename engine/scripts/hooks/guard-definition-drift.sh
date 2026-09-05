@@ -89,6 +89,20 @@
 #
 # NOTE: hooks are snapshotted per session; this guard takes effect from the
 # NEXT session. It assumes nothing about being live in the session that adds it.
+#
+# UNEVALUATED-PAYLOAD-EXEMPT: already-announces — its own warn_allow() names the unverified spawn, and since
+# 2026-09-05 it does so as a systemMessage rather than on stderr alone — which
+# is what made the warning reach anyone. It loses no check on a degraded
+# payload (it can only ever PROVE drift, never freshness), so it needs the
+# announcement and not the stand-down.
+#
+# Declared rather than assumed, and CHECKED rather than believed:
+# scripts/hooks/unevaluated-payload.test.sh derives every registered
+# PreToolUse and Stop hook from hooks/hooks.json and requires each one to be
+# either wired to scripts/lib/unevaluated-notice.sh or carrying a line like
+# this one — and then verifies the CLASS by driving the hook with an empty, a
+# truncated and a non-JSON payload. An undeclared hook fails that suite; a
+# falsely declared one fails it too.
 
 set -o pipefail
 
@@ -143,12 +157,34 @@ append_log() { # <logfile> <content-key>
     fi
 }
 
+# THIS WARNING WAS NEVER HEARD, AND THAT WAS MEASURED RATHER THAN SUSPECTED.
+# Until 2026-09-05 it wrote to stderr alone. A PreToolUse hook exiting 0 has its
+# stderr filed into the transcript and rendered to NOBODY — the same fact
+# scripts/lib/stop-hook-notice.sh established for Stop hooks, extended to this
+# event by a live probe recorded in
+# docs/verification/unevaluated-payload-notice-2026-09-05.md: of two markers
+# emitted by one PreToolUse[Bash] hook, only the stdout {"systemMessage":...}
+# reached the operator stream and the stderr one appeared nowhere in it.
+#
+# So this guard was cited as the template for making an unevaluated call
+# audible while being, on the only channel that carries, inaudible itself. The
+# banner is unchanged and still goes to stderr; the same text now also goes out
+# as a systemMessage, which carries no `permissionDecision` and therefore
+# changes no verdict.
 warn_allow() { # <one-line reason> [<log-key or empty>]
+    local _wa_msg
+    _wa_msg="Definition-drift guard: WARNING (allowed) — $1 $HOOK_TAG"
     {
         echo "=== Definition-drift guard: WARNING (allowed) ==="
         echo "  $1"
         echo "$HOOK_TAG"
     } >&2
+    if command -v python3 >/dev/null 2>&1; then
+        WA_MSG="$_wa_msg" python3 -c '
+import json, os
+print(json.dumps({"systemMessage": os.environ.get("WA_MSG", "")}))
+' 2>/dev/null || true
+    fi
     if [ -n "${2:-}" ] && [ -n "${STATE_DIR:-}" ]; then
         append_log "$STATE_DIR/definition-drift.log" "$2"
     fi
