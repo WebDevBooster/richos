@@ -222,6 +222,24 @@ const lag = async (page) => {
   if (LAG_MS > 0) await page.waitForTimeout(LAG_MS);
 };
 
+/// A DELIBERATE SLOW SHUTTER, on demand — AND IT IS A DIFFERENT KNOB BECAUSE `LAG_MS` CANNOT
+/// REACH THIS. That is not a preference; it is where the two are applied.
+///
+/// `lag()` runs immediately after `goto`, and the very next thing `settledShot` does is wait
+/// for `state.barStopped`. The bar stops 3,950 ms into the curtain, so any lag shorter than
+/// that is ABSORBED WHOLE by the wait that follows it: measured 2026-09-05,
+/// `RICHOS_SPLASH_LAG_MS=2000 node splash.js` put the harness ~2,050 ms into a curtain whose
+/// shutter does not open until 3,950 ms, and check 5 was not stressed by one millisecond of
+/// it. The knob is real and it does its job for checks 8, 12b, 12c and 22, which sample at
+/// FIXED INSTANTS; it is structurally incapable of stressing a check that waits for a state.
+///
+/// What a slow runner actually costs check 5 is spent AFTER the bar stops — the round trip
+/// for `stillUp`, the settle, and the full-viewport screenshot of a composition built from
+/// gradients and filters, which is the expensive one. So this adds its delay exactly there,
+/// between the bar reporting it has landed and the shutter opening, which is the span the
+/// window is measured across. Zero, and no delay at all, unless it is set.
+const SHUTTER_LAG_MS = Number(process.env.RICHOS_SPLASH_SHUTTER_LAG_MS || 0);
+
 /// Wait until the PAGE says `ms` have passed since the curtain went up. Returns immediately
 /// if that instant is already behind us — the point is never to add the harness's own
 /// latency to the product's clock, not to guarantee the harness was quick.
@@ -235,11 +253,32 @@ async function atCurtain(page, ms) {
 
 /// Is the curtain still up, and how far into its life are we? Used to fail a check that
 /// arrived too late OUT LOUD, rather than letting it read a null and blame the product.
+///
+/// PRESENT AND VISIBLE ARE NOT THE SAME FACT, and on every launch they disagree for 220 ms.
+/// `yieldNow` adds `splash--yielding` (opacity 0 over `--splash-fade`, 180 ms) and only then
+/// schedules `removeSelf` a further 40 ms later, so `document.getElementById("splash")` keeps
+/// returning a node for 220 ms after the curtain has begun to leave — and for the last 36 ms
+/// of that the node is at opacity 0 and the photograph is of the screen behind it.
+///
+/// So `up` alone cannot answer "was this a photograph of the curtain". Measured 2026-09-05:
+/// check 5 filed `splash-01-round-11-v1.png` taken 4,216 ms into a curtain whose fade ENDED
+/// at 4,180 ms — `up` was true, and the picture was the home screen.
+///
+/// `yielding` is that missing fact, and it is deliberately the CLASS rather than the computed
+/// opacity. `yieldNow()` adds `splash--yielding` synchronously, in the same tick it decides to
+/// go, so it is true from the instant the decision is made. Computed opacity is not: the
+/// transition only advances when the page gets a frame, and `page.screenshot()` does not give
+/// it one — the same failing shutter that this comment describes read `opacity: 1` at 4,138 ms,
+/// 138 ms into a 180 ms fade, because the compositor had not ticked since the class landed. A
+/// guard built on that number would have reported "opacity 1, nothing wrong" over a curtain
+/// that had already gone.
 const curtainNow = (page) =>
   page.evaluate(() => {
     const c = window.__curtain || {};
+    const n = document.getElementById("splash");
     return {
-      up: !!document.getElementById("splash"),
+      up: !!n,
+      yielding: n ? n.classList.contains("splash--yielding") : null,
       shownAt: c.shownAt,
       goneAt: c.goneAt,
       age: c.shownAt == null ? null : Math.round(performance.now() - c.shownAt),
@@ -614,6 +653,7 @@ async function settledShot(page, name) {
   // further frame (`splash.js`), so this now opens the shutter on a composition that has
   // finished moving. Both callers hold the curtain open, so there is no ceiling to race.
   await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });
+  if (SHUTTER_LAG_MS > 0) await page.waitForTimeout(SHUTTER_LAG_MS);
   await stillUp(page, "the settled photograph");
   fs.mkdirSync(SHOTS, { recursive: true });
   // THE CURTAIN IS READ AT THE SHUTTER, not after the developing. `shot()` decodes the PNG in
@@ -623,8 +663,25 @@ async function settledShot(page, name) {
   let after = null;
   const s = await shot(page, name, { fullPage: false, settleMs: 300, onShutter: async () => { after = await curtainNow(page); } });
   assert(after && after.up, name + ": the curtain left DURING the exposure — this photograph is of the screen behind it");
+  // AND `up` IS NOT ENOUGH, which this check learned the expensive way. On 2026-09-05 it was
+  // green over `splash-01-round-11-v1.png` taken 4,216 ms into the curtain: the ceiling had
+  // fired at 4,000 ms, the 180 ms fade had finished at 4,180 ms, and the node does not leave
+  // until 4,220 ms — so `up` was true, the assert above passed, and the filed evidence was a
+  // photograph of the home screen through a curtain at opacity 0. That is the exact outcome
+  // the line above says it exists to refuse, and it could not see it, because "in the DOM"
+  // and "on the glass" are different facts for the last 220 ms of every launch.
+  //
+  // `splash--yielding` is the product's own synchronous announcement that it has decided to
+  // go, set in `yieldNow()` before the transition starts. A photograph taken after it is not
+  // a photograph of this surface, however many pixels are still faintly on it.
+  assert(
+    after.yielding === false,
+    name + ": the curtain had ALREADY DECIDED TO LEAVE at the shutter (" + after.age + "ms into it) — it is fading " +
+      "out of this photograph, so what this would file is the screen behind it"
+  );
   publishShotFile(s.file, path.join(SHOTS, name + ".png"));
-  return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors, taken " + after.age + "ms into the curtain)";
+  return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors, taken " + after.age +
+    "ms into a curtain that had not begun to leave)";
 }
 
 /// A photograph of the MAT ALONE, and what was laid on it. `mute` empties the entry's
