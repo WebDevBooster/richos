@@ -110,10 +110,12 @@ if ! escalations_require; then
     exit 0
 fi
 
-set +e
+# ERREXIT IS NEVER TURNED ON IN THIS FILE, and that is deliberate rather than an
+# omission: `escalations_list` exits 1 when something IS outstanding, which is
+# the case this hook exists for. A SessionStart hook that died on its own
+# success condition would open every session in silence.
 BLOCK="$(escalations_list session-context 2>/dev/null)"
 RC=$?
-set -e
 
 if [ "$RC" -ge 2 ]; then
     emit "THE ESCALATION LEDGER COULD NOT BE READ ($(escalations_ledger)). Teammate escalations may be outstanding and unseen; this is an UNREAD ledger, not an empty one. Run escalate.sh list." \
