@@ -82,9 +82,71 @@ WebKit's own compositor, pixel-verified. Two of the nine are deliberately not wh
 for; the filenames and the suite's SCREENSHOT INVENTORY say which and why. `shots-5b/` is
 the same arrangement for the correction desk: twelve states, written by `corrections.js`,
 with `shots-5b/README.md` naming what each one is evidence of. `shots-5/` is the same again
-for the feedback channel — nine states, written by `feedback.js`, with its own README. Both directories are
-overwritten on every run and neither is byte-stable; read the suite's exit code, not a
-`git diff` over a PNG.
+for the feedback channel — nine states, written by `feedback.js`, with its own README.
+
+### A COMMITTED SHOT IS WRITTEN ONLY WHEN THE PICTURE CHANGED
+
+This used to say those directories were "overwritten on every run and not byte-stable; read the
+suite's exit code, not a `git diff` over a PNG". That was true, and it was the wrong thing to
+settle for. Measured 2026-09-05 against `5e00651`: one `node run.js` left **96 of the 96
+committed PNGs modified**, with byte deltas from -12 to +679,604 — so `git status` was dirty
+after every run, `git checkout -- app/ui/tests/` became a habit (four times in one day, each one
+a chance to throw away a real change), and a genuine visual regression would have arrived as one
+more modified PNG in a list of ninety-six.
+
+`lib/harness.js` now decodes both sides with `lib/png.js` and writes a shot **only when a
+decoded sample actually differs**. When one does change, the run says so in a line naming the
+pixel count and the worst channel delta, so the diff arrives explained rather than as a binary
+blob. Any doubt writes: an unreadable or unfamiliar PNG compares as different, because a
+redundant write costs a line in `git status` and a wrongly-skipped one costs a regression nobody
+sees.
+
+Three sources of run-to-run churn were removed with it, and each is measured in the comment that
+fixed it:
+
+* **the opening curtain** — `leaveHome` now clears it and waits for it to be gone, so a suite no
+  longer photographs the app either side of a three-second fade (`shots-7-2/` differed by 84% and
+  94% of its pixels between two runs);
+* **looping animations** — pinned to phase 0 for the length of the capture (the `WORKING` pulse
+  dot alone accounted for three files);
+* **unfinished transitions** — waited out through `Animation.finished` rather than through a
+  `waitForTimeout` somebody guessed (the settings panel photographed at 99-point-something
+  percent of its fade), and the splash bar is photographed once it reports it has landed rather
+  than at an arbitrary point in its run.
+
+**Eight files still change, and they are named rather than excused.** Measured over four
+consecutive full runs from a clean tree on 2026-09-05: 88 of the 96 were byte-identical after
+every one of them, and these eight were not. Five of the eight are one cause and three are
+another, and only four of the eight change on every run.
+
+**The live field.** `home/field-engine.js` integrates 7,500 objects on springs and flies packets
+along 12,817 links, all of it off `performance.now()`, so two runs photograph it at different
+moments in its own life. Its randomness is already seeded (`mulberry32(6401)`); the wall clock is
+the only thing about it that is not reproducible. A test-side frame clock — `performance.now()`
+replaced by a counter that advances one 60Hz step per animation frame — was built and measured
+to take two loads paused at the same frame from 44,039 differing samples down to 293, and it is
+NOT installed here: the surfaces that would need it also race the curtain's 4,000ms ceiling, and
+unpicking that is a larger change than this one. It is written down rather than half-done.
+
+**Gradient dither.** The three splash files differ by no more than 2 of 255, scattered, with no
+element having moved — the compositor's own dithering of the same gradient, which is not
+something a suite can wait for. Two of the three do not change on every run.
+
+The "how often" column is four consecutive full runs, and it is there because "sometimes" is a
+fact about a flake that rounding to "always" would misdescribe.
+
+| Still not byte-stable | How often | Measured, run to run | Why |
+|---|---|---|---|
+| `shots-home/home-named.png` | 4 of 4 | 12.9%–21.2% of pixels, delta up to 248 | the live field, running |
+| `shots-home/home-returned.png` | 4 of 4 | 14.9%–24.4%, delta up to 250 | the live field, running |
+| `shots-home/home-anonymized.png` | 4 of 4 | 6.5%–18.2%, delta up to 250 | the live field, running |
+| `shots-splash/material-round-11-v1.png` | 4 of 4 | 0.10%–0.26%, delta 2 | dither in the composite's shipping half (the study half settles: 326 samples) |
+| `shots-splash/splash-01-round-11-v1.png` | 3 of 4 | 20.7% of pixels, delta **1** | dither across the ground, nothing moved |
+| `shots-10-1/10-1-start-screen-always-dark.png` | 3 of 4 | 0.29%–0.32%, delta up to 127 | the curtain is held up on purpose and the same live field shows through it |
+| `shots-contrast/opening-screen.png` | 3 of 4 | 1 pixel to 0.29%, delta up to 90 | same, through a nearly opaque curtain |
+| `shots-splash/material-round-11-v2.png` | 2 of 4 | 0.27%–0.37%, delta 2 | as `-v1` |
+
+Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is signal.
 
 ## What is here
 

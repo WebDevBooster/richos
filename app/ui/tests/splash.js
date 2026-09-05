@@ -27,7 +27,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, captureSettled, publishShot, publishShotFile, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const { contrastRatio, round2, hex } = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -378,16 +378,24 @@ const splashState = (page) =>
 /// evidence gate exists to refuse, so the wait is now the page's and the surface is
 /// ASSERTED, before and after the shutter.
 async function settledShot(page, name) {
-  // 2,000 ms rather than 3,000: the four `splash-rise` stages are landed by ~1.4 s (delay
-  // 0.48 s over a 0.9 s curve), so this is the settled composition either way, and it leaves
-  // twice the room before the ceiling for the shutter itself.
-  await atCurtain(page, 2000);
+  // THE BAR'S OWN END STATE, NOT A TIMER — and the two are not the same picture. This waited
+  // 2,000ms and photographed a bar that runs until 3,000, so the fill was caught wherever the
+  // machine happened to have got it to: measured 2026-09-05, two consecutive runs produced
+  // `splash-01-round-11-v1.png` differing in 3,835 pixels, ALL of them inside the 371x70 box
+  // the bar occupies. `state.barStopped` is the bar saying it has landed and asked for no
+  // further frame (`splash.js`), so this now opens the shutter on a composition that has
+  // finished moving. Both callers hold the curtain open, so there is no ceiling to race.
+  await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });
   await stillUp(page, "the settled photograph");
   fs.mkdirSync(SHOTS, { recursive: true });
-  const s = await shot(page, name, { fullPage: false });
-  const after = await curtainNow(page);
-  assert(after.up, name + ": the curtain left DURING the exposure — this photograph is of the screen behind it");
-  fs.copyFileSync(s.file, path.join(SHOTS, name + ".png"));
+  // THE CURTAIN IS READ AT THE SHUTTER, not after the developing. `shot()` decodes the PNG in
+  // WebKit and compares it against the committed file before it returns, which is a second or
+  // more on a surface whose ceiling is one second past its hold — so a check made afterwards
+  // was asking about a moment the photograph was not taken in.
+  let after = null;
+  const s = await shot(page, name, { fullPage: false, settleMs: 300, onShutter: async () => { after = await curtainNow(page); } });
+  assert(after && after.up, name + ": the curtain left DURING the exposure — this photograph is of the screen behind it");
+  publishShotFile(s.file, path.join(SHOTS, name + ".png"));
   return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors, taken " + after.age + "ms into the curtain)";
 }
 
@@ -426,6 +434,12 @@ async function matShot(browser, id, mute) {
   }, { id, mute });
   await page.goto(APP);
   await lag(page);
+  // NOT the bar's end state, unlike `settledShot`, and the difference is the clip. This frame is
+  // the PLINTH and the bar is its sibling, so waiting for the bar buys this photograph nothing
+  // — and it costs the whole of the ceiling's one-second grace, which is not enough to take a
+  // picture in on a busy machine. It was tried: check 18 went red under a full `run.js` with
+  // "the curtain left during the mat exposure", which is this check correctly refusing to file
+  // a photograph of the screen behind the curtain.
   await atCurtain(page, 2200);
   await stillUp(page, "the mat photograph for " + id);
   const r = await page.evaluate(() => {
@@ -441,9 +455,11 @@ async function matShot(browser, id, mute) {
       above: mats.filter((m) => kids.indexOf(m) > first).length,
     };
   });
-  const png = (await page.screenshot({ clip: r.clip })).toString("base64");
-  const after = await curtainNow(page);
-  assert(after.up, id + ": the curtain left during the mat exposure — this is a photograph of the screen behind it");
+  let after = null;
+  const png = (
+    await captureSettled(page, { screenshot: { clip: r.clip }, settleMs: 300, onShutter: async () => { after = await curtainNow(page); } })
+  ).toString("base64");
+  assert(after && after.up, id + ": the curtain left during the mat exposure — this is a photograph of the screen behind it");
   noErrors(page, id);
   await ctx.close();
   return { png, layers: r.layers, above: r.above };
@@ -1132,7 +1148,7 @@ async function main() {
     await page.waitForTimeout(200);
     fs.mkdirSync(SHOTS, { recursive: true });
     const sw = await shot(page, "splash-03-the-off-switch", { fullPage: false });
-    fs.copyFileSync(sw.file, path.join(SHOTS, "splash-03-the-off-switch.png"));
+    publishShotFile(sw.file, path.join(SHOTS, "splash-03-the-off-switch.png"));
     shotNames.push("splash-03-the-off-switch.png");
 
     // Relaunch in the same webview, exactly as reopening the app does.
@@ -1150,7 +1166,7 @@ async function main() {
     assertEqual(after.declined, "switched off", "why it declined");
     assertEqual(after.checked, false, "the control does not remember his answer");
     const off = await shot(page, "splash-04-a-launch-with-it-off", { fullPage: false });
-    fs.copyFileSync(off.file, path.join(SHOTS, "splash-04-a-launch-with-it-off.png"));
+    publishShotFile(off.file, path.join(SHOTS, "splash-04-a-launch-with-it-off.png"));
     shotNames.push("splash-04-a-launch-with-it-off.png");
     aside += noErrors(page);
     await ctx.close();
@@ -1667,12 +1683,17 @@ async function main() {
           const q = document.querySelector(".plinth").getBoundingClientRect();
           return { x: Math.round(q.x), y: Math.round(q.y), width: Math.round(q.width), height: Math.round(q.height) };
         });
-        study = (await page.screenshot({ clip })).toString("base64");
+        // THE STUDY GETS THE SAME SETTLING AS THE SHIPPING SIDE. It is a frozen round file and
+        // is not ours to change, but it is a page like any other and its animations can be
+        // waited out from here. Measured 2026-09-05: while the shipping half had been settled
+        // and the study half had not, `material-round-11-v1.png` changed by 145,996 pixels a
+        // run — 316 of the image's 644 columns, which is exactly this half of it.
+        study = (await captureSettled(page, { screenshot: { clip } })).toString("base64");
         await ctx.close();
       }
       const png = await judge.evaluate(SIDE_BY_SIDE, { a: ship.png, b: study, left: "SHIPPING RENDERER", right: "THE STUDY" });
       const out = path.join(SHOTS, "material-" + slug + ".png");
-      fs.writeFileSync(out, Buffer.from(png, "base64"));
+      publishShot(Buffer.from(png, "base64"), out);
       made.push("material-" + slug + ".png");
       shotNames.push("material-" + slug + ".png");
     }

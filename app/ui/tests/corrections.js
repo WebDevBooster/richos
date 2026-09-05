@@ -32,6 +32,7 @@ const path = require("path");
 const { leaveHome,
   loadPlaywright,
   shot,
+  publishShotFile,
   createRun,
   assert,
   assertEqual,
@@ -113,7 +114,7 @@ async function settledShot(page, name, dir) {
   const into = dir || SHOTS;
   fs.mkdirSync(into, { recursive: true });
   const s = await shot(page, name, { fullPage: false });
-  fs.copyFileSync(s.file, path.join(into, name + ".png"));
+  publishShotFile(s.file, path.join(into, name + ".png"));
   return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors)";
 }
 
