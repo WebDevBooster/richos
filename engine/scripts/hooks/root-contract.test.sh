@@ -368,54 +368,130 @@ fi
 # snapshotter for 92 seconds before I killed it. It would have hung a real
 # session start.
 #
+# WHAT IT COSTS, MEASURED RATHER THAN FEARED (2026-09-05, claude 2.1.261): a
+# SessionStart hook blocking on an unclosed stdin held a whole headless session
+# for 602 seconds, releasing it at the exact moment the writer let go. There is
+# no rescue timeout on that path. And the failure is SILENT in the ordinary
+# case — handed an already-closed stdin the same hook exits 0 instantly — which
+# is precisely how this class survives in a green suite.
+#
 # The check: run each with an OPEN, EMPTY stdin (a background writer that never
 # writes and never closes) and require it to finish anyway.
+#
+# ---------------------------------------------------------------------------
+# WHY THERE IS A CONTROL ARM (added 2026-09-05)
+# ---------------------------------------------------------------------------
+# The first version of this helper ran ONE arm and called any overrun "BLOCKED
+# on stdin". A wall clock cannot tell blocking from slowness, and on
+# 2026-09-05 that cost a whole investigation: case 9b was red on unmodified
+# main and its message named stdin, but session-start-reap-worktrees.sh never
+# reads its own stdin at all. It was simply SLOW — its inventory sweep measured
+# 8150-8479ms across five runs against an 8s window, and it failed identically
+# with stdin closed. The hook was innocent and the accusation was manufactured
+# by the test.
+#
+# That is the mirror of this project's most-repeated failure. A single-armed
+# timing check does not only fail for the wrong reason; it would later PASS for
+# the wrong reason, the moment the sweep got faster, while a real stdin block
+# went on sitting in the hook.
+#
+# So each hook is run TWICE, and only one combination is a stdin block:
+#
+#   closed stdin      open stdin        verdict
+#   ----------------  ----------------  ----------------------------------
+#   finishes          finishes          ok
+#   finishes          overruns          BLOCKS ON STDIN  <- the defect
+#   overruns          (either)          slow/hangs regardless of stdin
+#
+# The third row is a real finding too, and it is reported in its own words
+# rather than dressed up as the second.
 # ===========================================================================
-hang_check() { # <hook> [args...]
-    local hook="$1"; shift
-    local fifo out rc
-    fifo="$SANDBOX/fifo.$$"
-    rm -f "$fifo"; mkfifo "$fifo"
-    # Hold the write end open for 20s without writing anything. An unbounded
-    # read on this stdin never returns.
-    ( exec 3>"$fifo"; sleep 20 ) &
-    local holder=$!
+HANG_CEIL="${HANG_CEIL:-14}"
+
+# _run_arm <fd-source> <hook> [args...] -> 0 finished, 1 overran; sets ARM_SECS
+_run_arm() {
+    local src="$1" hook="$2"; shift 2
+    local start child n
+    start=$(date +%s)
     (
         cd "$SANDBOX" || exit 99
-        CLAUDE_PROJECT_DIR="$SESSREPO" bash "$HOOKS/$hook" "$@" >/dev/null 2>&1 <"$fifo"
+        CLAUDE_PROJECT_DIR="$SESSREPO" bash "$HOOKS/$hook" "$@" >/dev/null 2>&1 <"$src"
     ) &
-    local child=$!
-    local n=0
-    while kill -0 "$child" 2>/dev/null && [ "$n" -lt 8 ]; do sleep 1; n=$((n + 1)); done
+    child=$!
+    n=0
+    while kill -0 "$child" 2>/dev/null && [ "$n" -lt "$HANG_CEIL" ]; do
+        sleep 1
+        n=$((n + 1))
+    done
     if kill -0 "$child" 2>/dev/null; then
         kill -9 "$child" 2>/dev/null
-        rc=1
-    else
-        rc=0
+        wait "$child" 2>/dev/null
+        ARM_SECS="over-${HANG_CEIL}s"
+        return 1
     fi
+    wait "$child" 2>/dev/null
+    ARM_SECS="$(( $(date +%s) - start ))s"
+    return 0
+}
+
+# hang_check <hook> [args...]
+#   0 = does not block on stdin
+#   1 = BLOCKS on stdin (control finished, open-stdin arm did not)
+#   2 = slow or hangs regardless of stdin (control did not finish either)
+# Sets HANG_WHY for the caller's message.
+hang_check() {
+    local hook="$1"; shift
+    local fifo holder ctrl_secs open_rc
+
+    # --- control arm: stdin CLOSED. Establishes that the hook can finish at
+    # all, so an overrun in the second arm is attributable to stdin.
+    _run_arm /dev/null "$hook" "$@" || {
+        HANG_WHY="did not finish within ${HANG_CEIL}s even with stdin CLOSED (${ARM_SECS}) — slow or hanging for some reason OTHER than stdin"
+        return 2
+    }
+    ctrl_secs="$ARM_SECS"
+
+    # --- test arm: stdin OPEN and never closed.
+    fifo="$SANDBOX/fifo.$$"
+    rm -f "$fifo"; mkfifo "$fifo"
+    ( exec 3>"$fifo"; sleep $((HANG_CEIL + 10)) ) &
+    holder=$!
+    _run_arm "$fifo" "$hook" "$@"
+    open_rc=$?
     kill -9 "$holder" 2>/dev/null
     wait "$holder" 2>/dev/null
     rm -f "$fifo"
-    return $rc
+
+    if [ "$open_rc" -ne 0 ]; then
+        HANG_WHY="finished in $ctrl_secs with stdin CLOSED but did not finish within ${HANG_CEIL}s with stdin OPEN — it reads a stdin that may never close"
+        return 1
+    fi
+    HANG_WHY="closed=$ctrl_secs open=$ARM_SECS"
+    return 0
 }
 
-if hang_check engine-status.sh; then
-    ok "9a POSITIVE  engine-status.sh completes with an open, never-closed stdin"
-else
-    bad "9a engine-status.sh BLOCKED on stdin — it would hang a session start"
-fi
-if hang_check session-start-reap-worktrees.sh; then
-    ok "9b POSITIVE  session-start-reap-worktrees.sh completes with an open, never-closed stdin"
-else
-    bad "9b session-start-reap-worktrees.sh BLOCKED on stdin"
-fi
+# say_hang <label> <hook> [args...] — runs the check and records the verdict,
+# keeping the three outcomes distinguishable in the output.
+say_hang() {
+    local label="$1"; shift
+    # The ARGS are part of the identity, not decoration: 9c and 9f are the same
+    # script and differ only by `--session`, and that difference is the whole
+    # point of 9f. A label naming only the script would print two identical
+    # lines for two different assertions.
+    local what="$*"
+    hang_check "$@"
+    case $? in
+    0) ok   "$label POSITIVE  $what completes with an open, never-closed stdin ($HANG_WHY)" ;;
+    1) bad  "$label $what BLOCKS ON STDIN — $HANG_WHY" ;;
+    2) bad  "$label $what $HANG_WHY" ;;
+    esac
+}
+
+say_hang 9a engine-status.sh
+say_hang 9b session-start-reap-worktrees.sh
 # The snapshotter with --session must not read stdin at all: that is the exact
 # invocation the contract-integrity probe uses, and the exact one that hung.
-if hang_check snapshot-agent-definitions.sh --session cafe1234-0000; then
-    ok "9c POSITIVE  snapshot-agent-definitions.sh --session completes with an open, never-closed stdin"
-else
-    bad "9c snapshot-agent-definitions.sh --session BLOCKED on stdin (the 92-second hang)"
-fi
+say_hang 9c snapshot-agent-definitions.sh --session cafe1234-0000
 # 9d NEGATIVE — and it must still READ the payload when there is no --session,
 # because that is where the session id comes from. Without this, "does not
 # hang" could be satisfied by never reading stdin at all, and the session-scoped
@@ -431,10 +507,82 @@ fi
 # 2026-09-05. It deliberately reads NO payload (the ledger is session-
 # independent, which is the entire point of that hook), so the claim in its
 # header is asserted here rather than left as a comment.
-if hang_check session-start-escalations.sh; then
-    ok "9e POSITIVE  session-start-escalations.sh completes with an open, never-closed stdin"
+say_hang 9e session-start-escalations.sh
+
+# ---------------------------------------------------------------------------
+# 9f-9i — THE COVERAGE HOLE THIS SECTION HAD, closed 2026-09-05.
+#
+# hooks/hooks.json registers SIX SessionStart scripts. Cases 9a-9e covered
+# four, and covered the snapshotter only in its `--session` form — the ONE
+# invocation that cannot reach its payload read. The two forms nobody tested
+# were the two that blocked:
+#
+#   * snapshot-agent-definitions.sh WITHOUT --session, which is exactly how it
+#     fires as a real SessionStart hook;
+#   * snapshot-enforcing-hooks.sh, which had no hang case at all.
+#
+# Both ran forever against an open, never-closed stdin while finishing in
+# under a second with stdin closed. Every SessionStart script is now checked
+# in the form it actually fires in, so "all covered" means the registration
+# surface rather than a list somebody typed.
+# ---------------------------------------------------------------------------
+say_hang 9f snapshot-agent-definitions.sh
+say_hang 9g snapshot-enforcing-hooks.sh
+say_hang 9h session-start-ceo-ask.sh
+
+# 9i NEGATIVE — the partner to 9d, and the reason 9g cannot be satisfied by
+# simply never reading stdin: snapshot-enforcing-hooks.sh must STILL take its
+# session id from the payload, because a bounded read that quietly dropped the
+# payload would degrade every later staleness comparison to a timestamped
+# baseline while reporting nothing wrong.
+# HOOK_STALENESS_SURFACE points at the SHIPPED hooks.json: the sandbox engine
+# is assembled without hooks/, and without a surface this hook writes no
+# baseline at all — which would make 9i fail for a reason that has nothing to
+# do with the payload it is here to assert.
+rm -rf "$SESSREPO/.claude/state"
+run snapshot-enforcing-hooks.sh '{"session_id":"feed4321-0000","cwd":"'"$SESSREPO"'","hook_event_name":"SessionStart"}' "CLAUDE_PROJECT_DIR=$SESSREPO" "HOOK_STALENESS_SURFACE=$SRC_ENGINE/hooks/hooks.json"
+if [ -f "$SESSREPO/.claude/state/enforcing-hooks-feed4321.snapshot" ]; then
+    ok "9i NEGATIVE  snapshot-enforcing-hooks.sh still reads the payload session id"
 else
-    bad "9e session-start-escalations.sh BLOCKED on stdin — it would hang a session start"
+    bad "9i enforcing-hook snapshot is no longer session-scoped from the payload (out=${OUT:0:200})"
+fi
+
+# 9j — EVERY registered SessionStart script is checked above. Derived from the
+# registration surface, never from a typed list, for the reason
+# scripts/lib/registered-hooks.sh exists: a hand-maintained inventory of what
+# is covered drifts, and a coverage claim over a stale inventory is exactly the
+# hole 9f and 9g fell through.
+COVERED="engine-status.sh session-start-reap-worktrees.sh snapshot-agent-definitions.sh snapshot-enforcing-hooks.sh session-start-ceo-ask.sh session-start-escalations.sh"
+# Read the SHIPPED registration surface, not the sandbox copy: the sandbox
+# engine is assembled from scripts/ and .claude*/ and deliberately has no
+# hooks/hooks.json, and the claim being made here is about what the host
+# actually loads.
+REGISTERED_SS="$(python3 - "$SRC_ENGINE/hooks/hooks.json" <<'PY' 2>/dev/null || true
+import json, re, sys
+d = json.load(open(sys.argv[1]))
+h = d.get("hooks", d)
+out = []
+for g in h.get("SessionStart", []):
+    for hk in g.get("hooks", []):
+        m = re.search(r"scripts/hooks/([A-Za-z0-9._-]+\.sh)", hk.get("command", ""))
+        if m:
+            out.append(m.group(1))
+print(" ".join(sorted(set(out))))
+PY
+)"
+UNCOVERED=""
+for _s in $REGISTERED_SS; do
+    case " $COVERED " in
+    *" $_s "*) : ;;
+    *) UNCOVERED="$UNCOVERED $_s" ;;
+    esac
+done
+if [ -n "$REGISTERED_SS" ] && [ -z "$UNCOVERED" ]; then
+    ok "9j POSITIVE  every SessionStart script registered in hooks.json has a hang case"
+elif [ -z "$REGISTERED_SS" ]; then
+    bad "9j could not read the SessionStart registrations from hooks.json — coverage unproven"
+else
+    bad "9j SessionStart scripts registered but never hang-checked:$UNCOVERED"
 fi
 
 echo ""
