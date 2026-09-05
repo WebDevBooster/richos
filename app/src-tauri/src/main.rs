@@ -7,6 +7,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod events;
+mod managed_runs;
 
 use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
@@ -203,6 +204,7 @@ impl LeaseFactory for EngineLeaseFactory {
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
     spine: Mutex<Spine>,
+    managed_runs: managed_runs::ManagedRuns,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
     /// alongside the ledger in the app data dir, same durability posture.
     config: Mutex<ConfigStore>,
@@ -1436,6 +1438,7 @@ fn main() {
 
             app.manage(AppState {
                 spine: Mutex::new(spine),
+                managed_runs: managed_runs::ManagedRuns::default(),
                 config: Mutex::new(config),
                 machinery_root,
                 entity: Mutex::new(boot.entity),
@@ -1527,6 +1530,12 @@ fn main() {
             switch_thread,
             get_messages,
             send_message,
+            managed_runs::prepare_run,
+            managed_runs::get_run,
+            managed_runs::drive_run,
+            managed_runs::pause_run,
+            managed_runs::retry_run_task,
+            managed_runs::end_run,
             get_company_name,
             set_company_name,
             get_assertiveness,
@@ -3856,6 +3865,7 @@ struct StopReport {
 /// in `steering.rs` rather than here.
 #[tauri::command(async)]
 fn stop_turn(state: State<AppState>) -> Result<StopReport, String> {
+    state.managed_runs.pause_active(&state.data_dir)?;
     match state.control.request_stop().map_err(|e| e.to_string())? {
         StopOutcome::NothingRunning => {
             Ok(StopReport { stopped: false, turn_id: None, requested_at: None, reached_lease: false })

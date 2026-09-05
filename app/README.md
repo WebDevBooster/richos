@@ -636,7 +636,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 694 tests + 5 doc-tests
+cargo test -p richos-core                       # 710 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 191 tests
@@ -1367,3 +1367,14 @@ can be up to one tool call stale (bounded, one-directional, never a claim about 
 that was never witnessed). And the join is **session-scoped**, because `agent_id` is not
 globally unique — the clause that keeps another session's worker name and authored summary
 out of this entity's thread.
+# Managed work runs
+
+RichOS can now own a finite work plan across model turns. See
+[Managed work runs](MANAGED-RUNS.md) for the desktop controls, portable terminal
+runner, acceptance contract and recovery limits.
+See [Orchestration review](ORCHESTRATION-REVIEW.md) for the observed failure,
+design rationale, review map and validation evidence.
+
+`crates/richos-core/tests/run_tests.rs` covers continuation, external acceptance,
+dependency order, cancellation, restart recovery, timeouts, exclusive ownership
+and the terminal protocol path. These checks also exercise the desktop Spine adapter.

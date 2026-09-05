@@ -707,6 +707,33 @@ impl Spine {
         self.lease.is_some()
     }
 
+    /// The managed-run host uses the existing cancellation channel to enforce
+    /// its time budget. No second model process or permission policy.
+    pub fn run_cancel_handle(&self) -> Option<std::sync::Arc<dyn crate::steering::TurnCancel>> {
+        self.lease.as_ref().and_then(|lease| lease.cancel_handle())
+    }
+
+    /// An application-owned attempt, recorded as Internal rather than as words
+    /// the user typed. Automatic crash replay is disabled: the run controller
+    /// owns recovery and cannot safely replay unknown external effects.
+    pub fn submit_run_prompt(&mut self, binding: &ThreadBinding, text: &str) -> Result<String, SpineError> {
+        self.verify_active_binding(binding)?;
+        if self.turn_in_progress {
+            return Err(SpineError::Cognition(CognitionError::Protocol("Another turn is already running.".into())));
+        }
+        let id = self.ledger.record_prompt_received(binding, text, Source::Internal)?;
+        self.emit_live(self.turn_status_event(binding, &id, TurnStatus::Queued, None));
+        self.deliver(&id, binding, text, false)?;
+        Ok(self.ledger.turn(&id).and_then(|t| t.stop_reason.clone()).unwrap_or_else(|| "unknown".into()))
+    }
+
+    /// Called after the attempt's timeout watcher is disarmed. Queued user
+    /// input takes precedence over the next managed attempt.
+    pub fn finish_run_boundary(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        self.after_turn_boundary(binding)?;
+        self.drain_queue()
+    }
+
     /// Attach the rotation/recovery seam. Without one, the spine can still run its
     /// (single) attached lease indefinitely, but a context watermark, an explicit
     /// rotation request, or a mid-turn crash all degrade to their pre-P1.4 behavior
