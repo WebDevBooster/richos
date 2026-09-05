@@ -345,6 +345,23 @@ async function stillUp(page, what) {
   return c;
 }
 
+/// Record, ON THE PAGE'S CLOCK, the instant the bar reports it has stopped — which is the
+/// instant `settledShot` opens its shutter. `CURTAIN_CLOCK` records when the curtain arrives
+/// and leaves; this is the third edge, and the distance from it to `goneAt` is the whole of
+/// the window a photograph has to be taken in. Check 10b measures that distance rather than
+/// quoting it.
+const MARK_BAR_STOPPED = () => {
+  window.__barStoppedAt = null;
+  const poll = () => {
+    if (window.RichSplash && window.RichSplash.state.barStopped) {
+      if (window.__barStoppedAt === null) window.__barStoppedAt = performance.now();
+      return;
+    }
+    requestAnimationFrame(poll);
+  };
+  requestAnimationFrame(poll);
+};
+
 const MARK_READY = () => {
   let sp;
   Object.defineProperty(window, "RichSplash", {
@@ -1486,6 +1503,102 @@ async function main() {
     assertEqual(r.reason, "ceiling", "what cleared it");
     await page.__ctx.close();
     return `app-ready muted; gone by 4.4s on its own ceiling (reason "${r.reason}")`;
+  });
+
+  await run.check("10b  the photograph's disarm is an OPT-IN, and the failsafe is still there for everyone else", async () => {
+    // THE INSTRUMENT THAT MAKES CHECK 5 POSSIBLE MUST NOT BECOME A WAY FOR THE CEILING TO
+    // STOP EXISTING. `NO_CEILING` declines to arm one timer for two launches so that a
+    // screenshot is not racing the surface it is photographing. Check 10 proves the ceiling
+    // fires; this proves the disarm did not quietly become the reason it appears to.
+
+    // 1. WITHOUT IT — the failsafe fires, and the window it leaves a shutter is MEASURED
+    //    rather than quoted. `__barStoppedAt` is when `settledShot` would open; `goneAt` is
+    //    when the node leaves.
+    const plain = await launch(browser, { hold: true, init: MARK_BAR_STOPPED });
+    await plain.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });
+    const three = await plain.evaluate(() => ({
+      reason: window.RichSplash.state.reason,
+      hold: window.RichSplash.state.seconds * 1000,
+      life: Math.round(window.__curtain.goneAt - window.__curtain.shownAt),
+      window: Math.round(window.__curtain.goneAt - window.__barStoppedAt),
+      untouched: window.__ceilingDisarmed === undefined,
+    }));
+    assertEqual(three.reason, "ceiling", "without the opt-in the curtain must still leave on its own ceiling");
+    assert(three.untouched, "NO_CEILING reached a launch that never asked for it");
+    await plain.__ctx.close();
+
+    // 2. AND THE WINDOW DOES NOT WIDEN WITH `seconds`, which is why asking for a longer
+    //    screen was never available as the fix. The shutter opens at `holdMs + FLARE_MS` and
+    //    the node leaves at `holdMs + CEILING_GRACE_MS + FADE_MS + 40`; the hold is in both
+    //    terms and cancels, so a five-second screen hands the camera the same 270 ms a
+    //    three-second one does.
+    const long = await launch(browser, { hold: true, seconds: 5, init: MARK_BAR_STOPPED });
+    await long.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });
+    const five = await long.evaluate(() => ({
+      hold: window.RichSplash.state.seconds * 1000,
+      window: Math.round(window.__curtain.goneAt - window.__barStoppedAt),
+    }));
+    await long.__ctx.close();
+    assertEqual(five.hold - three.hold, 2000, "the second launch was not given two more seconds of hold");
+    assert(
+      Math.abs(five.window - three.window) < 100,
+      "the shutter's window moved from " + three.window + "ms to " + five.window + "ms when the hold grew by 2,000ms " +
+        "— if a longer screen now buys the camera time, the reason check 5 cannot simply ask for one has changed"
+    );
+
+    // 3. WITH IT — the curtain is still there a full two seconds past the instant the same
+    //    launch removed it above, and nothing has reported a reason for leaving.
+    const held = await launch(browser, { hold: true, noCeiling: true, init: MARK_BAR_STOPPED });
+    await atCurtain(held, three.life + 2000);
+    const kept = await held.evaluate(() => ({
+      up: !!document.getElementById("splash"),
+      yielding: document.getElementById("splash") ? document.getElementById("splash").classList.contains("splash--yielding") : null,
+      reason: window.RichSplash.state.reason,
+      armedFor: window.__ceilingDisarmed ? window.__ceilingDisarmed.delay : null,
+      hold: window.RichSplash.state.seconds * 1000,
+    }));
+    await held.__ctx.close();
+    assert(kept.up, "with the ceiling disarmed the curtain left anyway, " + (three.life + 2000) + "ms in");
+    assertEqual(kept.yielding, false, "the curtain had begun to leave with its ceiling disarmed");
+    assertEqual(kept.reason, null, "something cleared the curtain that was not the ceiling");
+    // The timer it declined to arm has to BE the ceiling, and that is established by joining
+    // it to the launch above rather than by typing the product's constants here: a ceiling is
+    // set for longer than the hold, and it fires before the curtain it removes has gone.
+    assert(
+      typeof kept.armedFor === "number" && kept.armedFor > kept.hold,
+      "the timer NO_CEILING declined to arm was not a ceiling — set for " + kept.armedFor + "ms against a " +
+        kept.hold + "ms hold"
+    );
+    assert(
+      kept.armedFor < three.life,
+      "the timer declined here is set for " + kept.armedFor + "ms, past the " + three.life + "ms the same launch's " +
+        "curtain lived above — so it is not the one that removed it"
+    );
+
+    // 4. AND IT HAS EXACTLY TWO CALL SITES IN THIS FILE, WHICH ARE THESE TWO. The scope IS
+    //    the claim — "only `settledShot`'s launches" is worth nothing if the next check that
+    //    finds the curtain inconvenient can help itself. Read off this file's own source, so
+    //    a third has to be argued for here rather than noticed a month later.
+    //
+    //    The two: check 5's photograph, which is what the instrument was added for, and leg 3
+    //    directly above, which is this check's own positive control and has to ask for it in
+    //    order to prove it does anything. Checks 10 and 12c ask for neither and are the ones
+    //    that watch a real failsafe fire.
+    const sites = (fs.readFileSync(__filename, "utf8").match(/noCeiling:\s*true/g) || []).length;
+    assertEqual(
+      sites,
+      2,
+      "the ceiling disarm has spread beyond check 5's photograph and this check's own control — a third launch is " +
+        "asking not to be interrupted by the product's failsafe, and that needs a reason"
+    );
+
+    return (
+      "without it: reason \"" + three.reason + "\", curtain lived " + three.life + "ms, leaving the shutter " +
+      three.window + "ms · a 5,000ms hold leaves it " + five.window + "ms, the same window · with it: still up at " +
+      (three.life + 2000) + "ms, not yielding, no reason reported, the timer it declined to arm was for " +
+      kept.armedFor + "ms (" + kept.hold + "ms hold + " + (kept.armedFor - kept.hold) + "ms grace) · " + sites +
+      " call sites, the photograph and this check's own control"
+    );
   });
 
   // ---- the off switch ---------------------------------------------------------------------
