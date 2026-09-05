@@ -607,6 +607,47 @@ button {
   overflow-y: auto;
 }
 
+/* WHAT DID NOT LOAD. Shown only when `Ledger::history_health` has something to say, which
+   is never in an ordinary launch.
+
+   EVERY RATIO BELOW WAS COMPUTED, NOT EYEBALLED (CLAUDE.md §"Contrast — WCAG AA, ALWAYS,
+   BOTH THEMES"). The panel paints `--surface-raised` over `--ground`, so both are checked:
+
+     headline, `--attention` on `--surface-raised`   dark 7.05:1   light 6.19:1
+     detail,   `--ink` on `--surface-raised`         dark 13.02:1  light 17.02:1
+     border,   `--attention` (a non-text indicator,
+               3:1) against BOTH the panel it
+               encloses and the ground behind it     dark 7.05:1 / 7.88:1
+                                                     light 6.19:1 / 5.42:1
+
+   Floors: 4.5:1 normal text, 3:1 non-text indicator. Nothing here is exempt and nothing
+   here claims to be — this is the sentence that explains why part of his history is
+   missing, which is the last text in the app anyone should have to squint at.
+
+   1rem = 16px at the default scale (`html { font-size: calc(16px * …) }`), which is the
+   floor for text meant to be easily read (ceo-decisions §15). */
+.history-notice {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--attention);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.history-notice-headline {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--attention);
+}
+
+.history-notice-detail {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
 /* The flat `.turn` chat-bubble rendering that used to live here is GONE. It modelled the
    conversation as alternating user/assistant strings, which §12 explicitly forbids
    ("Do not model the conversation as alternating `user` and `assistant` strings. Use typed

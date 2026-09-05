@@ -1620,6 +1620,14 @@ function syncComposerMode() {
 /// underneath the renderer through it.
 window.__RICHOS_TIMELINE__ = () => timelineModel;
 
+/// RE-READ WHAT DID NOT LOAD. The notice is rendered once, at boot, because that is when a
+/// ledger is replayed — there is no second load for it to react to. So a harness driving
+/// the not-clean states needs a way to ask for the render again after it has set them, and
+/// this is it. It takes no arguments and invents no state: it calls the same command the
+/// boot path calls and renders whatever comes back, so a suite can never paint a notice the
+/// backend did not produce.
+window.__RICHOS_HISTORY_NOTICE__ = () => renderHistoryNotice();
+
 composerEl.addEventListener("submit", (e) => {
   e.preventDefault();
   send();
@@ -3123,6 +3131,37 @@ const MEMORY_NO_READER =
 async function refreshMemory() {
   memoryState = await invokeQuiet("memory_status");
   return memoryState;
+}
+
+/// WHAT DID NOT LOAD, AND WHY — the read half of `Ledger::history_health`.
+///
+/// A record written by a NEWER RichOS is one an older build cannot name, and the three
+/// published builds (v1.0.0-v1.0.2) are still downloadable with no rollback in the
+/// updater. The reader survives such a record now instead of failing the whole history on
+/// it, and this is the half that makes surviving it honest: the app says how many records
+/// it could not read and why, in the CEO's own words, at the top of the conversation the
+/// statement is about.
+///
+/// EVERY STRING RENDERED HERE IS COMPOSED IN RUST (`Ledger::history_health`). Nothing is
+/// assembled from a count on this side, for the same reason `machinery_view.rs` owns its
+/// four sentences: "I could not read some of this" and "there was nothing to read" are
+/// different statements and a renderer must never be in a position to substitute one for
+/// the other.
+///
+/// `skipped === 0` hides it entirely. There is no reassuring "history loaded cleanly"
+/// state and there should not be — a green tick over a check that found nothing to say is
+/// the failure mode this whole change exists to avoid, not a smaller version of success.
+async function renderHistoryNotice() {
+  const box = el("history-notice");
+  if (!box) return;
+  const health = await invokeQuiet("history_health");
+  if (!health || !health.skipped) {
+    box.hidden = true;
+    return;
+  }
+  el("history-notice-headline").textContent = health.headline;
+  el("history-notice-detail").textContent = health.detail;
+  box.hidden = false;
 }
 
 /// Ask, or say what is wrong, or do nothing at all. Returns true when a dialog opened, so
@@ -4944,6 +4983,10 @@ async function init() {
   setRailOpen(isWide() ? true : !navPrefs.sidebar_collapsed);
 
   await refreshNavigation();
+  // WHETHER ANY OF HIS HISTORY DID NOT LOAD. Read before the conversation is opened, so
+  // the sentence explaining why part of it is missing is on screen with the part that
+  // survived, rather than arriving after he has already read what is there.
+  await renderHistoryNotice();
   // WHICH COMPANY THIS COPY OF RICH IS FOR, read before the branch below, because the
   // branch below is where a launch that resolved none used to fall into the wrong arm.
   await refreshEntityChoice();
