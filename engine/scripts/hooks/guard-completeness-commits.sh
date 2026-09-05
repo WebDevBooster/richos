@@ -391,7 +391,7 @@ CC_REPO="$(pb_repo_root "$CC_ANCHOR" 2>/dev/null || true)"
 # artifact's repository, and never obeyed — a guard that switched itself off on
 # a seat mismatch would have let through a merge that was correctly refused.
 if [ -n "${SEAT_ROOT}" ]; then
-    richos_assert_jurisdiction "scripts/hooks/guard-completeness-commits.sh" "${SEAT_ROOT}" "$CC_REPO" "commit in" || true
+    richos_assert_jurisdiction "scripts/hooks/guard-completeness-commits.sh" "${SEAT_ROOT}" "$CC_REPO" "commit in" "proceeds" || true
 fi
 
 # --- Adoption: ONE declaration, read by both contracts ---------------------

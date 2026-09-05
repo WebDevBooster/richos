@@ -201,7 +201,118 @@ while i < len(lines):
     i += 1
 
 # --- segments -------------------------------------------------------------
-segments = re.split(r"(?:\|\||&&|[;\n|])", cmd)
+# SPLIT ON TOP-LEVEL SEPARATORS ONLY. This function is guard-vendoring-commits.sh's,
+# adopted verbatim rather than reinvented, and its mutation harness pins the
+# difference as `naive-segment-split` whose replacement text is the line this
+# one replaced.
+#
+# WHAT THE REPLACED LINE DID, MEASURED 2026-09-05 RATHER THAN REASONED. It was
+# `re.split(r"(?:\|\||&&|[;\n|])", cmd)`, which cuts inside quotes. A commit
+# message written the way every commit message in this project is written —
+#
+#     git commit -m "the subject line
+#
+#     the body"
+#
+# — was cut at the blank line, both halves failed to shlex, and NO `git commit`
+# was recognized in the call at all. The guard then exited 0 having looked at
+# nothing, which is the same byte as a clean pass.
+#
+# The size of that hole, measured over every transcript on this machine since
+# the guard shipped (docs/verification/row-currency-splitter-gap-2026-09-05/):
+#
+#     592  git commit/merge calls anchored at a GOVERNED MAIN CHECKOUT
+#     403  recognized by the shipped splitter
+#     189  NEVER RECOGNIZED — 31.9% of all landings went unchecked
+#
+# and the check it was skipping was not hypothetical: 29 commits reached
+# richos-hq's main carrying a section-3 row whose own pin no longer matched the
+# tree, three of them (`0015d1dd`, `3a5ab7de`, `c085a449`) produced by a call
+# this splitter could not see.
+#
+# It also removed a FALSE POSITIVE nobody had noticed. The naive split shreds a
+# heredoc body into lines, so a documentation line reading `git commit -m ...`
+# inside a `cat > file <<'EOF'` payload shlexed into a commit that was never
+# going to run: 33 such calls in the same corpus. Describing a command is not
+# issuing one.
+def top_level_segments(text):
+    segs, cur, quote, esc = [], [], None, False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if esc:
+            cur.append(ch); esc = False; i += 1; continue
+        if quote:
+            if ch == "\\" and quote == '"':
+                cur.append(ch); esc = True; i += 1; continue
+            if ch == quote:
+                quote = None
+            cur.append(ch); i += 1; continue
+        if ch == "\\":
+            cur.append(ch); esc = True; i += 1; continue
+        if ch in ("'", '"'):
+            quote = ch; cur.append(ch); i += 1; continue
+        if text[i:i + 2] in ("&&", "||"):
+            segs.append("".join(cur)); cur = []; i += 2; continue
+        if ch in ";\n|":
+            segs.append("".join(cur)); cur = []; i += 1; continue
+        cur.append(ch); i += 1
+    segs.append("".join(cur))
+    return segs
+
+
+# --- AND A HEREDOC PAYLOAD IS A DOCUMENT, NOT A COMMAND -------------------
+# The quote-aware walker above fixes the commits this guard could not SEE. This
+# fixes the commits it saw that were never there.
+#
+# A heredoc body is data on stdin. `cat > runbook.md <<EOF` followed by a line
+# reading `git commit -m "..."` is a document being WRITTEN, and the walker
+# happily shlexes that line into a commit that is not going to run -- at which
+# point this guard runs the row predicate and can REFUSE the write. Measured
+# over every transcript since the guard shipped: 12 calls recognized only
+# because of a heredoc body, 2 of them anchored at a governed main checkout
+# where this guard acts. Small, and it is a blocking refusal of a document.
+#
+# THE RECALL IS KEPT BY THE ONE EXCEPTION THAT MATTERS: a heredoc fed to a
+# SHELL is left alone, because `bash <<EOF` really does execute its body. Every
+# shell-fed heredoc in the corpus is still read in full.
+#
+# The blanking is by SPACES, never deletion, so line structure and offsets
+# survive -- and it is applied ONLY to the text the walker segments. The
+# `heredocs` map above is built from the original, so `git commit -F -` with an
+# inline message still reads its message.
+_HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+_SHELL_CONSUMER = re.compile(
+    r"(?:^|[|;&]|\s)(?:env\s+\S+\s+)?(?:\S*/)?(?:sh|bash|zsh|ksh|dash)\b")
+
+
+def executable_text(src):
+    chars = list(src)
+    _lines = src.split("\n")
+    offs, o = [], 0
+    for ln in _lines:
+        offs.append(o)
+        o += len(ln) + 1
+    i = 0
+    while i < len(_lines):
+        m = _HEREDOC_START.search(_lines[i])
+        if m:
+            tag = m.group(2)
+            j = i + 1
+            while j < len(_lines) and _lines[j].strip() != tag:
+                j += 1
+            a = offs[i + 1] if i + 1 < len(_lines) else len(src)
+            b = offs[j] if j < len(_lines) else len(src)
+            if b > a and not _SHELL_CONSUMER.search(_lines[i][:m.start()]):
+                for k in range(a, b):
+                    if chars[k] != "\n":
+                        chars[k] = " "
+            i = j
+        i += 1
+    return "".join(chars)
+
+
+segments = top_level_segments(executable_text(cmd))
 
 def parse(seg):
     try:
@@ -349,7 +460,7 @@ REPO="$(ct_repo_root "$ANCHOR" 2>/dev/null || true)"
 # artifact's repository, and never obeyed — a guard that switched itself off on
 # a seat mismatch would have let through a merge that was correctly refused.
 if [ -n "${SEAT_ROOT}" ]; then
-    richos_assert_jurisdiction "scripts/hooks/guard-row-currency-commits.sh" "${SEAT_ROOT}" "$REPO" "commit in" || true
+    richos_assert_jurisdiction "scripts/hooks/guard-row-currency-commits.sh" "${SEAT_ROOT}" "$REPO" "commit in" "proceeds" || true
 fi
 
 DECL_RC=0

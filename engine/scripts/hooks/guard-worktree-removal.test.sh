@@ -22,6 +22,8 @@
 #   (g9) *** the MAIN checkout of a repo (not a linked worktree) *** -> exit 0
 #   RO1-RO11 *** a READ never fires, even beside another verb's -d ***  -> exit 0
 #   RD1-RD8  *** ...and every destructive shape still blocks ***        -> exit 2
+#   PR1-PR8  *** prose that DESCRIBES a removal is not one ***          -> exit 0
+#   PX1-PX8  *** ...and text the shell WILL run still blocks ***        -> exit 2
 #   (h)  block message names the helper, the ENTITY liveness rule and the ack
 #   (i)  missing python3                          -> exit 2 (fail-closed)
 #   (j)  unadopted repository                     -> exit 0 (stand down)
@@ -238,6 +240,55 @@ run_case "RD7 short bundle git branch -fD worktree-* -> block" 2 \
     "$(bash_payload 'git branch -fD worktree-agent-abc')"
 run_case "RD8 git worktree prune --expire=now (attached value) -> block" 2 \
     "$(bash_payload 'git worktree prune --expire=now')"
+
+# --- PROSE IS NOT A COMMAND: the 2026-09-03/04 false positive ---------------
+# The defect: the classifier scanned the whole Bash call as one string, so a
+# COMMIT MESSAGE that quoted `git worktree remove` while explaining why the
+# reconciler stalls on a locked quarantine was indistinguishable from the
+# removal itself. It was hit live twice and routed around by rewording both
+# times, which is what a false-positive class costs: the fix is always
+# somebody else's job and the record cannot describe the defect being fixed.
+#
+# PR* and PX* ship as a PAIR, for RO/RD's reason with more force. Blanking text
+# is exactly how you would disable this guard by accident, so every PR case has
+# a PX case asserting that the same construct STILL blocks when the removal is
+# really going to run -- including the two places where the shell would still
+# expand a substitution inside otherwise-inert text.
+echo "  -- prose that DESCRIBES a removal is not a removal --"
+run_case "PR1 REGRESSION: git commit -m quoting 'git worktree remove' -> allow" 0 \
+    "$(bash_payload 'git commit -m "the reconciler stalls: git worktree remove refuses a locked quarantine"')"
+run_case "PR2 REGRESSION: a MULTI-LINE commit message quoting it -> allow" 0 \
+    "$(bash_payload "$(printf 'git commit -m "the subject line\n\nthe body explains that git worktree remove --force refuses a locked\nworking tree, which is why the reconciler stalls"')")"
+run_case "PR3 a message quoting the BRANCH rule -> allow" 0 \
+    "$(bash_payload "git commit -m 'do not run git branch -D worktree-agent-abc by hand'")"
+run_case "PR4 a message quoting the rm rule -> allow" 0 \
+    "$(bash_payload "git commit -m 'never rm -rf /x/.claude/worktrees/agent-abc yourself'")"
+run_case "PR5 a heredoc WRITING a document that quotes the command -> allow" 0 \
+    "$(bash_payload "$(printf "cat > runbook.md <<'EOF'\nTo clean up by hand you would run:\ngit worktree remove /x/.claude/worktrees/agent-abc\nEOF")")"
+run_case "PR6 a python heredoc inserting prose that quotes it -> allow" 0 \
+    "$(bash_payload "$(printf "python3 - <<'PY'\nrow = 'the reconciler stalls because git worktree remove refuses a lock'\nopen('p.md','a').write(row)\nPY")")"
+run_case "PR7 a heredoc writing the rm form into a document -> allow" 0 \
+    "$(bash_payload "$(printf "cat > notes.txt <<'EOF'\nrm -rf /x/.claude/worktrees/agent-abc  # never do this\nEOF")")"
+run_case "PR8 git commit -F - with the phrase in the heredoc body -> allow" 0 \
+    "$(bash_payload "$(printf "git commit -F - <<'MSG'\nWhy the reconciler stalls\n\ngit worktree remove --force refuses a locked working tree.\nMSG")")"
+
+echo "  -- ...and text that WILL run still blocks (the other half) --"
+run_case "PX1 a safe message THEN a real removal -> block" 2 \
+    "$(bash_payload 'git commit -m "an ordinary subject" && git worktree remove /x/.claude/worktrees/agent-abc')"
+run_case "PX2 a heredoc fed to a SHELL is still scanned -> block" 2 \
+    "$(bash_payload "$(printf "bash <<'EOF'\ngit worktree remove /x/.claude/worktrees/agent-abc\nEOF")")"
+run_case "PX3 command substitution inside a DOUBLE-quoted message -> block" 2 \
+    "$(bash_payload 'git commit -m "subject $(git worktree remove /x/.claude/worktrees/agent-abc)"')"
+run_case "PX4 command substitution inside an UNQUOTED-tag heredoc -> block" 2 \
+    "$(bash_payload "$(printf 'cat > f.txt <<EOF\n$(git worktree remove /x/.claude/worktrees/agent-abc)\nEOF')")"
+run_case "PX5 a safe message THEN a worktree-* branch delete -> block" 2 \
+    "$(bash_payload "git commit -m 'an ordinary subject' ; git branch -D worktree-agent-abc")"
+run_case "PX6 an ack INSIDE a heredoc payload does not exempt a real removal -> block" 2 \
+    "$(bash_payload "$(printf "cat > doc.md <<'EOF'\nworktree-remove-ack: this text is a document, not an override\nEOF\ngit worktree remove /x/.claude/worktrees/agent-abc")")"
+run_case "PX7 a real trailing ack comment still exempts -> allow" 0 \
+    "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc # worktree-remove-ack: verified dead by the entity lock')"
+run_case "PX8 a real removal with no message anywhere still blocks -> block" 2 \
+    "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')"
 
 echo "  -- block message content --"
 run_case_msg "h1 block message names the helper" 'remove-agent-worktree.sh' \

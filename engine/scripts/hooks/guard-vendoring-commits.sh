@@ -409,7 +409,7 @@ case "$VM_RC" in
 esac
 
 if [ -n "${SEAT_ROOT}" ]; then
-    richos_assert_jurisdiction "scripts/hooks/guard-vendoring-commits.sh" "${SEAT_ROOT}" "$REPO" "commit in" || true
+    richos_assert_jurisdiction "scripts/hooks/guard-vendoring-commits.sh" "${SEAT_ROOT}" "$REPO" "commit in" "proceeds" || true
 fi
 
 # --- WHAT DOES THIS COMMIT ADD? -------------------------------------------

@@ -145,7 +145,7 @@ PB_REPO="$(pb_repo_root "$FILE_PATH" 2>/dev/null || true)"
 # artifact's repository, and never obeyed — a guard that switched itself off on
 # a seat mismatch would have let through a merge that was correctly refused.
 if [ -n "${SEAT_ROOT}" ]; then
-    richos_assert_jurisdiction "scripts/hooks/guard-publication-writes.sh" "${SEAT_ROOT}" "$FILE_PATH" "file" || true
+    richos_assert_jurisdiction "scripts/hooks/guard-publication-writes.sh" "${SEAT_ROOT}" "$FILE_PATH" "file" "proceeds" || true
 fi
 
 # `set -e` would abort on a bare non-zero return here, taking the rc 1

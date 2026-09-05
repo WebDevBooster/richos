@@ -178,7 +178,7 @@ FILE_PATH="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys
 # length and entropy floor were loaded from the SEAT's orchestration.config and
 # are about to be applied to a file in a different repository, whose own
 # thresholds may be nothing like them. That is worth saying out loud once.
-richos_assert_jurisdiction "scripts/hooks/scan-secrets.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+richos_assert_jurisdiction "scripts/hooks/scan-secrets.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" "proceeds" || true
 
 # Re-resolve the thresholds against the repository that actually governs this
 # file. No governing root is NOT a reason to stop scanning — it is a reason to

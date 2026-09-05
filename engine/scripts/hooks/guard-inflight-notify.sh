@@ -318,7 +318,7 @@ print(inflight.main_checkout(os.environ["IF_REPO"]))
 # never obeyed. A guard that switched itself off on a seat mismatch would have
 # let through exactly the cross-repository land this whole mechanism exists for.
 if [ -n "${SEAT_ROOT}" ]; then
-    richos_assert_jurisdiction "scripts/hooks/guard-inflight-notify.sh" "${SEAT_ROOT}" "$REPO" "push in" || true
+    richos_assert_jurisdiction "scripts/hooks/guard-inflight-notify.sh" "${SEAT_ROOT}" "$REPO" "push in" "proceeds" || true
 fi
 
 inflight_require || {
