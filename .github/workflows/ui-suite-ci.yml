@@ -111,7 +111,7 @@ name: ui-suite-ci
 # macOS minutes are billed at 10x either way. N=6 is the last N that buys anything.
 #
 # WHAT IT WOULD COST IN CORRECTNESS, WHICH IS THE PART THAT IS NOT ARITHMETIC. `run.js`'s
-# evidence gate — 22 discovered, 22 ran, 0 skipped, every suite's observed count against the
+# evidence gate — every discovered suite ran, none skipped, every suite's observed count against the
 # count its own source declares — is a whole-run fact today. Split across N jobs it becomes N
 # partial facts plus a job that has to add them up, and the sentence at the top of this file
 # ("HOW THIS CANNOT REPORT A GREEN RUN IT DID NOT EARN") is only true again once that adding-up
@@ -151,12 +151,20 @@ on:
       # wider than app/ui because docs-claims.js joins app/README.md and app/STREAMING.md to
       # the Rust tree they describe, and scale.js and steering.js read constants out of
       # app/src-tauri/src. A miss here costs a run that should have happened, so it errs wide.
+      #
+      # THE LAST TWO ARE NOT app/ AT ALL, and that is deliberate. `vouch-template.js` joins the
+      # message the pull-request trust gate sends a stranger — a heredoc inside
+      # `vouch-pr.yml` — to the evidence file that claims to record it. A filter that stopped at
+      # `app/` would leave the one suite that watches those two files unrun on every commit that
+      # touches either of them, which is the whole defect it was written to end.
       - "app/ui/**"
       - "app/README.md"
       - "app/STREAMING.md"
       - "app/crates/**"
       - "app/src-tauri/src/**"
       - ".github/workflows/ui-suite-ci.yml"
+      - ".github/workflows/vouch-pr.yml"
+      - "docs/verification/pr-trust-gate-2026-09-05/**"
   pull_request:
     paths:
       - "app/ui/**"
@@ -165,6 +173,8 @@ on:
       - "app/crates/**"
       - "app/src-tauri/src/**"
       - ".github/workflows/ui-suite-ci.yml"
+      - ".github/workflows/vouch-pr.yml"
+      - "docs/verification/pr-trust-gate-2026-09-05/**"
   # So the gate can be demanded on a SHA without touching the tree — the first green run has
   # to be attributable to a commit somebody names.
   workflow_dispatch:
@@ -204,6 +214,29 @@ jobs:
       # harness spent its first six runs pointed at another repository's node_modules.
       - name: Install
         run: npm ci
+
+      # NUSHELL, for `vouch-template.js` and for nothing else in this directory.
+      #
+      # That suite renders the pull-request gate's message through vouch's OWN `template
+      # render`, which is a Nushell script, and refuses to fake it — a re-implementation of
+      # `format pattern` that diverged would be a check staying green while the real job
+      # errored. So the interpreter is a hard dependency of the run, and a missing one is a red
+      # check naming this line rather than a skip.
+      #
+      # DELIBERATELY UNPINNED, which is the opposite of every other rule in this directory. The
+      # gate itself is a composite action whose first step installs Nushell through
+      # `hustcer/setup-nu` at `version: "*"`, so in production the code is pinned and the
+      # interpreter is whatever shipped that morning. Pinning it here would make this check
+      # greener than the thing it checks, and the time bomb `vouch-pr.yml`'s header names — a
+      # deprecated builtin due for removal — is exactly the kind of break that should surface
+      # here first. `brew` rather than a third-party action for the same reason
+      # app-spine-ci.yml has no rustup step: one less thing in the supply chain.
+      #
+      # `HOMEBREW_NO_AUTO_UPDATE=1` because a full `brew update` costs more than the install.
+      - name: Nushell, for the one suite that needs a real interpreter
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install nushell
+          nu --version
 
       # A bootstrap failure and a product failure must not look alike in the log. This opens
       # WebKit and prints its version before any suite runs, so "the browser never installed"

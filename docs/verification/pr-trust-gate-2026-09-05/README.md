@@ -167,7 +167,8 @@ Allow about two minutes per run: the job installs Nushell before it does anythin
 3. **The real test.** Sign in as the second account. Fork the repository, change one word in a
    documentation file, and open a pull request against `WebDevBooster/richos` `main`.
    **Correct result, within about two minutes:** the pull request is **closed**, and it carries one
-   comment beginning "Hi @<that account>, and thank you for this". The `vouch-pr` run for it is
+   comment beginning "Hi @<that account>, thank you for this and sorry about the abrupt
+   landing.". The `vouch-pr` run for it is
    green and its log reads `<that account> is not vouched` then `Closing PR`. Click the contributing
    guide link in the comment and confirm it opens a real page rather than a 404.
 
