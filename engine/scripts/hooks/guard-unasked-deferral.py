@@ -379,12 +379,35 @@ def _tools_of_turn(payload):
 
 
 def main():
+    # EXIT CODES — three of them now, and the third one is the whole point of
+    # this block.
+    #
+    #   0  CHECKED, and nothing fired. The turn's text was read and it does not
+    #      defer, or it defers and a discharge is present.
+    #   3  A deferral fired. The JSON finding is on stdout.
+    #   4  NOT CHECKED. The predicate could not be evaluated at all; the reason
+    #      is one word on stdout.
+    #
+    # 4 exists because 0 used to mean both of the first and the last, and the
+    # wrapper, having no way to tell them apart, told the operator "This turn's
+    # text was checked" over a payload that carried no turn text. That sentence
+    # was not merely uninformative, it was FALSE, and it is the one place in the
+    # 2026-09-05 forty-hook survey where a degraded payload produced an
+    # affirmative false statement rather than silence. A check reporting green
+    # over nothing is the failure this whole engine is built against; it does
+    # not get to live inside the guard that reports on unasked decisions.
+    #
+    # stop_hook_active is NOT one of the 4 cases. It is a deliberate stand-down
+    # on a turn whose text a sibling has already spoken about, so the text WAS
+    # checked; re-announcing on a block re-fire is what case 7c forbids.
     try:
         payload = json.load(sys.stdin)
     except Exception:
-        return 0
+        print("payload-unreadable")
+        return 4
     if not isinstance(payload, dict):
-        return 0
+        print("payload-unreadable")
+        return 4
     # Never re-fire into a block loop: if a sibling Stop hook blocked the turn,
     # this one has already spoken about the same text.
     if payload.get("stop_hook_active"):
@@ -392,7 +415,8 @@ def main():
 
     text = payload.get("last_assistant_message") or ""
     if not isinstance(text, str) or not text.strip():
-        return 0
+        print("no-turn-text")
+        return 4
 
     hits = find_deferrals(text)
     if not hits:
@@ -401,10 +425,15 @@ def main():
     tools = _tools_of_turn(payload)
     if tools is None:
         # The transcript could not be read. Two of the three discharges depend
-        # on it, so firing here would blame a turn that may well have asked.
-        # Silence is the correct answer and the wrapper's normal-state notice
-        # is not disturbed.
-        return 0
+        # on it, so FIRING here would blame a turn that may well have asked, and
+        # that remains wrong. But this turn's text DOES carry a deferral
+        # construction and nothing was able to decide whether the choice was put
+        # to him — so the accusation is withheld and the NOT-CHECKED state is
+        # reported instead. Reporting 0 here used to make the wrapper announce
+        # that the text had been checked, which is the same false reassurance in
+        # a rarer costume.
+        print("transcript-unreadable")
+        return 4
 
     if discharge(text, tools) is not None:
         return 0

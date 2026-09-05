@@ -178,20 +178,63 @@ FINDING="$(printf '%s' "$INPUT" | python3 "$ANALYZER" 2>/dev/null)"
 RC=$?
 set -e
 
-# 3 is the only code that means "a deferral fired". Anything else — including a
-# crash in the analyzer — ends the turn quietly, because this hook's whole
-# premise is that it is cheaper to miss one than to be switched off.
-# The healthy-and-clean path. stop_notice_normal is silent unless the previous
-# state was one of the stand-downs above, in which case the operator who was
-# told this guard was off is told it is back.
+# ===========================================================================
+# THE THREE OUTCOMES, AND WHY THERE USED TO BE TWO
+# ===========================================================================
+# 3 means a deferral fired. 0 means the turn's text was READ and is clean. 4
+# means the predicate was NOT EVALUATED, with a one-word reason on stdout.
+#
+# 4 was added on 2026-09-05 because this wrapper made an affirmatively FALSE
+# statement, and it is the only one found anywhere in the forty-hook payload
+# survey. Given a payload carrying no `last_assistant_message`, the analyzer
+# returned 0 — its code for "nothing fired" — and this wrapper announced:
+#
+#     "DEFERRAL WATCH — RUNNING AGAIN. This turn's text was checked for work
+#      postponed without putting the choice to you."
+#
+# It was not checked. There was no turn text to check. The reassurance was
+# decoupled from the check, which is a green tick over nothing, in the guard
+# whose entire subject is decisions taken quietly on the CEO's behalf.
+#
+# A crash in the analyzer is treated the same way and for the same reason: this
+# hook's premise is that missing one deferral is cheaper than being switched
+# off, so an analyzer that died still ends the turn — but it ends it SAYING SO,
+# not claiming to have looked.
+#
+# The healthy-and-clean path stays silent. stop_notice_normal speaks only when
+# the previous state was one of the stand-downs above, so an operator who was
+# told this guard was off is told when it comes back.
 notice_clean() {
     stop_notice_normal \
         "DEFERRAL WATCH — RUNNING AGAIN. This turn's text was checked for work postponed without putting the choice to you. $HOOK_TAG"
     exit 0
 }
 
-[ "$RC" = "3" ] || notice_clean
-[ -n "$FINDING" ] || notice_clean
+# NOT the same sentence with a caveat bolted on. A separate state key, so the
+# operator hears it once per distinct reason, and wording that never uses the
+# word "checked" about something nothing looked at.
+notice_unevaluated() { # <reason word>
+    local why
+    case "${1:-}" in
+        no-turn-text)          why="this turn arrived with no text for it to read" ;;
+        payload-unreadable)    why="the turn-end payload could not be read" ;;
+        transcript-unreadable) why="the transcript naming this turn's tool use could not be read, and two of the three discharges are decided from it" ;;
+        analyzer-failed)       why="the analyzer exited $RC instead of deciding" ;;
+        analyzer-empty)        why="the analyzer reported a finding and then handed over nothing to report" ;;
+        *)                     why="its predicate could not be evaluated" ;;
+    esac
+    stop_notice_abnormal "unevaluated:${1:-unknown}" \
+        "DEFERRAL WATCH — NOT RUN this turn: $why, so nothing looked for work postponed without putting the choice to you. Do not read this as a clean turn; it is an unexamined one. $HOOK_TAG"
+    exit 0
+}
+
+case "$RC" in
+    3) : ;;
+    4) notice_unevaluated "$(printf '%s' "$FINDING" | head -1 | tr -d '[:space:]')" ;;
+    0) notice_clean ;;
+    *) notice_unevaluated "analyzer-failed" ;;
+esac
+[ -n "$FINDING" ] || notice_unevaluated "analyzer-empty"
 
 CONSTRUCTION="$(printf '%s' "$FINDING" | python3 -c 'import json,sys
 try:
@@ -202,7 +245,10 @@ try:
     d=json.load(sys.stdin); print(str(d.get("quote","") or ""))
 except Exception: print("")' 2>/dev/null || true)"
 
-[ -n "$QUOTE" ] || notice_clean
+# Same rule one level down: a finding that carries no quote is a broken
+# analyzer contract, not a clean turn, and it must not borrow the clean
+# turn's sentence.
+[ -n "$QUOTE" ] || notice_unevaluated "analyzer-empty"
 
 # The state key is construction + quote hash: a second, DIFFERENT deferral
 # speaks again; the same one restated does not.
