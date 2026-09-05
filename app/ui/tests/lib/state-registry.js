@@ -1900,4 +1900,52 @@ module.exports = [
       "The statement never says 'nothing was lost', because the lease's working context is " +
       "always gone on this failure class and implying otherwise is the defect the row names.",
   },
+
+  // -------------------------------------------------------------------------------------
+  // REACHABILITY (`crates/richos-core/src/reachability.rs`, row 3.30, 2026-09-05)
+  //
+  // All three are UNREACHABLE, and that classification is the honest one rather than a
+  // parking space. The module's only caller today is
+  // `examples/reachability_probe.rs` — a `cargo run` operator tool that refuses to send
+  // anything without `--spend`. No Tauri command exposes it and no path in the shipped
+  // webview reaches these sentences. The module exists so that the FIRST surface to report
+  // a reachability status cannot earn it with a cheap ping; when that surface is built,
+  // these rows get reclassified against it and measured for contrast then.
+  //
+  // The fourth arm, `Failed`, mints no literal of its own — it returns
+  // `UpstreamFault::ceo_message()`, which is already classified above.
+  // -------------------------------------------------------------------------------------
+  {
+    s:
+      "Claude answered a request of {probe_chars} characters just now, which is the size " +
+      "RichOS actually sends. It is working.",
+    c: "UNREACHABLE",
+    why:
+      "`ReachabilityVerdict::Reachable`. It names the SIZE rather than saying 'online', " +
+      "because on 2026-09-03 a three-character probe succeeded while every large brief died " +
+      "on a 529 — so 'it is up' is not a fact and 'it is up for a request this big' is. No " +
+      "shipped UI path reaches it: the only caller is the `reachability_probe` example.",
+  },
+  {
+    s:
+      "That check sent {probe_chars} characters where RichOS's own work runs to " +
+      "{floor_chars}, so it proves nothing about whether real work would get through. A " +
+      "small request can succeed while every large one fails.",
+    c: "UNREACHABLE",
+    why:
+      "`ReachabilityVerdict::Unproven`, and the sentence the whole module exists for. It " +
+      "says neither 'healthy' nor 'down' — it says the check did not run at the size that " +
+      "matters, which is the true answer a cheap ping would have replaced with a green " +
+      "tick. Same reachability status as the row above: example-only today.",
+  },
+  {
+    s:
+      "RichOS has not sent Claude enough work yet to know what size to test at, so there " +
+      "is nothing honest to report about whether it is reachable.",
+    c: "UNREACHABLE",
+    why:
+      "`ReachabilityVerdict::Unmeasured` — a fresh install with no measured request sizes. " +
+      "It refuses to probe at all rather than pick a number, because a probe with no scale " +
+      "would spend the customer's own Claude quota to learn nothing. Example-only today.",
+  },
 ];
