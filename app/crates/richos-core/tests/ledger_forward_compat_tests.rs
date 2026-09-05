@@ -16,19 +16,35 @@
 mod ledger_digest;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ledgers")
 }
 
+/// A private directory per call, and the key is a COUNTER rather than a clock.
+///
+/// **A clock read is not a unique key.** `SystemTime::now()` on this machine ticks at
+/// exactly 1000 ns — measured, min tick and median tick both 1000 ns over 200,000 reads —
+/// so `as_nanos()` carries microsecond resolution and nothing finer. In a 12-thread probe,
+/// **206,474 of 240,000 samples (86.0 %) took a value another thread had already taken.**
+///
+/// This binary runs its 20 tests in parallel in ONE process, so `process::id()` is a
+/// constant here, and 18 of the 23 call sites below pass the same `name` (`v1-current`).
+/// That left a bare microsecond tick as the only thing separating two tests' `edited.jsonl`
+/// — and it did not separate them. Seen live: `a_skipped_record_is_reported_in_words_the_ceo_can_read`
+/// failed with `skipped` 0 against an expected 1, having opened a file another test wrote,
+/// while the same binary run alone passed 20/20 ten times over.
+///
+/// The false RED is the cheap half. A test reading a state some other test happened to
+/// write can just as easily report a property it never established — a false GREEN, in the
+/// harness whose whole job is proving that a customer's history still reads the same.
 fn scratch(name: &str) -> PathBuf {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
         "richos-fwdcompat-{}-{}-{name}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&dir).expect("scratch dir");
     dir
