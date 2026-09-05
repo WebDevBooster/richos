@@ -31,12 +31,60 @@
 # The sandbox is a copy of scripts/, hooks/, orchestration.config and
 # .claude/settings.local.json — the whole mechanical layer, so a mutated file's
 # siblings are the real ones. Nothing here touches the real tree.
+#
+# ===========================================================================
+# WHY THE SANDBOX IS THE MECHANISM, AND NOT AN `EXIT` TRAP
+# ===========================================================================
+# Two harnesses in this engine used to mutate the SHIPPED guard in place and
+# put it back with `trap 'restore' EXIT`. On 2026-09-05 one of them was
+# observed mid-run with `guard-worktree-isolation.sh` sitting in a working
+# engineer's tree with its clause-6 comparison flipped from `-gt` to `-lt` —
+# the model-tier gate refusing upgrades and waving downgrades through. It was
+# restored correctly, because the run finished.
+#
+# AN `EXIT` TRAP IS A PROMISE CONDITIONAL ON EXITING. It does not survive
+# `kill -9`, an OOM kill, a power loss, or a terminal that goes away. A run
+# that dies mid-mutation leaves the operator's live enforcement inverted,
+# silently, with nothing to say so — and `~/.claude/richos-engine` is a
+# symlink to the main checkout, so "the operator's live enforcement" is not a
+# figure of speech. Worse, both harnesses are invoked by
+# contract-integrity.test.sh, so the window was open on every CI verify and
+# every full engine self-test, not only when somebody ran a harness by hand.
+#
+# A COPY HAS NO WINDOW. There is no state a signal can interrupt into: the
+# shipped file is never opened for writing at all, so the set of kills that
+# damage it is empty rather than small.
+#
+# THE OBJECTION THOSE TWO HARNESSES CARRIED, ANSWERED RATHER THAN IGNORED.
+# Their headers said a sandbox was refused on purpose: on 2026-09-02 a harness
+# killed 11 of 18 mutants because its sandboxes lacked a dependency, so the
+# guard REFUSED TO START and that read exactly like a guard catching the
+# mutation. That is a real trap and it is the reason this loop is shaped the
+# way it is. It is answered three times over, and none of the three is an
+# assurance:
+#   1. _mut_copy_engine copies the WHOLE mechanical layer — scripts/, hooks/,
+#      orchestration.config, .claude/ — so a mutated file's siblings are the
+#      real ones. The 2026-09-02 sandbox copied a file, not a layer.
+#   2. Those harnesses' own `alive` arm runs a control payload through the
+#      MUTATED guard and demands exit 0, which is precisely the check that
+#      distinguishes "caught the mutation" from "could not start". It is kept.
+#   3. Each of them now runs its suite ONCE against the UNMUTATED sandbox
+#      before any mutant, and refuses to proceed unless that is green. A
+#      deficient sandbox is then a loud failure at case zero instead of 21
+#      mutants that all score PROVEN for the wrong reason.
+# And the empirical answer was already sitting in the same directory:
+# worktree-spawn-intent.mutation.sh mutates guard-worktree-isolation.sh in a
+# sandbox built by this file and runs that guard's whole suite against it,
+# green, on every CI run.
 
 MUT_PASS=0
 MUT_FAIL=0
 MUT_SANDBOX=""
 MUT_SUITE=""
 MUT_ENGINE_ROOT=""
+# Set by mutation_sandbox_engine, for harnesses that keep their own loop.
+MUT_SANDBOX_DIR=""
+MUT_SANDBOX_ENGINE=""
 
 _mut_engine_root() {
     local here
@@ -77,18 +125,51 @@ PYEOF
     echo "=== $1: every property, proven load-bearing by removing it ==="
 }
 
-_mut_copy_engine() { # <dir>
-    local dir="$1"
+# mutation_copy_engine <dest> <src-engine-root> — build a throwaway copy of
+# the engine's mechanical layer at <dest>. PUBLIC, because a harness that keeps
+# its own mutant loop still needs the sandbox; the kill-proof property belongs
+# to every harness, not only to the ones that adopted this file's loop.
+# Returns non-zero if <src-engine-root> does not look like an engine, so a
+# caller can refuse rather than mutate a plausible-looking empty directory.
+mutation_copy_engine() { # <dest> <src-engine-root>
+    local dir="$1" src="$2"
+    [ -d "$src/scripts/hooks" ] && [ -f "$src/orchestration.config" ] || return 1
     mkdir -p "$dir/.claude"
-    cp -R "$MUT_ENGINE_ROOT/scripts" "$dir/scripts"
-    cp -R "$MUT_ENGINE_ROOT/hooks" "$dir/hooks"
-    cp "$MUT_ENGINE_ROOT/orchestration.config" "$dir/orchestration.config"
-    [ -f "$MUT_ENGINE_ROOT/.claude/settings.local.json" ] && cp "$MUT_ENGINE_ROOT/.claude/settings.local.json" "$dir/.claude/"
-    [ -d "$MUT_ENGINE_ROOT/.claude/agents" ] && cp -R "$MUT_ENGINE_ROOT/.claude/agents" "$dir/.claude/agents"
-    cp "$MUT_ENGINE_ROOT/VERSION" "$dir/VERSION" 2>/dev/null || printf '0.0.0-mutant\n' >"$dir/VERSION"
+    cp -R "$src/scripts" "$dir/scripts" || return 1
+    cp -R "$src/hooks" "$dir/hooks" || return 1
+    cp "$src/orchestration.config" "$dir/orchestration.config" || return 1
+    [ -f "$src/.claude/settings.local.json" ] && cp "$src/.claude/settings.local.json" "$dir/.claude/"
+    [ -d "$src/.claude/agents" ] && cp -R "$src/.claude/agents" "$dir/.claude/agents"
+    cp "$src/VERSION" "$dir/VERSION" 2>/dev/null || printf '0.0.0-mutant\n' >"$dir/VERSION"
     # Sidecars are never copied: a mutant must not carry the shipped hash.
     find "$dir" -name '*.sha256' -delete 2>/dev/null || true
     chmod +x "$dir"/scripts/hooks/*.sh "$dir"/scripts/*.sh 2>/dev/null || true
+    return 0
+}
+
+_mut_copy_engine() { # <dir>
+    mutation_copy_engine "$1" "$MUT_ENGINE_ROOT"
+}
+
+# mutation_sandbox_engine <src-engine-root> — mktemp a throwaway directory,
+# build an engine copy inside it, and set MUT_SANDBOX_DIR / MUT_SANDBOX_ENGINE.
+# The caller mutates MUT_SANDBOX_ENGINE and removes MUT_SANDBOX_DIR when it is
+# done; if it never gets the chance to, the only casualty is a directory under
+# TMPDIR. FATAL rather than silent on failure: a harness that carried on
+# against an empty sandbox would report mutants "caught" by a guard that is
+# not there.
+mutation_sandbox_engine() { # <src-engine-root>
+    local src="$1"
+    MUT_SANDBOX_DIR="$(cd "$(mktemp -d -t mutation-sandbox.XXXXXX)" && pwd -P)" || {
+        echo "FATAL: mutation_sandbox_engine: could not create a sandbox directory" >&2; exit 2; }
+    MUT_SANDBOX_ENGINE="$MUT_SANDBOX_DIR/engine"
+    mkdir -p "$MUT_SANDBOX_ENGINE"
+    if ! mutation_copy_engine "$MUT_SANDBOX_ENGINE" "$src"; then
+        echo "FATAL: mutation_sandbox_engine: $src is not a readable engine root — refusing to mutate an empty sandbox" >&2
+        rm -rf "$MUT_SANDBOX_DIR"
+        exit 2
+    fi
+    return 0
 }
 
 # mutant <name> <expected-failing-case-prefix> <rel-file> <old> <new> <why>

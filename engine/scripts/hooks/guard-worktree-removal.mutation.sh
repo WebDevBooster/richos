@@ -7,20 +7,58 @@
 # Each mutant strips ONE fix back out and asserts (a) the suite fails, (b) the
 # SPECIFIC named case fails, and (c) the mutation actually applied — a sed that
 # matched nothing would give a green run that looked like a green run.
+#
+# EVERY MUTANT RUNS IN A THROWAWAY COPY OF THE WHOLE ENGINE, for the reason set
+# out at length in scripts/lib/mutation-harness.sh: this harness used to mutate
+# the SHIPPED guard-worktree-removal.sh in place and put it back with
+# `trap ... EXIT`, and an EXIT trap is a promise conditional on exiting. A
+# `kill -9`, an OOM kill or a closed terminal between the two writes left the
+# operator's live removal guard modified with nothing to say so — and this
+# harness is invoked by contract-integrity.test.sh, so the window was open on
+# every CI verify. It also never checked, even on a clean exit, that the guard
+# HAD been put back: its sibling did, this one did not.
+#
+# The sandbox is the whole mechanical layer, M0 proves the unmutated sandbox
+# suite is green before any mutant is trusted, and M99 witnesses the shipped
+# guard's contents AND mtime across the run — never opened for writing, rather
+# than restored afterwards.
 set -uo pipefail
-ENG="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SRC_ENG="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=../lib/mutation-harness.sh
+. "$SRC_ENG/scripts/lib/mutation-harness.sh"
+# shellcheck source=../lib/tree-witness.sh
+. "$SRC_ENG/scripts/lib/tree-witness.sh"
+
+SHIPPED_GUARD="$SRC_ENG/scripts/hooks/guard-worktree-removal.sh"
+tw_pick_mtime
+SHIPPED_BEFORE="$(tw_file_witness "$SHIPPED_GUARD")"
+
+mutation_sandbox_engine "$SRC_ENG"
+ENG="$MUT_SANDBOX_ENGINE"
 GUARD="$ENG/scripts/hooks/guard-worktree-removal.sh"
 SUITE="$ENG/scripts/hooks/guard-worktree-removal.test.sh"
-BAK="$(mktemp)"
+BAK="$MUT_SANDBOX_DIR/guard.pristine"
 cp "$GUARD" "$BAK"
 restore() { cp "$BAK" "$GUARD"; }
-trap 'restore; rm -f "$BAK"' EXIT
+# If this trap never runs, a directory under TMPDIR survives. Nothing else.
+trap 'rm -rf "$MUT_SANDBOX_DIR"' EXIT
 
 PROVEN=0; UNPROVEN=0
 
 check() { # <id> <desc> <expected-red-case-substrings...>
     local id="$1" desc="$2"; shift 2
-    local out rc missing=""
+    local out rc missing="" want prered=""
+    # BASELINE SUBTRACTION — see M0. A case already red before any mutation
+    # cannot have been turned red BY a mutation, so a mutant naming it would be
+    # scoring off somebody else's failure.
+    for want in "$@"; do
+        grep -qE "^${want}" "$BASELINE_FAILS" 2>/dev/null && prered="$prered ${want}"
+    done
+    if [ -n "$prered" ]; then
+        printf 'UNPROVEN  %-4s %s  <- case(s) ALREADY RED before any mutation, so this mutant proves nothing about them:%s\n' \
+            "$id" "$desc" "$prered"
+        UNPROVEN=$((UNPROVEN+1)); return
+    fi
     out="$("$SUITE" 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ]; then
         printf 'UNPROVEN  %-4s %s  <- suite still GREEN\n' "$id" "$desc"
@@ -52,6 +90,30 @@ applied() { # <id> <desc> ; returns 1 if the file did not change
 BASE_MD5="$(md5 -q "$GUARD" 2>/dev/null || md5sum "$GUARD" | cut -d' ' -f1)"
 
 echo "=== guard-worktree-removal mutation harness ==="
+
+# --- M0 (THE BASELINE). Every mutant below reasons "the suite went red at the
+# named case, so the property is load-bearing" — an inference that needs the
+# named case to have been GREEN first, which nothing here used to check. A
+# sandbox missing a dependency, OR a pre-existing regression anywhere in this
+# suite, turns cases red for reasons unrelated to any mutation, and each
+# affected mutant then scores PROVEN while proving nothing.
+#
+# The baseline is RECORDED, not required: `check` refuses to score a mutant
+# whose case is already in this set, so a red baseline costs exactly the
+# mutants it actually invalidates instead of aborting the run and reporting
+# somebody else's regression as this harness being broken.
+BASELINE_FAILS="$MUT_SANDBOX_DIR/baseline-fails.txt"
+M0_OUT="$("$SUITE" 2>&1)"; M0_RC=$?
+printf '%s\n' "$M0_OUT" | grep '^  FAIL  ' | sed 's/^  FAIL  //' > "$BASELINE_FAILS"
+if [ "$M0_RC" -eq 0 ]; then
+    printf 'PROVEN    %-4s %s\n' "M0" "the UNMUTATED sandbox suite is GREEN — every red below is a mutation's doing, not the sandbox's"
+    PROVEN=$((PROVEN+1))
+else
+    printf 'NOTE      %-4s the UNMUTATED sandbox suite is already RED (rc=%s) at %s case(s) BEFORE any mutation;\n' \
+        "M0" "$M0_RC" "$(grep -c . "$BASELINE_FAILS")"
+    printf '               no mutant below may score itself on these:\n'
+    sed 's/^/                 /' "$BASELINE_FAILS"
+fi
 
 # --- M1: the WHOLE rule-4 rewrite reverted to the pre-move co-occurrence form.
 # This is the code that actually shipped in the entity before the move: `\brm\b`
@@ -185,6 +247,34 @@ fi
 
 restore
 echo ""
+
+# --- M99: THE SHIPPED GUARD WAS NEVER OPENED FOR WRITING. Contents AND mtime,
+# because "restored correctly" and "never touched" are different guarantees and
+# only the second one survives a kill between the two writes. This harness
+# previously asserted neither.
+SHIPPED_AFTER="$(tw_file_witness "$SHIPPED_GUARD")"
+if [ "$SHIPPED_AFTER" != "$SHIPPED_BEFORE" ]; then
+    echo "UNPROVEN  M99  THE SHIPPED GUARD WAS WRITTEN TO." >&2
+    echo "            before: $SHIPPED_BEFORE" >&2
+    echo "            after:  $SHIPPED_AFTER" >&2
+    echo "            $SHIPPED_GUARD" >&2
+    UNPROVEN=$((UNPROVEN+1))
+elif tw_mtime_available; then
+    printf 'PROVEN    %-4s %s\n' "M99" "the shipped guard was never opened for writing (contents AND mtime unchanged)"
+    PROVEN=$((PROVEN+1))
+else
+    printf 'PROVEN    %-4s %s\n' "M99" "the shipped guard's CONTENTS are unchanged. No sub-second mtime format proved itself here, so this run cannot distinguish 'never touched' from 'written and restored' — named rather than assumed"
+    PROVEN=$((PROVEN+1))
+fi
+
+# The SANDBOX guard must be back at its pristine bytes, or the mutants were
+# compounding on each other instead of testing one change at a time.
+FINAL_MD5="$(md5 -q "$GUARD" 2>/dev/null || md5sum "$GUARD" | cut -d' ' -f1)"
+if [ "$FINAL_MD5" != "$BASE_MD5" ]; then
+    echo "ERROR: the sandbox guard was NOT restored byte-for-byte (md5 $FINAL_MD5 != $BASE_MD5), so mutants were compounding" >&2
+    exit 1
+fi
+
 if [ "$UNPROVEN" -gt 0 ]; then
     echo "=== mutation harness: $UNPROVEN UNPROVEN, $PROVEN proven ==="
     exit 1
