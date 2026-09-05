@@ -1,0 +1,128 @@
+name: vouch-pr
+
+# THE ONLY WORKFLOW HERE THAT ACTS ON A PERSON RATHER THAN ON CODE.
+#
+# The other five judge a diff. This one judges an author, and closes their pull
+# request within about a minute of them opening it, before any human sees it.
+# Somebody may have spent a weekend on what it closes, so it is written to be
+# read by whoever has to answer for that.
+#
+# WHAT IT DOES. On a pull request being opened or reopened, mitchellh/vouch
+# reads `.github/VOUCHED.td` from the default branch and asks one question: is
+# this author on the list, or a repository collaborator with write or admin
+# access? If yes, nothing happens and the pull request goes to the normal
+# review queue. If no, the action posts the comment written below and closes
+# the pull request.
+#
+# WHAT IT IS NOT. Not a quality check, not a security review, not a judgment of
+# the change — nothing in this job reads the diff. It filters who may open a
+# merge request, and it exists because there is one maintainer.
+#
+# ISSUES ARE NOT GATED, DELIBERATELY. Vouch can gate issues too. This workflow
+# does not, and no second workflow does it either. Anybody may open an issue,
+# report a bug, ask a question or propose a change, first-time visitors
+# included. That asymmetry is the whole policy — talk to us first, and here is
+# how — and `.github/CONTRIBUTING.md` states it to the people it affects.
+#
+# WHY `pull_request_target` AND NOT `pull_request`. A `pull_request` run from a
+# fork receives a read-only token and cannot close anything.
+# `pull_request_target` runs the workflow file and the trust list AS THEY ARE
+# ON THE DEFAULT BRANCH, with a token that can write — which is what a trust
+# gate needs, and which is also exactly what makes the trigger dangerous if the
+# job ever executes the pull request's own code.
+#
+# SO THE INVARIANT, and it is the one thing here that must never be relaxed:
+# NO STEP CHECKS OUT OR RUNS CODE FROM THE PULL REQUEST. There is no
+# `actions/checkout` in this file at all, and nothing in it references
+# `pull_request.head`. The only value taken from the event payload is the pull
+# request NUMBER, an integer assigned by GitHub. A future edit that adds a
+# checkout of `github.event.pull_request.head.sha` here would hand a
+# write-scoped token to whoever opened the pull request; work that needs the
+# contributor's code belongs in a separate `pull_request` workflow, never in
+# this one.
+#
+# THE ACTION IS PINNED TO A COMMIT, like every other action in this directory.
+# `@v1` is an ANNOTATED tag, whose object `f23dbb5e…` is not a commit; it peels
+# to `d66fa29a…`, which is `v1.5.0`, and that is what is pinned. Pinning the
+# tag object would have been wrong. `.github/workflows/README.md` has the
+# resolution commands and how to move the pin.
+#
+# WHAT PINNING THIS DOES NOT PIN. The action is a composite that first runs
+# `hustcer/setup-nu` with `version: "*"` and installs whatever Nushell release
+# is current that morning, then executes vouch's Nushell sources. So the code
+# is pinned and its interpreter is not. Measured on 2026-09-05 against Nushell
+# 0.115.1: vouch's `parse-handle` calls `str downcase`, which that release
+# prints a deprecation warning for and says will be removed. On the day it is
+# removed this job starts ERRORING, and an errored job closes nothing — see the
+# next paragraph for why that direction matters.
+#
+# HOW IT FAILS, both directions, because they are not symmetric. If this job
+# errors for any reason — a bad pin, a Nushell removal, an API blip — nothing
+# is closed and an unapproved pull request simply sits in the queue for a human.
+# That is the tolerable direction. The intolerable one is silence: a red run
+# here looks identical to a run that never started, and both look identical to
+# "the gate let them through". Read the run, never the absence of a comment.
+# If `.github/VOUCHED.td` is deleted or renamed, vouch reads an empty list and
+# closes every non-collaborator pull request, which is safe but silent.
+#
+# NOT PROVEN. As of the commit that added this file, this workflow has never
+# executed: proving it requires a pull request from a second GitHub account,
+# which is the maintainer's to run.
+# `docs/verification/pr-trust-gate-2026-09-05/README.md` is the walkthrough,
+# and says what a false pass looks like. Until a real pull request has been
+# closed by this file, the honest description is "configured, not proven".
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+# The minimum that can close a pull request and comment on it. `contents: read`
+# is not used to fetch the trust list — vouch reads that through the API — but
+# it is the floor GitHub applies to the rest of the token, and dropping it buys
+# nothing.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  vouch:
+    runs-on: ubuntu-latest
+    steps:
+      # THE MESSAGE A CLOSED-OUT CONTRIBUTOR READS. It is written to a file
+      # here, rather than kept in the repository, because the job deliberately
+      # checks nothing out; the alternative was vouch's default text, which
+      # links to `CONTRIBUTING.md` at the repository ROOT. That link 404s here:
+      # this project's guide lives at `.github/CONTRIBUTING.md`, and the root is
+      # nine entries by standing decision. A bot that closes a stranger's work
+      # and points them at a missing page is the reputational cost this whole
+      # feature was supposed to avoid, so the text is ours.
+      #
+      # Vouch renders it with Nushell's `format pattern`, so `author`, `owner`,
+      # `repo` and `default_branch` in braces are substituted and NO OTHER BRACE
+      # MAY APPEAR IN THE TEXT — a stray one is a render error, and a render
+      # error is a job that closes nothing.
+      - name: Write the message an unapproved author will read
+        run: |
+          cat > "${RUNNER_TEMP}/unvouched-pr.md" <<'MESSAGE'
+          Hi @{author}, and thank you for this — sorry about the abrupt landing.
+
+          **RichOS accepts pull requests only from a short list of approved GitHub accounts.** Yours is not on it yet, so this pull request was closed automatically. Nobody has read your change: this is a rule about who may open a merge request here, not a judgment of your work.
+
+          The rule and the reasons for it are in the contributing guide:
+          https://github.com/{owner}/{repo}/blob/{default_branch}/.github/CONTRIBUTING.md
+
+          **Issues are open to everyone, and nothing about that has changed.** Bug reports, questions and proposals are welcome from anybody, including you, today:
+          https://github.com/{owner}/{repo}/issues/new/choose
+
+          **To ask for approval,** open an issue describing what you would like to work on, and say that you would like to be added to the contributor list. That is the whole process — a maintainer adds your username to `.github/VOUCHED.td` on the default branch, and your pull requests stay open from then on. There is one maintainer, so a reply can take a while, and approval normally follows a conversation about the change rather than arriving cold.
+
+          **Your work is not lost.** This pull request still holds every commit you pushed, and the branch is still in your fork. Once your username is on the list, reopen this same pull request and it will stay open.
+          MESSAGE
+
+      - uses: mitchellh/vouch/action/check-pr@d66fa29a64600490892131ad87597c30c91fcac4 # v1.5.0
+        with:
+          pr-number: ${{ github.event.pull_request.number }}
+          auto-close: true
+          template-file: ${{ runner.temp }}/unvouched-pr.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

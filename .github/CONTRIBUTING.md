@@ -1,22 +1,91 @@
 # Contributing to RichOS
 
-Thank you for looking. Read the two short sections before the long ones: they
-are the ones that change whether you want to contribute at all.
+Thank you for looking. Read the first two sections before the long ones. The
+first decides whether you *can* open a pull request here; the second decides
+whether you want to.
+
+## Who may open a pull request, and what is open to everybody
+
+**Issues are open to everyone. Pull requests are not.** Both halves of that
+matter, and the first half is the one people miss.
+
+**Anybody may open an issue.** A bug report, a question, a design proposal, a
+"would you take a pull request for this?", a typo — first visit or hundredth,
+nobody has to be approved, and nothing in this repository closes an issue
+automatically. That door is deliberately unlocked, and it is the one to use.
+
+**Pull requests come only from approved accounts.** A pull request from an
+account that is not approved is **closed automatically, usually within a minute,
+by a bot, before a human has read a line of it.** That is not a judgment of your
+change — nothing has looked at your change. It is a filter on who can put work
+into a review queue that one person empties. You will get a comment explaining
+it and linking back here, your commits are not deleted, and the pull request can
+be reopened once you are approved.
+
+Saying that here, plainly, is the point of this section. Discovering it by
+having a weekend's work shut by a bot is not.
+
+### How to get approved
+
+1. **Open an issue** describing what you want to change — the "Idea or question"
+   form exists for exactly this — and say you would like to be added to the
+   contributor list.
+2. **Wait for a reply.** There is one maintainer, so this can take a while.
+   Approval normally follows a conversation about the change itself, because a
+   pull request here can be declined for direction rather than for quality, and
+   that conversation is what stops you spending an evening on something that was
+   never going to land.
+3. **A maintainer adds your GitHub username to `.github/VOUCHED.td`.** One line,
+   committed to `main`. That is the entire mechanism: no form, no agreement to
+   sign, no account to create anywhere else.
+4. **Open your pull request.** It stays open and joins the normal review queue.
+
+**If you have already written the change**, it is not wasted. Open the issue,
+link your fork or your branch from it, and say what you did. If the gate has
+already closed a pull request of yours, reopening it after you are approved
+brings back every commit that was in it.
+
+**What approval is not.** It is not a promise to review on any schedule, and not
+a promise to merge anything. It means your work reaches a person instead of a
+bot.
+
+### Who is already approved without appearing on the list
+
+Repository collaborators with write or admin access pass automatically — that is
+checked before the file is read. Accounts whose username ends in `[bot]`, such
+as Dependabot, are skipped entirely.
+
+### Where the mechanism lives, so you can check it yourself
+
+- `.github/VOUCHED.td` — the list. Its format is documented at the top of it.
+- `.github/workflows/vouch-pr.yml` — the workflow that reads it, using
+  [Vouch](https://github.com/mitchellh/vouch). Its header says what it does, how
+  it fails, and what it deliberately does not do.
+
+Both are public on purpose. A rule that can close somebody's work should be one
+that person can read.
 
 ## Where this project actually is
 
-RichOS is an **early source snapshot**. There are no releases and no tags, the
-continuous-integration workflows were disabled before publication, and parts of
-the application are still personalized to its author. It is one person's
-project that has been made public, not a product with a team behind it.
+RichOS is an **early project, recently made public**. Three releases have been
+published — `v1.0.0`, `v1.0.1` and `v1.0.2`, all on 2026-09-04 — and parts of
+the application are still personalized to its author. It is one person's project
+that has been made public, not a product with a team behind it.
+
+Three of the five continuous-integration workflows run on pushes and pull
+requests. Two, `engine-self-verify` and `packaging-ci`, are disabled in their own
+files, each for a measured reason. `.github/workflows/README.md` says which is
+which and why, and it is kept current rather than written once.
 
 What that means for you, in practice:
 
+- **Open an issue before you write anything.** Here that is not the polite
+  suggestion it is in most projects: an unapproved pull request is closed
+  automatically, and the issue is the route to being approved. The section above
+  has the steps.
 - A pull request may sit for a while. There is no rota and no service level.
-- A pull request may be declined for direction rather than for quality. If you
-  are about to spend real time on something, **open an issue first and ask.**
-  That is not a formality here; it is the difference between work that lands and
-  work that does not.
+- A pull request may be declined for direction rather than for quality — which
+  is the real reason the conversation comes first.
 - Small, self-contained changes land far more easily than large ones. A fix with
   a test beats a refactor with a rationale.
 
@@ -59,6 +128,10 @@ reproduces the RichOS identity will be declined regardless of how good it is,
 because the licensing boundary is the thing being kept clean.
 
 ## Before you open a pull request
+
+Everything from here on assumes your account is approved. If it is not, the
+first section is the one you need — an unapproved pull request never reaches any
+of this.
 
 ### Run the checks that exist
 
@@ -137,17 +210,22 @@ capability it did not deliver.
   A message that says what changed is available from the diff for free.
 - **Include the test that would have failed before.** A test named for the
   invariant it protects is worth more than three named `test_thing_works`.
-- **Expect the automated checks not to run at first.** The workflows are
-  disabled — `.github/workflows/README.md` says why — so a green tick may be
-  absent for reasons that have nothing to do with your change. Run the suites
-  locally and say in the description which ones you ran.
+- **Do not read the checks as a verdict on your change alone.** Three workflows
+  run on pull requests — `app-spine-ci`, `ui-suite-ci` and
+  `windows-companion-ci` — each behind its own path filter, so a pull request
+  that touches nothing they watch gets no tick at all, and that is normal rather
+  than a problem. Two more are disabled in their own files and will not run for
+  anybody. Before assuming a red tick is yours, check whether `main` is red for
+  the same job. Either way, run the suites locally and say in the description
+  which ones you ran.
 
 ## Reporting problems
 
 - **A security vulnerability does not go in an issue or a pull request.**
   `.github/SECURITY.md` has the private routes and what to expect back.
-- **A bug** goes in an issue. Include the commit SHA you were on — there are no
-  releases to name — your operating system, and what you expected instead.
+- **A bug** goes in an issue, and you do not need to be approved to open one.
+  Name the release you were on — `v1.0.2`, say — or the commit SHA if you built
+  from source, plus your operating system and what you expected instead.
 - **An idea** is welcome as an issue too, especially before you build it.
 
 ## Language
@@ -166,4 +244,8 @@ from.
 - `docs/legal/THIRD-PARTY-RUST-DEPENDENCIES.md` — the compiled dependency
   inventory, keyed to the tracked lockfile digests.
 - `.github/SECURITY.md` — how to report a vulnerability.
+- `.github/VOUCHED.td` — the accounts approved to open a pull request.
+- `.github/workflows/vouch-pr.yml` — the workflow that enforces it, and its own
+  account of how it fails.
+- `.github/workflows/README.md` — which workflows run, which do not, and why.
 - `app/README.md` — the application's own build, layout and test documentation.

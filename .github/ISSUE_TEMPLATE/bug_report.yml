@@ -13,11 +13,12 @@ body:
   - type: input
     id: commit
     attributes:
-      label: Commit SHA
+      label: Version or commit
       description: >-
-        RichOS has no releases and no tags, so the commit is the only way to name
-        a version. `git rev-parse HEAD` in your checkout.
-      placeholder: e.g. 06e7947a627f29f62c28ba350bee98814d57cb30
+        The release you installed, such as `v1.0.2`, or the commit SHA if you
+        built from source — `git rev-parse HEAD` in your checkout. Either one
+        names a version; without one, nothing else in this report can be placed.
+      placeholder: e.g. v1.0.2, or 06e7947a627f29f62c28ba350bee98814d57cb30
     validations:
       required: true
 

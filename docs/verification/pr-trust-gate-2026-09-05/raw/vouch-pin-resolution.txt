@@ -1,0 +1,32 @@
+Resolving the pin for mitchellh/vouch/action/check-pr. 2026-09-05.
+Run against the action's own repository, not from memory or a search result.
+
+$ git ls-remote https://github.com/mitchellh/vouch.git 'refs/tags/v1' 'refs/tags/v1^{}' 'refs/tags/v1.5.0' 'refs/tags/v1.5.0^{}'
+f23dbb5e745334f97414ec70463ce7301071a661	refs/tags/v1
+d66fa29a64600490892131ad87597c30c91fcac4	refs/tags/v1^{}
+d66fa29a64600490892131ad87597c30c91fcac4	refs/tags/v1.5.0
+
+v1 is ANNOTATED and prints TWO lines. The first is the tag OBJECT and is not a
+commit. The peeled line, ending ^{}, is the commit -- and it is the same commit
+that v1.5.0 names. v1.5.0 prints ONE line: a lightweight tag pointing straight
+at the commit, which is why no ^{} line appears for it.
+
+So `@v1` in a workflow resolves to d66fa29a..., and a pin written as
+f23dbb5e... would name an object that is not a commit at all.
+
+$ gh api repos/mitchellh/vouch/commits/d66fa29a64600490892131ad87597c30c91fcac4 --jq '.sha, .commit.committer.date'
+d66fa29a64600490892131ad87597c30c91fcac4
+2026-07-12T20:24:16Z
+
+The commit is known to mitchellh/vouch. This is the check that catches a SHA
+copied out of a fork: a fork's commit resolves in the fork and 404s here.
+
+$ gh api repos/mitchellh/vouch/git/refs/tags/v1 --jq '.object'
+{"sha":"f23dbb5e745334f97414ec70463ce7301071a661","type":"tag","url":"https://api.github.com/repos/mitchellh/vouch/git/tags/f23dbb5e745334f97414ec70463ce7301071a661"}
+
+"type": "tag", not "commit" -- the API says the same thing the two-line
+ls-remote said.
+
+WHAT IS PINNED IN .github/workflows/vouch-pr.yml:
+
+  mitchellh/vouch/action/check-pr@d66fa29a64600490892131ad87597c30c91fcac4 # v1.5.0
