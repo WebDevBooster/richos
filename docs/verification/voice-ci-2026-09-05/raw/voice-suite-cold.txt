@@ -1,0 +1,340 @@
+# WHAT THIS IS
+#
+# A cold, --locked run of the WHOLE richos-voice crate on the one machine the suite
+# has ever run on, captured so the workflow beside it can cite a measurement instead
+# of an estimate. It answers two questions app-spine-ci.yml's exclusion comment had
+# answered by assumption: does this need a whisper build, and does it need an audio
+# endpoint. It does NOT answer 'does this pass on a GitHub runner' — nothing run on
+# this Mac can, and the workflow says so in its own header.
+
+# HOST
+ProductName:		macOS
+ProductVersion:		15.6
+BuildVersion:		24G84
+arm64
+rustc 1.95.0 (59807616e 2026-04-14)
+cargo 1.95.0 (f2d3ce0bd 2026-03-21)
+
+# TREE: the HEAD this was captured at is in sha.txt beside this file.
+
+# WHAT THE CRATE DEPENDS ON — cpal and serde_json. No whisper crate, no bindgen.
+# whisper-cli is resolved at RUN time from PATH/env by src/stt.rs and is never built.
+[dependencies]
+cpal = "0.17"
+serde_json = "1"
+
+
+# THE VOICE CENSUS, derived from the test source rather than retyped.
+# This is the same logic the workflow runs, so a runner's number lands in its log.
+say -v '?' reports 177 voices on this runner.
+
+  PRESENT  Samantha
+  absent   Alex
+  PRESENT  Daniel
+  PRESENT  Karen
+  PRESENT  Fred
+  PRESENT  Moira
+  PRESENT  Tessa
+
+6 of the suite's candidates are installed here. The suite's own floor is 3 and
+IT is the gate — this step only makes the number legible whether the run is red or green.
+
+# NEGATIVE CONTROL for that census: point the extraction at a file with no VOICES
+# declaration and it must go red rather than report an empty set as a pass.
+say -v '?' reports 177 voices on this runner.
+
+FATAL: could not read VOICES out of crates/richos-voice/src/vad.rs — the census would be over an empty set,
+       and an empty inventory reported as a pass is the exact failure this step exists
+       to avoid. The declaration moved or changed shape; fix this extraction.
+census_negative_control_exit=1  (1 is the pass)
+
+# COLD cargo test --locked -p richos-voice, with CARGO_TARGET_DIR emptied first.
+# No RICHOS_VOICE_LIVE_AUDIO is set, which is the runner's condition.
+start_epoch=1788617914
+   Compiling libc v0.2.189
+   Compiling objc2 v0.6.4
+   Compiling objc2-encode v4.1.0
+   Compiling proc-macro2 v1.0.107
+   Compiling bitflags v2.13.1
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.229
+   Compiling typenum v1.20.1
+   Compiling zmij v1.0.23
+   Compiling generic-array v0.14.7
+   Compiling serde_json v1.0.151
+   Compiling cfg-if v1.0.4
+   Compiling getrandom v0.4.3
+   Compiling itoa v1.0.18
+   Compiling serde v1.0.229
+   Compiling cpal v0.17.3
+   Compiling thiserror v1.0.69
+   Compiling memchr v2.8.3
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling syn v2.0.119
+   Compiling syn v3.0.4
+   Compiling dispatch2 v0.3.1
+   Compiling block2 v0.6.2
+   Compiling objc2-core-audio-types v0.3.2
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling mach2 v0.5.0
+   Compiling dasp_sample v0.11.0
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/zach-opus-vci/app/crates/richos-core)
+   Compiling objc2-core-foundation v0.3.2
+   Compiling sha2 v0.10.9
+   Compiling uuid v1.26.0
+   Compiling thiserror-impl v1.0.69
+   Compiling serde_derive v1.0.229
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling coreaudio-rs v0.14.2
+   Compiling richos-voice v0.1.0 (/Users/alex/ab/richos-wt/zach-opus-vci/app/crates/richos-voice)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.56s
+     Running unittests src/lib.rs (/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/clean/debug/deps/richos_voice-c47b94de9cbff53e)
+
+running 172 tests
+test aec::tests::one_aec_block_is_one_vad_frame_and_the_tail_is_128_milliseconds ... ok
+test aec::tests::an_empty_ring_drains_to_nothing ... ok
+test aec::tests::a_ring_overrun_is_reported_rather_than_hidden ... ok
+test aec::tests::the_confidence_threshold_is_six_db_under_the_vads_speech_floor ... ok
+test aec::tests::the_reference_ring_carries_every_sample_in_order ... ok
+test aec::tests::the_reference_sink_delivers_sixteen_thousand_samples_per_second ... ok
+test aec::tests::with_rich_silent_the_near_end_verdict_is_false_by_construction ... ok
+test bargein::tests::a_disarmed_monitor_never_fires ... ok
+test bargein::tests::a_gap_one_frame_before_the_threshold_discards_the_whole_run ... ok
+test bargein::tests::arming_clears_the_window_as_well_as_the_run ... ok
+test bargein::tests::bursty_echo_never_barges_in_because_gaps_reset_the_run ... ok
+test bargein::tests::changing_mode_discards_evidence_gathered_under_the_old_rule ... ok
+test bargein::tests::continuous_speech_fires_on_the_313th_frame_not_the_312th ... ok
+test bargein::tests::evidence_older_than_the_window_stops_counting ... ok
+test bargein::tests::fires_at_most_once_per_armed_period ... ok
+test bargein::tests::gappy_real_speech_registers_under_the_window_and_never_under_the_consecutive_rule ... ok
+test bargein::tests::retuning_the_debounce_is_one_number_and_the_math_follows ... ok
+test bargein::tests::shipped_debounce_is_313_frames_which_is_5008_milliseconds ... ok
+test bargein::tests::tap_to_stop_interrupts_instantly_without_the_debounce ... ok
+test bargein::tests::the_converged_window_is_25_frames_which_is_400_milliseconds_exactly ... ok
+test bargein::tests::the_five_second_rule_is_the_default_and_the_short_window_must_be_earned ... ok
+test bargein::tests::the_null_echo_gate_sees_the_frames_and_cancels_nothing ... ok
+test bargein::tests::the_windowed_rule_fires_on_the_fifteenth_frame_not_the_fourteenth ... ok
+test bargein::tests::the_windowed_rule_fires_once_and_tap_to_stop_still_overrides_it ... ok
+test bargein::tests::the_windowed_rule_would_fire_on_raw_echo_which_is_why_it_needs_a_canceller ... ok
+test aec::tests::a_cold_canceller_is_never_confident ... ok
+test capture::tests::capture_failures_reach_the_ceo_as_calm_rich_voiced_lines ... ok
+test capture::tests::every_frame_handed_downstream_is_exactly_one_vad_frame ... ok
+test capture::tests::slicing_preserves_the_sample_stream_exactly ... ok
+test capture::tests::the_source_is_the_microphone_unless_a_wav_is_explicitly_named ... ok
+test chunk::tests::a_code_block_is_never_read_aloud ... ok
+test chunk::tests::a_decimal_number_is_not_a_sentence_boundary ... ok
+test chunk::tests::a_sentence_is_emitted_as_soon_as_its_boundary_arrives ... ok
+test chunk::tests::abbreviations_do_not_end_sentences ... ok
+test chunk::tests::an_unpunctuated_monologue_is_cut_at_a_word_break_not_mid_word ... ok
+test chunk::tests::chunking_loses_no_words_from_the_reply ... ok
+test chunk::tests::chunks_with_nothing_to_say_are_dropped_entirely ... ok
+test chunk::tests::deltas_that_split_words_still_produce_whole_sentences ... ok
+test chunk::tests::initials_do_not_end_sentences ... ok
+test chunk::tests::markdown_machinery_is_never_spoken ... ok
+test chunk::tests::numbered_list_markers_are_neither_spoken_nor_treated_as_boundaries ... ok
+test chunk::tests::reset_drops_the_abandoned_half_sentence ... ok
+test chunk::tests::the_final_fragment_is_spoken_at_end_of_turn ... ok
+test chunk::tests::urls_are_spoken_as_links_not_recited ... ok
+test controller::tests::a_one_word_decision_still_reaches_the_spine ... ok
+test controller::tests::a_sentence_synthesised_across_a_barge_in_is_discarded ... ok
+test controller::tests::a_voice_reaches_whisper_and_is_submitted_as_a_turn ... ok
+test aec::tests::the_hot_path_buffers_are_preallocated_and_bounded ... ok
+test controller::tests::every_start_failure_has_a_calm_ceo_line ... ok
+test controller::tests::live_a_silent_channel_produces_no_turn_and_a_real_utterance_still_does ... ok
+test controller::tests::live_barge_in_actually_silences_the_real_output_device ... ok
+test controller::tests::live_injected_audio_completes_the_whole_local_loop ... ok
+test controller::tests::the_controller_can_live_in_tauri_managed_state ... ok
+test controller::tests::the_diagnostics_line_carries_the_exact_frame_math ... ok
+test aec::tests::headphones_leave_nothing_to_cancel_and_the_canceller_says_so ... ok
+test controller::tests::the_noise_phrase_filter_still_applies_to_audio_that_did_carry_a_voice ... ok
+test controller::tests::the_silent_discard_notice_names_no_control_and_no_machinery ... ok
+test controller::tests::the_two_voice_notices_say_different_things ... ok
+test controller::tests::three_silent_discards_take_at_least_three_and_a_third_seconds ... ok
+test endpoint::tests::a_blip_shorter_than_the_onset_never_starts_an_utterance ... ok
+test endpoint::tests::a_cough_is_discarded_and_never_reaches_the_recognizer ... ok
+test endpoint::tests::a_monologue_is_cut_at_whispers_thirty_second_window ... ok
+test endpoint::tests::a_pause_shorter_than_the_hangover_does_not_end_the_utterance ... ok
+test endpoint::tests::a_real_sentence_reports_a_duration_derived_from_its_samples ... ok
+test endpoint::tests::endpointing_thresholds_match_their_intended_durations_exactly ... ok
+test endpoint::tests::onset_requires_seven_consecutive_speech_frames ... ok
+test endpoint::tests::promoting_an_in_flight_capture_keeps_the_audio_the_ceo_interrupted_with ... ok
+test endpoint::tests::the_pre_roll_ring_is_bounded ... ok
+test endpoint::tests::the_utterance_keeps_the_pre_roll_so_the_first_consonant_is_not_clipped ... ok
+test event::tests::state_payload_keys_are_the_ones_the_webview_reads ... ok
+test event::tests::the_silent_input_verdict_rides_the_state_event_as_no_audio ... ok
+test event::tests::the_three_voice_event_names_are_stable ... ok
+test event::tests::transcript_payload_carries_measured_numbers_as_numbers ... ok
+test fft::tests::a_pure_bin_lands_in_exactly_that_bin ... ok
+test fft::tests::forward_then_inverse_returns_the_original_signal ... ok
+test fft::tests::load_real_zero_pads_a_short_source ... ok
+test fft::tests::mul_conj_is_multiplication_by_the_conjugate ... ok
+test fft::tests::parseval_energy_is_conserved ... ok
+test fft::tests::spectral_product_is_circular_convolution ... ok
+test fft::tests::the_transform_of_an_impulse_is_flat ... ok
+test noaudio::tests::a_conversational_pause_between_sentences_never_warns ... ok
+test noaudio::tests::a_mute_unmute_cycle_clears_and_re_arms_without_a_restart ... ok
+test noaudio::tests::an_input_hovering_between_the_floors_neither_warns_nor_blinks ... ok
+test noaudio::tests::an_intermittent_input_does_not_strobe_the_warning ... ok
+test noaudio::tests::both_floors_sit_below_the_measured_live_room_tone ... ok
+test noaudio::tests::playout_freezes_the_detector_rather_than_clearing_a_live_warning ... ok
+test noaudio::tests::reset_leaves_no_stale_warning_for_the_next_session ... ok
+test noaudio::tests::rich_speaking_never_produces_a_no_audio_warning ... ok
+test noaudio::tests::ten_minutes_of_a_silent_ceo_in_a_live_quiet_room_never_warns ... ok
+test noaudio::tests::the_no_audio_window_is_exactly_three_point_zero_zero_eight_seconds ... ok
+test noaudio::tests::the_swift_huds_threshold_would_false_fire_on_this_live_microphone ... ok
+test noaudio::tests::the_warning_transition_is_reported_exactly_once ... ok
+test noaudio::tests::true_silence_fires_at_frame_188_and_not_before ... ok
+test playout::tests::an_underrun_produces_silence_not_stale_audio ... ok
+test playout::tests::back_to_back_sentences_form_one_continuous_stream ... ok
+test playout::tests::live_macos_output_device_drains_the_queue ... ok
+test playout::tests::mono_is_written_to_every_output_channel ... ok
+test playout::tests::odd_buffer_lengths_and_mono_devices_are_handled ... ok
+test state::tests::a_barge_in_goes_straight_from_speaking_to_hearing ... ok
+test state::tests::a_failed_turn_returns_to_listening_not_a_stuck_spinner ... ok
+test state::tests::barge_in_cannot_double_fire ... ok
+test state::tests::barge_in_is_armed_only_while_rich_has_audio_playing ... ok
+test state::tests::nothing_makes_the_mic_hot_while_voice_mode_is_off ... ok
+test state::tests::tapping_off_abandons_everything_in_flight ... ok
+test state::tests::tapping_stop_without_saying_anything_returns_to_listening ... ok
+test state::tests::the_happy_path_visits_listening_hearing_thinking_speaking_listening ... ok
+test state::tests::the_panel_stays_speaking_between_richs_sentences ... ok
+test state::tests::the_state_strings_the_webview_keys_off_are_stable ... ok
+test state::tests::typing_during_voice_mode_still_produces_a_spoken_reply ... ok
+test stt::tests::a_missing_recognizer_reaches_the_ceo_without_a_path_in_it ... ok
+test stt::tests::annotation_only_transcripts_are_not_turns ... ok
+test stt::tests::one_word_ceo_decisions_are_never_swallowed_by_the_noise_filter ... ok
+test stt::tests::real_speech_passes_even_when_it_contains_a_noise_phrase ... ok
+test stt::tests::resolution_returns_a_result_and_never_panics ... ok
+test stt::tests::the_conversational_default_model_is_small_en_for_latency ... ok
+test stt::tests::the_word_whisper_hallucinates_from_silence_is_rejected ... ok
+test stt::tests::whisper_stdout_becomes_one_clean_line ... ok
+test tts::tests::a_synthesis_failure_degrades_to_text_without_leaking_machinery ... ok
+test capture::tests::an_injected_wav_delivers_exact_frames_then_keeps_the_mic_open_on_silence ... ok
+test tts::tests::speech_metrics_are_derived_not_stored ... ok
+test tts::tests::the_voice_preference_upgrades_quality_without_changing_identity ... ok
+test tts::tests::voice_lines_parse_including_parenthesised_names ... ok
+test vad::tests::a_steady_hiss_above_the_initial_threshold_stops_reading_as_speech ... ok
+test vad::tests::a_voice_over_room_tone_reads_as_speech ... ok
+test vad::tests::frames_for_secs_rounds_up_so_a_debounce_never_fires_early ... ok
+test vad::tests::frames_to_secs_reproduces_the_pilots_five_point_zero_zero_eight_seconds ... ok
+test vad::tests::level_meter_is_monotonic_and_bounded ... ok
+test vad::tests::one_vad_frame_is_exactly_sixteen_milliseconds ... ok
+test vad::tests::rms_of_silence_is_zero_and_of_full_scale_dc_is_one ... ok
+test vad::tests::silence_is_never_speech_even_after_the_floor_settles ... ok
+test vad::tests::the_noise_floor_does_not_climb_during_a_long_utterance ... ok
+test vad::tests::the_stuck_floor_escape_is_ten_seconds_of_continuous_speech ... ok
+test voiced::tests::a_one_word_decision_gets_through ... ok
+test aec::tests::silence_from_rich_leaves_the_microphone_bit_identical ... ok
+test aec::tests::the_bulk_delay_is_measured_and_brackets_the_true_delay ... ok
+test voiced::tests::a_steady_tone_is_periodic_and_is_still_refused_because_its_pitch_never_moves ... ok
+test voiced::tests::an_utterance_too_short_to_measure_is_refused_rather_than_assumed ... ok
+test voiced::tests::a_voice_gets_through ... ok
+test voiced::tests::a_voice_over_room_noise_still_gets_through ... ok
+test voiced::tests::digital_silence_never_carried_a_voice ... ok
+test controller::tests::audio_that_carried_no_voice_never_reaches_whisper_and_never_becomes_a_turn ... ok
+test controller::tests::the_refusal_is_said_once_per_run_and_again_after_the_room_recovers ... ok
+test voiced::tests::the_operator_summary_carries_every_gated_number ... ok
+test voiced::tests::the_pitch_band_lags_are_forty_and_two_hundred_and_twenty_eight ... ok
+test tts::tests::live_macos_synthesis_outruns_playback ... ok
+test voiced::tests::the_voiced_run_is_the_same_zero_point_one_one_two_seconds_as_the_speech_onset ... ok
+test voiced::tests::the_window_is_thirty_two_milliseconds_and_the_hop_is_one_vad_frame ... ok
+test wav::tests::a_non_wav_is_an_error_not_a_panic ... ok
+test wav::tests::a_speech_band_tone_survives_downsampling ... ok
+test wav::tests::a_wav_round_trip_preserves_the_audio_within_quantisation_error ... ok
+test wav::tests::a_wav_with_an_extra_chunk_before_data_still_decodes ... ok
+test wav::tests::an_identity_conversion_is_an_exact_passthrough ... ok
+test wav::tests::chunking_the_input_does_not_change_a_single_output_sample ... ok
+test wav::tests::duration_is_derived_from_the_samples ... ok
+test wav::tests::mono_expands_to_every_output_channel ... ok
+test wav::tests::out_of_band_energy_is_attenuated_rather_than_aliased_into_speech ... ok
+test wav::tests::resampling_between_equal_rates_is_the_identity ... ok
+test wav::tests::resampling_per_callback_drifts_which_is_why_rateconverter_exists ... ok
+test voiced::tests::each_condition_catches_something_the_other_does_not ... ok
+test wav::tests::stereo_folds_to_mono_by_averaging_not_by_dropping_a_channel ... ok
+test wav::tests::the_header_is_the_canonical_44_byte_pcm16_header ... ok
+test wav::tests::resampling_preserves_duration ... ok
+test wav::tests::the_rate_converter_holds_its_timebase_over_a_long_stream ... ok
+test wav::tests::the_rate_converter_preserves_the_signal_not_merely_the_length ... ok
+test voiced::tests::the_verdict_does_not_depend_on_how_loudly_he_spoke ... ok
+test voiced::tests::impulse_noise_is_refused_however_loud_the_transients_are ... ok
+test voiced::tests::noise_with_a_fake_syllabic_envelope_is_still_refused ... ok
+test aec::tests::a_changed_echo_path_is_relearned_rather_than_latching_the_detector ... ok
+test voiced::tests::room_hiss_never_carried_a_voice_at_any_level_the_vad_could_believe ... ok
+test aec::tests::double_talk_does_not_wreck_the_converged_filter ... ok
+test aec::tests::a_short_interruption_is_detected_while_echo_only_never_is ... ok
+test aec::tests::the_canceller_removes_the_echo_it_was_built_to_remove ... ok
+
+test result: ok. 172 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.31s
+
+     Running tests/barge_in_composition.rs (/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/clean/debug/deps/barge_in_composition-7708a0ba73b18396)
+
+running 15 tests
+test a_muted_microphone_on_an_open_stream_is_reported_at_3_008_seconds ... ok
+test a_cough_is_not_a_turn_and_does_not_wedge_the_pipeline ... ok
+test a_mute_unmute_cycle_clears_the_warning_and_the_next_sentence_still_becomes_a_turn ... ok
+test tap_to_stop_cuts_instantly_and_rescues_the_utterance_in_flight ... ok
+test speech_starting_just_before_rich_falls_silent_is_not_treated_as_echo ... ok
+test an_ordinary_utterance_while_rich_is_silent_becomes_a_turn_untouched ... ok
+test a_deliberate_interruption_cuts_rich_at_frame_313_and_still_becomes_a_turn ... ok
+test a_dead_microphone_is_not_reported_while_rich_is_speaking ... ok
+test thirty_seconds_of_a_live_room_with_nobody_talking_never_warns ... ok
+test thirty_seconds_of_richs_own_voice_produces_no_interruption_and_no_turn ... ok
+test the_debounce_starts_long_and_is_only_shortened_by_measurement ... ok
+test tap_to_stop_is_still_instant_once_the_canceller_is_confident ... ok
+test with_rich_silent_the_frames_that_reach_whisper_are_bit_identical_to_the_microphone ... ok
+test a_four_hundred_millisecond_interruption_cuts_rich_off_and_becomes_a_turn ... ok
+test thirty_seconds_of_richs_own_voice_still_produces_nothing_with_the_canceller_and_the_short_debounce ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.31s
+
+     Running tests/voiced_acceptance.rs (/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/clean/debug/deps/voiced_acceptance-46f325676f5a6fad)
+
+running 4 tests
+test the_gate_costs_a_small_fraction_of_the_recognition_it_guards ... ok
+test room_tone_of_the_same_length_is_refused_by_the_same_measurement ... ok
+test real_speech_from_every_installed_voice_is_admitted ... ok
+test the_margin_between_real_speech_and_room_tone_is_reported_and_still_wide ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.89s
+
+   Doc-tests richos_voice
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+test_exit=0
+end_epoch=1788617948
+
+# COLD cargo build --locked -p richos-voice --release, target dir emptied first.
+rel_start_epoch=1788617948
+   Compiling objc2 v0.6.4
+   Compiling objc2-encode v4.1.0
+   Compiling libc v0.2.189
+   Compiling bitflags v2.13.1
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling cpal v0.17.3
+   Compiling memchr v2.8.3
+   Compiling dasp_sample v0.11.0
+   Compiling itoa v1.0.18
+   Compiling dispatch2 v0.3.1
+   Compiling block2 v0.6.2
+   Compiling objc2-core-audio-types v0.3.2
+   Compiling mach2 v0.5.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling coreaudio-rs v0.14.2
+   Compiling richos-voice v0.1.0 (/Users/alex/ab/richos-wt/zach-opus-vci/app/crates/richos-voice)
+    Finished `release` profile [optimized] target(s) in 10.34s
+build_exit=0
+rel_end_epoch=1788617958
