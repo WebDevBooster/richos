@@ -54,6 +54,38 @@
 # boundary here is drawn on CONTENT, which is what the rule was always about,
 # and on .gitignore, which already answers "will this be published?" per path.
 #
+# A THIRD CONTRACT READS THIS FILE'S PRESENCE, AND TAKES NO KEY FROM IT
+# ----------------------------------------------------------------------
+# The NAMED-PERSON DENY-LIST. The two guards above ask "is this something a
+# person said in private?"; the secrets scanner asks "is this a credential?".
+# Neither asks "IS THIS SOMEBODY'S NAME?", and a name answers no to both: it has
+# no vendor prefix, its entropy is the entropy of ordinary prose, and it is
+# nobody's recorded speech. On 2026-09-04 a third party found his own name in
+# this repository hours after it went public — in the source filename of a
+# recording, named inside a test fixture's script — and he found it himself,
+# because nothing here was looking for a person's name.
+#
+# `guard-named-persons-writes.sh` and `guard-named-persons-commands.sh` use THIS
+# FILE'S PRESENCE as their "does this tree get published?" signal, and read
+# nothing else out of it. One question, one answer, one place.
+#
+# THE LIST OF NAMES IS NOT IN THIS REPOSITORY AND MUST NEVER BE. A roster of the
+# owner's clients, friends and family is worse to publish than any single name
+# on it. It lives at `~/.richos-privacy/named-persons` — operator scope, outside
+# every checkout, the same shape `~/.richos-signing/` uses — and the loader
+# REFUSES a list that resolves inside a git work tree, so this is structural
+# rather than remembered.
+#
+# A MISSING LIST IS ANNOUNCED, NEVER ASSUMED AWAY. At write time the guards say
+# so loudly, by name, once per repository per session, and let the write through:
+# a stranger who clones this repository has no roster of anybody's acquaintances
+# and must not be blocked by its absence. At RELEASE time it refuses, because a
+# release runs on the owner's machine where "there is no list" and "there are no
+# names" are two entirely different facts.
+#
+#   <engine>/scripts/named-persons.sh --doctor
+#   <engine>/scripts/named-persons.sh --mint "Firstname Lastname"
+#
 # THE KEYS
 # --------
 # PRIVATE_RECORD    Named in every refusal, so the author is told where the

@@ -12,6 +12,70 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **A named-person deny-list, held outside every repository, checked at write
+  time, at command time and at release** (`scripts/lib/named-persons.py`,
+  `scripts/lib/named-persons.sh`, `scripts/hooks/guard-named-persons-writes.sh`,
+  `scripts/hooks/guard-named-persons-commands.sh`, `scripts/named-persons.sh`,
+  `scripts/hooks/named-persons.test.sh`) — MINOR.
+
+  **A NAME IS NOT A SECRET AND NEVER TRIPS A SECRET SCANNER.** It carries no
+  vendor prefix and the entropy of a person's name is the entropy of ordinary
+  prose. It is not recorded speech either, so the publication-boundary guards
+  score it at zero. A third party's name reached a published repository through
+  a test fixture's source filename and passed every check there was, and the
+  person himself was the one who found it. The dated detail is in the operator's
+  private record, `wiki/publication-boundary-incidents.md`, for the reason that
+  page exists.
+
+  **The scrub is what shapes the design.** The commit that removed the name from
+  the file put the same name — and the company — in its own commit message, on
+  the repository's commit list, more visible than the line it deleted; it had to
+  be amended and force-pushed with branch protection lifted. So: **a scrub covers
+  four surfaces — file content, commit message, branch name, and PR/issue
+  title.** Three of the four were missed by the remedy for the first, and each is
+  now a chokepoint. Which of them a hook can actually SEE is stated in the
+  predicate's header rather than implied: an editor-composed commit message,
+  commits made by `merge`/`cherry-pick`/`rebase`/`am`, and a title typed into
+  github.com are named as out of reach, and the release check is the backstop for
+  everything typed rather than executed.
+
+  **The list is not in the repository, and cannot be.** A roster of a person's
+  clients, friends and family is worse to publish than any one name on it. It
+  lives at `~/.richos-privacy/named-persons` — operator scope, outside every
+  checkout, the shape `~/.richos-signing/` already set — and `load_list()`
+  REFUSES a list that resolves inside a git work tree, naming the repository. An
+  entry may be plaintext or `sha256:<token-count>:<hex>`, so a digest-only list
+  discloses a length and nothing else, and no block message ever prints the
+  matched name: only the first and last character of each token, which is
+  `scan-secrets.sh`'s redaction convention and is here for its reason.
+
+  **ABSENT is a third verdict, never a pass.** A missing list means nothing was
+  checked, and the two are the same only to a checker that lies. At write time it
+  is ANNOUNCED — loudly, by name, once per repository per session — and the write
+  proceeds, because a stranger who clones a public repository has no such roster
+  and a guard that bricks a fresh clone gets deleted. At RELEASE time it REFUSES,
+  because a release runs on the owner's machine. BROKEN — inside a repository,
+  unreadable, malformed, or empty — blocks everywhere.
+
+  **The match rule is narrow because the expensive failure is the false one.** A
+  `name:` entry must normalize to two or more tokens and matches only where they
+  appear adjacent; a bare given name cannot be entered at all and the loader says
+  why. Single tokens are opt-in per entry. Normalization folds case, accents,
+  camelCase and every separator, which is what makes a name buried in an
+  underscore-joined media filename the same match as the name in prose — the
+  shape the leak took. Initials, plurals and anything fuzzy are deliberately not
+  matched, and are listed as gaps rather than left to be discovered.
+
+  **Two bugs the suite found, both of the "matches nothing, looks clean" class.**
+  The command classifier used `grep -Eq` with `[^\n;|&]` to mean "within one
+  shell statement" — but in a POSIX bracket expression `\n` is a backslash and
+  the letter n, so the class excluded the letter n and every `git commit` whose
+  command string contained an n anywhere failed to match. It passed a hand test
+  against a path with no n in it. And seeding the list from the operator's
+  curated entity record put two names on it whose only appearances in the tree
+  were synthetic test fixtures — that file is an ASR vocabulary, not a roster, so
+  `--seed` now emits every proposal commented out.
+
 - **Declarations may be grouped in `.richos/`, and where one lives is now a
   single question with a single answer** (`scripts/lib/declaration-path.sh`,
   hashed by `install.sh`) — MINOR.
