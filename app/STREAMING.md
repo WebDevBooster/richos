@@ -656,3 +656,9 @@ The work-plan panel accepts updates only for its visible task and current run,
 rejecting lower revisions than the one it already has. `get_run` restores the
 durable view on reopening. Model turn events never set this panel to completed.
 Active model output continues through the existing conversation events.
+
+Managed task attempts use `Source::Managed`: their assistant text and activity
+are visible through the existing conversation projections, while the generated
+work prompt has no user-message render path. The source survives ledger reload.
+The run view also includes the workspace, attempt limits and exact verifier
+argument vectors for review before Start.

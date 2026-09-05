@@ -35,6 +35,9 @@ pub struct RunView {
     updated_at: u64,
     revision: u64,
     goal: String,
+    workspace: String,
+    max_attempts: u32,
+    turn_timeout_seconds: u64,
     state: RunState,
     tasks: Vec<TaskView>,
 }
@@ -45,6 +48,7 @@ pub struct TaskView {
     description: String,
     state: richos_core::run::TaskState,
     checks: Vec<String>,
+    commands: Vec<Vec<String>>,
     attempts: u32,
     evidence: Vec<String>,
 }
@@ -56,6 +60,9 @@ fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
         updated_at: snapshot.updated_at,
         revision: snapshot.revision,
         goal: snapshot.plan.goal.clone(),
+        workspace: snapshot.plan.workspace.display().to_string(),
+        max_attempts: snapshot.plan.max_attempts,
+        turn_timeout_seconds: snapshot.plan.turn_timeout_seconds,
         state: snapshot.state(),
         tasks: snapshot
             .plan
@@ -67,6 +74,7 @@ fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
                 description: t.prompt.clone(),
                 state: p.state.clone(),
                 checks: t.checks.iter().map(|c| c.name.clone()).collect(),
+                commands: t.checks.iter().map(|c| c.argv.clone()).collect(),
                 attempts: p.attempts,
                 evidence: p.evidence.clone(),
             })
@@ -186,7 +194,14 @@ pub fn drive_run(
         ctl.pause(false).map_err(|e| e.to_string())?;
         while ctl.snapshot().state() == RunState::Ready {
             let mut spine = state.spine.lock().unwrap();
+            ctl.snapshot().plan.validate().map_err(|e| e.to_string())?;
+            let worker = richos_core::native::NativeCognition::start_managed(
+                &richos_core::native::resolve_claude_bin(),
+                &ctl.snapshot().plan.workspace,
+            )
+            .map_err(|e| e.to_string())?;
             let mut host = SpineRunHost {
+                worker: Some(Box::new(worker)),
                 spine: &mut spine,
                 binding: binding.clone(),
                 pause: pause.clone(),
@@ -257,4 +272,18 @@ pub fn pause_run(state: State<AppState>, thread_id: String) -> Result<(), String
         .map_err(|e| e.to_string())?
         .pause(true)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn archive_run(state: State<AppState>, thread_id: String) -> Result<(), String> {
+    let active = state.managed_runs.active.lock().unwrap();
+    if active.is_some() {
+        return Err("Pause the run before archiving its journal.".into());
+    }
+    let spine = state.spine.lock().unwrap();
+    if spine.active_binding().map(|b| b.thread_id()) != Some(thread_id.as_str()) {
+        return Err("The selected task changed.".into());
+    }
+    richos_core::run::archive_journal(&path(&state, &thread_id)?).map_err(|e| e.to_string())?;
+    Ok(())
 }

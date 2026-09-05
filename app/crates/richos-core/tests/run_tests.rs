@@ -3,6 +3,67 @@ use richos_core::run_host::verify_command;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+// Controlled lease whose permission/workspace contract is explicit in the fixture.
+struct ManagedMock {
+    inner: richos_core::cognition::CancellableMockCognition,
+    workspace: PathBuf,
+}
+impl richos_core::cognition::Cognition for ManagedMock {
+    fn session_id(&self) -> &str {
+        self.inner.session_id()
+    }
+    fn reprime(
+        &mut self,
+        text: &str,
+        sink: &mut dyn FnMut(richos_core::cognition::TurnItem),
+    ) -> Result<(), richos_core::cognition::CognitionError> {
+        self.inner.reprime(text, sink)
+    }
+    fn prompt(
+        &mut self,
+        text: &str,
+        sink: &mut dyn FnMut(richos_core::cognition::TurnItem),
+    ) -> Result<String, richos_core::cognition::CognitionError> {
+        self.inner.prompt(text, sink)
+    }
+    fn cancel_handle(&self) -> Option<std::sync::Arc<dyn richos_core::steering::TurnCancel>> {
+        self.inner.cancel_handle()
+    }
+    fn prepare_managed(
+        &self,
+        workspace: &Path,
+    ) -> Result<(), richos_core::cognition::CognitionError> {
+        if workspace == self.workspace {
+            Ok(())
+        } else {
+            Err(richos_core::cognition::CognitionError::Protocol(
+                "Wrong fixture workspace".into(),
+            ))
+        }
+    }
+}
+fn worker(workspace: &Path) -> Box<dyn richos_core::cognition::Cognition> {
+    Box::new(ManagedMock {
+        inner: richos_core::cognition::CancellableMockCognition::new(
+            "managed-worker",
+            vec!["All done"],
+            std::time::Duration::from_millis(1),
+        ),
+        workspace: workspace.into(),
+    })
+}
+
+#[derive(Clone, Default)]
+struct RunLive(std::sync::Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>>);
+impl richos_core::live::LiveObserver for RunLive {
+    fn on_live_event(&self, event: &richos_core::live::LiveEvent) {
+        self.0
+            .lock()
+            .unwrap()
+            .push((event.event_name().into(), event.payload()));
+    }
+}
+
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
@@ -341,12 +402,15 @@ fn desktop_adapter_uses_real_scoped_spine_turns_and_external_verification() {
         vec!["All done"],
         std::time::Duration::from_millis(1),
     )));
+    let live = RunLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
     let binding = spine.active_binding().unwrap().clone();
     let mut p = plan(&tmp.0);
     p.tasks.truncate(1);
     p.tasks[0].checks[0].argv = vec!["/bin/test".into(), "-f".into(), "deliverable".into()];
     let mut ctl = RunController::create(&tmp.journal(), p).unwrap();
     let mut host = SpineRunHost {
+        worker: Some(worker(&tmp.0)),
         spine: &mut spine,
         binding,
         pause: Arc::new(AtomicBool::new(false)),
@@ -358,6 +422,7 @@ fn desktop_adapter_uses_real_scoped_spine_turns_and_external_verification() {
         "The model's All done did not pass the check"
     );
     std::fs::write(tmp.0.join("deliverable"), "the actual artifact").unwrap();
+    host.worker = Some(worker(&tmp.0));
     assert_eq!(
         ctl.tick(&mut host).unwrap(),
         RunState::Completed,
@@ -376,6 +441,51 @@ fn desktop_adapter_uses_real_scoped_spine_turns_and_external_verification() {
         })
         .count();
     assert_eq!(attempts, 2);
+    assert_eq!(
+        host.spine.lease_session_id(),
+        Some("test-session"),
+        "chat lease restored"
+    );
+    let messages = host.spine.ledger().messages(&thread).unwrap();
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.role == "assistant" && m.text == "All done")
+            .count(),
+        2
+    );
+    assert!(
+        !messages.iter().any(|m| m.role == "user"),
+        "managed prompts must not impersonate the user"
+    );
+    assert!(
+        live.0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(name, value)| name == "rich://message-delta"
+                && value.to_string().contains("All done")),
+        "output reaches the live conversation"
+    );
+    let before = host.spine.timeline(&thread).unwrap();
+    drop(host);
+    drop(spine);
+    let reopened = Spine::new(Ledger::open(tmp.0.join("conversation.jsonl")).unwrap());
+    assert_eq!(
+        reopened
+            .ledger()
+            .messages(&thread)
+            .unwrap()
+            .iter()
+            .filter(|m| m.text == "All done")
+            .count(),
+        2
+    );
+    assert_eq!(
+        reopened.timeline(&thread).unwrap(),
+        before,
+        "live projection survives reopening"
+    );
 }
 
 #[test]
@@ -387,11 +497,14 @@ fn the_model_timeout_is_enforced_through_the_adapters_cancel_handle() {
     let mut p = plan(&tmp.0);
     p.turn_timeout_seconds = 1;
     let mut ctl = RunController::create(&tmp.journal(), p).unwrap();
-    let mut model = CancellableMockCognition::new(
-        "slow-test",
-        vec!["still working"; 1000],
-        std::time::Duration::from_millis(20),
-    );
+    let mut model = ManagedMock {
+        workspace: tmp.0.clone(),
+        inner: CancellableMockCognition::new(
+            "slow-test",
+            vec!["still working"; 1000],
+            std::time::Duration::from_millis(20),
+        ),
+    };
     let mut output = |_: TurnItem<'_>| {};
     let mut host = CognitionRunHost {
         cognition: &mut model,
@@ -499,4 +612,114 @@ done
     assert_eq!(snapshot.state(), RunState::Completed);
     assert_eq!(snapshot.tasks[0].attempts, 2);
     assert!(tmp.0.join("deliverable").exists());
+}
+
+#[test]
+fn unavailable_workspace_can_be_inspected_and_ended_but_never_executed() {
+    let tmp = Temp::new();
+    let workspace = tmp.0.join("project");
+    std::fs::create_dir(&workspace).unwrap();
+    let ctl = RunController::create(&tmp.journal(), plan(&workspace)).unwrap();
+    drop(ctl);
+    std::fs::rename(&workspace, tmp.0.join("moved")).unwrap();
+    let mut ctl = RunController::open(&tmp.journal())
+        .expect("inspection is independent of workspace availability");
+    let mut host = Host::default();
+    assert!(ctl.tick(&mut host).is_err());
+    assert!(host.executions.is_empty());
+    ctl.cancel().unwrap();
+    drop(ctl);
+    assert_eq!(
+        RunController::open(&tmp.journal())
+            .unwrap()
+            .snapshot()
+            .state(),
+        RunState::Cancelled
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_native_transport_loads_settings_and_denies_unapproved_tools() {
+    use richos_core::cognition::Cognition;
+    use richos_core::native::{managed_child_args, NativeCognition};
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = Temp::new();
+    let fake = tmp.0.join("claude-fixture");
+    std::fs::write(&fake, r#"#!/usr/bin/env python3
+import json, sys, os
+open('launch.json', 'w').write(json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd()}))
+for line in sys.stdin:
+    msg = json.loads(line)
+    if msg.get('type') == 'control_request':
+        print(json.dumps({'type':'control_response','response':{'subtype':'success','request_id':msg['request_id'],'response':{}}}), flush=True)
+    elif msg.get('type') == 'user':
+        print(json.dumps({'type':'control_request','request_id':'approval','request':{'subtype':'can_use_tool','tool_name':'Write','input':{'file_path':'unapproved','content':'bad'}}}), flush=True)
+    elif msg.get('type') == 'control_response':
+        open('permission-response.json', 'w').write(json.dumps(msg))
+        print(json.dumps({'type':'result','subtype':'success','stop_reason':'end_turn','is_error':False}), flush=True)
+"#).unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut model = NativeCognition::start_managed(&fake, &tmp.0).unwrap();
+    model.prepare_managed(&tmp.0).unwrap();
+    assert!(model
+        .prepare_managed(&tmp.0.join("another-project"))
+        .is_err());
+    let mut p = plan(&tmp.0);
+    p.tasks.truncate(1);
+    p.tasks[0].checks[0].argv = vec!["/usr/bin/true".into()];
+    let mut ctl = RunController::create(&tmp.journal(), p).unwrap();
+    let mut sink = |_: richos_core::cognition::TurnItem| {};
+    let mut host = richos_core::run_host::CognitionRunHost {
+        cognition: &mut model,
+        on_item: &mut sink,
+        pause: std::sync::Arc::new(AtomicBool::new(false)),
+    };
+    assert_eq!(ctl.tick(&mut host).unwrap(), RunState::NeedsAttention);
+    assert!(ctl.snapshot().tasks[0].evidence[0].contains("permission_denied"));
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(tmp.0.join("permission-response.json")).unwrap())
+            .unwrap();
+    assert_eq!(receipt["response"]["response"]["behavior"], "deny");
+    let launch: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(tmp.0.join("launch.json")).unwrap()).unwrap();
+    let args = launch["argv"].as_array().unwrap();
+    let sources = args.iter().position(|v| v == "--setting-sources").unwrap();
+    assert_eq!(args[sources + 1], "user,project,local");
+    assert!(!args.iter().any(|v| v == "--no-session-persistence"));
+    let mode = args.iter().position(|v| v == "--permission-mode").unwrap();
+    assert_eq!(args[mode + 1], "default");
+    assert_eq!(
+        launch["cwd"],
+        tmp.0.canonicalize().unwrap().to_str().unwrap()
+    );
+    assert!(!managed_child_args("fixture")
+        .iter()
+        .any(|a| a.contains("skip-permissions")));
+    drop(host);
+    assert!(
+        model.reprime("prime", &mut sink).is_err(),
+        "permission denial during priming is not swallowed"
+    );
+    drop(model);
+    let legacy = NativeCognition::start(&fake, &tmp.0).unwrap();
+    assert!(
+        legacy.prepare_managed(&tmp.0).is_err(),
+        "the legacy auto-approving adapter cannot enter a run"
+    );
+}
+
+#[test]
+fn unreadable_journal_can_be_archived_verbatim_but_a_live_writer_cannot() {
+    let tmp = Temp::new();
+    let ctl = RunController::create(&tmp.journal(), plan(&tmp.0)).unwrap();
+    assert!(archive_journal(&tmp.journal()).is_err());
+    drop(ctl);
+    let raw = b"corrupt committed record\n";
+    std::fs::write(tmp.journal(), raw).unwrap();
+    assert!(RunController::open(&tmp.journal()).is_err());
+    let archive = archive_journal(&tmp.journal()).unwrap();
+    assert_eq!(std::fs::read(archive).unwrap(), raw);
+    let ctl = RunController::create(&tmp.journal(), plan(&tmp.0)).unwrap();
+    assert_eq!(ctl.snapshot().state(), RunState::Ready);
 }

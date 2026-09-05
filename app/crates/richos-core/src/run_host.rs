@@ -29,6 +29,9 @@ impl RunHost for CognitionRunHost<'_> {
         task: &TaskSpec,
         previous: &[String],
     ) -> Result<(), String> {
+        self.cognition
+            .prepare_managed(&plan.workspace)
+            .map_err(|e| e.to_string())?;
         let cancel = self
             .cognition
             .cancel_handle()

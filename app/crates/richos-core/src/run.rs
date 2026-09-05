@@ -52,10 +52,19 @@ pub struct RunPlan {
 
 impl RunPlan {
     pub fn validate(&self) -> Result<(), RunError> {
+        self.validate_structure()?;
+        if !self.workspace.is_dir() {
+            return Err(RunError::Invalid(
+                "The run workspace is unavailable. Restore it or end this run.".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_structure(&self) -> Result<(), RunError> {
         let bad = |s: &str| RunError::Invalid(s.into());
         if self.goal.trim().is_empty()
             || !self.workspace.is_absolute()
-            || !self.workspace.is_dir()
             || !(1..=20).contains(&self.max_attempts)
             || !(1..=86400).contains(&self.turn_timeout_seconds)
             || self.tasks.is_empty()
@@ -195,10 +204,37 @@ pub trait RunHost {
     }
 }
 
+// Unlock explicitly on every return path. Merely closing the descriptor can
+// leave a lock temporarily held by an unrelated child forked during its lifetime.
+struct LockedFile(File);
+impl LockedFile {
+    fn new(file: File) -> Result<Self, RunError> {
+        file.try_lock()
+            .map_err(|e| RunError::Invalid(format!("Run already owned: {e}")))?;
+        Ok(Self(file))
+    }
+}
+impl std::ops::Deref for LockedFile {
+    type Target = File;
+    fn deref(&self) -> &File {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for LockedFile {
+    fn deref_mut(&mut self) -> &mut File {
+        &mut self.0
+    }
+}
+impl Drop for LockedFile {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 /// One process holds an OS lock for the writer's lifetime. Snapshots are
 /// persisted as synced journal lines before external execution starts.
 pub struct RunController {
-    file: File,
+    file: LockedFile,
     snapshot: RunSnapshot,
     poisoned: bool,
 }
@@ -213,9 +249,7 @@ impl RunController {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let file = options.open(path)?;
-        file.try_lock()
-            .map_err(|e| RunError::Invalid(format!("Run already owned: {e}")))?;
+        let file = LockedFile::new(options.open(path)?)?;
         let tasks = plan
             .tasks
             .iter()
@@ -244,9 +278,7 @@ impl RunController {
     }
 
     pub fn open(path: &Path) -> Result<Self, RunError> {
-        let mut file = OpenOptions::new().read(true).append(true).open(path)?;
-        file.try_lock()
-            .map_err(|e| RunError::Invalid(format!("Run already owned: {e}")))?;
+        let mut file = LockedFile::new(OpenOptions::new().read(true).append(true).open(path)?)?;
         let mut bytes = vec![];
         file.read_to_end(&mut bytes)?;
         // A torn final append is not committed. Any malformed complete line is
@@ -277,7 +309,7 @@ impl RunController {
         }
         file.set_len(end as u64)?;
         let snapshot = last.ok_or_else(|| RunError::Invalid("Empty run journal.".into()))?;
-        snapshot.plan.validate()?;
+        snapshot.plan.validate_structure()?;
         let mut this = Self {
             file,
             snapshot,
@@ -372,6 +404,7 @@ impl RunController {
         let Some(i) = self.snapshot.next() else {
             return Ok(self.snapshot.state());
         };
+        self.snapshot.plan.validate()?;
         self.snapshot.tasks[i].state = TaskState::Running;
         self.snapshot.tasks[i].attempts += 1;
         self.save()?;
@@ -483,4 +516,18 @@ pub fn read_snapshot(path: &Path) -> Result<RunSnapshot, RunError> {
         return Err(RunError::Invalid("Invalid run snapshot.".into()));
     }
     Ok(s)
+}
+
+/// Preserve an unreadable journal verbatim so an operator can prepare a fresh
+/// run without deleting diagnostic evidence. Never claims the archived work passed.
+/// The same OS writer lock used by the controller prevents archiving a live run.
+pub fn archive_journal(path: &Path) -> Result<PathBuf, RunError> {
+    let _file = LockedFile::new(OpenOptions::new().read(true).write(true).open(path)?)?;
+    let archive = path.with_file_name(format!(
+        "{}-archived-{}.jsonl",
+        path.file_stem().unwrap_or_default().to_string_lossy(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::rename(path, &archive)?;
+    Ok(archive)
 }

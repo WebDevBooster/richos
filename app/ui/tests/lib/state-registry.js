@@ -67,6 +67,7 @@ module.exports = [
   { s: "Open this task before retrying its work.", c: "UNREACHABLE", why: "Retry uses the visible task's identity; responses from a previous navigation generation are discarded." },
   { s: "Pause the current run before preparing another.", c: "ACTIONABLE", control: "#stop", why: "The global Stop control pauses the active run before another work plan can be prepared." },
   { s: "Pause the run before retrying a task.", c: "UNREACHABLE", why: "Retry buttons are disabled while the controller invocation remains active." },
+  { s: "Pause the run before archiving its journal.", c: "ACTIONABLE", control: "#stop", why: "The global Stop control pauses the active run before journal recovery." },
   { s: "Pause the run before ending it.", c: "UNREACHABLE", why: "End run is disabled while drive_run is active; Pause remains available during execution." },
   { s: "The selected task changed.", c: "UNREACHABLE", why: "The run panel discards asynchronous responses whose navigation generation has changed." },
   { s: "The selected task changed. Open it again.", c: "UNREACHABLE", why: "A preparation response for a task the user left is discarded by the panel's navigation fence." },

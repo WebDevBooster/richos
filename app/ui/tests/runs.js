@@ -6,6 +6,7 @@ async function main() {
   const { webkit } = loadPlaywright(); const browser = await webkit.launch();
   const run = createRun("Managed work runs"); const page = await browser.newPage();
   await page.setContent('<div id="managed-run"></div>');
+  await page.addStyleTag({ path: path.join(UI_DIR, "style.css") });
   await page.addScriptTag({ path: path.join(UI_DIR, "runs.js") });
   await page.evaluate(() => {
     window.calls = []; window.listeners = {}; window.failure = "";
@@ -16,6 +17,7 @@ async function main() {
       listen(name, fn) { window.listeners[name] = fn; },
       async invoke(name, args) {
         window.calls.push([name, args]);
+        if (name === "get_run" && window.loadFailure) throw Error(window.loadFailure);
         if (name === "drive_run" && window.failure) throw Error(window.failure);
         if (name === "prepare_run") { window.snapshot.state = "paused"; }
         if (name === "pause_run") return;
@@ -71,6 +73,29 @@ async function main() {
     await page.getByLabel("Load a work plan").setInputFiles({ name: "plan.json", mimeType: "application/json", buffer: Buffer.from('{"goal":"Imported work"}') });
     await page.waitForFunction(() => window.calls.some(([n]) => n === "prepare_run"));
     assert(!(await page.evaluate(() => window.calls.some(([n]) => n === "drive_run"))));
+  });
+  await run.check("Readable work-plan text and controls meet the type floor", async () => {
+    await page.evaluate(async () => { window.snapshot = null; await window.RichRuns.show("a"); });
+    const sizes = await page.evaluate(() => {
+      const root = document.getElementById("managed-run");
+      const input = root.querySelector("input");
+      return [root, input].map(e => parseFloat(getComputedStyle(e).fontSize)).concat(parseFloat(getComputedStyle(input, "::file-selector-button").fontSize));
+    });
+    assert(sizes.every(n => n >= 16), `actual sizes: ${sizes}`);
+    await page.evaluate(async () => {
+      window.snapshot = { threadId: "a", state: "paused", tasks: [{ description: "Read this task", state: "pending", checks: ["Read this check"] }] };
+      await window.RichRuns.show("a");
+    });
+    assert(await page.locator("#managed-run small").evaluate(e => parseFloat(getComputedStyle(e).fontSize) >= 14));
+  });
+  await run.check("Unreadable journals have an explicit archive recovery action", async () => {
+    await page.evaluate(async () => { window.loadFailure = "Corrupt committed journal"; await window.RichRuns.show("a"); });
+    await page.getByRole("button", { name: "Archive the unreadable plan and preserve its journal", exact: true }).click();
+    assert(await page.evaluate(() => window.calls.some(([n, args]) => n === "archive_run" && args.threadId === "a")));
+    await page.locator("summary").first().click();
+    assert(await page.getByLabel("Load a work plan").isVisible());
+    assertEqual(await page.locator('[role="status"]').innerText(), "");
+    await page.evaluate(() => { window.loadFailure = ""; });
   });
   await run.check("Task changes clear the old run and its failure message", async () => {
     await page.evaluate(() => window.RichRuns.show(null));

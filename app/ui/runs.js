@@ -15,7 +15,7 @@
   function render() {
     root.replaceChildren(); root.hidden = !thread;
     if (!thread) return;
-    const details = node("details"); details.open = !!current;
+    const details = node("details"); details.open = !!current || !!lastError;
     details.append(node("summary", current ? `Work plan: ${lastError ? "Needs attention" : (labels[current.state] || current.state)}` : "Work plan"));
     const status = node("p", lastError); status.setAttribute("role", "status");
     if (!current) {
@@ -36,11 +36,16 @@
       details.append(load);
     } else {
       details.append(node("p", current.goal));
+      if (current.workspace) details.append(node("p", `Workspace: ${current.workspace}. Up to ${current.maxAttempts} attempts per task, ${current.turnTimeoutSeconds} seconds per attempt.`));
       const list = node("ol");
       for (const task of current.tasks) {
         const item = node("li");
         item.append(node("p", `${task.description} (${labels[task.state] || task.state})`));
         item.append(node("small", `Completion checks: ${task.checks.join("; ")}`));
+        if (task.commands && task.commands.length) {
+          const commands = node("details"); commands.append(node("summary", "Commands used to check completion"));
+          commands.append(node("pre", task.commands.map(argv => JSON.stringify(argv)).join("\n"))); item.append(commands);
+        }
         if (task.evidence && task.evidence.length) {
           const evidence = node("details"); evidence.append(node("summary", "Check results"));
           evidence.append(node("pre", task.evidence.join("\n"))); item.append(evidence);
@@ -91,6 +96,17 @@
         details.append(next);
       }
     }
+    if (lastError && !current) {
+      const archive = node("button", "Archive the unreadable plan and preserve its journal"); archive.type = "button";
+      archive.addEventListener("click", async () => {
+        const stamp = generation;
+        try {
+          await bridge.invoke("archive_run", { threadId: thread });
+          if (stamp === generation) { current = null; lastError = ""; render(); }
+        } catch (e) { if (stamp === generation) error(e); }
+      });
+      details.append(archive);
+    }
     details.append(status); root.append(details);
   }
 
@@ -109,7 +125,7 @@
       try {
         const result = await bridge.invoke("get_run", { threadId: id });
         if (stamp === generation) { current = result; render(); }
-      } catch (e) { if (stamp === generation) error(e); }
+      } catch (e) { if (stamp === generation) { error(e); render(); } }
     }
   };
 })();

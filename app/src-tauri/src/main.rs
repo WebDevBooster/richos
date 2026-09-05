@@ -1536,6 +1536,7 @@ fn main() {
             managed_runs::pause_run,
             managed_runs::retry_run_task,
             managed_runs::end_run,
+            managed_runs::archive_run,
             get_company_name,
             set_company_name,
             get_assertiveness,

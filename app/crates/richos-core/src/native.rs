@@ -342,6 +342,19 @@ pub fn child_args(session_id: &str) -> Vec<String> {
     .collect()
 }
 
+/// Managed workers retain user, project and local settings, including configured
+/// hooks. They use the default permission mode and deny unapproved requests.
+/// The ordinary chat adapter retains its existing policy through child_args.
+pub fn managed_child_args(session_id: &str) -> Vec<String> {
+    let mut args = child_args(session_id);
+    let i = args.iter().position(|a| a == "--setting-sources").unwrap();
+    args.splice(i..i + 2, ["--setting-sources".into(), "user,project,local".into()]);
+    // Transcript-dependent hooks need the provider transcript to exist.
+    args.retain(|a| a != "--no-session-persistence");
+    args.extend(["--permission-mode".into(), "default".into()]);
+    args
+}
+
 /// Streamed items for the active prompt turn.
 ///
 /// Machinery arrives here RAW and un-normalized on purpose. §1.4's feasibility argument for
@@ -530,6 +543,7 @@ pub struct NativeClient {
     child: Child,
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: String,
+    managed_workspace: Option<std::path::PathBuf>,
     next_id: AtomicI64,
     /// Control-request replies, keyed by our `request_id`.
     pending: Arc<Mutex<std::collections::HashMap<String, Sender<Value>>>>,
@@ -654,13 +668,18 @@ impl NativeClient {
     /// at all can be caught before the CEO types anything — so it is done eagerly, with a
     /// bound, and its failure is a hard [`NativeError`] carrying the child's own stderr.
     pub fn spawn(bin: &Path, cwd: &Path) -> Result<Self, NativeError> {
+        Self::spawn_with_policy(bin, cwd, false)
+    }
+
+    fn spawn_with_policy(bin: &Path, cwd: &Path, managed: bool) -> Result<Self, NativeError> {
         // Refuse BEFORE spawning, so the error names WHICH path is wrong instead of an
         // errno that stands for two different faults. See `preflight`.
         preflight(bin, cwd)?;
+        let managed_workspace = if managed { Some(cwd.canonicalize()?) } else { None };
 
         let session_id = uuid::Uuid::new_v4().to_string();
         let mut child = Command::new(bin)
-            .args(child_args(&session_id))
+            .args(if managed { managed_child_args(&session_id) } else { child_args(&session_id) })
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -741,6 +760,7 @@ impl NativeClient {
                     &reader_between,
                     &reader_state,
                     &reader_text_deltas,
+                    managed,
                 );
             }
             // stdout closed. §5.2's POSITIVE termination signal: the child's stdout reached
@@ -756,6 +776,7 @@ impl NativeClient {
             child,
             stdin,
             session_id,
+            managed_workspace,
             next_id: AtomicI64::new(1),
             pending,
             current_prompt,
@@ -901,6 +922,7 @@ impl NativeClient {
         between: &Arc<Mutex<BetweenTurn>>,
         state: &Arc<Mutex<ReaderState>>,
         text_deltas: &Arc<AtomicUsize>,
+        managed: bool,
     ) {
         let ty = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -918,7 +940,7 @@ impl NativeClient {
             return;
         }
         if ty == "control_request" {
-            Self::handle_agent_request(&msg, stdin, current, between);
+            Self::handle_agent_request(&msg, stdin, current, between, managed);
             return;
         }
 
@@ -1043,13 +1065,16 @@ impl NativeClient {
         stdin: &Arc<Mutex<ChildStdin>>,
         current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
         between: &Arc<Mutex<BetweenTurn>>,
+        managed: bool,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
         let subtype = request.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
 
         let (response, machinery) = if subtype == "can_use_tool" {
-            let decision = decide_permission(&request);
+            let decision = if managed {
+                PermissionDecision::Deny { message: "Managed work cannot grant permission. Approve the needed action in your Claude settings or perform it separately, then inspect and retry the task.".into() }
+            } else { decide_permission(&request) };
             let body = match &decision {
                 PermissionDecision::Allow { updated_input } => {
                     json!({ "behavior": "allow", "updatedInput": updated_input })
@@ -1171,6 +1196,7 @@ impl NativeClient {
         // assistant output" — but stops waiting forever for a `result` that a non-compliant
         // agent may never send.
         let mut cancel_deadline: Option<std::time::Instant> = None;
+        let mut permission_denied = false;
         loop {
             let received = match cancel_deadline {
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -1191,6 +1217,7 @@ impl NativeClient {
                     }
                 }
                 Ok(ChunkMsg::Permission { request, chosen }) => {
+                    permission_denied |= self.managed_workspace.is_some() && chosen == "deny";
                     on_item(TurnItem::Machinery(MachineryRecord::from_permission_request(
                         &request,
                         &chosen,
@@ -1215,7 +1242,7 @@ impl NativeClient {
                     // the deadline exists). All this arm does is start the clock.
                     cancel_deadline.get_or_insert_with(|| std::time::Instant::now() + cancel_grace());
                 }
-                Ok(ChunkMsg::Done(result)) => return Ok(stop_reason_of(&result)),
+                Ok(ChunkMsg::Done(result)) => return Ok(if permission_denied { "permission_denied".into() } else { stop_reason_of(&result) }),
                 Err(RecvTimeoutError::Timeout) => {
                     // The agent was told to interrupt and did not answer within the grace
                     // window. Stop rendering this turn — and DETACH the sink first, so
@@ -1347,9 +1374,25 @@ impl NativeCognition {
         let session_id = client.session_id().to_string();
         Ok(NativeCognition { client, session_id })
     }
+    /// Launch a managed worker in its actual workspace, retaining the configured
+    /// settings and refusing requests for permissions that have not been granted.
+    pub fn start_managed(bin: &Path, workspace: &Path) -> Result<Self, NativeError> {
+        let client = NativeClient::spawn_with_policy(bin, workspace, true)?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id })
+    }
+
 }
 
 impl Cognition for NativeCognition {
+    fn prepare_managed(&self, workspace: &Path) -> Result<(), CognitionError> {
+        if self.client.managed_workspace.as_ref() != workspace.canonicalize().ok().as_ref()
+            || self.client.managed_workspace.is_none() {
+            return Err(CognitionError::Protocol("Managed work needs a governed lease in the selected workspace.".into()));
+        }
+        Ok(())
+    }
+
     fn session_id(&self) -> &str {
         &self.session_id
     }
@@ -1359,7 +1402,10 @@ impl Cognition for NativeCognition {
         // its MACHINERY flows to the caller, which stamps it `internal: true` /
         // `turn_id: None` per §1.5 — retained for debugging, never in a thread render,
         // honouring the standing order that Rich never reveals session rotation.
-        self.client.prompt(priming_text, on_item)?;
+        let reason = self.client.prompt(priming_text, on_item)?;
+        if self.client.managed_workspace.is_some() && reason != "end_turn" {
+            return Err(CognitionError::Protocol(format!("Managed worker priming stopped with {reason}.")));
+        }
         Ok(())
     }
 

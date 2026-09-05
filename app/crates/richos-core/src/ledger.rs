@@ -98,6 +98,8 @@ pub enum TurnState {
 pub enum Source {
     Text,
     Jam,
+    /// Application-owned work: render assistant output, never attribute its prompt to the user.
+    Managed,
     /// A system-authored internal prompt (re-prime / handoff-summary request) — NEVER
     /// rendered to the CEO.
     Internal,
@@ -1306,7 +1308,9 @@ impl Ledger {
                 }
                 continue;
             }
-            out.push(Message { role: "user".into(), text: t.user_text.clone(), turn_id: t.id.clone(), at: t.created_at });
+            if t.source != Source::Managed {
+                out.push(Message { role: "user".into(), text: t.user_text.clone(), turn_id: t.id.clone(), at: t.created_at });
+            }
             if !t.assistant_text.is_empty() {
                 out.push(Message { role: "assistant".into(), text: t.assistant_text.clone(), turn_id: t.id.clone(), at: t.created_at });
             }

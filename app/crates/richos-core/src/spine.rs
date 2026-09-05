@@ -707,13 +707,39 @@ impl Spine {
         self.lease.is_some()
     }
 
+    /// Temporarily use a separately governed worker. Restoring through install_lease
+    /// refreshes cancellation identity and forces the chat lease to re-prime from
+    /// the durable conversation (including the worker's output) on its next use.
+    pub(crate) fn take_run_lease(&mut self, worker: Box<dyn Cognition>) -> Option<Box<dyn Cognition>> {
+        let previous = self.lease.take();
+        self.install_lease(worker);
+        previous
+    }
+
+    pub(crate) fn restore_run_lease(&mut self, previous: Option<Box<dyn Cognition>>) {
+        if let Some(lease) = previous {
+            self.install_lease(lease);
+        } else {
+            self.lease = None;
+            self.control.set_cancel(None);
+            self.control.set_lease_session(None);
+            self.lease_primed = false;
+            self.context_usage = None;
+            self.context_pressure = None;
+        }
+    }
+
+    pub(crate) fn prepare_managed_lease(&self, workspace: &std::path::Path) -> Result<(), CognitionError> {
+        self.lease.as_ref().ok_or_else(|| CognitionError::Protocol("No managed worker is attached.".into()))?.prepare_managed(workspace)
+    }
+
     /// The managed-run host uses the existing cancellation channel to enforce
-    /// its time budget. No second model process or permission policy.
+    /// its time budget on the currently installed managed worker.
     pub fn run_cancel_handle(&self) -> Option<std::sync::Arc<dyn crate::steering::TurnCancel>> {
         self.lease.as_ref().and_then(|lease| lease.cancel_handle())
     }
 
-    /// An application-owned attempt, recorded as Internal rather than as words
+    /// An application-owned attempt, recorded as Managed rather than as words
     /// the user typed. Automatic crash replay is disabled: the run controller
     /// owns recovery and cannot safely replay unknown external effects.
     pub fn submit_run_prompt(&mut self, binding: &ThreadBinding, text: &str) -> Result<String, SpineError> {
@@ -721,7 +747,7 @@ impl Spine {
         if self.turn_in_progress {
             return Err(SpineError::Cognition(CognitionError::Protocol("Another turn is already running.".into())));
         }
-        let id = self.ledger.record_prompt_received(binding, text, Source::Internal)?;
+        let id = self.ledger.record_prompt_received(binding, text, Source::Managed)?;
         self.emit_live(self.turn_status_event(binding, &id, TurnStatus::Queued, None));
         self.deliver(&id, binding, text, false)?;
         Ok(self.ledger.turn(&id).and_then(|t| t.stop_reason.clone()).unwrap_or_else(|| "unknown".into()))

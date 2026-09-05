@@ -5,11 +5,11 @@ that the requested work is complete.
 
 `richos-core::run` is a portable controller with two hosts:
 
-- The desktop host uses the existing scoped Spine, conversation stream and
-  cancellation channel. Open a bound task, expand **Work plan**, load a prepared
+- The desktop host records separately governed worker attempts through the scoped
+  Spine, conversation stream and cancellation channel. Open a bound task, expand **Work plan**, load a prepared
   plan and review it. Preparation does not execute anything. **Start / continue**
   drives the plan. **Pause run** and the existing **Stop** control pause it.
-- The `richos-run` terminal binary drives the same controller through the existing
+- The `richos-run` terminal binary drives the same controller through the governed
   native model adapter. It works in any explicitly selected workspace. It does
   not attach to, interrupt or rewrite an existing interactive Claude Code team.
 
@@ -49,6 +49,9 @@ including verifier code. It does not invent verification for subjective work.
 - A model error, refusal, cancellation or timeout becomes `needs_attention`.
   Unknown external effects are not automatically replayed. After inspection,
   an operator may retry within the original attempt budget.
+- Missing or moved workspaces do not prevent inspection or cancellation.
+  Execution still refuses an unavailable directory. Unreadable journals can be
+  explicitly archived in the panel, preserving their bytes for diagnosis.
 - Restarting recovers committed state. An interrupted `running` or `verifying`
   attempt is flagged for inspection. A torn final journal append is discarded;
   corrupt committed data is refused. A changed contract in the journal is refused.
@@ -60,10 +63,25 @@ including verifier code. It does not invent verification for subjective work.
 - Verifiers have time and output limits. They must own and clean up any child
   processes they launch; the current verifier adapter terminates its direct child.
 
-The model adapter must implement cancellation. An adapter without it is refused
-before an attempt, rather than silently ignoring the timeout. Desktop attempts
-disable the Spine's automatic crash replay because the run controller owns that
-decision. Existing user steering and context rotation remain between attempts.
+Managed workers load user/project/local Claude settings in the selected workspace.
+They keep provider transcripts for hooks that read them. The native permission
+mode is explicitly `default`; any permission request delivered to RichOS is denied.
+Such a denial leaves the run needing attention, even if the model later reports
+`end_turn`. There is no automatic grant or fallback to the ordinary chat adapter's
+legacy policy. This slice does not include an in-app permission-grant dialog.
+
+Acceptance commands are trusted executable input. The application executes them
+under its own OS identity, outside Claude's permission channel. Review their exact
+arguments in the panel before Start. Installed settings can authorize tool use;
+retaining those settings does not independently certify the installed hooks.
+
+The model adapter must implement cancellation and explicitly support governed
+execution in the requested workspace. Desktop attempts use a separate worker
+lease and disable automatic crash replay. The original chat lease is restored
+and re-primes from the conversation before its next use. User steering remains
+between attempts. The run's assistant output uses the `Managed` source and is
+rendered live and after reopening; generated task prompts never appear as user
+messages. Older binaries need compatibility support to read this new source.
 
 ## Terminal use
 
@@ -134,6 +152,7 @@ and real verifier processes. They do not claim a live production team has been
 migrated or that a subjective deliverable has been independently reviewed.
 
 `python3 app/scripts/test-managed-run-mutations.py` removes acceptance gating,
-attempt limits, interrupted-work reconciliation and writer locking in disposable
+attempt limits, interrupted-work reconciliation, writer locking, visible output,
+permission denial, settings retention and workspace-independent recovery in disposable
 copies. Each mutation must fail its specific regression test; compiler failures
 do not count.

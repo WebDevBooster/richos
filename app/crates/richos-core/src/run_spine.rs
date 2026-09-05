@@ -15,6 +15,7 @@ use std::sync::{
 pub struct SpineRunHost<'a> {
     pub spine: &'a mut Spine,
     pub binding: ThreadBinding,
+    pub worker: Option<Box<dyn Cognition>>,
     pub pause: Arc<AtomicBool>,
     pub on_update: Option<Box<dyn FnMut(&RunSnapshot) + 'a>>,
 }
@@ -24,6 +25,9 @@ struct ScopedLease<'a> {
     binding: &'a ThreadBinding,
 }
 impl Cognition for ScopedLease<'_> {
+    fn prepare_managed(&self, workspace: &Path) -> Result<(), CognitionError> {
+        self.spine.prepare_managed_lease(workspace)
+    }
     fn session_id(&self) -> &str {
         self.spine.lease_session_id().unwrap_or("")
     }
@@ -69,6 +73,14 @@ impl RunHost for SpineRunHost<'_> {
         if &entity.id != self.binding.entity_id() {
             return Err("The run workspace belongs to a different entity.".into());
         }
+        let worker = self
+            .worker
+            .take()
+            .ok_or("This attempt has no governed worker.")?;
+        worker
+            .prepare_managed(&plan.workspace)
+            .map_err(|e| e.to_string())?;
+        let previous_lease = self.spine.take_run_lease(worker);
         let result = {
             let mut lease = ScopedLease {
                 spine: self.spine,
@@ -82,6 +94,7 @@ impl RunHost for SpineRunHost<'_> {
             }
             .execute(plan, task, previous)
         };
+        self.spine.restore_run_lease(previous_lease);
         // User steering and lease rotation are between attempts, never inside
         // the watchdog for the attempt that just ended.
         self.spine

@@ -58,11 +58,9 @@ const read = (p) => fs.readFileSync(p, "utf8");
 // Derivations
 // ---------------------------------------------------------------------------------------
 
-/// `#[test]` occurrences in one Rust file. Deliberately the crudest possible measure, and
-/// verified against the real thing rather than trusted: `cargo test -p richos-core` reports
-/// 151 unit + 153 integration, and this count reproduces both exactly. `#[ignore]` would
-/// break that agreement, and there is none in this workspace — if one lands, this count and
-/// cargo's stop agreeing and the number in the README has to say which it means.
+// Source inventory, not proof of execution. Two core fixtures are deliberately
+// ignored in the top-level run and invoked by parent tests in child processes.
+// Runtime pass totals must be read from completed cargo output separately.
 function testCount(file) {
   return (read(file).match(/#\[test\]/g) || []).length;
 }
@@ -203,6 +201,11 @@ async function main() {
       const files = [...rustFiles(path.join(crateDir, "src")), ...rustFiles(path.join(crateDir, "tests"))];
       assert(files.length > 0, `EMPTY INVENTORY: no .rs files under ${crateDir}`);
       const total = files.reduce((n, f) => n + testCount(f), 0);
+      const ignored = files.reduce((n, f) => n + (read(f).match(/^\s*#\[ignore(?:\s*=.*?)?\]/gm) || []).length, 0);
+      if (ignored) {
+        const line = readme.split("\n").find(l => l.includes(`cargo test -p ${c.crate}`));
+        assert(line.includes(`${total - ignored} direct, ${ignored} child-only`), "README must distinguish direct passes from child-only fixtures");
+      }
       const docs = rustFiles(path.join(crateDir, "src")).reduce((n, f) => n + docTestCount(f), 0);
       if (total !== c.tests) wrong.push(`${c.crate}: README says ${c.tests} tests, the tree has ${total}`);
       if (c.docTests !== null && docs !== c.docTests) {

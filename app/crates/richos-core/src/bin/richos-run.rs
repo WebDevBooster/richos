@@ -88,7 +88,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
                 // A fresh lease per drive. State and acceptance belong to the
                 // controller, so resuming never relies on a model's memory.
                 let mut cognition =
-                    NativeCognition::start(&resolve_claude_bin(), &ctl.snapshot().plan.workspace)?;
+                    NativeCognition::start_managed(&resolve_claude_bin(), &ctl.snapshot().plan.workspace)?;
                 let mut output = |item: TurnItem<'_>| {
                     if let TurnItem::Text { text, .. } = item {
                         print!("{text}");

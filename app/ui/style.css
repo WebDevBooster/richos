@@ -4439,7 +4439,7 @@ body.bp-narrow .tl-user-bubble {
     animation: none;
   }
 }
-#managed-run { border-top: 1px solid var(--line); margin: 0 clamp(16px, 5vw, 72px); padding: 10px 0; font-size: 0.8125rem; color: var(--ink); }
+#managed-run { border-top: 1px solid var(--line); margin: 0 clamp(16px, 5vw, 72px); padding: 10px 0; font-size: 1rem; color: var(--ink); }
 #managed-run > details[open] { max-height: 240px; overflow: auto; }
 #managed-run summary { cursor: pointer; }
 #managed-run p { margin: 8px 0; }
@@ -4447,3 +4447,5 @@ body.bp-narrow .tl-user-bubble {
 #managed-run button:disabled { cursor: default; color: var(--ink-soft); }
 #managed-run input { max-width: 100%; font: inherit; }
 #managed-run pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+#managed-run small { font-size: 0.875rem; }
