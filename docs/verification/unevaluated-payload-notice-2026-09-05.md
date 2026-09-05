@@ -365,3 +365,26 @@ insertions instead of three shared shapes, in files where the dispatch is someti
 shell and sometimes inside a python heredoc. Twenty milliseconds is not worth trading a
 uniform, checkable block for that. It is written down here so the trade is a decision on
 the record rather than something nobody looked at.
+
+## The whole engine suite was run, and the three reds in it are all older than this branch
+
+47 suites. **44 green, 3 red, and none of the three is from this work** — each proven by
+the inputs being byte-identical to `0455c44`, the survey commit this branch starts from,
+rather than by inspection.
+
+| suite | what is red | why it is not this branch |
+|---|---|---|
+| `engine-status.test.sh` | `1b sanity` — `guard-named-persons-commands.sh` and `guard-named-persons-writes.sh` are registered and not in `ACKNOWLEDGED_SCRIPTS` | `hooks/hooks.json`, `engine-status.sh` and `engine-status.test.sh` are all byte-identical to `0455c44`. Those two guards were registered in `b08f653`, which the survey itself names as the reason its own population moved from 23 to 25 that day. |
+| `guard-worktree-isolation.test.sh` | its clause-7 mutation section — 3 properties not proven load-bearing, `Q05`/`Q07`/`Q09` | the hook was reverted to the previous commit and the suite re-run: **byte-identical output**, same three mutation names, same three case lines. Its own 174 cases pass at both. |
+| `contract-integrity.test.sh` | `CL2.claim-gate-mutations-all-load-bearing` — `no-state-block` and `state-claim-needs-no-verb` "did not apply" | both mutations target `guard-unresolved-claims.py` and live in `claim-roles.mutation.sh`; **both files are byte-identical to `0455c44`** and this branch touches neither. The `.py` was last changed by `9495e47`, which is what moved the anchors. 164 of its cases pass. |
+
+The integrity probe ITSELF — `contract-integrity-probe.sh`, which is what actually runs
+at install time and at every session start — **exits 0 with every layer green**,
+including `Q6` (the write barrier fails closed on four bad-payload arms) and `R` (47
+rooted hooks with a byte-identical bootstrap). `install.sh` was re-run after the last
+hashed script changed, so the sidecars match; it detects the linked worktree and
+correctly leaves the operator's engine pointer alone.
+
+**Whoever lands this should re-run `scripts/hooks/install.sh` from the main checkout**,
+because every hook wired here is in the hashed set and the `.sha256` sidecars are
+gitignored — they do not travel with the merge.
