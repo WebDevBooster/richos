@@ -248,7 +248,7 @@ important line in the panel reads:
 That is not English. Spoken, which is how this product is meant to be usable, it is "one need you".
 It is also redundant: the count says one and the clause after it says the same thing again.
 
-**It is in the author's own committed evidence.** `app/validation/owned-work/urban-decision-narrow-light.png`,
+**It is in the author's own committed evidence.** app/validation/owned-work/urban-decision-narrow-light.png **on the unmerged branch `codex/durable-orchestration`, written without backticks because it does not exist on `main` and a reader with only the public repository would be sent to nothing**,
 the screenshot chosen to prove the fix, has "1 need you" as its top line. An image proves what the
 person framing it chose to show, and this one shows the defect.
 
