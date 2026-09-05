@@ -65,6 +65,38 @@ pub mod stt;
 pub mod tts;
 pub mod vad;
 
+/// The opt-in gate for the tests that open real audio hardware.
+///
+/// **The defect this replaces.** These tests used to begin `if env::var(…) != Ok("1") {
+/// return; }`, and a test that returns is reported `ok`. Four of them were green lines
+/// asserting nothing on every machine that had not opted in, including `app-voice-ci.yml`'s
+/// runner. They now carry `#[cfg_attr(not(live_audio), ignore = …)]`, so libtest prints
+/// `ignored, <reason>` and counts them in its own `N ignored` column — see `build.rs` for
+/// why the cfg exists and how `RICHOS_VOICE_LIVE_AUDIO=1` still runs them.
+///
+/// This function closes the one hole the attribute leaves: `#[ignore]` suppresses the RUN,
+/// not the BODY, so `cargo test -- --include-ignored` without an opt-in would still open a
+/// device and make noise.
+#[cfg(test)]
+pub(crate) mod live_audio {
+    /// Refuse, loudly, to run a live-audio test body that nobody asked for.
+    ///
+    /// Reachable only via `--include-ignored` / `--ignored` without `RICHOS_VOICE_LIVE_AUDIO=1`
+    /// (under a normal run the test is `ignored` and never enters). It is the same condition
+    /// the old silent `return` tested, with the opposite failure mode: a red line that says
+    /// what to do, never a green one that says nothing.
+    pub fn require_opt_in() {
+        assert!(
+            std::env::var("RICHOS_VOICE_LIVE_AUDIO").as_deref() == Ok("1"),
+            "this test opens real audio hardware and was run without opting in — it is \
+             `#[ignore]`d by default and you reached it with `--include-ignored` or \
+             `--ignored`. Re-run as `RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice`, \
+             which un-ignores it via build.rs. Refusing to open a device rather than \
+             reporting a pass over one that was never opened."
+        );
+    }
+}
+
 pub use chunk::{speakable, SentenceChunker};
 pub use controller::{VoiceController, VoiceOptions};
 pub use event::{VoiceEvent, VoiceObserver};

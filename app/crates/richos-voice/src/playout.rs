@@ -292,12 +292,17 @@ mod tests {
     /// that the queue actually drains through it. Gated behind RICHOS_VOICE_LIVE_AUDIO=1
     /// because a unit test has no business making noise on someone's machine — the samples
     /// queued here are SILENCE, so nothing is audible even when it runs.
+    ///
+    /// **Reported `ignored`, never `ok`, when the opt-in is absent** — the gate used to be an
+    /// early `return`, and a test that returns is reported `ok`. See `build.rs`.
     #[test]
     #[cfg(target_os = "macos")]
+    #[cfg_attr(
+        not(live_audio),
+        ignore = "LIVE AUDIO: opens the real output device. RICHOS_VOICE_LIVE_AUDIO=1 to run."
+    )]
     fn live_macos_output_device_drains_the_queue() {
-        if std::env::var("RICHOS_VOICE_LIVE_AUDIO").as_deref() != Ok("1") {
-            return;
-        }
+        crate::live_audio::require_opt_in();
         let p = Playout::start(None).expect("output device should open");
         assert!(p.device_rate >= 8_000);
         assert!(p.channels >= 1);
