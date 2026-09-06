@@ -4,7 +4,7 @@
   let bridge, root, thread, current, assignments = [], generation = 0, polling = false;
   let lastError = "", pickerOpen = false, decisionOpen = false, historyOpen = false, editor = null, working = false, archiveConfirm = false;
   const pausing = new Set();
-  const labels = { agreed_delivery: "What Rich agreed to deliver", imported_checks: "Completion checks", review_closed: "Review decision", pausing: "Pausing…", needs_input: "need you", needs_one: "needs you", ready: "Queued", waiting: "Retrying automatically", needs_decision: "Waiting for your decision",
+  const labels = { shared_checks: "Completion checks for every step", retry_above: "Read more above (retry available)", retry_below: "Read more below (retry available)", agreed_delivery: "What Rich agreed to deliver", imported_checks: "Completion checks", review_closed: "Review decision", pausing: "Pausing…", needs_input: "need you", needs_one: "needs you", ready: "Queued", waiting: "Retrying automatically", needs_decision: "Waiting for your decision",
     running: "Working", paused: "Paused", needs_attention: "Needs attention", completed: "Completed",
     pending: "Not started", verifying: "Checking the result", passed: "Checks passed", canceled: "Ended without completion" };
   function node(tag, text, cls) { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
@@ -36,11 +36,27 @@
     toolbar.append(button("Back to conversation", close, "runDismiss"));
     const above = button("Read more above", () => { body.scrollTop -= Math.max(40, body.clientHeight * .8); cue(); }, "runPrevious");
     const below = button("Read more below", () => { body.scrollTop += Math.max(40, body.clientHeight * .8); cue(); }, "runMore");
-    const next = node("div", null, "run-reading-next"); next.append(below);
+    const next = node("div", null, "run-reading-next"), rule = node("span", null, "run-reading-rule");
+    rule.dataset.contrastRole = "indicator"; rule.setAttribute("aria-hidden", "true"); next.append(rule, below);
     toolbar.append(above); body.classList.add("run-reading-body"); body.tabIndex = 0;
-    function cue() { above.hidden = body.scrollTop < 1; below.hidden = body.scrollTop + body.clientHeight >= body.scrollHeight - 1; next.hidden = below.hidden; }
-    body.addEventListener("scroll", cue); const resize = new ResizeObserver(() => { if (!panel.isConnected) { resize.disconnect(); return; } cue(); });
-    resize.observe(body); requestAnimationFrame(cue);
+    function cue() {
+      above.hidden = body.scrollTop < 1; below.hidden = body.scrollTop + body.clientHeight >= body.scrollHeight - 1; next.hidden = below.hidden;
+      const edge = body.getBoundingClientRect(), retries = Array.from(body.querySelectorAll("[data-run-retry]")).map(e => e.getBoundingClientRect());
+      const aboveLabel = retries.some(r => r.height > 0 && r.top < edge.top) ? labels.retry_above : "Read more above";
+      const belowLabel = retries.some(r => r.height > 0 && r.bottom > edge.bottom) ? labels.retry_below : "Read more below";
+      if (above.textContent !== aboveLabel) above.textContent = aboveLabel;
+      if (below.textContent !== belowLabel) below.textContent = belowLabel;
+    }
+    body.addEventListener("scroll", cue);
+    // A cue can wrap and resize the body. Defer that write until the next frame
+    // rather than resizing an observed element inside its notification callback.
+    let frame = 0;
+    const resize = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      if (!panel.isConnected) { resize.disconnect(); return; }
+      frame = requestAnimationFrame(cue);
+    });
+    resize.observe(body); frame = requestAnimationFrame(cue);
     panel.append(toolbar, body, next); panel.updateReadingCue = cue; return panel;
   }
   function target() { return { threadId: thread, runId: current.runId }; }
@@ -148,11 +164,14 @@
     const body = node("div", null, "run-history-body"); if (lastError) body.append(node("pre", lastError));
     if (current) {
       const single = current.tasks.length === 1, list = node(single ? "div" : "ol");
+      const checks = current.tasks[0]?.checks || [];
+      const sharedChecks = !current.autonomous && !single && checks.length > 0 && current.tasks.every(t => JSON.stringify(t.checks) === JSON.stringify(checks));
+      if (sharedChecks) body.append(node("p", `${labels.shared_checks}: ${checks.join("; ")}`, "run-checks"));
       for (const task of current.tasks) {
         const item = node(single ? "section" : "li", null, "run-history-task");
-        if (!single || task.description !== current.goal) item.append(node("p", task.description));
-        item.append(node("p", labels[task.state]));
-        if (task.checks.length) item.append(node("p", `${current.autonomous ? labels.agreed_delivery : labels.imported_checks}: ${task.checks.join("; ")}`, "run-checks"));
+        if (!single || task.description !== current.goal) item.append(node("p", task.description, "run-task-description"));
+        item.append(node("p", `Status: ${labels[task.state]}`, "run-task-status"));
+        if (!sharedChecks && task.checks.length) item.append(node("p", `${current.autonomous ? labels.agreed_delivery : labels.imported_checks}: ${task.checks.join("; ")}`, "run-checks"));
         if (task.previous_instructions?.length) {
           item.append(node("p", "Earlier instructions still apply unless changed."));
           for (const previous of task.previous_instructions) {

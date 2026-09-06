@@ -181,3 +181,9 @@ one, because it is the only suite that renders the bytes the backend actually em
 **And these suites still drive WebKit through Playwright, not the Tauri shell.** §23 Phase 6
 — every acceptance state in the real shell — is not closed by any of this, and the workflow's
 name and output do not claim it is.
+
+The assignment panel suite also checks history status hierarchy, identical versus
+distinct imported check lists, hidden Retry cues in both directions and the
+cut-edge rule's independent contrast measurement. A missing or invisible rule
+must fail while its sibling button retains the text contrast floor. The compiled
+projection probe checks terminal-state decision invariants with mixed task states.

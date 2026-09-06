@@ -1,5 +1,8 @@
 # Follow-up to Urban's September 6 P6 signoff
 
+Historical response. Urban independently verified these corrections and kept the
+9/10 signoff at `9b6c74d` in P7. See [the P7 follow-up](URBAN-P7-RESPONSE.md).
+
 Urban granted **9/10 signoff** to `e276ba3` in
 `URBAN_SIGNOFF_2026-09-06_02.05.md`. He independently confirmed that the decision
 question and Rust display projection passed the previous review. He also found

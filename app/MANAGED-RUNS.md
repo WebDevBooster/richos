@@ -117,3 +117,9 @@ Execution instructions stay in the durable record. Imported commands have a
 separate Technical details disclosure within history. Completion checks use the same readable type size as the rest of the
 panel. A load failure offers Refresh first and preserves diagnostic details in
 history. Setting an unreadable assignment aside requires confirmation.
+
+History labels each task's status and gives it more weight than receipt prose.
+Identical check lists across all steps of an imported assignment appear once above
+the steps. Different lists remain beside their tasks. When Retry is hidden, the
+reading control says **retry available** in the direction that reaches it. Review
+decision has stronger text within the same action row as Pause and End.

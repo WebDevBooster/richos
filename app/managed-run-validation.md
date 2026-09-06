@@ -1,4 +1,10 @@
-# Ninth revision: follow-up to Urban's P6 signoff
+# Tenth revision: follow-up to Urban's P7 review
+
+Urban kept the 9/10 signoff at `9b6c74d`. See [the P7 follow-up](URBAN-P7-RESPONSE.md)
+and [current evidence](validation/owned-work/urban-p7-results.json). The changes
+address the remaining documented gaps; results below belong to earlier revisions.
+
+## Ninth revision: follow-up to Urban's P6 signoff
 
 Urban granted 9/10 signoff to `e276ba3`. See [the P6 follow-up](URBAN-P6-RESPONSE.md)
 and [current evidence](validation/owned-work/urban-p6-results.json) for corrections

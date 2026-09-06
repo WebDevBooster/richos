@@ -1,0 +1,5 @@
+Error: undefined
+          expected []
+          actual   ["ResizeObserver loop completed with undelivered notifications."]
+    at assertEqual (/Users/alex/ab/richos-wt/codex-durable-orchestration/app/ui/tests/lib/harness.js:307:22)
+    at main (/Users/alex/ab/richos-wt/codex-durable-orchestration/app/ui/tests/runs.js:309:2)

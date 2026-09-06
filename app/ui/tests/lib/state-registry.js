@@ -66,13 +66,16 @@
 "use strict";
 
 module.exports = [
+  {s: "Read more above (retry available)", c: "CONTROL", why: "Scrolls toward a retry action hidden above the reading area."},
+  {s: "Read more below (retry available)", c: "CONTROL", why: "Scrolls toward a retry action hidden below the reading area."},
+  {s: "Completion checks for every step", c: "FRAGMENT", why: "Labels an identical set of checks once for every step of an imported assignment."},
   {"s": "Back to conversation", "c": "CONTROL", "why": "Dismisses the reading surface without committing a decision."},
   {"s": "Read more above", "c": "CONTROL", "why": "Scrolls toward earlier content with overlap, without changing the selected assignment."},
   {"s": "Completion checks", "c": "FRAGMENT", "why": "Labels the checks supplied with an imported assignment."},
   {"s": "What Rich agreed to deliver", "c": "FRAGMENT", "why": "Labels the accepted scope projected from Rich’s reply."},
   {"s": "Earlier instructions still apply unless changed.", "c": "INFORMATIONAL", "why": "Introduces separately labeled prior CEO instructions and Rich’s accepted scope."},
   {"s": "Saved results are kept with this assignment.", "c": "INFORMATIONAL", "why": "Neutral display fallback for results from an unrecognized journal format; storage and execution are unchanged."},
-  {"s": "The saved assignment details are unavailable in this view.", "c": "INFORMATIONAL", "why": "Reports an unrecognized display format without exposing raw execution instructions or implying lost work."},
+  {"s": "Rich has this assignment saved, but not in a form he can show you here.", "c": "INFORMATIONAL", "why": "Reports an unrecognized display format without exposing raw execution instructions or implying lost work."},
 
   {"s":"?","c":"FRAGMENT","why":"Thread navigation status label or glyph, composed with the thread title and its navigation control."},
   {"s":"working","c":"FRAGMENT","why":"Thread navigation status label or glyph, composed with the thread title and its navigation control."},

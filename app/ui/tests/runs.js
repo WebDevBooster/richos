@@ -9,6 +9,13 @@ async function verifyReadingFlow(panel) {
  assertEqual(geometry.max,"none","The question must not have a height cap");assert(geometry.content<=geometry.height+1,"The question itself must not clip");
  const overflow=await flow.evaluate(e=>e.scrollHeight>e.clientHeight+1);assertEqual(await panel.locator("[data-run-more]").isVisible(),overflow,"Overflow needs a cue even without scrollbars");
 }
+async function settleContrast(page) {
+ // Pointer positions survive panel rerenders and can hover a timeline action
+ // during its 150 ms opacity transition. Measure the resting surface here;
+ // the full contrast suite separately walks each shipped surface.
+ await page.mouse.move(0,0);
+ await page.waitForFunction(()=>Array.from(document.querySelectorAll(".tl-user-actions,.tl-rich-actions")).every(e=>{const o=+getComputedStyle(e).opacity;return o===0||o===1;}));
+}
 async function main(){
  const browser=await loadPlaywright().webkit.launch(), run=createRun("Assignment controls in the shipping shell");
  const page=await A.open(browser);
@@ -22,7 +29,7 @@ async function main(){
  await run.check("Every required control is in the viewport at five sizes in both themes",async()=>{
    for(const theme of ["dark","light"])for(const [width,height]of [[1400,900],[1280,800],[1024,768],[760,720],[520,680]])for(const state of ["running","decision"]){
      await A.resize(page,{width,height}); await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);await A.drive(page,state);
-     const clipped=await panel.evaluate(root=>Array.from(root.querySelectorAll("[data-run-pause],[data-run-end],[data-run-answer],[data-run-scope]")).filter(e=>{const r=e.getBoundingClientRect();const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return r.top<0||r.bottom>innerHeight||!e.contains(hit);}).map(e=>e.textContent));
+     const clipped=await panel.evaluate(root=>Array.from(root.querySelectorAll("[data-run-pause],[data-run-end],[data-run-review],[data-run-answer],[data-run-scope]")).filter(e=>{const r=e.getBoundingClientRect();const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return r.top<0||r.bottom>innerHeight||!e.contains(hit);}).map(e=>e.textContent));
      assertEqual(clipped,[],`${theme} ${width}x${height} ${state}`);
      if(state==="decision") { assertEqual(await panel.locator(".run-question-body").count(),0); assert(await panel.locator("[data-run-review]").isVisible()); }
      const size=await panel.boundingBox();assert(size.height<height*.3,`${size.height}/${height}`);
@@ -90,7 +97,7 @@ async function main(){
    for(const theme of ["dark","light"])for(const state of ["empty","running","decision","error"]){
      await A.drive(page,state);await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
      if(state==="decision") await A.review(page); else await panel.locator("summary").evaluate(e=>e.parentElement.open=true);
-     await page.evaluate(C.pageScript());const out=await page.evaluate(()=>window.__contrastProbe({surface:"assignment",theme:document.documentElement.dataset.theme}));
+     await settleContrast(page);await page.evaluate(C.pageScript());const out=await page.evaluate(()=>window.__contrastProbe({surface:"assignment",theme:document.documentElement.dataset.theme}));
      assertEqual(Object.keys(out.failures),[],JSON.stringify(out.failures));assertEqual(Object.keys(out.unresolvable),[],JSON.stringify(out.unresolvable));
      assert(out.measuredPaths.some(p=>p.includes("managed-run")),"Panel absent from contrast walk");
    }
@@ -188,17 +195,35 @@ async function main(){
      const surface=panel.locator(".run-history-panel"),rect=await surface.boundingBox();assert(rect.height>0&&rect.y>=0&&rect.y+rect.height<=height);
      const geometry=await body.evaluate(e=>({height:e.clientHeight,content:e.scrollHeight}));assert(geometry.height>0&&geometry.content>0);
      const more=surface.locator("[data-run-more]");assertEqual(await more.isVisible(),geometry.content>geometry.height+1,"Hidden history needs a persistent cue");
-     if(width===520)await page.screenshot({path:`/tmp/richos-p6-history-${imported?"imported":"receipts"}-${theme}.png`});
+     if(width===520)await page.screenshot({path:`/tmp/richos-p7-history-${imported?"imported":"receipts"}-${theme}.png`});
      if(imported) {
        assert(geometry.content>geometry.height,"The imported fixture must overflow");
+       assertEqual(await body.locator(".run-checks").count(),1,"Identical imported checks belong once above the steps");
+       assert((await body.locator(".run-checks").innerText()).startsWith("Completion checks for every step:"));
+       assertEqual(await body.locator(".run-history-task .run-checks").count(),0);
+       assert((await more.innerText()).includes("retry available"),"Hidden Retry must be announced before scrolling");
        const retry=body.locator("[data-run-retry]");let hit=false;
        for(let i=0;i<30;i++) {
          hit=await retry.evaluate(e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
+         const hiddenBelow=await retry.evaluate(e=>e.getBoundingClientRect().bottom>e.closest(".run-reading-body").getBoundingClientRect().bottom);
+         assertEqual((await more.innerText()).includes("retry available"),hiddenBelow,"The cue must track the actual hidden action");
          if(hit||!await more.isVisible())break;await more.click();
        }
-       assert(hit,"The reading control must uncover the retry action");await retry.click();
+       assert(hit,"The reading control must uncover the retry action");
+       // Passing the action must advertise it above rather than keep promising one below.
+       for(let i=0;i<30&&await more.isVisible();i++)await more.click();
+       const above=surface.locator("[data-run-previous]");
+       if(await retry.evaluate(e=>e.getBoundingClientRect().top<e.closest(".run-reading-body").getBoundingClientRect().top))assert((await above.innerText()).includes("retry available"));
+       for(let i=0;i<30;i++) {
+         const reachable=await retry.evaluate(e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
+         if(reachable)break;assert(await above.isVisible());await above.click();
+       }
+       await retry.click();
+       assert(!(await surface.locator("[data-run-more]").innerText()).includes("retry available"),"A retried task must not leave a stale action cue");
        assert(await page.evaluate(()=>window.assignmentCalls.some(([n,a])=>n==="retry_run_task"&&a.taskId==="receipt-task-6"&&a.runId==="assignment-1")));
      } else {
+       assertEqual(await body.locator(".run-task-status").innerText(),"Status: Checks passed","History must label the state instead of opening with an orphaned token");
+       assert(await body.locator(".run-task-status").evaluate(e=>+getComputedStyle(e).fontWeight>+getComputedStyle(e.parentElement.querySelector(".run-receipt")).fontWeight));
        assertEqual(await body.locator("ol").count(),0,"One assignment must not become a numbered list of one");
        assertEqual(await body.getByText("Prepare the Q4 investor update",{exact:true}).count(),0,"The task must not repeat its title");
        assert(await body.locator(".run-receipt").first().evaluate(e=>getComputedStyle(e).fontFamily===getComputedStyle(document.getElementById("managed-run")).fontFamily));
@@ -223,7 +248,7 @@ async function main(){
      assertEqual(await target.locator('[data-contrast-role="indicator"]').innerText(),"");
      const bg=await target.evaluate(e=>{for(let n=e;n;n=n.parentElement){const c=getComputedStyle(n).backgroundColor;if(c.startsWith("rgb("))return c;}throw Error("No opaque background for matched contrast control");});
      const grey=Array.from({length:256},(_,i)=>`rgb(${i},${i},${i})`).find(c=>{const r=C.contrastRatio(C.parseCssColor(c),C.parseCssColor(bg));return r>3.3&&r<4;});assert(grey,"Need a matched ink between the two floors");
-     await page.evaluate(C.pageScript());
+     await settleContrast(page);await page.evaluate(C.pageScript());
      const walk=()=>page.evaluate(()=>window.__contrastProbe({surface:"attention",theme:document.documentElement.dataset.theme}));
      const baseline=await walk();assertEqual(Object.keys(baseline.failures),[]);assert(baseline.measuredPaths.some(p=>p.includes("run-attention-marker")&&p.includes("indicator")),"The empty mark must actually be measured");
      await target.evaluate((e,c)=>e.style.color=c,grey);const lowText=await walk();const failures=Object.values(lowText.failures).filter(f=>!f.indicator&&f.selector.includes(picker?"run-choices":"run-status"));
@@ -241,6 +266,43 @@ async function main(){
    const body=await panel.locator(".run-reading-body").boundingBox(),more=await panel.locator("[data-run-more]").boundingBox();assert(more.y>=body.y+body.height && more.y-(body.y+body.height)<16,"More must sit directly below the clipped edge");
    await panel.locator("[data-run-more]").click();assert(await panel.getByRole("button",{name:"Read more above",exact:true}).isVisible());await click("Back to conversation");
    assert(!(await page.evaluate(()=>window.assignmentCalls.some(([n])=>n==="respond_run_decision"))));assertEqual(await panel.locator(".run-reading").count(),0);
+   await A.resize(page,{width:1400,height:900});
+ });
+ await run.check("History keeps distinct checks and gives status and Review decision their own weight",async()=>{
+   for(const theme of ["dark","light"]) {
+     await A.drive(page,"decision");await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
+     assert(await panel.locator("[data-run-review]").evaluate(e=>{const pause=e.parentElement.querySelector("[data-run-pause]"),end=e.parentElement.querySelector("[data-run-end]");return pause&&end&&+getComputedStyle(e).fontWeight>+getComputedStyle(pause).fontWeight&&+getComputedStyle(e).fontWeight>+getComputedStyle(end).fontWeight;}),"Review must stand out in the same action row");
+     await A.drive(page);await page.evaluate(async()=>{
+       window.assignmentCurrent.autonomous=false;
+       window.assignmentCurrent.tasks[1].checks=["The figures match the ledger","The board approved the wording"];
+       for(const t of window.assignmentCurrent.tasks)t.evidence=["Verified against the approved report."];
+       await window.RichRuns.show("hiring");
+     });await panel.locator(".run-history > summary").click();
+     const body=panel.locator(".run-history-body");assertEqual(await body.locator(".run-history-task .run-checks").count(),3,"Different check sets must stay attached to their steps");
+     assert(!(await body.innerText()).includes("Completion checks for every step"));
+     assert((await body.locator(".run-history-task").nth(1).innerText()).includes("The board approved the wording"));
+     assert(await body.locator(".run-task-status").first().evaluate(e=>+getComputedStyle(e).fontWeight>+getComputedStyle(e.parentElement.querySelector(".run-receipt")).fontWeight));
+   }
+ });
+ await run.check("The cut-edge rule is measured and cannot lower its reading button's text floor",async()=>{
+   for(const theme of ["dark","light"])for(const state of ["decision","history","picker"]) {
+     await A.resize(page,{width:520,height:680});await A.drive(page,"decision");await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
+     if(state==="decision") {await A.longDecision(page,8,12);await A.review(page);}
+     else if(state==="picker") {await page.evaluate(async()=>{window.assignmentRows=Array.from({length:20},(_,i)=>({...window.assignmentCurrent,runId:`rule-${i}`}));await window.RichRuns.show("hiring");});await panel.locator("[data-run-picker]").click();}
+     else {await page.evaluate(async()=>{window.assignmentCurrent.tasks[0].evidence=Array.from({length:20},()=>"Checked the requested section against the approved report. Nothing was sent.");await window.RichRuns.show("hiring");});await panel.locator(".run-history > summary").click();}
+     const rule=panel.locator(".run-reading-rule"),more=panel.locator("[data-run-more]");assert(await panel.locator(".run-reading-body").evaluate(e=>e.clientHeight>0&&e.textContent.trim().length>0),"Rule measurement requires actual readable content");assert(await more.isVisible());assertEqual(await rule.innerText(),"");
+     assert(await more.evaluate(e=>!e.closest('[data-contrast-role="indicator"]')),"The rule must not lower its sibling button's text floor");
+     await settleContrast(page);await page.evaluate(C.pageScript());const walk=()=>page.evaluate(()=>window.__contrastProbe({surface:"reading-rule",theme:document.documentElement.dataset.theme}));
+     async function measured(){const out=await walk();assert(out.measuredPaths.some(p=>p.includes("run-reading-rule")&&p.includes("indicator")),"Cut-edge rule missing from measured paths");return out;}
+     assertEqual(Object.keys((await measured()).failures),[]);
+     const bg=await rule.evaluate(e=>{for(let n=e;n;n=n.parentElement){const c=getComputedStyle(n).backgroundColor;if(c.startsWith("rgb("))return c;}throw Error("No opaque rule background");});
+     await rule.evaluate((e,c)=>e.style.borderTopColor=c,bg);const low=await measured();assert(Object.values(low.failures).some(f=>f.indicator&&f.threshold===3&&f.selector.includes("run-reading-rule")),"Invisible rule must fail at 3:1");
+     await rule.evaluate(e=>{e.style.removeProperty("border-top-color");e.style.borderTopWidth="0";});let reason;try{await measured();}catch(e){reason=String(e);}assert(reason?.includes("Cut-edge rule missing"),"Removing the border must void its measurement");await rule.evaluate(e=>e.style.removeProperty("border-top-width"));
+     // Use the button's painted background for its separate text control.
+     const buttonBg=await more.evaluate(e=>getComputedStyle(e).backgroundColor);
+     const buttonInk=Array.from({length:256},(_,i)=>`rgb(${i},${i},${i})`).find(c=>{const ratio=C.contrastRatio(C.parseCssColor(c),C.parseCssColor(buttonBg));return ratio>3.3&&ratio<4;});assert(buttonInk);
+     await more.evaluate((e,c)=>e.style.color=c,buttonInk);const lowText=await measured();assert(Object.values(lowText.failures).some(f=>!f.indicator&&f.selector.includes("run-reading-next")&&f.threshold===4.5&&f.ratio>3&&f.ratio<4.5),JSON.stringify(lowText.failures));
+   }
    await A.resize(page,{width:1400,height:900});
  });
  await run.check("Thread changes clear the assignment and its error",async()=>{await page.evaluate(()=>window.RichRuns.show(null));assert(await panel.isHidden());assertEqual(await panel.innerText(),"");});

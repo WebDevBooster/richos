@@ -1,4 +1,4 @@
-# RichOS durable work: ninth review
+# RichOS durable work: tenth review
 
 ## Problem and target
 
@@ -220,6 +220,10 @@ the remaining history, contrast-gate and presentation gaps. That document record
 the current checks and distinguishes them from Urban's signoff of the earlier
 commit. No production deployment or main-branch merge is claimed. Native window chrome, OS accent
 behavior and interactive speech were not visually audited in this pass.
+
+Urban kept that 9/10 signoff at `9b6c74d` in P7 after finding no regressions.
+The [P7 follow-up](URBAN-P7-RESPONSE.md) addresses the remaining history hierarchy,
+action cue and cut-edge measurement findings with current evidence.
 
 ## Review entry points
 

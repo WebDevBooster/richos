@@ -71,7 +71,7 @@ pub(crate) fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
                     human_contract(&t.prompt)
                         .map(|p| p.0.to_owned())
                         .unwrap_or_else(|| {
-                            "The saved assignment details are unavailable in this view.".into()
+                            "Rich has this assignment saved, but not in a form he can show you here.".into()
                         })
                 } else {
                     t.prompt.clone()

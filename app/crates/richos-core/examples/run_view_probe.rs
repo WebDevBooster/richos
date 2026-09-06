@@ -77,6 +77,48 @@ fn probe() -> serde_json::Value {
     let request = "Draft the Q4 investor update. Do not send it or contact anyone.";
     let reply = "I'll deliver the complete draft with figures reconciled to Finance. It will remain private.";
     let original = register(&workspace, request, reply, &[]);
+    // The webview omits Review decision for terminal assignments. Exercise the
+    // shipping state and projection together, including a canceled pending question.
+    use richos_core::run::{RunState, TaskState};
+    let mut terminal = original.clone();
+    let mut second_task = terminal.plan.tasks[0].clone();
+    second_task.id = "terminal-invariant-second".into();
+    terminal.plan.tasks.push(second_task);
+    terminal.tasks.push(terminal.tasks[0].clone());
+    let states = [
+        TaskState::Pending,
+        TaskState::Running,
+        TaskState::Verifying,
+        TaskState::Passed,
+        TaskState::NeedsAttention,
+        TaskState::NeedsDecision,
+    ];
+    for first_state in &states {
+        for second_state in &states {
+            for canceled in [false, true] {
+                terminal.tasks[0].state = first_state.clone();
+                terminal.tasks[1].state = second_state.clone();
+                terminal.canceled = canceled;
+                let view = projection::view("hiring", &terminal);
+                let finished = matches!(terminal.state(), RunState::Completed | RunState::Canceled);
+                if finished {
+                    assert!(
+                        view.tasks.iter().all(|t| t.decision.is_none()),
+                        "Terminal assignment must not conceal a pending decision"
+                    );
+                } else {
+                    for (i, task) in terminal.tasks.iter().enumerate() {
+                        if task.state == TaskState::NeedsDecision {
+                            assert!(
+                                view.tasks[i].decision.is_some(),
+                                "Positive control lost the live question"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     let before = serde_json::to_vec(&original).unwrap();
     assert!(original.tasks[0].evidence[0].contains("Preserve prohibitions."));
     let first = serde_json::to_value(projection::view("hiring", &original)).unwrap();
@@ -161,7 +203,7 @@ fn probe() -> serde_json::Value {
     );
     assert_eq!(
         fourth["tasks"][0]["description"],
-        "The saved assignment details are unavailable in this view.",
+        "Rich has this assignment saved, but not in a form he can show you here.",
         "Unknown envelope leaked into history"
     );
     assert_eq!(fourth["tasks"][0]["checks"], serde_json::json!([]));

@@ -4460,7 +4460,10 @@ body.bp-narrow .tl-user-bubble {
 #managed-run .run-attention-marker { position: absolute; left: 0; top: 2px; bottom: 2px; width: 0; border-left: 3px solid var(--ink); pointer-events: none; }
 #managed-run .run-receipt, #managed-run .run-previous-instructions { white-space: pre-wrap; font-family: inherit; }
 #managed-run .run-history-task + .run-history-task { margin-top: 12px; }
-#managed-run .run-reading-next { flex: none; padding-top: 6px; border-top: 1px solid var(--line-control); }
+#managed-run .run-reading-next { position: relative; flex: none; padding-top: 7px; }
+#managed-run .run-reading-rule { position: absolute; top: 0; left: 0; right: 0; height: 0; border-top: 1px solid var(--line-control); pointer-events: none; }
+#managed-run .run-task-status, #managed-run .run-task-description { font-weight: 600; }
+#managed-run [data-run-review] { font-weight: 700; }
 #managed-run .run-reading-next[hidden] { display: none; }
 /* The strip stays compact. Deliberately opened reading surfaces own long content. */
 #managed-run .run-question-body { white-space: pre-wrap; }
