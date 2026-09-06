@@ -2,3 +2,4 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHONDONTWRITEBYTECODE=1 python3 "$SCRIPT_DIR/session-evidence.test.py" -v
+"$SCRIPT_DIR/session-evidence.mutation.sh"
