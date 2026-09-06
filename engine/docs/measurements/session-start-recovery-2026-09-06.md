@@ -45,7 +45,7 @@ checkout to refresh its ignored checksum sidecars, then require contract-integri
 on main. Start a new session to exercise the new SessionStart text; plugin reload
 alone is not evidence that SessionStart ran. The
 five-record live ECS repair and backed-up memory correction are documented in the
-femcboost review `docs/reviews/ecs-startup-recovery-2026-09-06.md`.
+the review that occasioned it, which lives in the operator's PRIVATE record repository (femcboost) and is not part of this published tree — named here so a reader with only the public repository is told where it is rather than sent to a path they will never have.
 
 Sage review follow-up: retain the imperative CEO-ask instruction and its
 2026-08-31 history, then state the logged exception without weakening its default.
