@@ -1964,7 +1964,11 @@ fn main() {
             history_health,
             // --- the home screen's picture, out of his own corpus (2026-09-06) — appended,
             //     never reordered ---
-            home_field_data
+            home_field_data,
+            // --- the first-run notice: the VISIBLE half of the onboarding offer
+            //     (2026-09-06) — appended, never reordered ---
+            onboarding_view,
+            decline_onboarding
         ])
         .build(tauri::generate_context!())
         .expect("error while building RichOS")
@@ -2595,6 +2599,114 @@ fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> Navigation
 #[tauri::command]
 fn history_health(state: State<AppState>) -> richos_core::ledger::HistoryHealth {
     state.spine.lock().unwrap().ledger().history_health()
+}
+
+// ---------------------------------------------------------------------------------------
+// THE FIRST-RUN NOTICE — the VISIBLE half of the onboarding offer
+//
+// THE GAP THIS CLOSES, in the words of the engineer who left it: *"The first-run sheet is
+// not built. Rich makes the offer in conversation; a CEO who does not read the first reply
+// never sees it."* (`docs/verification/onboarding-honesty-2026-09-06/README.md`, "What is
+// NOT built", item 2.) The offer reaches him ONLY as part of a reply, and only after he has
+// typed something first — measured cell D1. A person who opens RichOS, looks at the screen
+// and types nothing is told nothing at all, and the screen he lands on is an empty
+// conversation.
+//
+// WHY TWO COMMANDS AND NOT ONE. `onboarding_view` reads and `decline_onboarding` writes,
+// and the read is DERIVED from the same two facts on disk that the priming block is derived
+// from — so the notice on screen and the block in the priming turn cannot disagree about
+// whether he has been asked. There is no third command and no state that says "the notice
+// was shown": `onboarding.rs`'s module doc bans it by name, because a flag recording that
+// the app SHOWED something is exactly the failure this whole line of work exists to remove.
+//
+// WHY THE WRITE HAS TO EXIST AT ALL. `OnboardingRecord::record_declination` shipped with no
+// caller anywhere in the product, so `OnboardingState::Declined` and `DECLINED_BLOCK` were
+// unreachable outside their own tests and "not now" could only ever be said into a
+// conversation that ends. That is the M5 nag with nothing holding it back.
+// ---------------------------------------------------------------------------------------
+
+/// Where this install stands on onboarding, for the conversation the CEO is looking at.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OnboardingView {
+    /// `no-central-folder` | `not-yet` | `declined` | `described` | `unusable`.
+    ///
+    /// Five states and not a boolean, because the window must not collapse them: "nothing
+    /// has looked" and "it looked and there is nothing" are different statements, and only
+    /// one of them is an invitation to spend twenty minutes. `unusable` is the only one that
+    /// needs a person, and it is the only one that gets said differently.
+    state: String,
+    /// The company the answer is about, so a notice can never be shown against a company it
+    /// was not derived for. `None` when no thread is bound, which is itself a reason to
+    /// render nothing.
+    entity_id: Option<String>,
+    /// Why the company's notes could not be used — `unusable` only, and empty otherwise.
+    ///
+    /// Composed in richos-core (`CompanyLayer::describe`) and never re-phrased here, for the
+    /// same reason `history_health` composes its own sentences: "the file is too big" and
+    /// "the file could not be read" are different repairs.
+    why: Option<String>,
+}
+
+fn onboarding_view_of(state: &State<AppState>) -> OnboardingView {
+    let spine = state.spine.lock().unwrap();
+    let Some(binding) = spine.active_binding() else {
+        return OnboardingView { state: "no-central-folder".to_string(), entity_id: None, why: None };
+    };
+    let entity_id = Some(binding.entity_id().to_string());
+    match spine.onboarding_state(binding) {
+        richos_core::onboarding::OnboardingState::NoCentralFolder => {
+            OnboardingView { state: "no-central-folder".to_string(), entity_id, why: None }
+        }
+        richos_core::onboarding::OnboardingState::NotYet => {
+            OnboardingView { state: "not-yet".to_string(), entity_id, why: None }
+        }
+        richos_core::onboarding::OnboardingState::Declined { .. } => {
+            OnboardingView { state: "declined".to_string(), entity_id, why: None }
+        }
+        richos_core::onboarding::OnboardingState::Described => {
+            OnboardingView { state: "described".to_string(), entity_id, why: None }
+        }
+        richos_core::onboarding::OnboardingState::Unusable { why } => {
+            OnboardingView { state: "unusable".to_string(), entity_id, why: Some(why) }
+        }
+    }
+}
+
+/// Read where onboarding stands. The window calls it at boot and after every company change,
+/// and `not-yet` is what makes it show the offer.
+#[tauri::command]
+fn onboarding_view(state: State<AppState>) -> OnboardingView {
+    onboarding_view_of(&state)
+}
+
+/// **HE PRESSED "Not now".** Record it, and return the state that results.
+///
+/// Three properties this has and must keep:
+///
+///   1. **It records an ANSWER, never a viewing.** The only thing written is that he was
+///      asked and declined. There is no counter and no timestamp of an offer — `onboarding.rs`
+///      carries a test whose only job is to refuse a second field on that record.
+///   2. **A failure to write is REPORTED, never swallowed.** The window renders the refusal
+///      rather than closing the notice, because a declination that silently went nowhere puts
+///      him back in the state where he is asked again forever, and he would have no way to
+///      know it.
+///   3. **It is reversible by asking.** `DECLINED_BLOCK` tells Rich the interview is still
+///      there if the CEO brings it up. The surface says the same thing in the CEO's own
+///      words, so the button's effect and the product's behavior are one claim.
+#[tauri::command]
+fn decline_onboarding(state: State<AppState>) -> Result<OnboardingView, String> {
+    let now_millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    state
+        .spine
+        .lock()
+        .unwrap()
+        .record_onboarding_declination(now_millis)
+        .map_err(|e| e.to_string())?;
+    Ok(onboarding_view_of(&state))
 }
 
 /// The authoritative answer to "which entity and thread is the CEO actually talking to?".
