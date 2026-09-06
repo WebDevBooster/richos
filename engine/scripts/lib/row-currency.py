@@ -16,7 +16,7 @@ Everything here is that sentence plus the precision needed to make it fire on
 the right commits and on no others.
 
 ===========================================================================
-TWO CHECKS, AND WHY BOTH
+THREE CHECKS, AND WHY EACH
 ===========================================================================
 CHECK 1 — CURRENCY (primary). Every governed row carries a warrant: a status
 token and one or more `<prefix>/path`@`<oid>` stamps. The oid is an object id
@@ -36,6 +36,19 @@ touching anything that item's row points at.
 
   It rests on the lander's own words, which are a claim rather than evidence.
   That is why it is second and not first.
+
+CHECK 3 — HEADLINE (added 2026-09-06). A row's first sentence is the part that
+gets quoted into briefs, and CHECK 1 has no opinion about it: eleven of the
+sixteen rows found overtaken that day had MATCHING pins. So a governed row
+carries a `**Headline:**` warrant — a digest of its own body, plus either the
+command that settles the headline and that command's output, or the word
+`unverified` and what would settle it. When the body moves, the digest stops
+matching and the headline is handed back to a human.
+
+  It cannot tell whether a sentence is true. It can tell that the row moved
+  underneath one, and it can make an unverifiable claim VISIBLE and counted.
+  Declaration-gated (ROW_HEADLINE_SECTIONS); silent where nobody adopted it,
+  and the HC census says which of those two silences you are looking at.
 
 ===========================================================================
 PRECISION IS THE CONTRACT
@@ -116,6 +129,7 @@ EXIT  0 always, unless the job itself is unreadable (2). The VERDICT is the
       checker is broken" the same signal to every caller.
 """
 
+import hashlib
 import json
 import re
 import subprocess
@@ -218,17 +232,17 @@ def fail(reason):
 # THE PARSE - one function; the lint, the claim check and the FIX line all
 # use its output, so there is no second reading of the record anywhere.
 # ===========================================================================
-def parse_record(text, row_sections, premise_sections=()):
+def parse_record(text, row_sections, premise_sections=(), headline_sections=()):
     """-> (items, violations, seen_sections)
 
     items: [{"section", "id", "span": [line...], "line0", "governed",
-             "premised", "shape"}] in document order.
+             "premised", "headlined", "shape"}] in document order.
 
-    "governed" is section-3's warrant; "premised" is the CEO sections'. They
-    are two flags on ONE parse rather than two parses, for the reason stated at
-    the top of this file and in ceo-todos.py: two readings of one record agree
-    until they don't, and the day they disagree somebody reads a page a gate
-    called fine.
+    "governed" is section-3's warrant; "premised" is the CEO sections';
+    "headlined" is the row's own first sentence. They are three flags on ONE
+    parse rather than three parses, for the reason stated at the top of this
+    file and in ceo-todos.py: two readings of one record agree until they
+    don't, and the day they disagree somebody reads a page a gate called fine.
     """
     lines = text.split("\n")
     items = []
@@ -265,6 +279,7 @@ def parse_record(text, row_sections, premise_sections=()):
                           "span": [line], "line0": n + 1,
                           "governed": section in row_sections,
                           "premised": section in premise_sections,
+                          "headlined": section in headline_sections,
                           "shape": "block"}
             continue
 
@@ -279,6 +294,7 @@ def parse_record(text, row_sections, premise_sections=()):
                               "span": [line], "line0": n + 1,
                               "governed": section in row_sections,
                               "premised": section in premise_sections,
+                              "headlined": section in headline_sections,
                               "shape": "table"})
                 continue
             # A table row inside a governed section that carries no item id in
@@ -557,6 +573,244 @@ def check_premises(items, premise_sections, premise_required, roots,
 
 
 # ===========================================================================
+# CHECK 3 - THE ROW'S OWN FIRST SENTENCE
+# ===========================================================================
+# CHECK 1 answers "is this row still describing the same work?". CHECK 1b
+# answers "is the reason for asking him this still true?". On 2026-09-06
+# sixteen rows of one record were re-derived against the code and OVERTAKEN,
+# and neither check had anything to say about eleven of them:
+#
+#     ELEVEN OF THE SIXTEEN OVERTAKEN ROWS HAD A MATCHING BLOB PIN.
+#
+# A pin proves a file has not moved. It cannot prove the SENTENCE about the
+# file is still true. And rows here are written finding-first - a bold,
+# present-tense headline stating the finding as filed, with corrections
+# appended underneath - so a row can be entirely current in its body and still
+# hand a false first sentence to anybody who quotes it. That is not
+# carelessness; it is the shape of the page. Row 3.34 named cases `54` and
+# `IN2` as the red ones in one suite; both pass, and the suite is red at 27
+# other cases. A brief quoting that headline sent an engineer at two green
+# tests. Four other briefs the same night carried premises that measurement
+# refuted, every one taken from a headline rather than from a run.
+#
+# THE PROPERTY, and it is the CEO's own rule about briefs applied to the record
+# those briefs are quoted from:
+#
+#     A ROW'S HEADLINE CARRIES THE COMMAND THAT SETTLES IT AND THAT COMMAND'S
+#     OUTPUT, OR IT CARRIES THE WORD `unverified` AND WHAT WOULD SETTLE IT.
+#     THERE IS NO THIRD SETTING.
+#
+#   - **Headline:** `4f2a9c1e83bd` - `./scripts/provision-claude-md.test.sh` -> `37 passed, 0 failed`
+#   - **Headline:** `4f2a9c1e83bd` - unverified "one uninterrupted run of contract-integrity.test.sh, read at its final counts line"
+#
+# THE HEX IS THE ROW'S OWN DIGEST, and it is the half that fires. It is
+# sha256/12 of everything else in this row - the prose, the corrections, the
+# State warrant and its pins - normalized for formatting. So the moment
+# anybody appends a correction underneath the headline, or re-stamps a pin, the
+# digest stops matching and the next landing is refused until a person looks at
+# the first sentence and decides whether it survived. That is the exact gap the
+# eleven fell through: RE-STAMPING IS NOT RE-READING, and now a re-stamp cannot
+# happen without the headline being handed back to a human in the same breath.
+#
+# WHY THE DIGEST COVERS THE `State:` PIN TOO, deliberately. The eleven rows had
+# pins that MATCHED, so including the pin is not what catches them - the
+# correction text is. But when a pin DOES move, the row is being re-stamped by
+# somebody who has just been told the work changed, and that is the single best
+# moment to ask whether the headline about that work is still true. Excluding
+# the pin would buy a little less ceremony at the cost of the one moment the
+# mechanism is most likely to be right.
+#
+# WHY NOT PARSE THE PROSE. Because it cannot be done. Nothing here has an
+# opinion about whether an English sentence is true; it has an opinion about
+# whether a human has looked since the row last moved, and about whether the
+# row states something a machine can re-run. The re-running is
+# scripts/row-headline-verify.sh's job, and it deliberately never happens in a
+# hook: a record file is not a trusted script, and a check that took the 2,168
+# seconds one of the suites in this record takes would be waived on its first
+# land.
+#
+# WHY `unverified` IS A FIRST-CLASS ANSWER AND NOT AN ESCAPE HATCH. The
+# alternative to a cheap honest answer is a check nobody can satisfy without
+# hand-writing prose at every land, and a check like that is waived into
+# uselessness inside a week. `unverified` costs one line, and it is COUNTED AND
+# NAMED on every run by the HC census - so a record that answers `unverified`
+# to everything prints a number saying so, at every landing, to everybody.
+# Visible is the whole point: an unverifiable headline is not a defect, an
+# unverifiable headline that reads as checked is.
+#
+# WHAT THIS CANNOT SEE, stated here rather than discovered later:
+#   * Whether the stated command actually settles the headline, or whether the
+#     recorded output was ever produced by it. `true` -> `` satisfies the
+#     grammar. The verifier can re-run it; nothing can tell you it was the
+#     right question to ask.
+#   * A headline that goes false because THE WORLD moved while the row sat
+#     still. No check that does not execute can see that, which is why the
+#     verifier exists and why it is a separate, on-demand tool.
+#   * A human who pastes the printed digest without re-reading the sentence.
+#     Same limit CHECK 1 has, same answer: there is no re-stamp command, the
+#     digest has to be retyped, and the refusal prints the command to re-run
+#     beside it.
+HEADLINE_MARKER_RE = re.compile(r"\*\*Headline:\*\*")
+HEADLINE_RE = field_re("Headline")
+# Where a warrant field ends when another one follows it on the same line. A
+# table row carries all of its warrants in one cell, so `**Headline:**` cannot
+# simply run to end of line the way `**State:**` does in the block shape.
+FIELD_MARKER_RE = re.compile(r"\*\*[A-Z][A-Za-z-]*:\*\*")
+HEADLINE_DIGEST_LEN = 12
+HEADLINE_DIGEST_RE = re.compile(
+    r"^\s*`(?P<digest>[0-9a-f]{%d})`\s*(?P<rest>.*)$" % HEADLINE_DIGEST_LEN)
+# The evidence: a command and the output it produced, both backticked, with an
+# arrow between them. Both arrow spellings are accepted because the record is
+# written by hand and `->` is what a keyboard produces.
+HEADLINE_EVIDENCE_RE = re.compile(
+    r"`(?P<cmd>[^`]+)`\s*(?:→|->|=>)\s*`(?P<out>[^`]*)`")
+HEADLINE_UNVERIFIED_RE = re.compile(r'^\s*unverified\s+"(?P<why>[^"]*)"\s*$')
+MIN_UNVERIFIED_WORDS = 4
+# Formatting, not content. Emphasis, code fences and table cell separators are
+# removed before digesting, so that re-bolding a phrase or reflowing a cell
+# does not demand a re-read while changing a WORD does.
+_HEADLINE_NORM_DROP = re.compile(r"[*_`|]")
+
+
+def _strip_headline_field(line):
+    """The line with its `**Headline:**` field removed, whatever follows it."""
+    m = HEADLINE_MARKER_RE.search(line)
+    if not m:
+        return line
+    tail = line[m.end():]
+    nxt = FIELD_MARKER_RE.search(tail)
+    return line[:m.start()] + (tail[nxt.start():] if nxt else "")
+
+
+def headline_body(item):
+    """The `**Headline:**` body, truncated at the next warrant field."""
+    for line in item["span"]:
+        m = HEADLINE_RE.search(line)
+        if not m:
+            continue
+        body = m.group("body")
+        nxt = FIELD_MARKER_RE.search(body)
+        if nxt:
+            body = body[:nxt.start()]
+        return body.strip().rstrip("|").strip()
+    return None
+
+
+def headline_digest(item):
+    """sha256/12 of everything in the row EXCEPT the headline warrant itself."""
+    body = "\n".join(_strip_headline_field(l) for l in item["span"])
+    norm = re.sub(r"\s+", " ", _HEADLINE_NORM_DROP.sub("", body)).strip()
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:HEADLINE_DIGEST_LEN]
+
+
+def check_headlines(items, terminal, violations, notes, fixes, hc):
+    """CHECK 3 - the row's first sentence is re-derivable, or says it is not.
+
+    THE CENSUS RIDES ON EVERY VERDICT, clean or not, declared or not, for the
+    reason the PC line does: "every headline is current" and "no headline was
+    ever checked" both produce silence, and a reader has to be able to tell
+    them apart at a glance.
+    """
+    for it in items:
+        if not it.get("headlined"):
+            continue
+        iid = it["id"]
+
+        # A CLOSED row is exempt exactly as it is exempt from the pin: further
+        # changes to finished work cannot falsify "this closed", and the row is
+        # supposed to have left the page. Counted, never silent.
+        state = warrant_of(it)
+        if state:
+            sm = STATUS_RE.match(state)
+            if sm and sm.group("tok") in terminal:
+                hc["terminal"] += 1
+                continue
+
+        hc["rows"] += 1
+        body = headline_body(it)
+        if body is None or not body.strip():
+            hc["missing"].append(iid)
+            violations.append((
+                iid, "HEADLINE-UNDERIVABLE",
+                "this row states a finding in its first sentence and carries no "
+                "`**Headline:**` warrant, so nothing can re-derive it and nothing "
+                "can tell when it stops being true. Give it the command that "
+                "settles it and that command's output, or say `unverified "
+                "\"<what would settle it>\"`. Eleven rows with MATCHING pins were "
+                "found carrying false headlines on 2026-09-06: a pin proves the "
+                "file has not moved, never that the sentence about it is true."))
+            continue
+
+        hc["stated"] += 1
+        dm = HEADLINE_DIGEST_RE.match(body)
+        if not dm:
+            hc["broken"] += 1
+            violations.append((
+                iid, "HEADLINE-MALFORMED",
+                "the headline warrant does not begin with a backticked "
+                "%d-character digest of this row: %s"
+                % (HEADLINE_DIGEST_LEN, body[:110])))
+            continue
+
+        rest = dm.group("rest").strip().lstrip("-–—").strip()
+        um = HEADLINE_UNVERIFIED_RE.match(rest)
+        evidence = None
+        if um:
+            why = um.group("why").strip()
+            if len(_words(why)) < MIN_UNVERIFIED_WORDS:
+                hc["broken"] += 1
+                violations.append((
+                    iid, "HEADLINE-UNVERIFIED-NO-REASON",
+                    "`unverified` must say WHAT WOULD SETTLE IT, in at least %d "
+                    "words. A bare marker exempts nothing - it is a way to switch "
+                    "the check off while looking like a considered decision."
+                    % MIN_UNVERIFIED_WORDS))
+                continue
+            hc["unverified"] += 1
+            hc["unverified_rows"].append((iid, why))
+        else:
+            em = HEADLINE_EVIDENCE_RE.search(rest)
+            if not em or not em.group("cmd").strip():
+                hc["broken"] += 1
+                violations.append((
+                    iid, "HEADLINE-NO-EVIDENCE",
+                    "the headline warrant states neither a command and its output "
+                    "(`<command>` -> `<what it printed>`) nor `unverified "
+                    "\"<what would settle it>\"`. Those are the only two settings, "
+                    "and a headline that is neither is a claim written in a voice "
+                    "that sounds checked: %s" % rest[:110]))
+                continue
+            evidence = em
+            hc["verified"] += 1
+
+        want = headline_digest(it)
+        if dm.group("digest") != want:
+            hc["stale"] += 1
+            violations.append((
+                iid, "HEADLINE-STALE",
+                "this row has changed since its headline was last read. The "
+                "warrant carries `%s` and the row now digests to `%s`. Something "
+                "was appended, corrected or re-stamped underneath a first "
+                "sentence nobody has re-read - which is exactly how eleven rows "
+                "with matching pins came to carry false headlines. %s"
+                % (dm.group("digest"), want,
+                   ("Re-run it: %s" % evidence.group("cmd").strip())
+                   if evidence else
+                   "This headline is declared unverified; decide whether that is "
+                   "still the honest answer.")))
+            fixes.append((iid, "**Headline:** `%s` - %s" % (want, rest)))
+
+    if hc["unverified_rows"]:
+        notes.append((
+            "HEADLINE-UNVERIFIED",
+            "%d row(s) state a finding nothing here can re-derive, and say so: "
+            "%s. That is the honest setting rather than a gap - and this line is "
+            "the reason it cannot also be the quiet one."
+            % (len(hc["unverified_rows"]),
+               "; ".join("%s (%s)" % (i, r) for i, r in hc["unverified_rows"]))))
+
+
+# ===========================================================================
 # CHECK 2 - WHICH ITEM IDS DOES THIS MESSAGE CLAIM?
 # ===========================================================================
 # AN ALLOWLIST OF LEAD-IN WORDS, NOT A BLOCKLIST OF EXCLUSIONS. That choice
@@ -754,6 +1008,19 @@ def main():
              "warrants, and guessing which was meant is how the wrong one stays "
              "live." % (", ".join(overlap), ROW_DECLARATION_LABEL))
 
+    # CHECK 3's jurisdiction. A headline warrant over a section that carries no
+    # `**State:**` warrant would be a second contract with its own vocabulary,
+    # so it is refused rather than half-adopted: the headline is a claim ABOUT
+    # the work a governed row points at.
+    headline_sections = [str(s) for s in (job.get("headline_sections") or [])]
+    stray = sorted(set(headline_sections) - set(row_sections))
+    if stray:
+        fail("section(s) %s are declared in ROW_HEADLINE_SECTIONS and are not "
+             "row sections. A headline warrant is a claim about the work a "
+             "governed row points at, so it can only be asked of a section that "
+             "carries a `**State:**` warrant. Declared row sections: %s."
+             % (", ".join(stray), ", ".join(row_sections)))
+
     tokens = [str(t) for t in (job.get("status_tokens") or [])]
     if not tokens:
         fail("no ROW_STATUS_TOKENS declared - every warrant would be rejected")
@@ -763,7 +1030,8 @@ def main():
     revs = job.get("identity_revs") or {}
 
     items, violations, seen_sections = parse_record(text, row_sections,
-                                                    premise_sections)
+                                                    premise_sections,
+                                                    headline_sections)
     for want in row_sections:
         if want not in seen_sections:
             fail("%s declares row section %s and no '## %s.' heading exists in "
@@ -859,6 +1127,25 @@ def main():
     check_premises(items, premise_sections, premise_required, roots,
                    absent_roots, revs, violations, skips, notes, fixes, pc)
 
+    # --- CHECK 3: HEADLINE -------------------------------------------------
+    hc = {"rows": 0, "stated": 0, "verified": 0, "unverified": 0, "stale": 0,
+          "broken": 0, "terminal": 0, "missing": [], "unverified_rows": []}
+    check_headlines(items, terminal, violations, notes, fixes, hc)
+    if not headline_sections and governed:
+        # NOT a violation, and it is the only place in this file that argues for
+        # its own adoption. A record with no headline warrant is not broken; it
+        # is a record where the eleven-with-matching-pins failure has nothing
+        # watching it, and the difference has to be visible at a landing rather
+        # than in a document nobody opens.
+        notes.append((
+            "HEADLINE-NOT-ADOPTED",
+            "%d governed row(s) state findings in their first sentence and no "
+            "section declares ROW_HEADLINE_SECTIONS, so nothing can tell when a "
+            "headline stops being true. On 2026-09-06, eleven of sixteen "
+            "overtaken rows in a record of this shape had MATCHING pins. Add "
+            "ROW_HEADLINE_SECTIONS to %s to switch CHECK 3 on."
+            % (len(governed), ROW_DECLARATION_LABEL)))
+
     # --- CHECK 2: CLAIM ----------------------------------------------------
     message = job.get("message")
     msource = job.get("message_source") or "unavailable"
@@ -916,6 +1203,41 @@ def main():
                % (",".join(premise_sections) or "-", pc["items"], pc["evaluated"],
                   pc["pinned"], pc["stamps"], pc["moved"], pc["unobservable"],
                   pc["broken"], pc["skipped"], len(pc["unstated"])))
+    # THE HEADLINE CENSUS, on the same terms and for the same reason. A record
+    # that has adopted CHECK 3 and a record that has never heard of it both go
+    # quiet when every row is fine; `HC sections=-` and `HC sections=3 rows=35`
+    # are the two facts a reader must never have to guess between.
+    out.append("HC\tsections=%s\trows=%d\tstated=%d\tverified=%d\tunverified=%d"
+               "\tstale=%d\tmissing=%d\tbroken=%d\tterminal=%d"
+               % (",".join(headline_sections) or "-", hc["rows"], hc["stated"],
+                  hc["verified"], hc["unverified"], hc["stale"],
+                  len(hc["missing"]), hc["broken"], hc["terminal"]))
+    # THE VERIFIER'S INPUT. Emitted only when asked, because it is the one thing
+    # here that names a command somebody is about to RUN, and a checker that
+    # hands out executable strings by default is a checker whose output is a
+    # weapon. scripts/row-headline-verify.sh asks; no hook ever does.
+    if job.get("emit_headlines"):
+        for it in items:
+            if not it.get("headlined"):
+                continue
+            body = headline_body(it)
+            if not body:
+                continue
+            dm = HEADLINE_DIGEST_RE.match(body)
+            rest = (dm.group("rest") if dm else body).strip().lstrip("-–—").strip()
+            um = HEADLINE_UNVERIFIED_RE.match(rest)
+            state = warrant_of(it) or ""
+            stamps = STAMP_RE.findall(state)
+            prefix = stamps[0][0].split("/", 1)[0] if stamps else "-"
+            if um:
+                out.append("HL\t%s\tunverified\t%s\t%s\t"
+                           % (it["id"], prefix, um.group("why").strip()))
+                continue
+            em = HEADLINE_EVIDENCE_RE.search(rest)
+            if em:
+                out.append("HL\t%s\tevidence\t%s\t%s\t%s"
+                           % (it["id"], prefix, em.group("cmd").strip(),
+                              em.group("out").strip()))
     if job.get("explain"):
         for tok, why in rejected:
             out.append("REJECTED\t%s\t%s" % (tok, why))
