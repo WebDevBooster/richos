@@ -1200,6 +1200,20 @@ def restore(ws_id, destination):
     if not ok:
         return {"operation": "restore", "outcome": OUTCOME_FAILED,
                 "reason_code": "archive-corrupt", "reason": why}
+    # The destination is the one place restore WRITES. A non-empty one is
+    # somebody's, and extracting over it would overwrite files this operation
+    # was never asked about — the caller's belief that it is free is a fact
+    # established elsewhere. Refused; nothing extracted.
+    try:
+        if os.path.isdir(destination) and os.listdir(destination):
+            return {"operation": "restore", "outcome": OUTCOME_REFUSED,
+                    "reason_code": "destination-not-empty",
+                    "reason": "%s exists and is not empty. Restore extracts into an empty or "
+                              "absent directory only; it never overwrites." % destination}
+    except OSError as e:
+        return {"operation": "restore", "outcome": OUTCOME_REFUSED,
+                "reason_code": "destination-unreadable",
+                "reason": "%s could not be inspected: %s" % (destination, e)}
     os.makedirs(destination, exist_ok=True)
     with tarfile.open(archive, "r") as tar:
         for ti in tar:
@@ -1523,21 +1537,6 @@ def _delete_branch_at(repo, branch, expected_tip, backup_ref):
                note="refs/heads/%s deleted at %s; the tip stays reachable from %s."
                     % (branch, expected_tip, backup_ref))
     return out
-
-
-def _parse_any_iso(s):
-    """Both timestamp spellings this module meets: the journal's
-    `...T..:..:..Z` and the ownership ledger's `...T..:..:...ffffff+00:00`.
-    None when unparsable — and a caller comparing 'newer than' treats None as
-    NOT newer, because a claim that cannot be dated cannot be shown to be
-    after anything."""
-    s = (s or "").strip()
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except Exception:
-        return _parse_iso(s)
 
 
 # --------------------------------------------------------------------------
@@ -1979,25 +1978,37 @@ def remove_legacy(entity, repo, path, owner, force=False, branch="", lock_wait=5
         # replacement from a repeat — the diagnosis's row 8). This route
         # carries an owner assertion and is what the reaper runs on reused
         # hand-rolled paths, so it asks one question: has ANYONE claimed the
-        # path since it was retired? A newer ownership record means the
-        # occupant is accounted for and the authority above judges it on its
-        # own evidence; none means an object nobody has claimed sits at a
-        # retired path, and that is refused rather than acted on.
+        # path since it was retired? The completed retirement record carries
+        # the digest of the ownership records as they stood at completion
+        # (`workspace.record_signature`); if the records that mint this ID
+        # digest the same today, nobody has claimed the path since, and an
+        # object nobody has claimed sitting at a retired path is refused
+        # rather than acted on. A different digest means the record set
+        # changed — somebody registered — and the authority above judges the
+        # occupant on its own evidence.
+        #
+        # NOT decided by timestamps. The first version compared the journal's
+        # completion `ts` (whole seconds) against ledger timestamps
+        # (microseconds); a registration written in the same second as the
+        # completion parsed as "newer", the rule read an unclaimed path as
+        # claimed, and the suite's PRIOR row went red under a mutant that
+        # never touched it — the control had passed only because the fixture
+        # happened to straddle a second boundary. A fact of the wrong
+        # precision is a fact established elsewhere.
         if prior:
             prior_fsid = (prior.get("quarantine") or {}).get("source_fsid")
             if prior_fsid and prior_fsid != fsid:
-                since = _parse_any_iso(prior.get("ts"))
-                newer = [x for x in regs
-                         if since is not None and _parse_any_iso(x.get("ts")) is not None
-                         and _parse_any_iso(x.get("ts")) > since]
-                if not newer:
+                then_sig = (prior.get("workspace") or {}).get("record_signature") or ""
+                now_sig = ws["record_signature"]
+                if not then_sig or then_sig == now_sig:
                     return refuse("already-retired-path-reoccupied",
                                   "this workspace was already retired at %s (quarantine %s). A "
                                   "DIFFERENT filesystem object now occupies %s (recorded %s, present "
-                                  "%s), and no ownership record newer than that retirement claims "
-                                  "it. An unclaimed object at a retired path is not acted on."
+                                  "%s), and the ownership records that name this path are the ones "
+                                  "that stood at that retirement (%s) — nobody has claimed it since. "
+                                  "An unclaimed object at a retired path is not acted on."
                                   % (prior.get("ts"), (prior.get("quarantine") or {}).get("path"),
-                                     p, prior_fsid, fsid),
+                                     p, prior_fsid, fsid, then_sig or "<no signature on record>"),
                                   {"quarantine": prior.get("quarantine")})
 
         # The branch checked out HERE is the only branch this request may be

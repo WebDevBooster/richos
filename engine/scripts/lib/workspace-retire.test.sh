@@ -1985,7 +1985,9 @@ new_fixture
 rc=0
 OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
 assert_eq "0" "$?" "first legacy retirement succeeds" || rc=1
-sleep 1
+# No sleep here, deliberately. The first version of the rule compared
+# timestamps and this row needed a second to pass; a row that needs the clock
+# is a row about the clock.
 git -C "$OWNER_REPO" worktree add -q -b alpha-again "$CONTAINER/alpha"
 printf 'replacement payload\n' >"$CONTAINER/alpha/replacement.txt"
 REPL="$(snapshot "$CONTAINER/alpha")"
