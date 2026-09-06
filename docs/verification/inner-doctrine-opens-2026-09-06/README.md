@@ -182,8 +182,20 @@ Every boundary, from the `system/compact_boundary` frames in `raw/`:
 `--print` stream-json mode, self-triggered, with no signal to the parent except the
 `compact_boundary` frame — which `native.rs` does not read today
 (`grep -c "compact" app/crates/richos-core/src/native.rs` → `0`, exit 1). That frame is
-free to consume and it is the only positive notice the app can get that its child just spent
-~51 s not answering. This belongs to the rotation/watermark leg of the continuity design
+free to consume.
+
+> **CORRECTED 2026-09-06 by `echo-opus-cb1`, measured on a real `claude` 2.1.263 stream — this
+> paragraph called `compact_boundary` "the only positive notice the app can get", and that is
+> FALSE.** `compact_boundary` arrives at the same millisecond the silence ENDS, 38-44 s after it
+> began, carrying the elapsed span as `duration_ms` — it REPORTS the pause, it cannot announce
+> it. The announcement is `system/status` with `status: "compacting"`, which arrives **3 ms
+> after the child accepts the prompt** and repeats every 30.000 s until a `compact_result`
+> frame ends it. So the app CAN name the wait while the CEO is inside it, and a surface built
+> on `compact_boundary` alone would have shown its caption at the one moment nobody needs it.
+> Raised as `esc-20260906T123833Z-0ebed295` rather than left in a handoff, because this
+> sentence is what a later agent would have built on.
+
+The pause is ~51 s of the child not answering. This belongs to the rotation/watermark leg of the continuity design
 (§3.2), and it is named here rather than fixed here.
 
 ### Q1.4 The attribution attempt that failed, kept because it failed
