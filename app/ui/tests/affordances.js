@@ -89,7 +89,13 @@ const ALL_CLASSES = [
 /// A party the CEO can be pointed AT. Deliberately a small, closed set: the point is that a
 /// future edit which deletes "whoever set RichOS up" from a NEEDS-SOMEONE-ELSE line fails
 /// the suite rather than quietly leaving him with a fault and no owner.
-const PARTY = /whoever set RichOS up|an operator|An operator|whoever installed RichOS/;
+// `Whoever set RichOS up` is here for the same reason `An operator` already was: the phrase
+// is as likely to open a sentence as to sit inside one, and a case-sensitive alternation that
+// carried only one of the two forms would quietly send a sentence that DOES name the party
+// down the `explainedBy` path — a row pointing at another state instead of at the words in
+// its own. Added 2026-09-06, when the first-run notice's two operator-facing sentences both
+// began with it.
+const PARTY = /whoever set RichOS up|Whoever set RichOS up|an operator|An operator|whoever installed RichOS/;
 
 // ---------------------------------------------------------------------------------------
 // Shell driving
@@ -603,6 +609,40 @@ const FIXTURES = {
     return setupRefusal(browser, "missing-both");
   },
 
+  /// THE FIRST-RUN NOTICE, offering the interview. Every sentence in it is ACTIONABLE and
+  /// names one of the two controls beside it, which is the whole shape of this surface: a
+  /// state the CEO can change, rendered together with the things that change it.
+  async "first-run-offer"(browser) {
+    const page = await openApp(browser, undefined, { onboarding: "not-yet" });
+    await page.waitForSelector("#first-run:not([hidden])");
+    await page.waitForSelector("#first-run-actions:not([hidden])");
+    return page;
+  },
+
+  /// AND THE ONE STATE ON IT HE CANNOT FIX. Its own fixture rather than a variant of the
+  /// one above, for the reason `company-registry-unreadable` has its own: "I could not read
+  /// your notes" and "you have not written any" are different repairs, and this one draws no
+  /// control at all because no control could do it.
+  async "first-run-unusable"(browser) {
+    const page = await openApp(browser, undefined, { onboarding: "unusable" });
+    await page.waitForSelector('#first-run[data-state="unusable"]:not([hidden])');
+    return page;
+  },
+
+  /// HE PRESSED "Not now" AND THE WRITE FAILED. Driven the only way the CEO reaches it —
+  /// press the button — because the sentence is the whole point of the arm: the alternative
+  /// is a notice that closes over a write that never happened.
+  async "first-run-decline-refused"(browser) {
+    const page = await openApp(browser, undefined, {
+      onboarding: "not-yet",
+      onboardingDeclineFails: true,
+    });
+    await page.waitForSelector("#first-run:not([hidden])");
+    await page.click("#first-run-later");
+    await page.waitForSelector("#first-run-error:not([hidden])");
+    return page;
+  },
+
   /// The same variable, naming something this build does not have — so it pins the answer
   /// AND fails to produce one. No picker opens, because every answer would be refused.
   async "company-pinned-unresolved"(browser) {
@@ -1102,6 +1142,14 @@ const TEXT_RENDERING_FIXTURES = new Set([
   // only the button beneath it.
   "memory-unprovisioned",
   "memory-no-compiler",
+  // The first-run notice renders its own words — the offer out of `main.js` constants, the
+  // unusable state out of `main.rs`'s two consts — with no hardware behind either, so the
+  // sentences themselves are asserted present rather than only the buttons beneath them.
+  // That matters most for the unusable state, which has no button at all: without the text
+  // assertion there would be nothing to prove about it.
+  "first-run-offer",
+  "first-run-unusable",
+  "first-run-decline-refused",
   // The first-run setup sheet renders the BACKEND's words — `Component::why`,
   // `SETUP_ACCOUNT_NOTE`, and each `SetupError`'s own Display — with no hardware behind any
   // of them, so the sentences themselves are asserted present rather than only the button.
