@@ -354,7 +354,8 @@
 #       orphan-processes=N branches-swept=N branches-skipped=N ===
 #   === summary (DRY-RUN): removed=0 would-remove=N skipped=N ... ===
 #   === coverage (MODE): repos=N reap-eligible=N report-only=N unreachable=N
-#       worktrees=N native=N shells=N hand-rolled=N undecidable=N unresolved=N
+#       worktrees=N native=N shells=N workspaces=N unobserved-native=N
+#       hand-rolled=N undecidable=N unresolved=N
 #       indeterminate=N ===
 #   === sources: <label>=<count> ... ===
 #   === blind: <what this run could NOT see>  (or: none declared) ===
@@ -1015,11 +1016,42 @@ if [ -f "$LEDGER_PY" ] && [ -f "$WT_LEDGER" ] && command -v python3 >/dev/null 2
     SHELL_PATHS="$(python3 "$LEDGER_PY" --ledger "$WT_LEDGER" shells 2>/dev/null || true)"
 fi
 
+# THE SECOND, INDEPENDENT SOURCE — AND THE BETTER ONE (2026-09-06).
+# The ledger's own `shells` command declares what it misses: "a shell whose
+# native registration was never written does not appear here. Absence from
+# this list is not evidence that a worktree is a workspace." That declaration
+# was this run's second blind line, and the honest fix is not a better guess
+# but a source that cannot be missing.
+#
+# The TRANSACTION store has one. `kind` is written by guard-worktree-isolation.sh
+# at PreToolUse[Agent] — before the worker exists — and a spawn whose intent
+# cannot be written durably is REFUSED, not allowed through unrecorded. So the
+# role is RECORDED at the only moment it is certain, exactly as ownership is:
+#   native+external -> the native member is a SHELL
+#   native          -> the native member IS the workspace
+#   adopted / other -> no role, and no role is stated
+# `worktree-transactions.py native-roles` prints "<path>\t<role>".
+NATIVE_ROLES=""
+if [ -f "$LIB_DIR/worktree-transactions.py" ] && command -v python3 >/dev/null 2>&1; then
+    NATIVE_ROLES="$(python3 "$LIB_DIR/worktree-transactions.py" native-roles 2>/dev/null || true)"
+fi
+
+native_role_of() { # <worktree-path> -> "shell" | "workspace" | "" on stdout
+    [ -n "$NATIVE_ROLES" ] || return 0
+    printf '%s\n' "$NATIVE_ROLES" | awk -F'\t' -v p="$1" '$1 == p {print $2; exit}'
+}
+
 is_shell() { # <worktree-path> -> 0 when this native worktree is a cross-repo shell
     if [ -n "$SHELL_PATHS" ] && printf '%s\n' "$SHELL_PATHS" | grep -Fxq -- "$1"; then
         return 0
     fi
+    [ "$(native_role_of "$1")" = "shell" ] && return 0
     [ "$(git -C "$1" config --get core.sparseCheckout 2>/dev/null)" = "true" ] && return 0
+    return 1
+}
+
+is_workspace() { # <worktree-path> -> 0 when the RECORD says this native tree is a real workspace
+    [ "$(native_role_of "$1")" = "workspace" ] && return 0
     return 1
 }
 
@@ -1070,7 +1102,8 @@ SKIP_OPERATOR=0
 SKIP_REPORT_ONLY=0
 SKIP_DUPLICATE=0
 N_SHELLS=0
-N_UNCLASSIFIED_NATIVE=0
+N_WORKSPACES=0
+N_UNOBSERVED_NATIVE=0
 CLAIMED_PATHS=""
 
 BR_SWEPT=0
@@ -1125,8 +1158,14 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             if is_shell "$path"; then
                 disp_class="native-shell"
                 N_SHELLS=$((N_SHELLS + 1))
+            elif is_workspace "$path"; then
+                # The transaction store recorded `kind: native` for this exact
+                # path before the worker existed. That is not an inference, so
+                # it is not a blind spot; the tree is a real workspace and is
+                # displayed as plain `native`.
+                N_WORKSPACES=$((N_WORKSPACES + 1))
             elif ! is_registered_path "$path"; then
-                N_UNCLASSIFIED_NATIVE=$((N_UNCLASSIFIED_NATIVE + 1))
+                N_UNOBSERVED_NATIVE=$((N_UNOBSERVED_NATIVE + 1))
             fi
         else
             N_HANDROLLED=$((N_HANDROLLED + 1))
@@ -1623,11 +1662,22 @@ else
     ACTION_FIELDS="removed=0 would-remove=$WOULD_COUNT"
 fi
 echo "=== summary ($MODE_LABEL): $ACTION_FIELDS skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED ==="
-echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE shells=$N_SHELLS hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE operator=$SKIP_OPERATOR ==="
+echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE shells=$N_SHELLS workspaces=$N_WORKSPACES unobserved-native=$N_UNOBSERVED_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE operator=$SKIP_OPERATOR ==="
 echo "=== sources:$SRC_SUMMARY ==="
 echo "    skip breakdown: quarantined=$SKIP_QUARANTINED locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR report-only-repo=$SKIP_REPORT_ONLY duplicate-registration=$SKIP_DUPLICATE"
-if [ "$N_UNCLASSIFIED_NATIVE" -gt 0 ]; then
-    blind "shell labeling: $N_UNCLASSIFIED_NATIVE native worktree(s) have no ownership registration, so this run cannot say whether they are cross-repository SHELLS (a liveness witness nobody writes to) or real workspaces. They are reported as plain 'native', the conservative reading. Absence from the shell list is NOT evidence that a worktree is a workspace"
+if [ "$N_UNOBSERVED_NATIVE" -gt 0 ]; then
+    # THE OLD LINE SAID "this run cannot say whether they are shells or
+    # workspaces", which framed a HOLE IN THE RECORD as an ambiguity in the
+    # reading — as though a better heuristic would settle it. It would not.
+    # There are now two independent sources, and the second cannot be missing
+    # for anything spawned since it existed: `kind` is written by
+    # guard-worktree-isolation.sh at PreToolUse[Agent], before the worker
+    # exists, and a spawn whose intent cannot be written durably is REFUSED
+    # rather than allowed through unrecorded. So a native worktree named by
+    # NEITHER source was never observed by this engine at all — the same class
+    # as owner-unresolved, and a fact about the record rather than about the
+    # tree.
+    blind "shell labeling: $N_UNOBSERVED_NATIVE native worktree(s) are named by NO ownership registration AND NO transaction, so this engine never observed their spawn — a hole in the record, not an ambiguity a better reading would settle. They are reported as plain 'native', the conservative reading, and no role is claimed for them. This population CANNOT GROW: every spawn since the transaction store records its kind at PreToolUse[Agent] before the worker exists, and a spawn whose intent cannot be written durably is refused. Absence from the shell list is still NOT evidence that a worktree is a workspace"
 fi
 if [ "${#BLIND[@]}" -gt 0 ]; then
     for _b in "${BLIND[@]}"; do
