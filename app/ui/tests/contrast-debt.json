@@ -173,6 +173,16 @@
     "techy-nothing-recorded": {
       "checked": 116,
       "considered": 430
+    },
+    "first-run-notice": {
+      "//": "Added 2026-09-06 with the first-run notice. The shell walk is 96 of 418 in the same run; this is 106 of 424, and the delta is exactly the panel — a headline, two paragraphs and two controls, both themes, every one MEASURED rather than filed invisible, obscured or unprovable. Computed against the surfaces they are actually painted on before the walk ran, and unchanged by it: headline and body --ink on --surface-raised are 13.02:1 dark and 17.02:1 light; the consequence line --ink-soft on the same panel is 6.09:1 dark and 6.24:1 light; the Start label --on-gold on --accent is 7.68:1 dark and 4.72:1 light with its fill at 6.87:1 / 3.60:1 against the panel; the Not now label is --ink and its edge --line-control at 4.09:1 / 3.82:1; and the panel's own --line-control border, a non-text indicator with a 3:1 floor, is 4.57:1 dark and 3.35:1 light against the pane behind it. NOTHING HERE IS EXEMPT AND NOTHING CLAIMS TO BE — including the consequence line, which is the only place the effect of the second control is stated, and which is exactly the sort of line an exemption gets claimed for.",
+      "checked": 106,
+      "considered": 424
+    },
+    "first-run-unusable": {
+      "//": "Added 2026-09-06 beside it, and a SEPARATE surface rather than the same one twice: this state paints different ink. 100 of 422 against the shell's 96 of 418 — two paragraphs, both themes. The headline and the panel border are --attention, the app's one 'needs your hand' color, computed 7.05:1 dark and 6.19:1 light on the panel and 7.88:1 / 5.42:1 against the pane behind it; the body is --ink at 13.02:1 / 17.02:1. It draws NO control, so it contributes no indicator beyond that border — which is the point of the state rather than an omission: no button could fix a file the app cannot read.",
+      "checked": 100,
+      "considered": 422
     }
   },
   "signatures": {}

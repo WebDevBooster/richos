@@ -145,6 +145,7 @@
   //   window.__RICHOS_MOCK_PRESET__ = { memory: "no-compiler" }       // a corpus it cannot read
   //   window.__RICHOS_MOCK_PRESET__ = { homeField: { objects: 4000, records: 9000 } }
   //                                                                   // his own loro, before the field starts
+  //   window.__RICHOS_MOCK_PRESET__ = { onboarding: "not-yet" }       // nothing on file, never asked
   //
   // `homeField` IS THE SECOND STATE A SETTER CANNOT REACH, and it is measured rather than
   // assumed. `home.js` starts the field from its own `requestIdleCallback`, and that callback
@@ -539,6 +540,58 @@
   // Whether provisioning here ends `ready` or `no-compiler`. False drives the honest
   // degrade: a corpus is created and the program that reads it is not installed.
   const memoryCompilerPresent = preset.memoryCompiler !== false;
+
+  // ---------------------------------------------------------------------------------------
+  // WHERE THIS INSTALL STANDS ON ONBOARDING (`main.rs::onboarding_view`, `onboarding.rs`).
+  //
+  // **THE DEFAULT IS `described`, AND THAT IS THE CONSERVATIVE CHOICE RATHER THAN THE
+  // CONVENIENT ONE.** Every other fixture in this preview is a machine that has been set up
+  // once, and a default of `not-yet` would paint the first-run notice on top of every other
+  // suite's screenshots — which is how a surface gets shown to be working by a fixture that
+  // was already showing it. A suite that wants the offer has to ask for it.
+  //
+  //   window.__RICHOS_MOCK_PRESET__ = { onboarding: "not-yet" }   // nothing on file, never asked
+  //   window.__RICHOS_MOCK_PRESET__ = { onboarding: "declined" }  // asked, and he said not now
+  //   window.__RICHOS_MOCK_PRESET__ = { onboarding: "unusable" }  // notes exist and cannot be read
+  //   __RICHOS_MOCK__.onboardingSet("not-yet")                    // the same, after load
+  //
+  // `onboardingDeclineFails: true` drives the refusal arm, because a press whose write
+  // silently went nowhere is the one outcome the surface must never render as success. It is
+  // a BOOLEAN and the sentence is fixed here, verbatim from
+  // `main.rs::ONBOARDING_DECLINE_REFUSED` — a harness free to invent its own refusal text
+  // would be rehearsing the surface against a sentence the product does not raise.
+  let onboardingState = preset.onboarding || "described";
+  const onboardingDeclineFails = preset.onboardingDeclineFails === true;
+  const ONBOARDING_DECLINE_REFUSED =
+    "I couldn't write that down, so it isn't recorded and I'll ask again next time. I'd " +
+    "rather say so than let you think it was settled. Whoever set RichOS up will need to " +
+    "look at that.";
+  const onboardingCalls = [];
+
+  function onboardingViewOf() {
+    // NO BINDING, NO ANSWER — and this arm is not a nicety. `onboarding_view_of` returns
+    // `no-central-folder` with a null entity when `active_binding()` is `None`, because
+    // onboarding is a question about ONE company and there is no company to ask it about
+    // yet. Without this the preview served `not-yet` to a launch that had not chosen a
+    // company, and the notice painted over the company picker — a state the product cannot
+    // produce, rehearsed by the harness, which is the defect this file keeps naming in its
+    // own comments. Found by driving the real first-run order, 2026-09-06.
+    if (!chosenEntityId) return { state: "no-central-folder", entityId: null, headline: null, message: null };
+    return {
+      state: onboardingState,
+      entityId: chosenEntityId,
+      // Verbatim from `main.rs::ONBOARDING_UNUSABLE_HEADLINE` / `_MESSAGE` — copied rather
+      // than paraphrased, for the reason `UNBOUND_ERR` above is copied: a harness that writes
+      // its own version of a backend sentence drifts from it the moment either side is edited.
+      headline:
+        onboardingState === "unusable" ? "I couldn't read your notes about this company." : null,
+      message:
+        onboardingState === "unusable"
+          ? "I'm working without them, and I won't guess at what they said. Whoever set " +
+            "RichOS up will need to look at that."
+          : null,
+    };
+  }
 
   function memoryStatusOf() {
     return {
@@ -1791,6 +1844,23 @@
           if (memoryCompilerPresent) loroDeskOn = true;
           return { ...memoryStatusOf(), provisioned_now: true };
         }
+        // --- the first-run notice (2026-09-06) ---
+        //
+        // WHERE THIS INSTALL STANDS ON ONBOARDING (`main.rs::onboarding_view`). The default
+        // is `described`, so this preview lands on a machine that has been set up — see the
+        // note over `onboardingViewOf`.
+        case "onboarding_view":
+          onboardingCalls.push({ cmd: "onboarding_view" });
+          return onboardingViewOf();
+        // HE PRESSED "Not now". It writes no file here — the point of the mock is the
+        // SURFACE — but it moves the state the same way the real command moves it, and it
+        // can be made to REFUSE, because a press whose write went nowhere is the one
+        // outcome the surface must never render as success.
+        case "decline_onboarding":
+          onboardingCalls.push({ cmd: "decline_onboarding" });
+          if (onboardingDeclineFails) return Promise.reject(ONBOARDING_DECLINE_REFUSED);
+          onboardingState = "declined";
+          return onboardingViewOf();
         case "entity_choice":
           return entityChoiceOf();
         // --- the home screen's company buttons (2026-09-01) ---
@@ -2966,6 +3036,24 @@
       homeField = field ? { ...field } : null;
       return homeField;
     },
+    /// ---- the first-run notice (2026-09-06) --------------------------------------------
+    /// Put onboarding into a state. The default is `described`, so a suite that wants the
+    /// offer on screen has to ask for it — the surface can never be shown to be working by
+    /// a fixture that was already showing it.
+    ///
+    ///     __RICHOS_MOCK__.onboardingSet("not-yet");
+    ///
+    /// `no-central-folder` | `not-yet` | `declined` | `described` | `unusable`, the five the
+    /// backend can answer. A caller that needs the state in place for the LAUNCH itself wants
+    /// `__RICHOS_MOCK_PRESET__.onboarding` instead.
+    onboardingSet(next) {
+      onboardingState = next;
+      return onboardingViewOf();
+    },
+    /// Every onboarding command the surface issued, in order. Asserting on this is how a
+    /// suite proves "Not now" actually recorded something rather than merely looking pressed
+    /// — the exact failure the command it calls was written to end.
+    onboardingCalls() { return onboardingCalls.slice(); },
     /// ---- what did not load out of the ledger (2026-09-05) -----------------------------
     /// Put the history notice into a state. The default is CLEAN, so a suite that wants the
     /// notice on screen has to ask for it — the surface can never be shown to be working by

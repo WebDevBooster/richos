@@ -2686,4 +2686,108 @@ module.exports = [
       "`unknown` on every message this runtime emits (`live.rs`), so naming a kind of " +
       "writing would be inventing one.",
   },
+
+  // ---- THE FIRST-RUN NOTICE (2026-09-06) ------------------------------------------------
+  //
+  // The visible half of the onboarding offer. Every sentence of the offer is ACTIONABLE and
+  // every one of them names a control that is on screen beside it, because that is the whole
+  // shape of this surface rather than a property it happens to have: the notice exists to put
+  // a state the CEO can change next to the two things that change it.
+  //
+  // Two of its states are NEEDS-SOMEONE-ELSE and both name the party in their own words. The
+  // `PARTY` regex gained `Whoever set RichOS up` on the same day for that reason — it already
+  // carried both cases of "operator" and only one of this phrase.
+  {
+    s: "I don't know your business yet.",
+    c: "ACTIONABLE",
+    control: "#first-run-start",
+    fixture: "first-run-offer",
+    why:
+      "The headline of the first-run notice. It is a state he can change — that is the point " +
+      "of it — and the control that changes it is in the same panel, two lines below.",
+  },
+  {
+    s:
+      "There's nothing on file about what this company does, who it's for, or how you want to " +
+      "work. I can ask you about it — about twenty minutes — and write your answers down, so I " +
+      'use them from then on. You can stop partway, and "not sure yet" is a real answer to any ' +
+      "of it.",
+    c: "ACTIONABLE",
+    control: "#first-run-start",
+    fixture: "first-run-offer",
+    why:
+      "The offer itself. It names the cost in his own units, the one promise the chain can " +
+      "keep, and that stopping partway is honest — and it renders with the control that " +
+      "starts it.",
+  },
+  {
+    s: "\"Not now\" means I'll stop offering. You can start it any time by asking.",
+    c: "ACTIONABLE",
+    control: "#first-run-later",
+    fixture: "first-run-offer",
+    why:
+      "What the second control DOES, stated beside it. The write is durable and a " +
+      "two-syllable label cannot carry that and stay speakable, so the effect is in words " +
+      "and the control it describes is the one it names.",
+  },
+  {
+    s: "Start the questions",
+    c: "CONTROL",
+    why: "The label of `#first-run-start`.",
+  },
+  {
+    s: "Let's do the twenty minutes of questions about my business.",
+    c: "CONTROL",
+    why:
+      "TWO THINGS AT ONCE, so both are said here rather than forced into one bucket. It is " +
+      "not a state of the app and never renders as one: it is the payload `#first-run-start` " +
+      "sends through the ordinary `send()` path, and it renders as the CEO's own turn in the " +
+      "conversation, because he did send it — he pressed a button whose label is exactly " +
+      "this. Filed CONTROL as the closest honest bucket: it is an affordance's effect spelled " +
+      "out, not a status that owes one.",
+  },
+  {
+    s: "Left with you. Ask me any time and we'll go through it.",
+    c: "INFORMATIONAL",
+    why:
+      "The receipt for a press that wrote something down, and there is genuinely nothing to " +
+      "do about it — it names the way back rather than asking for one. It is not an " +
+      "instruction: he has already given the answer this acknowledges, and nothing is waiting " +
+      "on him. It is gone at the next launch, when the state is `declined` and the notice " +
+      "renders nothing.",
+  },
+  {
+    s: "I couldn't read your notes about this company.",
+    c: "NEEDS-SOMEONE-ELSE",
+    explainedBy: "I'm working without them, and I won't guess at what they said. Whoever set RichOS up will need to look at that.",
+    fixture: "first-run-unusable",
+    why:
+      "A file on disk that the app cannot use. Nothing the CEO can press fixes it, and the " +
+      "notice deliberately draws no control in this state. The party is named by the sentence " +
+      "directly beneath it, in the same panel, which is what `explainedBy` points at.",
+  },
+  {
+    s:
+      "I'm working without them, and I won't guess at what they said. Whoever set RichOS up " +
+      "will need to look at that.",
+    c: "NEEDS-SOMEONE-ELSE",
+    fixture: "first-run-unusable",
+    why:
+      "The consequence and the party, in one sentence. \"I won't guess\" is not decoration — " +
+      "it is `UNUSABLE_BLOCK`'s own instruction to Rich, said on screen so the window and the " +
+      "conversation make one claim rather than two.",
+  },
+  {
+    s:
+      "I couldn't write that down, so it isn't recorded and I'll ask again next time. I'd " +
+      "rather say so than let you think it was settled. Whoever set RichOS up will need to " +
+      "look at that.",
+    c: "NEEDS-SOMEONE-ELSE",
+    fixture: "first-run-decline-refused",
+    why:
+      "\"Not now\" could not be written. He can press it again and it may work, but what would " +
+      "MAKE it work is somebody else's — so it is classified by the thing he cannot do, and " +
+      "the offer is deliberately left open behind it. Closing the notice here would report " +
+      "success over work that did not happen.",
+  },
 ];

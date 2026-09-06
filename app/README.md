@@ -389,6 +389,16 @@ app/
                               learning where the central folder is re-primes a lease that was
                               already running. The two negative controls come first because
                               they are what make the positives mean anything
+    tests/onboarding_declination_tests.rs 4 tests over the two spine methods the first-run
+                              notice is built on. `record_declination` shipped with no caller
+                              anywhere in the product, so `OnboardingState::Declined` and
+                              `DECLINED_BLOCK` were unreachable outside their own unit tests
+                              and "not now" could only be said into a conversation that ends.
+                              The one that matters drives a SECOND spine over the same files,
+                              so the press has to survive a relaunch; the others hold the
+                              screen and the priming turn to one derived fact across all four
+                              reachable states, and refuse a write that has nowhere to go
+                              rather than reporting success over it
     tests/loro_reprime_tests.rs 10 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
                               CEO layer and nothing else
@@ -862,7 +872,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 977 tests + 5 doc-tests; 973 direct, 4 child-only
+cargo test -p richos-core                       # 981 tests + 5 doc-tests; 977 direct, 4 child-only
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE OF THE THREE NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

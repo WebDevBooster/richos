@@ -855,6 +855,53 @@ impl Spine {
         crate::onboarding::describe(binding.entity_id(), layer.as_ref(), &self.onboarding_record())
     }
 
+    /// WHERE THIS INSTALL STANDS ON ONBOARDING, for the WINDOW rather than for the log.
+    ///
+    /// [`Spine::describe_onboarding`] answers the same question and answers it as a sentence
+    /// for a terminal. This returns the state itself, because the surface that shows the CEO
+    /// the offer has to branch on it, and a surface that parsed the log line would be a second
+    /// opinion about a fact that already has one.
+    ///
+    /// It is DERIVED at every call, from the same two facts on disk the priming block is
+    /// derived from ([`crate::onboarding::state`]), so the notice on screen and the block in
+    /// the priming turn cannot disagree. Nothing is cached, and there is deliberately no
+    /// "the notice was shown" anywhere in this crate — `onboarding.rs`'s module doc gives the
+    /// reason and [`OnboardingRecord`] has a test whose only job is to keep it that way.
+    ///
+    /// [`OnboardingRecord`]: crate::onboarding::OnboardingRecord
+    pub fn onboarding_state(&self, binding: &ThreadBinding) -> crate::onboarding::OnboardingState {
+        let layer = self.company_layer(binding);
+        crate::onboarding::state(layer.as_ref(), &self.onboarding_record())
+    }
+
+    /// HE WAS ASKED AND SAID NOT NOW — the write half of the one fact the company file
+    /// cannot hold.
+    ///
+    /// `record_declination` existed in `onboarding.rs` from the day that module landed and
+    /// had NO CALLER anywhere in the product, which made [`OnboardingState::Declined`] and
+    /// `DECLINED_BLOCK` unreachable outside their own tests: a CEO who said "not now" in
+    /// conversation was re-offered the interview at the next prime, forever, which is exactly
+    /// the nag the onboarding document's M5 named and the memory question had already paid
+    /// for once. This is that caller.
+    ///
+    /// **`Err` when nobody has said where the record lives.** Not a silent success and not a
+    /// default path: a declination that goes nowhere is worse than one that was refused, since
+    /// the refusal can be reported to him and the silent drop cannot. The same "no silent
+    /// default" the corpus provisioner enforces at the only door that can create a corpus.
+    ///
+    /// [`OnboardingState::Declined`]: crate::onboarding::OnboardingState::Declined
+    pub fn record_onboarding_declination(&self, now_millis: u64) -> Result<(), crate::doctrine::DoctrineError> {
+        let path = self.onboarding_record.as_ref().ok_or_else(|| {
+            crate::doctrine::DoctrineError::Unwritable {
+                path: "<no onboarding record configured>".to_string(),
+                why: "nobody told this spine where the declination record lives, so there is \
+                      nowhere to write that you were asked and said not now"
+                    .to_string(),
+            }
+        })?;
+        crate::onboarding::OnboardingRecord::record_declination(path, now_millis)
+    }
+
     pub fn owned_worker_context(&mut self, binding: &ThreadBinding) -> Result<String, SpineError> {
         let mut payload = RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
