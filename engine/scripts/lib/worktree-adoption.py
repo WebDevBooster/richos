@@ -430,6 +430,35 @@ def _claimed_by_transaction(path):
     return _claimed_paths().get(tx.norm_path(path), "")
 
 
+def _nested_worktree_pointers(path):
+    """Immediate subdirectories of `path` that are themselves linked worktrees,
+    found WITHOUT the registry: a linked worktree's top level holds a `.git`
+    FILE reading `gitdir: .../worktrees/<name>`.
+
+    The registry half of G3 can only see repositories the record names. This
+    half sees a nested workspace whose repository nobody ever registered, which
+    is precisely the shape a malformed caller produces, and it costs one
+    shallow listing. Two independent probes for one gate, because on 2026-09-05
+    the container had exactly one refusal standing between it and `rm -rf`."""
+    out = []
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return out
+    for n in names:
+        marker = os.path.join(path, n, ".git")
+        if not os.path.isfile(marker):
+            continue
+        try:
+            with open(marker, encoding="utf-8", errors="replace") as f:
+                head = f.read(4096)
+        except OSError:
+            continue
+        if head.startswith("gitdir:") and "/worktrees/" in head:
+            out.append(os.path.join(path, n))
+    return out
+
+
 def _invalidate_caches():
     """Adoption writes a transaction, so the claim index it just used is stale
     the instant it returns. `adopt --all` must not evaluate the next candidate
@@ -484,11 +513,12 @@ def evaluate(path, records=None):
     # G3 not-a-container — the 2026-09-05 control, on its own property.
     under = sorted(w for w in _all_registered_worktrees(records)
                    if w != path and w.startswith(path.rstrip("/") + os.sep))
+    under += _nested_worktree_pointers(path)
     if under:
         return _refuse("not-a-container",
-                       "%s CONTAINS %d other registered worktree(s) (%s) — a container of workspaces "
-                       "is never a workspace, and supplying one is the 2026-09-05 deletion"
-                       % (path, len(under), ", ".join(under[:3])))
+                       "%s CONTAINS %d other worktree(s) (%s) — a container of workspaces is never a "
+                       "workspace, and supplying one is the 2026-09-05 deletion"
+                       % (path, len(under), ", ".join(sorted(set(under))[:3])))
 
     # G4 unclaimed
     claim = _claimed_by_transaction(path)
