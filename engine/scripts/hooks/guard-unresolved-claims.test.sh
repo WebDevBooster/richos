@@ -218,8 +218,15 @@ PY
 }
 
 LAST_ERR=""
-run_case() { # <name> <expected-exit> <payload-json> [needle-in-stderr]
-    local name="$1" want="$2" json="$3" needle="${4:-}" got err
+run_case() { # <name> <expected-exit> <payload-json> [needle-in-stderr] [FORBIDDEN-needle-in-stderr]
+    #
+    # THE FIFTH ARGUMENT EXISTS BECAUSE AN EXIT CODE IS NOT ALWAYS A WITNESS.
+    # This hook fails OPEN: guard-unresolved-claims.sh treats anything but 2 as
+    # "let the turn end", including a crash in the analyzer. So a case that
+    # asserts only `exit 0` cannot tell "the analyzer ran and found nothing"
+    # from "the analyzer raised and the wrapper swallowed it" — they are the
+    # same exit code. A forbidden needle lets a case say which one it saw.
+    local name="$1" want="$2" json="$3" needle="${4:-}" forbidden="${5:-}" got err
     err="$(mktemp "$SANDBOX/err.XXXXXX")"
     printf '%s' "$json" | RICHOS_ENTITY_ROOT="$ENTITY" \
         RICHOS_CLAIMS_TEAMS_DIR="$TEAMS" "$HOOK" >/dev/null 2>"$err"
@@ -231,6 +238,10 @@ run_case() { # <name> <expected-exit> <payload-json> [needle-in-stderr]
         FAIL=$((FAIL + 1))
     elif [ -n "$needle" ] && ! grep -qF "$needle" "$err"; then
         printf '  FAIL  %s (stderr missing %q)\n' "$name" "$needle"
+        [ -s "$err" ] && sed 's/^/          /' "$err"
+        FAIL=$((FAIL + 1))
+    elif [ -n "$forbidden" ] && grep -qF "$forbidden" "$err"; then
+        printf '  FAIL  %s (stderr carries %q, which this case forbids)\n' "$name" "$forbidden"
         [ -s "$err" ] && sed 's/^/          /' "$err"
         FAIL=$((FAIL + 1))
     else
@@ -565,8 +576,27 @@ run_case "z6.a-bare-unbackticked-sha-in-a-landing-sentence-still-blocks" 2 \
 
 # PRECISION: no landing word, no question asked of git. The same SHA that
 # blocks above is silent here.
+#
+# AND IT MUST BE SILENT FOR THE RIGHT REASON (2026-09-06). This case is the
+# named witness for the verb requirement in `state_claims()` — the check that
+# makes a state claim a claim rather than any sentence containing a hex token —
+# and until now it asserted nothing but `exit 0`. claim-roles.mutation.sh's
+# `state-claim-needs-no-verb` mutant removes that requirement, and the failure
+# mode is not a wider check: execution reaches
+# `claim_polarity(s, (mi or mp).start())` with both matches None, the analyzer
+# raises AttributeError, and guard-unresolved-claims.sh fails OPEN on an
+# analyzer it cannot run. Exit 0 either way. The property had no witness, and
+# the harness said so in its own header rather than claim a green tick.
+#
+# Measured on this payload, at 934f127:
+#     clean analyzer    exit 0, stderr EMPTY
+#     mutated analyzer  exit 1, "AttributeError: 'NoneType' object has no
+#                       attribute 'start'" on stderr
+# so the traceback is the stable, deterministic witness — unlike the
+# reachability cases the harness header records as flaking 2 of 5 runs.
 run_case "z7.the-same-sha-outside-a-state-claim-is-not-checked" 0 \
-    "$(payload "The branch tip is \`$BRANCH_SHA\` and I am waiting on your call before touching it.")"
+    "$(payload "The branch tip is \`$BRANCH_SHA\` and I am waiting on your call before touching it.")" \
+    "" "Traceback (most recent call last)"
 
 run_case "z8.a-landing-word-with-no-sha-is-not-a-state-claim" 0 \
     "$(payload 'Everything is landed and pushed; the worktrees are cleaned up.')"
