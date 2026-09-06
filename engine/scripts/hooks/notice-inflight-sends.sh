@@ -88,9 +88,10 @@ set -o pipefail
 INFLIGHT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
 export INFLIGHT_LIB_DIR
 
+# Keep event JSON out of argv/environment; descriptor 3 carries its bytes.
 PAYLOAD="$(cat)"
 
-python3 - "$PAYLOAD" <<'PY'
+python3 - 3<<< "$PAYLOAD" <<'PY'
 import hashlib
 import json
 import os
@@ -121,7 +122,7 @@ def finish():
 
 
 try:
-    payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else {}
+    payload = json.load(os.fdopen(3))
 except Exception:
     finish()
 

@@ -52,9 +52,10 @@
 
 set -o pipefail
 
+# Keep event JSON out of argv/environment; descriptor 3 carries its bytes.
 PAYLOAD="$(cat)"
 
-python3 - "$PAYLOAD" <<'PY'
+python3 - 3<<< "$PAYLOAD" <<'PY'
 import json
 import os
 import sys
@@ -66,7 +67,7 @@ def finish():
 
 
 try:
-    payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else {}
+    payload = json.load(os.fdopen(3))
 except Exception:
     finish()
 

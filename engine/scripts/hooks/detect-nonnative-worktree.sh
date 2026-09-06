@@ -241,9 +241,11 @@ if [ "$is_readonly" -eq 0 ]; then
   if [ ! -f "$_TX_PY" ]; then
     BIND_PROBLEMS+=("scripts/lib/worktree-transactions.py is MISSING at $_TX_PY — this spawn cannot be bound to its agent id, its manifest will never seal, and every potentially writing tool call it makes will be refused by guard-sealed-worktree.sh. Restore the engine before spawning again.")
   else
-    BIND_OUT="$(INPUT="$INPUT" NAME="$NAME" SESSION_ID="$SESSION_ID" SPAWN_CWD="$SPAWN_CWD" ISOLATION="$ISOLATION" \
-      ENTITY_ROOT="$ENTITY_ROOT" LEDGER_PY="$_LEDGER_PY" TX_PY="$_TX_PY" AL_PY="$_AL_PY" PROMPT_TEXT="$PROMPT" \
-      python3 - <<'PY' 2>&1
+    # Feed the complete event separately from the inline program, including
+    # its prompt. Neither may consume an exec environment entry.
+    BIND_OUT="$(NAME="$NAME" SESSION_ID="$SESSION_ID" SPAWN_CWD="$SPAWN_CWD" ISOLATION="$ISOLATION" \
+      ENTITY_ROOT="$ENTITY_ROOT" LEDGER_PY="$_LEDGER_PY" TX_PY="$_TX_PY" AL_PY="$_AL_PY" \
+      python3 - 3<<< "$INPUT" <<'PY' 2>&1
 import importlib.util, json, os, re, subprocess, sys
 
 def load(name, path):
@@ -259,9 +261,11 @@ wl = load("wl", os.environ["LEDGER_PY"]) if os.path.isfile(os.environ["LEDGER_PY
 al = load("al", os.environ["AL_PY"]) if os.path.isfile(os.environ["AL_PY"]) else None
 
 try:
-    payload = json.loads(os.environ["INPUT"])
+    payload = json.load(os.fdopen(3))
 except Exception:
     payload = {}
+tool_input = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+prompt_text = str(tool_input.get("prompt") or "").replace("\t", " ").replace("\x01", "\n")
 sid = os.environ.get("SESSION_ID", "")
 tuid = str(payload.get("tool_use_id") or "")
 resp = payload.get("tool_response")
@@ -389,7 +393,7 @@ if wl is not None:
     cwd = os.environ.get("SPAWN_CWD", "").strip()
     if cwd:
         paths.append(cwd)
-    for mm in re.finditer(r"^[ \t]*cross-repo-worktree:[ \t]*(\S+)", os.environ.get("PROMPT_TEXT", ""), re.M):
+    for mm in re.finditer(r"^[ \t]*cross-repo-worktree:[ \t]*(\S+)", prompt_text, re.M):
         paths.append(mm.group(1).strip())
     seen = set()
     for p in paths:

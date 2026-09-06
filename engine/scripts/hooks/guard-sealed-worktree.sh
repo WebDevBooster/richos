@@ -225,9 +225,11 @@ if [ ! -f "$TX_PY" ]; then
     deny_cannot_evaluate "scripts/lib/worktree-transactions.py is missing at $TX_PY" "$TOOL_NAME" "$AGENT_ID"
 fi
 
-VERDICT="$(INPUT="$INPUT" TX_PY="$TX_PY" READONLY_ALLOWLIST="$READONLY_ALLOWLIST" \
+# The JSON stream must not become an environment entry: a large payload
+# otherwise skips terminal checks and incorrectly enters the degraded policy.
+VERDICT="$(TX_PY="$TX_PY" READONLY_ALLOWLIST="$READONLY_ALLOWLIST" \
     HARNESS_UTILITY_TYPES="$HARNESS_UTILITY_TYPES" SEAL_READONLY_TOOLS="$SEAL_READONLY_TOOLS" \
-    SEAL_WAIT_SECONDS="$SEAL_WAIT_SECONDS" python3 - <<'PY' 2>&1
+    SEAL_WAIT_SECONDS="$SEAL_WAIT_SECONDS" python3 - 3<<< "$INPUT" <<'PY' 2>&1
 import importlib.util, json, os, sys, time
 
 def out(kind, detail=""):
@@ -235,7 +237,7 @@ def out(kind, detail=""):
     raise SystemExit(0)
 
 try:
-    d = json.loads(os.environ["INPUT"])
+    d = json.load(os.fdopen(3))
 except Exception as e:
     out("ERROR", "payload unparseable: %s" % e)
 sid = str(d.get("session_id") or "")
