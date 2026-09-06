@@ -117,14 +117,60 @@ async function openApp(browser, viewport) {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+  page.__errors = errors;
   await page.goto(APP);
-  await page.waitForFunction("typeof window.RichHome === 'object'");
-  await page.waitForFunction("typeof window.RichTimeline === 'object'");
+  await waitForFact(page, "window.RichHome is the home screen's export", "typeof window.RichHome === 'object'", 15000);
+  await waitForFact(page, "window.RichTimeline is the shell's export", "typeof window.RichTimeline === 'object'", 15000);
   // The curtain is a separate feature with its own suite. Send it away so this one is about
   // what is underneath it, which is the surface this file exists for.
   await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
-  page.__errors = errors;
   return page;
+}
+
+/// Wait for a NAMED FACT about the page, on an explicit budget, and DIAGNOSE it when it does
+/// not arrive.
+///
+/// WHY THIS EXISTS, AND WHY IT IS NOT COSMETIC. `page.waitForFunction(pred)` with no timeout
+/// carries Playwright's default 30,000ms, and when that expires it says
+/// `page.waitForFunction: Timeout 30000ms exceeded` and nothing else — not which fact was
+/// missing, not what the page's state was, and NOT WHETHER THE PAGE HAD ALREADY THROWN. On
+/// 2026-09-06 that is exactly the output a full sweep produced from `WITH A CORPUS ABOVE THE
+/// THRESHOLD`, and it is not possible to tell from it whether the machine was slow or the boot
+/// had failed. Those want opposite fixes.
+///
+/// A CHECK THAT NAMES NO CAUSE IS THE SAME DEFECT AS ONE THAT NAMES THE WRONG CAUSE, with the
+/// volume turned down. This one names the fact it wanted, the budget it allowed, the errors the
+/// page had already produced — the most likely answer, since `window.RichHome` is assigned by a
+/// synchronous IIFE and simply does not exist if that IIFE threw — and what the boot had
+/// reached. It still fails; it just stops being a riddle.
+///
+/// The budgets are EXPLICIT everywhere they are used, because a default is a number nobody
+/// chose and nobody can defend.
+async function waitForFact(page, fact, predicate, budgetMs) {
+  try {
+    await page.waitForFunction(predicate, { timeout: budgetMs });
+  } catch (_e) {
+    const seen = await page
+      .evaluate(() => ({
+        readyState: document.readyState,
+        url: String(location.href).split("/").slice(-1)[0],
+        richHome: typeof window.RichHome,
+        richTimeline: typeof window.RichTimeline,
+        richSplash: typeof window.RichSplash,
+        richTheme: typeof window.RichTheme,
+        field: window.RichHome && window.RichHome.state ? window.RichHome.state.field : null,
+        loro: typeof window.__loro,
+        scripts: Array.from(document.querySelectorAll("script[src]")).map((s) => s.getAttribute("src")).join(" "),
+      }))
+      .catch((e2) => ({ evaluateAlsoFailed: String(e2).split("\n")[0] }));
+    const errs = (page.__errors || []).slice(0, 6);
+    throw new Error(
+      `waited ${budgetMs}ms for ${fact} and it never became true.\n` +
+        `          the page had already reported ${(page.__errors || []).length} error(s)` +
+        (errs.length ? ":\n            " + errs.join("\n            ") : " — so this is a slow boot rather than a broken one") +
+        `\n          page state: ${JSON.stringify(seen)}`
+    );
+  }
 }
 
 /// Wait for the picture. `startField()` rather than the idle callback: a headless run's main
@@ -1336,6 +1382,10 @@ async function main() {
     p5.on("console", (m) => {
       if (m.type() === "error") errors.push("console: " + m.text());
     });
+    // The same list `waitForFact` reads, so a boot that threw is reported by the wait that
+    // notices it is missing rather than only by the assertion at the foot of the check that
+    // this run will never reach.
+    p5.__errors = errors;
 
     // A corpus comfortably over the floor, in place BEFORE THE PAGE'S OWN SCRIPTS RUN —
     // which is the only moment it can matter, since the choice picks the script list.
@@ -1366,7 +1416,14 @@ async function main() {
       });
     }, OBJECTS);
     await p5.goto(APP);
-    await p5.waitForFunction("typeof window.RichHome === 'object'");
+    // NAMED, ON AN EXPLICIT BUDGET, AND DIAGNOSED. This wait carried Playwright's undeclared
+    // 30,000ms default, and on 2026-09-06 a full sweep failed this check on it with
+    // `page.waitForFunction: Timeout 30000ms exceeded` and not one word about which fact was
+    // missing. `window.RichHome` is assigned by a synchronous IIFE at `home.js:55`, so it is
+    // absent for exactly one reason — that IIFE threw — and this page has been collecting page
+    // errors since before `goto`. Reporting them is the difference between a riddle and a
+    // finding. See `waitForFact`.
+    await waitForFact(p5, "window.RichHome on the customer-corpus launch", "typeof window.RichHome === 'object'", 15000);
     await p5.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     // THE SLOW RUNNER, ON DEMAND, AND POINTED AT THE RACE THAT WAS HERE — the same
     // `RICHOS_SPLASH_LAG_MS` knob the cold-launch check carries, because it reproduces the
@@ -1470,19 +1527,46 @@ async function main() {
     // (`home.css:892`, `1px solid rgba(194, 163, 92, 0.7)`), so it waits for the fact rather
     // than for a duration — and it is asserted, because a wait that silently stopped working
     // would put this row back to measuring gold on gold while staying green.
+    //
+    // THE WAIT IS NOW THE TRANSITION'S OWN END STATE, AND THE COLOR IS AN ASSERTION AGAINST
+    // WHAT THE STYLESHEET DECLARES. It used to be a regex poll for `/^rgba\(194, 163, 92,
+    // 0\.70/` on `borderTopColor`, whose comment read: *"`0\.70` and not `0\.7`: the resting
+    // value is `rgba(194, 163, 92, 0.706)` and the transition passes through 0.79 on the way to
+    // it, which `0\.7` would accept — a wait that stops one frame early is a measurement of a
+    // state nobody sees."*
+    //
+    // THE REASONING WAS RIGHT AND THE PREMISE WAS FALSE, AND THAT MADE IT DO THE THING IT
+    // WARNED ABOUT. `home.css:892` declares `border: 1px solid rgba(194, 163, 92, 0.7)` — alpha
+    // exactly 0.7, which this engine serializes as `rgba(194, 163, 92, 0.7)`. That string does
+    // NOT match `0\.70`. So 0.706 was never the resting value; it is a value the fade passes
+    // through on its way down, and the old poll returned there — one frame early, mid-fade,
+    // measuring a state nobody sees. Caught by replacing the poll with `settle()`: the settled
+    // read came back `rgba(194, 163, 92, 0.7)` after 6 transitions finished in 275ms.
+    //
+    // So `settle()` waits for the blur's transitions to REPORT themselves finished, which is
+    // the fact itself and has no spelling to get wrong, and the resting color is then ASSERTED
+    // against the value read out of `home.css` — never typed here, on this file's own rule that
+    // a test carrying its own copy of a constant passes forever after somebody moves one of
+    // them. Asserted rather than waited for, so a wait that silently stopped working can no
+    // longer put this row back to measuring gold on gold while staying green.
     await p5.evaluate(() => document.activeElement && document.activeElement.blur());
-    await p5.waitForFunction(
-      // `0\.70` and not `0\.7`: the resting value is `rgba(194, 163, 92, 0.706)` and the
-      // transition passes through 0.79 on the way to it, which `0\.7` would accept — a wait
-      // that stops one frame early is a measurement of a state nobody sees.
-      () => /^rgba\(194, 163, 92, 0\.70/.test(getComputedStyle(document.getElementById("home-enter")).borderTopColor),
-      { timeout: 5000 }
-    );
+    const restedAfter = await settle(p5, 5000);
     const rested = await p5.evaluate(() => {
       const d = document.getElementById("home-enter");
       return { focused: d.matches(":focus-visible"), hovered: d.matches(":hover"), border: getComputedStyle(d).borderTopColor };
     });
     assert(!rested.focused && !rested.hovered, "the door is not at rest, so its edge would be measured against its own ring");
+    const homeCss = fs.readFileSync(path.join(UI_DIR, "home.css"), "utf8");
+    const declaredBorder = (homeCss.match(/#home-enter\s*\{[\s\S]*?border:\s*1px solid (rgba\([^)]*\))/) || [])[1];
+    assert(declaredBorder, "home.css no longer declares a resting border on #home-enter, so there is nothing to settle to");
+    const squash = (s) => String(s).replace(/\s+/g, "");
+    assertEqual(
+      squash(rested.border),
+      squash(declaredBorder),
+      `the door's border settled at ${rested.border}, not at the ${declaredBorder} home.css declares for it — the ` +
+        `focus ring is still in the frame, so an edge measurement here would be gold against its own glow. ` +
+        `${restedAfter.waited.length} transition(s) finished in ${restedAfter.ms}ms before this was read`
+    );
     const rows = await measure(p5, [
       { name: "the mark, letterforms", sel: "#home-brand .p-ink", needs: 3, kind: "svg" },
       { name: "owner line", sel: "#home-owner", needs: 4.5 },
@@ -2328,7 +2412,7 @@ async function main() {
     });
     await p2.goto(APP);
     if (LAG_MS > 0) await p2.waitForTimeout(LAG_MS);
-    await p2.waitForFunction("typeof window.RichHome === 'object'");
+    await waitForFact(p2, "window.RichHome on the cold launch", "typeof window.RichHome === 'object'", 15000);
     await p2.waitForFunction("window.RichHome.state.field === 'live'", { timeout: 60000 });
     // ...AND THEN FOR THE PAGE'S OWN RECORD OF THAT INSTANT, which is a separate fact and can
     // be one 10ms tick behind the state it records. 5,000ms is four hundred ticks: a budget
@@ -2450,6 +2534,7 @@ async function main() {
     p5.on("console", (m) => {
       if (m.type() === "error") noise.push("console: " + m.text());
     });
+    p5.__errors = noise;
     await p5.addInitScript(() => {
       const proto = WebGLRenderingContext.prototype;
       const orig = proto.getShaderParameter;
@@ -2463,7 +2548,7 @@ async function main() {
       };
     });
     await p5.goto(APP);
-    await p5.waitForFunction("typeof window.RichHome === 'object'");
+    await waitForFact(p5, "window.RichHome on the refusing-display launch", "typeof window.RichHome === 'object'", 15000);
     const t0 = Date.now();
     await p5.waitForFunction("window.RichHome.state.field === 'degraded'", { timeout: 20000 });
     const took = Date.now() - t0;
@@ -2520,8 +2605,8 @@ async function main() {
       window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "reload" });
     });
     await p4.goto(APP);
-    await p4.waitForFunction("typeof window.RichHome === 'object'");
-    await p4.waitForFunction("typeof window.RichTimeline === 'object'");
+    await waitForFact(p4, "window.RichHome on the no-curtain launch", "typeof window.RichHome === 'object'", 15000);
+    await waitForFact(p4, "window.RichTimeline on the no-curtain launch", "typeof window.RichTimeline === 'object'", 15000);
     const r = await p4.evaluate(() => ({
       splashDrew: window.RichSplash.state.shown,
       splashDeclined: window.RichSplash.state.declined,
