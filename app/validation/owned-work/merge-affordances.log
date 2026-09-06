@@ -1,25 +1,37 @@
 
 == the affordance rule — a state the user could change renders its control ==
   PASS  NEGATIVE CONTROL: the scrape examined a real corpus, not an empty one
-          340 states derived from index.html, main.js, timeline.js and the Rust bridge scrape
+          448 states derived from 13 shipped file(s) and the Rust bridge scrape
+  PASS  PART 0: the source list is DERIVED from the tree, and reaches every shipped script
+          19 shipped file(s) derived from index.html and the closure over it (13 ui, 2 preview-data, 4 style), reconciled against 19 .js/.css/.html on disk. The nine the typed list missed are all here, `updates.js` and `home/field-engine.js` among them.
+  PASS  PART 0: the widened list SEES states the old three-file list could not
+          126 state(s) are visible to this rule that were not: home.js 14, home/field-engine.js 7, main.js 5, runs.js 52, settings-button.js 3, splash-library.js 2, splash.js 4, timeline.js 14, updates.js 25. The §26 waiting sentence is one of them, and it is classified INFORMATIONAL because the control is REMOVED by ruling rather than merely missing.
+  PASS  PART 0: what the derived manifest does NOT cover, counted rather than described
+          448 state(s) in the inventory from 13 derived ui file(s) + 13 Rust file(s). NOT COVERED, and none of it is fixable by widening the file list: 239 label-shaped literal(s) below the 12-character/3-word prose floor (e.g. "RichOS", "Close navigation", "Entity areas"); 76 interpolated template literal(s), whose sentences are composed at run time; and every string that arrives as DATA over the bridge — composed in Rust or by the model — which no source-text scrape of any width can see.
+  PASS  PART 0 NEGATIVE CONTROL: new prose and short states in formerly invisible sources fail by name
+          Clean copied tree passed; new updates.js prose, a home.js short state and an unwired source each failed by name.
+  PASS  PART 0 NEGATIVE CONTROL: the reconciliation refuses a short list, a missing role and a stale one
+          refused: a file on disk that nothing loads; a loaded file with no role; a role for a file nobody loads. Accepted the agreeing set.
+  PASS  PART 0: the GLSL filter drops shaders and nothing else, measured
+          14 GLSL literal(s) dropped, all 14 in home/field-engine.js, 0 elsewhere; 0 shaders left in the 448-state inventory.
   PASS  every derived state is classified, and every classification is a real state
-          340/340 classified, 0 unclassified, 0 stale
+          448/448 classified, 0 unclassified, 0 stale
   PASS  no duplicate rows, and every class is one of the declared buckets
-          ACTIONABLE 64, NEEDS-SOMEONE-ELSE 22, INFORMATIONAL 85, CONTROL 75, FRAGMENT 29, UNREACHABLE 15, NOT-RENDERED 50
+          ACTIONABLE 68, NEEDS-SOMEONE-ELSE 23, INFORMATIONAL 112, CONTROL 94, FRAGMENT 75, UNREACHABLE 18, NOT-RENDERED 58
   PASS  THE RULE: every ACTIONABLE state names a control
-          64 ACTIONABLE states, each naming a control
+          68 ACTIONABLE states, each naming a control
   PASS  every NEEDS-SOMEONE-ELSE state names the party, or names what explains it
-          14 name a party in the sentence, 8 are explained by a state beside them
+          15 name a party in the sentence, 8 are explained by a state beside them
   PASS  no INFORMATIONAL state is secretly an instruction
-          85 INFORMATIONAL states, none issuing an instruction
+          112 INFORMATIONAL states, none issuing an instruction
+  PASS  [assignment-decision] 1 state(s) render with a usable control
+          state text asserted present; #managed-run [data-run-review] -> button
   PASS  [assignment-empty] 1 state(s) render with a usable control
           state text asserted present; #input -> textarea#input
   PASS  [assignment-paused] 1 state(s) render with a usable control
           state text asserted present; #managed-run [data-run-continue] -> button
   PASS  [assignment-error] 1 state(s) render with a usable control
           state text asserted present; #managed-run [data-run-refresh] -> button
-  PASS  [assignment-decision] 2 state(s) render with a usable control
-          state text asserted present; #managed-run [data-run-answer] -> button
   PASS  [assignment-answer] 1 state(s) render with a usable control
           state text asserted present; #managed-run textarea -> textarea
   PASS  [assignment-scope] 1 state(s) render with a usable control
@@ -120,8 +132,24 @@
           state text asserted present; (no control by design)
   PASS  [techy-empty] 2 state(s) render with a usable control
           state text asserted present; (no control by design)
+  PASS  [updates-failed] 1 state(s) render with a usable control
+          state text asserted present; #update-check -> button#update-check.update-btn
+  PASS  [updates-ready] 1 state(s) render with a usable control
+          state text asserted present; #update-relaunch -> button#update-relaunch.update-btn
+  PASS  [updates-waiting-ready] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-waiting-available] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-unconfigured] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-idle] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [home-prefs] 1 state(s) render with a usable control
+          state text asserted present; #home-prefs-list input.home-prefs-label -> input.home-prefs-label
+  PASS  [home-prefs-no-entities] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
   PASS  NEGATIVE CONTROL: the browser half examined a non-zero number of states
-          108 states asserted against the real DOM under WebKit
+          115 states asserted against the real DOM under WebKit
   PASS  the §21 way out actually goes somewhere
           #unbound-new-thread opens the §3.3 picker with 6 entities, defaulting to none
   PASS  the settings menu carries the company, and choosing one writes it through
@@ -140,30 +168,42 @@
           flagged: ACTIONABLE state names a control that is in the DOM but NOT VISIBLE — a sentence pointing at something the CEO cannot see is worse than silence.
   PASS  POSITIVE CONTROL: a paragraph dressed as a control IS flagged
           flagged: the named control is not something anyone can press — no button, field, link or role=button matched.
+  PASS  POSITIVE CONTROL ON THE REAL UPDATE SURFACE: delete the restart control and the rule fails
+          as shipped: button#update-relaunch.update-btn; with #update-relaunch removed: ACTIONABLE state renders with NO control in the DOM at all.
+  PASS  §26: a waiting update offers NO actionable control, on the real surface
+          updates-waiting-available: install hidden, relaunch hidden, a role=note in their place; updates-waiting-ready: install hidden, relaunch hidden, a role=note in their place
   PASS  POSITIVE CONTROL: an unclassified new state IS flagged
           the comparator names the exact string and its site
 
 == part 5: heuristic second opinion — REPORT ONLY, and here is why ==
-  flagged 61, genuinely ACTIONABLE or NEEDS-SOMEONE-ELSE 42  ->  precision 68.9%, recall 48.8%
+  flagged 72, genuinely ACTIONABLE or NEEDS-SOMEONE-ELSE 44  ->  precision 61.1%, recall 48.4%
   Roughly one flag in three is noise and it misses nearly half the real ones, so it does
   NOT fail the run. A check that cries wolf is deleted within a day, and then nothing runs.
-  19 disagreement(s) with the registry, each with its recorded reason:
+  28 disagreement(s) with the registry, each with its recorded reason:
     [NOT-RENDERED] "Accepted conversation disappeared on restart"
            Debug-only owned-work integration harness literal. This path requires explicit selftest and isolated data-dire
+    [CONTROL] "Check for updates"
+           `#update-check`'s label in every state but a non-signature failure, where it reads 'Try again'.
     [CONTROL] "Choose assignment: ()"
            Assignment panel control label or accessible name. Browser decision tests exercise the associated command and
     [CONTROL] "Choose the company"
            The button beneath the composer's block (`#choose-company-btn`). It IS the affordance.
     [CONTROL] "Confirm set aside"
            Explicit confirmation before preserving and setting aside unreadable assignment history.
+    [CONTROL] "Download and install"
+           `#update-install`'s label. Hidden, not disabled, while RichOS is working (§26).
     [INFORMATIONAL] "Give me a folder and I'll pick this company on my own whenever you start R"
            What the folder DOES, beside the field that takes it. It is not a request: it names the consequence of both an
     [UNREACHABLE] "I already have a lot of companies with names like \"{name}\" and I couldn't "
            `register_entity`'s 99-collision bound. It needs ninety-nine companies whose names all derive to one label; no
+    [INFORMATIONAL] "I'll wait to restart until everything has finished — nothing will be inter"
+           CEO ruling §26, and the reason this file had to become visible to this rule. RichOS is working, an update is i
     [CONTROL] "Pick it back up"
            The retry button on both intervention cards.
     [FRAGMENT] "Press Stop again and I'll have another go."
            Appended to the backend's own sentence in the failed-stop notice.
+    [CONTROL] "Restart to finish"
+           `#update-relaunch`'s label. Hidden, not disabled, while RichOS is working (§26).
     [CONTROL] "Set aside unreadable assignment"
            Assignment panel control label or accessible name. Browser decision tests exercise the associated command and
     [CONTROL] "Set by hand in config.json, so none of the three is selected."
@@ -172,10 +212,14 @@
            §5.3 activity rollup label.
     [FRAGMENT] "Set up the environment ( steps)"
            Template hole: the step count.
+    [UNREACHABLE] "That check sent {probe_chars} characters where RichOS's own work runs to {"
+           `ReachabilityVerdict::Unproven`, and the sentence the whole module exists for. It says neither 'healthy' nor '
     [INFORMATIONAL] "That's set up. From now on I'll keep what you tell me in that folder and r"
            What he sees after answering, when the corpus resolved AND the compiler is installed. Nothing to do — it is th
     [NOT-RENDERED] "The target assignment is unavailable"
            Saved registration application failure, interpreted by Rich in a bounded failure notice rather than emitted as
+    [INFORMATIONAL] "There is no update server yet, so RichOS cannot check for new versions. Wh"
+           The `unconfigured` state, and the honest one: this build points at a placeholder endpoint. NOT ACTIONABLE — `p
     [CONTROL] "This conversation is set on its own. changes just this one."
            #techy-hint under the Settings switch, with the `${key}` shortcut hole folded out by the scraper — it renders
     [UNREACHABLE] "This copy of me was told which company it works for when it was started up"
@@ -186,5 +230,11 @@
            Two moments, one sentence: a boot that resolves a corpus and no compiler, and a setup that finishes the same w
     [FRAGMENT] "headphones recommended · tap"
            Voice footnote, completed by the ◉ glyph.
+    [FRAGMENT] "is installed and needs a restart."
+           `waitingSaid()`'s `ready` head: `version + ' is installed and needs a restart.'`.
+    [FRAGMENT] "is ready to install."
+           `waitingSaid()`'s `available` head: `version + ' is ready to install.'`.
+    [NOT-RENDERED] "not a fresh launch ("
+           `state.declined`, which records WHY the curtain did not run. It is read by `RichSplash.state()` for the suite
 
 the affordance rule holds.

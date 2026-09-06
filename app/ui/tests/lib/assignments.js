@@ -61,7 +61,7 @@ async function open(browser, theme = "dark", viewport = { width:1400,height:900 
     window.emitAssignment = async payload => { for(const fn of window.assignmentListeners["rich://run-updated"]||[]) await fn({payload}); };
   });
   await page.addInitScript(t => { localStorage.setItem("richos-theme",t); localStorage.setItem("richos-mock-config",JSON.stringify({theme:t,font_scale:100,user_name:null})); }, theme);
-  await page.goto("file://"+path.join(UI_DIR,"index.html")); await leaveHome(page); 
+  await page.goto("file://"+path.join(UI_DIR,"index.html")); await leaveHome(page);
   await page.waitForFunction(()=>typeof window.RichRuns === "object");
   await page.waitForSelector('.nav-thread[data-thread-id="hiring"]', {state:"attached"});
   await page.evaluate(()=>document.querySelector('.nav-thread[data-thread-id="hiring"]').click());

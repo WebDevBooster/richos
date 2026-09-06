@@ -1,0 +1,32 @@
+     Locking 41 packages to latest compatible versions
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling libc v0.2.189
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling getrandom v0.4.3
+   Compiling cfg-if v1.0.4
+   Compiling serde_json v1.0.151
+   Compiling thiserror v1.0.69
+   Compiling serde v1.0.229
+   Compiling generic-array v0.14.7
+   Compiling memchr v2.8.3
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos/app/crates/richos-core)
+   Compiling itoa v1.0.18
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling cpufeatures v0.2.17
+   Compiling uuid v1.26.0
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling thiserror-impl v1.0.69
+   Compiling serde_derive v1.0.229
+   Compiling owned-ledger-compat v0.0.0 (/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-old-reader-ulx9bx7e)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.40s
+     Running `/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-old-reader-ulx9bx7e/target/debug/owned-ledger-compat /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-o4ebisd8/data/conversation-ledger.jsonl 10`
+PASS: actual older reader deserializes and renders the owned-work ledger without losing or duplicating the CEO request.

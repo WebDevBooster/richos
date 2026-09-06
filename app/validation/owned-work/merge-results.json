@@ -1,0 +1,248 @@
+{
+  "recorded_at_utc": "2026-09-06T02:50:21.801889+00:00",
+  "original_feature": "88fad92c85a3169763f3e87e2a38d1b5b32c5e38",
+  "original_main": "5792fa3",
+  "included_main": "f221114862787d7757c6dcf0c8eb944ad1770a8b",
+  "integration_commit_before_evidence": "55728e67bc31cd566c0bd9d21ca621db46b80286",
+  "worktree": "/Users/alex/ab/richos-wt/codex-durable-orchestration",
+  "browser": {
+    "suites_discovered": 25,
+    "suites_exercised": 25,
+    "skipped": 0,
+    "checks_after_targeted_reruns": 522,
+    "initial_runner_exit": 1,
+    "initial_failure": "affordances.js: new debug fixture lacked classification. Corrected and rerun; original failed runner log is retained.",
+    "final_suites": {
+      "affordances.js": {
+        "checks": 87,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-affordances.log",
+        "rerun_after_corrections": true
+      },
+      "appearance.js": {
+        "checks": 19,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "contrast.js": {
+        "checks": 49,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "corrections.js": {
+        "checks": 21,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "docs-claims.js": {
+        "checks": 6,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-docs.log",
+        "rerun_after_corrections": true
+      },
+      "feedback.js": {
+        "checks": 24,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "home.js": {
+        "checks": 30,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "inspector.js": {
+        "checks": 13,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "live-workers.js": {
+        "checks": 11,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "markdown.js": {
+        "checks": 12,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "memory-strategy.js": {
+        "checks": 32,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "memory.js": {
+        "checks": 9,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "outage.js": {
+        "checks": 9,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "realbytes.js": {
+        "checks": 7,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "restart-scope.js": {
+        "checks": 14,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "retention.js": {
+        "checks": 8,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "runs.js": {
+        "checks": 29,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-runs.log",
+        "rerun_after_corrections": true
+      },
+      "scale.js": {
+        "checks": 13,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "setup.js": {
+        "checks": 16,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "splash.js": {
+        "checks": 28,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "steering.js": {
+        "checks": 24,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "techy.js": {
+        "checks": 21,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "updates.js": {
+        "checks": 17,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "vouch-template.js": {
+        "checks": 7,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      },
+      "workers.js": {
+        "checks": 16,
+        "failed": 0,
+        "exit_code": 0,
+        "log": "merge-ui-initial.log"
+      }
+    },
+    "contrast_surfaces": 32,
+    "contrast_theme_walks": 64
+  },
+  "core": {
+    "passed_including_doctests": 867,
+    "failed": 0,
+    "ignored_in_parent_run": 2,
+    "source_inventory": 864,
+    "direct_tests_passed": 862,
+    "doctests_passed": 5,
+    "child_only_fixtures": 2,
+    "log": "merge-core.log"
+  },
+  "voice": {
+    "passed_including_doctests": 192,
+    "failed": 0,
+    "ignored_in_parent_run": 4,
+    "live_audio_opt_in_tests_not_run": 4,
+    "log": "merge-voice.log"
+  },
+  "desktop": {
+    "phases": [
+      "update-owned",
+      "enqueue",
+      "resume",
+      "recover-notice",
+      "correct-live",
+      "slow-registration",
+      "independent-work",
+      "registration-failures",
+      "registration-failures-restart",
+      "end-live",
+      "panel-decisions"
+    ],
+    "phase_count": 11,
+    "update_gate_checks": 12,
+    "final_panel_rerun_passed": true,
+    "provider": "isolated scripted native provider",
+    "log": "merge-desktop.log",
+    "final_panel_log": "merge-panel.log"
+  },
+  "projection": {
+    "tests_passed": 1,
+    "views_rendered": 5,
+    "compiled_mutations_rejected": 3,
+    "log": "merge-projection.log",
+    "mutations_log": "merge-projection-mutations.log"
+  },
+  "backward_reader": {
+    "passed": true,
+    "reader_checkout": "pre-merge main",
+    "log": "merge-compatibility.log"
+  },
+  "integration_fixes": [
+    "Preserved both branches in seven textual conflicts.",
+    "Included independent durable work and undiscovered handoffs in updater liveness.",
+    "Projected exact panel scope corrections from saved decision receipts and verified execution retains them."
+  ],
+  "commands": [
+    "/Users/alex/.cargo/bin/cargo test --manifest-path app/Cargo.toml -p richos-core",
+    "/Users/alex/.cargo/bin/cargo test --manifest-path app/Cargo.toml -p richos-voice",
+    "/Users/alex/.cargo/bin/cargo build --manifest-path app/src-tauri/Cargo.toml",
+    "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/run.js",
+    "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/affordances.js",
+    "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/runs.js",
+    "/opt/homebrew/bin/node app/ui/tests/docs-claims.js",
+    "python3 app/scripts/test-owned-work-desktop.py",
+    "python3 app/scripts/test-owned-work-desktop.py --panel-only",
+    "/Users/alex/.cargo/bin/cargo test --manifest-path app/Cargo.toml -p richos-core --example run_view_probe",
+    "python3 app/scripts/test-assignment-projection-mutations.py /Users/alex/.cargo/bin/cargo",
+    "python3 app/scripts/check-owned-ledger-compat.py /Users/alex/ab/richos/app/crates/richos-core <isolated-desktop-ledger> /Users/alex/.cargo/bin/cargo"
+  ],
+  "limits": [
+    "No live audio, real provider execution or new visual signoff.",
+    "Engine changes copied unchanged from main; engine suite not rerun.",
+    "Added updater disk-read cost is not covered by the older worker-only timing test.",
+    "No push, release or installed-app replacement."
+  ]
+}

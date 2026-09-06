@@ -225,6 +225,9 @@ Urban kept that 9/10 signoff at `9b6c74d` in P7 after finding no regressions.
 The [P7 follow-up](URBAN-P7-RESPONSE.md) addresses the remaining history hierarchy,
 action cue and cut-edge measurement findings with current evidence.
 
+See [the main integration record](MERGE-VALIDATION-2026-09-06.md) for merge
+resolutions, updater coordination, visible scope corrections and combined testing.
+
 ## Review entry points
 
 | Concern | Code |

@@ -1,4 +1,10 @@
-# Tenth revision: follow-up to Urban's P7 review
+# Main integration: September 6, 2026
+
+See [the integration record](MERGE-VALIDATION-2026-09-06.md) and
+[current results](validation/owned-work/merge-results.json). Earlier revision
+records below retain their original verification scope.
+
+## Tenth revision: follow-up to Urban's P7 review
 
 Urban kept the 9/10 signoff at `9b6c74d`. See [the P7 follow-up](URBAN-P7-RESPONSE.md)
 and [current evidence](validation/owned-work/urban-p7-results.json). The changes

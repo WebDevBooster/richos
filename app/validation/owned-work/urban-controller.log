@@ -47,4 +47,3 @@ test real_verifier_exit_status_output_missing_binary_and_timeout_are_used ... ok
 test the_model_timeout_is_enforced_through_the_adapters_cancel_handle ... ok
 
 test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.67s
-

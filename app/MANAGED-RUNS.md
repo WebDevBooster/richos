@@ -123,3 +123,8 @@ Identical check lists across all steps of an imported assignment appear once abo
 the steps. Different lists remain beside their tasks. When Retry is hidden, the
 reading control says **retry available** in the direction that reaches it. Review
 decision has stronger text within the same action row as Pause and End.
+
+Scope changes made through the decision panel also appear in history as
+**Your updated instructions**, read from the saved decision receipts. The updater
+waits for unfinished assignments and pending registration as well as conversation
+activity. Paused work still counts as unfinished; completed and ended work does not.
