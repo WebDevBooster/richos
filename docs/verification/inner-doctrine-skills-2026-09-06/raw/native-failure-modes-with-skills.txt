@@ -1,0 +1,58 @@
+
+=== THE STANDING INSTRUCTION ===
+  /Users/alex/Library/Application Support/com.richos.app/inner-doctrine.md
+  3328 bytes
+
+=== THE SKILLS ===
+  /Users/alex/Library/Application Support/com.richos.app/rich-skills
+  rich-skills:american-english
+
+=== THE FLAG VECTOR ===
+  --print --input-format=stream-json --output-format=stream-json --include-partial-messages --verbose --setting-sources  --no-session-persistence --session-id 00000000-0000-0000-0000-000000000000 --permission-prompt-tool stdio --append-system-prompt-file /Users/alex/Library/Application Support/com.richos.app/inner-doctrine.md --plugin-dir /Users/alex/Library/Application Support/com.richos.app/rich-skills
+  PASS the undocumented flag is present and armed           there is no code path that drops it
+  PASS the standing instruction is named in the vector      the second semi-documented flag, pinned the same way
+  PASS RichOS's own skills are named in the vector          a directory the app wrote, never the operator's ~/.claude
+
+=== 1. THE BINARY IS NOT THERE ===
+  the claude binary was not found at /nonexistent/definitely/not/claude — RichOS drives Claude Code directly and cannot run without it
+  PASS refused before a process was spawned                 the error names a path, not an exit code
+  PASS and says why it matters                              a customer-facing consequence, not a stack trace
+
+=== 2. A CHILD THAT REJECTS THE FLAG (the §16 risk, reproduced) ===
+  claude failed to start (the child exited before answering the handshake); the child said: error: unknown option '--permission-prompt-tool'
+  PASS loud, and not a degraded success                     lease_ready goes false and every send is refused
+  PASS the child's own words, verbatim                      on this failure that ONE line is the whole diagnosis
+
+=== 3. THE REAL BINARY, GIVEN A FLAG IT DOES NOT KNOW ===
+  binary: /Users/alex/.local/bin/claude
+  claude failed to start (the child exited before answering the handshake); the child said: error: unknown option '--richos-flag-that-cannot-exist'
+  PASS the REAL binary's rejection is caught                not a fake's — this is the actual claude on this machine
+  PASS and its own error reaches the operator               so a flag that moves announces itself
+
+=== 4. A CHILD THAT STARTS AND SAYS NOTHING ===
+  claude failed to start (the child exited before answering the handshake); the child said: (nothing on stderr)
+  returned after 737 ms
+  PASS silence is a failure, not a pass                     a boot that hangs forever is the one thing worse than a refusal
+  PASS and it RETURNED — bounded, never indefinite          HANDSHAKE_TIMEOUT is the ceiling; the child died first
+
+=== 5. A CHILD THAT ANSWERS THE HANDSHAKE AND REFUSES IT ===
+  claude failed to start (the initialize handshake was refused (subtype Some("error"))); the child said: (nothing on stderr)
+  PASS a non-success subtype is a refusal                   never a success with a caveat
+
+=== 6. RICHOS'S STANDING INSTRUCTION IS NOT THERE ===
+  RichOS's standing instruction is not at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-no-such-doctrine-please-do-not-create-me.md (No such file or directory (os error 2)) — it will not start Claude without it, because a Claude started without it is not Rich
+  PASS refused, naming the instruction file                 not an exit code, and not the wrong fault
+  PASS and says what is at stake                            a generic Claude behind the product's window is the failure this prevents
+  PASS and it is not reported as a missing binary           reporting one fault as another sends the reader to the wrong place
+
+=== 7. A SKILL RICHOS SHIPS IS NOT THERE ===
+  a skill RichOS ships is not at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-no-such-skills-please-do-not-create-me/.claude-plugin/plugin.json (No such file or directory (os error 2)) — it will not start Claude with a skill missing, because `--plugin-dir` accepts a path that is not there without saying so
+  PASS refused, naming the file it looked for               the binary accepts a missing plugin dir without a word, so this check is the whole of it
+  PASS and says why we check rather than the binary         a fact about the flag, recorded where somebody removing the check will read it
+
+=== THE NEGATIVE CONTROL: the real binary, the real flags ===
+  handshake OK in 680.0 ms, session = 5214ee81-8360-4d7a-9936-96e2707f74fa
+  PASS the five failures above fail for the RIGHT reason    this machine's claude answers the handshake with our real arg vector
+
+18 checks, 0 failed.
+[failure-modes] ALL CHECKS PASS — every failure is loud, named and bounded.

@@ -11,7 +11,7 @@
 //! cargo run -p richos-core --example native_failure_modes
 //! ```
 //!
-//! Six cases, in the order a failure would actually be met:
+//! Seven cases, in the order a failure would actually be met:
 //!
 //!   1. **The binary is not where we looked.** Refused BEFORE a process is spawned, naming
 //!      the path — not an exit code.
@@ -31,6 +31,12 @@
 //!      instruction file under `--setting-sources project` would have been a clean
 //!      handshake and a generic Claude. Here the binary is present, the working directory
 //!      exists, and only the doctrine is missing — so the refusal names the doctrine.
+//!   7. **A skill RichOS ships is not on disk.** The one where the loudness is entirely
+//!      OURS. `claude` refuses a missing `--append-system-prompt-file`; it accepts a
+//!      missing `--plugin-dir` in silence — exit 0, clean handshake, `plugins: []`, an
+//!      ordinary turn (measured, `inner-doctrine-skills-2026-09-06/` cell K4). If this
+//!      case ever passes for the wrong reason, deleting a skill file stops being an error
+//!      and becomes a product that is quietly less than it says it is.
 //!
 //! And the negative control, without which the four above prove nothing: **the real binary,
 //! with the real flags, completes the handshake.** If that fails too, the four failures
@@ -45,7 +51,7 @@
 
 use richos_core::native::{
     chat_child_args, resolve_claude_bin, NativeCognition, APPEND_SYSTEM_PROMPT_FILE,
-    PERMISSION_PROMPT_TOOL,
+    PERMISSION_PROMPT_TOOL, PLUGIN_DIR,
 };
 use std::path::{Path, PathBuf};
 
@@ -64,12 +70,25 @@ fn main() {
             std::process::exit(2);
         }
     };
+    let skills = match richos_core::skills::ensure_for_install() {
+        Ok(p) => p,
+        Err(e) => {
+            println!("\n  the skills could not be rendered: {e}");
+            println!("  NOTHING WAS VERIFIED — a check that did not happen must not report ok.");
+            std::process::exit(2);
+        }
+    };
     println!("\n=== THE STANDING INSTRUCTION ===");
     println!("  {}", doctrine.display());
     println!("  {} bytes", std::fs::metadata(&doctrine).map(|m| m.len()).unwrap_or(0));
+    println!("\n=== THE SKILLS ===");
+    println!("  {}", skills.display());
+    for name in richos_core::skills::qualified_names() {
+        println!("  {name}");
+    }
 
     println!("\n=== THE FLAG VECTOR ===");
-    let args = chat_child_args("00000000-0000-0000-0000-000000000000", &doctrine);
+    let args = chat_child_args("00000000-0000-0000-0000-000000000000", &doctrine, &skills);
     println!("  {}", args.join(" "));
     let armed = args
         .iter()
@@ -83,10 +102,16 @@ fn main() {
         .map(|i| args.get(i + 1).map(String::as_str) == Some(doctrine.display().to_string().as_str()))
         .unwrap_or(false);
     check(&mut cases, &mut failures, carries, "the standing instruction is named in the vector", "the second semi-documented flag, pinned the same way");
+    let skilled = args
+        .iter()
+        .position(|a| a == PLUGIN_DIR)
+        .map(|i| args.get(i + 1).map(String::as_str) == Some(skills.display().to_string().as_str()))
+        .unwrap_or(false);
+    check(&mut cases, &mut failures, skilled, "RichOS's own skills are named in the vector", "a directory the app wrote, never the operator's ~/.claude");
 
     // ---- 1. no binary ------------------------------------------------------------------
     println!("\n=== 1. THE BINARY IS NOT THERE ===");
-    let err = NativeCognition::start(Path::new("/nonexistent/definitely/not/claude"), Path::new("/tmp"), &doctrine)
+    let err = NativeCognition::start(Path::new("/nonexistent/definitely/not/claude"), Path::new("/tmp"), &doctrine, &skills)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — which is impossible".into());
@@ -97,7 +122,7 @@ fn main() {
     // ---- 2. a child that rejects the flag ----------------------------------------------
     println!("\n=== 2. A CHILD THAT REJECTS THE FLAG (the §16 risk, reproduced) ===");
     let script = fake("flag-reject", "echo \"error: unknown option '--permission-prompt-tool'\" >&2\nexit 1\n");
-    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine)
+    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine, &skills)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — a rejected flag was treated as success".into());
@@ -118,7 +143,7 @@ fn main() {
         "real-bad-flag",
         &format!("exec \"{}\" --richos-flag-that-cannot-exist \"$@\"\n", real.display()),
     );
-    let err = NativeCognition::start(&probe, Path::new("/tmp"), &doctrine)
+    let err = NativeCognition::start(&probe, Path::new("/tmp"), &doctrine, &skills)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — the real binary accepted a flag that cannot exist".into());
@@ -131,7 +156,7 @@ fn main() {
     println!("\n=== 4. A CHILD THAT STARTS AND SAYS NOTHING ===");
     let script = fake("silent", "sleep 0.4\nexit 0\n");
     let began = std::time::Instant::now();
-    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine)
+    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine, &skills)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — silence was treated as success".into());
@@ -150,7 +175,7 @@ fn main() {
          printf '%s\\n' '{\"type\":\"control_response\",\"response\":{\"subtype\":\"error\",\"request_id\":\"req_init\",\"error\":\"nope\"}}'\n\
          sleep 5\n",
     );
-    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine)
+    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine, &skills)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — a refusal was read as a success".into());
@@ -164,7 +189,7 @@ fn main() {
     // is the doctrine, which is what makes this case mean anything at all.
     let absent = std::env::temp_dir().join("richos-no-such-doctrine-please-do-not-create-me.md");
     let _ = std::fs::remove_file(&absent);
-    let err = NativeCognition::start(&real, Path::new("/tmp"), &absent)
+    let err = NativeCognition::start(&real, Path::new("/tmp"), &absent, &skills)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — a Claude with no standing instruction is not Rich".into());
@@ -173,10 +198,25 @@ fn main() {
     check(&mut cases, &mut failures, err.contains("not Rich"), "and says what is at stake", "a generic Claude behind the product's window is the failure this prevents");
     check(&mut cases, &mut failures, !err.contains("binary was not found"), "and it is not reported as a missing binary", "reporting one fault as another sends the reader to the wrong place");
 
+    // ---- 7. a skill RichOS ships is not on disk -----------------------------------------
+    println!("\n=== 7. A SKILL RICHOS SHIPS IS NOT THERE ===");
+    // The binary would say NOTHING about this: `--plugin-dir` naming a path that is not there
+    // exits 0 with a clean handshake and `plugins: []` (cell K4). Everything else about this
+    // launch is correct, so the refusal is entirely ours.
+    let no_skills = std::env::temp_dir().join("richos-no-such-skills-please-do-not-create-me");
+    let _ = std::fs::remove_dir_all(&no_skills);
+    let err = NativeCognition::start(&real, Path::new("/tmp"), &doctrine, &no_skills)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| "IT STARTED — a missing skill was accepted in silence".into());
+    println!("  {err}");
+    check(&mut cases, &mut failures, err.contains("plugin.json"), "refused, naming the file it looked for", "the binary accepts a missing plugin dir without a word, so this check is the whole of it");
+    check(&mut cases, &mut failures, err.contains("without saying so"), "and says why we check rather than the binary", "a fact about the flag, recorded where somebody removing the check will read it");
+
     // ---- the negative control ----------------------------------------------------------
     println!("\n=== THE NEGATIVE CONTROL: the real binary, the real flags ===");
     let began = std::time::Instant::now();
-    match NativeCognition::start(&real, Path::new("/tmp"), &doctrine) {
+    match NativeCognition::start(&real, Path::new("/tmp"), &doctrine, &skills) {
         Ok(cog) => {
             let ms = began.elapsed().as_secs_f64() * 1000.0;
             println!("  handshake OK in {ms:.1} ms, session = {}", richos_core::Cognition::session_id(&cog));

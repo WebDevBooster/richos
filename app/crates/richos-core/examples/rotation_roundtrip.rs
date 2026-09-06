@@ -43,7 +43,12 @@ impl LeaseFactory for LiveLeaseFactory {
                 path: "the application support directory".to_string(),
                 why: e.to_string(),
             })?;
-        let cog = NativeCognition::start(&self.claude_bin, &self.engine_dir, &doctrine)?;
+        let skills = richos_core::skills::ensure_for_install()
+            .map_err(|e| richos_core::native::NativeError::SkillsMissing {
+                path: "the application support directory".to_string(),
+                why: e.to_string(),
+            })?;
+        let cog = NativeCognition::start(&self.claude_bin, &self.engine_dir, &doctrine, &skills)?;
         Ok(Box::new(cog))
     }
 }

@@ -100,7 +100,11 @@ fn one_turn(doctrine_path: &Path, question: &str) -> String {
     }
     // The working directory is irrelevant to this measurement and `/tmp` is the least
     // surprising choice; `--setting-sources ''` means nothing is loaded from it either way.
-    let mut cog = NativeCognition::start(&bin, Path::new("/tmp"), doctrine_path).unwrap_or_else(|e| {
+    let skills = doctrine_path
+        .parent()
+        .map(|d| richos_core::skills::ensure_rendered(d).expect("the skills fixture must render"))
+        .expect("the doctrine has a parent directory");
+    let mut cog = NativeCognition::start(&bin, Path::new("/tmp"), doctrine_path, &skills).unwrap_or_else(|e| {
         panic!(
             "the lease did not start, so NOTHING WAS VERIFIED (not a pass): {e}. \
              The usual cause is that this machine's `claude` is not signed in."

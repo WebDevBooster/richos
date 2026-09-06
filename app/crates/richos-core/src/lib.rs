@@ -84,6 +84,7 @@ pub mod run;
 pub mod run_host;
 pub mod run_spine;
 pub mod setup;
+pub mod skills;
 pub mod skip;
 pub mod spine;
 pub mod spoken;

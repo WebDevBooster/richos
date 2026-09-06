@@ -1,0 +1,8 @@
+{
+  "name": "rig-probe",
+  "displayName": "Rig Probe",
+  "version": "1.0.0",
+  "description": "A measurement fixture: one skill, so a system/init frame can say whether an explicitly-pathed plugin reaches a child started with an empty --setting-sources.",
+  "author": { "name": "RichOS" },
+  "license": "AGPL-3.0-only"
+}

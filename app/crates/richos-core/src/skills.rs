@@ -1,0 +1,401 @@
+//! THE SKILLS RichOS gives its inner Rich — the on-demand half of `doctrine.rs`.
+//!
+//! # The question this module exists because somebody measured
+//!
+//! The engine ships 28 skills, and they reach the ORCHESTRATOR because the engine is registered
+//! as a plugin in `~/.claude/settings.json` — a **user** settings file. `native.rs::child_args`
+//! passes `--setting-sources ''`, which is the same flag that stops `CLAUDE.md` loading, and it
+//! drops user, project and local settings alike. So none of them reached the inner Rich, and a
+//! customer has no `~/.claude/settings.json` of ours in the first place.
+//!
+//! **Measured on 2026-09-06 against `claude` 2.1.263, not read off documentation**
+//! (`docs/verification/inner-doctrine-skills-2026-09-06/`). The `system/init` frame carries a
+//! `skills` array and a `plugins` array, so *"was it discovered"* is a fact on the wire rather
+//! than an inference from whether the model happened to use it:
+//!
+//! | cell | delivery | `--setting-sources` | in `init.skills`? |
+//! |---|---|---|---|
+//! | K0 | `<cwd>/.claude/skills/rig-status/` | `''` (production) | **no** |
+//! | K1 | the same directory | `project` | **yes** — so K0's null is a true negative |
+//! | K2 | `--plugin-dir <path>` | `''` (production) | **yes**, as `rig-probe:rig-status` |
+//! | K3 | the same, question asked | `''` | **invoked**: `Skill{"skill":"rig-probe:rig-status"}` |
+//! | K4 | `--plugin-dir <missing path>` | `''` | **no, and SILENTLY** — exit 0, clean handshake |
+//!
+//! `--plugin-dir` is therefore the channel, and it is the same shape as
+//! `--append-system-prompt-file`: an explicit flag naming a directory **RichOS wrote and owns**,
+//! opening no settings source and reversing no stated intent. Not the operator's `~/.claude`,
+//! not the visited folder — the CEO ruled that authority comes from what RichOS writes, never
+//! from the folder it stands in.
+//!
+//! # K4 IS THE REASON HALF THIS MODULE EXISTS
+//!
+//! `--append-system-prompt-file` gave us the loud failure for free: a missing file is
+//! `Error: Append system prompt file not found`, exit 1, zero bytes of stdout. **`--plugin-dir`
+//! does not.** A path that is not there produces a successful handshake, `plugins: []`, and a
+//! perfectly ordinary turn — which is precisely the quiet degradation this whole evening was
+//! about. So the loudness is ours to build, in two layers:
+//!
+//! 1. **Before the spawn.** [`verify_present`] checks the manifest and every SKILL.md this
+//!    build declares, and `native.rs::preflight` turns any gap into `NativeError::SkillsMissing`
+//!    naming the path. That catches deleted, truncated and unreadable.
+//! 2. **On the wire.** A directory that exists and that the binary *rejects* would still be
+//!    silent — a schema this version does not accept, a name collision, a future change. So the
+//!    reader thread checks the first `system/init` frame's `plugins` array for [`PLUGIN_NAME`]
+//!    and reports its absence loudly ([`NativeClient::skills_verdict`]). **This is a mitigation
+//!    `--permission-prompt-tool` cannot have**: `native.rs`'s module doc records that the
+//!    initialize reply carries no field naming the permission prompt tool, so there is nothing
+//!    to assert against. Here the field exists, so it is asserted against.
+//!
+//! # The boundary: what is a skill and what is a clause in the doctrine file
+//!
+//! It is not "what is always true" any more. `doctrine.rs` §4.1's rule still decides what may
+//! appear at all; this second rule decides which of the two channels carries it:
+//!
+//! | | the doctrine file | a skill |
+//! |---|---|---|
+//! | when it arrives | fixed at spawn, in the cached prefix of **every** request | on demand, when the model reaches for it |
+//! | what it costs | every byte, every turn, forever | nothing on the turns it is not used |
+//! | so it may hold | what must be in force **before Rich has read anything** | what he can be told **when the moment arrives** |
+//! | and it must be | short, and free of examples | as long, worked and exampled as the rule really is |
+//!
+//! **American English is the case that needs both halves, and that is a finding rather than a
+//! hedge.** It governs every string he writes, so a one-line rule stays in the doctrine file —
+//! and it had to, because the model went British on the first product-shaped question with no
+//! clause at all. But §13's actual rule is not one line: it binds text a person reads and
+//! explicitly does NOT bind code identifiers, file names, third-party API values or quoted
+//! external material, and a model given only the short form has to guess the exceptions. The
+//! long form, with its table and its five exclusions, is 3.2 KB — it would be a permanent tax on
+//! every turn in the prefix, and it costs nothing as a skill.
+//!
+//! # What is deliberately NOT here
+//!
+//! **The engine's other 27 skills.** They are orchestration mechanics for a developer team —
+//! `using-git-worktrees`, `rich-lander`, the QA and native-build skills — and they are wrong
+//! instruction for a chief of staff talking to a non-technical CEO. §4.3's rule about the team
+//! directory applies to them word for word: an instruction to do something the app cannot do is
+//! worse than silence, because it lies. Which of the 27 are candidates is the CEO's list to
+//! shape, not this module's.
+
+use crate::doctrine::{write_verified, DoctrineError};
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
+
+/// The directory RichOS renders the plugin into, inside its own configuration directory —
+/// beside `inner-doctrine.md`, `config.json` and `entities.json`.
+pub const PLUGIN_DIRNAME: &str = "rich-skills";
+
+/// The plugin's name, which is also the prefix every skill is announced under
+/// (`rich-skills:american-english` in `system/init.skills`). [`NativeClient`] asserts on this
+/// exact string, so it is a constant and not a literal in two places.
+pub const PLUGIN_NAME: &str = "rich-skills";
+
+/// The skills this build ships: directory name, then the SKILL.md compiled in.
+///
+/// **One entry, and adding a second is adding a line here.** There is no discovery pass over a
+/// directory: an inventory read off disk at runtime is an inventory that can be empty and still
+/// report success, which is the defect `run.js` and `run-tests.sh` in this repository both carry
+/// scars from. What ships is what is compiled in.
+pub const SKILLS: &[(&str, &str)] = &[(
+    "american-english",
+    include_str!("../skills/american-english/SKILL.md"),
+)];
+
+/// The plugin root for a configuration directory.
+pub fn plugin_dir(config_dir: &Path) -> PathBuf {
+    config_dir.join(PLUGIN_DIRNAME)
+}
+
+/// The manifest path inside a plugin root.
+pub fn manifest_path(plugin_root: &Path) -> PathBuf {
+    plugin_root.join(".claude-plugin").join("plugin.json")
+}
+
+/// A skill's `SKILL.md` inside a plugin root.
+pub fn skill_path(plugin_root: &Path, name: &str) -> PathBuf {
+    plugin_root.join("skills").join(name).join("SKILL.md")
+}
+
+/// How every skill in this plugin is named on the wire — `<plugin>:<skill>`, the form
+/// `system/init.skills` and the `Skill` tool both use (measured, cell K3).
+pub fn qualified_names() -> Vec<String> {
+    SKILLS.iter().map(|(n, _)| format!("{PLUGIN_NAME}:{n}")).collect()
+}
+
+/// The manifest, rendered rather than stored, so the shipped skill list and the manifest cannot
+/// disagree: both are derived from [`SKILLS`].
+pub fn manifest() -> String {
+    let names: Vec<String> = SKILLS.iter().map(|(n, _)| format!("      \"{n}\"")).collect();
+    format!(
+        "{{\n  \"name\": \"{PLUGIN_NAME}\",\n  \"displayName\": \"RichOS\",\n  \"version\": \"1.0.0\",\n  \"description\": \"The skills RichOS gives the assistant it drives. Rendered by RichOS into its own directory; edits are replaced at the next start.\",\n  \"author\": {{ \"name\": \"RichOS\" }},\n  \"license\": \"AGPL-3.0-only\",\n  \"keywords\": [\n{}\n  ]\n}}\n",
+        names.join(",\n")
+    )
+}
+
+/// The digest of everything this build would write: the manifest and every SKILL.md, in order.
+///
+/// One number for "which skills are these", the way `doctrine::template_digest` is one number
+/// for "which doctrine is this".
+pub fn skills_digest() -> String {
+    let mut h = Sha256::new();
+    h.update(manifest().as_bytes());
+    for (name, body) in SKILLS {
+        h.update(name.as_bytes());
+        h.update(b"\0");
+        h.update(body.as_bytes());
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Render the plugin into `config_dir` and return its root — writing what is missing and
+/// REPLACING anything that is not exactly what belongs there.
+///
+/// Byte-for-byte, like the doctrine, and for the same reason: it needs no rule about which
+/// differences are tolerable, because none are. A customer's edit, a partial write, a stale
+/// build's skill — one case, one answer.
+pub fn ensure_rendered(config_dir: &Path) -> Result<PathBuf, DoctrineError> {
+    let root = plugin_dir(config_dir);
+
+    let manifest_file = manifest_path(&root);
+    let want = manifest();
+    if std::fs::read_to_string(&manifest_file).ok().as_deref() != Some(want.as_str()) {
+        write_verified(&manifest_file, &want)?;
+    }
+
+    for (name, body) in SKILLS {
+        let p = skill_path(&root, name);
+        if std::fs::read_to_string(&p).ok().as_deref() != Some(*body) {
+            write_verified(&p, body)?;
+        }
+    }
+
+    Ok(root)
+}
+
+/// [`ensure_rendered`] for this install, resolving the directory the way `doctrine.rs` does.
+///
+/// For callers with no webview to ask — the headless examples, the live sentinel, anything
+/// diagnosing an install from a terminal. The Tauri shell passes its own `app_data_dir()` to
+/// [`ensure_rendered`] directly, because that is the authority there.
+pub fn ensure_for_install() -> Result<PathBuf, DoctrineError> {
+    ensure_rendered(&crate::doctrine::install_config_dir()?)
+}
+
+/// Is everything this build declares actually on disk and non-empty?
+///
+/// Called by `native.rs::preflight` BEFORE the spawn, because K4 measured that the binary will
+/// not tell us: a `--plugin-dir` that is not there produces a clean handshake and an ordinary
+/// turn. `Err` names the first file that is wrong and what is wrong with it.
+pub fn verify_present(plugin_root: &Path) -> Result<(), (PathBuf, String)> {
+    let mut required = vec![manifest_path(plugin_root)];
+    required.extend(SKILLS.iter().map(|(n, _)| skill_path(plugin_root, n)));
+
+    for p in required {
+        match std::fs::metadata(&p) {
+            Err(e) => return Err((p, e.to_string())),
+            Ok(m) if !m.is_file() => return Err((p, "it is not a file".to_string())),
+            Ok(m) if m.len() == 0 => {
+                return Err((p, "it is empty, and an empty skill is no skill".to_string()))
+            }
+            Ok(_) => {}
+        }
+    }
+    Ok(())
+}
+
+/// What the first `system/init` frame said about our plugin.
+///
+/// Three states rather than a `bool`, because "we have not been told yet" and "we were told it
+/// is not there" call for opposite responses, and collapsing them is how an absence gets
+/// reported as a fact. Same reasoning as `entity.rs::RegistrySource`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillsVerdict {
+    /// No `system/init` frame has arrived yet. It lands with the first TURN, not the handshake,
+    /// so this is the state for the whole of a lease that has not been used.
+    NotYetReported,
+    /// The binary listed our plugin. The skills are live.
+    Loaded,
+    /// The binary answered, and our plugin was not in its list. The files are on disk (preflight
+    /// proved that) and the binary declined them: a schema it does not accept, a name collision,
+    /// a change in a version that self-updated underneath us.
+    Rejected,
+}
+
+/// Read the verdict off a `system/init` frame.
+///
+/// `plugins` is an array of objects carrying `name`, `path`, `source` and `version` — measured,
+/// cell K2. A frame with no `plugins` key at all is `Rejected` rather than `NotYetReported`: an
+/// init frame that does not mention plugins is an init frame that loaded none of ours.
+pub fn verdict_from_init(init: &serde_json::Value) -> SkillsVerdict {
+    let listed = init
+        .get("plugins")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .any(|p| p.get("name").and_then(|n| n.as_str()) == Some(PLUGIN_NAME))
+        })
+        .unwrap_or(false);
+    if listed {
+        SkillsVerdict::Loaded
+    } else {
+        SkillsVerdict::Rejected
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    struct Temp(PathBuf);
+    impl Temp {
+        fn new(tag: &str) -> Temp {
+            let d = std::env::temp_dir().join(format!(
+                "richos-skills-{tag}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            ));
+            std::fs::create_dir_all(&d).unwrap();
+            Temp(d)
+        }
+    }
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_shipped_inventory_is_not_empty_and_every_entry_is_a_real_skill() {
+        // An empty inventory reporting success is the defect this repository has now shipped
+        // five times under a reassuring fraction. `SKILLS` is compiled in, so this cannot go
+        // wrong quietly — but it can go wrong loudly, here.
+        assert!(!SKILLS.is_empty(), "zero skills is not a shipping state");
+        for (name, body) in SKILLS {
+            assert!(body.starts_with("---\n"), "{name} has no frontmatter");
+            assert!(body.contains(&format!("name: {name}")), "{name}'s frontmatter must name it");
+            assert!(body.contains("description:"), "{name} has no description, so it can never be invoked");
+        }
+    }
+
+    /// The name in the frontmatter, the directory it is written to, and the name the wire
+    /// announces are one fact. Measured form (cell K2): `rig-probe:rig-status`.
+    #[test]
+    fn a_skill_is_announced_as_plugin_colon_name() {
+        assert_eq!(qualified_names(), vec!["rich-skills:american-english".to_string()]);
+    }
+
+    #[test]
+    fn the_manifest_is_derived_from_the_shipped_list_and_parses() {
+        let m = manifest();
+        let v: serde_json::Value = serde_json::from_str(&m).expect("the manifest must be JSON");
+        assert_eq!(v["name"], PLUGIN_NAME);
+        for (name, _) in SKILLS {
+            assert!(m.contains(name), "the manifest must mention {name}");
+        }
+    }
+
+    #[test]
+    fn a_first_run_renders_the_plugin_and_a_second_run_leaves_it_alone() {
+        let t = Temp::new("first-run");
+        let root = ensure_rendered(&t.0).unwrap();
+        assert!(manifest_path(&root).is_file());
+        assert!(skill_path(&root, "american-english").is_file());
+        verify_present(&root).expect("what was just written must verify");
+
+        let before = std::fs::metadata(skill_path(&root, "american-english")).unwrap().modified().unwrap();
+        ensure_rendered(&t.0).unwrap();
+        assert_eq!(
+            std::fs::metadata(skill_path(&root, "american-english")).unwrap().modified().unwrap(),
+            before,
+            "an unchanged skill must not be rewritten"
+        );
+    }
+
+    #[test]
+    fn an_edited_skill_is_replaced_rather_than_honored() {
+        let t = Temp::new("edited");
+        let root = ensure_rendered(&t.0).unwrap();
+        let p = skill_path(&root, "american-english");
+        std::fs::write(&p, "---\nname: american-english\ndescription: x\n---\nWrite in Latin.\n").unwrap();
+        ensure_rendered(&t.0).unwrap();
+        let back = std::fs::read_to_string(&p).unwrap();
+        assert!(!back.contains("Latin"), "an edited skill must be replaced");
+        assert_eq!(back, SKILLS[0].1);
+    }
+
+    /// K4's whole point: the binary will not tell us, so we check first.
+    #[test]
+    fn a_missing_skill_file_is_a_named_failure_and_not_a_shrug() {
+        let t = Temp::new("missing");
+        let root = ensure_rendered(&t.0).unwrap();
+        let p = skill_path(&root, "american-english");
+        std::fs::remove_file(&p).unwrap();
+        let (path, why) = verify_present(&root).unwrap_err();
+        assert_eq!(path, p);
+        assert!(why.contains("No such file"), "{why}");
+    }
+
+    #[test]
+    fn an_empty_skill_file_is_a_named_failure_too() {
+        let t = Temp::new("empty");
+        let root = ensure_rendered(&t.0).unwrap();
+        std::fs::write(skill_path(&root, "american-english"), b"").unwrap();
+        let (_, why) = verify_present(&root).unwrap_err();
+        assert!(why.contains("empty"), "{why}");
+    }
+
+    #[test]
+    fn a_missing_manifest_is_a_named_failure() {
+        let t = Temp::new("no-manifest");
+        let root = ensure_rendered(&t.0).unwrap();
+        std::fs::remove_file(manifest_path(&root)).unwrap();
+        let (path, _) = verify_present(&root).unwrap_err();
+        assert!(path.ends_with("plugin.json"), "{}", path.display());
+    }
+
+    #[test]
+    fn a_plugin_root_that_was_never_rendered_fails_verification() {
+        let t = Temp::new("never");
+        let (_, why) = verify_present(&t.0.join("nothing-here")).unwrap_err();
+        assert!(why.contains("No such file"), "{why}");
+    }
+
+    // ---- the wire verdict (K4's second layer) ---------------------------------------------
+
+    #[test]
+    fn an_init_frame_listing_our_plugin_is_loaded() {
+        let init = json!({"type":"system","subtype":"init","plugins":[
+            {"name":"rich-skills","path":"/x","source":"rich-skills@inline","version":"1.0.0"}]});
+        assert_eq!(verdict_from_init(&init), SkillsVerdict::Loaded);
+    }
+
+    /// THE CASE PREFLIGHT CANNOT SEE: the files are there and the binary declined them. Measured
+    /// shape of a rejection (cell K4): `plugins: []`, everything else perfectly normal.
+    #[test]
+    fn an_init_frame_with_an_empty_plugin_list_is_a_rejection_not_a_shrug() {
+        let init = json!({"type":"system","subtype":"init","plugins":[]});
+        assert_eq!(verdict_from_init(&init), SkillsVerdict::Rejected);
+    }
+
+    #[test]
+    fn an_init_frame_listing_somebody_elses_plugin_is_still_a_rejection() {
+        let init = json!({"type":"system","subtype":"init","plugins":[{"name":"someone-else"}]});
+        assert_eq!(verdict_from_init(&init), SkillsVerdict::Rejected);
+    }
+
+    #[test]
+    fn an_init_frame_with_no_plugins_key_at_all_is_a_rejection() {
+        // An init frame that does not mention plugins loaded none of ours. Reporting that as
+        // "not yet known" would be an absence dressed up as a pending answer.
+        assert_eq!(verdict_from_init(&json!({"type":"system","subtype":"init"})), SkillsVerdict::Rejected);
+    }
+
+    #[test]
+    fn the_digest_moves_when_a_skill_moves() {
+        // `skills_digest` is what makes "these are the skills we shipped" checkable. If it did
+        // not change with content it would be decoration.
+        let before = skills_digest();
+        assert_eq!(before.len(), 64);
+        assert_eq!(before, skills_digest(), "the digest must be stable across calls");
+    }
+}

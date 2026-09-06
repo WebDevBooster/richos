@@ -225,7 +225,12 @@ impl LeaseFactory for EngineLeaseFactory {
             &richos_core::doctrine::identity_from_config(&self.data_dir),
         )
         .map_err(|e| CognitionError::Io(e.to_string()))?;
-        let cog = NativeCognition::start(&bin, &dir, &doctrine)?;
+        // The skills, rendered and verified beside it and for the same reason. A missing one
+        // is a refusal at `preflight`, because `--plugin-dir` accepts a path that is not there
+        // without saying so (`skills.rs`).
+        let skills = richos_core::skills::ensure_rendered(&self.data_dir)
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let cog = NativeCognition::start(&bin, &dir, &doctrine, &skills)?;
         Ok(Box::new(cog))
     }
 }
@@ -1380,10 +1385,12 @@ fn main() {
                 &data_dir,
                 &richos_core::doctrine::identity_from_config(&data_dir),
             );
+            let skills = richos_core::skills::ensure_rendered(&data_dir);
             match doctrine
                 .as_ref()
                 .map_err(|e| e.to_string())
-                .and_then(|d| NativeCognition::start(&claude_bin, &engine, d).map_err(|e| e.to_string()))
+                .and_then(|d| skills.as_ref().map_err(|e| e.to_string()).map(|s| (d, s)))
+                .and_then(|(d, s)| NativeCognition::start(&claude_bin, &engine, d, s).map_err(|e| e.to_string()))
             {
                 Ok(cog) => {
                     // The POSITIVE half, and it is here because its absence is not evidence:
@@ -2916,10 +2923,12 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
             &state.data_dir,
             &richos_core::doctrine::identity_from_config(&state.data_dir),
         );
+        let skills = richos_core::skills::ensure_rendered(&state.data_dir);
         match doctrine
             .as_ref()
             .map_err(|e| e.to_string())
-            .and_then(|d| NativeCognition::start(&claude_bin, &engine, d).map_err(|e| e.to_string()))
+            .and_then(|d| skills.as_ref().map_err(|e| e.to_string()).map(|s| (d, s)))
+            .and_then(|(d, s)| NativeCognition::start(&claude_bin, &engine, d, s).map_err(|e| e.to_string()))
         {
             Ok(cog) => {
                 eprintln!(

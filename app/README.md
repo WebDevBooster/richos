@@ -233,6 +233,18 @@ app/
     tests/native_cancel_tests.rs 3 interrupt tests against a REAL CHILD PROCESS over real
                               stdio (a POSIX-sh fake `claude` the test writes itself), in two
                               variants: compliant, and deliberately deaf to the interrupt
+    src/skills.rs             THE SKILLS RichOS gives its inner Rich — the on-demand half of
+                              src/doctrine.rs. Rendered as a PLUGIN into the app's own
+                              directory and passed with `--plugin-dir`, because a project
+                              `.claude/skills/` does not reach a child started with
+                              `--setting-sources ''` and a plugin path does (measured; the
+                              engine's own 28 skills never reached it for exactly that
+                              reason). A missing plugin dir is accepted by the binary in
+                              SILENCE — exit 0, clean handshake, `plugins: []` — so the
+                              loudness is ours: `preflight` refuses before the spawn, and the
+                              reader thread reads `system/init.plugins` for the case only the
+                              wire can see. Ships ONE skill, American English
+                              (docs/verification/inner-doctrine-skills-2026-09-06/)
     tests/doctrine_sentinel.rs 1 LIVE test, #[ignore] by default, and a RELEASE GATE rather
                               than a one-off: does the standing instruction RichOS renders
                               (src/doctrine.rs) actually reach the model? Two cells against
@@ -806,7 +818,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 904 tests + 5 doc-tests; 900 direct, 4 child-only
+cargo test -p richos-core                       # 923 tests + 5 doc-tests; 919 direct, 4 child-only
 #     ONE OF THE THREE NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
 #     every repository and is on no clean checkout. `home_field::tests::
 #     against_a_real_corpus_when_one_is_configured` compiles one into the home screen's

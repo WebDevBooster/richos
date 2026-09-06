@@ -245,23 +245,41 @@ pub fn ensure_rendered(config_dir: &Path, identity: &DoctrineIdentity) -> Result
         }
     }
 
-    std::fs::create_dir_all(config_dir).map_err(|e| DoctrineError::Unwritable {
-        path: config_dir.display().to_string(),
+    write_verified(&path, &want)?;
+    Ok(path)
+}
+
+/// Put exactly `want` at `path`, or fail loudly saying which file and why.
+///
+/// Shared with `skills.rs`, which has the same problem one directory over: a half-written
+/// SKILL.md is instruction the model would follow.
+///
+/// **Staged and renamed**, so a crash between the two never leaves HALF a file in place — a
+/// truncated system prompt would be honored, and it would be honored silently. `rename` within
+/// one directory is atomic on macOS.
+///
+/// **THE STAGING NAME IS UNIQUE PER CALL, not per process**, and that was a real defect rather
+/// than a hypothetical one: with `.incoming.<pid>` four parallel tests in one process raced on
+/// one staging path — one renamed it away while another was still writing to it — and the loser
+/// failed with `No such file or directory` on a directory that existed. The app has the same
+/// shape available to it: a boot attach and a rotation can render concurrently in one process.
+/// A uuid costs nothing and removes the race rather than narrowing it.
+///
+/// **Written, then read back, then compared.** A write that reported success and produced
+/// different bytes is exactly the class this repository's freshness contract exists to refuse.
+pub(crate) fn write_verified(path: &Path, want: &str) -> Result<(), DoctrineError> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir).map_err(|e| DoctrineError::Unwritable {
+        path: dir.display().to_string(),
         why: e.to_string(),
     })?;
 
-    // Written to a temporary file in the same directory and renamed, so a crash between the two
-    // never leaves HALF a doctrine in place — a truncated system prompt would be honored, and it
-    // would be honored silently. `rename` within one directory is atomic on macOS.
-    //
-    // THE STAGING NAME IS UNIQUE PER CALL, not per process, and that was a real defect rather
-    // than a hypothetical one: with `.incoming.<pid>` four parallel tests in one process raced
-    // on one staging path — one renamed it away while another was still writing to it — and the
-    // loser failed with `No such file or directory` on a directory that existed. The app has
-    // the same shape available to it: a boot attach and a rotation can render concurrently in
-    // one process. A uuid costs nothing and removes the race rather than narrowing it.
-    let tmp = config_dir.join(format!(
-        "{DOCTRINE_FILENAME}.incoming.{}.{}",
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "richos".to_string());
+    let tmp = dir.join(format!(
+        "{name}.incoming.{}.{}",
         std::process::id(),
         uuid::Uuid::new_v4().simple()
     ));
@@ -269,13 +287,13 @@ pub fn ensure_rendered(config_dir: &Path, identity: &DoctrineIdentity) -> Result
         path: tmp.display().to_string(),
         why: e.to_string(),
     })?;
-    if let Err(e) = std::fs::rename(&tmp, &path) {
+    if let Err(e) = std::fs::rename(&tmp, path) {
         let _ = std::fs::remove_file(&tmp);
         return Err(DoctrineError::Unwritable { path: path.display().to_string(), why: e.to_string() });
     }
 
-    match std::fs::read_to_string(&path) {
-        Ok(back) if back == want => Ok(path),
+    match std::fs::read_to_string(path) {
+        Ok(back) if back == want => Ok(()),
         Ok(_) => Err(DoctrineError::Unwritable {
             path: path.display().to_string(),
             why: "the file on disk does not match what was just written to it".to_string(),

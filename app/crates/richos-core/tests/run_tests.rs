@@ -705,7 +705,8 @@ for line in sys.stdin:
     );
     drop(model);
     let doctrine = richos_core::doctrine::ensure_rendered(&tmp.0, &richos_core::doctrine::DoctrineIdentity::default()).unwrap();
-    let legacy = NativeCognition::start(&fake, &tmp.0, &doctrine).unwrap();
+    let skills = richos_core::skills::ensure_rendered(&tmp.0).unwrap();
+    let legacy = NativeCognition::start(&fake, &tmp.0, &doctrine, &skills).unwrap();
     assert!(
         legacy.prepare_managed(&tmp.0).is_err(),
         "the legacy auto-approving adapter cannot enter a run"
