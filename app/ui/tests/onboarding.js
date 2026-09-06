@@ -444,6 +444,89 @@ async function main() {
     return lines.join("\n          ");
   });
 
+  // -------------------------------------------------------------------------------------
+  // 9. The first run, in the order a first-run user actually meets it.
+  // -------------------------------------------------------------------------------------
+
+  await run.check("9  it is silent until a company is bound, and arrives when he adds one", async () => {
+    // THE ORDER IS THE TEST. Checks 1 and 1b drive states directly; this one walks the chain
+    // — no company, the picker, his first company, the conversation — because that is where
+    // the two defects this closes were found, and neither was reachable from a preset:
+    // the notice painted OVER the company picker, and it did not arrive at all after the
+    // picker was answered until `addCompany` was given its own call to the renderer.
+    const page = await openApp(browser, { onboarding: "not-yet", chosenEntity: null, memory: "none" });
+    await page.waitForSelector("#memory-setup:not([hidden])");
+    assert(
+      await page.isHidden("#first-run"),
+      "onboarding is a question about ONE company, so with none bound there is nothing to ask " +
+        "about and nothing may be drawn over the questions that are being asked"
+    );
+    await page.click("#memory-setup-later");
+    await page.waitForSelector("#entity-picker:not([hidden])");
+    assert(await page.isHidden("#first-run"), "and still nothing while the picker is open");
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll("#entity-picker button")].find((x) => /add/i.test(x.textContent));
+      b.click();
+    });
+    await page.fill("#entity-add-name", "Harborline");
+    await page.click("#entity-add-go");
+    // AND NOW IT ARRIVES, with no relaunch — the boot-time read found no binding, so this can
+    // only come from the company path calling the renderer itself.
+    await page.waitForSelector("#first-run:not([hidden])", { timeout: 8000 });
+    assert(/twenty minutes/.test(await noticeText(page)), "and it is the offer");
+    bump(4);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await shot(page, "first-run-after-adding-a-company");
+    await page.close();
+    return "silent with no company, silent over the picker, present the moment one is added";
+  });
+
+  // -------------------------------------------------------------------------------------
+  // 10. It sits in the conversation's column, at every width the app has.
+  // -------------------------------------------------------------------------------------
+
+  await run.check("10  its edges land on the same verticals as the words below it", async () => {
+    // MEASURED, at the three widths `applyBreakpoint` distinguishes. A `max-width` alone put
+    // the panel 28px proud of every sentence under it on BOTH sides at 1000px, and hard
+    // against the window edge — chrome bolted on above the product rather than the first
+    // thing in the conversation. It is a layout assertion because it was a layout defect, and
+    // reading it off the boxes is the only way to catch it.
+    const lines = [];
+    for (const width of [760, 1000, 1400]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: "dark" });
+      page.on("pageerror", (e) => {
+        throw e;
+      });
+      await page.addInitScript(() => {
+        window.__RICHOS_MOCK_PRESET__ = { onboarding: "not-yet" };
+      });
+      await page.goto(APP);
+      await leaveHome(page);
+      await page.waitForSelector("#first-run:not([hidden])");
+      const box = await page.evaluate(() => {
+        const panel = document.getElementById("first-run").getBoundingClientRect();
+        const msgs = document.getElementById("messages");
+        const m = msgs.getBoundingClientRect();
+        const pad = parseFloat(getComputedStyle(msgs).paddingLeft);
+        const conv = document.getElementById("conversation");
+        return {
+          left: Math.round(panel.left),
+          right: Math.round(panel.right),
+          colLeft: Math.round(m.left + pad),
+          colRight: Math.round(m.right - pad),
+          overflows: conv.scrollWidth > conv.clientWidth,
+        };
+      });
+      assertEqual(box.left, box.colLeft, width + "px: the panel's left edge is off the text column");
+      assertEqual(box.right, box.colRight, width + "px: the panel's right edge is off the text column");
+      assert(!box.overflows, width + "px: the conversation scrolls sideways");
+      lines.push(width + "px " + box.left + "-" + box.right);
+      bump(3);
+      await page.close();
+    }
+    return lines.join(", ");
+  });
+
   await browser.close();
 
   // A suite that verifies little and reports green is worse than no suite — the same floor

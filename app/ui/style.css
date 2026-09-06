@@ -706,8 +706,17 @@ button {
    above the product rather than as the first thing in the conversation, and it was visible
    the moment this was first put on screen. `calc(--reading-width - 56px)` is exactly the
    column `#messages` lays its text in, so the panel's edges land on the same two verticals as
-   Rich's own words. */
+   Rich's own words.
+
+   AND THE `width` IS NOT REDUNDANT WITH THE `max-width`, which is the second half of the same
+   mistake. `max-width` alone is right only while the pane is wider than the reading column.
+   Measured at 1000px, where the rail takes 300 and the pane is 700: `#messages` caps at the
+   pane, keeps its 28px gutters and lays text from 328 to 972, while a panel with `max-width`
+   alone took the whole 700 and ran 300 to 1000 — hard against the window edge, 28px proud of
+   every sentence under it, on both sides. `width: calc(100% - 56px)` reproduces the gutters at
+   every width and the `max-width` still holds the column on a wide one. */
 .first-run {
+  width: calc(100% - 56px);
   max-width: calc(var(--reading-width) - 56px);
   margin: 28px auto 0;
   padding: 16px 18px;
@@ -816,6 +825,34 @@ button {
   font-size: 1rem;
   line-height: 1.5;
   color: var(--danger);
+}
+
+/* THE SAME GUTTER `#messages` USES, AT EVERY WIDTH THE APP DISTINGUISHES. Three values, and
+   they are its values rather than similar ones: 28px by default, 24px under 1180px (§20's
+   media query), and 18px once `applyBreakpoint()` puts `bp-narrow` on the body — which beats
+   the 20px in the sub-820px media query on specificity, exactly as it does for `#messages`.
+   Measured at 760px before these existed: the panel sat at x=28 while every sentence under it
+   started at x=18.
+
+   THEY ARE A DUPLICATE AND THE DUPLICATE IS GUARDED. `#messages` makes its gutter with
+   padding and this makes its with width and auto margins, so there is no selector the two can
+   share; what stops them drifting is `onboarding.js` check 10, which reads BOTH boxes off the
+   rendered page at 760, 1000 and 1400 and asserts the four verticals are equal. A value
+   changed on one side and not the other is a red run, not a discovery months later. */
+@media (max-width: 1179px) {
+  .first-run {
+    width: calc(100% - 48px);
+  }
+}
+
+@media (max-width: 819px) {
+  .first-run {
+    width: calc(100% - 40px);
+  }
+}
+
+body.bp-narrow .first-run {
+  width: calc(100% - 36px);
 }
 
 /* The flat `.turn` chat-bubble rendering that used to live here is GONE. It modelled the

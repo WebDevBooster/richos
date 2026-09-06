@@ -569,6 +569,14 @@
   const onboardingCalls = [];
 
   function onboardingViewOf() {
+    // NO BINDING, NO ANSWER — and this arm is not a nicety. `onboarding_view_of` returns
+    // `no-central-folder` with a null entity when `active_binding()` is `None`, because
+    // onboarding is a question about ONE company and there is no company to ask it about
+    // yet. Without this the preview served `not-yet` to a launch that had not chosen a
+    // company, and the notice painted over the company picker — a state the product cannot
+    // produce, rehearsed by the harness, which is the defect this file keeps naming in its
+    // own comments. Found by driving the real first-run order, 2026-09-06.
+    if (!chosenEntityId) return { state: "no-central-folder", entityId: null, headline: null, message: null };
     return {
       state: onboardingState,
       entityId: chosenEntityId,
