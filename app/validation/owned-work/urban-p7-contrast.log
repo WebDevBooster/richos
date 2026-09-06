@@ -1,0 +1,102 @@
+
+== the shipping shell, by the numbers ==
+  surfaces walked          26 x 2 themes = 52 walks
+  text nodes considered    11334
+    of those, not rendered 8204  (display:none / zero-area / a closed panel)
+    behind a modal         630  (inert; each one measured on a surface where it is not)
+    MEASURED               2242
+      passed               2242
+      failed               0 node(s) over 0 distinct colour pairings
+  non-text indicators      1870 considered, 158 with a boundary of their own to check
+  resolved by ancestor     128  (off-viewport: no hit test, so no occlusion proof)
+  measured through a veil  0
+  UNRESOLVABLE             1  (a failure to prove, not a pass; met 2 time(s) across the walks)
+  declared exempt          0
+  <canvas> unmeasured      0   in #home (measured by tests/home.js)  156   svg <text> seen  0
+
+== every distinct failing colour pairing on the shipping shell today ==
+
+== WCAG AA contrast — the shipping shell, both themes, computed not eyeballed ==
+  PASS  1  the ratio is WCAG's ratio — checked against WebAIM's own published values
+          8 published pairs, all within 0.01 of WebAIM
+  PASS  2  the math running in WebKit is the same source, not a second copy
+          4 pairs identical across the two runtimes: [2.36,3.24,5.61,null]
+  PASS  3  4.5 normal, 3.0 at 24px or 18.66px bold, 3.0 for a declared indicator
+          3.03:1 fails at 14px/400 and passes at 24px, at 19px bold, and as a declared indicator
+  PASS  4  a deliberately-introduced failure is caught and NAMED, not just counted
+          p#planted-failure caught at 2.17:1 against a 4.5:1 floor, quoted verbatim
+  PASS  5  a declared exemption passes, is NOT hidden, and carries its reason
+          2 exempt entr(ies), reason printed, excused ratio 2.17:1 stated
+  PASS  6  an empty or one-word exemption is itself a failure — no mute button
+          both the empty and the one-word claim are refused and named
+  PASS  7  a colour that cannot be resolved is a FAILURE TO PROVE, never a pass
+          gradient, mix-blend-mode, filter and backdrop-filter refused by name; transparent text fails at 1:1
+  PASS  8  a faint veil is measured THROUGH; only an aria-modal claim excuses
+          12% sheet: 4.54:1 -> 4.25:1 measured through; with aria-modal, filed obscured instead
+  PASS  9.assignment-empty  the assignment panel in the real composer, empty
+          106 of 430 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.assignment-running  the assignment panel in the real composer, running
+          112 of 436 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.assignment-decision  the assignment panel in the real composer, decision
+          124 of 452 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.assignment-error  the assignment panel in the real composer, error
+          108 of 432 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.assignment-history  the assignment panel in the real composer, history
+          134 of 462 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.assignment-picker  the assignment panel in the real composer, picker
+          116 of 444 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.assignment-scope  the assignment panel in the real composer, scope
+          122 of 450 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.shell  the shell as it opens: rail, scope line, first turn, composer
+          96 of 414 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.thread  a seeded conversation with a settled turn and a delegation summary
+          108 of 430 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.corrections  the correction desk, both families, with two asks waiting
+          44 of 448 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.feedback  the feedback desk as it first opens
+          20 of 424 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.search  search with results, including the selected row
+          90 of 502 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.inspector  the worker inspector open over an expanded transcript
+          164 of 500 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.technical-view  the technical view pinned on for one conversation (§3.3)
+          152 of 466 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.unbound  the refusal pane for a thread that predates entity scoping (§21)
+          96 of 416 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.settings  the assertiveness popover
+          78 of 414 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.company-picker  the launch-time company picker, its note, and the blocked composer behind it
+          40 of 430 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.company-blocked  the blocked composer and its Choose the company button, picker dismissed
+          82 of 430 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.memory-setup  the first-run memory question: its note, the location it offers, and the two buttons
+          12 of 418 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.memory-no-compiler  a corpus this install cannot read, said once as the answer to his press
+          10 of 418 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.setup-sheet  the first-run consent step: what is missing, why, and the account he still needs
+          20 of 426 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.setup-blocked  a build that cannot install an engine, and the sentence naming who can
+          18 of 426 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.updates-available  the update row with a version waiting, and the mark on the settings button
+          130 of 418 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.updates-downloading  the update row mid-download: the progress bar, its track and its border
+          128 of 416 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.updates-failed  a REFUSED SIGNATURE, with the vendor's own reason disclosed
+          132 of 418 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.opening-screen  the opening screen, curtain held up (its one HTML text line; the rest is SVG)
+          0 of 414 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  10  the second theme is a real second theme, or is reported as not one
+          3 second-theme rule(s) shipped (3 `:root[data-theme=]`, 0 `prefers-color-scheme`), and both walks exercise them: the two runs differ, the body ground differs (rgb(12, 19, 34) vs rgb(234, 230, 221)), and a fresh install under a light OS still opens dark.
+  PASS  10b  every surface was walked in both themes — and standalone is not a thinner run
+          52 walks completed (26 surfaces x 2 themes), and the count is the same started directly or under run.js: RICHOS_UI_TESTS_LEDGER gates only whether evidence is APPENDED, never what is measured.
+  PASS  11  nothing disappears into `obscured` without being measured somewhere else
+          38 node path(s) obscured behind a modal on some surface, every one of them measured on another
+  PASS  12  every exemption in the shipped source is enumerated, with its reason
+          0 exemptions declared in the shipped source today (cap 0). Nothing is currently excused.
+  PASS  13  the debt ledger can only shrink, and every entry in it is still real
+          0 known-debt signature(s) (cap 0), 0 seen this run; 1 declared-unprovable colour(s), 0 new
+  PASS  14  no UNMEASURED <canvas> on any surface walked — the DOM check is not talking past the pixels
+          0 unmeasured <canvas> elements across 52 surface/theme walks. The DOM check therefore covers the whole of every surface it reaches — every failure it reports is a node with a computed style, and every node with a computed style was reported.
+          156 <canvas> element(s) inside #home were EXCLUDED and are not covered here: the home screen is round-11.1/v1 "Constellation", a canvas composition the CEO chose, and it is measured from the pixels by tests/home.js instead — 16 elements, worst 4.23:1, on the rendered frame. Canvas-heavy work elsewhere in the repo (the round-7 / round-8.1 material studies) is NOT covered by anything, here or there.
+  PASS  15  SVG fill/stroke is counted as uncovered, not passed over in silence
+          0 svg <text> nodes on the walked surfaces. The opening screen is a separate matter and is named here rather than counted as covered: it is already gone by walk time (its curtain yields as soon as main.js reports the shell usable), and it is drawn almost entirely in SVG — its wordmark, logo and plinth carry no computed `color` this walk can read.

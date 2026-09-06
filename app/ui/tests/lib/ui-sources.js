@@ -75,6 +75,7 @@ const ENTRY = "index.html";
 ///                   declared exemptions and color literals.
 const ROLES = {
   "index.html": { role: "ui", why: "the shell Tauri loads" },
+  "runs.js": { role: "ui", why: "the durable assignment panel and its decision controls" },
   "main.js": { role: "ui", why: "the chat surface and the bridge" },
   "timeline.js": { role: "ui", why: "the working timeline's model and render" },
   "home.js": { role: "ui", why: "the home screen the CEO lands on" },

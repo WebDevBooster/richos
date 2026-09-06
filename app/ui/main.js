@@ -22,6 +22,7 @@ if (!window.RichBridge) {
   };
 }
 const Bridge = window.RichBridge;
+window.RichRuns.mount(Bridge, document.getElementById("managed-run"));
 
 // ---------------------------------------------------------------------------------------
 // DOM refs
@@ -633,6 +634,7 @@ function showConversationView() {
 /// (`LedgerError::UnboundThread`, surfaced verbatim through `navigation_tree`), so the
 /// screen and the guard that produced it can never drift apart.
 function showUnboundView(row, rawError) {
+  window.RichRuns.show(null);
   const title = row ? row.display_title : "This thread";
   el("unbound-view-title").textContent = title;
   el("unbound-view-body").textContent =
@@ -667,6 +669,7 @@ function showUnboundView(row, rawError) {
 /// §3.5 entity overview, and §21's empty-entity and new-thread screens — one surface with
 /// three honest variants, because they differ only in how much there is to show.
 function showEntityView(entityId, mode) {
+  window.RichRuns.show(null);
   const entity = entityOf(entityId);
   if (!entity) return;
   stashThreadViewState();
@@ -883,6 +886,7 @@ async function openThread(threadId) {
   }
 
   await refreshActiveContext();
+  window.RichRuns.show(threadId);
   showConversationView();
   inputEl.placeholder = "Talk to Rich…";
   renderRail();
@@ -1427,6 +1431,7 @@ async function send() {
 
   try {
     await Bridge.invoke("send_message", { text });
+    window.RichRuns.show(activeThreadId);
   } catch (e) {
     // An outright rejection BEFORE any turn started (no lease ⇒ no stream events will ever
     // fire for this attempt). A turn that started and then failed is resolved by

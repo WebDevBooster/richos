@@ -643,3 +643,43 @@ same best-effort posture every other emitter in this shell takes.
 `update_check`, `update_install`, `update_relaunch` — are this app's own, and
 `capabilities/default.json` grants no `plugin:updater|*` command to the page. A frontend
 cannot start a download or an install by itself.
+# Managed run updates
+
+`rich://run-updated` is independent of turn completion. It carries `threadId`,
+`runId`, `createdAt`, `updatedAt`, `revision`, `goal`, `state` and `tasks`. Each task has `id`,
+`description`, `state`, `checks`, `commands`, `attempts`, `evidence` and optional `decision`. Run states include
+`ready`, `running`, `waiting`, `needs_decision`, `paused`, `needs_attention`,
+`completed` and `canceled`. Task states include `pending`, `running`, `verifying`,
+`passed`, `needs_attention` and `needs_decision`.
+
+The desktop emits snapshots after durable controller transitions. The panel
+accepts updates only for its visible conversation and current run, rejecting
+older revisions. `get_run` restores the durable view and projects accepted
+requests still being prepared. Model turn events never mark the job complete.
+
+Normal typed and spoken turns retain `Source::Text` and `Source::Jam`. The
+detached tool-free registration emits no conversation JSON and never leases Rich's session. Desktop workers
+execute independently of the conversation lease. Rich reports their results
+through ordinary turn-start, chunk and completion events, so the existing speech
+listener receives the report. Background reports use `Source::Proactive`; their
+host prompts remain hidden. The experimental `managed` alias is removed.
+
+Ordinary conversation requests start automatically. `autonomous` and `preparing`
+flags distinguish this flow from optional imported command plans. Operational
+failures display automatic retry; only `needs_decision` requests a CEO answer.
+Explicit Pause and End remain available. See [MANAGED-RUNS.md](MANAGED-RUNS.md).
+
+A pending `decision` has `id`, `question`, `whyCeo`, `recommendation`, `options`
+and `resource`. It is projected from the committed question, including older
+journals. The webview calls `respond_run_decision` with `threadId`, `runId`,
+`taskId`, `decisionId` and an `action`: `{kind:"continue"}` for the displayed
+resource allowance, `{kind:"answer",text}` for a business answer,
+`{kind:"change_scope",text}` for revised instructions or `{kind:"end"}`.
+The controller validates the question identity under its journal lock. An exact
+replay is idempotent; stale questions and cross-assignment answers are rejected.
+Continue cannot answer a business question. Free text cannot silently authorize
+a resource extension. Scope changes preserve prior requirements except explicit
+conflicts and recheck existing results before executing again. End requires UI
+confirmation and never marks completion. The ordinary conversation answer path
+remains available. Saved panel actions receive bounded acknowledgments through
+Rich's normal conversation and speech path.

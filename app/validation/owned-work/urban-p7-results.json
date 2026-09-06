@@ -1,0 +1,126 @@
+{
+  "recorded_at_utc": "2026-09-06T02:29:34.923499+00:00",
+  "branch": "codex/durable-orchestration",
+  "base_commit": "9b6c74dc836ea8b7bcb07b2b8d6bd77743c2c50f",
+  "review": "/Users/alex/ab/richos/docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_03.00.md",
+  "review_scope": "Urban kept 9/10 signoff at 9b6c74d. These follow-up changes have author verification only.",
+  "checks": {
+    "runs": {
+      "command": "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/runs.js",
+      "exit_code": 0,
+      "log": "urban-p7-runs.log",
+      "passed": 29,
+      "failed": 0
+    },
+    "affordances": {
+      "command": "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/affordances.js",
+      "exit_code": 0,
+      "log": "urban-p7-affordances.log",
+      "passed": 83,
+      "failed": 0
+    },
+    "contrast": {
+      "command": "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/contrast.js",
+      "exit_code": 0,
+      "log": "urban-p7-contrast.log",
+      "passed": 41,
+      "failed": 0
+    },
+    "docs": {
+      "command": "/opt/homebrew/bin/node app/ui/tests/docs-claims.js",
+      "exit_code": 0,
+      "log": "urban-p7-docs.log",
+      "passed": 6,
+      "failed": 0
+    },
+    "projection": {
+      "command": "/Users/alex/.cargo/bin/cargo test --manifest-path app/Cargo.toml -p richos-core --example run_view_probe",
+      "exit_code": 0,
+      "log": "urban-p7-projection.log"
+    },
+    "projection-mutations": {
+      "command": "python3 app/scripts/test-assignment-projection-mutations.py /Users/alex/.cargo/bin/cargo",
+      "exit_code": 0,
+      "log": "urban-p7-projection-mutations.log"
+    },
+    "native": {
+      "command": "/Users/alex/.cargo/bin/cargo check --manifest-path app/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "log": "urban-p7-native.log"
+    }
+  },
+  "coverage": {
+    "viewports": [
+      [
+        1400,
+        900
+      ],
+      [
+        1280,
+        800
+      ],
+      [
+        1024,
+        768
+      ],
+      [
+        760,
+        720
+      ],
+      [
+        520,
+        680
+      ]
+    ],
+    "themes": [
+      "dark",
+      "light"
+    ],
+    "contrast_surfaces": 26,
+    "contrast_theme_walks": 52,
+    "classified_states": 421,
+    "rust_projection_tests": 1,
+    "rust_views_rendered_by_browser": 4,
+    "terminal_state_combinations": 72,
+    "compiled_projection_mutations_rejected": 3,
+    "history_receipts": 6,
+    "imported_steps": 8,
+    "behaviors": [
+      "Labeled status and weighted history hierarchy",
+      "Identical imported checks grouped once; distinct checks retained per task",
+      "Hidden Retry cues above and below, UI scrolling and exact command identity",
+      "Review decision weighted within the compact row",
+      "Cut-edge rule measured separately from text in decision, history and picker",
+      "Invisible and removed rule negative controls; reading button remains at 4.5:1",
+      "Unknown-format wording through actual Rust projection",
+      "Zero browser page errors after deferring resize-cue updates"
+    ]
+  },
+  "diagnostics": [
+    {
+      "log": "urban-p7-runs-initial-contrast-failure.log",
+      "finding": "Intermediate run failed on a timeline Copy button outside the assignment panel. The harness now explicitly settles hover transitions before resting contrast measurement."
+    },
+    {
+      "log": "urban-p7-hover-diagnostic.log",
+      "finding": "Observed timeline opacity changing after the pointer left, but did not reproduce the contrast failure. Precise cause remains unproven; no contrast exemption was added."
+    },
+    {
+      "log": "urban-p7-runs-resize-failure.log",
+      "finding": "Caught ResizeObserver console error during cue updates. Fixed by deferring resize writes to the next frame and avoiding unchanged text writes; zero-page-error assertion retained."
+    }
+  ],
+  "screenshots": [
+    "urban-p7-history-receipts-light.png",
+    "urban-p7-history-receipts-dark.png",
+    "urban-p7-history-imported-light.png",
+    "urban-p7-history-imported-dark.png"
+  ],
+  "limits": [
+    "Scripted browser command bridge.",
+    "No new packaged-window, OS accent, Full Keyboard Access or spoken-audio signoff.",
+    "Full core suite, controller mutation suite and desktop integration harness were not rerun for these display changes.",
+    "Shared contrast suite retains its documented home canvas exclusion and pre-existing declared-unprovable color.",
+    "No merge, push or deployment."
+  ]
+}

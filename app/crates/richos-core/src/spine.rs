@@ -255,6 +255,7 @@ pub struct Spine {
     queue: VecDeque<Queued>,
     /// Set true once the current lease has been re-primed (continuity foundation).
     lease_primed: bool,
+    lease_primed_thread: Option<String>,
     /// The live UI sink (streaming deltas + turn state). Optional so the spine runs
     /// headless (tests, the round-trip examples) with zero UI attached.
     observer: Option<Box<dyn TurnObserver>>,
@@ -336,6 +337,7 @@ pub struct Spine {
     /// REFUSED, because there is nowhere durable to record the request. Every pre-existing
     /// test and headless run therefore behaves exactly as it did.
     control: TurnControl,
+    owned_work_enabled: bool,
     /// Where [`Spine::timeline`] reads the engine's worker-lifecycle stream from, so a
     /// `Task` tool call can be joined to the worker it spawned (UX §7).
     ///
@@ -417,8 +419,10 @@ impl Spine {
             registry: EntityRegistry::empty(),
             turn_in_progress: false,
             control: TurnControl::detached(),
+            owned_work_enabled: false,
             queue: VecDeque::new(),
             lease_primed: false,
+            lease_primed_thread: None,
             observer: None,
             lease_factory: None,
             loro_compiler: None,
@@ -717,6 +721,94 @@ impl Spine {
 
     pub fn has_lease(&self) -> bool {
         self.lease.is_some()
+    }
+
+    /// Temporarily use a separately governed worker. Restoring through install_lease
+    /// refreshes cancellation identity and forces the chat lease to re-prime from
+    /// the durable conversation (including the worker's output) on its next use.
+    pub(crate) fn take_run_lease(&mut self, worker: Box<dyn Cognition>) -> Option<Box<dyn Cognition>> {
+        let previous = self.lease.take();
+        self.install_lease(worker);
+        previous
+    }
+
+    pub(crate) fn restore_run_lease(&mut self, previous: Option<Box<dyn Cognition>>) {
+        if let Some(lease) = previous {
+            self.install_lease(lease);
+        } else {
+            self.lease = None;
+            self.control.set_cancel(None);
+            self.control.set_lease_session(None);
+            self.lease_primed = false;
+            self.context_usage = None;
+            self.context_pressure = None;
+        }
+    }
+
+    pub(crate) fn prepare_managed_lease(&self, workspace: &std::path::Path) -> Result<(), CognitionError> {
+        self.lease.as_ref().ok_or_else(|| CognitionError::Protocol("No managed worker is attached.".into()))?.prepare_managed(workspace)
+    }
+
+    /// The managed-run host uses the existing cancellation channel to enforce
+    /// its time budget on the currently installed managed worker.
+    pub fn enable_owned_work(&mut self) { self.owned_work_enabled = true; self.lease_primed = false; }
+
+    pub fn owned_worker_context(&mut self, binding: &ThreadBinding) -> Result<String, SpineError> {
+        let mut payload = RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
+        self.fill_loro_tier(&mut payload, binding);
+        Ok(payload.to_priming_prompt())
+    }
+
+    /// Host evidence is reported by Rich through the ordinary streamed speech path.
+    /// A stable receipt makes a completed notice idempotent across restarts.
+    pub fn report_owned_work(&mut self, binding: &ThreadBinding, id: &str, evidence: &str) -> Result<(), SpineError> {
+        if self.ledger.turn(id).map(|t| t.state == crate::ledger::TurnState::Completed).unwrap_or(false) { return Ok(()); }
+        let prompt = format!("Report this durable work update to the CEO in your normal voice. State the outcome and any material limitations in concise plain language. Do not name internal components, validation checks or technical failure details. Never claim work started or finished without the supplied evidence. Do not ask for routine retry or implementation decisions. Only an explicitly supplied CEO decision requires an answer. Host evidence:\n{evidence}");
+        self.ledger.record_owned_prompt(binding, id, &prompt, Source::Proactive)?;
+        self.deliver(id, binding, &prompt, true)
+    }
+
+    pub fn run_cancel_handle(&self) -> Option<std::sync::Arc<dyn crate::steering::TurnCancel>> {
+        self.lease.as_ref().and_then(|lease| lease.cancel_handle())
+    }
+
+    /// Persist a request receipt or a supervisor response without inventing a
+    /// model turn. Stable IDs make request-spool recovery idempotent.
+    pub fn record_owned_message(&mut self, binding: &ThreadBinding, id: &str, user: Option<&str>, reply: &str) -> Result<(), SpineError> {
+        let source = if user.is_some() { Source::Text } else { Source::Proactive };
+        let id = self.ledger.record_owned_prompt(binding, id, user.unwrap_or(""), source)?;
+        if self.ledger.turn(&id).and_then(|t| t.ended_at).is_some() { return Ok(()); }
+        if self.ledger.turn(&id).and_then(|t| t.ended_at).is_none() {
+            if !reply.is_empty() && self.ledger.turn(&id).map(|t| t.assistant_text.is_empty()).unwrap_or(false) {
+                self.ledger.append_assistant_delta(&id, reply, 0)?;
+            }
+            self.ledger.complete_turn(&id, "host_receipt")?;
+        }
+        self.emit_live(self.turn_status_event(binding, &id, TurnStatus::Completed, None));
+        self.emit(StreamEvent::TurnCompleted { thread_id: binding.thread_id().into(), turn_id: id.clone(), stop_reason: "host_receipt".into(), at: now_millis() });
+        if user.is_none() && !reply.is_empty() { self.emit_proactive_live(binding, &id, AttentionTier::Digest, reply); }
+        Ok(())
+    }
+
+    /// An application-owned attempt, recorded as Proactive rather than as words
+    /// the user typed. Automatic crash replay is disabled: the run controller
+    /// owns recovery and cannot safely replay unknown external effects.
+    pub fn submit_run_prompt(&mut self, binding: &ThreadBinding, text: &str) -> Result<String, SpineError> {
+        self.ledger.verify_binding(binding)?;
+        if self.turn_in_progress {
+            return Err(SpineError::Cognition(CognitionError::Protocol("Another turn is already running.".into())));
+        }
+        let id = self.ledger.record_prompt_received(binding, text, Source::Proactive)?;
+        self.emit_live(self.turn_status_event(binding, &id, TurnStatus::Queued, None));
+        self.deliver(&id, binding, text, false)?;
+        Ok(self.ledger.turn(&id).and_then(|t| t.stop_reason.clone()).unwrap_or_else(|| "unknown".into()))
+    }
+
+    /// Called after the attempt's timeout watcher is disarmed. Queued user
+    /// input takes precedence over the next managed attempt.
+    pub fn finish_run_boundary(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        self.after_turn_boundary(binding)?;
+        self.drain_queue()
     }
 
     /// Attach the rotation/recovery seam. Without one, the spine can still run its
@@ -2481,7 +2573,8 @@ impl Spine {
         let mut payload =
             RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
-        let priming = payload.to_priming_prompt();
+        let mut priming = payload.to_priming_prompt();
+        if self.owned_work_enabled { priming.push_str("\nYou have a durable execution team managed by RichOS. Answer the CEO normally in your own voice. For work requests, own the complete outcome and resolve routine choices. For EVERY action request, including a single file edit, do not execute it in the conversation turn. Acknowledge ownership without claiming completion. State the deliverable and essential acceptance constraints concisely in one prose paragraph, including prohibitions and any changed requirements. No headings, lists or filesystem paths in this acknowledgment. Refer to the original request for unchanged details; the host preserves the full request and prior scope verbatim. A separate tool-free transcriber records your commitment verbatim. It cannot invent missing scope. Resolve routine choices yourself. Do not offer to start later when you can accept now. A correction revises the current assignment, not a second job waiting for it to end. Never claim execution finished until the host supplies verified results.\n"); }
         // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime:rotation]", Source::Internal);
 
@@ -2534,6 +2627,7 @@ impl Spine {
         // re-announcement, appearing mid-conversation, is exactly the shape of a rotation
         // tell. It never renders.
         self.pump_between_turn_stamped(binding, true);
+        self.lease_primed_thread = Some(binding.thread_id().to_string());
         self.lease_primed = true; // already primed above — deliver() won't re-prime redundantly
         self.context_chars = priming.len(); // reset the watermark baseline to the new payload
 
@@ -2595,7 +2689,7 @@ impl Spine {
 
     /// Assemble + inject the re-prime payload once per lease (before its first turn).
     fn prime_lease_if_needed(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
-        if self.lease_primed || self.lease.is_none() {
+        if (self.lease_primed && self.lease_primed_thread.as_deref() == Some(binding.thread_id())) || self.lease.is_none() {
             return Ok(());
         }
         let thread_id = binding.thread_id();
@@ -2605,7 +2699,8 @@ impl Spine {
         let mut payload =
             RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
-        let priming = payload.to_priming_prompt();
+        let mut priming = payload.to_priming_prompt();
+        if self.owned_work_enabled { priming.push_str("\nYou have a durable execution team managed by RichOS. Answer the CEO normally in your own voice. For work requests, own the complete outcome and resolve routine choices. For EVERY action request, including a single file edit, do not execute it in the conversation turn. Acknowledge ownership without claiming completion. State the deliverable and essential acceptance constraints concisely in one prose paragraph, including prohibitions and any changed requirements. No headings, lists or filesystem paths in this acknowledgment. Refer to the original request for unchanged details; the host preserves the full request and prior scope verbatim. A separate tool-free transcriber records your commitment verbatim. It cannot invent missing scope. Resolve routine choices yourself. Do not offer to start later when you can accept now. A correction revises the current assignment, not a second job waiting for it to end. Never claim execution finished until the host supplies verified results.\n"); }
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime]", Source::Internal);
         // ... and as an Internal ACTION, claim-then-execute: this is the first-attach
@@ -2653,6 +2748,7 @@ impl Spine {
         // as unrenderable as the turn itself (§1.5, and the standing order that Rich never
         // reveals or references session rotation).
         self.pump_between_turn_stamped(binding, true);
+        self.lease_primed_thread = Some(binding.thread_id().to_string());
         self.lease_primed = true;
         self.context_chars = priming.len(); // baseline the watermark measurement
         Ok(())

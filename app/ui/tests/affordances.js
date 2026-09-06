@@ -491,6 +491,17 @@ async function openHomePrefs(browser, setup) {
 }
 
 const FIXTURES = {
+  ...Object.fromEntries(["running", "decision", "paused", "error", "scope", "answer", "empty"].map(state => ["assignment-"+state, async browser => {
+    const A = require("./lib/assignments"); const page = await A.open(browser);
+    await A.drive(page, ["scope", "answer"].includes(state) ? "decision" : state);
+    if (["decision", "scope"].includes(state)) await A.review(page);
+    if (state === "scope") await page.locator("#managed-run [data-run-scope]").click();
+    if (state === "answer") {
+      await page.evaluate(async () => { const d=window.assignmentCurrent.tasks[1].decision; d.resource=false; await window.RichRuns.show("hiring"); });
+      await A.review(page);await page.getByRole("button", {name:"Write an answer",exact:true}).click();
+    }
+    return page;
+  }])),
   /// The app as it opens. Proves the controls that the voice instructions NAME are on the
   /// screen those instructions render on.
   async shell(browser) {
@@ -1047,6 +1058,7 @@ const FIXTURES = {
 /// names is present and usable on the screen the sentence appears on. Said here rather than
 /// left as an unexplained asymmetry.
 const TEXT_RENDERING_FIXTURES = new Set([
+  "assignment-running", "assignment-decision", "assignment-paused", "assignment-error", "assignment-scope", "assignment-answer", "assignment-empty",
   // Every correction-desk fixture renders its own words — there is no hardware behind any
   // of them, so the weaker control-presence-only proof would be a choice rather than a
   // limit.
@@ -1338,6 +1350,31 @@ async function main() {
     );
   });
 
+  await run.check("PART 0 NEGATIVE CONTROL: new prose and short states in formerly invisible sources fail by name", async () => {
+    const os = require("os"), cp = require("child_process");
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "richos-source-gate-"));
+    const ui = path.join(tmp, "app", "ui");
+    const script = `const root=process.argv[1];const inv=require(root+"/tests/lib/state-strings").inventory();const registry=require(root+"/tests/lib/state-registry");const missing=inv.filter(x=>!registry.some(r=>r.s===x.normal));if(missing.length)throw Error("Unclassified: "+missing.map(x=>x.normal+" at "+x.sites.join(",")).join(";"));`;
+    try {
+      fs.cpSync(UI_DIR, ui, {recursive:true, filter:p=>!/(?:^|\/)(?:tests|node_modules)(?:\/|$)/.test(path.relative(UI_DIR,p))});
+      fs.cpSync(path.join(UI_DIR,"tests","lib"),path.join(ui,"tests","lib"),{recursive:true});
+      for(const dir of ["crates","src-tauri"])fs.symlinkSync(path.resolve(UI_DIR,"..",dir),path.join(tmp,"app",dir),"dir");
+      const check=()=>cp.spawnSync(process.execPath,["-e",script,ui],{encoding:"utf8",timeout:30000});
+      const baseline=check();assertEqual(baseline.status,0,baseline.stderr);
+      for(const [file,text,expected] of [
+        ["updates.js",'\nwindow.sourceProbe="Review this newly discovered problem before continuing.";','Review this newly discovered problem before continuing.'],
+        ["home.js",'\nconst PROBE_LABELS={pending:"Unreviewed"};','Unreviewed']
+      ]) {
+        const target=path.join(ui,file), original=fs.readFileSync(target,"utf8");fs.appendFileSync(target,text);
+        const result=check();assert(result.status!==0 && result.stderr.includes("Unclassified:") && result.stderr.includes(expected) && result.stderr.includes(file),result.stderr);
+        fs.writeFileSync(target,original);
+      }
+      fs.writeFileSync(path.join(ui,"unwired.js"),'"New surface";');
+      const result=check();assert(result.status!==0 && result.stderr.includes("unwired.js") && result.stderr.includes("nothing loads"),result.stderr);
+      return "Clean copied tree passed; new updates.js prose, a home.js short state and an unwired source each failed by name.";
+    } finally { fs.rmSync(tmp,{recursive:true,force:true}); }
+  });
+
   await run.check("PART 0 NEGATIVE CONTROL: the reconciliation refuses a short list, a missing role and a stale one", async () => {
     // The same function `manifest()` calls, with synthetic inputs — not a re-implementation
     // of its three rules, which would prove only that the copy agrees with itself.
@@ -1534,11 +1571,7 @@ async function main() {
 
   // ---- the company setting, which the string inventory cannot see ------------------------
   //
-  // `UI_SOURCES` is index.html, main.js and timeline.js, so the row this pass added to
-  // `settings-button.js` is outside the derivation and outside the registry — the same
-  // blind spot Techy Mode's and the opening screen's rows in that file already sit in.
-  // These two checks are the cover for it: they drive the REAL menu and assert the control
-  // and, in the state where there is no control, the statement that names who owns it.
+  // Company menu behavior is driven live in addition to the complete source inventory.
 
   await run.check("the settings menu carries the company, and choosing one writes it through", async () => {
     const page = await openApp(browser, undefined, { chosenEntity: null });

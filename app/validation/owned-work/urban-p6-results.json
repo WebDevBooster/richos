@@ -1,0 +1,78 @@
+{
+  "recorded_at_utc": "2026-09-06T01:30:53.403099+00:00",
+  "branch": "codex/durable-orchestration",
+  "base_commit": "e276ba3b845e66fc7e313e46a637b381241ab7a6",
+  "review": "/Users/alex/ab/richos/docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_02.05.md",
+  "review_scope": "Urban granted 9/10 signoff to e276ba3. These follow-up changes have author verification only.",
+  "checks": {
+    "assignment_panel": {
+      "passed": 27,
+      "failed": 0,
+      "command": "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/runs.js"
+    },
+    "affordances": {
+      "passed": 83,
+      "failed": 0,
+      "classified_states": 418,
+      "command": "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/affordances.js"
+    },
+    "contrast": {
+      "passed": 41,
+      "failed": 0,
+      "surfaces": 26,
+      "theme_walks": 52,
+      "command": "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/contrast.js"
+    },
+    "documentation_claims": {
+      "passed": 6,
+      "failed": 0,
+      "command": "/opt/homebrew/bin/node app/ui/tests/docs-claims.js"
+    },
+    "rust_projection": {
+      "passed": 1,
+      "failed": 0,
+      "projected_views_rendered_by_browser": 4,
+      "command": "/Users/alex/.cargo/bin/cargo test --manifest-path app/Cargo.toml -p richos-core --example run_view_probe"
+    },
+    "projection_mutations": {
+      "rejected_after_successful_compilation": 3,
+      "total": 3,
+      "compiler_failures_counted_as_success": 0,
+      "command": "python3 app/scripts/test-assignment-projection-mutations.py /Users/alex/.cargo/bin/cargo"
+    },
+    "native_compile": {
+      "exit_code": 0,
+      "command": "/Users/alex/.cargo/bin/cargo check --manifest-path app/src-tauri/Cargo.toml"
+    }
+  },
+  "targeted_coverage": [
+    "Five viewport sizes in two themes; extra visible status line must still fit below 30% of height.",
+    "Six receipt paragraphs and eight imported steps; reach and click hidden Retry through reading controls.",
+    "History geometry requires nonempty rendered content; hiding the cue must fail the same overflow assertion.",
+    "Status and picker text between 3:1 and 4.5:1 must fail; restoring the old parent indicator marker removes that matched failure.",
+    "A separate invisible attention mark must fail the unchanged 3:1 indicator threshold.",
+    "Older-format journal projection is tested independently of registration and source journal bytes remain unchanged."
+  ],
+  "logs": [
+    "urban-p6-runs.log",
+    "urban-p6-affordances.log",
+    "urban-p6-contrast.log",
+    "urban-p6-docs.log",
+    "urban-p6-projection.log",
+    "urban-p6-projection-mutations.log",
+    "urban-p6-native.log"
+  ],
+  "screenshots": [
+    "urban-p6-history-receipts-light.png",
+    "urban-p6-history-receipts-dark.png",
+    "urban-p6-history-imported-light.png",
+    "urban-p6-history-imported-dark.png"
+  ],
+  "limits": [
+    "Browser command dispatch uses the scripted bridge.",
+    "No new packaged-window, OS accent or spoken-audio signoff.",
+    "Prior full core suite, desktop integration harness and controller mutations were not rerun for these display changes.",
+    "Contrast retains its documented excluded home canvas and pre-existing declared-unprovable color; passing checks are not a claim about every possible pixel.",
+    "No merge, push or deployment."
+  ]
+}

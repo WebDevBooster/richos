@@ -727,7 +727,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 816 tests + 5 doc-tests
+cargo test -p richos-core                       # 864 tests + 5 doc-tests; 862 direct, 2 child-only
 #     ONE OF THEM NEEDS A `claude` ON A MAC, and that is deliberate as of 2026-09-05.
 #     `the_real_claude_binary_on_this_machine_satisfies_the_requirement` is the POSITIVE half
 #     of the Anthropic signature pin; it used to `return` when the binary was absent, and a
@@ -1471,3 +1471,17 @@ can be up to one tool call stale (bounded, one-directional, never a claim about 
 that was never witnessed). And the join is **session-scoped**, because `agent_id` is not
 globally unique — the clause that keeps another session's worker name and authored summary
 out of this entity's thread.
+# Managed work runs
+
+RichOS can now own a finite work plan across model turns. See
+[Managed work runs](MANAGED-RUNS.md) for the desktop controls, portable terminal
+runner, acceptance contract and recovery limits.
+See [Orchestration review](ORCHESTRATION-REVIEW.md) for the observed failure,
+design rationale, review map and validation evidence.
+
+`crates/richos-core/tests/run_tests.rs` covers continuation, external acceptance,
+dependency order, cancellation, restart recovery, timeouts, exclusive ownership
+and the terminal protocol path. These checks also exercise the desktop Spine adapter.
+
+`crates/richos-core/tests/registration_tests.rs` covers intent/commitment consistency,
+quote provenance, full constraint preservation and the registrar schema.

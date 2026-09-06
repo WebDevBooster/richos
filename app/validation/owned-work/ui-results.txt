@@ -1,0 +1,32 @@
+Historical third-revision full UI run. Fourth revision reran the affected suites: runs (14), affordances and docs-claims (6). See managed-run-validation.md.
+
+== evidence ==
+  FAIL            affordances.js — 64 check(s) run, 18 declared, 2 failed (exit 1)
+  ok              appearance.js — 19 check(s) run, 19 declared, 0 failed (exit 0)
+  ok              contrast.js — 34 check(s) run, 16 declared, 0 failed (exit 0)
+  ok              corrections.js — 21 check(s) run, 20 declared, 0 failed (exit 0)
+  ok              docs-claims.js — 6 check(s) run, 6 declared, 0 failed (exit 0)
+  ok              feedback.js — 24 check(s) run, 24 declared, 0 failed (exit 0)
+  ok              home.js — 30 check(s) run, 28 declared, 0 failed (exit 0)
+  ok              inspector.js — 13 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              live-workers.js — 11 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              markdown.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              memory-strategy.js — 32 check(s) run, 32 declared, 0 failed (exit 0)
+  ok              memory.js — 9 check(s) run, 9 declared, 0 failed (exit 0)
+  ok              realbytes.js — 7 check(s) run, 7 declared, 0 failed (exit 0)
+  ok              restart-scope.js — 14 check(s) run, 14 declared, 0 failed (exit 0)
+  ok              retention.js — 8 check(s) run, 8 declared, 0 failed (exit 0)
+  ok              runs.js — 13 check(s) run, 13 declared, 0 failed (exit 0)
+  ok              scale.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              setup.js — 16 check(s) run, 16 declared, 0 failed (exit 0)
+  ok              splash.js — 26 check(s) run, 26 declared, 0 failed (exit 0)
+  ok              steering.js — 24 check(s) run, 22 declared, 0 failed (exit 0)
+  ok              techy.js — 21 check(s) run, 21 declared, 0 failed (exit 0)
+  ok              updates.js — 14 check(s) run, 14 declared, 0 failed (exit 0)
+  ok              workers.js — 16 check(s) run, 16 declared, 0 failed (exit 0)
+
+  23 discovered, 23 ran, 0 skipped, 446 checks observed against 375 declared
+
+1 suite(s) FAILED: affordances.js
+
+Follow-up: affordances.js passed after state-registry correction (exit 0).

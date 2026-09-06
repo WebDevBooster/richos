@@ -78,6 +78,9 @@ pub mod native;
 pub mod provision;
 pub mod reachability;
 pub mod reprime;
+pub mod run;
+pub mod run_host;
+pub mod run_spine;
 pub mod setup;
 pub mod skip;
 pub mod spine;
@@ -141,3 +144,7 @@ pub use timeline::{
 };
 pub use worker_events::{HostLiveness, ObservedWorkerState, OpenRun, SessionScope, WorkerEventRow};
 pub use worker_status::WorkerStatusView;
+
+pub mod autonomy;
+
+pub mod registration;

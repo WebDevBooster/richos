@@ -7,6 +7,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod events;
+mod managed_runs;
+mod owned_work;
 
 use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
@@ -203,6 +205,7 @@ impl LeaseFactory for EngineLeaseFactory {
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
     spine: Mutex<Spine>,
+    managed_runs: managed_runs::ManagedRuns,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
     /// alongside the ledger in the app data dir, same durability posture.
     config: Mutex<ConfigStore>,
@@ -486,19 +489,8 @@ fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, St
         // in, and for THAT cause quitting and reopening genuinely does clear it.
         return Err(LEASE_UNAVAILABLE_MESSAGE.into());
     }
+    let thread = spine.active_thread().ok_or("Open a conversation first.")?.to_string();
     spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;
-    // "no active thread" used to be the whole sentence here, and it went straight onto the
-    // CEO's screen through `send()`'s `String(e)`. Machinery, and it named neither an action
-    // nor an actor. The prompt IS already submitted by this line, so the sentence must not
-    // claim the message was lost, and must not promise it will reappear — nothing here knows
-    // that.
-    let thread = spine
-        .active_thread()
-        .ok_or(
-            "I've taken that down, but I haven't got a thread open to show it in. Quit RichOS \
-             and open it again; if it still isn't here, whoever set RichOS up needs to look.",
-        )?
-        .to_string();
     spine.messages(&thread).map_err(|e| e.to_string())
 }
 
@@ -857,6 +849,8 @@ fn main() {
         .setup(|app| {
             // Durable ledger lives in the app data dir (survives restart + rotation).
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
+            #[cfg(debug_assertions)]
+            let data_dir = std::env::var_os("RICHOS_TEST_DATA_DIR").map(PathBuf::from).unwrap_or(data_dir);
             std::fs::create_dir_all(&data_dir).ok();
 
             // =====================================================================
@@ -1321,6 +1315,7 @@ fn main() {
                 }
             };
             spine.set_turn_control(control.clone());
+            spine.enable_owned_work();
 
             // WHAT HE ASKED FOR AND THIS BUILD COULD NOT READ, ON THE BOOT LINE.
             //
@@ -1511,6 +1506,7 @@ fn main() {
 
             app.manage(AppState {
                 spine: Mutex::new(spine),
+                managed_runs: managed_runs::ManagedRuns::default(),
                 config: Mutex::new(config),
                 machinery_root,
                 entity: Mutex::new(boot.entity),
@@ -1561,7 +1557,11 @@ fn main() {
             // the app EXACTLY as it boots — same ledger, same window, same everything —
             // and then drives the same `check`/`install` functions the two commands drive.
             // A harness that skipped the boot would be proving a different program.
+            owned_work::initialize(&app.state::<AppState>()).map_err(std::io::Error::other)?;
+            owned_work::start(app.handle().clone());
             updates::init(app.handle());
+            #[cfg(debug_assertions)]
+            owned_work::selftest(app.handle().clone());
             match updates::selftest_mode() {
                 Some(mode) => {
                     eprintln!("[richos] update selftest: {mode}");
@@ -1616,6 +1616,16 @@ fn main() {
             switch_thread,
             get_messages,
             send_message,
+            managed_runs::prepare_run,
+            managed_runs::get_run,
+            managed_runs::list_runs,
+            managed_runs::select_run,
+            managed_runs::drive_run,
+            managed_runs::pause_run,
+            managed_runs::retry_run_task,
+            managed_runs::end_run,
+            managed_runs::respond_run_decision,
+            managed_runs::archive_run,
             get_company_name,
             set_company_name,
             get_assertiveness,
@@ -1961,9 +1971,8 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
             );
             return;
         }
-        // Source::Jam — voice and text are ONE thread and ONE ledger.
         if let Err(e) = spine.submit_prompt(&text, Source::Jam) {
-            eprintln!("[richos] voice turn failed: {e}");
+            let _ = submit_app.emit(richos_voice::event::EVENT_VOICE_ERROR, serde_json::json!({"message": e.to_string(), "at": richos_voice::controller::now_millis()}));
         }
     });
 
@@ -3998,6 +4007,7 @@ struct StopReport {
 /// in `steering.rs` rather than here.
 #[tauri::command(async)]
 fn stop_turn(state: State<AppState>) -> Result<StopReport, String> {
+    state.managed_runs.pause_active(&state.data_dir)?;
     match state.control.request_stop().map_err(|e| e.to_string())? {
         StopOutcome::NothingRunning => {
             Ok(StopReport { stopped: false, turn_id: None, requested_at: None, reached_lease: false })

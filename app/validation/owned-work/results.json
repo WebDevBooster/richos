@@ -1,0 +1,125 @@
+{
+  "revision": "sixth review",
+  "measured_on": "2026-09-05",
+  "core": {
+    "direct_non_doc_passed": 734,
+    "child_only_fixtures": 2,
+    "doctests_passed": 5,
+    "failed": 0,
+    "source_inventory": 736
+  },
+  "managed_regressions_passed": 36,
+  "registrar_regressions_passed": 6,
+  "mutations_killed": 16,
+  "mutations_total": 16,
+  "ui": {
+    "runs_passed": 17,
+    "affordances_exit": 0,
+    "docs_claims_passed": 6,
+    "full_suite_rerun": false,
+    "selector_contrast": {
+      "dark": 13.02,
+      "light": 17.02
+    }
+  },
+  "desktop": {
+    "controlled_phases": [
+      "enqueue",
+      "resume",
+      "recover-notice",
+      "correct-live",
+      "slow-registration",
+      "independent-work",
+      "registration-failures",
+      "registration-failures-restart",
+      "end-live"
+    ],
+    "native_handoff": {
+      "exit": 0,
+      "worker_attempts": 1,
+      "ceo_messages": 1,
+      "conversation_prime_turns": 1,
+      "conversation_answer_turns": 1,
+      "conversation_report_turns": 1,
+      "conversation_registration_turns": 0,
+      "result": "hello.txt contains exactly 10 bytes Hello Rich with no newline"
+    },
+    "native_trials": [
+      {
+        "trial": 1,
+        "attempts": 1,
+        "scope_repaired": false,
+        "done": true,
+        "ack_characters": 349,
+        "ack_paragraphs": 1,
+        "ack_contains_workspace_path": false,
+        "conversation_primes": 1,
+        "files": [
+          "hello.txt"
+        ]
+      },
+      {
+        "trial": 2,
+        "attempts": 1,
+        "scope_repaired": false,
+        "done": true,
+        "ack_characters": 296,
+        "ack_paragraphs": 1,
+        "ack_contains_workspace_path": false,
+        "conversation_primes": 1,
+        "files": [
+          "hello.txt"
+        ]
+      },
+      {
+        "trial": 3,
+        "attempts": 1,
+        "scope_repaired": false,
+        "done": true,
+        "ack_characters": 207,
+        "ack_paragraphs": 1,
+        "ack_contains_workspace_path": false,
+        "conversation_primes": 1,
+        "files": [
+          "hello.txt"
+        ]
+      }
+    ]
+  },
+  "registration": {
+    "default_model": "sonnet",
+    "tools": [],
+    "settings_sources": [],
+    "max_attempts": 3,
+    "busy_registrar_fixture_seconds": 8,
+    "conversation_response_assertion_seconds": 3,
+    "bad_inputs_tested": 2,
+    "calls_per_bad_input_including_restart": 3,
+    "workers_for_invalid_registrations": 0,
+    "native_first_attempt_cases_passed": 12,
+    "native_first_attempt_cases_total": 12,
+    "native_markdown_repetitions": 3,
+    "quote_rule": "Nonempty contiguous substring after whitespace normalization; the original contract bytes are unchanged."
+  },
+  "recovery": {
+    "checkpoint_cycles": 5,
+    "checkpoint_delay_seconds": 3600,
+    "decision_cycles": 10,
+    "resume_grants_more_resources": false
+  },
+  "older_reader": {
+    "exit": 0,
+    "ceo_messages_preserved": 9,
+    "rechecked_this_revision": false
+  },
+  "limits": [
+    "Three desktop trials and twelve native registrar cases are not a customer-wide reliability rate.",
+    "Live trials precede spelling-only prompt corrections; the execution logic and model choice are unchanged.",
+    "No live correction of an executing provider worker or voice hardware trial.",
+    "The full UI suite was not rerun; focused panel, affordance and documentation checks passed.",
+    "P4 remains open; selector contrast measurements are not independent design approval.",
+    "The live/reloaded proactive report styling seam remains separate.",
+    "No main merge or deployment."
+  ],
+  "superseded_by": "urban-results.json"
+}
