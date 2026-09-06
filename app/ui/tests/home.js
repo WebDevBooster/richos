@@ -1182,13 +1182,45 @@ async function main() {
     p5.on("console", (m) => {
       if (m.type() === "error") errors.push("console: " + m.text());
     });
+
+    // A corpus comfortably over the floor, in place BEFORE THE PAGE'S OWN SCRIPTS RUN —
+    // which is the only moment it can matter, since the choice picks the script list.
+    //
+    // THIS USED TO BE A `homeFieldSet()` AFTER LOAD, AND IT WAS A RACE THIS CHECK WON ONLY ON
+    // AN IDLE MACHINE. `home.js:1453` starts the field from `requestIdleCallback(startField,
+    // { timeout: 1200 })`, and that callback asks `home_field_data` on its own. MEASURED here,
+    // five consecutive launches: the page asks at 358.0, 349.0, 348.0, 352.0 and 347.0ms from
+    // navigation, while this suite gets its first turn at 98.0, 86.0, 87.0, 89.0 and 85.0ms —
+    // a mean margin of 261.8ms, spent by two `evaluate` round trips. Lose it and
+    // `askForCustomerField()` reads `homeField === null`, the offer is recorded `unavailable`,
+    // the demonstration's 7,500 objects are drawn, and this check fails on its FIRST assertion
+    // with "the picture is not drawn from his corpus — expected 4000, actual 7500".
+    //
+    // That is exactly what a full `run.js` sweep produced while `node home.js` alone stayed
+    // green: nothing leaked between suites, the machine was simply busier by the time this
+    // suite ran. Reproduced deterministically on an idle machine with the knob below at 400ms,
+    // which is inside the measured margin; `home.js`'s own note records the harness's next
+    // instruction landing ~2,000ms late on a GitHub `macos-latest` runner.
+    //
+    // `__RICHOS_MOCK_PRESET__` is mock.js's pre-boot switch and an init script runs before any
+    // of the page's own scripts, so there is no longer a moment at which the page can ask and
+    // get the wrong answer — first, last or alone.
+    const OBJECTS = 4000;
+    await p5.addInitScript((n) => {
+      window.__RICHOS_MOCK_PRESET__ = Object.assign({}, window.__RICHOS_MOCK_PRESET__, {
+        homeField: { objects: n, records: 9000 },
+      });
+    }, OBJECTS);
     await p5.goto(APP);
     await p5.waitForFunction("typeof window.RichHome === 'object'");
     await p5.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
-    // A corpus comfortably over the floor, set BEFORE the field starts — which is the only
-    // moment it can matter, since the choice picks the script list.
-    const OBJECTS = 4000;
-    await p5.evaluate((n) => window.__RICHOS_MOCK__.homeFieldSet({ objects: n, records: 9000 }), OBJECTS);
+    // THE SLOW RUNNER, ON DEMAND, AND POINTED AT THE RACE THAT WAS HERE — the same
+    // `RICHOS_SPLASH_LAG_MS` knob the cold-launch check carries, because it reproduces the
+    // same condition and one condition should not need two switches. At 400ms this check was
+    // red before this change and is green after it; at 0 it costs nothing.
+    if (LAG_MS > 0) await p5.waitForTimeout(LAG_MS);
+    // The field has almost certainly started itself by now, on the launch a customer gets.
+    // This is the floor under that, and it is a no-op once `fieldStarted` is set.
     await p5.evaluate(() => window.RichHome.startField());
     await p5.waitForFunction("window.RichHome.state.field === 'live'", { timeout: 60000 });
     await p5.waitForFunction("window.__loro && !window.__loro.blooming", { timeout: 90000 });
