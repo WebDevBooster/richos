@@ -2568,8 +2568,13 @@ if _section CL; then
 # "a false claim is refused" — a gate that refuses everything passes it. One of
 # the mutations empties the integration ref list precisely so a TRUE landing
 # claim gets refused, and asserts that the POSITIVE case goes red.
-set +e; "$SCRIPT_DIR/guard-unresolved-claims.test.sh" >/dev/null 2>&1; rc=$?; set -e
+CL1_LOG="$(mktemp -t claim-gate.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-unresolved-claims.test.sh" >"$CL1_LOG" 2>&1; rc=$?; set -e
 emit_case "CL1.claim-gate-suite-passes" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    cat "$CL1_LOG"
+fi
+rm -f "$CL1_LOG"
 # Output KEPT on failure. IL7 discards it, and when CL2 first went red inside
 # this suite while passing standalone, "exit=1" was the entire diagnosis. A
 # mutation harness that can only say "something survived" is a harness you end

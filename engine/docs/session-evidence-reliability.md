@@ -59,3 +59,10 @@ worktree and live engine are never mutated by that runner.
 Read-only replay against the incident ledger removed all 68 false handover entries
 without editing that ledger. The positive controls still retain a real untracked
 document and pass file symlinks to the existing refusal gates.
+
+The claim-gate fixtures extend real commit IDs when a seven-character prefix is
+all digits or all letters. Those prefixes are intentionally outside the gate's
+claim vocabulary and previously made its tests intermittent. A forced numeric
+branch prefix reproduced seven failures before the fixture fix and passed all
+65 cases afterward. Deterministic controls cover both prefix shapes. The full
+contract runner now includes the child test output when this section fails.
