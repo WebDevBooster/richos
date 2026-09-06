@@ -187,6 +187,14 @@ struct EngineLeaseFactory {
     /// his name into settings is addressed by it at the next rotation rather than at the next
     /// relaunch. A cached path would be an answer computed before the thing it describes could
     /// change — the defect `claude_bin` above joined this struct to fix.
+    ///
+    /// **The CEO's name is read from `config.json` ON DISK, not from `AppState::config`, and
+    /// that is deadlock avoidance rather than a shortcut.** This factory is called from inside
+    /// the spine's mutex (rotation and crash recovery happen mid-turn), and the lock order
+    /// stated three times in this file is config → registry → entity → spine. Taking the config
+    /// lock here would take two of them in the opposite order. `ConfigStore::open` reads and
+    /// never writes (`config.rs`), and `set_user_name` persists immediately, so the file is as
+    /// current as the lock would have been.
     data_dir: PathBuf,
 }
 
