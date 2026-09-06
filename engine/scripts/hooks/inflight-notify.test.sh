@@ -34,8 +34,28 @@ ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; FAIL=$((FAIL + 1)); }
 say() { [ "$VERBOSE" -eq 1 ] && printf '\n----- %s -----\n%s\n' "$1" "$2"; return 0; }
 
-SANDBOX="$(mktemp -d -t inflight-notify.XXXXXX)"
-trap 'rm -rf "$SANDBOX"' EXIT
+# IN2, and the sandbox path is deliberately reached THROUGH A SYMLINK.
+#
+# Case 5j proves that the notice predicate resolves paths with realpath rather
+# than abspath. That property is only load-bearing when the path it is given
+# actually passes through a symlink — and on 2026-09-05 `zach-opus-rd1` proved
+# with a four-arm controlled experiment that it was not being exercised: with a
+# REAL sandbox path the abspath-not-realpath mutant SURVIVES; with a symlinked
+# one it is killed at 5j; both unmutated controls are green on both shapes, so
+# the difference is the mutation and not the path.
+#
+# It passed on this Mac only because `/var/folders` happens to be reached
+# through `/private/var` — an accident of the host, not a property of the test.
+# On a Linux runner where the sandbox path is real, IN2 went green over a check
+# that could not fail. Forcing the symlink makes it load-bearing on EVERY host.
+#
+# Do not "simplify" this back to a bare mktemp, and do not try to arrange it via
+# TMPDIR: macOS `mktemp -d -t` ignores TMPDIR outright, which is how rd1's own
+# first reproduction came out invalid and was discarded.
+SANDBOX_REAL="$(mktemp -d -t inflight-notify.XXXXXX)"
+SANDBOX="${SANDBOX_REAL}.link"
+ln -s "$SANDBOX_REAL" "$SANDBOX"
+trap 'rm -f "$SANDBOX"; rm -rf "$SANDBOX_REAL"' EXIT
 
 REPO="$SANDBOX/repo"
 TEAMS="$SANDBOX/teams"
