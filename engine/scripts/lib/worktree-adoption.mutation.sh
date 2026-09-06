@@ -98,8 +98,8 @@ mutant subdirectory-accepted "A22" "$F" \
 
 # --- hermetic rooting --------------------------------------------------------
 mutant hermetic-rooting-removed "A40" "$F" \
-    '    if bool(led) == bool(txd):' \
-    '    if True:' \
+    '    if led_default and tx_default:{NL}        return True, "production: both stores at their default paths"' \
+    '    if True:{NL}        return True, "production: both stores at their default paths"' \
     "a suite that overrode only the transaction store would read the OPERATOR'S REAL ownership ledger and rename a live engineer's worktree into a temporary directory."
 
 # --- the record is the enumeration, never a directory scan --------------------

@@ -176,18 +176,31 @@ wl = _load("worktree_ledger", os.path.join(HERE, "worktree-ledger.py"))
 # hermetic rooting
 # --------------------------------------------------------------------------
 
+DEFAULT_TX_ROOT = os.path.join(os.path.expanduser("~"), ".claude", "state", "worktree-transactions")
+
+
 def rooting():
-    """(ok, reason). Both overrides set, or neither. See the header."""
-    led = (os.environ.get("RICHOS_WORKTREE_LEDGER") or "").strip()
-    txd = (os.environ.get("RICHOS_WORKTREE_TX_DIR") or "").strip()
-    if bool(led) == bool(txd):
-        return True, ("sandbox: ledger=%s tx=%s" % (led, txd)) if led else "production: both stores at their default paths"
-    if led:
-        return False, ("RICHOS_WORKTREE_LEDGER is overridden (%s) but RICHOS_WORKTREE_TX_DIR is not: "
-                       "adoption would read a sandbox ledger and write the operator's real transaction store" % led)
-    return False, ("RICHOS_WORKTREE_TX_DIR is overridden (%s) but RICHOS_WORKTREE_LEDGER is not: "
-                   "adoption would read the operator's REAL ownership ledger and quarantine real "
-                   "worktrees into a sandbox" % txd)
+    """(ok, reason). Both stores at their default paths, or both away from them.
+
+    The question is asked of the RESOLVED PATHS, not of whether an environment
+    variable happens to be set. A caller that passes `--ledger` naming the very
+    file the default resolves to has overridden nothing, and refusing it would
+    be a refusal over a spelling."""
+    led = os.path.abspath(wl.ledger_path())
+    txd = os.path.abspath(tx.tx_root())
+    led_default = led == os.path.abspath(wl.DEFAULT_PATH)
+    tx_default = txd == os.path.abspath(DEFAULT_TX_ROOT)
+    if led_default and tx_default:
+        return True, "production: both stores at their default paths"
+    if not led_default and not tx_default:
+        return True, "sandbox: ledger=%s tx=%s" % (led, txd)
+    if tx_default:
+        return False, ("the ownership ledger is redirected (%s) while the transaction store is at its "
+                       "DEFAULT (%s): adoption would read a sandbox ledger and write the operator's "
+                       "real transaction store" % (led, txd))
+    return False, ("the transaction store is redirected (%s) while the ownership ledger is at its "
+                   "DEFAULT (%s): adoption would read the operator's REAL ownership ledger and "
+                   "quarantine real worktrees into a sandbox" % (txd, led))
 
 
 # --------------------------------------------------------------------------
@@ -747,6 +760,12 @@ def _cmd_adopt(a):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     ap = argparse.ArgumentParser(prog="worktree-adoption.py")
+    # --ledger is the same override RICHOS_WORKTREE_LEDGER is, spelled as an
+    # argument so a caller (reap-stale-worktrees.sh) can hand down the exact
+    # ledger it is itself reading rather than hoping the environment agrees.
+    # It is applied to this process only, and `rooting()` still judges the
+    # RESOLVED path, so naming the default file overrides nothing.
+    ap.add_argument("--ledger", default=None, help="the ownership ledger to read")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("rooting").set_defaults(fn=_cmd_rooting)
@@ -765,6 +784,8 @@ def main(argv=None):
     p.set_defaults(fn=_cmd_adopt)
 
     a = ap.parse_args(argv)
+    if a.ledger:
+        os.environ["RICHOS_WORKTREE_LEDGER"] = a.ledger
     return a.fn(a)
 
 
