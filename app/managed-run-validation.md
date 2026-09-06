@@ -1,4 +1,10 @@
-# Seventh revision: validation after Urban's review
+# Eighth revision: validation after Urban's P5 review
+
+See [the P5 response](URBAN-P5-RESPONSE.md) and
+[the current evidence](validation/owned-work/urban-p5-results.json).
+The earlier evidence below is historical. Independent P5 signoff remains open.
+
+## Seventh revision: validation after Urban's review
 
 See [the review response](URBAN-REVIEW-RESPONSE.md) and
 [the current evidence](validation/owned-work/urban-results.json) for the panel and

@@ -77,13 +77,9 @@ const C = require("./lib/contrast");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = path.join(__dirname, "shots-contrast");
 const DEBT_FILE = path.join(__dirname, "contrast-debt.json");
-const CSS_FILES = [path.join(UI_DIR, "style.css"), path.join(UI_DIR, "splash.css")];
-const SOURCE_FILES = [
-  path.join(UI_DIR, "index.html"),
-  path.join(UI_DIR, "main.js"),
-  path.join(UI_DIR, "timeline.js"),
-  path.join(UI_DIR, "splash.js"),
-];
+const SOURCES = require("./lib/ui-sources");
+const CSS_FILES = SOURCES.styleSources().map(SOURCES.abs);
+const SOURCE_FILES = SOURCES.stateSources().map(SOURCES.abs);
 
 const THEMES = ["light", "dark"];
 
@@ -99,6 +95,7 @@ const SURFACES = [
     drive: async p => {
       await p.evaluate(() => document.querySelector('.nav-thread[data-thread-id="hiring"]').click());
       await require("./lib/assignments").drive(p, ["scope"].includes(state) ? "decision" : ["history", "picker"].includes(state) ? "running" : state);
+      if (["decision", "scope"].includes(state)) await require("./lib/assignments").review(p);
       if (state === "history") await p.locator("#managed-run summary").click();
       if (state === "picker") { await p.locator("#managed-run [data-run-picker]").click(); await p.waitForSelector("#managed-run .run-choices button"); }
       if (state === "scope") await p.locator("#managed-run [data-run-scope]").click();
@@ -807,7 +804,7 @@ async function main() {
         await surface.drive(page);
         const out = await walk(page, surface.name, theme);
         if (surface.name.startsWith("assignment-")) {
-          const required = surface.name === "assignment-picker" ? "run-choices" : surface.name === "assignment-scope" ? "textarea" : surface.name === "assignment-history" ? "run-checks" : "run-status";
+          const required = surface.name === "assignment-decision" ? "run-question" : surface.name === "assignment-picker" ? "run-choices" : surface.name === "assignment-scope" ? "textarea" : surface.name === "assignment-history" ? "run-checks" : "run-status";
           assert(out.measuredPaths.some(p => p.includes(required)), surface.name + " did not measure its required state: " + required);
         }
         if (theme === "light") {

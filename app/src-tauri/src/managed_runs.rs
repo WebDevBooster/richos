@@ -1,7 +1,7 @@
 //! Desktop commands for the shared run controller. The conversation still
 //! streams through Spine; run state is a separate durable projection.
 use crate::AppState;
-use richos_core::run::{read_snapshot, RunController, RunPlan, RunSnapshot, RunState};
+use richos_core::run::{read_snapshot, RunController, RunPlan, RunState};
 use richos_core::run_spine::{SpineRunHost, EVENT_RUN_UPDATED};
 use std::path::PathBuf;
 use std::sync::{
@@ -28,69 +28,11 @@ impl ManagedRuns {
     }
 }
 
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunView {
-    thread_id: String,
-    run_id: String,
-    updated_at: u64,
-    created_at: u64,
-    revision: u64,
-    goal: String,
-    autonomous: bool,
-    preparing: bool,
-    workspace: String,
-    max_attempts: u32,
-    turn_timeout_seconds: u64,
-    state: RunState,
-    tasks: Vec<TaskView>,
-}
-
-#[derive(Clone, serde::Serialize)]
-pub struct TaskView {
-    id: String,
-    description: String,
-    state: richos_core::run::TaskState,
-    checks: Vec<String>,
-    commands: Vec<Vec<String>>,
-    attempts: u32,
-    evidence: Vec<String>,
-    decision: Option<richos_core::run::RunDecision>,
-}
-
-pub(crate) fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
-    RunView {
-        thread_id: thread.into(),
-        run_id: snapshot.id.clone(),
-        updated_at: snapshot.updated_at,
-        created_at: snapshot.created_at,
-        revision: snapshot.revision,
-        goal: snapshot.plan.display_goal().into(),
-        autonomous: snapshot.plan.autonomous(),
-        preparing: false,
-        workspace: snapshot.plan.workspace.display().to_string(),
-        max_attempts: snapshot.plan.max_attempts,
-        turn_timeout_seconds: snapshot.plan.turn_timeout_seconds,
-        state: snapshot.state(),
-        tasks: snapshot
-            .plan
-            .tasks
-            .iter()
-            .zip(&snapshot.tasks)
-            .enumerate()
-            .map(|(i, (t, p))| TaskView {
-                id: t.id.clone(),
-                description: t.prompt.clone(),
-                state: p.state.clone(),
-                checks: t.checks.iter().map(|c| c.name.clone()).collect(),
-                commands: t.checks.iter().map(|c| c.argv.clone()).collect(),
-                attempts: p.attempts,
-                evidence: p.evidence.clone(),
-                decision: snapshot.decision(i),
-            })
-            .collect(),
-    }
-}
+#[path = "run_view.rs"]
+mod projection;
+pub(crate) use projection::view;
+pub use projection::RunView;
+use projection::TaskView;
 
 pub(crate) fn journals(state: &AppState, thread: &str) -> Result<Vec<PathBuf>, String> {
     if thread.is_empty()
@@ -230,6 +172,7 @@ fn pending_view(state: &AppState, thread_id: &str) -> Option<RunView> {
             description: "Plan the complete work".into(),
             state: richos_core::run::TaskState::Pending,
             checks: vec![],
+            previous_instructions: vec![],
             commands: vec![],
             attempts: 0,
             decision: None,
@@ -544,7 +487,8 @@ pub fn respond_run_decision(
         return Err("The selected task changed.".into());
     }
     let mut ctl = RunController::open(&journal).map_err(|e| e.to_string())?;
-    ctl.respond_to_decision(&task_id, &decision_id, action).map_err(|e| e.to_string())?;
+    ctl.respond_to_decision(&task_id, &decision_id, action)
+        .map_err(|e| e.to_string())?;
     if journal.with_extension("pause").exists() {
         std::fs::remove_file(journal.with_extension("pause")).map_err(|e| e.to_string())?;
     }

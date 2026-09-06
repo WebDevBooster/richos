@@ -38,8 +38,18 @@
 //   B3. Strings under the prose floor. "Rich", "Copied", "Show more" are real UI text and
 //       are deliberately excluded: they are labels ON controls, not states, and including
 //       them buries the states in nouns.
-//   B4. mock.js. Its strings are SEEDED CONVERSATION DATA for the browser preview, not
-//       states the product can enter. Scanned separately and reported, never mixed in.
+//   B4. The `preview-data` files — `mock.js` and `home/field-data.js`. Their strings are
+//       SEEDED SAMPLE CONTENT for the browser preview, not states the product can enter.
+//       Scanned separately and reported, never mixed in. WHICH files those are is not
+//       decided here: `lib/ui-sources.js` classifies every shipped file and reconciles the
+//       classification against the tree in both directions.
+//   B6. GLSL. `home/field-engine.js` carries its vertex and fragment shaders as string
+//       literals, and a shader is three hundred characters of `vec4`, `uniform` and
+//       `gl_FragColor` that clears every prose test written for English. It is code the GPU
+//       reads, never text a person reads, so `looksLikeShader` below drops it — and drops
+//       it BY SHAPE (a `void main()` or a `gl_` symbol), not by file name, so a shader that
+//       moves to another file is still excluded and a sentence that moves INTO this one is
+//       still caught.
 //   B5. UNBOUNDED MACHINERY LEAK. `send()` prints `String(e)` from `send_message` into the
 //       timeline. If the failure came from inside richos-core rather than from the command
 //       layer's own authored refusal, that text is a Display impl — "cognition io: broken
@@ -54,8 +64,9 @@
 
 const fs = require("fs");
 const path = require("path");
+const SOURCES = require("./ui-sources");
 
-const UI_DIR = path.resolve(__dirname, "..", "..");
+const UI_DIR = SOURCES.UI_DIR;
 
 // ---------------------------------------------------------------------------------------
 // JS: strip comments, keep string literals
@@ -225,11 +236,145 @@ function looksLikeProse(s) {
   const t = String(s).trim();
   if (t.length < 12) return false;
   if (!/[A-Za-z]/.test(t)) return false;
+  if (looksLikeShader(t)) return false;
   for (const re of MACHINERY) if (re.test(t)) return false;
+  if (looksLikeCssValue(t)) return false;
+  if (isTaglessMarkup(t)) return false;
   const words = t.split(/\s+/).filter(Boolean);
   if (words.length < 3) return false;
   const wordy = words.filter((w) => /[A-Za-z]{2}/.test(w));
   return wordy.length >= 2;
+}
+
+// ---------------------------------------------------------------------------------------
+// Two more shapes that read as English and are not (found by widening the source list)
+// ---------------------------------------------------------------------------------------
+
+/// A CSS *value*: `linear-gradient(100deg, rgba(255,240,205,0) 40%, …)`, `1px solid #56698E`,
+/// `clamp(28px, 4.4vh, 44px)`, `50% -1px auto auto`. Every one of those clears the prose
+/// floor — three-plus tokens, two-plus with letters in them — and none is text a person
+/// reads. `splash-library.js` is nothing but such values, and widening the source list put
+/// twenty of them in front of the affordance rule as states to be classified.
+///
+/// RECOGNIZED POSITIVELY, NOT GUESSED AT. Function calls of the CSS grammar are removed with
+/// their arguments, then hex colors, then numbers with CSS units, then punctuation, then a
+/// closed vocabulary of CSS keywords. If NO letters survive, every token in the string was a
+/// token of CSS and nothing in it was ever English.
+///
+/// THE KEYWORD LIST IS A LANGUAGE, NOT AN INVENTORY, and that distinction is the reason it
+/// is allowed to be written down here when three other lists in this directory were not. It
+/// enumerates part of the CSS grammar, which is fixed by a specification and does not change
+/// when somebody adds a file to `app/ui/`. A list that drifts with the product is the defect;
+/// a list that quotes a standard is a constant. The failure direction is also the safe one:
+/// a CSS keyword missing from it means a value is NOT recognized and lands in the inventory
+/// as a state to classify, which is noise. Nothing here can hide a state.
+const CSS_FUNCTIONS =
+  "rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|var|env|calc|clamp|min|max|url|attr|" +
+  "(?:repeating-)?(?:linear|radial|conic)-gradient|cubic-bezier|steps|" +
+  "translate[XYZ3d]*|scale[XYZ3d]*|rotate[XYZ3d]*|skew[XY]?|matrix3?d?|perspective|blur|" +
+  "drop-shadow|brightness|contrast|saturate|grayscale|opacity|invert|sepia|hue-rotate";
+
+const CSS_KEYWORDS = new Set([
+  "auto", "none", "normal", "initial", "inherit", "unset", "revert", "currentcolor", "transparent",
+  "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset", "hidden", "visible",
+  "to", "at", "from", "in", "top", "bottom", "left", "right", "center", "circle", "ellipse",
+  "closest-side", "closest-corner", "farthest-side", "farthest-corner",
+  "cover", "contain", "repeat", "no-repeat", "repeat-x", "repeat-y", "round", "space",
+  "border-box", "content-box", "padding-box", "fill-box", "stroke-box", "view-box",
+  "bold", "bolder", "lighter", "italic", "oblique", "uppercase", "lowercase", "capitalize",
+  "block", "inline", "flex", "grid", "absolute", "relative", "fixed", "sticky", "static",
+  "ease", "ease-in", "ease-out", "ease-in-out", "linear", "infinite", "alternate", "forwards",
+  "both", "backwards", "running", "paused", "start", "end", "text",
+]);
+
+/// A HARD CSS MARKER IS REQUIRED before anything can be called a CSS value: a function call
+/// of the grammar, a hex color, or a number carrying a CSS unit. Without this clause the
+/// keyword vocabulary alone would swallow a short English sentence made only of words CSS
+/// also uses — "at top left", "from left to right" — and a filter that can eat a sentence is
+/// a filter that can hide a state. With it, a string has to contain a token that is not
+/// English at all before its remaining words are even looked at.
+const CSS_MARKER = new RegExp(
+  "\\b(?:" + CSS_FUNCTIONS + ")\\(|#[0-9a-fA-F]{3,8}\\b|" +
+    "-?\\d*\\.?\\d+(?:px|em|rem|ex|ch|vh|vw|vmin|vmax|pt|pc|deg|rad|turn|fr|ms|q)\\b",
+  "i"
+);
+
+function looksLikeCssValue(s) {
+  let t = String(s);
+  if (!CSS_MARKER.test(t)) return false;
+  // Function calls, innermost first, until the string stops changing. The bound is a guard
+  // against a bug in this loop, not a belief about nesting depth.
+  for (let i = 0; i < 20; i++) {
+    const next = t.replace(new RegExp("\\b(?:" + CSS_FUNCTIONS + ")\\([^()]*\\)", "gi"), " ");
+    if (next === t) break;
+    t = next;
+  }
+  t = t
+    .replace(/#[0-9a-fA-F]{3,8}\b/g, " ")
+    .replace(/-?\d*\.?\d+(?:px|%|em|rem|ex|ch|vh|vw|vmin|vmax|pt|pc|cm|mm|in|deg|rad|turn|fr|ms|s|q)?\b/gi, " ")
+    .replace(/[,/()!;:*+−-]/g, " ");
+  for (const tok of t.split(/\s+/).filter(Boolean)) {
+    if (!/[A-Za-z]/.test(tok)) continue;
+    if (!CSS_KEYWORDS.has(tok.toLowerCase())) return false;
+  }
+  // Every token that carried a letter was a token of CSS. Nothing in this string is English.
+  return true;
+}
+
+/// Markup whose TEXT CONTENT is empty or under the prose floor: `<div class="sig"><div
+/// class="n"></div><div class="l"></div></div>`, or `home.js:174`'s 3 KB inline SVG whose
+/// only text node is the accessible title "RichOS".
+///
+/// A person reads the text content, never the tags, so the tags are what the prose test
+/// should not be reading either. This DROPS a literal only when nothing readable survives
+/// stripping — `"loro · <span class=v></span> months · <b>… memories</b>"` keeps its text and
+/// stays in the inventory, because that sentence is on the home screen and somebody has to
+/// classify it.
+function isTaglessMarkup(s) {
+  const t = String(s);
+  if (t.indexOf("<") < 0 || !/<\/?[a-zA-Z][a-zA-Z0-9-]*[\s/>]/.test(t)) return false;
+  const text = t
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&[a-z]+;|&#\d+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length >= 12) {
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length >= 3 && words.filter((w) => /[A-Za-z]{2}/.test(w)).length >= 2) return false;
+  }
+  return true;
+}
+
+/// GLSL, which the prose filter alone reads as thirty perfectly good English-shaped words
+/// (blind spot B6). `home/field-engine.js` carries fourteen shaders as string literals and
+/// every one of them clears the three-token floor.
+///
+/// BY SHAPE, NOT BY FILE. A `void main()`, a `gl_`-prefixed symbol or a storage-qualifier
+/// declaration is a shader wherever it is written; naming the file instead would mean a
+/// shader moved to a new module walks straight back into the inventory, which is the same
+/// class of defect as a typed source list. The three markers are chosen because none of them
+/// can appear in a sentence a CEO reads: `gl_Position`, `gl_FragColor` and `gl_PointCoord`
+/// are reserved GLSL identifiers, `void main()` is a C-family function signature, and
+/// `uniform vec2` / `varying float` / `precision mediump` are GLSL declarations.
+///
+/// THE THIRD MARKER IS NOT DECORATION, AND MEASUREMENT IS WHAT PUT IT THERE. The first
+/// version of this function had only the first two, and two of the fourteen literals are
+/// SHARED PROLOGUES — a common `quietK()` and a common `toScr()` spliced into several
+/// shaders — which contain neither `gl_` nor `void main()`. They sailed through and sat in
+/// the state inventory as two 400-character "states" waiting to be hand-classified. A filter
+/// verified by reading it would have shipped at 12 of 14.
+///
+/// MEASURED, not asserted. Across the twelve `ui` sources the derivation returns today there
+/// are 285 prose-shaped literals with this clause off; it removes 14 of them, all 14 in
+/// `home/field-engine.js`, and 0 anywhere else. `affordances.js` asserts both halves of that
+/// — the count and the single file — so a future widening that started eating real states
+/// fails rather than quietly shrinking the inventory.
+function looksLikeShader(s) {
+  return (
+    /\bgl_[A-Za-z]/.test(s) ||
+    /\bvoid\s+main\s*\(\s*\)/.test(s) ||
+    /\b(?:uniform|varying|attribute|precision)\s+(?:highp|mediump|lowp|float|int|bool|vec[234]|mat[234]|sampler2D)\b/.test(s)
+  );
 }
 
 // ---------------------------------------------------------------------------------------
@@ -484,7 +629,25 @@ function normalize(s) {
   return String(s).replace(/\s+/g, " ").trim();
 }
 
-const UI_SOURCES = ["index.html", "main.js", "timeline.js", "runs.js"];
+/// THE SOURCE LIST IS DERIVED, AND THIS IS WHERE IT USED TO BE TYPED.
+///
+/// It read `["index.html", "main.js", "timeline.js"]` — three files, under a header that
+/// says "NEVER TYPE IT" — while `index.html` shipped nine `<script src>` tags and the tree
+/// held twelve product files in total. So `updates.js`, `home.js`, `settings-button.js`,
+/// `splash.js`, `splash-library.js`, `theme-boot.js` and the three `home/field-*.js`
+/// modules were outside the affordance rule entirely: a state in any of them could ask the
+/// CEO to do something with no control anywhere near it and this suite would have reported
+/// green. `updates.js` is the one that matters most — it is the update flow, it is the
+/// surface CEO ruling §26 governs, and "the update affordance must not be actionable while
+/// work is running" was a rule the gate for it could not see the file to check.
+///
+/// `lib/ui-sources.js` derives it from `index.html` and the closure over what the loaded
+/// files themselves load, and reconciles that against the tree in both directions. Adding a
+/// script to the shell adds it here; adding a file nobody loads FAILS rather than being
+/// skipped.
+function uiSources() {
+  return SOURCES.stateSources();
+}
 
 /// Every user-visible prose string the shipped UI can render, derived from disk.
 /// `{ text, normal, sites: ["main.js:1113", ...] }`, sorted by normal form.
@@ -498,18 +661,17 @@ function inventory() {
     if (rec.sites.indexOf(site) < 0) rec.sites.push(site);
   };
 
-  for (const name of UI_SOURCES) {
+  for (const name of uiSources()) {
     const src = fs.readFileSync(path.join(UI_DIR, name), "utf8");
     if (name.endsWith(".html")) {
       for (const s of htmlVisibleStrings(src)) add(s.text, name + ":" + s.line);
     } else {
       for (const s of jsStringLiterals(src)) add(s.text, name + ":" + s.line);
-      if (name === "runs.js") {
+      {
         // State maps are part of the inventory even when a label is just one word.
         // Do not allow the prose heuristic to hide Working, Paused or Queued again.
-        const states = src.match(/const labels\s*=\s*({[\s\S]*?});/);
-        if (!states) throw new Error("Assignment state map was not found");
-        for (const s of jsStringLiterals(states[1])) add(s.text, name + ":labels", true);
+        for (const states of src.matchAll(/(?:const|let)\s+\w*(?:labels?|Labels?|LABELS?|states?|States?|STATES?|status|Status|STATUS)\w*\s*=\s*({[\s\S]*?});/g))
+          for (const s of jsStringLiterals(states[1])) add(s.text, name + ":states", true);
         for (const match of src.matchAll(/(?:button|node)\(\s*"[^"]*"(?:,\s*"[^"]*")?/g)) {
           const strings = jsStringLiterals(match[0]);
           const text = strings[match[0].startsWith("node") ? 1 : 0]?.text;
@@ -523,28 +685,49 @@ function inventory() {
   return Array.from(byNormal.values()).sort((a, b) => (a.normal < b.normal ? -1 : 1));
 }
 
-/// mock.js, kept OUT of the inventory and reported separately (blind spot B4).
-function mockStrings() {
-  const src = fs.readFileSync(path.join(UI_DIR, "mock.js"), "utf8");
+/// The `preview-data` files, kept OUT of the inventory and reported separately (blind spot
+/// B4). Which files those are is `lib/ui-sources.js`'s classification, not a name typed
+/// here: it was `mock.js` alone until the derivation found `home/field-data.js` beside it.
+function previewDataStrings() {
   const seen = new Set();
-  for (const s of jsStringLiterals(src)) {
-    const nrm = normalize(s.text);
-    if (looksLikeProse(nrm)) seen.add(nrm);
+  for (const name of SOURCES.previewDataSources()) {
+    const src = fs.readFileSync(path.join(UI_DIR, name), "utf8");
+    for (const s of jsStringLiterals(src)) {
+      const nrm = normalize(s.text);
+      if (looksLikeProse(nrm)) seen.add(nrm);
+    }
   }
   return Array.from(seen).sort();
+}
+
+/// The shader literals this scrape drops (blind spot B6), with their sites — so the count
+/// is a number a check can assert on rather than a claim in a comment.
+function shaderStrings() {
+  const out = [];
+  for (const name of uiSources()) {
+    if (name.endsWith(".html")) continue;
+    const src = fs.readFileSync(path.join(UI_DIR, name), "utf8");
+    for (const s of jsStringLiterals(src)) {
+      const nrm = normalize(s.text);
+      if (looksLikeShader(nrm)) out.push({ text: nrm, site: name + ":" + s.line });
+    }
+  }
+  return out;
 }
 
 module.exports = {
   inventory,
   testModuleRanges,
-  mockStrings,
+  previewDataStrings,
+  shaderStrings,
   rustStrings,
   jsStringLiterals,
   htmlVisibleStrings,
   looksLikeProse,
+  looksLikeShader,
   normalize,
   UI_DIR,
-  UI_SOURCES,
+  uiSources,
 };
 
 // `node lib/state-strings.js` prints the derived inventory — the derivation, runnable.
@@ -552,8 +735,12 @@ if (require.main === module) {
   const inv = inventory();
   for (const rec of inv) console.log(rec.sites.join(" ") + "\n  " + JSON.stringify(rec.normal));
   console.error(
-    "\n" + inv.length + " user-visible prose string(s) derived from " + UI_SOURCES.join(", ") +
+    "\n" + inv.length + " user-visible prose string(s) derived from " + uiSources().join(", ") +
       " + the Rust bridge scrape"
   );
-  console.error(mockStrings().length + " further prose string(s) in mock.js (seeded preview data — NOT states)");
+  console.error(
+    previewDataStrings().length + " further prose string(s) in " +
+      SOURCES.previewDataSources().join(", ") + " (seeded preview data — NOT states)"
+  );
+  console.error(shaderStrings().length + " GLSL shader literal(s) dropped (blind spot B6)");
 }

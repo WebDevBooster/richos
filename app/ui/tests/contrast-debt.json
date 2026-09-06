@@ -91,7 +91,7 @@
       "considered": 394
     },
     "assignment-empty": {
-      "checked": 104,
+      "checked": 106,
       "considered": 432
     },
     "assignment-running": {
@@ -99,11 +99,11 @@
       "considered": 448
     },
     "assignment-decision": {
-      "checked": 120,
-      "considered": 458
+      "checked": 124,
+      "considered": 466
     },
     "assignment-error": {
-      "checked": 106,
+      "checked": 108,
       "considered": 438
     },
     "assignment-history": {
@@ -111,12 +111,12 @@
       "considered": 448
     },
     "assignment-picker": {
-      "checked": 112,
-      "considered": 448
+      "checked": 116,
+      "considered": 456
     },
     "assignment-scope": {
-      "checked": 114,
-      "considered": 452
+      "checked": 122,
+      "considered": 464
     }
   },
   "signatures": {}

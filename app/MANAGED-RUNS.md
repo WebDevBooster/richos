@@ -96,16 +96,20 @@ for architecture, audit response and known limits.
 
 The assignment panel shows the selected work and the number of assignments that
 need you. Its chooser puts pending decisions first. Duplicate titles include a
-creation time and distinguishing reference. Pause and End remain outside the
+creation time, with a reference only if the displayed times also collide. Pause and End remain outside the
 optional history. End asks you to confirm which assignment you are ending.
 
-Pending questions appear with working controls. Keep going authorizes only the
+Review decision opens the complete question and its answers above the compact
+strip. Read more below and Read previous expose long content. The question
+itself never has a height cap. Pause and End remain accessible. Keep going authorizes only the
 allowance displayed above it. Change instructions accepts your exact correction
 and rechecks the revised outcome. Business questions offer their choices or a
 written answer. These actions call the desktop controller directly and are saved
 before work proceeds. You can also answer Rich in the conversation.
 
-“Show me what happened” opens task details, completion checks and technical
-history. Completion checks use the same readable type size as the rest of the
+“Show me what happened” opens your request, the accepted scope and results.
+Earlier instructions remain visible separately when you change the assignment.
+Execution instructions stay in the durable record. Imported commands have a
+separate Technical details disclosure within history. Completion checks use the same readable type size as the rest of the
 panel. A load failure offers Refresh first and preserves diagnostic details in
 history. Setting an unreadable assignment aside requires confirmation.

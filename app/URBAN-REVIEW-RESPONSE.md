@@ -1,5 +1,8 @@
 # Response to Urban's assignment-panel review
 
+Historical P4 response, superseded by [the P5 response](URBAN-P5-RESPONSE.md).
+The short-question evidence below did not establish long-question usability.
+
 Urban reviewed `63e93ac` on September 5, 2026 and withheld P4 approval at 4/10.
 That rejection was warranted. The earlier panel exposed the controller's data
 structure, hid the stop controls and offered no actionable decision. Its tests

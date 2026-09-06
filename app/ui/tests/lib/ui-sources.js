@@ -1,0 +1,596 @@
+// THE SHIPPED-SOURCE MANIFEST, DERIVED FROM THE TREE. NEVER TYPED.
+//
+// WHY THIS FILE EXISTS
+// ====================
+// Three gates in this directory each carried their own hand-written list of which files in
+// `app/ui/` they look at, and every one of those lists had gone stale:
+//
+//   lib/state-strings.js  `UI_SOURCES = ["index.html", "main.js", "timeline.js"]`
+//                         against nine `<script src>` tags in index.html. So the affordance
+//                         rule — "every ACTIONABLE state names a control" — could not see
+//                         `updates.js`, the surface the CEO ruled on the day it was found,
+//                         nor `home.js`, `settings-button.js`, `splash.js`,
+//                         `splash-library.js` or `theme-boot.js`.
+//   tests/contrast.js     `SOURCE_FILES` = four of them, so check 12's exemption inventory
+//                         could not see a `data-contrast-exempt` declared in the other five;
+//                         `CSS_FILES` = two of the three linked stylesheets, missing the
+//                         53 KB `home.css` entirely.
+//
+// The file that held the worst of them opens with the words "DERIVE THE USER-VISIBLE STATE
+// INVENTORY FROM SOURCE. NEVER TYPE IT." A typed list under that header is not an oversight;
+// it is the proof that a rule written as a sentence does not survive contact with a second
+// author. So the lists are gone and this is the derivation that replaced them.
+//
+// HOW THE DERIVATION WORKS — THREE STEPS, ALL OFF DISK
+// ===================================================
+//   1. ENTRY.    `index.html` is the shell Tauri loads. Its `<script src>` and
+//                `<link rel=stylesheet href>` tags, read out of the markup with comments
+//                stripped, are the first generation.
+//   2. CLOSURE.  Every JS file already in the set is scanned for string literals naming an
+//                existing file under `app/ui/`, and those are added, repeatedly, until the
+//                set stops growing. This is what reaches `home/field-*.js`: they are in no
+//                script tag, they are loaded at runtime from `home.js:56`'s `FIELD` array,
+//                and a manifest built only from `index.html` would have been a shorter list
+//                that LOOKED derived. It is four more files than the nine `ls app/ui/*.js`
+//                reports.
+//   3. RECONCILE. Every `.js`/`.css`/`.html` file that actually exists under `app/ui/`
+//                (`tests/` and `node_modules/` excluded — they do not ship) must be in the
+//                closure. One that is not throws BY NAME. A file nobody loads is either a
+//                gate's blind spot or dead weight in the bundle, and both are worth a
+//                failure rather than a silent skip.
+//
+// THE ONE DECLARED LIST, AND WHY IT IS NOT THE DEFECT AGAIN
+// ========================================================
+// `ROLES` below classifies each discovered file. It is written down, because "is this file
+// seeded preview data or is it product?" is a judgment no scanner can make. What stops it
+// rotting is that it is RECONCILED IN BOTH DIRECTIONS against the derivation, every run:
+//
+//   * a discovered file with no role      -> throws, naming the file
+//   * a role for a file nobody discovers  -> throws, naming the role
+//
+// So the list cannot be short (step 3 plus the first rule) and it cannot be stale (the
+// second). That is the difference between a list that IS the inventory — the defect — and a
+// list that is checked against one.
+//
+// RUN IT:  node lib/ui-sources.js     — prints the manifest and the reconciliation.
+
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+
+const UI_DIR = path.resolve(__dirname, "..", "..");
+const ENTRY = "index.html";
+
+/// What each shipped file is. Every row says WHY, because every row is a claim about
+/// whether a gate needs to look at the file, and an undeclared claim is the defect above.
+///
+/// `role` is one of:
+///   "ui"            product code or markup. Its user-visible strings are STATES, and every
+///                   state-facing gate reads it.
+///   "preview-data"  seeded data for the browser preview. Its strings are sample content,
+///                   not states the product can enter (`state-strings.js` blind spot B4).
+///                   Scanned separately and reported, never folded into the inventory.
+///   "style"         a stylesheet. No string inventory; read by the contrast gate for
+///                   declared exemptions and color literals.
+const ROLES = {
+  "index.html": { role: "ui", why: "the shell Tauri loads" },
+  "runs.js": { role: "ui", why: "the durable assignment panel and its decision controls" },
+  "main.js": { role: "ui", why: "the chat surface and the bridge" },
+  "timeline.js": { role: "ui", why: "the working timeline's model and render" },
+  "home.js": { role: "ui", why: "the home screen the CEO lands on" },
+  "updates.js": { role: "ui", why: "the update surface — CEO ruling §26" },
+  "settings-button.js": { role: "ui", why: "the universal settings button — CEO ruling §15" },
+  "splash.js": { role: "ui", why: "the opening curtain's renderer" },
+  "splash-library.js": { role: "ui", why: "the two approved splash compositions — data, with prose in it" },
+  "theme-boot.js": { role: "ui", why: "the pre-paint theme mirror" },
+  "home/field-engine.js": { role: "ui", why: "the home screen's WebGL field — it authors the hover card and the loro line" },
+  "home/field-prep.js": { role: "ui", why: "the field's geometry preparation" },
+  "home/field-ref.js": { role: "ui", why: "the field's reference tables" },
+
+  "mock.js": {
+    role: "preview-data",
+    why:
+      "the dev bridge harness, inert whenever `window.__TAURI__` is present. Its strings are " +
+      "SEEDED CONVERSATION DATA for the browser preview, not states the product can enter.",
+  },
+  "home/field-data.js": {
+    role: "preview-data",
+    why:
+      "4.9 MB of wholly synthetic loro, declared as such in its own `meta.synthetic` field. " +
+      "Design input for the home screen's composition, not product copy.",
+  },
+
+  "style.css": { role: "style", why: "the shell's stylesheet" },
+  "home.css": { role: "style", why: "the home screen's stylesheet" },
+  "splash.css": { role: "style", why: "the opening curtain's stylesheet" },
+  "fonts/fonts.css": { role: "style", why: "the vendored font faces" },
+};
+
+// ---------------------------------------------------------------------------------------
+// Step 1 — the entry document's own references
+// ---------------------------------------------------------------------------------------
+
+/// `<script src>` and `<link rel=stylesheet href>` in `html`, in document order, with HTML
+/// comments removed first so a commented-out tag is not counted as shipped.
+function entryReferences(html) {
+  const src = String(html).replace(/<!--[\s\S]*?-->/g, "");
+  const out = [];
+  const script = /<script\b[^>]*\bsrc\s*=\s*(["'])([^"']+)\1/gi;
+  const link = /<link\b[^>]*>/gi;
+  let m;
+  while ((m = script.exec(src))) out.push({ ref: m[2].trim(), kind: "script" });
+  while ((m = link.exec(src))) {
+    const tag = m[0];
+    if (!/\brel\s*=\s*["']?stylesheet\b/i.test(tag)) continue;
+    const href = tag.match(/\bhref\s*=\s*(["'])([^"']+)\1/i);
+    if (href) out.push({ ref: href[2].trim(), kind: "stylesheet" });
+  }
+  return out;
+}
+
+/// An absolute URL or a protocol-relative one. This manifest is about files on disk, and a
+/// CDN reference is not one. There are none today; `manifest()` collects any it finds into
+/// `remote` so that a gate can assert on the number rather than assume it.
+function isRemote(ref) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(ref) || ref.indexOf("//") === 0;
+}
+
+/// `tests/` is this harness (it does not ship), `node_modules/` is the harness's
+/// dependencies. Everything else under `app/ui/` is bundled. Used by BOTH the disk walk and
+/// the closure, so the two agree about what "shipped" means by construction.
+const NOT_SHIPPED_DIRS = new Set(["tests", "node_modules"]);
+
+// ---------------------------------------------------------------------------------------
+// Step 2 — the closure over runtime-loaded files
+// ---------------------------------------------------------------------------------------
+
+/// Every `"…/x.js"`-shaped literal in `src` that names a file which EXISTS under `app/ui/`.
+///
+/// Deliberately existence-gated rather than pattern-gated. `main.js` mentions
+/// `app/src-tauri/src/main.rs` and `STREAMING.md` in prose; `home.js` mentions
+/// `design/mockups/data/generate-loro.mjs`. None of those resolve to a file under this
+/// directory, so none of them enter the manifest, and the rule needs no exception list to
+/// achieve that. What DOES resolve is `home/field-data.js` and its three siblings — which is
+/// the whole reason this step exists.
+///
+/// This reads the raw source, comments included, on purpose: a comment naming a file that
+/// exists is a file this directory ought to know about, and the cost of a false positive is
+/// one extra correct classification while the cost of a false negative is a blind gate.
+///
+/// `tests/` IS EXCLUDED HERE AS WELL AS IN THE DISK WALK, and it has to be: five shipped
+/// files name a suite in this directory in a comment ("`tests/splash.js` check 1 strips the
+/// assignment below…"), and reading comments means those resolve. A harness suite is not a
+/// shipped file, and classifying one would put this directory's own prose into the product's
+/// state inventory.
+function referencedFiles(src) {
+  const out = [];
+  const re = /["'`]([A-Za-z0-9_./-]+\.(?:js|css|html))["'`]/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const ref = m[1];
+    if (isRemote(ref) || ref.charAt(0) === "/" || ref.indexOf("..") >= 0) continue;
+    if (NOT_SHIPPED_DIRS.has(ref.replace(/^\.\//, "").split("/")[0])) continue;
+    const full = path.join(UI_DIR, ref);
+    if (full.indexOf(UI_DIR + path.sep) !== 0) continue;
+    let st;
+    try { st = fs.statSync(full); } catch (_e) { continue; }
+    if (st.isFile()) out.push(ref.replace(/^\.\//, ""));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------
+// Step 3 — what is actually on disk
+// ---------------------------------------------------------------------------------------
+
+function onDisk(dir, prefix, out) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1));
+  for (const e of entries) {
+    const rel = prefix ? prefix + "/" + e.name : e.name;
+    if (e.isDirectory()) {
+      if (NOT_SHIPPED_DIRS.has(e.name) || e.name.charAt(0) === ".") continue;
+      onDisk(path.join(dir, e.name), rel, out);
+      continue;
+    }
+    if (/\.(js|css|html)$/.test(e.name)) out.push(rel);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------
+// The manifest
+// ---------------------------------------------------------------------------------------
+
+/// STEP 3, AS A PURE FUNCTION OF ITS THREE INPUTS, so a suite can prove it refuses.
+///
+/// `manifest()` calls exactly this with the real derivation and the real tree; a test calls
+/// it with a short list, or a missing role, or a stale one, and watches it throw. That is
+/// the difference between a check that has been OBSERVED passing and one that has been shown
+/// able to fail — and it matters more here than almost anywhere, because this function is
+/// the thing standing between the gates and a second silent blind spot. A test that
+/// re-implemented these three rules would be proving its own copy.
+///
+/// Throws on the first disagreement. Returns the count reconciled.
+function reconcile(order, disk, roles) {
+  const seen = new Set(order);
+
+  const unreferenced = disk.filter((f) => !seen.has(f));
+  if (unreferenced.length) {
+    throw new Error(
+      unreferenced.length + " file(s) exist under app/ui/ and nothing loads them:\n  " +
+        unreferenced.join("\n  ") +
+        "\nEither wire them into index.html (or into a file that is already loaded), or delete " +
+        "them. This manifest will not classify a file it cannot prove ships, and every gate " +
+        "that reads it would otherwise be silently short by exactly these."
+    );
+  }
+
+  const unclassified = order.filter((f) => !roles[f]);
+  if (unclassified.length) {
+    throw new Error(
+      unclassified.length + " shipped file(s) have no role in lib/ui-sources.js's ROLES table:\n  " +
+        unclassified.join("\n  ") +
+        "\nAdd each one with the role it plays and WHY. `ui` puts its strings in the state " +
+        "inventory and under the affordance rule; `preview-data` keeps them out and says on " +
+        "what grounds. There is no third option and no default, because a default is how six " +
+        "files became invisible to three gates."
+    );
+  }
+
+  const stale = Object.keys(roles).filter((f) => !seen.has(f));
+  if (stale.length) {
+    throw new Error(
+      stale.length + " role(s) in lib/ui-sources.js name a file the derivation does not reach:\n  " +
+        stale.join("\n  ") +
+        "\nThe file was renamed, deleted, or is no longer loaded. Remove the row — a " +
+        "classification of something that does not ship is the list drifting away from the " +
+        "tree again, in the other direction."
+    );
+  }
+
+  return order.length;
+}
+
+let CACHE = null;
+
+/// The derived manifest, or a thrown Error naming exactly what disagrees.
+///
+/// `{ entry, order, roles, byRole, remote, disk }` where `order` is discovery order (the
+/// entry document, then its tags in document order, then each generation of the closure).
+///
+/// Memoized: five consumers call this and the closure reads every shipped file, one of which
+/// is 4.9 MB. The cache is per-process and the process is one test run, so it cannot go
+/// stale within a run and cannot survive one.
+function manifest() {
+  if (CACHE) return CACHE;
+
+  const entryPath = path.join(UI_DIR, ENTRY);
+  if (!fs.existsSync(entryPath)) {
+    throw new Error(
+      "lib/ui-sources.js cannot derive anything: " + ENTRY + " is not at " + UI_DIR + ". This " +
+        "module refuses to return a manifest it did not derive — an empty inventory reporting " +
+        "green is the failure it exists to stop."
+    );
+  }
+
+  const remote = [];
+  const order = [ENTRY];
+  const seen = new Set(order);
+
+  const push = (ref) => {
+    if (isRemote(ref)) { if (remote.indexOf(ref) < 0) remote.push(ref); return; }
+    const rel = ref.replace(/^\.\//, "").split("?")[0].split("#")[0];
+    if (seen.has(rel)) return;
+    if (!fs.existsSync(path.join(UI_DIR, rel))) {
+      throw new Error(
+        "a shipped file references " + rel + ", which does not exist under " + UI_DIR + ". A " +
+          "shell that loads a file that is not there is a broken build, and a manifest that " +
+          "quietly dropped it would hide that."
+      );
+    }
+    seen.add(rel);
+    order.push(rel);
+  };
+
+  for (const r of entryReferences(fs.readFileSync(entryPath, "utf8"))) push(r.ref);
+
+  // The closure. Bounded by the number of files on disk, so it terminates; the bound below
+  // is a guard against a bug here, not against the tree.
+  const SOURCES = {};
+  for (let pass = 0; pass < 50; pass++) {
+    const before = order.length;
+    for (const rel of order.slice()) {
+      if (!/\.js$/.test(rel)) continue;
+      if (!SOURCES[rel]) SOURCES[rel] = fs.readFileSync(path.join(UI_DIR, rel), "utf8");
+      for (const ref of referencedFiles(SOURCES[rel])) push(ref);
+    }
+    if (order.length === before) break;
+  }
+
+  // Step 3, both directions.
+  const disk = onDisk(UI_DIR, "", []);
+  reconcile(order, disk, ROLES);
+
+  const roles = {};
+  const byRole = {};
+  for (const f of order) {
+    roles[f] = ROLES[f];
+    (byRole[ROLES[f].role] = byRole[ROLES[f].role] || []).push(f);
+  }
+  CACHE = { entry: ENTRY, order, roles, byRole, remote, disk };
+  return CACHE;
+}
+
+/// Shipped product files whose user-visible strings are STATES — `index.html` plus every
+/// `role: "ui"` script, in load order. This is what replaced `UI_SOURCES`.
+function stateSources() {
+  return manifest().byRole.ui.slice();
+}
+
+/// Files whose strings are seeded preview data. Reported, never folded into the inventory.
+function previewDataSources() {
+  return (manifest().byRole["preview-data"] || []).slice();
+}
+
+/// The linked stylesheets, in document order.
+function styleSources() {
+  return (manifest().byRole.style || []).slice();
+}
+
+/// Absolute path, for callers that hand it straight to `fs`.
+function abs(rel) {
+  return path.join(UI_DIR, rel);
+}
+
+// =========================================================================================
+// ASKING A QUESTION OF THE WHOLE SHIPPED UI
+// =========================================================================================
+//
+// The manifest above fixed WHICH FILES a gate reads. It did not fix the second half of the
+// same defect, and five checks in this directory still carried it: a claim written about
+// "the shipped source" and evaluated against `main.js` alone.
+//
+//   setup.js:351     "there is exactly one run_setup call site in the shipped source"
+//   memory.js:310    "there is exactly one call site" (provision_memory)
+//   memory.js:329    "main.js must not contain a corpus path"
+//   feedback.js:197  no timer may open the feedback desk
+//   splash.js:1727   "a measurement timestamp reached the UI"
+//
+// Every one of those is an ABSENCE or a UNIQUENESS claim, and both of those go green over a
+// file they cannot open. A second `invoke("run_setup")` written into `updates.js` leaves
+// setup.js check 10 printing "one call site" — and its own comment says why that matters:
+// "A SECOND DOOR IS A SECOND PLACE FOR THE GUARD TO BE MISSING." The door it was watching
+// was one of twelve.
+//
+// So the derivation is offered as a QUESTION rather than as a list. `uiMatches(re)` runs a
+// pattern over every `role: "ui"` file the manifest reaches and returns `file:line` for
+// every hit. A caller cannot accidentally scope it to one file, because there is no file
+// argument to pass.
+//
+// COMMENTS ARE STRIPPED, AND THAT IS LOAD-BEARING RATHER THAN TIDY. `setup.js:497` already
+// hand-rolled a line-based `//` filter for exactly one reason, written at the line: "The
+// note above the (absent) listener quotes the line it replaced, so a naive grep matches the
+// explanation and calls it the defect." That is true of every file in this product — this
+// codebase writes long comments that quote the code they removed — so an absence claim that
+// reads comments is a false-positive generator, and the fix belongs here once rather than
+// once per caller.
+
+/// Comments removed, LINE NUMBERS PRESERVED, from JavaScript.
+///
+/// `opts.strings` (default true) keeps string and template bodies. `run.js` needs them GONE
+/// — it counts `run.check(` and a `"run.check("` inside a literal is not a call — while an
+/// absence claim needs them KEPT, because `invoke("run_setup")` is a string. One scanner and
+/// one flag, so the two consumers cannot drift, and `run.js` self-tests it on every run
+/// against a fixture carrying all four shapes a naive `grep -c` gets wrong.
+///
+/// THE REGEX BRANCH IS NOT OPTIONAL. `run.js` earned it: a regex literal carrying a backtick
+/// opens a template literal without it and swallows the rest of the file. A stripper that
+/// swallows the rest of the file is an absence claim that always passes.
+function stripJsComments(src, opts) {
+  const keepStrings = !opts || opts.strings !== false;
+  let out = "";
+  let i = 0;
+  const n = src.length;
+  // The last significant character, used only to decide whether a slash opens a regex (after
+  // an operator, keyword, `(` or `,`) or is a division (after a value).
+  let prevSig = "";
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < n; k++) out += src[k] === "\n" ? "\n" : " ";
+  };
+
+  while (i < n) {
+    const c = src[i];
+
+    if (c === "/" && src[i + 1] === "/") {
+      const from = i;
+      while (i < n && src[i] !== "\n") i++;
+      blank(from, i);
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      const from = i;
+      i += 2;
+      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) i++;
+      i += 2;
+      if (i > n) i = n;
+      blank(from, i);
+      continue;
+    }
+    if (c === "/" && !/[A-Za-z0-9_$)\]]/.test(prevSig)) {
+      const from = i;
+      i++;
+      let inClass = false;
+      while (i < n) {
+        if (src[i] === "\\") { i += 2; continue; }
+        if (src[i] === "[") inClass = true;
+        else if (src[i] === "]") inClass = false;
+        else if (src[i] === "/" && !inClass) { i++; break; }
+        else if (src[i] === "\n") break;
+        i++;
+      }
+      while (i < n && /[a-z]/.test(src[i])) i++;
+      if (keepStrings) out += src.slice(from, i);
+      else blank(from, i);
+      prevSig = "/";
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      const from = i;
+      i++;
+      while (i < n) {
+        if (src[i] === "\\") { i += 2; continue; }
+        if (src[i] === quote) { i++; break; }
+        i++;
+      }
+      if (keepStrings) out += src.slice(from, i);
+      else blank(from, i);
+      prevSig = quote;
+      continue;
+    }
+
+    out += c;
+    if (!/\s/.test(c)) prevSig = c;
+    i++;
+  }
+  return out;
+}
+
+/// HTML comments removed, line numbers preserved.
+function stripHtmlComments(src) {
+  return String(src).replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/// CSS comments removed, line numbers preserved.
+function stripCssComments(src) {
+  return String(src).replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+const CODE_CACHE = new Map();
+
+/// `{ name, src, code }` for every file of `role`, read off disk, comments stripped.
+function sourcesOfRole(role, opts) {
+  const keepStrings = !opts || opts.strings !== false;
+  const names =
+    role === "ui" ? stateSources() : role === "style" ? styleSources() : previewDataSources();
+  return names.map((name) => {
+    const key = role + "|" + name + "|" + keepStrings;
+    if (CODE_CACHE.has(key)) return CODE_CACHE.get(key);
+    const src = fs.readFileSync(abs(name), "utf8");
+    const code = /\.html$/.test(name)
+      ? stripHtmlComments(src)
+      : /\.css$/.test(name)
+      ? stripCssComments(src)
+      : stripJsComments(src, { strings: keepStrings });
+    const rec = { name, src, code };
+    CODE_CACHE.set(key, rec);
+    return rec;
+  });
+}
+
+/// `file:line` for every match of `re` across the WHOLE shipped UI, comments stripped.
+///
+/// `{ site, file, line, text }`. There is deliberately NO file parameter: the entire reason
+/// this function exists is that five callers each named one file and called the result "the
+/// shipped source".
+function uiMatches(re, opts) {
+  const rx = new RegExp(re.source, re.flags.indexOf("g") >= 0 ? re.flags : re.flags + "g");
+  const out = [];
+  for (const f of sourcesOfRole("ui", opts)) {
+    rx.lastIndex = 0;
+    let m;
+    while ((m = rx.exec(f.code))) {
+      const line = f.code.slice(0, m.index).split("\n").length;
+      out.push({ site: f.name + ":" + line, file: f.name, line, text: m[0] });
+      if (m[0].length === 0) rx.lastIndex++;
+    }
+  }
+  return out;
+}
+
+/// Every declaration of one CSS property across every SHIPPED stylesheet.
+///
+/// `{ site, file, line, value }`. This is what replaced `appearance.js`'s `STYLE_CSS`-only
+/// reads: check 12 asserted "every font-size in the shipped CSS is rem" over ONE of the four
+/// stylesheets `index.html` links, and the other three hold 15 more `font-size` declarations
+/// between them.
+function cssDeclarations(prop) {
+  const rx = new RegExp("(^|[;{\\s])" + prop + "\\s*:\\s*([^;}]+)", "gi");
+  const out = [];
+  for (const f of sourcesOfRole("style")) {
+    rx.lastIndex = 0;
+    let m;
+    while ((m = rx.exec(f.code))) {
+      const line = f.code.slice(0, m.index).split("\n").length;
+      out.push({ site: f.name + ":" + line, file: f.name, line, value: m[2].trim() });
+    }
+  }
+  return out;
+}
+
+/// EVERY STRING THE STYLESHEETS THEMSELVES PUT ON SCREEN.
+///
+/// `content:` on a `::before`/`::after` renders text that is in NO string inventory in this
+/// directory: `lib/state-strings.js` scrapes JavaScript literals, HTML text and Rust
+/// literals, and `ROLES` above classifies a stylesheet as `style` with the words "No string
+/// inventory". There is one in this tree — `style.css`'s `.setbtn::after { content:
+/// "Settings" }`, the tooltip on the settings button §15 requires on every screen — and
+/// until this function it was authored text that nothing counted and nothing measured.
+///
+/// Empty strings are dropped: `content: ""` is a decorative box, not text. Three of the four
+/// `content:` declarations in this tree are that.
+function cssContentStrings() {
+  const out = [];
+  for (const d of cssDeclarations("content")) {
+    const m = d.value.match(/^(["'])((?:\\.|(?!\1)[^\\])*)\1/);
+    if (!m) continue; // `none`, `attr()`, `counter()`, a `url()` — not an authored sentence
+    const text = m[2].replace(/\\([0-9a-f]{1,6})\s?/gi, (_a, h) => String.fromCodePoint(parseInt(h, 16)));
+    if (!text.trim()) continue;
+    out.push({ site: d.site, file: d.file, line: d.line, text });
+  }
+  return out;
+}
+
+module.exports = {
+  UI_DIR,
+  ENTRY,
+  ROLES,
+  manifest,
+  reconcile,
+  stateSources,
+  previewDataSources,
+  styleSources,
+  abs,
+  entryReferences,
+  referencedFiles,
+  onDisk,
+  isRemote,
+  stripJsComments,
+  stripHtmlComments,
+  stripCssComments,
+  sourcesOfRole,
+  uiMatches,
+  cssDeclarations,
+  cssContentStrings,
+};
+
+// `node lib/ui-sources.js` prints the derivation — the manifest, runnable.
+if (require.main === module) {
+  const m = manifest();
+  let w = 0;
+  for (const f of m.order) w = Math.max(w, f.length);
+  for (const f of m.order) {
+    console.log("  " + f + " ".repeat(w - f.length) + "  " + (m.roles[f].role + "             ").slice(0, 14) + m.roles[f].why);
+  }
+  console.error(
+    "\n" + m.order.length + " shipped file(s) derived from " + m.entry + " and the closure over it: " +
+      (m.byRole.ui || []).length + " ui, " + (m.byRole["preview-data"] || []).length + " preview-data, " +
+      (m.byRole.style || []).length + " style."
+  );
+  console.error(
+    m.disk.length + " .js/.css/.html file(s) on disk under app/ui (tests/ and node_modules/ excluded); " +
+      "every one of them is above."
+  );
+  console.error(m.remote.length + " remote reference(s)" + (m.remote.length ? ": " + m.remote.join(", ") : "."));
+}

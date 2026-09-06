@@ -1,4 +1,4 @@
-# RichOS durable work: seventh review
+# RichOS durable work: eighth review
 
 ## Problem and target
 
@@ -179,10 +179,11 @@ contrast assertion was too narrow and the affordance inventory excluded the
 panel entirely. Those greens did not establish a usable interface.
 
 The replacement shows portfolio attention counts, a stable assignment chooser
-and visible Pause/End controls. Decision questions and their controls precede
-one optional history disclosure. History scrolls above the fixed controls;
-completion checks are 16px with no exemption. Duplicate titles show creation
-time and a distinguishing reference. End confirms its exact target. Friendly
+and visible Pause/End controls. Review decision opens a reading surface above
+the compact strip. Questions have no individual height cap and answers follow
+them in the same flow, with persistent reading controls for overflow. History
+is a separate disclosure. Completion checks are 16px with no exemption.
+Duplicate titles use dates before a reference is added for remaining collisions. End confirms its exact target. Friendly
 errors put Refresh first and retain technical details in history.
 
 Finding 2 required a mechanism, not button styling. `respond_run_decision` now
@@ -205,12 +206,15 @@ and speech path. Canceled assignments no longer publish pending-decision notices
 
 The new browser tests use the real shell at all five reviewed viewport sizes.
 The shared contrast suite now walks seven assignment surfaces in both themes;
-it must measure each surface's defining nodes. `runs.js` is in the affordance
-inventory, including short state-map labels normally filtered out as non-prose.
+it must measure each surface's defining nodes. The affordance inventory derives
+all shipped sources and includes short state, label and status maps in each.
 Assignment fixtures assert the state text and the usable control together.
 
-See [the response to Urban](URBAN-REVIEW-RESPONSE.md) for evidence and reproduction.
-P4 remains open pending independent re-review. No design approval, production
+Urban's next review of `b45145f` withheld P5 approval at 7/10.
+See [the P5 response](URBAN-P5-RESPONSE.md) for the long-question, Rust projection
+and source-inventory corrections, evidence and reproduction. The earlier
+[P4 response](URBAN-REVIEW-RESPONSE.md) is historical. P5 remains open pending
+independent re-review. No design approval, production
 deployment or main-branch merge is claimed. Native window chrome, OS accent
 behavior and interactive speech were not visually audited in this pass.
 
@@ -224,7 +228,7 @@ behavior and interactive speech were not visually audited in this pass.
 | Inbox, discovery, scheduling and report recovery | `src-tauri/src/owned_work.rs` |
 | Cycle budget, amendments and independent checks | `crates/richos-core/src/run.rs` |
 | Conversation scope and spoken reports | `crates/richos-core/src/spine.rs` |
-| Assignment selection and controls | `src-tauri/src/managed_runs.rs`, `ui/runs.js` |
+| Assignment selection and controls | `src-tauri/src/managed_runs.rs`, `src-tauri/src/run_view.rs`, `ui/runs.js` |
 | Evidence and reproduction | `managed-run-validation.md` |
 
 The strongest remaining objection is that the host still relies on two models

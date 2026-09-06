@@ -1,0 +1,129 @@
+{
+  "recorded_at": "2026-09-06T00:26:19.199666+00:00",
+  "branch": "codex/durable-orchestration",
+  "base_commit": "b45145f8341dd31f9e2fae8e8c60c7ad1d6df6c8",
+  "review": "URBAN_SIGNOFF_2026-09-06_00.29.md",
+  "independent_signoff": "withheld; independent re-review required",
+  "merged": false,
+  "deployed": false,
+  "checks": {
+    "panel": {
+      "passed": 23,
+      "failed": 0,
+      "viewports": [
+        [
+          1400,
+          900
+        ],
+        [
+          1280,
+          800
+        ],
+        [
+          1024,
+          768
+        ],
+        [
+          760,
+          720
+        ],
+        [
+          520,
+          680
+        ]
+      ],
+      "themes": [
+        "dark",
+        "light"
+      ],
+      "long_decisions": "Urban question plus eightfold question with twelve options; natural question height, reading-panel bounds, overflow cues, answer order, stop-control hit tests and keyboard dismissal",
+      "negative_controls": [
+        "15vh question cap",
+        "missing reading cue"
+      ],
+      "backend_data": "Rust-produced initial, amended and imported assignments with real controller receipts rendered through runs.js"
+    },
+    "affordances": {
+      "passed": 83,
+      "failed": 0,
+      "classified_strings": 415,
+      "shipped_files": 19,
+      "product_sources": 13,
+      "stylesheets": 4,
+      "preview_sources": 2,
+      "negative_controls": [
+        "new updates.js prose",
+        "new short home.js state",
+        "unwired script",
+        "missing role",
+        "stale role"
+      ]
+    },
+    "contrast": {
+      "passed": 41,
+      "failed": 0,
+      "surfaces": 26,
+      "theme_walks": 52,
+      "assignment_surfaces": 7,
+      "new_debt": 0,
+      "new_exemptions": 0,
+      "node_floors": "raised from measured output; none lowered"
+    },
+    "core": {
+      "direct_passed": 740,
+      "doctests_passed": 5,
+      "failed": 0,
+      "child_only_ignored": 2
+    },
+    "projection_example": {
+      "passed": 1,
+      "failed": 0
+    },
+    "projection_mutations": {
+      "baseline": "passed",
+      "killed": 2,
+      "total": 2,
+      "compilation_failures": 0
+    },
+    "native": "cargo check completed successfully",
+    "documentation": {
+      "passed": 6,
+      "failed": 0
+    }
+  },
+  "commands": [
+    "cargo test --manifest-path app/Cargo.toml -p richos-core",
+    "cargo test --manifest-path app/Cargo.toml -p richos-core --example run_view_probe",
+    "cargo check --manifest-path app/src-tauri/Cargo.toml",
+    "python3 app/scripts/test-assignment-projection-mutations.py /path/to/cargo",
+    "node app/ui/tests/runs.js",
+    "node app/ui/tests/affordances.js",
+    "node app/ui/tests/contrast.js",
+    "node app/ui/tests/docs-claims.js"
+  ],
+  "logs": {
+    "runs": "urban-p5-runs.log",
+    "affordances": "urban-p5-affordances.log",
+    "contrast": "urban-p5-contrast.log",
+    "core": "urban-p5-core.log",
+    "native": "urban-p5-native.log",
+    "projection": "urban-p5-projection.log",
+    "projection-mutations": "urban-p5-projection-mutations.log",
+    "docs": "urban-p5-docs.log"
+  },
+  "contrast_screenshots": [
+    "../../ui/tests/shots-contrast/assignment-decision.png",
+    "../../ui/tests/shots-contrast/assignment-empty.png",
+    "../../ui/tests/shots-contrast/assignment-error.png",
+    "../../ui/tests/shots-contrast/assignment-history.png",
+    "../../ui/tests/shots-contrast/assignment-picker.png",
+    "../../ui/tests/shots-contrast/assignment-running.png",
+    "../../ui/tests/shots-contrast/assignment-scope.png"
+  ],
+  "scope_boundaries": [
+    "scripted host and browser bridge; no live provider certification",
+    "no new packaged Tauri visual or speech audit",
+    "earlier desktop integration and controller mutations not rerun",
+    "portfolios above twenty remain unmeasured"
+  ]
+}

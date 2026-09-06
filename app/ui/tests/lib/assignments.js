@@ -75,4 +75,18 @@ async function resize(page, viewport) {
   await page.waitForFunction(()=>document.body.classList.contains(innerWidth<820 ? "bp-narrow" : innerWidth>=1180 ? "bp-wide" : "bp-mid"));
   if (await page.evaluate(()=>innerWidth<820 && !document.body.classList.contains("rail-closed"))) await page.click("#rail-drawer-close");
 }
-module.exports={assignment,fixture,drive,open,resize};
+async function review(page) {
+  const button=page.locator("#managed-run [data-run-review]");
+  if (await button.count() && await button.innerText() === "Review decision") await button.click();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+const longQuestion = "The Q4 numbers Finance signed off on show 18% growth, but the ledger you asked me to reconcile against shows 14% once the two November credit notes are applied. Should the update to Andreas use the Finance figure, the reconciled figure, or state both and explain the difference?";
+const longWhy = "This changes what the board is told about the quarter, and the two figures support different stories about whether the year landed. Rich will not choose between them on your behalf, because the choice is about how much detail you want the board holding, not about which arithmetic is correct.";
+async function longDecision(page, repetitions=1, options=3) {
+  await drive(page, "decision");
+  await page.evaluate(async ({question, why, options}) => {
+    Object.assign(window.assignmentCurrent.tasks[1].decision, {resource:false, question, whyCeo:why, options:Array.from({length:options},(_,i)=>`Use approved approach ${i+1}`)});
+    await window.RichRuns.show("hiring");
+  }, {question:longQuestion.repeat(repetitions), why:longWhy, options});
+}
+module.exports={assignment,fixture,drive,open,resize,review,longDecision};

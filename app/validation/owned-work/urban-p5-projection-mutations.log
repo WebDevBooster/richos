@@ -1,0 +1,4 @@
+PASS baseline: real controller receipts and all three projections
+PASS killed raw-task-description after successful compilation
+PASS killed raw-verifier-receipt after successful compilation
+2/2 projection mutations rejected
