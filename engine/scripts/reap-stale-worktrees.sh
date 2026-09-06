@@ -116,9 +116,17 @@
 # 2026-09-05 — so the automatic mechanism the CEO asked for EXISTS for every
 # worktree a transaction claims.
 #
-# What it does not cover is a worktree NO transaction ever claimed: spawned
-# before the transaction store, or by a route that wrote no terminal event.
-# Nothing will ever come for those, and they are exactly the pile in his IDE.
+# What it did not cover, until 2026-09-06, was a worktree NO transaction ever
+# claimed: spawned before the transaction store, or by a route that wrote no
+# terminal event. Nothing came for those, and they were exactly the pile in his
+# IDE. That gap is now closed by ADOPTION (scripts/lib/worktree-adoption.py,
+# docs/worktree-adoption.md): the reconciler's adoption pass claims such a
+# worktree on positive identity evidence through nine gates, and hands it to
+# the same state machine — which preserves and refuses to erase. This inventory
+# ASKS the adoption module about every tree it selects and prints the answer
+# beside it (`adoptable(T2)` / `not-adoptable(<gate>)`); it never adopts, for
+# the same reason it never removes.
+#
 # So this inventory's job is to make that population impossible to misread:
 #
 #   * In DRY-RUN the summary NEVER uses the past tense. It prints
@@ -1055,6 +1063,28 @@ is_workspace() { # <worktree-path> -> 0 when the RECORD says this native tree is
     return 1
 }
 
+# --- ADOPTABILITY — the answer to "so who takes this one?" (2026-09-06) -----
+# The DRY-RUN verdict used to end: "these are claimed by none, so no automatic
+# mechanism will ever take them. An operator removes them by hand." That was
+# TRUE and it was the defect, not a caveat about it — a report whose only
+# remedy is a person typing a command, forever.
+#
+# scripts/lib/worktree-adoption.py is the mechanism that took the gap, and it
+# is READ-ONLY here: this inventory asks it whether each selected tree is
+# adoptable and prints the answer. It never adopts. The claim belongs to
+# reconcile-terminal-worktrees.py, which owns every mutating lifecycle in this
+# engine, for the same reason removal does: one authority, or one of them
+# silently becomes the stale one.
+ADOPT_PY="$LIB_DIR/worktree-adoption.py"
+adoption_line() { # <worktree-path> -> the module's own line, or "" if unavailable
+    [ -f "$ADOPT_PY" ] && command -v python3 >/dev/null 2>&1 || return 0
+    # --ledger hands down the EXACT ledger this run is reading. Without it a
+    # sandboxed run would evaluate a sandbox path against the operator's real
+    # record — a read, so nothing would break, and the answer would silently be
+    # about a machine the test knows nothing about.
+    python3 "$ADOPT_PY" --ledger "$WT_LEDGER" evaluate --worktree "$1" 2>/dev/null | head -1 || true
+}
+
 # unmerged_subjects <repo> <target-ref> <branch> — up to three `<sha> <subject>`
 # lines, joined, so an `unmerged` skip says WHAT is unlanded. Two teammates'
 # committed escalations sat unread for three days under a bare `unmerged(+1)`.
@@ -1104,6 +1134,9 @@ SKIP_DUPLICATE=0
 N_SHELLS=0
 N_WORKSPACES=0
 N_UNOBSERVED_NATIVE=0
+ADOPTABLE_COUNT=0
+NOT_ADOPTABLE_COUNT=0
+NOT_ADOPTABLE_GATES=""
 CLAIMED_PATHS=""
 
 BR_SWEPT=0
@@ -1433,7 +1466,25 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
                 ERROR_COUNT=$((ERROR_COUNT + 1))
             fi
         else
-            echo "DRY-RUN REAP $id"
+            _ad_line="$(adoption_line "$path")"
+            case "$_ad_line" in
+            ADOPTABLE*)
+                _ad_tier="$(printf '%s' "$_ad_line" | cut -f2)"
+                echo "DRY-RUN REAP $id adoptable($_ad_tier) — reconcile-terminal-worktrees.py's adoption pass claims this one on its next run; no operator action"
+                ADOPTABLE_COUNT=$((ADOPTABLE_COUNT + 1))
+                ;;
+            REFUSED*)
+                _ad_gate="$(printf '%s' "$_ad_line" | cut -f2)"
+                echo "DRY-RUN REAP $id not-adoptable($_ad_gate) — this inventory's gates selected it and the adoption gate refuses it, so nothing automatic will take it: $(printf '%s' "$_ad_line" | cut -f3- | cut -c1-200)"
+                NOT_ADOPTABLE_COUNT=$((NOT_ADOPTABLE_COUNT + 1))
+                case " $NOT_ADOPTABLE_GATES " in *" $_ad_gate "*) : ;; *) NOT_ADOPTABLE_GATES="$NOT_ADOPTABLE_GATES $_ad_gate" ;; esac
+                ;;
+            *)
+                echo "DRY-RUN REAP $id adoptability-unknown — scripts/lib/worktree-adoption.py could not be consulted, so who takes this one is UNANSWERED rather than answered 'nobody'"
+                NOT_ADOPTABLE_COUNT=$((NOT_ADOPTABLE_COUNT + 1))
+                case " $NOT_ADOPTABLE_GATES " in *" unconsultable "*) : ;; *) NOT_ADOPTABLE_GATES="$NOT_ADOPTABLE_GATES unconsultable" ;; esac
+                ;;
+            esac
             WOULD_COUNT=$((WOULD_COUNT + 1))
         fi
     done
@@ -1555,7 +1606,23 @@ for _c in $CONTAINERS; do
             if [ "$_subdirs" -gt 0 ] && [ $(( _registered_here * 2 )) -ge "$_subdirs" ]; then
                 QUALIFIED_CONTAINERS="$QUALIFIED_CONTAINERS|$_c|"
             else
-                blind "'$_c' holds a registered worktree but only $_registered_here of its $_subdirs subdirectories are worktrees, so it is NOT treated as a worktree container — residue and orphaned processes there are NOT reported by this run"
+                # THE DENSITY TEST IS RIGHT AND ITS OLD DECLARATION WAS TOO
+                # BROAD (2026-09-06). `/private/tmp` holds one registered
+                # worktree — a CI checkout — among 143 subdirectories, and
+                # treating it as a container named 39 launchd sockets as
+                # residue. Refusing it is correct. But the line then said
+                # "residue and orphaned processes there are NOT reported by
+                # this run", and since this revision that is FALSE: the
+                # record-driven pass below reports both for every path any
+                # record names, in this directory and in every directory,
+                # including containers this scan never discovered. What stays
+                # blind is only the residue NO record ever named — a directory
+                # somebody's improvised `git worktree add` created and nothing
+                # wrote down — and in a directory that is 1/143 worktrees an
+                # unregistered subdirectory is an ordinary temp directory
+                # rather than residue, so it could not honestly be reported
+                # here anyway.
+                blind "'$_c' holds a registered worktree but only $_registered_here of its $_subdirs subdirectories are worktrees, so it is NOT treated as a worktree container: an unregistered subdirectory there is an ordinary directory, not residue. What is NOT reported for this path is residue NO RECORD EVER NAMED; every path the ownership ledger or the transaction store names is covered by the record-driven pass, here and everywhere"
             fi
         fi
     fi
@@ -1565,6 +1632,9 @@ IFS="$_oldifs"
 
 # --- Residue: on disk in a worktree container, not registered with git -------
 RESIDUE_COUNT=0
+# Every path this pass names, so the record-driven pass below does not report
+# the same directory a second time under a second reason.
+_reported_residue=""
 _oldifs="$IFS"; IFS='|'
 for _c in $QUALIFIED_CONTAINERS; do
     IFS="$_oldifs"
@@ -1577,6 +1647,8 @@ for _c in $QUALIFIED_CONTAINERS; do
             fi
             echo "RESIDUE $real_d — present on disk in a worktree container but NOT a registered git worktree (git doesn't own it; investigate manually, never auto-deleted)"
             RESIDUE_COUNT=$((RESIDUE_COUNT + 1))
+            _reported_residue="$_reported_residue$real_d
+"
         done
     fi
     IFS='|'
@@ -1617,6 +1689,82 @@ if command -v pgrep >/dev/null 2>&1; then
     IFS="$_oldifs"
 else
     blind "orphan-process scan: pgrep is unavailable — a background child that outlived its worktree would NOT be reported by this run"
+fi
+
+# ===========================================================================
+# THE RECORD-DRIVEN PASS — RESIDUE AND ORPHANS WITHOUT A CONTAINER (2026-09-06)
+# ===========================================================================
+# Both scans above are driven by CONTAINERS, and a container has to be
+# qualified by a density test before either will look at it. That coupling is
+# what produced this run's first blind line: `/private/tmp` holds one
+# registered worktree among 143 subdirectories, the density test correctly
+# refuses to call it a container, and residue and orphan reporting were
+# silently dropped for the whole path.
+#
+# The coupling is unnecessary for the thing that actually matters. Residue is
+# "a directory that WAS a worktree and is no longer one", and an orphan is "a
+# process holding such a directory" — and this engine keeps an exact, durable
+# list of every path it ever treated as a worktree, in the ownership ledger and
+# the transaction store. Asking the RECORD needs no container, no density
+# heuristic and no discovery pass, and it produces zero false positives from
+# unrelated temp directories because it never looks at a path nobody wrote
+# down.
+#
+# So the density test keeps the one job it is good at — finding residue NOBODY
+# RECORDED, which only a directory listing can find — and this pass covers
+# everything the record names, wherever it sits.
+#
+# WHAT IS DELIBERATELY EXCLUDED: a path any transaction owns. The reconciler
+# owns those, this inventory never touches them (gate 0b), and reporting a
+# retained quarantine as residue would be the same number twice under two
+# names.
+if [ -f "$LEDGER_PY" ] && [ -f "$LIB_DIR/worktree-transactions.py" ] && command -v python3 >/dev/null 2>&1; then
+    _rec_paths="$(python3 "$LEDGER_PY" --ledger "$WT_LEDGER" paths 2>/dev/null || true)"
+    _tx_paths="$(python3 "$LIB_DIR/worktree-transactions.py" member-paths 2>/dev/null || true)"
+    _rec_residue=0
+    _rec_orphans=0
+    while IFS= read -r _p; do
+        [ -n "$_p" ] || continue
+        [ -d "$_p" ] || continue
+        # Owned by a transaction -> the reconciler's, never reported here.
+        if [ -n "$_tx_paths" ] && printf '%s\n' "$_tx_paths" | grep -qxF -- "$_p"; then
+            continue
+        fi
+        # Already named by the container-driven residue pass above.
+        if printf '%s\n' "$_reported_residue" | grep -qxF -- "$_p"; then
+            continue
+        fi
+        # STILL A WORKTREE? Asked of git at the path itself, so the answer does
+        # not depend on which repositories this run happened to sweep: a path
+        # whose own top level is itself, in a LINKED worktree, is registered.
+        _top="$(git -C "$_p" rev-parse --show-toplevel 2>/dev/null || true)"
+        _top="$(cd "$_top" 2>/dev/null && pwd -P || true)"
+        if [ "$_top" = "$_p" ]; then
+            _common="$(git -C "$_p" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+            _gitdir="$(git -C "$_p" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+            [ -n "$_common" ] && [ "$_common" != "$_gitdir" ] && continue
+        fi
+        echo "RESIDUE $_p — the record names this path as a worktree and git no longer does (git doesn't own it; investigate manually, never auto-deleted)"
+        RESIDUE_COUNT=$((RESIDUE_COUNT + 1))
+        _rec_residue=$((_rec_residue + 1))
+        if command -v pgrep >/dev/null 2>&1; then
+            while IFS= read -r _pl || [ -n "$_pl" ]; do
+                [ -n "$_pl" ] || continue
+                _pid="${_pl%% *}"
+                { [ "$_pid" = "$$" ] || [ "$_pid" = "${PPID:-0}" ]; } && continue
+                echo "ORPHAN-PROCESS pid=$_pid references '$_p', which the record names as a worktree and git no longer registers — cmd: $(printf '%s' "$_pl" | cut -c1-160)"
+                ORPHAN_COUNT=$((ORPHAN_COUNT + 1))
+                _rec_orphans=$((_rec_orphans + 1))
+            done < <(pgrep -fl "$_p" 2>/dev/null || true)
+        fi
+    done <<REC_EOF
+$_rec_paths
+REC_EOF
+    if [ "$_rec_residue" -gt 0 ] || [ "$_rec_orphans" -gt 0 ]; then
+        echo "  (record-driven pass: $_rec_residue residue, $_rec_orphans orphan process(es) — every path the record names, container or not)"
+    fi
+else
+    blind "record-driven residue/orphan pass: the ownership ledger or the transaction library is unavailable, so residue and orphans OUTSIDE a qualified worktree container are NOT reported by this run"
 fi
 
 # ===========================================================================
@@ -1723,7 +1871,11 @@ fi
 # IDE and found on 2026-09-04. The clause names the one command that removes
 # them, because "why is it dry-run" deserves an answer at the point of use.
 if [ "$EXECUTE" -eq 0 ] && [ "$WOULD_COUNT" -gt 0 ]; then
-    PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and NOTHING removed them. This inventory is DRY-RUN by construction — removal belongs to reconcile-terminal-worktrees.py, which only owns worktrees a terminal transaction has CLAIMED, and these are claimed by none, so no automatic mechanism will ever take them. An operator removes them by hand with: $0 ${REPO_ROOT} --discover --execute")
+    if [ "$NOT_ADOPTABLE_COUNT" -eq 0 ]; then
+        PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and this inventory removed none — it is DRY-RUN by construction. ALL $ADOPTABLE_COUNT ARE ADOPTABLE: reconcile-terminal-worktrees.py's adoption pass claims them on its next scheduled run and takes each through backup ref, quarantine, capture and verification, so NO OPERATOR ACTION is needed to move them out of this line. What that pass deliberately does NOT do is erase (docs/workspace-retirement-safety.md), so they will reappear as quarantined= above and stay there until an enforced access boundary exists — retention by ruling, not a coverage hole")
+    else
+        PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and this inventory removed none — it is DRY-RUN by construction. $ADOPTABLE_COUNT are ADOPTABLE and reconcile-terminal-worktrees.py's adoption pass claims those; $NOT_ADOPTABLE_COUNT are NOT (adoption gate:${NOT_ADOPTABLE_GATES:- unknown}) and nothing automatic will ever take THOSE — each is named above with its gate. An operator removes them by hand with: $0 ${REPO_ROOT} --discover --execute")
+    fi
 fi
 if [ "${#PENDING_CLAUSES[@]}" -gt 0 ]; then
     _joined="${PENDING_CLAUSES[0]}"

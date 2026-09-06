@@ -1259,6 +1259,20 @@ def iter_transactions():
                     yield tx
 
 
+def member_paths():
+    """Every path any transaction owns — each member's original path AND its
+    quarantine name. A caller that must not act on a directory the terminal
+    reconciler owns needs both, because a member spends most of its life under
+    the second name."""
+    out = set()
+    for tx in iter_transactions():
+        for m in tx.get("members") or []:
+            for key in (m.get("path"), m.get("quarantine")):
+                if key:
+                    out.add(norm_path(key))
+    return sorted(out)
+
+
 def native_roles():
     """{path: "shell"|"workspace"} for every NATIVE member of every transaction.
 
@@ -1494,6 +1508,7 @@ def _main(argv):
     p = sub.add_parser("metrics")
     p = sub.add_parser("list")
     p = sub.add_parser("native-roles", help="<path>\\t<shell|workspace> per native member")
+    p = sub.add_parser("member-paths", help="every member path AND quarantine any transaction owns")
 
     a = ap.parse_args(argv)
     if a.cmd == "root":
@@ -1541,6 +1556,10 @@ def _main(argv):
         return 0
     if a.cmd == "metrics":
         print(json.dumps(metrics(), sort_keys=True)); return 0
+    if a.cmd == "member-paths":
+        for p in member_paths():
+            print(p)
+        return 0
     if a.cmd == "native-roles":
         for p, role in sorted(native_roles().items()):
             print("%s\t%s" % (p, role))
