@@ -2562,4 +2562,53 @@ module.exports = [
       "The same field again, after `build(entry)` threw. `removeSelf()` runs first, so the " +
       "launch is a normal one with nothing drawn and there is no curtain left to print on.",
   },
+
+  // -------------------------------------------------------------------------------------
+  // WHY HIS OWN LORO IS NOT THE PICTURE (`home_field_data`, 2026-09-06)
+  //
+  // Four reasons the home screen keeps drawing the demonstration. NOT ONE OF THEM REACHES
+  // THE DOM, and that is the design rather than an oversight: the demonstration is what the
+  // CEO asked to keep — *"The demo is definitely needed, initially, for the user"* — so a
+  // launch that draws it has nothing to report. There is no failure to explain, no request
+  // to make of him, and nothing for him to act on; the screen already carries the one
+  // sentence that matters, which is the first-run banner.
+  //
+  // Two land on `RichHome.state.fieldOffer`, which the acceptance suite reads and the CEO
+  // never sees. Two are `eprintln!` in the boot log, which is the operator's window and not
+  // his — the same split `MemoryStatus::detail` already uses.
+  // -------------------------------------------------------------------------------------
+  {
+    s: "the backend said nothing about a corpus",
+    c: "NOT-RENDERED",
+    why:
+      "`home.js`'s own words for an answer that was not a positive `available: true` with a " +
+      "dataset attached. Recorded on `state.fieldOffer.reason` for the acceptance suite; " +
+      "nothing renders it, because the screen is drawing the demonstration and that is what " +
+      "it is supposed to be doing.",
+  },
+  {
+    s: "the corpus did not compile within",
+    c: "NOT-RENDERED",
+    why:
+      "The head of `home.js`'s timeout sentence (it continues with the millisecond ceiling). " +
+      "Same destination: `state.fieldOffer.reason`, read by the suite and by nobody else. A " +
+      "timeout is not evidence of anything, so the demonstration stays and says nothing new.",
+  },
+  {
+    s: "the corpus could not be read: {e}",
+    c: "NOT-RENDERED",
+    why:
+      "`main.rs::home_field_data`, the census-probe failure, returned as `reason` on an " +
+      "`available: false` answer and printed to the boot log beside it. Machine-facing: `{e}` " +
+      "is a compiler's stderr line, which is not CEO copy — the same split `MemoryStatus` " +
+      "makes between its `detail` and the surface's own sentence.",
+  },
+  {
+    s: "the corpus could not be compiled: {e}",
+    c: "NOT-RENDERED",
+    why:
+      "The same, for the arm where every topic failed to compile. Neither string is shown to " +
+      "the CEO and neither asks anything of him; whoever set RichOS up reads them in the " +
+      "boot log.",
+  },
 ];
