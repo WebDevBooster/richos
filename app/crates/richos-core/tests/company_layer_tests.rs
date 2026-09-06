@@ -87,8 +87,12 @@ fn with_no_central_folder_set_the_priming_turn_is_unchanged() {
 /// test above is the whole reason `company_layer` returns an `Option<CompanyLayer>` rather than
 /// a `CompanyLayer`: "nobody told the app where to look" and "the app looked and it is not
 /// there" are different facts and call for different fixes.
+///
+/// **It sends no MATERIAL and it is not silent.** `onboarding.rs` puts the offer of an
+/// interview where the material would have gone, which is the whole point: a company nobody
+/// has described is a company Rich should ask about, not one he should quietly know nothing of.
 #[test]
-fn a_central_folder_with_no_company_file_says_so_and_sends_nothing() {
+fn a_central_folder_with_no_company_file_sends_no_material_and_offers_the_interview() {
     let (path, ledger) = tmp_ledger("emptycentral");
     let central = tmp_central("emptycentral");
     let mut spine = support::spine(ledger);
@@ -100,7 +104,8 @@ fn a_central_folder_with_no_company_file_says_so_and_sends_nothing() {
         other => panic!("expected NoHome, got {other:?}"),
     }
     let primed = primings(&mut spine);
-    assert!(!primed[0].contains("ABOUT \"femcboost\""), "{}", primed[0]);
+    assert!(!primed[0].contains("ABOUT \"femcboost\""), "no material: {}", primed[0]);
+    assert!(primed[0].contains("ONBOARDING —"), "and not silence either: {}", primed[0]);
     let _ = std::fs::remove_file(&path);
 }
 
@@ -202,6 +207,8 @@ fn an_over_budget_company_file_reaches_the_model_as_nothing_rather_than_as_half_
     assert!(!primed[0].contains("HEAD-MARKER"), "not truncated — NOTHING is sent: {}", primed[0]);
     assert!(!primed[0].contains("TAIL-MARKER"), "{}", primed[0]);
     assert!(!primed[0].contains("ABOUT \"femcboost\""), "{}", primed[0]);
+    // …and the absence is EXPLAINED rather than left to look like an un-described company.
+    assert!(primed[0].contains("could not be used"), "{}", primed[0]);
     let _ = std::fs::remove_file(&path);
 }
 

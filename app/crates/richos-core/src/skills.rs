@@ -91,14 +91,30 @@ pub const PLUGIN_NAME: &str = "rich-skills";
 
 /// The skills this build ships: directory name, then the SKILL.md compiled in.
 ///
-/// **One entry, and adding a second is adding a line here.** There is no discovery pass over a
-/// directory: an inventory read off disk at runtime is an inventory that can be empty and still
-/// report success, which is the defect `run.js` and `run-tests.sh` in this repository both carry
-/// scars from. What ships is what is compiled in.
-pub const SKILLS: &[(&str, &str)] = &[(
-    "american-english",
-    include_str!("../skills/american-english/SKILL.md"),
-)];
+/// **Adding one is adding a line here.** There is no discovery pass over a directory: an
+/// inventory read off disk at runtime is an inventory that can be empty and still report
+/// success, which is the defect `run.js` and `run-tests.sh` in this repository both carry scars
+/// from. What ships is what is compiled in.
+pub const SKILLS: &[(&str, &str)] = &[
+    ("american-english", include_str!("../skills/american-english/SKILL.md")),
+    // The bootstrap interview, and it is a SKILL rather than a clause for the reason the table
+    // above gives: it is long, worked and exampled, and it costs nothing on the overwhelming
+    // majority of turns where nobody is being interviewed. Its TRIGGER is not here — a skill
+    // nothing invokes is `provision-claude-md.sh` with a different file extension — it is
+    // issued from the priming turn by `onboarding.rs`, from a fact on disk, and it retires
+    // itself when that fact changes.
+    //
+    // It is NOT the engine's `skills/bootstrap-interview/SKILL.md`, and that is deliberate.
+    // That one is addressed to an orchestrator in a terminal with a git checkout: its
+    // generation phase fills `CLAUDE.md` and `orchestration.config`, spawns Dean, runs
+    // `install.sh`, `contract-integrity-probe.sh`, `demo.sh` and `ceo-todos-init.sh`, and lands
+    // a branch. In this app the first of those writes a file the child provably never reads
+    // (`company.rs` cells B0a/B0b/B0c), the second cannot resolve (`onboarding.rs` cells
+    // B2/B3/B4), and the customer has no repository for the rest. Shipping it here would be
+    // shipping instructions to do things that silently do nothing, which §4.3 of the doctrine
+    // design already rules out for exactly this reason: it lies.
+    ("bootstrap-interview", include_str!("../skills/bootstrap-interview/SKILL.md")),
+];
 
 /// The plugin root for a configuration directory.
 pub fn plugin_dir(config_dir: &Path) -> PathBuf {
@@ -281,7 +297,29 @@ mod tests {
     /// announces are one fact. Measured form (cell K2): `rig-probe:rig-status`.
     #[test]
     fn a_skill_is_announced_as_plugin_colon_name() {
-        assert_eq!(qualified_names(), vec!["rich-skills:american-english".to_string()]);
+        assert_eq!(
+            qualified_names(),
+            vec![
+                "rich-skills:american-english".to_string(),
+                "rich-skills:bootstrap-interview".to_string(),
+            ]
+        );
+    }
+
+    /// The interview's name is spelled in two modules — here, and in
+    /// `onboarding.rs::INTERVIEW_SKILL`, which the priming turn's offer names so the model has
+    /// something to reach for. Two spellings of one name is a schedule for them to disagree, and
+    /// the disagreement would be silent: the offer would name a skill that is not there and the
+    /// model would improvise. `--plugin-dir`'s own silence on a missing directory (cell K4) is
+    /// the same defect one level down, and it is why this assertion exists at all.
+    #[test]
+    fn the_offer_in_the_priming_turn_names_a_skill_that_actually_ships() {
+        assert!(
+            qualified_names().contains(&crate::onboarding::INTERVIEW_SKILL.to_string()),
+            "onboarding.rs offers {} and the plugin ships {:?}",
+            crate::onboarding::INTERVIEW_SKILL,
+            qualified_names()
+        );
     }
 
     #[test]
