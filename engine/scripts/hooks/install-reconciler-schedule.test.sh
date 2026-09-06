@@ -148,6 +148,65 @@ else
 fi
 [ -L "$CLAUDE_CONFIG_DIR/richos-engine" ] && ok "S16  ...and the forced pointer was minted into the sandboxed config dir (positive control: the force did its own job)" || bad "S16  the escape hatch must still mint the pointer"
 
+# 5b. THE OFF-DARWIN CONTRACT, asserted on EVERY host.
+#
+# WHY THIS EXISTS (Linux redness, engine-self-verify.yml). S17-S20 below shim
+# `launchctl` and assert launchd behavior. On a host with no launchd they went
+# red, and the workflow file recorded that as "honest redness" whose real
+# question was what install.sh OUGHT to do off Darwin. install.sh already
+# answers it, in two places, and neither was under test:
+#
+#   the test-label live-load arm   `uname -s` != Darwin  -> exit 1, FAILED,
+#                                  "a live launchd load was requested (test
+#                                  label) but this host is not macOS"
+#   the production arm             `uname -s` != Darwin  -> exit 0 with a NOTE
+#                                  naming the host's own scheduler
+#
+# So the four cases were not asserting a wrong thing; they were asserting a
+# macOS thing on a host where the answer is a DIFFERENT correct thing. Gating
+# them alone would have been the failure this project keeps recording — a
+# skipped case reporting green. They are gated below AND the off-Darwin
+# behavior is asserted here instead, by shimming `uname` so the case runs on
+# macOS too. install.sh calls `uname -s` at exactly two sites and nowhere else,
+# which is what makes the shim precise rather than a blunt instrument.
+UNSHIM="$SANDBOX/unameshim"; mkdir -p "$UNSHIM"
+cat >"$UNSHIM/uname" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = "-s" ] && { echo Linux; exit 0; }
+for _u in /usr/bin/uname /bin/uname; do [ -x "$_u" ] && exec "$_u" "$@"; done
+exit 127
+SH
+chmod +x "$UNSHIM/uname"
+# A launchctl that would SUCCEED at everything: if install.sh reaches it at all
+# off Darwin, the case fails, and it fails loudly rather than by omission.
+OKSHIM="$SANDBOX/okshim"; mkdir -p "$OKSHIM"
+cat >"$OKSHIM/launchctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${LAUNCHCTL_SHIM_LOG:?}"
+exit 0
+SH
+chmod +x "$OKSHIM/launchctl"
+TL0="com.richos.worktree-reconciler.test-off$$"
+LA0="$SANDBOX/LaunchAgents0"
+: >"$SHIMLOG"
+OUT="$(env PATH="$UNSHIM:$OKSHIM:$PATH" LAUNCHCTL_SHIM_LOG="$SHIMLOG" RICHOS_LAUNCH_AGENTS_DIR="$LA0" RICHOS_LAUNCHD_LABEL="$TL0" bash "$ENG/scripts/hooks/install.sh" 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'the persistent reconciler is NOT scheduled' \
+   && printf '%s' "$OUT" | grep -q 'this host is not macOS' && [ ! -s "$SHIMLOG" ]; then
+    ok "S16b OFF DARWIN, a live launchd load (test label) FAILS CLOSED: exit 1, names the host, and launchctl is never invoked even though a shim would have said yes"
+else
+    bad "S16b rc=$RC log=$(tr '\n' ';' <"$SHIMLOG") out=${OUT:0:300}"
+fi
+# POSITIVE CONTROL for S16b, and it is the one that matters: S16b would also
+# pass if install.sh had died before it got anywhere near the schedule. The
+# plist is written BEFORE the Darwin test, so its presence proves the run
+# reached the scheduling decision and refused THERE, rather than falling over
+# earlier for an unrelated reason.
+[ -f "$LA0/$TL0.plist" ] && ok "S16c ...and the plist WAS written first, so the refusal is at the load and not an early crash (positive control for S16b)" || bad "S16c no plist at $LA0/$TL0.plist — S16b may have passed for the wrong reason"
+# ...and the shim is what changed the answer, not a broken host.
+[ "$(env PATH="$UNSHIM:$PATH" uname -s)" = "Linux" ] \
+    && ok "S16d ...and the shim is what produced the off-Darwin answer: with it first on PATH, uname -s reports Linux (control on the fixture itself)" \
+    || bad "S16d the uname shim did not resolve first on PATH"
+
 # 6. FAIL CLOSED (review 2026-09-03, blocker 7). Until this revision a plist
 # that could not be written, a missing launchctl and a failed bootstrap all
 # exited 0, the last with "load it by hand". A test label
@@ -157,6 +216,14 @@ fi
 TL="com.richos.worktree-reconciler.test-$$"
 FAILSHIM="$SANDBOX/failshim"; mkdir -p "$FAILSHIM"
 LA2="$SANDBOX/LaunchAgents2"
+# S17-S20 ARE macOS-ONLY, and gated the way section 7 already gates itself.
+# They shim launchctl to fail in four specific ways and assert that install.sh
+# reports each one. Off Darwin install.sh never reaches schedule_reconciler_job
+# at all — it refuses earlier, at the `uname -s` test, which is CORRECT and is
+# what S16b-S16d above assert on every host. Running these four off Darwin
+# asserted a macOS answer to a question the host answers differently, and that
+# is the whole of the Linux redness recorded in engine-self-verify.yml.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
 cat >"$FAILSHIM/launchctl" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${LAUNCHCTL_SHIM_LOG:?}"
@@ -206,6 +273,12 @@ if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'launchctl is not on PATH'; t
 else
     bad "S20  rc=$RC out=${OUT:0:300}"
 fi
+else
+    printf '  SKIP  S17-S20 launchd failure reporting: install.sh never reaches launchctl off Darwin (host: %s). NOT PROVEN HERE: that a failed bootstrap, an unverifiable print, a job naming another checkout and a missing launchctl each make install.sh exit 1. The off-Darwin refusal that stands in their place IS proven, by S16b-S16d above.\n' "$(uname -s 2>/dev/null)"
+fi
+
+# S21 is host-independent: the label is validated before any scheduler is
+# consulted, so it holds wherever this runs.
 OUT="$(RICHOS_LAUNCH_AGENTS_DIR="$LA2" RICHOS_LAUNCHD_LABEL="com.evil.something" bash "$ENG/scripts/hooks/install.sh" 2>&1)"; RC=$?
 [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'not a test label' && ok "S21  a custom label that is not a test label is refused outright (exit 1)" || bad "S21  rc=$RC out=${OUT:0:200}"
 

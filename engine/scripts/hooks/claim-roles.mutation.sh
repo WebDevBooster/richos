@@ -228,12 +228,25 @@ mutant no-bare-hex "z6." "$P" \
 # The cases that DO notice are the ones asserting a message or a reachability
 # verdict, and those are exactly the two that flake.
 #
-# THE FIX BELONGS IN scripts/hooks/guard-unresolved-claims.test.sh, WHICH NOBODY
-# HAS CLAIMED: its reachability cases need to stop depending on state that moves
-# under them, and `z7.` needs to assert the absence of a state verdict rather
-# than only an exit code. Both would give this property a stable witness. Until
-# then the honest state is red, and a green tick here would be the more
-# expensive lie.
+# THE FIX WAS THE SECOND HALF OF THAT SENTENCE, AND IT IS DONE (2026-09-06).
+# `z7.` now asserts the absence of an analyzer failure and not only an exit
+# code: guard-unresolved-claims.test.sh's run_case gained a FORBIDDEN-needle
+# argument, and z7 forbids "Traceback (most recent call last)" on stderr.
+#
+# Measured before writing it, on z7's own payload at 934f127:
+#     clean analyzer    exit 0, stderr EMPTY
+#     mutated analyzer  exit 1, "AttributeError: 'NoneType' object has no
+#                       attribute 'start'" on stderr
+# The wrapper turns that exit 1 into exit 0 because it fails open on an
+# analyzer it cannot run, which is exactly why an exit-code-only case could
+# never see it. The traceback is deterministic on both hosts, so z7 is now a
+# witness that witnesses.
+#
+# THE FIRST HALF OF THAT SENTENCE IS STILL OPEN, and this file should not be
+# read as saying otherwise: the reachability cases still depend on state that
+# moves under them, and the header above records `no-reachability-requirement`
+# flaking 1 run in 5 for that reason. What changed is that
+# `state-claim-needs-no-verb` no longer depends on those cases to be caught.
 mutant state-claim-needs-no-verb "z7." "$P" \
     '        if not (mi or mp):\n            continue' \
     '        if False:\n            continue' \

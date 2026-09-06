@@ -337,6 +337,18 @@ run_layer_R() {
     fi
 
     # R2/R3 — the hooks that resolve a root.
+    # `notice-unlanded-branches` was added on 2026-09-06, and the small story is
+    # worth keeping because the list will grow again. zach-opus-hk1 landed the
+    # hook in 3a661a4 and correctly did NOT add it here, this file being someone
+    # else's; and it could not be added on a branch that did not yet carry the
+    # hook, because the list is typed rather than derived precisely so that
+    # naming a hook nobody can find is a failure. It went in with the merge.
+    #
+    # A NEW ROOTED HOOK IS TWO COMMITS IN TWO PLACES BY CONSTRUCTION, and in the
+    # window between them its root bootstrap has no check standing over it. That
+    # is the cost of a typed list. It is worth paying — a derived list would have
+    # nothing to say when a hook quietly stops sourcing the library — but it is a
+    # cost, and whoever adds the next hook should expect the same two steps.
     R_ROOTED_HOOKS="engine-status guard-sealed-worktree guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-dialect \
@@ -359,7 +371,8 @@ run_layer_R() {
     guard-idle-land notice-waiver-repetition \
     guard-stated-actions \
     notice-escalations session-start-escalations \
-    commit-ceo-inputs notice-ceo-inputs-unheld"
+    commit-ceo-inputs notice-ceo-inputs-unheld \
+    notice-unlanded-branches"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
@@ -3245,11 +3258,49 @@ done
 #                             turns this red.
 #   RECOVERY                  a terminal transaction left at `quarantined` (as
 #                             a crash between the ingress and the reconciler
-#                             leaves it) is COMPLETED by the wrapper: captured,
-#                             verified, unregistered, removed. A wrapper that
-#                             runs no reconciler turns this red.
+#                             leaves it) is CARRIED FORWARD by the wrapper:
+#                             captured, then verified, with the archive on
+#                             disk. A wrapper that runs no reconciler turns
+#                             this red.
+#   RETENTION                 ...and the quarantine and its Git registration
+#                             are still THERE afterwards, because automatic
+#                             erasure is disabled. A path that deletes them
+#                             again turns this red.
 # The transaction store and the capture directory are pinned inside the
 # sandbox; the wrapper's inventory is pinned by REAP_WORKTREES_ROOT as before.
+#
+# ===========================================================================
+# THE END STATE CHANGED ON 2026-09-06 AND THIS LAYER HAD NOT (esc-20260906T045828Z-ff83c1e6)
+# ===========================================================================
+# Until this revision the RECOVERY arm asserted the member reached `removed`
+# and the quarantine was GONE. Commit a6c076c retired exactly that: after the
+# repeated reviews of the worktree-container deletion, the managed cleanup
+# paths preserve workspaces and refuse automatic erasure, because no process
+# scan and no final content check can exclude a concurrent writer
+# (docs/workspace-retirement-safety.md). `unregister_member` and
+# `remove_member` in reconcile-terminal-worktrees.py now raise
+# `exclusive-access-unavailable: automatic erasure is disabled; quarantine and
+# Git registration are retained`, so `verified` is the terminal member state.
+#
+# a6c076c did not touch this file. The layer therefore went on asserting a
+# rule the engine had deliberately dropped, and because EVERY
+# `<case>-probe-passes` case in contract-integrity.test.sh runs the whole
+# probe and expects exit 0, one stale layer put a FAIL on 21 of them.
+#
+# THIS IS NOT A RELAXATION, AND THE DIFFERENCE MATTERS. The old arm checked
+# three things (state, quarantine gone, an archive exists). This one checks
+# SIX, and every one of them is something a gutted recovery path would fail:
+#   1. before the wrapper runs, the member is at `quarantined` with NO archive
+#      — the negative control, in the same sandbox, so a canary that was
+#      already in its end state cannot report success for doing nothing;
+#   2. after, the member is at `verified`;
+#   3. `verified_ts` and `verified_files` are set, so the state was EARNED by
+#      the re-read rather than written over nothing;
+#   4. the archive is on disk and non-empty;
+#   5. the quarantine directory and its Git registration are BOTH still there;
+#   6. the member's `blocked_reason` names the disabled-erasure policy — so
+#      retention is the declared decision and not a remover that crashed.
+# If erasure ever comes back, 5 and 6 go red together and this layer says so.
 if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER" ] && [ -f "$CANONICAL_RECONCILER" ] \
    && command -v git >/dev/null 2>&1 && command -v mktemp >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     Q_DIR="$(cd "$(mktemp -d -t contract-integrity-reap.XXXXXX 2>/dev/null)" 2>/dev/null && pwd -P || true)"
@@ -3288,22 +3339,65 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
             # for a reason that had nothing to do with recovery. The budget is
             # pinned generously here; W11 of the wrapper's own suite proves the
             # budget itself is honored.
+            # NEGATIVE CONTROL, read in this same sandbox BEFORE the wrapper
+            # runs. Every assertion below is of the form "the member got
+            # further than it was", and that phrase is empty unless somebody
+            # checks where it started. If the fixture were already at
+            # `verified` with an archive on disk, the arms below would report a
+            # recovery that never happened — the failure class this engine has
+            # recorded five instances of. Two file reads; it costs nothing.
+            Q_TAR="$Q_DIR/captures/$Q_SID/$Q_AID/member-0/tree.tar"
+            Q_STATE_PRE="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" members --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | cut -f5)"
+            Q_PRE_OK=1
+            [ "$Q_STATE_PRE" = "quarantined" ] || Q_PRE_OK=0
+            [ -e "$Q_TAR" ] && Q_PRE_OK=0
             Q_OUT="$(REAP_WORKTREES_ROOT="$Q_REPO" RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" RICHOS_WORKTREE_CAPTURE_DIR="$Q_DIR/captures" \
                      RICHOS_RECONCILE_SETTLE=0.2 SESSION_START_RECONCILE_BUDGET=300 "$CANONICAL_REAPHOOK" </dev/null 2>/dev/null)"
             q_rc=$?
             set -e
             Q_STATE="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" members --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | cut -f5)"
-            if [ "$q_rc" -ne 0 ]; then
+            # verified_ts / verified_files / blocked_reason distinguish a state
+            # that was EARNED from a state that was merely written.
+            Q_WITNESS="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" show --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    m = (json.load(sys.stdin).get("members") or [{}])[0]
+except Exception:
+    print("\t\t"); raise SystemExit(0)
+print("%s\t%s\t%s" % (m.get("verified_ts") or "", m.get("verified_files") or 0,
+                       (m.get("blocked_reason") or "").replace("\t", " ")))
+' 2>/dev/null)"
+            Q_VERIFIED_TS="$(printf '%s' "$Q_WITNESS" | cut -f1)"
+            Q_VERIFIED_N="$(printf '%s' "$Q_WITNESS" | cut -f2)"
+            Q_BLOCKED_WHY="$(printf '%s' "$Q_WITNESS" | cut -f3)"
+            Q_STILL_REGISTERED=0
+            git -C "$Q_REPO" worktree list 2>/dev/null | grep -qF "$Q_QUAR" && Q_STILL_REGISTERED=1
+            if [ "$Q_PRE_OK" -ne 1 ]; then
+                emit_fail "Q. the crash-recovery canary was ALREADY in its expected end state before the wrapper ran (pre-state '${Q_STATE_PRE:-none}', archive $([ -e "$Q_TAR" ] && echo present || echo absent); expected 'quarantined' and absent) — every arm below would then pass without anything having been recovered. The negative control failed, so this canary proves nothing and is reported as broken rather than green."
+                Q_OK=0
+            elif [ "$q_rc" -ne 0 ]; then
                 emit_fail "Q. session-start worktree hook exited $q_rc on a sandbox run (expected 0) — this hook is log-only and must NEVER block a session start."
                 Q_OK=0
             elif [ ! -d "$Q_SURVIVOR" ]; then
                 emit_fail "Q. the session-start wrapper REMOVED a merged, clean, unlocked native worktree — the old liveness-inferring sweep is back with --execute. Live-agent eviction is not permitted, whatever the git state (the 2026-09-02 ruling). Restore immediately: git checkout -- scripts/hooks/session-start-reap-worktrees.sh"
                 Q_OK=0
-            elif [ "$Q_STATE" != "removed" ] || [ -d "$Q_QUAR" ]; then
-                emit_fail "Q. the session-start wrapper did NOT recover a terminal transaction left at quarantined (member state '${Q_STATE:-none}', quarantine $([ -d "$Q_QUAR" ] && echo present || echo gone)) — crash recovery is gutted, so a transaction the ingress left mid-way waits for launchd forever."
+            elif [ "$Q_STATE" != "verified" ]; then
+                emit_fail "Q. the session-start wrapper did NOT recover a terminal transaction left at quarantined — it never carried the member forward to 'verified' (state '${Q_STATE:-none}', it started at '$Q_STATE_PRE') — crash recovery is gutted, so a transaction the ingress left mid-way waits for launchd forever."
                 Q_OK=0
-            elif [ ! -f "$Q_DIR/captures/$Q_SID/$Q_AID/member-0/tree.tar" ]; then
-                emit_fail "Q. the wrapper removed the quarantine WITHOUT an archive on disk — deletion without a verified capture."
+            elif [ ! -s "$Q_TAR" ]; then
+                emit_fail "Q. the member reached 'verified' with no archive on disk at $Q_TAR — 'verified' MEANS the capture was re-read and every digest matched, so a verified member with no bytes behind it is a state written over nothing."
+                Q_OK=0
+            elif [ -z "$Q_VERIFIED_TS" ] || [ "${Q_VERIFIED_N:-0}" -lt 1 ]; then
+                emit_fail "Q. the member reached 'verified' with no verified_ts / verified_files (ts='${Q_VERIFIED_TS:-none}', files='${Q_VERIFIED_N:-none}') — the state was set without the re-read that earns it, which is a green tick over an unchecked archive."
+                Q_OK=0
+            elif [ ! -d "$Q_QUAR" ]; then
+                emit_fail "Q. the wrapper DELETED the quarantine at $Q_QUAR. Automatic erasure is disabled (a6c076c; docs/workspace-retirement-safety.md): the reconciler captures and verifies and then RETAINS the quarantine, because neither a process scan nor a final content check can exclude a concurrent writer. A path that erases it again is the reviewed deletion failure coming back."
+                Q_OK=0
+            elif [ "$Q_STILL_REGISTERED" -ne 1 ]; then
+                emit_fail "Q. the quarantine at $Q_QUAR is no longer registered as a git worktree of $Q_REPO — the retention contract keeps the quarantine AND its Git registration, and an unregistered directory is one a later sweep will read as ownerless residue and delete."
+                Q_OK=0
+            elif ! printf '%s' "$Q_BLOCKED_WHY" | grep -q 'automatic erasure is disabled'; then
+                emit_fail "Q. the quarantine survived but the member does not say WHY (blocked_reason: '${Q_BLOCKED_WHY:-none}') — retention has to be the declared policy, not a remover that happened to fail. Expected 'exclusive-access-unavailable: automatic erasure is disabled ...'."
                 Q_OK=0
             elif ! printf '%s' "$Q_OUT" | grep -q '"hookEventName": *"SessionStart"'; then
                 emit_fail "Q. the wrapper emitted no SessionStart summary JSON (got: $Q_OUT) — a session-start run can no longer be audited from the transcript."
@@ -3315,7 +3409,7 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
                 emit_fail "Q. the inventory reported no coverage line — a session would open blind to every worktree nothing owns, which is the 'reaped=1 residue=0' false green again. The inventory is gutted."
                 Q_OK=0
             else
-                emit_pass "Q. worktree lifecycle at session start: the wrapper REMOVES NOTHING on its own (a merged/clean/unlocked tree survives) + RECOVERS a quarantined terminal transaction (captured, verified, removed) + inventory is DRY-RUN — path-confined, manifest-matched"
+                emit_pass "Q. worktree lifecycle at session start: the wrapper REMOVES NOTHING on its own (a merged/clean/unlocked tree survives) + carries a quarantined terminal transaction forward quarantined->verified with a non-empty archive and verified_ts/verified_files set (negative control: it was at '''quarantined''' with no archive beforehand) + RETAINS the quarantine, its git registration and a blocked_reason naming the disabled-erasure policy + inventory is DRY-RUN — path-confined, manifest-matched"
             fi
         else
             emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — the throwaway sandbox could not be built (transaction seal or claim failed), so nothing here proves the wrapper removes nothing or recovers a transaction. Wiring and hashes are verified; BEHAVIOR IS NOT."

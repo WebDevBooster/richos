@@ -149,6 +149,54 @@ printf -- 'expect(mark).toBe("rgb(143, 112, 48)");\n' > "$ENTITY/docs/appearance
 git -C "$ENTITY" add -A >/dev/null 2>&1
 git -C "$ENTITY" commit -qm "two spellings of one value" >/dev/null 2>&1
 
+# --- THE FIXTURE IS ASSERTED BEFORE ANY CASE READS IT ----------------------
+#
+# Every git command above is `>/dev/null 2>&1` and none of their exit codes is
+# checked. That is deliberate for the noisy ones, and it has a consequence
+# nobody had written down: if one of those commits does not happen — an
+# identity guard, a stray global hook, a lock contended under load — then
+# `rev-parse HEAD` prints nothing and the SHA is the EMPTY STRING.
+#
+# An empty SHA does not make a case fail. It makes the case test something
+# else. `z7.` becomes "The branch tip is `` and I am waiting on your call",
+# a sentence with no hex token in it at all, which the gate is right to ignore
+# and which proves nothing about the property z7 exists for. It reports PASS.
+#
+# THAT IS THE MECHANISM BEHIND A FLAKE THIS SUITE'S HARNESS HAS BEEN CARRYING.
+# claim-roles.mutation.sh records `state-claim-needs-no-verb` going red "but
+# NOT at z7." on some runs and not others, and its header names the cause in
+# general terms — "its reachability cases need to stop depending on state that
+# moves under them". This is that dependence, at its root: not the cases, the
+# fixture they are written against. Observed here on 2026-09-06 inside a full
+# contract-integrity pass at load average 10-11, while the same harness run
+# alone passed 20/20 immediately before and after.
+#
+# So the fixture is now ASSERTED, loudly, before the first case runs. This does
+# not stop the underlying git operation from failing — it makes a failure say
+# so instead of quietly rewriting what 65 cases mean.
+FIXTURE_BAD=""
+for _pair in "LIVE_SHA:$LIVE_SHA" "BRANCH_SHA:$BRANCH_SHA" "DANGLING_SHA:$DANGLING_SHA" "UNPUSHED_SHA:$UNPUSHED_SHA"; do
+    _name="${_pair%%:*}"; _val="${_pair#*:}"
+    case "$_val" in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+        *) FIXTURE_BAD="$FIXTURE_BAD $_name='$_val'" ;;
+    esac
+done
+# ...and that they are DISTINCT. Four names for one commit would silently
+# collapse the three-way ref-graph distinction the cases are built on.
+if [ -z "$FIXTURE_BAD" ]; then
+    _uniq="$(printf '%s\n%s\n%s\n%s\n' "$LIVE_SHA" "$BRANCH_SHA" "$DANGLING_SHA" "$UNPUSHED_SHA" | sort -u | grep -c .)"
+    [ "$_uniq" -eq 4 ] || FIXTURE_BAD="$FIXTURE_BAD not-distinct(live=$LIVE_SHA branch=$BRANCH_SHA dangling=$DANGLING_SHA unpushed=$UNPUSHED_SHA)"
+fi
+if [ -n "$FIXTURE_BAD" ]; then
+    printf '  FATAL  the sandbox repository was not built as these cases assume:%s\n' "$FIXTURE_BAD" >&2
+    printf '         A SHA that is empty or duplicated does not make a case fail — it makes it\n' >&2
+    printf '         test a different sentence and report PASS. Refusing to run 65 cases over it.\n' >&2
+    printf '         Most likely a git commit in the setup above did not happen; re-run with the\n' >&2
+    printf '         `>/dev/null 2>&1` removed from the setup commands to see which.\n' >&2
+    exit 1
+fi
+
 # A repository that never adopted the engine: no orchestration.config.
 UNADOPTED="$SANDBOX/unadopted"
 mkdir -p "$UNADOPTED"
@@ -218,8 +266,15 @@ PY
 }
 
 LAST_ERR=""
-run_case() { # <name> <expected-exit> <payload-json> [needle-in-stderr]
-    local name="$1" want="$2" json="$3" needle="${4:-}" got err
+run_case() { # <name> <expected-exit> <payload-json> [needle-in-stderr] [FORBIDDEN-needle-in-stderr]
+    #
+    # THE FIFTH ARGUMENT EXISTS BECAUSE AN EXIT CODE IS NOT ALWAYS A WITNESS.
+    # This hook fails OPEN: guard-unresolved-claims.sh treats anything but 2 as
+    # "let the turn end", including a crash in the analyzer. So a case that
+    # asserts only `exit 0` cannot tell "the analyzer ran and found nothing"
+    # from "the analyzer raised and the wrapper swallowed it" — they are the
+    # same exit code. A forbidden needle lets a case say which one it saw.
+    local name="$1" want="$2" json="$3" needle="${4:-}" forbidden="${5:-}" got err
     err="$(mktemp "$SANDBOX/err.XXXXXX")"
     printf '%s' "$json" | RICHOS_ENTITY_ROOT="$ENTITY" \
         RICHOS_CLAIMS_TEAMS_DIR="$TEAMS" "$HOOK" >/dev/null 2>"$err"
@@ -231,6 +286,10 @@ run_case() { # <name> <expected-exit> <payload-json> [needle-in-stderr]
         FAIL=$((FAIL + 1))
     elif [ -n "$needle" ] && ! grep -qF "$needle" "$err"; then
         printf '  FAIL  %s (stderr missing %q)\n' "$name" "$needle"
+        [ -s "$err" ] && sed 's/^/          /' "$err"
+        FAIL=$((FAIL + 1))
+    elif [ -n "$forbidden" ] && grep -qF "$forbidden" "$err"; then
+        printf '  FAIL  %s (stderr carries %q, which this case forbids)\n' "$name" "$forbidden"
         [ -s "$err" ] && sed 's/^/          /' "$err"
         FAIL=$((FAIL + 1))
     else
@@ -565,8 +624,27 @@ run_case "z6.a-bare-unbackticked-sha-in-a-landing-sentence-still-blocks" 2 \
 
 # PRECISION: no landing word, no question asked of git. The same SHA that
 # blocks above is silent here.
+#
+# AND IT MUST BE SILENT FOR THE RIGHT REASON (2026-09-06). This case is the
+# named witness for the verb requirement in `state_claims()` — the check that
+# makes a state claim a claim rather than any sentence containing a hex token —
+# and until now it asserted nothing but `exit 0`. claim-roles.mutation.sh's
+# `state-claim-needs-no-verb` mutant removes that requirement, and the failure
+# mode is not a wider check: execution reaches
+# `claim_polarity(s, (mi or mp).start())` with both matches None, the analyzer
+# raises AttributeError, and guard-unresolved-claims.sh fails OPEN on an
+# analyzer it cannot run. Exit 0 either way. The property had no witness, and
+# the harness said so in its own header rather than claim a green tick.
+#
+# Measured on this payload, at 934f127:
+#     clean analyzer    exit 0, stderr EMPTY
+#     mutated analyzer  exit 1, "AttributeError: 'NoneType' object has no
+#                       attribute 'start'" on stderr
+# so the traceback is the stable, deterministic witness — unlike the
+# reachability cases the harness header records as flaking 2 of 5 runs.
 run_case "z7.the-same-sha-outside-a-state-claim-is-not-checked" 0 \
-    "$(payload "The branch tip is \`$BRANCH_SHA\` and I am waiting on your call before touching it.")"
+    "$(payload "The branch tip is \`$BRANCH_SHA\` and I am waiting on your call before touching it.")" \
+    "" "Traceback (most recent call last)"
 
 run_case "z8.a-landing-word-with-no-sha-is-not-a-state-claim" 0 \
     "$(payload 'Everything is landed and pushed; the worktrees are cleaned up.')"

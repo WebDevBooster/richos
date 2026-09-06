@@ -764,16 +764,50 @@ else
     FAIL=$((FAIL + 1)); printf '  FAIL  Q02  cwd-only spawn (rc=%s) intent=%s: %s\n' "$rc" "$([ -f "$(intent_file "$TEST_SID" toolu_test_cwd)" ] && echo written || echo none)" "$(printf '%s' "$OUT_Q2" | tr '\n' ' ' | cut -c1-160)"
 fi
 
-# (q3) cross-repo-worktree: line with isolation -> kind native+external
+# (q3) cross-repo-worktree: line with isolation -> kind native+external, AND
+# the external MEMBER ITSELF is in the intent.
+#
+# STRENGTHENED 2026-09-06. This case used to assert the KIND alone, and the
+# kind never passes through the member list: it is computed in the shell from
+# the prompt line and handed to the writer as INTENT_KIND. So an engine that
+# recorded `native+external` over an EMPTY externals array satisfied it, and
+# that is exactly the state the binder cannot act on -- the tree the worker
+# writes in would be bound to nothing and retired by nothing.
+#
+# HOW THE GAP OPENED, because nobody deleted an assertion: Q02 carried this
+# property (it certified a cwd spawn's exact external member) until the
+# 2026-09-03 inversion made a cwd-only spawn refused before any intent is
+# written. The property moved to Q03's setup and no assertion moved with it,
+# so the `externals-dropped` mutant scored NOT LOAD-BEARING against the one
+# field the whole lifecycle reads.
 rm -rf "$TX_SANDBOX/tx"
 printf '%s' "$(json_cwd 'echo-opus-mk1' 'worktree' '' $'Do it.\ncross-repo-worktree: '"$CR/other-wt/echo-opus-reg1")" | "$HOOK" >/dev/null 2>&1; rc=$?
-if [ "$rc" -eq 0 ] && grep -q '"kind": "native+external"' "$(intent_file "$TEST_SID" toolu_test_cwd)" 2>/dev/null; then
-    PASS=$((PASS + 1)); printf '  PASS  Q03  isolation plus a cross-repo-worktree: line writes kind native+external\n'
+if [ "$rc" -eq 0 ] && python3 -c '
+import json, os, sys
+d = json.load(open(sys.argv[1]))
+assert d["kind"] == "native+external", d["kind"]
+ext = d["externals"]
+assert len(ext) == 1, ext
+m = ext[0]
+assert m["path"] == os.path.realpath(sys.argv[2]), (m["path"], sys.argv[2])
+assert m["branch"] == "echo-opus-reg1", m["branch"]
+assert m["class"] == "hand-rolled", m["class"]
+assert m["prepared_ts"], m
+' "$(intent_file "$TEST_SID" toolu_test_cwd)" "$CR/other-wt/echo-opus-reg1" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  Q03  isolation plus a cross-repo-worktree: line writes kind native+external AND the prepared member itself (path, branch, class, prepared_ts)\n'
 else
-    FAIL=$((FAIL + 1)); printf '  FAIL  Q03  native+external intent (rc=%s)\n' "$rc"
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q03  native+external intent (rc=%s): %s\n' "$rc" "$(cat "$(intent_file "$TEST_SID" toolu_test_cwd)" 2>/dev/null | tr '\n' ' ')"
 fi
 
 # (q4) PREPARED FOR ANOTHER SESSION -> refused, naming the session it was prepared in
+#
+# READ Q04/Q06/Q08 AS SETUP AND Q05/Q07/Q09 AS THE ASSERTION. Since the
+# 2026-09-03 inversion clause 7f refuses EVERY cwd-only spawn with exit 2, so
+# the exit code of Q04, Q06 and Q08 no longer distinguishes a clause-7a
+# finding from the blanket refusal: they would stay green with clause 7a
+# deleted outright. The refusal TEXT is the only discriminator left, which is
+# why worktree-spawn-intent.mutation.sh aims at Q05 and Q09 rather than at
+# Q04 and Q08. Do not "simplify" this by dropping the message cases.
 python3 "$SCRIPT_DIR/../lib/worktree-ledger.py" record prepared --teammate echo-opus-other1 --session-id "feedface-1111-4000-8000-000000000001" \
     --repo "$CR_REPO" --worktree "$CR/other-wt/echo-opus-reg1" --branch echo-opus-reg1 --class hand-rolled >/dev/null
 run_case "Q04  cwd into a tree prepared for ANOTHER session -> BLOCKED" 2 \

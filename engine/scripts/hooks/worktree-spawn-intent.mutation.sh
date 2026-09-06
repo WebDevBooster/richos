@@ -10,6 +10,30 @@
 # checks in two files — the guard's own, and worktree-transactions.py's
 # refusal of an empty path segment (its T02). Removing the guard's alone does
 # not turn Q15 red, and a single mutant edits one file.
+#
+# SENTINELS RETARGETED 2026-09-06, and the reason is worth more than the fix.
+# Three of these mutants named a case that had stopped being able to detect
+# them, so the harness reported the properties NOT LOAD-BEARING on every host.
+# Nothing about the guard had regressed; the SUITE had moved underneath the
+# harness.
+#
+# The mover was the 2026-09-03 inversion (CEO specification section 6): a
+# cwd-only spawn is now refused unconditionally at clause 7f. Two consequences,
+# and they are the whole defect:
+#
+#   1. Q02 used to certify a cwd spawn's exact external member. It now
+#      certifies that such a spawn is refused and writes NO intent, so it can
+#      no longer see externals.append() at all. -> Q03, which had to be
+#      strengthened in the suite to assert the member and not merely the kind.
+#   2. Q04 and Q08 assert an EXIT CODE. Clause 7f refuses every cwd-only spawn
+#      with exit 2 regardless of what clause 7a found, so those two now go red
+#      for a reason that survives the mutation. Only the REFUSAL TEXT
+#      distinguishes them -> Q05 and Q09, which no other clause can produce.
+#
+# THE LESSON THIS HARNESS SHOULD CARRY: an exit-code case stops discriminating
+# the moment a broader refusal is added ahead of it, and it keeps passing while
+# it stops proving anything. When a clause gains an earlier blanket refusal,
+# re-point every mutant that aimed at an exit code behind it.
 
 set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0
@@ -25,17 +49,17 @@ mutant intent-not-written "Q01" "$G" \
     '    pass and tx.write_intent(sid, tuid, {"kind": kind, "teammate": name,' \
     "every spawn would be allowed with no intent on disk; the binder would find nothing to bind and every worker would be refused at its first write."
 
-mutant externals-dropped "Q02" "$G" \
+mutant externals-dropped "Q03" "$G" \
     '    externals.append({"repo": repo_now, "path": real, "branch": branch_now,' \
     '    [].append({"repo": repo_now, "path": real, "branch": branch_now,' \
     "a cwd spawn's external member would be missing from the intent; the tree the worker writes in would never be bound or cleaned up."
 
-mutant prepared-not-required "Q04" "$G" \
+mutant prepared-not-required "Q05" "$G" \
     '    if not prepared:{NL}        others = wl.prepared_records(records, worktree=real)' \
     '    if not prepared:{NL}        prepared = [{"repo": tx.main_checkout_of(real), "branch": tx.branch_of(real), "ts": ""}]{NL}    if False:{NL}        others = wl.prepared_records(records, worktree=real)' \
     "any registered tree could be spawned into by any teammate in any session — the cross-session binding the specification forbids."
 
-mutant branch-drift-ignored "Q08" "$G" \
+mutant branch-drift-ignored "Q09" "$G" \
     '    if (rec.get("branch") or "") != branch_now:{NL}        problem(' \
     '    if False:{NL}        problem(' \
     "a tree that drifted off its prepared branch would be sealed against a record describing a different line of work."
