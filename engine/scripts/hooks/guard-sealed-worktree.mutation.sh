@@ -95,7 +95,7 @@ mutant broken-root-allows "G24" "$G" \
     "a guard that could not tell which repository it governs would allow the write anyway."
 
 mutant lead-proof-is-raw-grep-only "G17d" "$G" \
-    '    printf '"'"'%s'"'"' "$INPUT" | grep -Eq '"'"'(^|[^\\])"agent_id"'"'"'' \
+    '    printf '"'"'%s'"'"' "$INPUT" | grep -E >/dev/null '"'"'(^|[^\\])"agent_id"'"'"'' \
     '    false' \
     "without python3 every payload would be proven the lead's, and every worker write would pass."
 
