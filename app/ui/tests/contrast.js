@@ -78,7 +78,18 @@
 
 const fs = require("fs");
 const path = require("path");
-const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const {
+  leaveHome,
+  loadPlaywright,
+  shot,
+  publishShotFile,
+  createRun,
+  assert,
+  assertEqual,
+  HOLD_CURTAIN,
+  assertCurtainHeld,
+  UI_DIR,
+} = require("./lib/harness");
 const C = require("./lib/contrast");
 const SOURCES = require("./lib/ui-sources");
 
@@ -104,6 +115,112 @@ const SOURCE_FILES = SOURCES.stateSources().map(SOURCES.abs);
 
 const THEMES = ["light", "dark"];
 
+/// A DELIBERATE SLOW RUNNER, on demand: `RICHOS_CONTRAST_LAG_MS=120 node contrast.js`. Same
+/// idea as `splash.js`'s `RICHOS_SPLASH_LAG_MS`, applied at the seam that actually matters
+/// here — every `RichBridge.invoke` round trip. A `macos-latest` runner is not just late to
+/// start; it is slower at each of the calls a driver sets off and does not wait for, and that
+/// is the difference that decided run 34010691469. Zero, and no delay at all, unless it is set.
+const LAG_MS = Number(process.env.RICHOS_CONTRAST_LAG_MS || 0);
+
+/// WAIT UNTIL THE HIRING THREAD IS ACTUALLY ON THE STAGE, and not for a length of time.
+///
+/// WHY THIS EXISTS. Every `assignment-*` surface below starts by clicking the hiring thread.
+/// That click sets off `switch_thread`, `active_context`, `techy_mode` and `get_timeline`, and
+/// until 2026-09-06 nothing waited for any of them: the driver installed its fixture bridge
+/// and called `RichRuns.show("hiring")` immediately, and the walk measured whatever was on
+/// screen. On this machine those calls finish in about a millisecond. On a slower one they do
+/// not.
+///
+/// MEASURED at `934f127` with 120 ms on each bridge call, which is this suite's own knob above:
+/// the `assignment-running` walk ran against a shell showing the PREVIOUS thread — the stage
+/// header read "Harbor Analytics / Running" rather than "Northwind Traders / Q4 hiring", and
+/// the hiring thread's turn (its user message, its stamp, its duration row, Rich's prose) was
+/// not in the DOM at all. Sixteen text nodes missing, eight of the old thread's present in
+/// their place, and 210 of 218 nodes considered per theme against a floor of 218.
+///
+/// THE FLOOR IS WHAT CAUGHT IT, AND ONLY JUST. Run 34010691469 reported 428 across both themes
+/// against a floor of 436 — one theme raced, one did not. Had both cleared the floor the suite
+/// would have reported a clean contrast sweep of `assignment-running` having walked a
+/// different thread, which is the failure this file's own header calls the worst kind: not
+/// "nobody checked" but "somebody checked and it was fine".
+///
+/// So the wait is on the END STATE the surface is named for — the crumb, the active rail row
+/// and the thread's own turns, all three — rather than on a timeout somebody widened.
+/// WAIT FOR THE SHELL TO HAVE FINISHED ARRIVING, rather than for 300 ms.
+///
+/// Two things in the rail are filled by their own asynchronous reads, independent of the
+/// thread and of every driver below: the corrections count (`#nav-corrections-count`) and the
+/// retention hint in the assertiveness popover (`#retention-hint`, "Nothing is ever removed.
+/// Using 66 MB now."). Measured at `934f127` with 60 ms on each bridge call, both were still
+/// empty when every driver returned — two text nodes per theme, four across the pair, which
+/// is more margin than any floor in `contrast-debt.json` has. Those floors were set on a
+/// settled shell, so this waits for the shell they were set on.
+///
+/// It is a wait on the two elements' own end state and not a longer sleep: on this machine it
+/// returns on the first poll, and on a slower one it returns when the reads land instead of
+/// when a number somebody picked runs out.
+async function shellSettled(p) {
+  await p.waitForFunction(() => {
+    const count = document.getElementById("nav-corrections-count");
+    const hint = document.getElementById("retention-hint");
+    return !!count && count.textContent.trim() !== "" && !!hint && hint.textContent.trim() !== "";
+  });
+}
+
+/// Wait for an overlay's ENTRY ANIMATION to have finished, on the animation's own clock.
+///
+/// `.overlay-panel` carries `animation: overlay-in 0.16s ease-out`, which runs opacity from 0
+/// to 1. A walk that samples partway through measures the panel's text against a background
+/// the panel is only half covering, and every ratio it computes is of a frame nobody will ever
+/// look at. That is not a hypothetical: replacing this suite's `waitForTimeout(400)` with a
+/// state wait, and nothing else, made the feedback desk report 13 NEW failures headed by
+/// `p#feedback-title` at 1.39:1 — `#9b9994 on #b9b5ab`, two colors that exist nowhere in
+/// either palette because one of them is a blend.
+///
+/// `Element.getAnimations({ subtree: true })` is the exact end state and this WebKit has it
+/// (probed at `934f127`: one animation found, 192 ms awaited, opacity 1 and zero animations
+/// left). The two frames afterwards are the paint.
+async function overlaySettled(p, selector) {
+  await p.evaluate(async (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    await Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  }, selector);
+}
+
+async function atHiringThread(p) {
+  await p.waitForFunction(() => {
+    const crumb = document.getElementById("scope-thread");
+    const active = document.querySelector(".nav-thread-row.is-active .nav-thread");
+    return (
+      !!crumb &&
+      crumb.textContent.trim() === "Q4 hiring" &&
+      !!active &&
+      active.dataset.threadId === "hiring" &&
+      document.querySelectorAll("#messages .tl-turn").length > 0
+    );
+  });
+}
+
+/// The same three facts, asserted rather than waited for. Used after a driver has finished, so
+/// a late answer that arrives from the click and re-renders the stage over the fixture is a
+/// named failure instead of a node count that happens to clear its floor.
+async function assertStillHiring(p, surface) {
+  const on = await p.evaluate(() => ({
+    crumb: ((document.getElementById("scope-thread") || {}).textContent || "").trim(),
+    entity: ((document.getElementById("scope-entity") || {}).textContent || "").trim(),
+    active: (document.querySelector(".nav-thread-row.is-active .nav-thread") || { dataset: {} }).dataset.threadId,
+    turns: document.querySelectorAll("#messages .tl-turn").length,
+  }));
+  assert(
+    on.crumb === "Q4 hiring" && on.active === "hiring" && on.turns > 0,
+    surface + " is not on the thread it is named for when the walk starts — the stage reads " +
+      JSON.stringify(on.entity + " / " + on.crumb) + ", active thread " + JSON.stringify(on.active) + ", " +
+      on.turns + " turn(s). Whatever this walk measures, it is not the surface in its title"
+  );
+}
+
 // ---------------------------------------------------------------------------------------
 // The surfaces. A driver's job is to put the app into a state and RETURN — the walk is the
 // same everywhere, which is what makes adding a surface one entry rather than one suite.
@@ -115,6 +232,10 @@ const SURFACES = [
     what: "the assignment panel in the real composer, " + state,
     drive: async p => {
       await p.evaluate(() => document.querySelector('.nav-thread[data-thread-id="hiring"]').click());
+      // The click's own work is asynchronous and nothing here used to wait for it. See
+      // `atHiringThread` above for the measurement and for what a walk that did not wait
+      // was actually measuring.
+      await atHiringThread(p);
       await require("./lib/assignments").drive(p, ["scope"].includes(state) ? "decision" : ["history", "picker"].includes(state) ? "running" : state);
       if (["decision", "scope"].includes(state)) await require("./lib/assignments").review(p);
       if (state === "history") {
@@ -123,6 +244,7 @@ const SURFACES = [
       }
       if (state === "picker") { await p.locator("#managed-run [data-run-picker]").click(); await p.waitForSelector("#managed-run .run-choices button"); }
       if (state === "scope") await p.locator("#managed-run [data-run-scope]").click();
+      await assertStillHiring(p, "assignment-" + state);
     }
   })),
   {
@@ -172,7 +294,17 @@ const SURFACES = [
     drive: async (p) => {
       await p.click("#nav-feedback");
       await p.waitForSelector("#feedback-overlay:not([hidden])");
-      await p.waitForTimeout(400);
+      // THE OVERLAY IS NOT THE DESK. Un-hiding it is synchronous; the session question and
+      // its four rating buttons are filled by a read that lands afterwards, and 400 ms was
+      // enough for that read on this machine and not on a slower one. Measured at `934f127`
+      // with 120 ms on each bridge call: 6 text nodes at the end of the old wait against 11
+      // settled, and the walk reported "feedback measured only 8 node(s) ... but its floor is
+      // 20". So the wait is for the question the desk exists to ask.
+      await p.waitForFunction(() => {
+        const q = document.getElementById("feedback-question");
+        return !!q && q.textContent.trim() !== "";
+      });
+      await overlaySettled(p, "#feedback-overlay");
     },
   },
   {
@@ -564,20 +696,36 @@ async function openApp(browser, theme, holdSplash, preset) {
     // Hold the curtain deterministically rather than racing it. `main.js` calls
     // `RichSplash.yieldNow("app-ready")` the moment the shell is usable, which on this
     // machine is well inside a second — a walk that tried to be quick enough would be a
-    // flake generator. Intercepting the ASSIGNMENT of `window.RichSplash` neuters the yield
-    // before splash.js has finished installing itself, and touches nothing else: the
-    // composition renders exactly as it ships.
-    await page.addInitScript(() => {
+    // flake generator.
+    //
+    // WHAT USED TO BE HERE WAS HALF OF IT. Intercepting the assignment of
+    // `window.RichSplash` neuters the EXPORTED yield, and `start()` also arms a ceiling over
+    // the internal one — so this walk had 4,000 ms from `goto` to the end of a full
+    // both-themes contrast pass plus a screenshot, and the `opening-screen` surface's floor
+    // could not have noticed the curtain leaving mid-walk, because the curtain is an overlay
+    // and the shell's text nodes are underneath it either way. `HOLD_CURTAIN` takes the
+    // ceiling out and `assertCurtainHeld` below proves it, which is the difference between a
+    // walk of the opening screen and a walk of the shell behind it.
+    await page.addInitScript(HOLD_CURTAIN);
+  }
+  // A DELIBERATE SLOW RUNNER, on demand. Wrapping the bridge at its ASSIGNMENT, so every
+  // caller in the page is behind it — including the ones a driver sets off and returns from.
+  if (LAG_MS > 0) {
+    await page.addInitScript((ms) => {
       let real;
-      Object.defineProperty(window, "RichSplash", {
+      Object.defineProperty(window, "RichBridge", {
         configurable: true,
         get: () => real,
         set: (v) => {
           real = v;
-          if (v && typeof v.yieldNow === "function") v.yieldNow = function () {};
+          const invoke = v.invoke.bind(v);
+          v.invoke = async (name, args) => {
+            await new Promise((r) => setTimeout(r, ms));
+            return invoke(name, args);
+          };
         },
       });
-    });
+    }, LAG_MS);
   }
   // A PRE-BOOT MOCK PRESET, for the one state a setter cannot reach: "no company has ever
   // been chosen" is decided before `init()` branches on whether a thread is active, so it
@@ -592,9 +740,16 @@ async function openApp(browser, theme, holdSplash, preset) {
   // The home screen is the landing surface now; this suite is about the app UI behind it.
   await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
+  // Everything the shell fetches for itself, before anything is measured through it.
+  await shellSettled(page);
   if (holdSplash) {
+    // The hold is PROVEN before anything is measured through it: exactly one timer taken out
+    // of `start()`, armed for longer than the hold it guarded, and a curtain still on screen
+    // with `state.reason` still null. Without this, a walk that lost the curtain partway
+    // would report the shell underneath it and read perfectly clean.
+    page.__curtain = await assertCurtainHeld(page);
     // §15's always-dark clamp is in force for the whole of this walk, by ruling and not by
-    // accident, so a light-labelled opening-screen walk correctly reports dark.
+    // accident, so a light-labeled opening-screen walk correctly reports dark.
     assertTheme(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "dark", theme);
     page.__errors = errors;
     return page;
@@ -1020,8 +1175,11 @@ async function main() {
       let debtHits = 0;
       let checked = 0;
       let considered = 0;
+      // For a surface that holds the curtain: the proof that it was still held, in the log.
+      let curtain = null;
       for (const theme of THEMES) {
         const page = await openApp(browser, theme, surface.holdSplash, surface.preset);
+        if (page.__curtain) curtain = page.__curtain;
         await surface.drive(page);
         // WHICH DECLARED PANELS THIS DRIVER PUT ON SCREEN, recorded before the walk so that
         // check 10c can answer a question no other check here asks: not "was every named
@@ -1120,7 +1278,7 @@ async function main() {
         newOnes + " NEW and " + worse + " WORSENED contrast failure(s) on " + surface.name + ":\n" + lines.join("\n")
       );
       return checked + " of " + considered + " node(s) measured across both themes, " + debtHits +
-        " known-debt hit(s), 0 new, 0 worsened";
+        " known-debt hit(s), 0 new, 0 worsened" + (curtain ? " — " + curtain : "");
     });
   }
 

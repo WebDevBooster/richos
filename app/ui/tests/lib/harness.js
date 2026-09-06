@@ -509,6 +509,119 @@ function assertEqual(actual, expected, msg) {
 
 
 // ---------------------------------------------------------------------------------------
+// HOLDING THE OPENING CURTAIN, INCLUDING AGAINST THE PRODUCT'S OWN CEILING
+// ---------------------------------------------------------------------------------------
+
+/// An init script that keeps the opening curtain up for the WHOLE of a walk, however long
+/// that walk takes. Pass it to `page.addInitScript` before `goto`.
+///
+/// WHAT WAS HERE BEFORE, AND WHY IT WAS NOT A HOLD. `appearance.js` and `contrast.js` each
+/// carried a copy of the same few lines: intercept the assignment of `window.RichSplash` and
+/// replace the EXPORTED `yieldNow` with a no-op, so `main.js`'s `app-ready` yield and
+/// `leaveSplash`'s own call both become nothing. That is two of the ways out and not all of
+/// them. `start()` also arms a CEILING — `setTimeout(function () { yieldNow("ceiling"); },
+/// holdMs + CEILING_GRACE_MS)` — over the INTERNAL reference, which no override of the export
+/// can reach. So the curtain came down 4,000 ms after boot whatever the suite was doing, and
+/// every "held" walk was really a walk on a four-second clock that nothing declared, nothing
+/// measured, and nothing failed on until the machine got slower.
+///
+/// MEASURED on this machine at `934f127`, in appearance.js check 4's exact shape:
+///
+///   3,972ms  theme=dark   splash=true   reason=null
+///   4,054ms  theme=light  splash=true   reason=ceiling   <- the clamp is gone, the node is not
+///   4,300ms  theme=light  splash=false  reason=ceiling
+///
+/// The middle row is `expected "dark" / actual "light"` with `#splash` still on screen, which
+/// is the exact pair run 34010691469 reported from `macos-latest`. Nothing was wrong with the
+/// product and nothing was intermittent about the mechanism: a runner spends about 2,000 ms
+/// more than this machine getting to the assertion, so it lands inside that 270 ms window
+/// instead of a second short of it.
+///
+/// SO THE CEILING IS TAKEN OUT, NOT WAITED OUT. A longer timeout would make a slow runner fail
+/// less often; it would not make a held curtain held, and a check that fails less often is not
+/// a check that passes. `window.RichSplash = {...}` is assigned on the line BEFORE `start()`
+/// runs, so the setter below is a guaranteed pre-start hook: it swaps `setTimeout` for the
+/// duration of `start()` and takes back every timer that call arms. `start()` arms exactly one
+/// — splash.js's other two `setTimeout` calls both live inside `yieldNow`, which cannot have
+/// run yet — and the swap is undone by a microtask, which is drained the moment splash.js's
+/// own script finishes and before any other script or timer runs. No other code is inside that
+/// window.
+///
+/// EVERY TIMER TAKEN IS RECORDED RATHER THAN SWALLOWED, on `window.__heldCurtain`, and
+/// `assertCurtainHeld` refuses any count but one. An edit that arms a second timer in `start()`
+/// therefore arrives as a named failure in the suites that hold the curtain, rather than as a
+/// curtain that quietly starts dropping again.
+///
+/// NOTHING ELSE IS TOUCHED, AND THE CEILING IS STILL THE CEILING EVERYWHERE ELSE. The
+/// composition renders exactly as it ships, the always-dark clamp is the product's own, and
+/// `splash.js`'s suite — which is where the ceiling is a subject rather than a confound — does
+/// not use this and still watches it fire.
+const HOLD_CURTAIN = () => {
+  let real;
+  // `armedAt` is the page's own clock at the instant the ceiling would have been armed, which
+  // is inside `start()` and therefore within a millisecond of the curtain going up. It is what
+  // lets a check ask "is the ceiling's moment behind us?" instead of "has the harness been
+  // slow enough?", which is the same question on this machine and a different one on a runner.
+  window.__heldCurtain = { disarmed: [], armedAt: null };
+  Object.defineProperty(window, "RichSplash", {
+    configurable: true,
+    get: () => real,
+    set: (v) => {
+      real = v;
+      if (v && typeof v.yieldNow === "function") v.yieldNow = function () {};
+      const realSetTimeout = window.setTimeout;
+      window.setTimeout = function (fn, ms) {
+        const id = realSetTimeout.apply(window, arguments);
+        window.__heldCurtain.disarmed.push(ms);
+        if (window.__heldCurtain.armedAt === null) window.__heldCurtain.armedAt = performance.now();
+        window.clearTimeout(id);
+        return id;
+      };
+      Promise.resolve().then(() => {
+        window.setTimeout = realSetTimeout;
+      });
+    },
+  });
+};
+
+/// Prove the hold above actually held, rather than assuming it did. Reads the record the init
+/// script leaves behind and accepts one shape only: exactly one timer taken, armed for longer
+/// than the hold it was guarding — which is the ceiling and can be nothing else — and a
+/// curtain that is still on screen with `state.reason` still null.
+///
+/// Returns a sentence a check can report, so the number that makes the walk safe is in the log
+/// rather than in a claim.
+async function assertCurtainHeld(page) {
+  const held = await page.evaluate(() => ({
+    record: window.__heldCurtain || null,
+    seconds: window.RichSplash && window.RichSplash.state ? window.RichSplash.state.seconds : null,
+    shown: !!(window.RichSplash && window.RichSplash.state && window.RichSplash.state.shown),
+    declined: (window.RichSplash && window.RichSplash.state && window.RichSplash.state.declined) || null,
+    reason: (window.RichSplash && window.RichSplash.state && window.RichSplash.state.reason) || null,
+    onScreen: !!document.getElementById("splash"),
+  }));
+  assert(held.record, "this page was not opened with HOLD_CURTAIN — the init script never ran");
+  assert(held.shown, "the curtain never drew, so there is nothing to hold: declined " + held.declined);
+  assertEqual(
+    held.record.disarmed.length,
+    1,
+    "start() armed " + held.record.disarmed.length + " timer(s) and the hold expects exactly one, the " +
+      "ceiling — delays " + JSON.stringify(held.record.disarmed) + ". A timer added to start() has to be " +
+      "accounted for here rather than taken out unread"
+  );
+  const grace = held.record.disarmed[0] - held.seconds * 1000;
+  assert(
+    grace > 0,
+    "the timer taken out was armed for " + held.record.disarmed[0] + "ms against a " + held.seconds * 1000 +
+      "ms hold, so it is not the ceiling"
+  );
+  assertEqual(held.reason, null, "the curtain yielded anyway, reason: " + held.reason);
+  assert(held.onScreen, "#splash is not on screen, so whatever is being measured is not the opening screen");
+  return "ceiling disarmed at " + held.record.disarmed[0] + "ms (" + held.seconds + "s hold + " + grace +
+    "ms grace), curtain up and state.reason still null";
+}
+
+// ---------------------------------------------------------------------------------------
 // LEAVING THE HOME SCREEN
 // ---------------------------------------------------------------------------------------
 
@@ -547,10 +660,10 @@ function assertEqual(actual, expected, msg) {
 /// where the surface is left rather than where somebody remembered.
 ///
 /// A SUITE THAT HOLDS THE CURTAIN ON PURPOSE IS NOT OVERRIDDEN. `appearance.js` and
-/// `contrast.js` neuter `yieldNow` before splash.js installs itself, precisely so the
-/// composition can be photographed as it ships. That is detected — the yield leaves
-/// `state.reason` null — and this returns immediately rather than waiting out a timeout for a
-/// curtain that was asked to stay.
+/// `contrast.js` hold it with `HOLD_CURTAIN` below, precisely so the composition can be
+/// photographed as it ships. That is detected — the yield leaves `state.reason` null — and
+/// this returns immediately rather than waiting out a timeout for a curtain that was asked to
+/// stay.
 async function leaveSplash(page) {
   const outcome = await page
     .evaluate(() => {
@@ -597,6 +710,8 @@ module.exports = {
   openFixture,
   leaveHome,
   leaveSplash,
+  HOLD_CURTAIN,
+  assertCurtainHeld,
   skipSuite,
   shot,
   captureSettled,

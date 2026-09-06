@@ -298,6 +298,19 @@ const lag = async (page) => {
 /// should not need two switches.
 const SHUTTER_LAG_MS = Number(process.env.RICHOS_SPLASH_SHUTTER_LAG_MS || 0);
 
+/// A DELIBERATE SLOW SAMPLER, on demand: `RICHOS_SPLASH_TRACE_MS=110 node splash.js`. THIRD
+/// KNOB, AND IT IS A DIFFERENT CONDITION AGAIN — the other two model a slow HARNESS, and this
+/// one models a slow PAGE.
+///
+/// Check 22's trace is taken by `setTimeout(step, every)` inside the page, and each step forces
+/// two layouts. On a loaded shared VM that loop does not run at the interval it asks for: run
+/// 34011410649 got 37 samples across a 4,000 ms curtain, which is one every ~108 ms against the
+/// 40 ms it asked for. Nothing the suite does can make a busy main thread sample faster, so a
+/// check that requires a sample count is asserting the runner's speed. This knob is how the
+/// runner's own cadence is reproduced here, and check 22 is now written so that setting it
+/// changes the RESOLUTION of the evidence and none of the claims. Zero means the default.
+const TRACE_EVERY_MS = Number(process.env.RICHOS_SPLASH_TRACE_MS || 0) || 40;
+
 /// Wait until the PAGE says `ms` have passed since the curtain went up. Returns immediately
 /// if that instant is already behind us — the point is never to add the harness's own
 /// latency to the product's clock, not to guarantee the harness was quick.
@@ -2540,10 +2553,45 @@ async function main() {
     // and costs one round trip for the whole trace instead of sixty.
     const told = [];
     for (const v of LIBRARY.variations) {
-      const page = await launch(browser, { hold: true, force: v.id, clock: { trace: true, every: 40 } });
+      const page = await launch(browser, { hold: true, force: v.id, clock: { trace: true, every: TRACE_EVERY_MS } });
       await page.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });
       const trace = await page.evaluate(() => window.__curtain.trace);
-      assert(trace.length > 40, v.id + ": only " + trace.length + " samples — the curtain went too early to observe");
+      // THE CURTAIN'S OWN NUMBERS, so every window below moves with the surface instead of
+      // being three literals that agree with a 3,000 ms hold and with nothing else.
+      const seen = await page.evaluate(() => ({
+        goneAt: window.__curtain.goneAt - window.__curtain.shownAt,
+        holdMs: window.RichSplash.state.seconds * 1000,
+      }));
+      // WHAT THIS LEG REQUIRES, AND WHAT IT USED TO REQUIRE INSTEAD.
+      //
+      // It used to open with `trace.length > 40`. That is not a claim about the bar; it is a
+      // claim that the runner's main thread can take a sample every hundred milliseconds for
+      // four seconds, and run 34011410649 could not — 37 samples, one every ~108 ms against
+      // the 40 ms the sampler asks for, and the check went red with "the curtain went too
+      // early to observe" about a curtain that had done exactly what it should. The same
+      // assumption sat in `after.length > 8` (nine samples in the 800 ms after the landing)
+      // and in the fixed 3050-3150 ms window, which a 108 ms cadence can step straight over.
+      //
+      // A slow sampler is lower RESOLUTION, not less evidence, so what is asserted now is
+      // COVERAGE: the trace starts on the curtain's first frame, the curtain outlived its own
+      // hold, the first sample at or after the hold is full, every sample after the landing is
+      // full, and those samples span most of the time the curtain had left. Every one of them
+      // holds at any cadence, and `RICHOS_SPLASH_TRACE_MS` is how that is checked rather than
+      // asserted. The count and the worst gap are REPORTED, so the resolution behind the
+      // verdict is in the log where a reader can weigh it.
+      assert(trace.length >= 2, v.id + ": " + trace.length + " sample(s) — the sampler did not run");
+      assert(
+        trace[0].t < 50,
+        v.id + ": the first sample is at " + Math.round(trace[0].t) + "ms, so the sampler did not start on the " +
+          "curtain's own first frame and everything after it is measured from the wrong zero"
+      );
+      assert(
+        seen.goneAt > seen.holdMs,
+        v.id + ": the curtain went at " + Math.round(seen.goneAt) + "ms, inside its own " + seen.holdMs +
+          "ms hold — nothing here observed a landing"
+      );
+      let worstGap = 0;
+      for (let i = 1; i < trace.length; i++) worstGap = Math.max(worstGap, trace[i].t - trace[i - 1].t);
       // MONOTONIC. It never stalls and never jumps back, which is what "the empty run to the
       // right IS the distance left" requires to be true.
       for (let i = 1; i < trace.length; i++) {
@@ -2555,12 +2603,32 @@ async function main() {
       // NOTHING BEFORE THE BAR STARTS, and full by the hold.
       const early = trace.filter((s) => s.t < 500);
       assert(early.every((s) => s.p === 0), v.id + ": the bar was already moving before it starts");
-      const atHold = trace.filter((s) => s.t >= 3050 && s.t <= 3150);
-      assert(atHold.length && atHold.every((s) => s.p > 0.995), v.id + ": the bar had not landed at the 3000ms hold");
+      // FULL BY THE HOLD, read off the FIRST sample taken at or after it rather than off any
+      // sample that happens to fall in a fixed 100 ms window. A coarse cadence steps over a
+      // window; it cannot step over "the next one".
+      const landed = trace.find((s) => s.t >= seen.holdMs + 50);
+      assert(
+        landed,
+        v.id + ": no sample at or after the " + seen.holdMs + "ms hold, though the curtain lasted until " +
+          Math.round(seen.goneAt) + "ms"
+      );
+      assert(
+        landed.p > 0.995,
+        v.id + ": the bar had not landed at the " + seen.holdMs + "ms hold — " + landed.p.toFixed(3) + " at " +
+          Math.round(landed.t) + "ms"
+      );
       // AND IT STAYS LANDED. Every sample after it lands is still full — a restart would
-      // show as a return to zero here, and this is the window one could happen in.
-      const after = trace.filter((s) => s.t > 3200);
-      assert(after.length > 8, v.id + ": only " + after.length + " samples after the landing to prove it does not loop");
+      // show as a return to zero here, and this is the window one could happen in. The watch
+      // has to COVER that window rather than fill it with a particular number of samples.
+      const after = trace.filter((s) => s.t > seen.holdMs + 200);
+      const watchable = seen.goneAt - (seen.holdMs + 200);
+      const watched = after.length ? after[after.length - 1].t - after[0].t : 0;
+      assert(
+        after.length >= 2 && watched >= watchable * 0.5,
+        v.id + ": the samples after the landing cover " + Math.round(watched) + "ms of the " +
+          Math.round(watchable) + "ms the curtain had left (" + after.length + " sample(s)) — too little of that " +
+          "window is watched for 'it never restarts' to mean anything"
+      );
       assert(after.every((s) => s.p > 0.995), v.id + ": the bar restarted after it landed");
       // LEG 3 — THE LOOP IS STOPPED, and the bar says so itself. `state.barStopped` is set
       // by the one function every non-scheduling exit from `tick()` goes through, and
@@ -2575,8 +2643,10 @@ async function main() {
       assertEqual(own.stopped, true, v.id + ": the frame loop is still running after the bar landed");
       told.push(
         v.id.replace("round-11/", "") + " " + trace.length + " samples over " +
-          Math.round(trace[trace.length - 1].t) + "ms, " + after.length + " after the landing · " +
-          own.passes + " pass, loop stopped"
+          Math.round(trace[trace.length - 1].t) + "ms of a " + Math.round(seen.goneAt) + "ms curtain (worst gap " +
+          Math.round(worstGap) + "ms, asked for " + TRACE_EVERY_MS + "ms), landed full at " +
+          Math.round(landed.t) + "ms, " + after.length + " sample(s) covering " + Math.round(watched) + "ms of the " +
+          Math.round(watchable) + "ms after it · " + own.passes + " pass, loop stopped"
       );
       aside += noErrors(page);
       await page.__ctx.close();
@@ -2917,6 +2987,17 @@ async function main() {
 //  22   splash.js          a `focus` listener that restarts the bar, which is the shape a
 //                          naive "make it replay" fix would take. Leg 1 catches it without
 //                          the bar being watched at all.
+//  22   splash.js          `var span = holdMs - BAR_START_MS` -> `* 1.4`, so the bar is
+//                          still climbing when the hold is served. Run 2026-09-06 at a
+//                          110 ms cadence: "the bar had not landed at the 3000ms hold —
+//                          0.697 at 3055ms". This is the mutation that proves the landing
+//                          assertion survived being rewritten off the curtain's own clock
+//                          instead of off a fixed 3050-3150 ms window.
+//  22   THIS FILE          `RICHOS_SPLASH_TRACE_MS=900`, which is a mutation of the
+//                          EVIDENCE rather than of the product: "the samples after the
+//                          landing cover 0ms of the 1022ms the curtain had left (1
+//                          sample(s))". A coverage assertion that cannot be starved is not
+//                          an assertion, and this is what says it can.
 //  23   splash-library.js  `tagline` back to the trim the round-8.1 sources set it in —
 //                          2.65:1 against a 4.5:1 floor, the failure the lift fixed
 // ---------------------------------------------------------------------------------------
