@@ -301,9 +301,16 @@
 #   4. `git status --porcelain` is empty, tracked AND untracked.
 #   5. No live process references the tree path.
 #
-# Removal is the sanctioned two-step (worktree removal without --force, then
-# branch deletion with -d and never -D). A branch with unmerged commits
-# refuses -d, which is the backstop for a gate 3 that is somehow wrong.
+# Removal is the sanctioned two-step: the remover without --force, then branch
+# deletion with -d and never -D. Since the second 2026-09-06 review the remover
+# does not delete anything — it preserves the tree (verified archive), RENAMES
+# it into <parent>/.richos-retired/ for a retention period, and prunes the git
+# registration; what this script relies on (the path vacated, the registration
+# gone, the branch deletable) is exactly what it gets. Without --force the
+# remover refuses a tree with modified or untracked paths (exit 3,
+# `dirty-without-force`), which is git's own rule and the backstop for a gate
+# 4 that is somehow wrong. A branch with unmerged commits refuses -d, which is
+# the backstop for a gate 3 that is somehow wrong.
 #
 # ===========================================================================
 # THE BRANCH SWEEP — orphan branches whose worktree is already gone

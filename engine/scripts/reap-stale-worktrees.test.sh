@@ -171,10 +171,18 @@ run_reaper() {
     # machine: one claude process — this shell — started at epoch 0, with no
     # registry row, so it is UNACCOUNTED and exhaustion alone never decides.
     # Cases that want exhaustion to decide write a registry row themselves.
+    # RICHOS_WORKSPACE_RETIRE_DIR is pinned for the same reason the ledger is.
+    # The sanctioned remover journals every removal, takes a per-workspace
+    # lock and — since the second 2026-09-06 review — archives every tree it
+    # retires, all under that root. Unpinned, it defaulted to the operator's
+    # real ~/.claude/state/workspace-retirement/: on 2026-09-06 that journal
+    # held 1,304 records and 650 lock files, every one of them naming a
+    # sandbox path from a test run, and not one real retirement.
     out="$(REAP_DISCOVERY_SOURCES="primary,neighborhood" \
            REAP_TEAM_DIR="$dir/teams" \
            REAP_LEDGER="$dir/ledger.txt" \
            REAP_WORKTREE_LEDGER="$dir/wt-ledger.jsonl" \
+           RICHOS_WORKSPACE_RETIRE_DIR="$dir/retire-state" \
            REAP_PROJECTS_DIR="$dir/projects" \
            RICHOS_CLAUDE_PROCESSES="${REAP_TEST_PROCS:-$$:0}" \
            RICHOS_SESSIONS_DIR="$dir/sessions" \
