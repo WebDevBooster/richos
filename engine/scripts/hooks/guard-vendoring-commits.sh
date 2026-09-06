@@ -226,7 +226,7 @@ def out(*fields):
     raise SystemExit
 
 try:
-    d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
+    d = json.loads(sys.stdin.read() or "{}")
 except Exception:
     out("PASS")
 if not isinstance(d, dict) or d.get("tool_name") != "Bash":
@@ -395,7 +395,12 @@ for seg in segments:
 out("PASS")
 PYEOF
 
-CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_VG_CLASSIFIER" 2>/dev/null || printf 'PASS')"
+# Payload bytes use stdin: environment strings have a much smaller per-value
+# limit on Linux. A failed classifier must never become an unevaluated pass.
+if ! CLASS="$(python3 -c "$_VG_CLASSIFIER" <<<"$INPUT")"; then
+    echo "ERROR: guard-vendoring-commits.sh: payload classifier failed; refusing unevaluated operation" >&2
+    exit 2
+fi
 [ "$(printf '%s' "$CLASS" | cut -f1)" = "ACT" ] || exit 0
 
 AMEND="$(printf '%s' "$CLASS" | cut -f2)"
@@ -486,8 +491,8 @@ EOF
 # --- ACKNOWLEDGED, OR REFUSED ---------------------------------------------
 MSG=""
 if [ -n "$MSG_JSON" ]; then
-    MSG="$(VG_MSG_JSON="$MSG_JSON" python3 -c 'import json,os,sys
-sys.stdout.write(json.loads(os.environ["VG_MSG_JSON"]))' 2>/dev/null || printf '')"
+    MSG="$(python3 -c 'import json,sys
+sys.stdout.write(json.load(sys.stdin))' <<<"$MSG_JSON" 2>/dev/null || printf '')"
 fi
 
 ACK_MARKER="vendoring-ack"
@@ -497,7 +502,7 @@ ACK_MARKER="vendoring-ack"
 # after the marker, so a bare `vendoring-ack:` extracts to nothing.
 ACK_REASON="$(printf '%s' "$MSG" \
     | grep -E "^[[:space:]]*${ACK_MARKER}:[[:space:]]*[^[:space:]]" \
-    | head -1 \
+    | sed -n '1p' \
     | sed -E "s/^[[:space:]]*${ACK_MARKER}:[[:space:]]*//" || true)"
 
 # _vendoring_reason_problem <reason> — echo NOTHING when the reason is a
@@ -507,9 +512,9 @@ ACK_REASON="$(printf '%s' "$MSG" \
 # guard-model-ceiling.sh's, deliberately: one engine, one idea of what a reason
 # looks like.
 _vendoring_reason_problem() {
-  VG_REASON="$1" python3 - <<'PY'
-import os, re
-r = (os.environ.get("VG_REASON", "") or "").strip()
+  python3 /dev/fd/3 3<<'PY' <<<"$1"
+import sys, re
+r = sys.stdin.read().strip()
 MIN_CHARS = 30
 MIN_WORDS = 5
 MIN_CONTENT = 3

@@ -201,10 +201,10 @@ fi
 # 3.2 reason guard-worktree-removal.sh documents: a `)` inside a character
 # class mis-scans as the close of a $( ) substitution on macOS's /bin/bash.
 read -r -d '' _CT_CLASSIFIER <<'PYEOF' || true
-import json, os, re
+import json, os, re, sys
 
 try:
-    d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
+    d = json.loads(sys.stdin.read() or "{}")
 except Exception:
     print("PASS"); raise SystemExit
 if not isinstance(d, dict) or d.get("tool_name") != "Bash":
@@ -230,7 +230,12 @@ stage_all = bool(re.search(r"(?:^|\s)-[a-zA-Z]*a[a-zA-Z]*\b", unquoted)
 print("COMMIT\t%s" % ("1" if stage_all else "0"))
 PYEOF
 
-CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_CT_CLASSIFIER" 2>/dev/null || printf 'PASS')"
+# Payload bytes use stdin: environment strings have a much smaller per-value
+# limit on Linux. A failed classifier must never become an unevaluated pass.
+if ! CLASS="$(python3 -c "$_CT_CLASSIFIER" <<<"$INPUT")"; then
+    echo "ERROR: guard-ceo-todos-commits.sh: payload classifier failed; refusing unevaluated operation" >&2
+    exit 2
+fi
 case "$(printf '%s' "$CLASS" | cut -f1)" in
   COMMIT) ;;
   *) exit 0 ;;
@@ -376,7 +381,7 @@ RESULT="$(ct_lint_file "$CT_TODO_RECORD" "$SUBJECT" "$CT_REPO")" || {
     exit 2
 }
 
-VERDICT="$(printf '%s' "$RESULT" | head -1 | cut -f1)"
+VERDICT="$(printf '%s' "$RESULT" | sed -n '1p' | cut -f1)"
 BODY="$(printf '%s\n' "$RESULT" | tail -n +2)"
 
 case "$VERDICT" in
@@ -389,13 +394,13 @@ case "$VERDICT" in
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  CEO TODOs — NOT CHECKED: %s\n         %s\n", $2, $3}' >&2
     exit 0 ;;
   BROKEN)
-    ct_broken_banner "guard-ceo-todos-commits.sh" "$(printf '%s' "$RESULT" | head -1 | cut -f2-)" >&2
+    ct_broken_banner "guard-ceo-todos-commits.sh" "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2-)" >&2
     exit 2 ;;
   VIOLATIONS)
     if [ "$TOUCHED" -eq 1 ]; then
-        HEADLINE="this commit changes the record, and $(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about these TODOs are not ready"
+        HEADLINE="this commit changes the record, and $(printf '%s' "$RESULT" | sed -n '1p' | cut -f2) thing(s) about these TODOs are not ready"
     else
-        HEADLINE="PRE-EXISTING: $(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about this repository's CEO TODOs are not ready (this commit did not touch the record)"
+        HEADLINE="PRE-EXISTING: $(printf '%s' "$RESULT" | sed -n '1p' | cut -f2) thing(s) about this repository's CEO TODOs are not ready (this commit did not touch the record)"
     fi
     ct_refusal "guard-ceo-todos-commits.sh" "$HEADLINE" "$BODY" "$CT_REPO/$CT_TODO_RECORD" >&2
     exit 2 ;;

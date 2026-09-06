@@ -194,10 +194,10 @@ fi
 # 3.2 reason guard-worktree-removal.sh documents: a `)` inside a character
 # class mis-scans as the close of a $( ) substitution on macOS's /bin/bash.
 read -r -d '' _PC_CLASSIFIER <<'PYEOF' || true
-import json, os, re, shlex
+import json, os, re, sys, shlex
 
 try:
-    d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
+    d = json.loads(sys.stdin.read() or "{}")
 except Exception:
     print("PASS"); raise SystemExit
 if not isinstance(d, dict) or d.get("tool_name") != "Bash":
@@ -368,12 +368,17 @@ for anchor, spec in adds:
     print("ADD\t%s\t%s" % (anchor, spec))
 PYEOF
 
-CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_PC_CLASSIFIER" 2>/dev/null || printf 'PASS')"
+# Payload bytes use stdin: environment strings have a much smaller per-value
+# limit on Linux. A failed classifier must never become an unevaluated pass.
+if ! CLASS="$(python3 -c "$_PC_CLASSIFIER" <<<"$INPUT")"; then
+    echo "ERROR: guard-publication-commits.sh: payload classifier failed; refusing unevaluated operation" >&2
+    exit 2
+fi
 # The classifier answers on its FIRST line and may append ADD lines after it, so
 # every field read below is taken from that first line explicitly. `cut -f1` over
 # the whole blob would compare "COMMIT<newline>ADD..." against COMMIT and this
 # guard would stand down on exactly the commands it was extended to cover.
-CLASS_HEAD="$(printf '%s\n' "$CLASS" | head -1)"
+CLASS_HEAD="$(printf '%s\n' "$CLASS" | sed -n '1p')"
 case "$(printf '%s' "$CLASS_HEAD" | cut -f1)" in
   COMMIT) ;;
   *) exit 0 ;;
@@ -648,11 +653,11 @@ with open(os.environ["PB_JOB"], "w", encoding="utf-8") as fh:
 
 RESULT="$(pb_scan "$JOB" || true)"
 
-case "$(printf '%s' "$RESULT" | head -1 | cut -f1)" in
+case "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f1)" in
   CLEAN)
     exit 0 ;;
   BROKEN)
-    pb_broken_banner "guard-publication-commits.sh" "$(printf '%s' "$RESULT" | head -1 | cut -f2-)" >&2
+    pb_broken_banner "guard-publication-commits.sh" "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2-)" >&2
     exit 2 ;;
   BLOCK)
     pb_refusal "guard-publication-commits.sh" \

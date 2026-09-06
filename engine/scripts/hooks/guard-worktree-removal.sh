@@ -178,10 +178,10 @@ HOOK_TAG="(hook: scripts/hooks/guard-worktree-removal.sh)"
 # lines further down, pointing at innocent code. A heredoc assignment is
 # scanned once, as text, so the class is impossible.
 read -r -d '' _WTR_CLASSIFIER <<'PYEOF' || true
-import json, os, re
+import json, os, re, sys
 
 try:
-    d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
+    d = json.loads(sys.stdin.read() or "{}")
 except Exception:
     print("PASS"); raise SystemExit
 if not isinstance(d, dict) or d.get("tool_name") != "Bash":
@@ -478,7 +478,12 @@ if reasons:
 print("CANDIDATE\trm -r of a linked git worktree\t" + "\t".join(candidates))
 PYEOF
 
-RESULT="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_WTR_CLASSIFIER")"
+# Payload bytes use stdin: environment strings have a much smaller per-value
+# limit on Linux. A failed classifier must never become an unevaluated pass.
+if ! RESULT="$(python3 -c "$_WTR_CLASSIFIER" <<<"$INPUT")"; then
+    echo "ERROR: guard-worktree-removal.sh: payload classifier failed; refusing unevaluated operation" >&2
+    exit 2
+fi
 
 RESULT_KIND="$(printf '%s' "$RESULT" | cut -f1)"
 

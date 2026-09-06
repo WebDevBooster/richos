@@ -335,10 +335,10 @@ fi
 # guard-worktree-removal.sh documents: a `)` inside a character class
 # mis-scans as the close of a $( ) substitution on macOS's /bin/bash.
 read -r -d '' _CC_CLASSIFIER <<'PYEOF' || true
-import json, os, re
+import json, os, re, sys
 
 try:
-    d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
+    d = json.loads(sys.stdin.read() or "{}")
 except Exception:
     print("PASS"); raise SystemExit
 if not isinstance(d, dict) or d.get("tool_name") != "Bash":
@@ -384,7 +384,12 @@ stages = bool(re.search(r"\bgit\b[^\n;|&]*\badd\b", unquoted)) or \
 print("%s\t%s" % (verb, "1" if stages else "0"))
 PYEOF
 
-CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_CC_CLASSIFIER" 2>/dev/null || printf 'PASS')"
+# Payload bytes use stdin: environment strings have a much smaller per-value
+# limit on Linux. A failed classifier must never become an unevaluated pass.
+if ! CLASS="$(python3 -c "$_CC_CLASSIFIER" <<<"$INPUT")"; then
+    echo "ERROR: guard-completeness-commits.sh: payload classifier failed; refusing unevaluated operation" >&2
+    exit 2
+fi
 VERB="$(printf '%s' "$CLASS" | cut -f1)"
 case "$VERB" in
   commit|push) ;;
@@ -534,7 +539,7 @@ case "$CC_RC" in
     # something to block a commit over. Anything else is genuinely broken and
     # fails closed, because a completeness checker that degrades quietly is the
     # thing it exists to find.
-    if printf '%s' "$OUT" | grep -q 'NOT APPLICABLE'; then
+    if printf '%s' "$OUT" | grep 'NOT APPLICABLE' >/dev/null; then
         exit 0
     fi
     {

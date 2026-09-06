@@ -142,10 +142,10 @@ fi
 
 # (payload already read above, before root resolution)
 
-RESULT="$(GUARD_PAYLOAD="$INPUT" GUARD_ROOT="$ENTITY_ROOT" GUARD_TREES="$PROTECTED_PATHS" python3 -c "
-import json, re, os
+if ! RESULT="$(GUARD_ROOT="$ENTITY_ROOT" GUARD_TREES="$PROTECTED_PATHS" python3 -c "
+import json, re, os, sys
 try:
-    d = json.loads(os.environ.get('GUARD_PAYLOAD') or '{}')
+    d = json.loads(sys.stdin.read() or '{}')
 except Exception:
     print('PASS'); raise SystemExit
 if d.get('tool_name') != 'Bash':
@@ -223,7 +223,10 @@ for rdm in REDIRECT.finditer(cmd):
         print('BLOCK ' + hit); raise SystemExit
 
 print('PASS')
-")"
+" <<<"$INPUT")"; then
+    echo "ERROR: guard-bash-main-writes.sh: payload classifier failed; refusing unevaluated operation" >&2
+    exit 2
+fi
 
 case "$RESULT" in
   PASS) exit 0 ;;

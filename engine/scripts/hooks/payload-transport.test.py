@@ -1,0 +1,147 @@
+"""Real guard decisions must survive JSON larger than Linux's env-string limit."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ENGINE = Path(os.environ.get('RICHOS_TRANSPORT_TEST_ROOT', Path(__file__).resolve().parents[2]))
+PADDING = '\n' * 70000
+
+
+class PayloadTransport(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='guard-transport-')
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.repo = self.root / 'repo'
+        self.repo.mkdir()
+        home = self.root / 'home'
+        home.mkdir()
+        self.env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'HOME': str(home),
+                    'TMPDIR': str(self.root), 'LANG': 'C', 'LC_ALL': 'C',
+                    'RICHOS_ENTITY_ROOT': str(self.repo), 'CLAUDE_PROJECT_DIR': str(self.repo),
+                    'INFLIGHT_TEAMS_DIR': str(self.root / 'teams'),
+                    'RICHOS_INFLIGHT_ACK_LEDGER': str(self.root / 'acks.jsonl')}
+        (self.root / 'teams/session-deadbeef').mkdir(parents=True)
+        self.git('init', '-q', '-b', 'main')
+        self.git('config', 'user.name', 'Fixture')
+        self.git('config', 'user.email', 'fixture@example.invalid')
+        self.git('config', 'core.hooksPath', str(self.root / 'no-hooks'))
+        (self.repo / 'orchestration.config').write_text('PROTECTED_PATHS="src"\n')
+        (self.repo / 'src').mkdir()
+        (self.repo / 'src/base').write_text('base\n')
+        self.commit()
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(['git', '-C', str(cwd or self.repo), *args], env=self.env,
+                              text=True, capture_output=True, check=True).stdout.strip()
+
+    def commit(self, cwd=None):
+        self.git('add', '-A', cwd=cwd)
+        self.git('commit', '-qm', 'fixture', cwd=cwd)
+
+    def hook(self, name, command, expected, needle=None):
+        raw = json.dumps({'tool_name': 'Bash', 'cwd': str(self.repo),
+                          'session_id': 'deadbeef-1111-4000-8000-000000000000',
+                          'tool_input': {'command': command}})
+        if command.startswith(PADDING):
+            self.assertGreater(len(raw.encode()), 131072)
+            self.assertLess(len(command.encode()), 100000)
+        result = subprocess.run([shutil.which('bash'), str(ENGINE / 'scripts/hooks' / name)],
+                                input=raw, text=True, capture_output=True, cwd=self.repo,
+                                env=self.env, timeout=60)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, expected, output)
+        self.assertNotIn('Argument list too long', output)
+        self.assertNotIn('payload classifier failed', output)
+        if needle:
+            self.assertIn(needle, output)
+
+    def pair(self, hook, command, expected, needle=None):
+        for prefix in ('', PADDING):
+            with self.subTest(hook=hook, long=bool(prefix)):
+                self.hook(hook, prefix + command, expected, needle)
+
+    def test_declared_contracts_still_refuse_broken_declarations(self):
+        # These are actual broken contracts, not substituted predicate verdicts.
+        for hook, marker in [('guard-publication-commits.sh', '.publication-boundary'),
+                             ('guard-completeness-commits.sh', '.publication-boundary'),
+                             ('guard-ceo-todos-commits.sh', '.ceo-todos'),
+                             ('guard-vendoring-commits.sh', '.richos/vendored-material')]:
+            path = self.repo / marker
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('BROKEN_DECLARATION="unterminated\n')
+            self.git('add', '-A')
+            self.pair(hook, 'git commit -m test', 2, marker)
+            path.unlink()
+            self.git('add', '-A')
+            self.pair(hook, 'git commit -m test', 0)
+
+    def test_main_checkout_write_and_read(self):
+        self.pair('guard-bash-main-writes.sh', 'mkdir src/new', 2)
+        self.pair('guard-bash-main-writes.sh', 'cat src/base', 0)
+
+    def test_large_vendoring_message_preserves_valid_acknowledgement(self):
+        (self.repo / '.richos').mkdir()
+        (self.repo / '.richos/vendored-material').write_text(
+            'REDISTRIBUTABLE_PATHS="assets"\n' + '\t'.join([
+                'assets/known', 'richos', 'AGPL-3.0-only', 'RichOS', '-', '-',
+                '2026', 'high', 'fixture', 'docs/provenance.md']) + '\n')
+        (self.repo / 'assets/known').mkdir(parents=True)
+        (self.repo / 'assets/known/input.txt').write_text('registered fixture\n')
+        (self.repo / 'assets/newthing').mkdir(parents=True)
+        (self.repo / 'assets/newthing/input.txt').write_text('fixture\n')
+        self.git('add', '-A')
+        reason = 'this directory holds throwaway fixtures generated by the packaging test and never leaves the build sandbox'
+        for padding in ('', PADDING):
+            with self.subTest(long=bool(padding)):
+                self.hook('guard-vendoring-commits.sh', 'git commit -m "' + padding + 'test"', 2)
+                self.hook('guard-vendoring-commits.sh',
+                          'git commit -m "' + padding + 'test\nvendoring-ack: ' + reason + '"', 0)
+                self.assertIn(reason, (self.repo / '.claude/state/vendoring-acks.log').read_text())
+
+    def test_worktree_removal_and_read(self):
+        self.pair('guard-worktree-removal.sh', 'git worktree remove /tmp/example-worker', 2)
+        self.pair('guard-worktree-removal.sh', 'git worktree list', 0)
+
+    def test_unnotified_live_worktree_blocks_push(self):
+        worker = self.root / 'wt/norm-sonnet-feature1'
+        worker.parent.mkdir()
+        self.git('worktree', 'add', '-qb', 'worktree-norm', str(worker))
+        (worker / 'src/worker').write_text('worker change\n')
+        self.commit(cwd=worker)
+        (self.repo / 'src/base').write_text('main moved\n')
+        self.commit()
+        self.pair('guard-inflight-notify.sh', 'git push origin main', 2, 'norm-sonnet-feature1')
+        self.pair('guard-inflight-notify.sh', 'git status', 0)
+
+    def test_classifier_execution_failure_is_not_permission(self):
+        fakebin = self.root / 'bin'
+        fakebin.mkdir()
+        wrapper = fakebin / 'python3'
+        wrapper.write_text('#!' + sys.executable + '\nimport os,sys\n'
+                           'if len(sys.argv)>2 and sys.argv[1]=="-c" and '
+                           '"d = json.loads(sys.stdin.read()" in sys.argv[2]:\n'
+                           ' raise SystemExit(91)\n'
+                           'os.execv(' + repr(sys.executable) + ', [' + repr(sys.executable) + '] + sys.argv[1:])\n')
+        wrapper.chmod(0o755)
+        self.env['PATH'] = str(fakebin) + os.pathsep + self.env['PATH']
+        for hook in ('guard-publication-commits.sh', 'guard-completeness-commits.sh',
+                     'guard-ceo-todos-commits.sh', 'guard-vendoring-commits.sh',
+                     'guard-inflight-notify.sh', 'guard-worktree-removal.sh',
+                     'guard-bash-main-writes.sh'):
+            with self.subTest(hook=hook):
+                result = subprocess.run([shutil.which('bash'), str(ENGINE / 'scripts/hooks' / hook)],
+                                        input=json.dumps({'tool_name': 'Bash', 'cwd': str(self.repo),
+                                                          'tool_input': {'command': 'git commit -m test'}}),
+                                        text=True, capture_output=True, env=self.env, cwd=self.repo, timeout=30)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn('payload classifier failed', result.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main()

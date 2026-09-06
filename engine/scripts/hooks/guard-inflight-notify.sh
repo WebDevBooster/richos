@@ -234,7 +234,7 @@ def out(*fields):
     raise SystemExit
 
 try:
-    d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
+    d = json.loads(sys.stdin.read() or "{}")
 except Exception:
     out("PASS")
 if not isinstance(d, dict) or d.get("tool_name") != "Bash":
@@ -294,7 +294,12 @@ for seg in re.split(r"(?:\|\||&&|[;\n|])", cmd):
 out("PASS")
 PYEOF
 
-CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_IF_CLASSIFIER" 2>/dev/null || printf 'PASS')"
+# Payload bytes use stdin: environment strings have a much smaller per-value
+# limit on Linux. A failed classifier must never become an unevaluated pass.
+if ! CLASS="$(python3 -c "$_IF_CLASSIFIER" <<<"$INPUT")"; then
+    echo "ERROR: guard-inflight-notify.sh: payload classifier failed; refusing unevaluated operation" >&2
+    exit 2
+fi
 [ "$(printf '%s' "$CLASS" | cut -f1)" = "ACT" ] || exit 0
 
 SESSION_ID="$(printf '%s' "$CLASS" | cut -f2)"
@@ -318,7 +323,7 @@ case "$BRANCH" in
   *) exit 0 ;;                       # detached, or an engineer's branch
 esac
 # A refspec that names something other than the current branch is not this land.
-if [ -n "$REFSPECS" ] && ! printf '%s' "$REFSPECS" | grep -q "$BRANCH"; then
+if [ -n "$REFSPECS" ] && ! printf '%s' "$REFSPECS" | grep "$BRANCH" >/dev/null; then
     exit 0
 fi
 MAIN_CHECKOUT="$(IF_LIB_DIR="$SCRIPT_DIR/../lib" IF_REPO="$REPO" python3 -c '
