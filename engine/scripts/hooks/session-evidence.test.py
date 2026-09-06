@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -62,6 +63,14 @@ class SessionEvidence(unittest.TestCase):
         matches = [(e, g.get('matcher')) for e, groups in config['hooks'].items() for g in groups
                    for h in g['hooks'] if 'shell-evidence.sh' in h.get('command', '')]
         self.assertEqual(matches, [('PreToolUse', 'Bash')])
+        probe = (HOOKS / 'contract-integrity-probe.sh').read_text()
+        self.assertEqual(probe.count('shell-evidence.sh|PreToolUse'), 1,
+                         'the plugin integrity inventory must own the new hook')
+        declared = set(re.findall(r'^([a-z0-9_.+-]+\.sh)\|([A-Za-z]+)"?$', probe, re.M))
+        registered = {(re.search(r'scripts/hooks/([a-z0-9_.+-]+\.sh)', h['command']).group(1), event)
+                      for event, groups in config['hooks'].items() for group in groups
+                      for h in group['hooks'] if re.search(r'scripts/hooks/([a-z0-9_.+-]+\.sh)', h.get('command', ''))}
+        self.assertEqual(declared, registered, 'every registered hook must be inventoried on its actual event')
 
     def test_task_notification_does_not_become_a_handover(self):
         raw = '<task-notification><output-file>/tmp/claude-501/project/session/tasks/id.output</output-file></task-notification>'

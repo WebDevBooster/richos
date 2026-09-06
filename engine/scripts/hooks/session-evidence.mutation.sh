@@ -11,8 +11,10 @@ import tempfile
 source = Path(sys.argv[1]).resolve().parents[2]
 files = ['engine/hooks/hooks.json', 'app/scripts/rust-test-summary.py'] + [
     'engine/scripts/hooks/' + n for n in ('session-evidence.test.py', 'shell-evidence.py',
-    'shell-evidence.sh', 'commit-ceo-inputs.py', 'notice-ceo-inputs-unheld.sh', 'turn-manifest.py')]
+    'shell-evidence.sh', 'contract-integrity-probe.sh', 'commit-ceo-inputs.py', 'notice-ceo-inputs-unheld.sh', 'turn-manifest.py')]
 mutations = [
+ ('plugin hook absent from managed inventory', 'engine/scripts/hooks/contract-integrity-probe.sh',
+  'shell-evidence.sh|PreToolUse', '', 'test_real_wrapper_and_registration'),
  ('shell failures hidden', 'engine/scripts/hooks/shell-evidence.py', 'set -e -o pipefail', 'set +e +o pipefail',
   'test_original_failures_are_reproduced_and_fixed_in_bash_and_zsh'),
  ('notifications treated as handovers', 'engine/scripts/hooks/commit-ceo-inputs.py',
@@ -51,5 +53,5 @@ with tempfile.TemporaryDirectory(prefix='session-evidence-mutations-') as tmp:
         finally:
             path.write_bytes(original)
             assert path.read_bytes() == original
-print('6 negative controls passed; source worktree was never mutated.')
+print(f'{len(mutations)} negative controls passed; source worktree was never mutated.')
 PY

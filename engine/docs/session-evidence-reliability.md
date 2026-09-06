@@ -6,7 +6,8 @@ fails the tool call. Other tool arguments, including background execution and
 timeout, are preserved. The hook does not grant permission or execute commands.
 
 It uses the official [PreToolUse updatedInput contract](https://code.claude.com/docs/en/hooks#pretooluse-decision-control).
-It is registered in both the seated engine settings and the plugin hooks.
+It is registered in both the seated engine settings and the plugin hooks, and
+in the managed-hook inventory used to check plugin installations.
 Restart/resume Claude Code after installing to load the new registration.
 
 Expected nonzero outcomes belong in explicit control flow:
@@ -52,7 +53,7 @@ Verification:
 - `scripts/hooks/guard-stated-actions.test.sh` checks the manifest consumer.
 - `scripts/hooks/unevaluated-payload.test.sh` checks every registered hook.
 
-The six focused negative controls in `session-evidence.mutation.sh` restore each
+The seven focused negative controls in `session-evidence.mutation.sh` restore each
 failure in an isolated copy. Each corresponding regression must fail. The source
 worktree and live engine are never mutated by that runner.
 
@@ -66,3 +67,7 @@ claim vocabulary and previously made its tests intermittent. A forced numeric
 branch prefix reproduced seven failures before the fixture fix and passed all
 65 cases afterward. Deterministic controls cover both prefix shapes. The full
 contract runner now includes the child test output when this section fails.
+
+The plugin inventory also includes the previously omitted unlanded-branches
+notice. The regression compares every registered hook/event pair to the managed
+inventory, so either direction of drift fails before a plugin is installed.
