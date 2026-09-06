@@ -387,6 +387,27 @@ function abs(rel) {
 /// THE REGEX BRANCH IS NOT OPTIONAL. `run.js` earned it: a regex literal carrying a backtick
 /// opens a template literal without it and swallows the rest of the file. A stripper that
 /// swallows the rest of the file is an absence claim that always passes.
+///
+/// NEITHER IS THE INTERPOLATION BRANCH, AND A REAL RUN EARNED THAT ONE TOO. A template
+/// literal is not a quoted string with a different quote: `${ ... }` is CODE, and the code
+/// may open another template. Ending the span at the next backtick therefore ends it in the
+/// middle of the outer literal, and everything after that is read with the string/code
+/// polarity inverted. Measured 2026-09-06 on `tests/home.js:2013`
+///
+///     `... ${inside ? `inside the curtain's ${hold}ms hold` : `PAST the ${hold}ms hold`}`
+///
+/// which left `inside the curtain` standing as code in the stripped output and swallowed the
+/// `run.check(` eight lines later: `run.js` read home.js as declaring 32 checks where it
+/// declares 33, and its floor for that suite was one check lower than the suite's own source.
+/// An under-count cannot manufacture a green run — `observed >= declared` still holds — but a
+/// floor nothing trips over is the same as no floor. `home/field-engine.js:719` carries the
+/// same shape, so this was never one file's spelling.
+///
+/// The span is the WHOLE literal, interpolations included, which keeps the one-span-per-
+/// literal model the quoted branch already has. Code inside an interpolation is therefore
+/// blanked with `strings: false` — conservative in the direction that costs nothing here,
+/// since a `run.check(` inside a template interpolation is not a thing anyone writes, and
+/// with `strings: true` the span is copied verbatim exactly as it is today.
 function stripJsComments(src, opts) {
   const keepStrings = !opts || opts.strings !== false;
   let out = "";
@@ -397,6 +418,79 @@ function stripJsComments(src, opts) {
   let prevSig = "";
   const blank = (from, to) => {
     for (let k = from; k < to && k < n; k++) out += src[k] === "\n" ? "\n" : " ";
+  };
+
+  // The index just past the closing backtick of the template literal that starts at `from`.
+  // Mutually recursive with `endOfInterpolation` because the two nest without limit.
+  const endOfTemplate = (from) => {
+    let j = from + 1;
+    while (j < n) {
+      const ch = src[j];
+      if (ch === "\\") {
+        j += 2;
+        continue;
+      }
+      if (ch === "`") return j + 1;
+      if (ch === "$" && src[j + 1] === "{") {
+        j = endOfInterpolation(j + 2);
+        continue;
+      }
+      j++;
+    }
+    return n;
+  };
+
+  // The index just past the `}` that closes the interpolation whose body starts at `from`.
+  // Braces are counted, and everything that can carry an unbalanced brace — a string, a
+  // template, a comment — is stepped over rather than counted through.
+  const endOfInterpolation = (from) => {
+    let j = from;
+    let depth = 1;
+    while (j < n) {
+      const ch = src[j];
+      if (ch === "}") {
+        j++;
+        if (--depth === 0) return j;
+        continue;
+      }
+      if (ch === "{") {
+        depth++;
+        j++;
+        continue;
+      }
+      if (ch === "`") {
+        j = endOfTemplate(j);
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        const quote = ch;
+        j++;
+        while (j < n) {
+          if (src[j] === "\\") {
+            j += 2;
+            continue;
+          }
+          if (src[j] === quote) {
+            j++;
+            break;
+          }
+          j++;
+        }
+        continue;
+      }
+      if (ch === "/" && src[j + 1] === "/") {
+        while (j < n && src[j] !== "\n") j++;
+        continue;
+      }
+      if (ch === "/" && src[j + 1] === "*") {
+        j += 2;
+        while (j < n && !(src[j] === "*" && src[j + 1] === "/")) j++;
+        j += 2;
+        continue;
+      }
+      j++;
+    }
+    return n;
   };
 
   while (i < n) {
@@ -436,17 +530,21 @@ function stripJsComments(src, opts) {
       continue;
     }
     if (c === '"' || c === "'" || c === "`") {
-      const quote = c;
       const from = i;
-      i++;
-      while (i < n) {
-        if (src[i] === "\\") { i += 2; continue; }
-        if (src[i] === quote) { i++; break; }
+      if (c === "`") {
+        i = endOfTemplate(i);
+      } else {
+        const quote = c;
         i++;
+        while (i < n) {
+          if (src[i] === "\\") { i += 2; continue; }
+          if (src[i] === quote) { i++; break; }
+          i++;
+        }
       }
       if (keepStrings) out += src.slice(from, i);
       else blank(from, i);
-      prevSig = quote;
+      prevSig = c;
       continue;
     }
 
