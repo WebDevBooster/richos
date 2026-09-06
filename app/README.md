@@ -723,6 +723,73 @@ Two limits, stated rather than discovered later:
    unprepared task handed to him. Reachable-when-he-wants-it is the honest fallback;
    catching what is already being said is still the larger, later piece.
 
+## Booting the app in a test — it will not take the CEO's screen
+
+**If you are about to write something that starts `richos-tauri` and then stops it, read
+this paragraph and nothing else: you do not have to do anything.** Your boot will come up
+with no Dock icon, no window on his monitor and no keyboard focus, and it will still be a
+complete, driveable app. You do not opt in, you cannot forget to, and no variable has to be
+set.
+
+**The complaint, 2026-09-06, in his words:** *"It opens in the foreground on the main
+monitor AND takes away focus from the current app. So, if I'm typing something here, it
+takes away focus from here and focuses on that app."* Several times in a row, because a
+harness proving an assignment survives a restart boots, kills and reboots the binary —
+`gui-boot.test.sh` alone launches it seven times per run.
+
+**And the shape of the fix is his second sentence, not his first:** *"GENERAL issue if and
+when the same or similar tests are run by others in the future."* So RichOS does **not**
+detect a test boot. Detecting tests means keeping a list of test shapes, and the author of
+the next harness is not on that list and never will be — the hand-maintained-inventory
+failure this repository spent 2026-09-04 and 2026-09-05 taking out of five other checks.
+It is inverted instead:
+
+> RichOS activates, takes the keyboard and appears in the Dock **only when it can
+> positively establish that it is an installed launch by the person who installed it.**
+> Everything else is accessory.
+
+Three facts, all required, and none of them names a test — `app/src-tauri/src/activation.rs`
+argues each one:
+
+| | what has to be true | what it catches |
+|---|---|---|
+| **B** | the executable is inside a `.app` whose `Info.plist` declares this build's identifier | a `cargo build` binary; a loose copy of the executable |
+| **D** | the directory this boot writes to is `$HOME/Library/Application Support/<identifier>` | any redirected data directory — a scratch `HOME`, a `tempfile.mkdtemp`, an override variable this code has never heard of |
+| **P** | `getppid()` is 1 | anything a program started, because a harness has to **hold** the process it boots: it needs the pid to wait on it, read it and kill it. macOS hands a real launch to launchd |
+
+`P` is the one that reaches the hardest case, which the other two do not: a harness that
+boots the real installed bundle against the real data directory. The same argument is made
+one more time over a different object, in the private orchestration engine's worktree
+retirement library: it identifies a workspace from the ownership record and refuses anything
+it cannot derive, rather than listing the shapes it knows how to delete.
+
+**Every boot says which answer it got and why**, on its first line, which is where you will
+actually meet this:
+
+```
+[richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because
+this is not an installed launch: …/target/debug/richos-tauri is not inside a .app bundle; a
+program is holding this process (parent pid 32883), and macOS hands a launch to launchd
+(pid 1). The window is still real and still driveable; call show() on it, or set
+RICHOS_ACTIVATION=regular for the whole normal treatment.
+```
+
+**If your test genuinely needs the window on screen**, call `show()` on it, or set
+`RICHOS_ACTIVATION=regular` and accept that the run will take his keyboard. The variable
+answers in both directions (`regular` / `accessory`) and an unrecognized value decides
+nothing, so a typo cannot hand a test run the screen.
+
+**Two things worth knowing before you try to improve this.** The obvious fix —
+`ActivationPolicy::Accessory` plus a window built `.focused(false)` — **does not work**, and
+was measured not working: `lsappinfo front` still reported `richos-tauri` frontmost for 22
+of 24 samples. tao sends `makeKeyAndOrderFront:` to every *visible* window at
+`applicationDidFinishLaunching` and calls `activateIgnoringOtherApps(true)` unconditionally,
+and neither consults the policy or the requested focus. What works is building the window
+**invisible** (tao skips invisible windows by name) plus the policy (which is what keeps the
+Dock clean — ablated separately, and both halves earn their line). Measurements and the tao
+citations are in `main.rs`'s `set_activation_policy` block and in
+`docs/verification/activation-2026-09-06/`.
+
 ## Build & test
 
 ```sh

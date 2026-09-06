@@ -1,0 +1,7 @@
+52) "richos-tauri" ASN:0x0-0x20de9dc9: 
+    bundleID=[ NULL ] 
+    bundle path="/Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri"
+    executable path="/Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri"
+    pid = 32177 type="Foreground" flavor=3 Version=[ NULL ]  fileType="????" creator="????" Arch=ARM64 
+    parentASN="Terminal" ASN:0x0-0x58058:  (inferred)
+    checkin time = 9 seconds ago, 2026/09/06 00:27:42 ( 8.58939 seconds ago )

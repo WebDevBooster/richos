@@ -1,0 +1,22 @@
+bundle           : /private/tmp/richos-activation-proof/RichOS.app
+binary           : /Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri
+HOME given       : <the real one, /Users/alex>
+frontmost BEFORE : Terminal
+open exit        : 0
+app pid          : 66200
+app PPID         : 1   <- condition P: launchd is 1
+frontmost AFTER  : Terminal
+distinct frontmost applications while it ran:
+      30 RichOS
+       2 Terminal
+activation line  :
+    1:[richos] activation: regular — an installed launch by the person who installed it, so RichOS comes to the front and takes the keyboard
+webview IPC witness (voice_readiness, invoked by the page): 0
+LaunchServices   :
+    53) "RichOS" ASN:0x0-0x20eebecb: (in front) 
+        bundleID="com.richos.app"
+        bundle path="/private/tmp/richos-activation-proof/RichOS.app"
+        executable path="/private/tmp/richos-activation-proof/RichOS.app/Contents/MacOS/richos-tauri"
+        pid = 66200 type="Foreground" flavor=3 Version="0.1.0" fileType="APPL" creator="????" Arch=ARM64 
+        parentASN=ASN:0x1-0x10248: 
+        launch time =  9 seconds ago, 2026/09/06 00:31:48 ( 8.68971 seconds ago )

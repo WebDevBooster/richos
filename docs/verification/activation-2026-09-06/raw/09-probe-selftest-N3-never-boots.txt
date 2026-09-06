@@ -1,0 +1,15 @@
+label            : n3-never-boots
+binary           : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/selftest/stubs/hangs.sh
+scratch HOME     : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/focus-probe.XXXXXX.Rbff9Ffzog
+RICHOS_ACTIVATION: <unset>
+frontmost BEFORE : ChatGPT
+app pid          : 35803
+probe pid        : 35775 (this script IS the parent — condition P cannot hold)
+frontmost AFTER  : ChatGPT
+distinct frontmost applications while it ran:
+       8 ChatGPT
+L still alive at the end of sampling : yes
+C [richos] boot complete             : no
+W webview completed an IPC round trip: no
+F no sample named this app frontmost : yes
+VERDICT          : INCONCLUSIVE — the app did not run far enough for focus to mean anything (L=yes C=no W=no)

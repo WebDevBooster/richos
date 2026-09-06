@@ -1,0 +1,37 @@
+    executable path="/System/Library/PrivateFrameworks/BackgroundTaskManagement.framework/Support/BackgroundTaskManagementAgent.app/Contents/MacOS/BackgroundTaskManagementAgent"
+    pid = 85219 type="UIElement" flavor=3 Version="1" fileType="APPL" creator="????" Arch=ARM64 
+    checkin time = 26 seconds ago, 2026/09/06 00:25:57 ( 26.1603 seconds ago )
+
+55) "richos-tauri" ASN:0x0-0x20d4fd2f: 
+    bundleID=[ NULL ] 
+    bundle path="/Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri"
+    executable path="/Users/alex/ab/richos-wt/echo-opus-fc1/app/src-tauri/target/debug/richos-tauri"
+    pid = 91094 type="UIElement" flavor=3 Version=[ NULL ]  fileType="????" creator="????" Arch=ARM64 
+    parentASN="Terminal" ASN:0x0-0x58058:  (inferred)
+    checkin time = 8 seconds ago, 2026/09/06 00:26:15 ( 8.27435 seconds ago )
+
+56) "richos-tauri Networking" ASN:0x0-0x20d50d30: 
+    bundleID="com.apple.WebKit.Networking"
+    bundle path="/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc"
+    executable path="/System/Volumes/Preboot/Cryptexes/OS/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+    pid = 91281 !cgsConnection !signalled type="UIElement" flavor=[ NULL ]  Version="20621.3.11.11.3" fileType="XPC!" creator="????" Arch=ARM64 sandboxed 
+
+57) "richos-tauri Graphics and Media" ASN:0x0-0x20d51d31: 
+    bundleID="com.apple.WebKit.GPU"
+    bundle path="/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc"
+    executable path="/System/Volumes/Preboot/Cryptexes/OS/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+    pid = 91269 !cgsConnection !signalled type="UIElement" flavor=[ NULL ]  Version="20621.3.11.11.3" fileType="XPC!" creator="????" Arch=ARM64 sandboxed 
+
+58) "richos-tauri Web Content" ASN:0x0-0x20d52d32: 
+    bundleID="com.apple.WebKit.WebContent"
+    bundle path="/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc"
+    executable path="/System/Volumes/Preboot/Cryptexes/OS/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+    pid = 91277 !cgsConnection !signalled type="UIElement" flavor=2 Version="20621.3.11.11.3" fileType="XPC!" creator="????" Arch=ARM64 sandboxed 
+
+59) "com.apple.WebKit.WebContent" ASN:0x0-0x20d54d34: 
+    bundleID="com.apple.WebKit.WebContent"
+    bundle path="/Users/alex/Library/Caches/ms-playwright/webkit-2311/com.apple.WebKit.WebContent.xpc"
+    executable path="/Users/alex/Library/Caches/ms-playwright/webkit-2311/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent.Development"
+    pid = 93176 !cgsConnection !signalled type="UIElement" flavor=2 Version="625.1.21+" fileType="XPC!" creator="????" Arch=ARM64 sandboxed 
+
+60) "com.apple.WebKit.WebContent" ASN:0x0-0x20d56d36: 

@@ -1,0 +1,28 @@
+[richos] activation: regular — an installed launch by the person who installed it, so RichOS comes to the front and takes the keyboard
+[richos] launch: fresh (start 1, 1 window(s))
+[richos] no company registry at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet
+[richos] company registry: 0 compan(ies), /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/com.richos.app/entities.json (absent)
+[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+[richos] no company is registered on this install yet — RichOS will ask in the window and write the answer to /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/com.richos.app/entities.json.
+[richos] operator: the file's format and an example are in docs/entity-registry.md. RICHOS_ENTITY overrides once a company exists.
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/RichOS/corpus — not present
+[richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/RichOS/loro-root — not present
+[richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/RichOS/corpus — not present
+[richos] loro Tier C: RichOS will offer to set one up in the window, and will not pick a location on its own.
+[richos] engine directory: NOT FOUND — 5 place(s) tried
+[richos]   looked in /private/tmp/richos-activation-proof/RichOS.app/Contents/Resources/engine (app bundle resources)
+[richos]   looked in /private/tmp/richos-activation-proof/RichOS.app/Contents/MacOS (repo layout above the executable)
+[richos]   looked in / (repo layout above the working directory)
+[richos]   looked in /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/.claude/richos-engine (engine install pointer)
+[richos]   looked in /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/RichOS/engine (application support)
+[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+[richos]   binary: claude
+[richos]   engine: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/RichOS/engine
+[richos]   cause : the engine directory /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/RichOS/engine does not exist — RichOS runs Claude with that directory as its working directory and cannot start without it (this is NOT a missing claude binary)
+[richos] first-run setup: the RichOS engine is NOT installed — looked in: /private/tmp/richos-activation-proof/RichOS.app/Contents/Resources/engine; /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/.claude/richos-engine; /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-real-launch.XXXXXX.bWSV3zZjMY/Library/Application Support/RichOS/engine
+[richos] first-run setup: this build carries NO engine pin, so it cannot install one. Build with RICHOS_ENGINE_VERSION / RICHOS_ENGINE_URL / RICHOS_ENGINE_SHA256 set.
+[richos] loro correction desk: CLOSED — no corpus resolved (candidates listed above). Confirming a correction will refuse and say so rather than appearing to write.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
+[richos] voice: not offered on this machine — My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.
