@@ -439,13 +439,13 @@ done < <(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's
 REGISTERED_WT="$(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' || true)"
 MAIN_CO="$(printf '%s\n' "$REGISTERED_WT" | head -1)"
 
-REAPED=()
+PRESERVED_RESIDUE=()
 ZOMBIE_PROCS=()
 
 # (c) ZOMBIE RESIDUE DIRECTORIES — present on disk under
-# <main>/.claude/worktrees/ but ABSENT from the git registry. Unregistered ==
-# unowned == safe to AUTO-REAP. A REGISTERED worktree is NEVER touched;
-# registration is re-checked against a fresh list immediately before the rm.
+# <main>/.claude/worktrees/ but ABSENT from the git registry. Absence does
+# not establish ownership or termination. Report these paths and preserve
+# every byte; a detector never authorizes directory removal.
 if [ -n "$MAIN_CO" ] && [ -d "$MAIN_CO/.claude/worktrees" ]; then
   for d in "$MAIN_CO/.claude/worktrees"/*/; do
     [ -d "$d" ] || continue
@@ -457,8 +457,7 @@ if [ -n "$MAIN_CO" ] && [ -d "$MAIN_CO/.claude/worktrees" ]; then
          | sed -n 's|^worktree ||p' | grep -qxF "$dir"; then
       continue
     fi
-    rm -rf "$dir" 2>/dev/null || true
-    REAPED+=("$dir")
+    PRESERVED_RESIDUE+=("$dir")
   done
 fi
 
@@ -512,18 +511,18 @@ if [ "${#WARN[@]}" -gt 0 ]; then
   } >&2
 fi
 
-if [ "${#REAPED[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
+if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
   {
     echo "============================================================"
     echo "  ZOMBIE WORKTREE RESIDUE — orphaned dir/process detected"
     echo "============================================================"
     echo ""
-    if [ "${#REAPED[@]}" -gt 0 ]; then
-      echo "AUTO-REAPED unregistered worktree director(ies) — git had already"
-      echo "dropped the registration; an orphaned process re-created the path,"
-      echo "so this was unowned residue (safe to remove):"
-      for r in "${REAPED[@]}"; do
-        echo "  - removed $r"
+    if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ]; then
+      echo "PRESERVED unregistered worktree directories: ownership is unknown."
+      echo "No directory was removed. Investigate the owner and recovery state"
+      echo "before making any lifecycle decision:"
+      for r in "${PRESERVED_RESIDUE[@]}"; do
+        echo "  - preserved $r"
       done
       echo ""
     fi
@@ -568,7 +567,7 @@ if [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
   } >&2
 fi
 
-if [ "${#WARN[@]}" -gt 0 ] || [ "${#REAPED[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
+if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
   exit 2
 fi
 

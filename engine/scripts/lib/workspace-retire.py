@@ -1,257 +1,48 @@
 #!/usr/bin/env python3
-"""workspace-retire.py — RETIREMENT OF A REGISTERED AGENT WORKSPACE.
+"""Preserve and quarantine a registered agent workspace without erasing it.
 
-===========================================================================
-WHY THIS FILE EXISTS
-===========================================================================
-On 2026-09-05 the sanctioned remover was handed malformed arguments by a
-caller whose zsh loop failed to word-split. The owner arrived as one joined
-string naming no registered agent; the target arrived as the literal path
-prefix with an empty name appended — `/Users/alex/ab/richos-wt/`, the PARENT
-of every RichOS worktree on the machine. The remover could not recognize that
-target as a registered worktree, and its response to not recognizing it was
-an unconditional `rm -rf`. It deleted the container of every workspace and
-reported success, twice.
+The 2026-09-05 incident passed a malformed owner and the worktree container
+itself to a remover whose unregistered-path fallback recursively deleted it.
+Unknown identity now refuses. Callers name a workspace ID; optional path,
+repository and owner arguments only assert facts from the ownership ledger.
 
-    Failing to recognize the target made the operation stronger than
-    recognizing it.
+Both identity retirement and the legacy remover use the same transaction:
+validate identity and witnessed termination, lock, preserve, recheck ownership,
+rename to quarantine, recheck again and journal the outcome. A reacquisition
+attempt rolls the rename back. A backup ref protects the committed tip.
 
-That is the sentence this file is written against. A registered worktree at
-least gets git's own refusal to remove a dirty tree without `--force`. An
-unrecognized path got no refusal at all, and the fatal invocation never
-passed `--force`.
+Preservation includes working files (including ignored files), the worktree
+Git administration files and a self-contained pack of HEAD history and every
+index stage. The pack is verified in an independent Git repository before
+retirement. Restore reconstructs an independent recovery repository so the
+original repository and its object database are not recovery dependencies.
+Unsupported submodule indexes or incomplete objects refuse preservation.
+Older archives without a pack can restore files but cannot claim complete
+staged-state recovery.
 
-Diagnosis: richos-hq `docs/verification/worktree-container-deletion-2026-09-05.md`
-(author: Codex). The immediate containment — the fallback now refuses — landed
-as `1b84a1c` in `remove-agent-worktree.sh`. THIS file is the operation that
-diagnosis specifies beyond the containment.
+Quarantines are retained indefinitely. Sweep reports retention, identity,
+archive integrity and coverage; --execute refuses with exit 3. A coverage
+check cannot prevent a writer changing a directory immediately afterward.
+Until exclusive write access is enforced, this module never erases it.
+The detector also preserves unregistered directories with unknown ownership.
 
-===========================================================================
-THE SHAPE OF THE FIX: THE CALLER NAMES AN IDENTITY, NEVER A PATH
-===========================================================================
-The incident is not repairable by validating the caller's path harder,
-because the caller's path was a real, non-empty, existing directory and every
-string check it could have failed, it passed. The repair is that a caller
-does not get to supply a path AT ALL.
+These are safeguards for the managed retirement routes, not an OS sandbox.
+A process running as the same user can still bypass the helpers or alter
+policy, ownership records and archives. See docs/workspace-retirement-safety.md
+for the supported contract, recovery procedure and remaining boundary.
 
-A caller supplies ONE opaque workspace ID. Repository, path, branch, class,
-owner and session are DERIVED from the ownership ledger — the protected
-record written at creation (`prepared`, by create-teammate-worktree.sh) and
-at binding (`registered`, by detect-nonnative-worktree.sh). Caller-supplied
-`--owner` / `--repo` / `--path` are ASSERTIONS, never inputs: they must AGREE
-with what the record says or the operation refuses. They can never widen the
-target, only fail to match it.
-
-    ws-<16 hex> = sha256(realpath(repo) NUL realpath(worktree))
-
-The ID names the (repository, workspace path) pair and nothing reusable. It
-is deliberately not a name, a branch or a teammate: those keys are reusable
-across sessions, and `worktree-ledger.py` already removed them from
-destructive authority for that reason (docs/plans/worktree-real-fix-2026-09-03.md).
-
-There is no way to spell `/Users/alex/ab/richos-wt/` as a workspace ID,
-because no ownership record has ever named it. That path resolves to
-`unknown-workspace` and the operation stops before it looks at the disk.
-
-===========================================================================
-NOTHING HERE DELETES A WORKSPACE — ON EITHER ROUTE
-===========================================================================
-Retirement is a RENAME. The workspace directory is renamed, on the same
-filesystem, into a dot-directory beside it:
-
-    <parent>/.richos-retired/<name>.richos-retired-<ws-id>-<utc>
-
-and git's now dangling registration is unlocked and pruned. No `rm`, no
-`rmtree`, no `git worktree remove --force`, no code path that erases a
-directory a caller pointed at.
-
-WHY A DOT-DIRECTORY AND NOT A SIBLING (second review, 2026-09-06, and this
-round's own search). Two other tools walk worktree containers with `*/`:
-the reaper's residue scan reports every unregistered entry it finds, and
-`hooks/detect-nonnative-worktree.sh` RECURSIVELY DELETES every unregistered
-entry under `<main>/.claude/worktrees/` on the next tool call, on the
-reasoning "unregistered == unowned". A quarantine is unregistered by
-construction. Renamed in place beside its siblings it lived for seconds, not
-for its retention period, and the sweep's byte-coverage check never got to
-run. A `*/` glob does not match a dot-name, so the quarantine is out of both
-scanners' reach; the hook's own rule is still wrong and is raised separately
-(it is not this file's to change).
-
-Erasure happens in exactly one place — `sweep`, the retention expiry — and it
-will only erase a directory that satisfies SIX independent conditions, all
-minted by this operation itself and none supplied by a caller:
-
-    1. it is named in this module's own COMPLETED retirement record (an
-       intent whose completion never landed is never erased);
-    2. its name matches the quarantine pattern this module mints;
-    3. its (st_dev, st_ino) equals the identity recorded at rename time;
-    4. it is not a symlink;
-    5. a preservation archive for it exists and re-verifies;
-    6. every entry now in the directory is in that archive, byte for byte
-       (review 2026-09-06, finding 2 — the archive authorizes the erasure of
-       exactly what it holds).
-
-And the erase is put on record before it happens.
-
-THE LEGACY ROUTE NO LONGER HAS A LIFECYCLE OF ITS OWN. Until the second
-review of 2026-09-06, `remove` (the reaper's `--owner <id> <path>` route)
-shared the authority with retirement and then ran its own sequence: preserve
-only under `--force`, `git worktree remove`, `git branch -D` on whatever
-`--branch` named. The reviewer put three probes through it and all three
-destroyed something: a worker that acquired during preservation lost its new
-file (no post-preservation re-check on this route — the last round added it
-to `retire()` alone); an ignored file went with no archive at all (a clean
-`git status` read as "nothing to lose"); an UNRELATED unmerged branch was
-deleted while the backup ref protected the target's tip instead (a branch
-name trusted to belong to the workspace). Every finding in both reviews was
-in this route, and the pattern across all six is one thing: a destructive
-step trusting a fact established earlier, elsewhere, or about something
-else. So the route is now an ADAPTER and nothing more. It resolves a path
-and an owner to the same identity retirement uses, runs the same
-`_transact()` — preserve unconditionally, re-check after preservation, rename
-to quarantine, re-check after the rename — and differs in exactly three
-declared ways: without `--force` it refuses a tree with modified or
-untracked paths (`dirty-without-force`, git's own rule for `worktree
-remove`, kept because the reaper treats "needed --force" as proof a gate was
-wrong); `--branch` is an ASSERTION that must name the branch checked out at
-the path (`branch-mismatch` otherwise) and is deleted only by
-compare-and-delete against the tip the backup ref was verified to hold; and
-an OBSERVED termination is copied to the ownership ledger before the
-isolation worktree that evidenced it is gone. The directory is gone from its
-path and from git, which is all the reaper ever relied on.
-
-===========================================================================
-ABSENCE IS NOT AUTHORITY — AND THERE IS ONE AUTHORITY
-===========================================================================
-The incident's liveness verdict was NOT-ALIVE for an owner that did not
-exist. The resolver was answering "no such agent is locked here", which is
-true of every string that is not an agent id, and the remover read it as
-"confirmed dead".
-
-The first fix (2026-09-05) put a positive-evidence check in THIS file's
-retirement path and left the legacy path-addressed route reading the lock
-resolver directly. The review of 2026-09-06 reproduced the incident's own
-logic error through that route: `--owner never-registered` against a
-registered worktree whose real owner was verified ALIVE deleted it, exit 0.
-Absence of a record was still being read as evidence of death, one door over.
-
-So there is now ONE function every destructive path consults —
-`termination_authority()` — and it authorizes only when BOTH hold:
-
-    BINDING     the asserted owner is bound to THIS exact path: an ownership
-                record names it, or the path is that agent's own isolation
-                worktree registered in the repository (the harness names the
-                directory after the agent). An owner nobody can bind to the
-                path is `owner-unbound`, however dead it may be.
-    EVIDENCE    NOT-ALIVE rests on something POSITIVE: a witnessed
-                termination on record, an OBSERVED registered-and-unlocked
-                (or stale-locked) isolation worktree, or a host session
-                provably over. The ledger's `judge()` lands absence in
-                INDETERMINATE by construction, and the native branch requires
-                the resolver's `registered` flag rather than trusting the
-                verdict word.
-
-ALIVE, INDETERMINATE, UNRESOLVED and unbound all refuse. The legacy route
-(`remove`), retirement (`retire`) and the sweep (through the record) share
-this one function. Two implementations of "may I destroy this" is how one of
-them silently becomes the stale one.
-
-===========================================================================
-SERIALIZATION AGAINST WORKER STARTUP — THREE LAYERS, ONE LIMIT
-===========================================================================
-An exclusive `flock` on `<root>/locks/<ws-id>.lock` is held across every
-mutating step; under it the ledger is RE-READ and compared against the
-snapshot taken before it. That catches a worker that acquired while we were
-waiting for the lock.
-
-It did NOT catch a worker that acquired AFTER the under-lock check and before
-the rename (review 2026-09-06, finding 2): the new worker's file was in the
-quarantine, absent from the archive, and the sweep erased it. So:
-
-    LAYER 1   after preservation, before the rename: records and verdict are
-              re-read; a change refuses `reacquired`, nothing renamed.
-    LAYER 2   after the rename: re-read AGAIN; a change renames the directory
-              BACK through the held parent descriptor and refuses
-              `reacquired-after-quarantine`. The worker's cwd followed the
-              inode through both renames; its files are where it put them.
-    LAYER 3   the sweep erases only a quarantine whose every byte is in the
-              verified archive (`quarantine-diverged` otherwise). The archive
-              authorizes the erasure of exactly what it holds.
-
-All three layers run on BOTH routes, because both routes are one function.
-The second review found layer 1 present in `retire()` and absent from
-`remove_legacy()`; two lifecycle sequences sharing one authority is two
-places for the same check to be missing from one of them.
-
-THE SAME RULE FOR THE ONE REF THIS MODULE DELETES. `retire-branch` and the
-legacy `--branch` assertion used `git branch -D`, which deletes whatever the
-ref points at NOW on the strength of a tip read a few lines EARLIER. Both
-now issue `git update-ref -d <ref> <expected-tip>`: git refuses if the ref
-moved between the read and the delete (`branch-moved`), so the check and the
-destruction are one operation. A backup ref is also READ BACK after it is
-written before anything relies on it.
-
-THE LIMIT, stated: the creation path does not take this lock
-(`startup_guard()` exists for it; `create-teammate-worktree.sh` is outside
-this file, and the harness's native isolation worktrees are created by code
-this repository does not own). A process using the directory with no lock,
-no record and no session identity is invisible to every layer above. That is
-the case the incident analysis's OS-enforced boundary exists for, and nothing
-in this module can stand in for it. Two windows remain inside it and are
-named here rather than implied away: between layer 2 and `git worktree
-prune`, a worker that acquires the directory keeps its files (the quarantine
-holds them and the sweep will not erase what the archive does not cover) but
-loses its git registration and index (the index is in the archive); and
-inside `sweep`, between the byte-coverage walk and `rmtree`, a write into a
-quarantine whose retention has elapsed is the only copy. Both are the
-creator-does-not-lock limit wearing different clothes.
-
-===========================================================================
-THE JOURNAL IS WRITTEN BEFORE THE MOVE, AND EVERY WRITE IS READ
-===========================================================================
-Review 2026-09-06, finding 3: a read-only journal, a renamed and pruned
-workspace, `quarantined` reported, `restore` answering `no-retirement-record`.
-Now: the journal is probed for append before anything is touched; an INTENT
-record naming the planned quarantine path is written before the rename and
-refuses the operation if it cannot be; the COMPLETION record is written
-before `git worktree prune` and, if it cannot be, the rename is UNDONE and the
-outcome is `failed`; the sweep records before it erases; `restore` reads the
-newest record carrying a verified archive, completed or not; `reconcile` lists
-every intent whose completion never landed, with what the disk says now.
-===========================================================================
-CLI
-===========================================================================
-    workspace-retire.py list [--repo R]        ws-ids and their identities
-    workspace-retire.py resolve <ws-id>        derived identity, no mutation
-    workspace-retire.py retire <ws-id> [--owner O] [--repo R] [--path P]
-                                [--dry-run] [--retention-days N]
-    workspace-retire.py retire-branch <ws-id> [--retention-days N] [--dry-run]
+Commands:
+    workspace-retire.py list
+    workspace-retire.py workspace-id <repo> <path>
+    workspace-retire.py retire <ws-id> [--dry-run] [--retention-days N]
+    workspace-retire.py retire-branch <ws-id> [--dry-run] [--retention-days N]
     workspace-retire.py sweep [--retention-days N] [--execute]
-    workspace-retire.py restore <ws-id> <destination>
-    workspace-retire.py records [<ws-id>]
-    workspace-retire.py reconcile              intents whose completion never landed
-    workspace-retire.py authorize --entity-repo E --repo R --owner O --path P
-    workspace-retire.py remove    --entity-repo E --repo R --owner O --path P
-                                [--force] [--branch B]   (the legacy route:
-                                the same transaction as `retire`, addressed by
-                                path + owner; QUARANTINES, never deletes)
+    workspace-retire.py restore <ws-id> <new-destination>
+    workspace-retire.py reconcile
 
-Every subcommand prints ONE JSON object (or a JSON array for `list`/`records`)
-on stdout. Exit codes:
-
-    0   quarantined | already-retired | ok        (the outcome field says which)
-    2   usage
-    3   refused          — nothing was mutated
-    4   failed           — an attempted step failed; see `stage`
-    5   remove only: the target is a directory that is not a registered worktree
-
-Quarantines live in `<parent>/.richos-retired/`, never as a visible sibling
-of the workspaces they came from.
-
-Environment:
-    RICHOS_WORKSPACE_RETIRE_DIR   state root (default ~/.claude/state/workspace-retirement)
-    RICHOS_WORKTREE_LEDGER        the ownership ledger (read-only here)
-    RICHOS_WORKSPACE_RETENTION_DAYS  default retention, days (default 14)
+State: RICHOS_WORKSPACE_RETIRE_DIR (default ~/.claude/workspace-retire).
+Ownership: RICHOS_WORKTREE_LEDGER. RICHOS_WORKSPACE_RETENTION_DAYS defaults
+retention diagnostics and separate branch retirement to 14 days.
 """
 
 import argparse
@@ -266,6 +57,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -294,8 +86,7 @@ WS_ID_RE = re.compile(r"^ws-[0-9a-f]{16}$")
 QUARANTINE_RE = re.compile(r"\.richos-retired-ws-[0-9a-f]{16}-\d{8}T\d{6}(\.\d{6})?Z$")
 # The dot-directory, beside the workspace, that holds its quarantine. A dot-name
 # so that the `*/` globs of the reaper's residue scan and of
-# hooks/detect-nonnative-worktree.sh (which rm -rf's what it does not
-# recognize) never see it. See the module header.
+# hooks/detect-nonnative-worktree.sh do not classify quarantines as residue.
 QUARANTINE_DIRNAME = ".richos-retired"
 
 DEFAULT_RETENTION_DAYS = 14
@@ -911,36 +702,12 @@ class WorkspaceLock(object):
 
 
 def startup_guard(ws_id, wait_seconds=30.0):
-    """THE ENTRY POINT A CREATOR SHOULD CALL, and does not yet.
+    """Acquire a cooperative startup lock; native creators are not wired to it.
 
-    A worker startup that acquires this lock before writing its ownership
-    record is serialized against retirement by the kernel: retirement cannot
-    begin while it is held, and a creation that begins after retirement took
-    the lock will find the workspace quarantined rather than half-renamed.
-
-    `create-teammate-worktree.sh` is not wired to it — that is the creation
-    path and it is outside this file. The harness's own native isolation
-    worktrees are created by code this repository does not own and can never
-    be wired to it. So the lock alone is NOT what protects a starting worker;
-    what does, as of the 2026-09-06 review (finding 2), is three layers that
-    need nothing from the creator:
-
-      1. after preservation and before the rename, the ownership records and
-         the termination verdict are re-read; any change refuses (`reacquired`);
-      2. after the rename, they are re-read AGAIN; any change renames the
-         directory BACK through the same parent descriptor and refuses
-         (`reacquired-after-quarantine`) — a worker that acquired in the
-         microseconds between the last check and the rename finds its
-         workspace where it left it;
-      3. the retention sweep erases a quarantine only when every byte in it is
-         in the verified archive (`quarantine-diverged` otherwise), so a file
-         written into the directory after preservation is never the copy that
-         goes.
-
-    What remains open, stated rather than implied: a process that is using
-    the directory without a lock, an ownership record or a session identity
-    is invisible to every check here. That is the case the OS-enforced
-    boundary in the incident analysis exists for.
+    Retirement rechecks ownership before and after rename and rolls back an
+    observed reacquisition. Quarantines are never automatically erased, so a
+    late write is retained even if it is absent from the earlier archive.
+    The lock cannot exclude uncooperative writers or replace an OS boundary.
     """
     lock = WorkspaceLock(ws_id, wait_seconds=wait_seconds)
     return lock if lock.acquire() else None
@@ -1023,6 +790,68 @@ def _git_facts(path, repo):
     return facts
 
 
+def _recovery_git(args, **kwargs):
+    """Recovery commands must not inherit the caller's repository or index."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    return subprocess.run(["git", "-c", "core.hooksPath=" + os.devnull] + args,
+                          env=env, check=True, stderr=subprocess.PIPE, **kwargs)
+
+
+def _index_roots(index_listing):
+    roots = set()
+    for entry in index_listing.split(b"\0"):
+        if not entry:
+            continue
+        mode, oid, stage = entry.split(b"\t", 1)[0].split()
+        if mode == b"160000":
+            raise ValueError("submodule index recovery is not supported; leave this workspace intact")
+        roots.add(oid.decode("ascii"))
+    return roots
+
+
+def _import_recovery_pack(pack, gitdir, object_format):
+    _recovery_git(["init", "--bare", "--object-format=" + object_format, gitdir],
+                  stdout=subprocess.DEVNULL)
+    with open(pack, "rb") as source:
+        _recovery_git(["--git-dir=" + gitdir, "index-pack", "--stdin", "--strict"],
+                      stdin=source, stdout=subprocess.DEVNULL)
+
+
+def _preserve_objects(target, facts, dest_dir):
+    """Pack HEAD's closure and every index stage into an independent database.
+
+    The index stores object IDs, not staged bytes. Verify the pack without
+    access to the original repository so garbage collection cannot silently
+    invalidate a recovery archive. Conflicted index stages are included too.
+    """
+    args = ["-C", target.path]
+    listing = _recovery_git(args + ["ls-files", "--stage", "-z"], stdout=subprocess.PIPE).stdout
+    roots = _index_roots(listing)
+    if facts.get("head"):
+        roots.add(facts["head"])
+    object_format = _recovery_git(args + ["rev-parse", "--show-object-format"],
+                                  stdout=subprocess.PIPE).stdout.decode().strip()
+    pack = os.path.join(dest_dir, "objects.pack")
+    with open(pack, "xb") as output:
+        _recovery_git(args + ["pack-objects", "--stdout", "--revs"],
+                      input=("\n".join(sorted(roots)) + "\n").encode(), stdout=output)
+        output.flush()
+        os.fsync(output.fileno())
+    with tempfile.TemporaryDirectory(prefix="richos-pack-check-") as temp:
+        gitdir = os.path.join(temp, "check.git")
+        _import_recovery_pack(pack, gitdir, object_format)
+        for oid in roots:
+            _recovery_git(["--git-dir=" + gitdir, "cat-file", "-e", oid], stdout=subprocess.DEVNULL)
+        _recovery_git(["--git-dir=" + gitdir, "fsck", "--full", "--no-reflogs"],
+                      stdout=subprocess.DEVNULL)
+    after = _recovery_git(args + ["ls-files", "--stage", "-z"], stdout=subprocess.PIPE).stdout
+    if after != listing:
+        raise ValueError("index changed during object preservation; retry after the worker stops")
+    return {"pack": "recovery/objects.pack", "object_format": object_format,
+            "roots": sorted(roots)}
+
+
 def preserve(ws, target, dest_dir):
     """Archive the workspace — committed, staged, dirty, untracked AND ignored
     — plus git's per-worktree administrative directory (which is where the
@@ -1060,7 +889,15 @@ def preserve(ws, target, dest_dir):
     if gitdir and os.path.isdir(gitdir) and os.path.realpath(gitdir) != os.path.realpath(
             os.path.join(target.path, ".git")):
         gitdir_entries = _walk_manifest(gitdir, "gitdir")
-    all_entries = entries + gitdir_entries
+    try:
+        recovery = _preserve_objects(target, facts, dest_dir)
+    except (OSError, ValueError, subprocess.CalledProcessError) as e:
+        out["reason"] = "Git object preservation failed: %s" % e
+        return out
+    pack = os.path.join(dest_dir, "objects.pack")
+    all_entries = entries + gitdir_entries + [{
+        "path": "recovery/objects.pack", "type": "file", "mode": 0o600,
+        "size": os.path.getsize(pack), "sha256": _sha256_file(pack), "src": pack}]
 
     archive = os.path.join(dest_dir, "workspace.tar")
     try:
@@ -1089,6 +926,7 @@ def preserve(ws, target, dest_dir):
         return out
 
     manifest = {
+        "recovery": recovery,
         "workspace": {k: ws[k] for k in ("id", "repo", "path", "branch", "class",
                                          "owners", "teammates", "sessions")},
         "fsid": target.fsid(),
@@ -1264,7 +1102,43 @@ def restore(ws_id, destination):
                 "reason": "%d restored entry/entries do not match the manifest, first: %s"
                           % (len(bad), bad[0]),
                 "destination": destination}
+    recovery = manifest.get("recovery") or {}
+    if not recovery:
+        return {"operation": "restore", "outcome": OUTCOME_FAILED,
+                "reason_code": "legacy-object-pack-missing", "destination": destination,
+                "reason": "Files were extracted, but this older archive has no independent Git "
+                          "object pack. Staged recovery cannot be verified from this archive alone."}
+    gitdir = os.path.join(os.path.abspath(destination), "recovery.git")
+    try:
+        # Fixed paths, never repository paths taken from archived config or
+        # commondir files. Recovery writes only inside the empty destination.
+        _import_recovery_pack(os.path.join(destination, "recovery", "objects.pack"),
+                              gitdir, recovery["object_format"])
+        original_index = os.path.join(destination, "gitdir", "index")
+        if os.path.isfile(original_index):
+            shutil.copyfile(original_index, os.path.join(gitdir, "index"))
+        admin = os.path.join(destination, "gitdir")
+        if os.path.isdir(admin):
+            for name in os.listdir(admin):
+                if re.fullmatch(r"sharedindex\.[0-9a-f]+", name):
+                    shutil.copyfile(os.path.join(admin, name), os.path.join(gitdir, name))
+        head = manifest.get("git", {}).get("head")
+        if head:
+            _recovery_git(["--git-dir=" + gitdir, "update-ref", "HEAD", head],
+                          stdout=subprocess.DEVNULL)
+        listing = _recovery_git(["--git-dir=" + gitdir, "ls-files", "--stage", "-z"],
+                                stdout=subprocess.PIPE).stdout
+        for oid in _index_roots(listing):
+            _recovery_git(["--git-dir=" + gitdir, "cat-file", "-e", oid], stdout=subprocess.DEVNULL)
+        _recovery_git(["--git-dir=" + gitdir, "fsck", "--full", "--cache"],
+                      stdout=subprocess.DEVNULL)
+    except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as e:
+        return {"operation": "restore", "outcome": OUTCOME_FAILED,
+                "reason_code": "git-recovery-invalid", "destination": destination,
+                "reason": "Extracted files could not reconstruct complete Git state: %s" % e}
     return {"operation": "restore", "outcome": OUTCOME_OK,
+            "recovery_git_dir": gitdir,
+            "recovery_work_tree": os.path.join(os.path.abspath(destination), "workspace"),
             "destination": destination,
             "workspace": rec.get("workspace"),
             "entries": len(manifest.get("entries", [])),
@@ -2410,7 +2284,7 @@ def retire_branch(ws_id, retention=None, dry_run=False):
 
 
 # --------------------------------------------------------------------------
-# requirement 6: retention expiry — the ONLY code here that erases
+# Retention diagnostics: erasure is disabled without exclusive access
 # --------------------------------------------------------------------------
 
 def quarantine_covered(qpath, manifest):
@@ -2444,21 +2318,11 @@ def quarantine_covered(qpath, manifest):
 
 
 def sweep(retention=None, execute=False):
-    """Erase quarantines whose retention has elapsed.
+    """Inspect quarantines without erasing them, even with --execute.
 
-    This is the only function in this module that removes a directory, and it
-    will remove nothing it did not itself mint. SIX conditions, ALL required:
-    the path is named in this module's own COMPLETED retirement record; its
-    basename matches the quarantine pattern; its (st_dev, st_ino) equals the
-    identity recorded at rename time; it is not a symlink; its preservation
-    archive exists and re-verifies against its manifest; and every entry now
-    in the directory is in that archive (`quarantine_covered`). Then the
-    erase is put on record BEFORE it happens.
-
-    Any one of them failing is a SKIP with a named reason, never a best-effort
-    delete. There is no caller-supplied path anywhere in this function. An
-    INTENT record (`in-progress`) never reaches here: a quarantine whose
-    completion was never recorded is never erased.
+    Identity, retention, archive integrity and coverage checks provide useful
+    diagnostics. They cannot establish exclusive access against late writes.
+    Execute therefore refuses; no caller can opt into an unsafe erase.
     """
     days = retention_days(retention)
     now = datetime.now(timezone.utc)
@@ -2545,42 +2409,16 @@ def sweep(retention=None, execute=False):
                                    "it would take the only copy. It is kept." % why})
             results.append(item)
             continue
-        if not execute:
-            item.update({"action": "would-erase", "reason_code": "retention-elapsed",
-                         "reason": "retention elapsed, the archive re-verified, and the quarantine "
-                                   "holds nothing the archive does not."})
-            results.append(item)
-            continue
-        # The record precedes the erase. An erase nobody can find the record
-        # of is the finding-3 shape one operation over.
-        if not append_record({"operation": "sweep", "outcome": OUTCOME_IN_PROGRESS,
-                              "stage": "erase-intent", "workspace": rec.get("workspace"),
-                              "quarantine": q, "preservation": pres,
-                              "reason": "retention elapsed; erasing the quarantine."}):
-            item.update({"action": "skip", "reason_code": "journal-unwritable",
-                         "reason": "the retirement journal would not take the erase record, so "
-                                   "nothing is erased."})
-            results.append(item)
-            continue
-        try:
-            shutil.rmtree(qpath)
-        except Exception as e:
-            item.update({"action": "failed", "reason_code": "erase-failed", "reason": str(e)})
-            append_record({"operation": "sweep", "outcome": OUTCOME_FAILED, "stage": "erase",
-                           "workspace": rec.get("workspace"), "quarantine": q,
-                           "reason": "rmtree failed: %s" % e})
-            results.append(item)
-            continue
-        item.update({"action": "erased", "reason_code": "retention-elapsed",
-                     "reason": "quarantine erased; the verified preservation archive remains at %s."
-                               % archive})
-        done = append_record({"operation": "sweep", "outcome": OUTCOME_OK,
-                              "workspace": rec.get("workspace"), "quarantine": q,
-                              "preservation": pres,
-                              "reason": "retention elapsed; quarantine erased, archive retained."})
-        item["journal"] = "complete" if done else "incomplete"
+        # A coverage scan cannot exclude a write before recursive erasure.
+        # No privileged service can revoke writers in this installation, so
+        # neither elapsed retention nor --execute authorizes deletion.
+        item.update({"action": "retain", "reason_code": "exclusive-access-unavailable",
+                     "reason": "Archive verified, but exclusive write access cannot be enforced. "
+                               "Automatic erasure is disabled; quarantine and recovery remain intact."})
         results.append(item)
-    return {"operation": "sweep", "outcome": OUTCOME_OK, "retention_days": days,
+
+    return {"operation": "sweep", "outcome": OUTCOME_REFUSED if execute else OUTCOME_OK,
+            "reason_code": "automatic-erasure-disabled", "retention_days": days,
             "execute": bool(execute), "items": results, "ts": now_iso()}
 
 # --------------------------------------------------------------------------
@@ -2738,8 +2576,7 @@ def main(argv=None):
         p.add_argument("--owner", required=True, help="agent id or agent-<id>; must be BOUND to <path>")
         p.add_argument("--path", required=True, help="the registered worktree to act on")
         p.add_argument("--force", action="store_true",
-                       help="remove only: pass --force to git worktree remove; the tree is "
-                            "PRESERVED (verified archive) first")
+                       help="remove only: allow dirty workspaces to be preserved and quarantined")
         p.add_argument("--branch", default="", help="remove only: delete this branch after removal")
         p.add_argument("--lock-wait", type=float, default=5.0)
 
@@ -2784,8 +2621,9 @@ def main(argv=None):
         _emit(res)
         return _exit_for(res)
     if args.cmd == "sweep":
-        _emit(sweep(retention=args.retention_days, execute=args.execute))
-        return EXIT_OK
+        res = sweep(retention=args.retention_days, execute=args.execute)
+        _emit(res)
+        return _exit_for(res)
     if args.cmd == "reconcile":
         _emit(reconcile())
         return EXIT_OK

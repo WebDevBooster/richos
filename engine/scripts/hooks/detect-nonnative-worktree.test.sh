@@ -290,23 +290,22 @@ rm -rf "$ROOT"
 # =========================================================================
 
 # --- (c) zombie residue DIR: on disk but ABSENT from the registry -> exit 2,
-# AUTO-REAPED. CRITICAL NEGATIVE: a REGISTERED native worktree alongside is NEVER
-# reaped. The residue is given a native-shaped name to prove name-shape alone
-# does not save it — only registration does.
+# PRESERVED. Both unknown and registered paths keep their contents.
+# A native-shaped directory name never establishes safe deletion authority.
 ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "agent-cafefeed10" "worktree-cafefeed10"   # REGISTERED
 mkdir -p "$ROOT/.claude/worktrees/agent-deaddead11"             # UNREGISTERED residue
 printf 'ghost\n' > "$ROOT/.claude/worktrees/agent-deaddead11/seal.json"
-run_case "zombie residue dir present -> exit 2 (auto-reap path)" 2 "$ROOT" \
+run_case "zombie residue dir present -> exit 2 (report-only path)" 2 "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 mkdir -p "$ROOT/.claude/worktrees/agent-deaddead11"
 printf 'ghost\n' > "$ROOT/.claude/worktrees/agent-deaddead11/seal.json"
-run_case_msg "zombie residue dir -> stderr names AUTO-REAPED" "AUTO-REAPED" "$ROOT" \
+run_case_msg "zombie residue dir -> stderr names PRESERVED" "PRESERVED" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-if [ ! -d "$ROOT/.claude/worktrees/agent-deaddead11" ]; then
-    printf '  PASS  unregistered zombie dir was reaped from disk\n'; PASS=$((PASS + 1))
+if [ "$(cat "$ROOT/.claude/worktrees/agent-deaddead11/seal.json" 2>/dev/null)" = "ghost" ]; then
+    printf '  PASS  unregistered directory and its file were preserved\n'; PASS=$((PASS + 1))
 else
-    printf '  FAIL  unregistered zombie dir was NOT reaped\n'; FAIL=$((FAIL + 1))
+    printf '  FAIL  unregistered directory contents were damaged\n'; FAIL=$((FAIL + 1))
 fi
 if [ -d "$ROOT/.claude/worktrees/agent-cafefeed10" ]; then
     printf '  PASS  registered native worktree survived the reap (critical negative)\n'; PASS=$((PASS + 1))

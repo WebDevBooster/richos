@@ -1,155 +1,17 @@
 #!/usr/bin/env python3
-"""reconcile-terminal-worktrees.py — THE PERSISTENT RECONCILER. Drives every
-terminal worktree transaction from `quarantined` to `removed`, and recovers
-any transaction a crash left mid-way, from the durable state alone.
+"""Capture and verify terminal worktrees while retaining their quarantines.
 
-===========================================================================
-WHAT IT DOES, PER TERMINAL TRANSACTION, PER MEMBER
-===========================================================================
-    bound        -> ref_saved      (the ingress normally did this; recovery)
-    ref_saved    -> quarantined    (same)
-    quarantined  -> captured       kill and reap every process using the
-                                   original or the quarantine; require two
-                                   identical manifests separated by a
-                                   settling interval; archive raw bytes +
-                                   index + provenance; reclaim a recreated
-                                   original path
-    captured     -> verified       re-read the archive and match every digest
-    verified     -> unregistered   git no longer lists the worktree (the
-                                   backup ref is untouched)
-    unregistered -> removed        the quarantine directory is gone
-The transaction is `removed` only when every member is. Every transition is
-persisted immediately (scripts/lib/worktree-transactions.py, temp file ->
-fsync -> rename -> directory fsync), so a crash at ANY boundary is recovered
-by rereading what exists and repeating only the idempotent step that follows.
+Terminal ingress quarantines an exact registered workspace. The reconciler
+captures its working files and index blobs and verifies the archive. It then
+records a blocked condition instead of unregistering or erasing the directory.
+Previously unregistered quarantines are retained too. A recreated original
+path of unknown ownership refuses capture and is left intact.
 
-===========================================================================
-WHAT IS CAPTURED — and why "git tree equality" is not claimed
-===========================================================================
-For every quarantined member the archive holds:
-  - the member's HEAD under the backup ref (already in the repository);
-  - `index.txt`: exact index entries (`git ls-files -s`), and every staged
-    blob's bytes under blobs/<sha>;
-  - `tree.tar`: raw working-tree bytes of every file that is not on the
-    disposable-path policy (tracked or not, ignored or not), with modes and
-    symlink targets;
-  - `manifest.json`: relpath, kind, size, mode, symlink target, SHA-256 of
-    every raw file — computed twice, before and after the settle, and the
-    two must be identical;
-  - `provenance.json`: repository, original path, branch, HEAD, backup ref,
-    the transaction's session and agent ids.
-Raw files and index blobs are hashed independently. Git clean filters, LFS
-and line-ending conversion can make a git tree differ from the bytes on
-disk, so the archive is verified against the RAW digests, and a git tree id
-is never presented as byte equality.
-
-The disposable-path policy is COMMITTED (orchestration.config
-CAPTURE_DISPOSABLE_PATHS in the engine, overridable per entity): build
-outputs and dependency caches are the only things not captured, and the
-list is data a reviewer can read.
-
-VERIFICATION covers every manifest entry — file size/mode/digest, symlink
-mode/target, directory mode, no extra entries — and every index entry that
-needs a standalone blob (`needs_blob`: its object is not in the HEAD tree
-the backup ref preserves) must have one that hashes to it under the
-repository's object format. Any failure voids the capture and the member
-returns to `quarantined`. Every git command the capture needs must succeed
-or the member is not `captured` (review 2026-09-03, blockers 2 and 8).
-
-PRIVACY AND RETENTION: capture directories are 0700 and files 0600, by
-explicit mode and by a 0077 umask over this process; the archive is deleted
-after CAPTURE_RETENTION_DAYS, the backup ref after BACKUP_REF_RETENTION_DAYS,
-the transaction record after TRANSACTION_RETENTION_DAYS and only once every
-artifact it names is gone — all of it in retention_pass(), run at the end of
-every run, so the launchd job does it and nobody is asked to. The encryption
-policy (permissions + retention + the volume's encryption; no per-archive
-key, and why) is in docs/worktree-lifecycle-transactions.md.
-
-===========================================================================
-PROCESS RESIDUE — what is handled and what is honestly not
-===========================================================================
-Before capture, every process whose cwd or open files resolve inside the
-original or the quarantine is terminated (SIGTERM, then SIGKILL) and reaped;
-then the manifest is taken twice with a settle between. A process that
-recreates the ORIGINAL path after quarantine is detected: its writers are
-killed, the residue is captured as `residue-<n>.tar` and removed.
-
-What cannot be removed by shell code: a detached process with no current
-filesystem reference that has remembered an absolute path and will write
-again later. Absolute prevention needs the platform to run each worker in an
-OS-owned job and end the job before cleanup. This reconciler handles
-OBSERVED residue and does not claim more.
-
-===========================================================================
-FAILURE POLICY
-===========================================================================
-NOTHING HERE IS A QUEUE FOR A PERSON (landed review 2026-09-03, blocker 3;
-until this revision `failed` and `missing` were permanent states that
-"remain until an operator resolves them" — babysitting as a lifecycle
-state). Every condition has one of two automatic policies:
-
-  RETRY, with persistent backoff — anything transient: disk full, an
-  archive that did not verify, a manifest that would not settle, a git
-  command that failed, a process that would not die. The quarantine stays
-  exactly where it is; the attempt count, the last error and a
-  retry_after time (RECONCILE_RETRY_BACKOFF_SECONDS doubling per attempt
-  up to RECONCILE_RETRY_BACKOFF_MAX_SECONDS, persisted on the member) are
-  recorded; after MAX_SOFT_ATTEMPTS_BEFORE_NOTICE attempts it is reported
-  ONCE, and the retries continue. External conditions clear; the next run
-  after they do finishes the member.
-
-  ARCHIVE-AND-CLOSE, deterministically — anything that will never change
-  by waiting:
-    both original and quarantine present  the quarantine (its name embeds
-                                          the session prefix and agent id)
-                                          proceeds; the original is
-                                          archived as residue, VERIFIED,
-                                          and removed — unless git
-                                          registers it as ANOTHER worktree,
-                                          in which case it is recorded and
-                                          never touched
-    the path vanished                     closed absent (the library): the
-                                          backup ref re-created from the
-                                          recorded head while the commit
-                                          object survives, the absence
-                                          recorded
-    the quarantine's HEAD moved           the exact bytes are already
-                                          captured; the moved HEAD is saved
-                                          under <backup-ref>@drift-<n>, the
-                                          drift recorded, and the member
-                                          proceeds
-    git cannot read the directory and     the RAW bytes are captured and
-    no longer registers it                verified; the backup ref comes
-                                          from head_at_seal
-    the backup ref is gone                re-created from the recorded head
-                                          while the object survives, else
-                                          recorded lost (the verified
-                                          archive holds the tree)
-    no repository is recorded             read from the quarantine; if
-                                          neither, there is no registration
-                                          to remove
-    a state this revision does not drive  re-derived from what exists on
-    (`failed` from an earlier revision,   disk: bound / ref_saved / absent
-    or unknown)
-Alerts and metrics report trouble; they never transfer cleanup to a user.
-Nothing here searches for something with a similar name.
-
-===========================================================================
-WHO RUNS IT
-===========================================================================
-launchd (com.richos.worktree-reconciler, installed by scripts/hooks/install.sh)
-every RECONCILE_INTERVAL_SECONDS; and SessionStart
-(session-start-reap-worktrees.sh) as crash recovery with a short time
-budget. SessionStart is not the scheduler. Nothing waits for a later session.
-
-Usage:
-  reconcile-terminal-worktrees.py                run every pending transaction
-  reconcile-terminal-worktrees.py --status       print the definition-of-done
-                                                 metrics as JSON and exit 0/1
-  reconcile-terminal-worktrees.py --max-seconds N  stop cleanly after N seconds
-  reconcile-terminal-worktrees.py --agent SID/AID  one transaction only
-Env (tests): RICHOS_WORKTREE_TX_DIR, RICHOS_WORKTREE_CAPTURE_DIR,
-RICHOS_RECONCILE_SETTLE (seconds, default 1.0), RICHOS_RECONCILE_NO_KILL=1.
+No process scan or settle interval grants exclusive access against late
+writes. Automatic quarantine deletion and recovery-artifact expiry are
+therefore disabled. --status reports the blocked members and does not claim
+cleanup is complete. Existing captures, backup refs and records are retained
+indefinitely. See docs/workspace-retirement-safety.md.
 """
 
 import argparse
@@ -159,7 +21,6 @@ import io
 import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -508,44 +369,17 @@ def capture_member(t, index):
     settle = float(os.environ.get("RICHOS_RECONCILE_SETTLE") or "1.0")
     disposable = disposable_paths(m.get("repo"))
 
-    # 1. something at the ORIGINAL path after the rename (landed review
-    #    2026-09-03, blocker 3: "both present" is a policy, not a hard
-    #    failure). If git registers that path as ANOTHER worktree it is not
-    #    this member's: recorded, never touched. Otherwise it is residue —
-    #    a process that recreated the path after quarantine, or the original
-    #    of a both-present recovery — and its writers are killed, its bytes
-    #    archived as residue-<n>.tar AND VERIFIED against their manifest
-    #    before anything is deleted, then it is removed.
-    residue_n = int(m.get("residue_count") or 0)
+    # A recreated path might belong to an unrecorded writer. Missing Git
+    # registration does not establish ownership or authorize an erase.
     if os.path.lexists(orig):
         foreign = _foreign_registration(m, orig)
         if foreign:
-            if not m.get("foreign_worktree_at_original"):
-                tx.update_member(t["session_id"], t["agent_id"], index,
-                                 foreign_worktree_at_original=foreign, foreign_noted_ts=tx.now_iso())
-                log("original path %s is registered by git as ANOTHER worktree (%s): not this member's, not touched; its quarantine proceeds"
-                    % (orig, foreign))
+            tx.update_member(t["session_id"], t["agent_id"], index,
+                             foreign_worktree_at_original=foreign, foreign_noted_ts=tx.now_iso())
+            log("original path %s is registered as ANOTHER worktree; preserved" % orig)
         else:
-            left = kill_and_reap(processes_using([orig]))
-            if left:
-                raise RuntimeError("processes still using the recreated original %s: %s" % (orig, left))
-            residue_n += 1
-            cdir = capture_dir(t, index)
-            private_makedirs(cdir)
-            rpath = os.path.join(cdir, "residue-%d.tar" % residue_n)
-            residue_verified = False
-            if os.path.isdir(orig) and not os.path.islink(orig):
-                rman = build_manifest(orig, disposable)
-                _archive_tree(orig, rman, rpath)
-                _verify_tar(rpath, rman)
-                residue_verified = True
-                tx.atomic_write_json(rpath[:-4] + ".manifest.json", rman)
-                shutil.rmtree(orig)
-            else:
-                os.unlink(orig)
-            tx.update_member(t["session_id"], t["agent_id"], index, residue_count=residue_n,
-                             residue_last=rpath, residue_verified=residue_verified)
-            log("reclaimed residue at the original path %s -> %s (verified)" % (orig, rpath))
+            raise BlockedFailure("exclusive-access-unavailable: recreated original %s is preserved; "
+                                 "ownership is unknown" % orig)
 
     # 2. writers inside the quarantine are terminated and reaped
     left = kill_and_reap(processes_using([quar]))
@@ -808,9 +642,6 @@ def _ensure_backup_ref(m, repo, ref):
     return "lost"
 
 
-LOCKED_REMOVE_MARKER = "cannot remove a locked working tree"
-
-
 class BlockedFailure(RuntimeError):
     """A failure that WAITING CANNOT CLEAR. It is retried like any other
     (nothing is ever parked for a person), but it is counted and reported
@@ -827,163 +658,14 @@ class BlockedFailure(RuntimeError):
     of richos-hq/wiki/worktree-lifecycle.md §5 wearing a third costume."""
 
 
-def _harness_lock_holder(lock_line):
-    """The agent id named by a Claude Code worktree lock line, or "".
-
-    Measured format, `git worktree list --porcelain`, femcboost 2026-09-04:
-        locked claude agent agent-a0737dce77df4ee6c (pid 27582 start ...)
-    A lock with no reason prints a bare `locked`, and this returns "" for it
-    — which REFUSES the break below, because a lock nobody signed cannot be
-    proven to be the one this member's own agent left behind."""
-    if not lock_line:
-        return ""
-    mm = re.search(r"\bagent-([0-9a-zA-Z]+)\b", lock_line)
-    return mm.group(1) if mm else ""
-
-
-def _break_own_quarantine_lock(t, index, repo, quar, entry):
-    """Release the harness lock on THIS member's own quarantine, or refuse.
-
-    ===================================================================
-    WHY A LOCK IS BROKEN HERE AT ALL, AND WHY ONLY HERE
-    ===================================================================
-    `git worktree remove --force` (one --force) REFUSES a locked worktree;
-    only `-f -f`, or an unlock, gets past it. Until this revision the step
-    took the refusal as a transient failure and retried forever. It is not
-    transient. Measured on this machine, 2026-09-04:
-
-      * 31 lock files under femcboost/.git/worktrees/*/locked, every one
-        naming pid 27582 — the SESSION's pid, one process, every agent
-        (the same fact as platform fact PF6 in the lifecycle wiki, and as
-        lib/agent-liveness.py's docstring, re-derived independently here);
-      * 30 of them held quarantines that a per-agent SubagentStop had
-        already claimed, all of them `verified`, stuck at attempt 4-10 with
-        the backoff at 21600s;
-      * the two PRIOR sessions' quarantines (pids 18202 and 93638, both
-        dead) had no lock file at all and had reached `removed`.
-
-    So the lock is released when the SESSION exits, never when the agent
-    finishes, and inside one session a quarantine can never be removed. That
-    is the whole of what the CEO saw: one directory per dispatch, all day,
-    cleared only by quitting Claude Code.
-
-    ===================================================================
-    THIS IS NOT A NEW AUTHORITY TO REMOVE — AND THAT DISTINCTION IS THE
-    WHOLE SAFETY ARGUMENT
-    ===================================================================
-    richos-hq/wiki/worktree-lifecycle.md §14.3 rules that live-agent
-    eviction is not permitted whatever the git state, and §14.4 leaves
-    "what authorizes a removal" OPEN. Nothing here answers that question.
-    The authority was exercised earlier and elsewhere: a per-agent terminal
-    ingress claimed the transaction and RENAMED this directory out of the
-    agent's path. What is left is the last mechanical step of a decision
-    already made, over a directory that is nobody's workspace, whose bytes
-    are archived and re-verified.
-
-    The lock's author said what it is for (Claude Code docs, quoted in the
-    wiki §12.2): while an agent is running, the lock stops CONCURRENT
-    CLEANUP removing ITS worktree. Both halves are checked below rather
-    than argued: the object is not any agent's worktree (P3), and this is
-    not concurrent cleanup but that same agent's own terminal transaction
-    (P2). A lock signed by any OTHER agent is refused (P4) — never broken
-    on the theory that it is probably stale.
-
-    FIVE PRECONDITIONS, ALL READ AT THE INSTANT OF THE ACT, none taken
-    from a caller and none from a description:
-
-      P1  the member is `verified`: an archive was captured AND re-read
-          digest-by-digest, and its directory is on disk right now.
-      P2  the transaction is terminal with a recorded per-agent ingress.
-      P3  the path is EXACTLY this member's own quarantine — equal to the
-          recorded `quarantine`, equal to the name tx.quarantine_name()
-          builds from this session id and this agent id, and listed by git
-          as that exact registered path, not prunable. A live agent's
-          worktree is never at that name: only a terminal ingress creates
-          it.
-      P4  the lock is signed by THIS member's agent id.
-      P5  the backup ref is present (or was re-created): both preservation
-          layers intact, not one.
-
-    Any refusal raises BlockedFailure. The quarantine stays exactly where
-    it is, the reason is recorded on the member, and it is reported as
-    blocked rather than as a retry that is about to succeed."""
-    m = t["members"][index]
-    sid, aid = t["session_id"], t["agent_id"]
-    lock_line = (entry or {}).get("locked")
-
-    def refuse(why):
-        raise BlockedFailure(
-            "the harness lock on %s was NOT broken (%s); the quarantine is preserved untouched" % (quar, why))
-
-    if m.get("state") != "verified":
-        refuse("P1: the member is %r, not `verified` — an unverified archive is not proof the bytes survive" % m.get("state"))
-    cap = m.get("capture_dir")
-    if not (m.get("verified_ts") and cap and os.path.isdir(cap)):
-        refuse("P1: no verified archive is on disk (verified_ts=%r capture_dir=%r)" % (m.get("verified_ts"), cap))
-    terminal = t.get("terminal")
-    ingress = (terminal or {}).get("ingress") if isinstance(terminal, dict) else None
-    if not ingress:
-        refuse("P2: the transaction records no terminal ingress — nothing witnessed this agent finishing")
-    expected = tx.quarantine_name(m["path"], sid, aid)
-    if tx.norm_path(quar) != tx.norm_path(expected) or tx.norm_path(quar) != tx.norm_path(m.get("quarantine") or ""):
-        refuse("P3: %s is not this member's own quarantine name (expected %s)" % (quar, expected))
-    if entry is None or entry.get("prunable"):
-        refuse("P3: git does not list %s as the exact non-prunable registered path" % quar)
-    holder = _harness_lock_holder(lock_line)
-    if holder != aid:
-        refuse("P4: the lock is signed %r, not by this member's agent %r" % (holder or lock_line, aid))
-    if not (m.get("backup_ref") and _ref_exists(repo, m["backup_ref"])):
-        refuse("P5: the backup ref %r is not present in %s" % (m.get("backup_ref"), repo))
-
-    rc, _, err = git_out(repo, "worktree", "unlock", quar)
-    if rc != 0:
-        raise RuntimeError("git worktree unlock %s failed: %s" % (quar, err.strip()[:200]))
-    tx.update_member(sid, aid, index, lock_broken=True, lock_broken_ts=tx.now_iso(),
-                     lock_broken_line=(lock_line or "")[:300], lock_broken_ingress=ingress)
-    log("member %s of %s/%s: released this agent's own harness lock on its quarantine before removal (%s; ingress %s)"
-        % (m["path"], sid[:8], aid, (lock_line or "").strip()[:120], ingress))
-
-
 def unregister_member(t, index):
-    """verified -> unregistered: git no longer lists the worktree. The backup
-    ref is never touched; the branch is left alone. Every failure here has
-    an automatic outcome (landed review 2026-09-03, blocker 3): no recorded
-    repository is read from the quarantine, and if neither exists there is
-    no registration to remove; a vanished backup ref is re-created from the
-    recorded head or recorded lost; a directory git cannot operate on is
-    left for `git worktree prune` once it is removed; and a harness lock on
-    this member's OWN quarantine is released under the five preconditions of
-    _break_own_quarantine_lock, or the member is reported BLOCKED."""
-    m = t["members"][index]
-    quar = m.get("quarantine")
-    sid, aid = t["session_id"], t["agent_id"]
-    repo = m.get("repo") or tx.main_checkout_of(quar) or ""
-    if not repo:
-        return tx.update_member(sid, aid, index, state="unregistered", unregistered_by="no-repository-known",
-                                note="no repository is recorded and none can be read from the quarantine: there is no registration to remove; the verified archive holds the tree")
-    ref = m.get("backup_ref")
-    outcomes = [_ensure_backup_ref(m, repo, ref)]
-    reg = tx.registered_worktrees(repo) or {}
-    if tx.norm_path(quar) in reg:
-        rc, _, err = git_out(repo, "worktree", "remove", "--force", quar)
-        if rc != 0 and LOCKED_REMOVE_MARKER in (err or ""):
-            # The refusal names a lock. Break it only if it is this member's
-            # own, on this member's own quarantine, with the bytes archived
-            # and verified — otherwise BlockedFailure leaves everything as
-            # it stands.
-            _break_own_quarantine_lock(t, index, repo, quar, reg.get(tx.norm_path(quar)))
-            rc, _, err = git_out(repo, "worktree", "remove", "--force", quar)
-        if rc != 0 and not m.get("git_unreadable"):
-            raise RuntimeError("git worktree remove --force %s failed: %s" % (quar, err.strip()[:200]))
-    git_out(repo, "worktree", "prune")
-    outcomes.append(_ensure_backup_ref(m, repo, ref))
-    fields = {"state": "unregistered", "repo": repo}
-    if "lost" in outcomes:
-        fields["backup_ref_lost"] = True
-        log("backup ref %s of %s/%s is gone and its commit object no longer exists: recorded lost; the verified archive holds the tree" % (ref, sid[:8], aid))
-    if "re-created" in outcomes:
-        fields["backup_ref_recreated"] = True
-    return tx.update_member(sid, aid, index, **fields)
+    """Refuse deletion even after capture verification.
+
+    Git worktree remove erases files. Process scans and archive checks cannot
+    exclude a subsequent writer, so registration and the quarantine stay put.
+    """
+    raise BlockedFailure("exclusive-access-unavailable: automatic erasure is disabled; "
+                         "quarantine and Git registration are retained")
 
 
 def _ref_exists(repo, ref):
@@ -992,17 +674,9 @@ def _ref_exists(repo, ref):
 
 
 def remove_member(t, index):
-    """unregistered -> removed: the quarantine directory is gone."""
-    m = t["members"][index]
-    quar = m.get("quarantine")
-    if quar and os.path.lexists(quar):
-        left = kill_and_reap(processes_using([quar]))
-        if left:
-            raise RuntimeError("processes still using %s: %s" % (quar, left))
-        shutil.rmtree(quar)
-        if m.get("repo") and os.path.isdir(m["repo"]):
-            git_out(m["repo"], "worktree", "prune")   # a registration git could not remove is stale now
-    return tx.update_member(t["session_id"], t["agent_id"], index, state="removed", removed_ts=tx.now_iso())
+    """Resume older unregistered transactions without erasing their bytes."""
+    raise BlockedFailure("exclusive-access-unavailable: automatic erasure is disabled; "
+                         "the unregistered quarantine is retained")
 
 
 STEPS = {
@@ -1307,141 +981,13 @@ def _epoch(iso):
 
 
 def retention_pass():
-    """Bounded lifetimes for the three things that otherwise accumulate
-    forever (review 2026-09-03, blocker 8): captures (they hold ignored
-    evidence, which is where secrets live), backup refs (they keep unlanded
-    commits reachable after the harness deletes the branch) and the terminal
-    transaction records themselves. Ages are counted from the transaction's
-    `removed_ts`; a record is deleted only after every artifact it names is
-    gone, so nothing on disk is ever orphaned from the record that explains
-    it. The agent-id terminal index (`terminal/<agent_id>`, ~50 bytes) is
-    kept: an agent id is terminal forever, and the resume guard reads it."""
-    cap_days = retention_days("CAPTURE_RETENTION_DAYS", "30")
-    ref_days = retention_days("BACKUP_REF_RETENTION_DAYS", "90")
-    tx_days = retention_days("TRANSACTION_RETENTION_DAYS", "90")
-    now = time.time()
-    expired = {"captures": 0, "backup_refs": 0, "transactions": 0}
-    for t in list(tx.iter_transactions()):
-        if t.get("state") != "removed":
-            continue
-        removed = _epoch(t.get("removed_ts") or "")
-        if removed is None:
-            continue
-        age = (now - removed) / 86400.0
-        sid, aid = t["session_id"], t["agent_id"]
-        with tx.tx_lock(sid, aid, timeout=5):
-            for i, m in enumerate(t.get("members") or []):
-                cdir = m.get("capture_dir")
-                if cdir and not m.get("capture_expired_ts") and age >= cap_days:
-                    if os.path.isdir(cdir):
-                        shutil.rmtree(cdir)
-                    tx.update_member(sid, aid, i, capture_expired_ts=tx.now_iso())
-                    expired["captures"] += 1
-                ref = m.get("backup_ref")
-                if ref and not m.get("backup_ref_expired_ts") and age >= ref_days:
-                    gone, why = _expire_backup_ref(m.get("repo"), ref)
-                    if gone:
-                        tx.update_member(sid, aid, i, backup_ref_expired_ts=tx.now_iso())
-                        expired["backup_refs"] += 1
-                    else:
-                        # STILL TRACKED (landed review 2026-09-03, blocker 4):
-                        # no expiry timestamp, so artifacts_gone below stays
-                        # false and the record that names the ref outlives it.
-                        n = int(m.get("backup_ref_expire_attempts") or 0) + 1
-                        tx.update_member(sid, aid, i, backup_ref_expire_attempts=n,
-                                         backup_ref_expire_error=why[:300], backup_ref_expire_last_attempt=tx.now_iso())
-                        log("retention: backup ref %s of %s/%s NOT expired (attempt %d): %s — the ref and its record stay tracked; retried next run"
-                            % (ref, sid[:8], aid, n, why))
-            t = tx.load_tx(sid, aid)
-            artifacts_gone = all(
-                (not m.get("capture_dir") or m.get("capture_expired_ts") or not os.path.isdir(m["capture_dir"]))
-                and (not m.get("backup_ref") or m.get("backup_ref_expired_ts"))
-                for m in t.get("members") or [])
-            if age >= tx_days and artifacts_gone:
-                _expire_transaction_record(t)
-                expired["transactions"] += 1
-    # empty capture parents left behind
-    root = tx.capture_root()
-    for sdir in _listdir(root):
-        sp = os.path.join(root, sdir)
-        for adir in _listdir(sp):
-            ap = os.path.join(sp, adir)
-            if os.path.isdir(ap) and not _listdir(ap):
-                _rmdir(ap)
-        if os.path.isdir(sp) and not _listdir(sp):
-            _rmdir(sp)
-    if any(expired.values()):
-        log("retention: expired %d capture(s), %d backup ref(s), %d transaction record(s)" % (expired["captures"], expired["backup_refs"], expired["transactions"]))
-    return expired
+    """Keep captures, backup refs and records until protected cleanup exists.
 
-
-def _expire_backup_ref(repo, ref):
-    """(gone, why). A backup ref is `gone` only when the EXACT ref no longer
-    resolves in its repository — verified by rev-parse after `update-ref -d`,
-    never assumed from the deletion's exit code, and never assumed at all
-    (landed review 2026-09-03, blocker 4). Until this revision the deletion's
-    result was ignored and the member marked expired regardless; if git had
-    rejected it, the ref lived on forever while the only record saying it
-    existed was deleted by the transaction retention that trusted the stamp.
-
-    A repository that is not present is NOT `gone`: an unmounted volume
-    would otherwise drop the record while the ref survives on it. The
-    record is kept and retried; a repository deleted for good keeps a tiny
-    record forever, which is the right side of that trade."""
-    if not repo or not os.path.isdir(repo):
-        return False, "repository %s is not present, so the ref cannot be verified gone" % (repo or "?")
-    if not _ref_exists(repo, ref):
-        return True, "already absent"
-    rc, _, err = git_out(repo, "update-ref", "-d", ref)
-    if rc != 0:
-        return False, "git update-ref -d %s exited %d: %s" % (ref, rc, err.strip()[:200])
-    if _ref_exists(repo, ref):
-        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref
-    return True, "deleted and verified absent"
-
-
-def _expire_transaction_record(t):
-    sid, aid = t["session_id"], t["agent_id"]
-    sd = tx.session_dir(sid)
-    for p in (tx.tx_path(sid, aid), tx.lock_path(sid, aid), tx.bound_path(sid, aid), tx.start_path(sid, aid),
-              tx.pending_terminal_path(sid, aid)):
-        _unlink(p)
-    if t.get("tool_use_id"):
-        try:
-            _unlink(tx.intent_path(sid, t["tool_use_id"]))
-        except ValueError:
-            pass
-    for n in _listdir(sd):
-        if n.startswith(aid + ".json.member-") and n.endswith(".notice"):
-            _unlink(os.path.join(sd, n))
-    if t.get("teammate"):
-        try:
-            _unlink(tx.terminal_name_path(sid, t["teammate"]))
-        except ValueError:
-            pass
-    for sub in ("intents", "bound", "starts", "pending-terminal"):
-        p = os.path.join(sd, sub)
-        if os.path.isdir(p) and not _listdir(p):
-            _rmdir(p)
-    if os.path.isdir(sd) and not _listdir(sd):
-        _rmdir(sd)
-    tn = os.path.join(tx.tx_root(), "terminal-names", sid)
-    if os.path.isdir(tn) and not _listdir(tn):
-        _rmdir(tn)
-
-
-def _listdir(p):
-    try:
-        return os.listdir(p)
-    except OSError:
-        return []
-
-
-def _rmdir(p):
-    try:
-        os.rmdir(p)
-    except OSError:
-        pass
+    Older removed transactions may have captures as their only surviving
+    copy. Age alone must not authorize deletion of those recovery artifacts.
+    """
+    return {"captures": 0, "backup_refs": 0, "transactions": 0,
+            "reason_code": "automatic-erasure-disabled"}
 
 
 def run(max_seconds=None, only=None):
