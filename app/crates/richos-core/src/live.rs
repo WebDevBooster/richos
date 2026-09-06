@@ -693,7 +693,11 @@ impl LiveTurn {
         record: &MachineryRecord,
         worker_rows: &dyn Fn() -> Vec<WorkerEventRow>,
     ) -> Vec<LiveEvent> {
-        let key = record.tool_call_id.clone().unwrap_or_else(|| record.machinery_id.clone());
+        // `machinery::merge_key`, the SAME derivation the reload path folds on, so a live row
+        // and a reloaded row can never be keyed two different ways. A `LiveTurn` is per turn,
+        // so the turn the key carries for a compaction is always this one — which is exactly
+        // why calling the shared function costs nothing and stops a second rule being born.
+        let key = crate::machinery::merge_key(record);
 
         let seen = self.last_seen.entry(key.clone()).or_insert(record.at);
         if record.at > *seen {
@@ -721,7 +725,17 @@ impl LiveTurn {
             }
         }
 
-        let mergeable = record.tool_call_id.is_some() && record.kind == crate::machinery::MachineryKind::ToolCall;
+        // A COMPACTION MERGES TOO, and it has to: its start, its 30-second heartbeats and its
+        // ending are four or five separate `system/status` frames with no correlation id
+        // between them (`machinery::compaction_key`). Unmerged they would be four rows saying
+        // the same thing. The key is the LEASE's, which is turn-scoped here because a
+        // `LiveTurn` is built per turn — `machinery::project` re-scopes it explicitly for the
+        // reload path, where one map spans every turn of the thread.
+        let mergeable = record.tool_call_id.is_some()
+            && matches!(
+                record.kind,
+                crate::machinery::MachineryKind::ToolCall | crate::machinery::MachineryKind::Compaction
+            );
         match self.merged.get_mut(&key) {
             Some(base) if mergeable => crate::machinery::merge_into(base, record.clone()),
             // Not mergeable, or first sight: this record IS the row. (An unmergeable
@@ -1128,4 +1142,73 @@ mod tests {
             assert!(!ev.may_reach_webview(), "nor does its completion: {ev:?}");
         }
     }
+
+    // =======================================================================================
+    // THE COMPACTION, THROUGH THE LIVE PATH — one pause, one row, however many frames.
+    // Frames verbatim from `docs/verification/compaction-notice-2026-09-06/raw/cellT1.jsonl`.
+    // =======================================================================================
+
+    fn compaction_frame(phase: &str) -> serde_json::Value {
+        match phase {
+            "start" => json!({"type":"system","subtype":"status","status":"compacting",
+                              "session_id":"0fee2d41","uuid":"6bb40a60"}),
+            "beat" => json!({"type":"system","subtype":"status","status":"compacting",
+                             "session_id":"0fee2d41","uuid":"818ad359"}),
+            _ => json!({"type":"system","subtype":"status","status":serde_json::Value::Null,
+                        "compact_result":"success","session_id":"0fee2d41","uuid":"9e1cfd6b"}),
+        }
+    }
+
+    #[test]
+    fn a_compaction_reaches_the_webview_as_one_upserted_row() {
+        let mut turn = LiveTurn::new(fence(), false);
+        let none = || Vec::new();
+        let mut seen: Vec<(String, String, String)> = Vec::new();
+
+        // The real sequence of `cellT1` turn 3: announcement, one 30-second heartbeat, ending.
+        for (i, phase) in ["start", "beat", "end"].iter().enumerate() {
+            let rec = crate::machinery::MachineryRecord::from_native_event(
+                &compaction_frame(phase),
+                "0fee2d41",
+                i as u64,
+            )
+            .remove(0)
+            .stamp("thr", Some("turn_1"), false);
+            for ev in turn.on_machinery(&rec, &none) {
+                assert!(ev.may_reach_webview(), "a compaction is a CEO row; the gate must pass it");
+                assert_eq!(ev.event_name(), EVENT_ACTIVITY_UPSERTED);
+                let p = ev.payload();
+                seen.push((
+                    p["id"].as_str().unwrap().to_string(),
+                    p["state"].as_str().unwrap().to_string(),
+                    p["summary"].as_str().unwrap().to_string(),
+                ));
+            }
+        }
+
+        assert_eq!(seen.len(), 3, "three frames, three upserts");
+        assert_eq!(seen[0].0, seen[1].0, "the heartbeat must UPDATE the row, not open a second one");
+        assert_eq!(seen[0].0, seen[2].0, "and so must the ending");
+        assert_eq!(seen[0].1, "running");
+        assert_eq!(seen[1].1, "running");
+        assert_eq!(seen[2].1, "completed", "the row closes, so a finished turn cannot leave one running");
+        assert_eq!(seen[0].2, "Making room to keep going");
+        assert_eq!(seen[2].2, "Made room to keep going");
+    }
+
+    #[test]
+    fn a_compaction_on_an_internal_turn_never_reaches_the_webview() {
+        // A re-prime or rotation turn compacting is machinery about machinery, and the CEO is
+        // never told a rotation happened. The event is CONSTRUCTED so the gate has something
+        // to refuse — the same discipline every other internal row follows.
+        let mut turn = LiveTurn::new(fence(), true);
+        let none = || Vec::new();
+        let rec = crate::machinery::MachineryRecord::from_native_event(&compaction_frame("start"), "s", 0)
+            .remove(0)
+            .stamp("thr", Some("turn_1"), false);
+        let events = turn.on_machinery(&rec, &none);
+        assert_eq!(events.len(), 1, "the event exists, so the gate is what stops it");
+        assert!(!events[0].may_reach_webview(), "an internal turn's compaction must stop at the gate");
+    }
+
 }

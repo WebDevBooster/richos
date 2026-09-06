@@ -149,7 +149,7 @@ permission requests, session metadata — for the opt-in technical view. Contrac
   "seq": 7,                      // THE ordering key, shared with rich://chunk
   "at": 1756425600000,           // a LABEL, never the ordering key
   "kind": "tool_call",           // tool_call | thought | permission_requested
-                                 //   | client_fs_call | unknown
+                                 //   | client_fs_call | compaction | unknown
   "toolCallId": "toolu_…",       // the merge key: later updates MERGE into this row
   "status": "completed",         // pending | in_progress | completed | failed | (verbatim other)
   "title": "cat engine/VERSION",
@@ -169,6 +169,10 @@ Five rules for whoever renders this:
    several events: the first has a placeholder title (`"Terminal"`) and no arguments, and
    most later ones carry no `status` at all. One `toolCallId` is ONE row, never two — and
    a whole-record overwrite would blank the status you already had.
+   **`compaction` merges the same way and its key is NOT a vendor id**
+   (`compaction:<sessionId>`): the wire gives a compaction's start, its 30-second heartbeats
+   and its ending no correlation id at all, so the key is the lease's and the TURN scopes it.
+   Two compactions in two turns are two rows.
 3. **`internal: true` is never rendered in a thread.** It is re-prime and rotation
    machinery, retained for debugging. Rich never reveals that a rotation happened.
 4. **`payload` may be absent** on an older record whose raw window has expired. The record
@@ -387,6 +391,14 @@ several times as it moves `queued → completed`. Order by `(turnId, sequence)`,
 - `summary` is a semantic line built from the activity type alone — *"Ran a command"*,
   *"Read 8 files"*. Never the command, never the output. Rolling up *"Read 8 files"* across
   several rows is the renderer's job.
+- **A COMPACTION IS AN ACTIVITY ROW, and it is the one `system` frame that reaches this
+  family.** The child pauses mid-turn to compact its own context — measured 38.1-62.0s over 16
+  boundaries — and says so on `system/status` with `status: "compacting"`, repeating every
+  30.000s until it ends with a `compact_result`. Its row reads *"Making room to keep going"*
+  while it runs, then *"Made room to keep going"* or *"Kept going without making room"*, and
+  both endings are `state: "completed"` because what ended is the PAUSE. `activityType` is
+  `other`: none of section 12's types fits, and the words come from the kind instead. Measured
+  and derived in `docs/verification/compaction-notice-2026-09-06/`.
 - `sequence` is the OPENING record's position in the shared per-turn counter, so an
   activity row interleaves correctly with `message-delta`s ordered by the same counter.
   **Gaps are normal** — see the `seq` rule above.

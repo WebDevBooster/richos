@@ -1,0 +1,62 @@
+{"atMs": 1, "kind": "send", "note": "initialize", "bytes": 134}
+{"atMs": 493, "kind": "frame", "type": "control_response", "subtype": null, "bytes": 16855}
+{"atMs": 494, "kind": "send", "note": "turn 1 prompt (49264 chars)", "bytes": 49872}
+{"atMs": 516, "kind": "frame", "type": "system", "subtype": "init", "bytes": 2423}
+{"atMs": 518, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 520, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 521, "kind": "frame", "type": "system", "subtype": "status", "bytes": 207}
+{"atMs": 1750, "kind": "frame", "type": "rate_limit_event", "subtype": null, "bytes": 438}
+{"atMs": 2250, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 649, "event": "message_start"}
+{"atMs": 2250, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 238, "event": "content_block_start"}
+{"atMs": 2251, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 238, "event": "content_block_delta"}
+{"atMs": 2306, "kind": "frame", "type": "assistant", "subtype": null, "bytes": 734}
+{"atMs": 2306, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 195, "event": "content_block_stop"}
+{"atMs": 2307, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 677, "event": "message_delta"}
+{"atMs": 2307, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 179, "event": "message_stop"}
+{"atMs": 2313, "kind": "frame", "type": "result", "subtype": "success", "bytes": 2060}
+{"atMs": 2314, "kind": "send", "note": "turn 2 prompt (49269 chars)", "bytes": 49877}
+{"atMs": 2318, "kind": "frame", "type": "system", "subtype": "init", "bytes": 2423}
+{"atMs": 2318, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 2320, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 2320, "kind": "frame", "type": "system", "subtype": "status", "bytes": 207}
+{"atMs": 5143, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 649, "event": "message_start"}
+{"atMs": 5143, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 238, "event": "content_block_start"}
+{"atMs": 5144, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 238, "event": "content_block_delta"}
+{"atMs": 5153, "kind": "frame", "type": "assistant", "subtype": null, "bytes": 734}
+{"atMs": 5154, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 195, "event": "content_block_stop"}
+{"atMs": 5157, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 677, "event": "message_delta"}
+{"atMs": 5160, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 179, "event": "message_stop"}
+{"atMs": 5177, "kind": "frame", "type": "result", "subtype": "success", "bytes": 2059}
+{"atMs": 5177, "kind": "send", "note": "turn 3 prompt (49289 chars)", "bytes": 49897}
+{"atMs": 5186, "kind": "frame", "type": "system", "subtype": "init", "bytes": 2423}
+{"atMs": 5187, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 5190, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 35190, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 48805, "kind": "frame", "type": "system", "subtype": "status", "bytes": 175}
+{"atMs": 48805, "kind": "frame", "type": "system", "subtype": "compact_boundary", "bytes": 847, "compact_metadata": {"trigger": "auto", "pre_tokens": 71895, "post_tokens": 14640, "cumulative_dropped_tokens": 57255, "duration_ms": 43611}}
+{"atMs": 48806, "kind": "frame", "type": "user", "subtype": null, "bytes": 6859}
+{"atMs": 52050, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 728, "event": "message_start"}
+{"atMs": 52050, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 238, "event": "content_block_start"}
+{"atMs": 52050, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 238, "event": "content_block_delta"}
+{"atMs": 52066, "kind": "frame", "type": "assistant", "subtype": null, "bytes": 813}
+{"atMs": 52066, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 195, "event": "content_block_stop"}
+{"atMs": 52067, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 677, "event": "message_delta"}
+{"atMs": 52067, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 179, "event": "message_stop"}
+{"atMs": 52071, "kind": "frame", "type": "rate_limit_event", "subtype": null, "bytes": 438}
+{"atMs": 52075, "kind": "frame", "type": "result", "subtype": "success", "bytes": 2084}
+{"atMs": 52075, "kind": "send", "note": "turn 4 prompt (30 chars)", "bytes": 200}
+{"atMs": 52084, "kind": "frame", "type": "system", "subtype": "init", "bytes": 2423}
+{"atMs": 52085, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 52086, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 82086, "kind": "frame", "type": "system", "subtype": "status", "bytes": 156}
+{"atMs": 90231, "kind": "frame", "type": "system", "subtype": "status", "bytes": 175}
+{"atMs": 90231, "kind": "frame", "type": "system", "subtype": "compact_boundary", "bytes": 1002, "compact_metadata": {"trigger": "auto", "pre_tokens": 38930, "post_tokens": 2718, "cumulative_dropped_tokens": 93467, "duration_ms": 38138}}
+{"atMs": 90231, "kind": "frame", "type": "user", "subtype": null, "bytes": 7858}
+{"atMs": 91821, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 725, "event": "message_start"}
+{"atMs": 91821, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 238, "event": "content_block_start"}
+{"atMs": 91821, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 238, "event": "content_block_delta"}
+{"atMs": 91822, "kind": "frame", "type": "assistant", "subtype": null, "bytes": 810}
+{"atMs": 91822, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 195, "event": "content_block_stop"}
+{"atMs": 91828, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 674, "event": "message_delta"}
+{"atMs": 91828, "kind": "frame", "type": "stream_event", "subtype": null, "bytes": 179, "event": "message_stop"}
+{"atMs": 91830, "kind": "frame", "type": "result", "subtype": "success", "bytes": 2070}
