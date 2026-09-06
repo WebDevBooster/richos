@@ -141,8 +141,13 @@ import subprocess
 import sys
 import time
 
-DEFAULT_LEDGER = os.path.join(os.path.expanduser("~"), ".claude", "state",
-                              "worktree-ledger.jsonl")
+# RICHOS_WORKTREE_LEDGER is the SAME override scripts/lib/worktree-ledger.py
+# already uses, deliberately: one file, one environment variable. A second name
+# for one path is a second thing to keep in step with the first, and the tests
+# that point this into a sandbox are the tests that point that into a sandbox.
+DEFAULT_LEDGER = (os.environ.get("RICHOS_WORKTREE_LEDGER")
+                  or os.path.join(os.path.expanduser("~"), ".claude", "state",
+                                  "worktree-ledger.jsonl"))
 TRUNK_NAMES = ("main", "master")
 GIT_TIMEOUT = 20
 # Six is where one line stops being readable. The rest are counted, never lost,

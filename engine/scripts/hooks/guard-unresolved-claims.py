@@ -1073,8 +1073,9 @@ def unlanded_sweep(entity_root, session_id):
         spec = importlib.util.spec_from_file_location("richos_unlanded", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        return mod.sweep(entity_root, session_id,
-                         os.environ.get("RICHOS_UNLANDED_LEDGER") or None,
+        # Ledger path left to the module, which reads RICHOS_WORKTREE_LEDGER --
+        # the same override every other reader of that file uses.
+        return mod.sweep(entity_root, session_id, None,
                          os.environ.get("UNLANDED_BRANCHES_EXTRA_REPOS", "")), ""
     except Exception as exc:  # never wedge a turn over a sub-check
         return None, "the sweep raised %s: %s" % (type(exc).__name__, exc)
