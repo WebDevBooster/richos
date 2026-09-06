@@ -785,6 +785,34 @@ const SURFACES = [
       await overlaySettled(p, "#history-notice");
     },
   },
+  // THE FIRST-RUN NOTICE, IN BOTH OF ITS PAINTED STATES. Neither is reachable from any
+  // surface above: the preview's default is a described install, which renders none of it —
+  // deliberately, so this panel can never be shown to pass by a fixture that was already
+  // painting it. Without these two walks the whole surface would be uncovered, and check 10c
+  // would refuse a shell-declared panel nobody had measured.
+  //
+  // The two ARE different ink and not one surface twice: the offer paints `--ink` prose, the
+  // muted consequence line and two controls, one of them filled with the accent; the unusable
+  // state paints `--attention` on the headline and on the border and draws no control at all.
+  {
+    name: "first-run-notice",
+    what: "the offer of the bootstrap interview at the head of the conversation, and its two controls",
+    drive: async (p) => {
+      await p.waitForSelector("#first-run:not([hidden])");
+      await p.waitForSelector("#first-run-actions:not([hidden])");
+      await pageSettled(p);
+    },
+    preset: { onboarding: "not-yet" },
+  },
+  {
+    name: "first-run-unusable",
+    what: "notes about his company that could not be read — the one onboarding state that needs a person",
+    drive: async (p) => {
+      await p.waitForSelector('#first-run[data-state="unusable"]:not([hidden])');
+      await pageSettled(p);
+    },
+    preset: { onboarding: "unusable" },
+  },
   {
     name: "opening-screen",
     // THE HARDEST SURFACE, WALKED ANYWAY. It would have been easy to leave the opening
