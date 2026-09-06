@@ -34,7 +34,7 @@
 #      it made. A case that stops asserting starts failing.
 #   2. A NEGATIVE CONTROL MUST FAIL FOR THE RIGHT REASON. Row 1 does not merely
 #      show the repaired helper refusing; it first runs the ACTUAL
-#      pre-containment helper (from git history) against the same fixture and
+#      pre-containment helper (history or pinned fixture) against the same fixture and
 #      requires it to DELETE the container. A refusal test whose fixture was
 #      never destructible proves nothing.
 #
@@ -308,17 +308,23 @@ if git -C "$SCRIPT_DIR" cat-file -e '1b84a1c^:engine/scripts/remove-agent-worktr
     git -C "$SCRIPT_DIR" show '1b84a1c^:engine/scripts/remove-agent-worktree.sh' >"$PRE_SH"
     PRE_SOURCE="git history (1b84a1c^, the commit before containment)"
 else
-    # Fallback for a clone without that object: rebuild the historical
-    # fallback by replacing the refusal block with what stood there.
-    python3 - "$HELPER" "$PRE_SH" <<'PY'
-import io, re, sys
-s = io.open(sys.argv[1], encoding="utf-8").read()
-start = s.index('elif [ -d "$WT_PATH" ]; then')
-end = s.index('\nfi\n', start) + len('\nfi\n')
-s = s[:start] + 'elif [ -d "$WT_PATH" ]; then\n    rm -rf "$WT_PATH"\n    git -C "$REPO" worktree prune >/dev/null 2>&1 || true\nfi\n' + s[end:]
-io.open(sys.argv[2], "w", encoding="utf-8").write(s)
-PY
-    PRE_SOURCE="reconstructed fallback (the historical object was not available)"
+    # Preserve the actual historical helper, not a text mutation of the current
+    # adapter. Its implementation can change without rewriting this incident.
+    PRE_FIXTURE="$SCRIPT_DIR/fixtures/workspace-retire/pre-containment-remove-agent-worktree.sh.txt"
+    if ! python3 - "$PRE_FIXTURE" <<'PRE_HASH'
+import hashlib, sys
+try:
+    data = open(sys.argv[1], "rb").read()
+except OSError:
+    raise SystemExit(1)
+raise SystemExit(0 if hashlib.sha256(data).hexdigest() == "8d9356388d7a88f53b194c821f3874689f691381ae08595adca041b3bc8dbcda" else 1)
+PRE_HASH
+    then
+        echo "FATAL: pinned pre-containment incident fixture is missing or changed" >&2
+        exit 1
+    fi
+    cp "$PRE_FIXTURE" "$PRE_SH"
+    PRE_SOURCE="pinned historical fixture (the historical object was not available)"
 fi
 chmod +x "$PRE_SH"
 
