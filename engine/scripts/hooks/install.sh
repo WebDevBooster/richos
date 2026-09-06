@@ -441,6 +441,18 @@ HOOK_FILES+=(
     # sealed a wrong path, or matched by prefix, would be wired, executable and
     # deleting the wrong tree with every guard reporting green.
     "$REPO_ROOT/scripts/lib/worktree-transactions.py"
+    # ADOPTION — the file that decides which worktrees a transaction may be
+    # created FOR. Hashed for the line above's reason, one link earlier in the
+    # same chain: the transaction store decides what a claim quarantines, and
+    # since 2026-09-06 this file decides what may be claimed at all. Every
+    # refusal it makes is the only thing standing between the reconciler and a
+    # workspace nobody asked it to touch, and a tampered copy that answered
+    # ADOPTABLE to everything would leave the reconciler wired, hashed,
+    # scheduled and renaming live worktrees on its say-so. It is also the file
+    # reap-stale-worktrees.sh quotes when it tells a reader "no operator action
+    # is needed", so a reverted copy would make the report wrong as well as the
+    # behavior. Check the lock, ignore the key.
+    "$REPO_ROOT/scripts/lib/worktree-adoption.py"
     # The reconciler: the ONLY code in the engine that deletes a worktree
     # directory now, and it deletes only a quarantine whose archive verified.
     # Hashed for the reaper's original reason, which now applies to this file

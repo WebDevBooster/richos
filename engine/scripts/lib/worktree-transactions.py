@@ -1259,6 +1259,65 @@ def iter_transactions():
                     yield tx
 
 
+def member_paths():
+    """Every path any transaction owns — each member's original path AND its
+    quarantine name. A caller that must not act on a directory the terminal
+    reconciler owns needs both, because a member spends most of its life under
+    the second name."""
+    out = set()
+    for tx in iter_transactions():
+        for m in tx.get("members") or []:
+            for key in (m.get("path"), m.get("quarantine")):
+                if key:
+                    out.add(norm_path(key))
+    return sorted(out)
+
+
+def native_roles():
+    """{path: "shell"|"workspace"} for every NATIVE member of every transaction.
+
+    A cross-repository spawn gets a native worktree in the SESSION's repository
+    and a hand-rolled one in the repository it actually edits. The native one is
+    a SHELL: never written to, and holding the one thing that matters — the
+    platform-owned lock agent-liveness.sh reads. Telling a 266 MB shell from a
+    real workspace changes nothing about what may be removed and everything
+    about how a report reads.
+
+    Until now that distinction came only from the OWNERSHIP LEDGER, whose own
+    `shells` command declares what it misses: "a shell whose native
+    registration was never written does not appear here. Absence from this list
+    is not evidence that a worktree is a workspace." This is the second,
+    independent source, and it is a better one — the spawn KIND is written by
+    guard-worktree-isolation.sh at PreToolUse[Agent], before the worker exists,
+    and a spawn whose intent cannot be written durably is REFUSED. So the role
+    is recorded rather than inferred:
+
+        native+external   the native member is a SHELL
+        native            the native member IS the workspace
+        adopted / other   no role: an adoption never observed the spawn, and
+                          saying nothing is the honest answer
+
+    A member's quarantine carries its member's role, because renaming a
+    directory does not change what it was."""
+    out = {}
+    for tx in iter_transactions():
+        kind = tx.get("kind") or ""
+        if kind == "native+external":
+            role = "shell"
+        elif kind == "native":
+            role = "workspace"
+        else:
+            continue
+        for m in tx.get("members") or []:
+            if m.get("class") != "native":
+                continue
+            for key in (m.get("path"), m.get("quarantine")):
+                p = norm_path(key) if key else ""
+                if p:
+                    out[p] = role
+    return out
+
+
 def member_present(m):
     return os.path.isdir(m.get("path") or "") or os.path.isdir(m.get("quarantine") or "")
 
@@ -1448,6 +1507,8 @@ def _main(argv):
 
     p = sub.add_parser("metrics")
     p = sub.add_parser("list")
+    p = sub.add_parser("native-roles", help="<path>\\t<shell|workspace> per native member")
+    p = sub.add_parser("member-paths", help="every member path AND quarantine any transaction owns")
 
     a = ap.parse_args(argv)
     if a.cmd == "root":
@@ -1495,6 +1556,14 @@ def _main(argv):
         return 0
     if a.cmd == "metrics":
         print(json.dumps(metrics(), sort_keys=True)); return 0
+    if a.cmd == "member-paths":
+        for p in member_paths():
+            print(p)
+        return 0
+    if a.cmd == "native-roles":
+        for p, role in sorted(native_roles().items()):
+            print("%s\t%s" % (p, role))
+        return 0
     if a.cmd == "list":
         for tx in iter_transactions():
             print("%s\t%s\t%s\t%s\t%s" % (tx.get("session_id"), tx.get("agent_id"), tx.get("teammate"),

@@ -178,11 +178,18 @@ run_reaper() {
     # real ~/.claude/state/workspace-retirement/: on 2026-09-06 that journal
     # held 1,304 records and 650 lock files, every one of them naming a
     # sandbox path from a test run, and not one real retirement.
+    # RICHOS_WORKTREE_TX_DIR is pinned for the third time in the same list and
+    # for the same reason: since 2026-09-06 this script asks the TRANSACTION
+    # store for native roles (shell vs workspace) and for the paths a
+    # transaction owns. Unpinned, a sandbox run would read the operator's real
+    # store — a read, so nothing would break, and the run would silently be
+    # answering questions about a machine the test knows nothing about.
     out="$(REAP_DISCOVERY_SOURCES="primary,neighborhood" \
            REAP_TEAM_DIR="$dir/teams" \
            REAP_LEDGER="$dir/ledger.txt" \
            REAP_WORKTREE_LEDGER="$dir/wt-ledger.jsonl" \
            RICHOS_WORKSPACE_RETIRE_DIR="$dir/retire-state" \
+           RICHOS_WORKTREE_TX_DIR="$dir/tx" \
            REAP_PROJECTS_DIR="$dir/projects" \
            RICHOS_CLAUDE_PROCESSES="${REAP_TEST_PROCS:-$$:0}" \
            RICHOS_SESSIONS_DIR="$dir/sessions" \
@@ -425,7 +432,7 @@ add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
 if printf '%s' "$OUT" | grep -q '^=== coverage (DRY-RUN): repos=2 ' \
-   && printf '%s' "$OUT" | grep -q 'worktrees=4 native=2 shells=0 hand-rolled=2' \
+   && printf '%s' "$OUT" | grep -q 'worktrees=4 native=2 shells=0 workspaces=0 unobserved-native=2 hand-rolled=2' \
    && printf '%s' "$OUT" | grep -q '^=== sources:'; then
     ok "coverage line reports repos, worktrees, class split and undecidables"
 else
@@ -466,6 +473,150 @@ if printf '%s' "$OUT" | grep -q "^RESIDUE $DIR/other-wt/leftover-junk " \
     ok "residue is reported in a real container and the mostly-not-worktrees directory is declared blind"
 else
     bad "container qualification"
+fi
+
+# 13b. THE RECORD-DRIVEN PASS SEES WHAT NO CONTAINER COVERS. Case 13 proves the
+#      density test is right to refuse `$DIR/scattered`; this proves that
+#      refusing it no longer costs coverage for anything the RECORD names. A
+#      directory the ownership ledger registered as a worktree, sitting in a
+#      directory no container scan will ever qualify, and which git no longer
+#      registers, is RESIDUE and is reported by path.
+#
+#      This is the case that answers the sweep's own first blind line:
+#      '/private/tmp' holds one registered worktree among 143 subdirectories,
+#      so it is not a container, and until this pass existed residue and
+#      orphans there were dropped without anything covering them.
+DIR="$(make_world recordresidue)"
+mkdir -p "$DIR/nowhere-near-a-container/ghost"
+printf 'left behind\n' >"$DIR/nowhere-near-a-container/ghost/leftover.txt"
+ledger_record "$DIR" registered --teammate ghost-owner --worktree "$DIR/nowhere-near-a-container/ghost" \
+    --repo "$DIR/other" --branch ghost --class hand-rolled --source test
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if printf '%s' "$OUT" | grep -q "^RESIDUE $DIR/nowhere-near-a-container/ghost — the record names this path as a worktree and git no longer does" \
+   && printf '%s' "$OUT" | grep -q '(record-driven pass: 1 residue'; then
+    ok "W7 a path the RECORD names, in no qualified container, is reported as residue — the /private/tmp blindness closed"
+else
+    bad "W7 record-driven residue: $(printf '%s' "$OUT" | grep -E 'RESIDUE|record-driven' | tr '\n' ' ' | cut -c1-300)"
+fi
+[ -f "$DIR/nowhere-near-a-container/ghost/leftover.txt" ] \
+    && ok "W7b the record-driven pass REPORTS residue and never deletes it" \
+    || bad "W7b record-driven residue deleted bytes"
+
+# 13c. NEGATIVE CONTROL for 13b, and it is the one that matters: a path the
+#      record names that git STILL registers is a live worktree, not residue.
+#      A pass that called every recorded path residue would satisfy 13b and be
+#      catastrophically wrong.
+if ! printf '%s' "$OUT" | grep -q "^RESIDUE $DIR/other-wt/" \
+   && ! printf '%s' "$OUT" | grep -q "^RESIDUE $DIR/entity/.claude/worktrees/"; then
+    ok "W7c a recorded path git STILL registers is never called residue"
+else
+    bad "W7c record-driven pass called a live worktree residue: $(printf '%s' "$OUT" | grep '^RESIDUE' | tr '\n' ' ')"
+fi
+
+# 13d. A PATH A TRANSACTION OWNS IS THE RECONCILER'S, NOT THIS INVENTORY'S.
+#      Reporting a retained quarantine as residue would be the same directory
+#      counted twice under two names, and the reaper's gate 0b already refuses
+#      to touch it.
+DIR="$(make_world recordtx)"
+mkdir -p "$DIR/elsewhere/owned"
+ledger_record "$DIR" registered --teammate owned-owner --worktree "$DIR/elsewhere/owned" \
+    --repo "$DIR/other" --branch owned --class hand-rolled --source test
+mkdir -p "$DIR/tx/ssssssss"
+cat >"$DIR/tx/ssssssss/a5555555555555555.json" <<JSON
+{"record": "transaction", "session_id": "ssssssss", "agent_id": "a5555555555555555",
+ "kind": "native+external", "sealed": true, "state": "terminal",
+ "terminal": {"ingress": "SubagentStop", "detail": "", "ts": "2026-09-06T00:00:00+00:00"},
+ "members": [{"class": "hand-rolled", "repo": "$DIR/other", "path": "$DIR/elsewhere/owned", "branch": "owned", "state": "quarantined"}]}
+JSON
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if ! printf '%s' "$OUT" | grep -q "^RESIDUE $DIR/elsewhere/owned "; then
+    ok "W7d a path a transaction owns is left to the reconciler, never reported as residue"
+else
+    bad "W7d a transaction-owned path was reported as residue"
+fi
+
+# 13e. SHELL LABELING HAS A SECOND SOURCE. The ownership ledger's `shells`
+#      command needs a native registration AND a registration elsewhere for the
+#      same agent; a spawn that wrote neither used to leave the tree
+#      unclassifiable, and the run declared that as a blind spot. The
+#      TRANSACTION store records `kind` at PreToolUse[Agent], before the worker
+#      exists, so `native+external` names the shell with no ledger row at all.
+DIR="$(make_world shellsource)"
+mkdir -p "$DIR/tx/tttttttt"
+cat >"$DIR/tx/tttttttt/adone.json" <<JSON
+{"record": "transaction", "session_id": "tttttttt", "agent_id": "adone",
+ "kind": "native+external", "sealed": true, "state": "sealed", "terminal": null,
+ "members": [{"class": "native", "repo": "$DIR/entity", "path": "$DIR/entity/.claude/worktrees/agent-done", "branch": "worktree-agent-done", "state": "bound"}]}
+JSON
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if printf '%s' "$OUT" | grep -q 'shells=1' \
+   && printf '%s' "$OUT" | grep -q 'unobserved-native=1'; then
+    ok "W11 a native worktree with NO ledger row is labeled a shell from the transaction store's recorded spawn kind"
+else
+    bad "W11 transaction-sourced shell labeling: $(printf '%s' "$OUT" | grep '^=== coverage' || echo NONE)"
+fi
+
+# 13f. THE VERDICT ANSWERS "SO WHO TAKES THIS ONE?". Until 2026-09-06 a DRY-RUN
+#      that selected worktrees ended "no automatic mechanism will ever take
+#      them. An operator removes them by hand." A tree whose owner's session is
+#      provably gone and whose registration names its exact path is ADOPTABLE,
+#      and the line has to say so — a report whose only remedy is a person
+#      typing a command forever is the defect, not a caveat about it.
+DIR="$(make_world adoptable)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+# Both selectable trees get an exact-path registration naming a session whose
+# pid PROVABLY no longer exists — the T2 evidence class, and the only one that
+# authorizes a claim over a hand-rolled tree.
+ledger_record "$DIR" registered --teammate done-owner --worktree "$DIR/other-wt/done-owner" \
+    --repo "$DIR/other" --branch done-owner --agent-id adoneowner \
+    --session-id sess-dead --session-pid "$DEAD_PID" \
+    --pid-start "$DEAD_START" --class hand-rolled --source test
+ledger_record "$DIR" registered --teammate done --worktree "$DIR/entity/.claude/worktrees/agent-done" \
+    --repo "$DIR/entity" --branch worktree-agent-done --agent-id done \
+    --session-id sess-dead --session-pid "$DEAD_PID" \
+    --pid-start "$DEAD_START" --class native --source test
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if printf '%s' "$OUT" | grep -q '^DRY-RUN REAP done-owner adoptable(T2)' \
+   && printf '%s' "$OUT" | grep -q '^DRY-RUN REAP agent-done adoptable(T2)' \
+   && printf '%s' "$OUT" | grep -q 'ALL 2 ARE ADOPTABLE' \
+   && printf '%s' "$OUT" | grep -q 'NO OPERATOR ACTION'; then
+    ok "W8 selected trees whose host session is provably gone are reported ADOPTABLE and the verdict says no operator action is needed"
+else
+    bad "W8 adoptability annotation: $(printf '%s' "$OUT" | grep -E '^DRY-RUN REAP|^=== verdict' | tr '\n' ' ' | cut -c1-500)"
+fi
+
+# 13g. NEGATIVE CONTROL for 13f, and it is the honest half. A NATIVE tree with
+#      no ownership record at all still passes THIS inventory's gates — an
+#      unlocked registered native worktree is its own termination signal here —
+#      and the ADOPTION gate refuses it, because absence of a record is never a
+#      claim. The verdict must not then say "no operator action": it must name
+#      the count nothing automatic will take, and the gate that refused it.
+DIR="$(make_world notadoptable)"
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if printf '%s' "$OUT" | grep -q '^DRY-RUN REAP agent-done not-adoptable(owner-terminated)' \
+   && printf '%s' "$OUT" | grep -q 'are NOT (adoption gate: owner-terminated)' \
+   && ! printf '%s' "$OUT" | grep -q 'NO OPERATOR ACTION'; then
+    ok "W9 a selected tree the adoption gate REFUSES is named with its gate, and the verdict keeps the by-hand remedy for exactly those"
+else
+    bad "W9 not-adoptable annotation: $(printf '%s' "$OUT" | grep -E '^DRY-RUN REAP|^=== verdict' | tr '\n' ' ' | cut -c1-400)"
+fi
+
+# 13h. THE LIVE-OWNER VETO REACHES THE REPORT. A path bound to one dead session
+#      AND one that is still running is refused: a worktree path is a reusable
+#      key, and claiming on the dead owner would be a verdict about the wrong
+#      one. This is the case that must never read as adoptable.
+DIR="$(make_world livevetoreport)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+ledger_record "$DIR" registered --teammate done-owner --worktree "$DIR/other-wt/done-owner" \
+    --repo "$DIR/other" --branch done-owner --agent-id adoneowner \
+    --session-id sess-dead --session-pid "$DEAD_PID" \
+    --pid-start "$DEAD_START" --class hand-rolled --source test
+OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
+if printf '%s' "$OUT" | grep -q '^DRY-RUN REAP done-owner not-adoptable(owner-terminated)' \
+   && printf '%s' "$OUT" | grep -q 'STILL RUNNING'; then
+    ok "W10 a path bound to a dead session AND a running one is never adoptable — the live owner vetoes and the report says so"
+else
+    bad "W10 live-owner veto in the report: $(printf '%s' "$OUT" | grep '^DRY-RUN REAP' | tr '\n' ' ' | cut -c1-400)"
 fi
 
 # 14. IDEMPOTENCE. A second sweep of an already-swept world is a clean no-op,
