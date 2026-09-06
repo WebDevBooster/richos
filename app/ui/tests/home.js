@@ -1244,6 +1244,77 @@ async function main() {
     const nan = r.hud.filter((s) => /NaN|undefined/.test(s));
     assertEqual(nan, [], "the HUD rendered a non-number: " + JSON.stringify(nan));
 
+    // 5. AND IT CLEARS THE CONTRAST FLOOR OVER ITS OWN BACKGROUND.
+    //
+    //    THIS IS NOT COVERED BY THE MEASUREMENT TWO CHECKS BELOW, and the reason is the
+    //    method. That one samples THE PIXEL THAT MINIMIZES CONTRAST WITH THE INK inside each
+    //    line box — so it measures the nebula that is actually behind the glyphs, and the
+    //    nebula is the dataset. A different corpus is a different background: different
+    //    density, different domain colors, different lights. The ink and the CSS are
+    //    identical here, which is exactly why the ink is not what has to be re-measured.
+    //
+    //    Every row is dark-mode only, and that is not an omission: §15's one permanent
+    //    exception is that the home screen is always dark, and the check below this one
+    //    proves the clamp holds over a CEO who has chosen light. No exemption is claimed for
+    //    anything on this list.
+    //    ONE THING HAS TO BE PUT BACK TO REST FIRST, and it is not a dataset fact.
+    //    `#home-enter` takes focus on a fresh load — `document.activeElement.id` is
+    //    `home-enter` and it matches `:focus-visible`, measured on a bare launch of both
+    //    datasets — so `home.css:922` puts a `0 0 0 2px rgba(194, 163, 92, 0.75)` ring around
+    //    it and `:910` makes its 0.7-alpha border opaque. An `edge` measurement then samples
+    //    the border against ITS OWN RING and reports 1.61:1: the same "measured against
+    //    itself" artifact the check below already steps past the breathing dot to avoid, one
+    //    indicator further out. Blurring measures the resting state, which is the state that
+    //    check measures, so the two are comparable.
+    //
+    //    AND THE FOCUSED STATE IS NOT LEFT UNANSWERED, because "the measurement was wrong"
+    //    is not the same sentence as "the pixels are fine". The ring composites to
+    //    rgb(148, 127, 78) over the composition's rgb(13, 19, 34); relative luminances
+    //    0.2202 and 0.006118, so (0.2202 + 0.05) / (0.006118 + 0.05) = **4.81:1** against the
+    //    ground it is drawn on — clear of the 3:1 a non-text indicator owes. Computed, not
+    //    eyeballed, and it is a pre-existing state this branch neither introduced nor changed
+    //    (geometry and every color are identical over both datasets).
+    await installMeter(p5);
+    // Blurred, and then WAITED OUT — `:focus-visible` stops matching on the blur, but
+    // `border-color` and the glow are transitioned, so `getComputedStyle` keeps returning the
+    // animated value for as long as the transition runs and a screenshot taken inside that
+    // window still has the ring in it. Read at the wrong moment this reported the ink as the
+    // opaque `rgb(194, 163, 92)` with the door's own ring behind it, 1.78:1, over a page whose
+    // door was already unfocused. The condition below is the resting border itself
+    // (`home.css:892`, `1px solid rgba(194, 163, 92, 0.7)`), so it waits for the fact rather
+    // than for a duration — and it is asserted, because a wait that silently stopped working
+    // would put this row back to measuring gold on gold while staying green.
+    await p5.evaluate(() => document.activeElement && document.activeElement.blur());
+    await p5.waitForFunction(
+      // `0\.70` and not `0\.7`: the resting value is `rgba(194, 163, 92, 0.706)` and the
+      // transition passes through 0.79 on the way to it, which `0\.7` would accept — a wait
+      // that stops one frame early is a measurement of a state nobody sees.
+      () => /^rgba\(194, 163, 92, 0\.70/.test(getComputedStyle(document.getElementById("home-enter")).borderTopColor),
+      { timeout: 5000 }
+    );
+    const rested = await p5.evaluate(() => {
+      const d = document.getElementById("home-enter");
+      return { focused: d.matches(":focus-visible"), hovered: d.matches(":hover"), border: getComputedStyle(d).borderTopColor };
+    });
+    assert(!rested.focused && !rested.hovered, "the door is not at rest, so its edge would be measured against its own ring");
+    const rows = await measure(p5, [
+      { name: "the mark, letterforms", sel: "#home-brand .p-ink", needs: 3, kind: "svg" },
+      { name: "owner line", sel: "#home-owner", needs: 4.5 },
+      { name: "sub line", sel: "#home-brand-line", needs: 4.5 },
+      // The HUD number, which over a customer's loro is where a zero renders.
+      { name: "signal number", sel: "#home-signals .sig .n .v", needs: 3 },
+      { name: "signal label", sel: "#home-signals .sig .l", needs: 4.5 },
+      { name: "Working now", sel: "#home-live .cap", needs: 4.5 },
+      { name: "the door's label", sel: "#home-enter .home-enter-label", needs: 4.5 },
+      { name: "the door's edge", sel: "#home-enter", needs: 3, kind: "edge", padX: 24 },
+      { name: '"Enter" under the door', sel: "#home-door-cap", needs: 4.5 },
+      { name: "a numbered button", sel: '.home-chip[data-entity="northwind"] .home-chip-rest', needs: 4.5 },
+      { name: "a numbered button's edge", sel: '.home-chip[data-entity="northwind"]', needs: 3, kind: "edge" },
+    ]);
+    const bad = failures(rows);
+    assertEqual(bad.length, 0, "over his own loro these are under the floor:\n" + reportRatios(bad));
+    const worst = Math.min.apply(null, rows.map((x) => x.ratio));
+
     // 4. AND IT DREW CLEAN.
     assertEqual(errors, [], "his corpus put errors in the console");
     await p5.close();
@@ -1251,7 +1322,10 @@ async function main() {
       `${r.N} objects, ${r.L} links, ${r.S} sources, ${r.visible} on screen, from "${r.metaName}" ` +
       `at ${r.corpusRoot} (${r.records} records in the corpus)\n          ` +
       `synthetic=false -> dataSource "${r.dataSource}", banner display:none, --home-note-inset ${r.inset}, aside at y=${r.liveTop}\n          ` +
-      `field-data.js not loaded at all; HUD reads ${r.hud.join(", ")}`
+      `field-data.js not loaded at all; HUD reads ${r.hud.join(", ")}\n          ` +
+      `door at rest (${rested.border}); ` +
+      `contrast over HIS background (dark, §15's permanent exception; no exemptions claimed): ` +
+      `${reportRatios(rows)}\n          worst on the screen: ${worst}:1`
     );
   });
 
