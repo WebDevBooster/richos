@@ -12,6 +12,16 @@ writes. Automatic quarantine deletion and recovery-artifact expiry are
 therefore disabled. --status reports the blocked members and does not claim
 cleanup is complete. Existing captures, backup refs and records are retained
 indefinitely. See docs/workspace-retirement-safety.md.
+
+Since 2026-09-06 the run also opens with an ADOPTION pass (adoption_pass
+below, scripts/lib/worktree-adoption.py, docs/worktree-adoption.md). It closes
+the coverage hole between the sweep, which can identify a worktree that should
+go and removes nothing, and this reconciler, which can act and owned only what
+a terminal transaction had claimed. Adoption claims on positive identity
+evidence through nine gates and hands the tree to the same state machine, so
+it inherits the erasure refusal above rather than working around it: an
+adopted worktree gains a backup ref, a quarantine, a captured and verified
+archive, and loses nothing.
 """
 
 import argparse
@@ -701,6 +711,85 @@ def native_member_gone(m):
     return tx.native_member_gone(m)
 
 
+_ADOPTION_MODULE = None
+
+
+def adoption_module():
+    """scripts/lib/worktree-adoption.py, loaded once, or None when it is not
+    installed beside this file. Absent is a no-op, never an error: an engine
+    without the module simply has no adoption pass."""
+    global _ADOPTION_MODULE
+    if _ADOPTION_MODULE is None:
+        p = os.path.join(HERE, "lib", "worktree-adoption.py")
+        try:
+            _ADOPTION_MODULE = _load("worktree_adoption", p) if os.path.isfile(p) else False
+        except Exception as e:
+            log("adoption module at %s could not be loaded: %s" % (p, e))
+            _ADOPTION_MODULE = False
+    return _ADOPTION_MODULE or None
+
+
+def adoption_pass():
+    """CLAIM WHAT NO TERMINAL TRANSACTION CLAIMED — the coverage hole between
+    the sweep and this reconciler (docs/worktree-adoption.md).
+
+    reap-stale-worktrees.sh can identify a worktree that should go and removes
+    nothing by construction; this reconciler can act and owns only what a
+    terminal transaction claimed. A worktree spawned before the transaction
+    store, or by a route that wrote no terminal event, is claimed by neither,
+    and its own verdict line said so: "no automatic mechanism will ever take
+    them. An operator removes them by hand."
+
+    This pass is that mechanism, and it is deliberately the SMALLEST one that
+    closes the hole. It adopts nothing on absence: scripts/lib/worktree-
+    adoption.py requires nine gates and evidence that a specific identity is
+    terminal (T1) or that the host process every agent of the owning session
+    ran inside is gone from the process table (T2). It then hands the tree to
+    the state machine below, which saves a backup ref, quarantines, captures,
+    verifies — and refuses to erase. Adoption therefore adds preservation and
+    a verified archive and removes nothing, which is why it is compatible with
+    docs/workspace-retirement-safety.md rather than a way around it.
+
+    THREE THINGS TURN IT OFF, and all three fail CLOSED:
+      * the module is not installed;
+      * ADOPTION_ENABLED in orchestration.config is not truthy;
+      * the two stores are inconsistently rooted (one overridden, the other
+        not). That last one is what stops a sandboxed suite -- which sets
+        RICHOS_WORKTREE_TX_DIR and not RICHOS_WORKTREE_LEDGER -- from reading
+        the OPERATOR'S REAL ledger and renaming a live engineer's worktree
+        into a temporary directory. It is checked BEFORE any candidate is
+        evaluated, so such a run costs nothing at all."""
+    ad = adoption_module()
+    if ad is None:
+        return 0
+    if str(config_value("ADOPTION_ENABLED", "1")).strip().lower() not in ("1", "on", "true", "yes"):
+        return 0
+    ok, why = ad.rooting()
+    if not ok:
+        log("adoption pass SKIPPED (fail-closed): %s" % why)
+        return 0
+    try:
+        results = ad.adopt_all()
+    except Exception as e:
+        log("adoption pass: %s — retried next run" % e)
+        return 0
+    taken = 0
+    for r in results:
+        if not r.get("adopted"):
+            continue
+        taken += 1
+        log("ADOPTED %s on %s evidence: %s — transaction adopted/%s, member(s): %s"
+            % (r.get("worktree"), r.get("tier"), r.get("evidence"), r.get("agent_id"),
+               ", ".join("%s:%s" % (os.path.basename(m.get("path") or "?"), m.get("state"))
+                         for m in r.get("members") or [])))
+    if taken or results:
+        # THE DENOMINATOR IS PART OF THE REPORT. `adopted=0` over four hundred
+        # candidates and `adopted=0` over none are different facts, and the
+        # first is the one that means the gates are doing their job.
+        log("adoption pass: adopted=%d of %d candidate(s) the record names" % (taken, len(results)))
+    return taken
+
+
 def orphan_backstop_pass(only=None):
     """NATIVE DISAPPEARANCE IS A TERMINAL INGRESS (CEO specification
     2026-09-03, worktree-terminal-authority-fix-recommendation section 4).
@@ -993,6 +1082,14 @@ def retention_pass():
 def run(max_seconds=None, only=None):
     deadline = time.time() + max_seconds if max_seconds else None
     n = 0
+    # ADOPTION RUNS FIRST, and only when nothing was named with --agent: a
+    # single-transaction run is a targeted repair of a record that already
+    # exists, and it must not go looking for new ones.
+    if not only:
+        try:
+            n += adoption_pass()
+        except Exception as e:
+            log("adoption pass: %s" % e)
     try:
         n += process_pending_terminals(only)
     except Exception as e:
