@@ -149,6 +149,54 @@ printf -- 'expect(mark).toBe("rgb(143, 112, 48)");\n' > "$ENTITY/docs/appearance
 git -C "$ENTITY" add -A >/dev/null 2>&1
 git -C "$ENTITY" commit -qm "two spellings of one value" >/dev/null 2>&1
 
+# --- THE FIXTURE IS ASSERTED BEFORE ANY CASE READS IT ----------------------
+#
+# Every git command above is `>/dev/null 2>&1` and none of their exit codes is
+# checked. That is deliberate for the noisy ones, and it has a consequence
+# nobody had written down: if one of those commits does not happen — an
+# identity guard, a stray global hook, a lock contended under load — then
+# `rev-parse HEAD` prints nothing and the SHA is the EMPTY STRING.
+#
+# An empty SHA does not make a case fail. It makes the case test something
+# else. `z7.` becomes "The branch tip is `` and I am waiting on your call",
+# a sentence with no hex token in it at all, which the gate is right to ignore
+# and which proves nothing about the property z7 exists for. It reports PASS.
+#
+# THAT IS THE MECHANISM BEHIND A FLAKE THIS SUITE'S HARNESS HAS BEEN CARRYING.
+# claim-roles.mutation.sh records `state-claim-needs-no-verb` going red "but
+# NOT at z7." on some runs and not others, and its header names the cause in
+# general terms — "its reachability cases need to stop depending on state that
+# moves under them". This is that dependence, at its root: not the cases, the
+# fixture they are written against. Observed here on 2026-09-06 inside a full
+# contract-integrity pass at load average 10-11, while the same harness run
+# alone passed 20/20 immediately before and after.
+#
+# So the fixture is now ASSERTED, loudly, before the first case runs. This does
+# not stop the underlying git operation from failing — it makes a failure say
+# so instead of quietly rewriting what 65 cases mean.
+FIXTURE_BAD=""
+for _pair in "LIVE_SHA:$LIVE_SHA" "BRANCH_SHA:$BRANCH_SHA" "DANGLING_SHA:$DANGLING_SHA" "UNPUSHED_SHA:$UNPUSHED_SHA"; do
+    _name="${_pair%%:*}"; _val="${_pair#*:}"
+    case "$_val" in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+        *) FIXTURE_BAD="$FIXTURE_BAD $_name='$_val'" ;;
+    esac
+done
+# ...and that they are DISTINCT. Four names for one commit would silently
+# collapse the three-way ref-graph distinction the cases are built on.
+if [ -z "$FIXTURE_BAD" ]; then
+    _uniq="$(printf '%s\n%s\n%s\n%s\n' "$LIVE_SHA" "$BRANCH_SHA" "$DANGLING_SHA" "$UNPUSHED_SHA" | sort -u | grep -c .)"
+    [ "$_uniq" -eq 4 ] || FIXTURE_BAD="$FIXTURE_BAD not-distinct(live=$LIVE_SHA branch=$BRANCH_SHA dangling=$DANGLING_SHA unpushed=$UNPUSHED_SHA)"
+fi
+if [ -n "$FIXTURE_BAD" ]; then
+    printf '  FATAL  the sandbox repository was not built as these cases assume:%s\n' "$FIXTURE_BAD" >&2
+    printf '         A SHA that is empty or duplicated does not make a case fail — it makes it\n' >&2
+    printf '         test a different sentence and report PASS. Refusing to run 65 cases over it.\n' >&2
+    printf '         Most likely a git commit in the setup above did not happen; re-run with the\n' >&2
+    printf '         `>/dev/null 2>&1` removed from the setup commands to see which.\n' >&2
+    exit 1
+fi
+
 # A repository that never adopted the engine: no orchestration.config.
 UNADOPTED="$SANDBOX/unadopted"
 mkdir -p "$UNADOPTED"
