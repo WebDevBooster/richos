@@ -1,0 +1,94 @@
+commits touching wiki/open-items.md          : 124
+landings that would have fired : 86
+row-firings in total           : 157
+  of which SUBSTANCE           : 137
+  of which PIN-ONLY            : 20
+median rows per firing landing : 1
+largest single landing         : 26
+
+  e8ace66   1 row(s) (0 pin-only)  wiki: S1-mini NOT adopted; dictation revisit gated on the 
+  30d0199   1 row(s) (0 pin-only)  wiki: the hallucination guard now detects both classes, an
+  17ac8ac   2 row(s) (0 pin-only)  wiki+plans: the ACP emission is measured, the techy-mode c
+  38fcb61   1 row(s) (0 pin-only)  wiki: real audio falsifies three standing claims — the gua
+  85cfcef   2 row(s) (0 pin-only)  wiki: the 92-minute catastrophe was a config gap, and clos
+  8fbc06d   1 row(s) (0 pin-only)  wiki(open-items): Parakeet measured coverage-first — and w
+  e7356cd   3 row(s) (0 pin-only)  wiki: the split is enforced now, and the SHAs that proved 
+  aad93a5   2 row(s) (0 pin-only)  docs(brief): short-call WER — the answer to 3.3d, the clos
+  c70976f   4 row(s) (0 pin-only)  wiki+queue: four stale rows corrected, and the icon item i
+  80a9298   1 row(s) (0 pin-only)  docs: 3.5 was true this morning and is not true now — the 
+  9c4ea91   1 row(s) (0 pin-only)  CEO-TODOs: the record's own front door renames, and "licen
+  9c681e8   1 row(s) (0 pin-only)  Merge zach/ceo-todos-rename-2026-08-29 (hq half): the reco
+  fcff223   2 row(s) (0 pin-only)  wiki: two rows were lying about their own state again — 3.
+  3576727   9 row(s) (0 pin-only)  wiki(open-items): every section-3 row now states what it i
+  0bc9426   1 row(s) (1 pin-only)  Re-stamp row 3.5: loro-writer.md moved and the row did not
+  a419d8a   2 row(s) (2 pin-only)  RICH-TODOs: Codex 9/10 built; three gaps it exposed are ro
+  8a99166   1 row(s) (0 pin-only)  The correction desk is rendered: close 5b, and correct the
+  7f5c046   1 row(s) (1 pin-only)  Re-stamp row 3.5: loro-writer.md moved when the rendering 
+  32c9501   1 row(s) (0 pin-only)  The desk has a proposer: close 5d, and correct the two pag
+  fb0565c   1 row(s) (1 pin-only)  Re-stamp row 3.5: the belief trigger moved loro.rs and cor
+  21ad793   1 row(s) (0 pin-only)  Row 3.4: the composer wire landed, and what is open there 
+  8a3a4c3   3 row(s) (3 pin-only)  Re-stamp three warrants the spelling pass moved
+  ab690aa   3 row(s) (3 pin-only)  Re-stamp three more warrants: the spelling pass moved comm
+  c7c38d9   1 row(s) (0 pin-only)  Row 3.1: the renderer landed, and the four questions are s
+  c926443   1 row(s) (0 pin-only)  Row 3.3f: the named missing instrument exists, and names t
+  73d437d   1 row(s) (0 pin-only)  Row 3.1: the retention window stops being a code change, s
+  3263760   1 row(s) (0 pin-only)  Row 3.1: between-turn traffic has somewhere to go, and hal
+  d8aabce   1 row(s) (0 pin-only)  Discharge §1.6 and date row 3.1 per gap — the two edits Ec
+  d479539   1 row(s) (1 pin-only)  Re-stamp row 3.1: discharging §1.6 moved the plan
+  4738247   6 row(s) (0 pin-only)  Declare the real blockers, so the unstarted sweep names wo
+  54ad6be   1 row(s) (0 pin-only)  The CEO named a fourth option, and the reason it was missi
+  0edecc2   1 row(s) (0 pin-only)  Two licensing findings fold back into the ruling that rais
+  1f5c7ec   1 row(s) (0 pin-only)  No lawyer - ruled, and it costs option D nothing
+  f065031   1 row(s) (0 pin-only)  The adapter is deleted, and the ruling's own false premise
+  0494638   1 row(s) (0 pin-only)  Sweep today's regressions only, having read every site fir
+  5677fad   1 row(s) (1 pin-only)  Re-stamp row 3.14, having actually read whether the row is
+  82e9501   3 row(s) (3 pin-only)  Re-stamp rows 3.1, 3.5 and 3.8 - my own edits moved the fi
+  0df08de   1 row(s) (1 pin-only)  Re-stamp row 3.5 against the loro sources the sweep moved,
+  c84abd2   2 row(s) (0 pin-only)  1.6 is ruled: the loro layout is ratified, and person beco
+  e1e40eb   2 row(s) (0 pin-only)  The record calls it the CEO layer, because that is what th
+  1cf8e1b   2 row(s) (0 pin-only)  Re-stamp rows 3.5 and 3.8: decision 1.6 is ruled, and the 
+  c243fe1   1 row(s) (1 pin-only)  Re-stamp row 3.5 now that the richos half of the rename ha
+  4947838   1 row(s) (0 pin-only)  Re-stamp row 3.8: the page moved because I added one link 
+  a18b49d   2 row(s) (0 pin-only)  Row 3.5 caught up: the lane map is built and his six entit
+  5247be0   1 row(s) (0 pin-only)  Row 3.5 says what is true now: the partition gap is closed
+  05bccf8   1 row(s) (1 pin-only)  Re-stamp row 3.5: the richos half of the partition work ha
+  2a248cd   1 row(s) (0 pin-only)  Re-stamp row 3.8: Tier 2 is BUILT, and the walk found a si
+  e2010d1   1 row(s) (0 pin-only)  Row 3.8 re-stamped: the Tier 2 walk found a second defect,
+  9f49cfe   1 row(s) (0 pin-only)  Row 3.8 carries the same A/B pair, and its stamp follows t
+  d5bece7   1 row(s) (0 pin-only)  Row 3.5: the slice arrives on a double-click now, and noth
+  c067c15   1 row(s) (1 pin-only)  1.7 is ruled: Constellation is the v1 start screen, finish
+  c17de7b   1 row(s) (0 pin-only)  femcboost is a declared root, and three rulings are on the
+  450a8f1   1 row(s) (0 pin-only)  ECS says what is true now, and eight finished rows leave t
+  d7e6c29   1 row(s) (0 pin-only)  3.28 re-verified at the land, not re-stamped blind
+  4d974d4   1 row(s) (0 pin-only)  Row 3.20 re-read: its file moved for an unrelated reason, 
+  8b74014   1 row(s) (0 pin-only)  Row 3.20 again: its own remedy just got applied to a diffe
+  5bf6748   1 row(s) (0 pin-only)  Row 3.20 re-stamped a third time, by traffic it does not d
+  6f1c5f1   2 row(s) (0 pin-only)  Rows 3.20 and 3.30 re-stamped, one of them because its pin
+  d332935   1 row(s) (0 pin-only)  Row 3.20 re-stamped a fifth time, and the fifth one blocke
+  1c12ec4   3 row(s) (0 pin-only)  The README does not gate the flip — the CEO's own ruling, 
+  2f9d775   1 row(s) (0 pin-only)  Row 3.7 re-read: the licensing conversion moved two metada
+  4710c17   1 row(s) (0 pin-only)  Row 3.5 re-read: the lane map's source moved to the per-us
+  b8915d3   1 row(s) (0 pin-only)  Row 3.24 closes: the dialect mutation harness now runs fro
+  68a20f0   1 row(s) (0 pin-only)  Row 3.21 re-read: the CI skip is now explicit and its reas
+  e629bee   1 row(s) (0 pin-only)  Row 3.21 closes: the skipped suite runs in 2m16s of a 25m 
+  61d4858   1 row(s) (0 pin-only)  Row 3.7 re-read: voice gained a notice for silence it used
+  16cddb4   1 row(s) (0 pin-only)  Row 3.21 re-read: the workflow moved for an unrelated reas
+  4f63fc8   1 row(s) (0 pin-only)  Row 3.7 re-read: the voice crate stopped being able to spe
+  75d8126   1 row(s) (0 pin-only)  Row 3.21 re-read for a comment-only workflow move; v2 mark
+  222ed4f   1 row(s) (0 pin-only)  Row 3.21 re-read again: a path filter and an interpreter, 
+  12ad8c7   1 row(s) (0 pin-only)  Row 3.5 re-read: the desk's reader moved, and the revert r
+  73f41b2   1 row(s) (0 pin-only)  Row 3.7 re-read: the fix held, its evidence did not
+  d20c408   1 row(s) (0 pin-only)  Row 3.7 re-read: the crate reaches CI, and CI immediately 
+  64d23cf   2 row(s) (0 pin-only)  Row 3.32 was a false positive, and row 3.7 gains its seven
+  35a06ca   1 row(s) (0 pin-only)  Row 3.30 is started, not merely buildable
+  9fbf26a   2 row(s) (0 pin-only)  Three rows re-read because the work under them moved, and 
+  3c39b90   2 row(s) (0 pin-only)  Row 3.30 is built, and the merge conflict was resolved by 
+  018e815   1 row(s) (0 pin-only)  Row 3.19 was overtaken by a commit it could not have seen,
+  78b71cc   1 row(s) (0 pin-only)  Row 3.19 is built: acks live outside every worktree now
+  59a08cc   1 row(s) (0 pin-only)  One of the five red suites is closed, and a fourth agent f
+  8a2489a   1 row(s) (0 pin-only)  Row 3.20 re-stamped for CLAUDE.md traffic it does not desc
+  1249448   8 row(s) (0 pin-only)  Eight mutation harnesses now run, and my count of five was
+  0dd172a   1 row(s) (0 pin-only)  Row 3.33 re-stamped: its pin was already stale, and the ac
+  503ee3d  26 row(s) (0 pin-only)  Every row of open-items.md re-derived against the reposito
+  2530154   1 row(s) (0 pin-only)  Row 3.34: contract-integrity's two named cases are green a
+  c6edf39   1 row(s) (0 pin-only)  The 27 is a ceiling, not a defect count: qualifying my own
