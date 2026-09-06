@@ -58,6 +58,8 @@
 # NEXT session. It assumes nothing about being live in the session that adds it.
 
 set -eo pipefail
+# Payloads can exceed a pipe buffer. Matching pipelines must consume EOF:
+# grep -q or head can give the producer SIGPIPE and reverse the verdict.
 
 # Fail-closed, not fail-open: every payload check below depends on python3 to
 # parse the tool_input JSON. If python3 is missing, refuse outright rather than
@@ -272,8 +274,8 @@ if os.path.isfile(ti_path):
 out("LIVE", "")
 PY
 )"
-  TKIND="$(printf '%s' "$TERMINAL_VERDICT" | head -1 | cut -f1)"
-  TDETAIL="$(printf '%s' "$TERMINAL_VERDICT" | head -1 | cut -f2-)"
+  TKIND="$(printf '%s' "$TERMINAL_VERDICT" | sed -n '1p' | cut -f1)"
+  TDETAIL="$(printf '%s' "$TERMINAL_VERDICT" | sed -n '1p' | cut -f2-)"
   if [ "$TKIND" = "TERMINAL" ]; then
     {
       echo "=== Resume-isolation guard: REFUSED (terminal agent) ==="
@@ -306,10 +308,10 @@ PROTO_TYPES_RE='shutdown_request|shutdown_response|shutdown_approved|plan_approv
 if [ "$MSG_KIND" = "object" ]; then
   exit 0
 fi
-if printf '%s' "$MSG_TYPE" | grep -qiE "^(${PROTO_TYPES_RE})$"; then
+if printf '%s' "$MSG_TYPE" | grep -iE >/dev/null "^(${PROTO_TYPES_RE})$"; then
   exit 0
 fi
-if printf '%s' "$MESSAGE" | grep -qE "\"(${PROTO_TYPES_RE})\""; then
+if printf '%s' "$MESSAGE" | grep -E >/dev/null "\"(${PROTO_TYPES_RE})\""; then
   exit 0
 fi
 
@@ -318,8 +320,8 @@ fi
 # design (this is an auditable opt-out, not a security boundary). Logged to
 # .claude/state/resume-acks.log, mirroring main-checkout-runs.log.
 RESUME_ACK=""
-if printf '%s' "$MESSAGE" | grep -qE '^[[:space:]]*resume-ack:[[:space:]]*.+'; then
-  RESUME_ACK="$(printf '%s' "$MESSAGE" | grep -oE '^[[:space:]]*resume-ack:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
+if printf '%s' "$MESSAGE" | grep -E >/dev/null '^[[:space:]]*resume-ack:[[:space:]]*.+'; then
+  RESUME_ACK="$(printf '%s' "$MESSAGE" | grep -oE '^[[:space:]]*resume-ack:[[:space:]]*.+' | sed -n '1p' | sed -E 's/^[[:space:]]*//')"
 fi
 if [ -n "$RESUME_ACK" ]; then
   LOG_DIR="$ENTITY_ROOT/.claude/state"

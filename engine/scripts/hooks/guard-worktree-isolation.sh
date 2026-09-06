@@ -228,6 +228,8 @@
 # Agent payload is blocked, not waved through.
 
 set -eo pipefail
+# Payloads can exceed a pipe buffer. Matching pipelines must consume EOF:
+# grep -q or head can give the producer SIGPIPE and reverse the verdict.
 
 # Fail-closed, not fail-open: every payload check below depends on python3 to
 # parse the tool_input JSON. If python3 is missing, EVERY `python3 ... ||
@@ -485,10 +487,10 @@ fi
 
 if [ "$NEEDS_STAFFING_HATCH" -eq 1 ]; then
   GENERIC_REASON=""
-  if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*generic-agent:[[:space:]]*.+'; then
+  if printf '%s' "$PROMPT" | grep -E >/dev/null '^[[:space:]]*generic-agent:[[:space:]]*.+'; then
     GENERIC_REASON="$(printf '%s' "$PROMPT" \
       | grep -E '^[[:space:]]*generic-agent:[[:space:]]*.+' \
-      | head -1 \
+      | sed -n '1p' \
       | sed -E 's/^[[:space:]]*generic-agent:[[:space:]]*//')"
   fi
 
@@ -562,8 +564,8 @@ PROBLEMS=()
 # design; this is an auditable FALLBACK opt-out, not a security boundary — the
 # boundary is guard-main-checkout-writes.sh blocking actual writes).
 MAIN_CHECKOUT_MARKER=""
-if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*main-checkout-run:[[:space:]]*.+'; then
-  MAIN_CHECKOUT_MARKER="$(printf '%s' "$PROMPT" | grep -oE '^[[:space:]]*main-checkout-run:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
+if printf '%s' "$PROMPT" | grep -E >/dev/null '^[[:space:]]*main-checkout-run:[[:space:]]*.+'; then
+  MAIN_CHECKOUT_MARKER="$(printf '%s' "$PROMPT" | grep -oE '^[[:space:]]*main-checkout-run:[[:space:]]*.+' | sed -n '1p' | sed -E 's/^[[:space:]]*//')"
 fi
 
 # --- CLAUSE 4 helpers ------------------------------------------------------
@@ -636,10 +638,10 @@ MARKERS_EOF
 
 # CLAUSE 4d — a prompt that tells the teammate to hand-roll a worktree is the
 # improvisation this clause ends. Audited escape hatch: hand-roll-ack: <reason>.
-if printf '%s' "$PROMPT" | grep -qE 'git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+worktree[[:space:]]+add'; then
+if printf '%s' "$PROMPT" | grep -E >/dev/null 'git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+worktree[[:space:]]+add'; then
   HAND_ROLL_ACK=""
-  if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*hand-roll-ack:[[:space:]]*.+'; then
-    HAND_ROLL_ACK="$(printf '%s' "$PROMPT" | grep -oE '^[[:space:]]*hand-roll-ack:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
+  if printf '%s' "$PROMPT" | grep -E >/dev/null '^[[:space:]]*hand-roll-ack:[[:space:]]*.+'; then
+    HAND_ROLL_ACK="$(printf '%s' "$PROMPT" | grep -oE '^[[:space:]]*hand-roll-ack:[[:space:]]*.+' | sed -n '1p' | sed -E 's/^[[:space:]]*//')"
   fi
   if [ -n "$HAND_ROLL_ACK" ]; then
     LOG_DIR="$ENTITY_ROOT/.claude/state"
@@ -650,7 +652,7 @@ if printf '%s' "$PROMPT" | grep -qE 'git([[:space:]]+-C[[:space:]]+[^[:space:]]+
   fi
 fi
 
-if ! printf '%s' "$NAME" | grep -qE "$NAME_SHAPE_RE"; then
+if ! printf '%s' "$NAME" | grep -E >/dev/null "$NAME_SHAPE_RE"; then
   PROBLEMS+=("missing/malformed name — give a unique '<role>-<model>-<identifier>' name, e.g. dev-sonnet-1 / qa-opus-r3 (got name='${NAME:-unset}'). Needs THREE dash-joined parts (role, model, identifier). Never bare ('dev'), 2-part ('dev-1'), or run-together ('devsonnet1'). NOT relaxed by main-checkout-run:.")
 else
   # Shape valid: split into role / <model> token / identifier.
@@ -732,8 +734,8 @@ if [ -n "$MODEL_OVERRIDE" ] && [ "$C6_OVERRIDE_LC" != "inherit" ]; then
       elif [ "$C6_RANK_REQUESTED" -gt "$C6_RANK_DEFAULT" ]; then
         # LOWER tier than the definition's default. Stated, or refused.
         C6_ACK=""
-        if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*model-downgrade-ack:[[:space:]]*[^[:space:]]'; then
-          C6_ACK="$(printf '%s' "$PROMPT" | grep -E '^[[:space:]]*model-downgrade-ack:[[:space:]]*[^[:space:]]' | head -1 | sed -E 's/^[[:space:]]*//')"
+        if printf '%s' "$PROMPT" | grep -E >/dev/null '^[[:space:]]*model-downgrade-ack:[[:space:]]*[^[:space:]]'; then
+          C6_ACK="$(printf '%s' "$PROMPT" | grep -E '^[[:space:]]*model-downgrade-ack:[[:space:]]*[^[:space:]]' | sed -n '1p' | sed -E 's/^[[:space:]]*//')"
         fi
         if [ -n "$C6_ACK" ]; then
           # Accepted. Best-effort log — never fail the spawn because logging
@@ -968,7 +970,7 @@ if { [ -z "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ "${RICHOS_RECONCILER_CONTRACT_CHE
   elif ! _C7E_PRINT="$(launchctl print "gui/$(id -u)/$_C7E_LABEL" 2>&1)"; then
     C7_PROBLEMS+=("the persistent reconciler is NOT LOADED under launchd (gui/$(id -u)/$_C7E_LABEL): $(printf '%s' "$_C7E_PRINT" | tr '\n' ' ' | cut -c1-120). Every terminal worktree would leak until a session start happened to recover it — $_C7E_FIX.")
   else
-    _C7E_PROG="$(printf '%s\n' "$_C7E_PRINT" | grep -o '[^[:space:]"]*reconcile-terminal-worktrees\.py' | head -1 || true)"
+    _C7E_PROG="$(printf '%s\n' "$_C7E_PRINT" | grep -o '[^[:space:]"]*reconcile-terminal-worktrees\.py' | sed -n '1p' || true)"
     if [ -z "$_C7E_PROG" ]; then
       C7_PROBLEMS+=("the loaded launchd job $_C7E_LABEL does not name a reconciler (no reconcile-terminal-worktrees.py in its arguments) — $_C7E_FIX.")
     elif [ ! -f "$_C7E_PROG" ]; then

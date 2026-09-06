@@ -91,6 +91,8 @@
 # NEXT session. It assumes nothing about being live in the session that adds it.
 
 set -o pipefail
+# Payloads can exceed a pipe buffer. Matching pipelines must consume EOF:
+# grep -q or head can give the producer SIGPIPE and reverse the verdict.
 
 HOOK_TAG="(hook: scripts/hooks/guard-definition-drift.sh)"
 
@@ -359,13 +361,13 @@ fi
 # anything shorter is too weak to prove the ack refers to THIS content.
 ACK_LINE=""
 ACK_TOKEN=""
-if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*definition-drift-ack:[[:space:]]*[0-9a-fA-F]+'; then
+if printf '%s' "$PROMPT" | grep -E >/dev/null '^[[:space:]]*definition-drift-ack:[[:space:]]*[0-9a-fA-F]+'; then
     ACK_LINE="$(printf '%s' "$PROMPT" \
-        | grep -oE '^[[:space:]]*definition-drift-ack:[[:space:]]*.+' | head -1 \
+        | grep -oE '^[[:space:]]*definition-drift-ack:[[:space:]]*.+' | sed -n '1p' \
         | sed -E 's/^[[:space:]]*//')"
     ACK_TOKEN="$(printf '%s' "$ACK_LINE" \
         | sed -E 's/^definition-drift-ack:[[:space:]]*//' \
-        | grep -oE '^[0-9a-fA-F]+' | head -1 | tr '[:upper:]' '[:lower:]' || true)"
+        | grep -oE '^[0-9a-fA-F]+' | sed -n '1p' | tr '[:upper:]' '[:lower:]' || true)"
 fi
 
 if [ -n "$ACK_TOKEN" ] && [ "${#ACK_TOKEN}" -ge 16 ] && [ "${CUR_HASH#"$ACK_TOKEN"}" != "$CUR_HASH" ]; then

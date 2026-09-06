@@ -85,6 +85,8 @@
 # next session and assumes nothing about being live in the session that adds it.
 
 set -o pipefail
+# Payloads can exceed a pipe buffer. Matching pipelines must consume EOF:
+# grep -q or head can give the producer SIGPIPE and reverse the verdict.
 
 INPUT="$(cat)"
 HOOK_TAG="(hook: scripts/hooks/guard-sealed-worktree.sh)"
@@ -110,10 +112,10 @@ deny_cannot_evaluate() { # <reason> [tool] [agent]
 }
 
 raw_has_agent_id() { # true when the raw payload carries an unescaped "agent_id" key
-    printf '%s' "$INPUT" | grep -Eq '(^|[^\\])"agent_id"'
+    printf '%s' "$INPUT" | grep -E >/dev/null '(^|[^\\])"agent_id"'
 }
 raw_tool_name() {
-    printf '%s' "$INPUT" | sed -n -E 's/.*"tool_name"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' | head -1
+    printf '%s' "$INPUT" | sed -n -E 's/.*"tool_name"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' | sed -n '1p'
 }
 is_readonly_tool() { # <tool> <list>
     local t; for t in $2; do [ "$t" = "$1" ] && return 0; done; return 1
@@ -143,9 +145,9 @@ if not isinstance(d, dict):
     print("UNPARSEABLE\tpayload is not a JSON object"); raise SystemExit(0)
 aid = str(d.get("agent_id") or "")
 print(("WORKER\t%s\t%s" % (aid, str(d.get("tool_name") or ""))) if aid else "LEAD\t\t%s" % str(d.get("tool_name") or ""))' 2>/dev/null || true)"
-PKIND="$(printf '%s' "$PARSED" | head -1 | cut -f1)"
-AGENT_ID="$(printf '%s' "$PARSED" | head -1 | cut -f2)"
-TOOL_NAME="$(printf '%s' "$PARSED" | head -1 | cut -f3)"
+PKIND="$(printf '%s' "$PARSED" | sed -n '1p' | cut -f1)"
+AGENT_ID="$(printf '%s' "$PARSED" | sed -n '1p' | cut -f2)"
+TOOL_NAME="$(printf '%s' "$PARSED" | sed -n '1p' | cut -f3)"
 case "$PKIND" in
   LEAD) exit 0 ;;
   WORKER) : ;;
@@ -300,8 +302,8 @@ out("UNSEALED", reason)
 PY
 )" || VERDICT="ERROR	the barrier's resolver could not run"
 
-KIND="$(printf '%s' "$VERDICT" | head -1 | cut -f1)"
-DETAIL="$(printf '%s' "$VERDICT" | head -1 | cut -f2-)"
+KIND="$(printf '%s' "$VERDICT" | sed -n '1p' | cut -f1)"
+DETAIL="$(printf '%s' "$VERDICT" | sed -n '1p' | cut -f2-)"
 
 case "$KIND" in
   SEALED|EXEMPT|READONLY)

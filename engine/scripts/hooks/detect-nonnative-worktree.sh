@@ -61,6 +61,8 @@
 # current state, not this specific launch.
 
 set -eo pipefail
+# Payloads can exceed a pipe buffer. Matching pipelines must consume EOF:
+# grep -q or head can give the producer SIGPIPE and reverse the verdict.
 
 # Fail-closed, not fail-open: check (a) below depends on python3 to parse the
 # spawn's tool_input. If python3 is missing, the swallowed `|| true` failure
@@ -150,7 +152,7 @@ PROMPT="$(printf '%s' "$PARSED" | cut -f6- | tr '\001' '\n')"
 # Respect the same "main-checkout-run:" marker guard-worktree-isolation.sh
 # honors — a sanctioned un-isolated run must not be re-flagged here.
 MAIN_CHECKOUT_MARKER=""
-if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*main-checkout-run:[[:space:]]*.+'; then
+if printf '%s' "$PROMPT" | grep -E >/dev/null '^[[:space:]]*main-checkout-run:[[:space:]]*.+'; then
   MAIN_CHECKOUT_MARKER="yes"
 fi
 
@@ -438,7 +440,7 @@ done < <(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's
 # list is empty/unavailable, MAIN_CO is empty and BOTH tells no-op — fail-safe:
 # never reap when registration cannot be proven.
 REGISTERED_WT="$(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' || true)"
-MAIN_CO="$(printf '%s\n' "$REGISTERED_WT" | head -1)"
+MAIN_CO="$(printf '%s\n' "$REGISTERED_WT" | sed -n '1p')"
 
 PRESERVED_RESIDUE=()
 EXPLAINED_RESIDUE=()
@@ -493,11 +495,11 @@ if [ -n "$MAIN_CO" ] && [ -d "$MAIN_CO/.claude/worktrees" ]; then
     case "$dbase" in
       .*|*.richos-retired-*) continue ;;
     esac
-    if printf '%s\n' "$REGISTERED_WT" | grep -qxF "$dir"; then
+    if printf '%s\n' "$REGISTERED_WT" | grep -xF >/dev/null "$dir"; then
       continue
     fi
     if git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null \
-         | sed -n 's|^worktree ||p' | grep -qxF "$dir"; then
+         | sed -n 's|^worktree ||p' | grep -xF >/dev/null "$dir"; then
       continue
     fi
     # Ask the journal. It answers about this exact path or it answers nothing;
@@ -584,7 +586,7 @@ if command -v pgrep >/dev/null 2>&1 && command -v ps >/dev/null 2>&1 && [ -n "$M
         "$MAIN_CO"/.claude/worktrees/agent-*) : ;;
         *) continue ;;
       esac
-      if printf '%s\n' "$REGISTERED_WT" | grep -qxF "$wtpath"; then
+      if printf '%s\n' "$REGISTERED_WT" | grep -xF >/dev/null "$wtpath"; then
         continue
       fi
       ZOMBIE_PROCS+=("pid ${pid} -> ${wtpath}")

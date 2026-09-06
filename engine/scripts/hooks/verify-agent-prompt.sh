@@ -37,6 +37,8 @@
 #                                  make verifiable.
 
 set -eo pipefail
+# Payloads can exceed a pipe buffer. Matching pipelines must consume EOF:
+# grep -q or head can give the producer SIGPIPE and reverse the verdict.
 
 # Fail-closed, not fail-open: every check below (duplicate-teammate,
 # agent-not-found, subagent-as-spawner, missing-worktree-isolation, the
@@ -250,8 +252,8 @@ if [ -n "$PROMPT" ]; then
   if [ -n "$SUBAGENT_TYPE" ]; then
     SPAWNER_CI_RE='(^|[^A-Za-z-])Agent[[:space:]]+tool|(spawn|dispatch)[[:space:]]+(agents?|teammates?|subagents?)\b|dispatch[[:space:]]+(these|the[[:space:]]+following)\b|TeamCreate'
     SPAWNER_CS_RE='\b(spawn|dispatch)[[:space:]]+[A-Z][a-z]+\b'
-    if printf '%s' "$PROMPT" | grep -qiE "$SPAWNER_CI_RE" \
-       || printf '%s' "$PROMPT" | grep -qE "$SPAWNER_CS_RE"; then
+    if printf '%s' "$PROMPT" | grep -iE >/dev/null "$SPAWNER_CI_RE" \
+       || printf '%s' "$PROMPT" | grep -E >/dev/null "$SPAWNER_CS_RE"; then
       FAIL=1
       FAIL_REASONS+=("subagent-as-spawner: prompt appears to ask subagent '${SUBAGENT_TYPE}' to spawn or dispatch agents. Only the orchestrator makes Agent tool calls — keep briefs to plain build instructions and don't narrate the orchestration around them.")
     fi
@@ -263,7 +265,7 @@ if [ -n "$PROMPT" ]; then
   # the teammate will actually land in the MAIN checkout. Fail fast at the
   # spawn.
   if [ "$ISOLATION" != "worktree" ]; then
-    if printf '%s' "$PROMPT" | grep -qiE 'native isolation (has )?already|(isolation|worktree) (has )?already (given|created|placed|put)|already (given|placed|dropped) you (a|an|one|in)( native)?[[:space:]]*(claude code )?worktree'; then
+    if printf '%s' "$PROMPT" | grep -iE >/dev/null 'native isolation (has )?already|(isolation|worktree) (has )?already (given|created|placed|put)|already (given|placed|dropped) you (a|an|one|in)( native)?[[:space:]]*(claude code )?worktree'; then
       FAIL=1
       FAIL_REASONS+=("missing-worktree-isolation: the prompt tells the subagent that native isolation already created its worktree, but this Agent call set isolation='${ISOLATION:-unset}' (not \"worktree\"). Add isolation:\"worktree\" to the spawn. If you are deliberately hand-rolling a worktree, remove the 'native isolation already' wording and give the explicit worktree path instead.")
     fi
@@ -371,16 +373,16 @@ STRIP_PY
 # (a) cite an install-fresh script as a precondition or (b) opt out with an
 # auditable `data-contract-bypass:` line. Runs ONLY when the gate is enabled.
 if [ "$ENABLE_QA_INSTALL_FRESH_GATE" = "1" ] && [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
-  if printf '%s' "$PROMPT" | grep -qiE "$QA_TRIGGER_RE" \
-     && printf '%s' "$PROMPT" | grep -qE "$LOCAL_APP_CONTEXT_RE"; then
+  if printf '%s' "$PROMPT" | grep -iE >/dev/null "$QA_TRIGGER_RE" \
+     && printf '%s' "$PROMPT" | grep -E >/dev/null "$LOCAL_APP_CONTEXT_RE"; then
 
     # Bypass detection runs against a SANITIZED copy of the prompt: fenced
     # code, HTML comments, blockquotes, and indented code blocks are stripped
     # first, so a forged bypass inside any of those never activates the opt-out.
     BYPASS_LINE=""
     PROMPT_FOR_BYPASS="$(sanitized_prompt)"
-    if printf '%s' "$PROMPT_FOR_BYPASS" | grep -qE '^[[:space:]]*data-contract-bypass:[[:space:]]*.+'; then
-      BYPASS_LINE="$(printf '%s' "$PROMPT_FOR_BYPASS" | grep -oE '^[[:space:]]*data-contract-bypass:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
+    if printf '%s' "$PROMPT_FOR_BYPASS" | grep -E >/dev/null '^[[:space:]]*data-contract-bypass:[[:space:]]*.+'; then
+      BYPASS_LINE="$(printf '%s' "$PROMPT_FOR_BYPASS" | grep -oE '^[[:space:]]*data-contract-bypass:[[:space:]]*.+' | sed -n '1p' | sed -E 's/^[[:space:]]*//')"
     fi
 
     if [ -n "$BYPASS_LINE" ]; then
@@ -398,7 +400,7 @@ if [ "$ENABLE_QA_INSTALL_FRESH_GATE" = "1" ] && [ -n "$SUBAGENT_TYPE" ] && [ -n 
     else
       CITES_INSTALL_FRESH=0
       for s in $INSTALL_FRESH_SCRIPTS; do
-        if printf '%s' "$PROMPT" | grep -qF "$s"; then
+        if printf '%s' "$PROMPT" | grep -F >/dev/null "$s"; then
           CITES_INSTALL_FRESH=1
           break
         fi
@@ -453,12 +455,12 @@ fi
 if [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
   ACK_APPLIES=0
   [ "$ISOLATION" = "worktree" ] && ACK_APPLIES=1
-  if [ "$ACK_APPLIES" -eq 0 ] && printf '%s' "$PROMPT" | grep -qiE 'worktree'; then
+  if [ "$ACK_APPLIES" -eq 0 ] && printf '%s' "$PROMPT" | grep -iE >/dev/null 'worktree'; then
     ACK_APPLIES=1
   fi
   if [ "$ACK_APPLIES" -eq 1 ]; then
-    if ! printf '%s' "$PROMPT" | grep -qE 'inflight-ack\.sh|inflight-acks/' \
-       && ! printf '%s' "$(sanitized_prompt)" | grep -qiE '^[[:space:]]*no-inflight-ack:[[:space:]]*[^[:space:]]'; then
+    if ! printf '%s' "$PROMPT" | grep -E >/dev/null 'inflight-ack\.sh|inflight-acks/' \
+       && ! printf '%s' "$(sanitized_prompt)" | grep -iE >/dev/null '^[[:space:]]*no-inflight-ack:[[:space:]]*[^[:space:]]'; then
       FAIL=1
       FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract — either name the helper (scripts/inflight-ack.sh, reachable at ~/.claude/richos-engine/scripts/inflight-ack.sh) or spell out the ack file itself (<worktree>/.claude/inflight-acks/<sha12>.<teammate>.ack with its sha/impact/detail/paths/teammate keys) — because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
     fi

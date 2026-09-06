@@ -26,6 +26,8 @@
 # stricter spawn-content gate runs.
 
 set -eo pipefail
+# Payloads can exceed a pipe buffer. Matching pipelines must consume EOF:
+# grep -q or head can give the producer SIGPIPE and reverse the verdict.
 
 # Fail-closed, not fail-open: this hint's SUBAGENT_TYPE/PROMPT extraction below
 # depends on python3. If python3 is missing, the swallowed `|| true` failure
@@ -141,7 +143,7 @@ done
 # Strong full-read / ingest / enumerate-from-sources signals.
 READ_SIGNAL="in full|read all of|\\bingest\\b|read the full|end[ -]to[ -]end|read (these|the following|the)[^.]*(pages|documents|docs|files|sources|wiki|adrs?)|enumerat[a-z]*[^.]*(from|across|by reading)[^.]*($SRC_ALT)|catalog[a-z]*[^.]*(from|across)[^.]*($SRC_ALT)"
 
-if printf '%s' "$PROMPT" | grep -qiE "$READ_SIGNAL"; then
+if printf '%s' "$PROMPT" | grep -iE >/dev/null "$READ_SIGNAL"; then
   {
     echo "=== Reader-teammate hint: use \`$READER_TEAMMATE\`, not '${SUBAGENT_TYPE:-<unset/general-purpose>}' ==="
     echo "  This reads like a FULL-READ / ingest / enumerate-from-sources task."
