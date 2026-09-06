@@ -1534,6 +1534,22 @@ pub(crate) fn machinery_visibility(row: &MachineryRecord, internal_turn: bool) -
     // it is in machinery.rs: the CEO must never see that a rotation happened.
     if row.internal || row.kind == MachineryKind::Thought || internal_turn {
         Visibility::Internal
+    } else if row.kind == MachineryKind::Compaction {
+        // A COMPACTION IS A CEO ROW, and it is the one place this file lets a `system` frame
+        // through to the calm surface.
+        //
+        // The rule everywhere else here is that vendor plumbing is technical and the CEO is
+        // told about work, not about the machine. A compaction is plumbing — and it is also
+        // 38.4 to 62.0 seconds of HIS time, measured over 16 boundaries
+        // (`machinery.rs`'s COMPACTION block, `docs/verification/compaction-notice-2026-09-06/`),
+        // during which the calm surface received nothing at all and the app looked, in the
+        // first outside user's words, "like a crashed application". Silence about a
+        // fifty-second wait is not calm; it is the defect.
+        //
+        // It is not the rotation exception in disguise. Rotation is INVISIBLE because it costs
+        // the CEO nothing and Rich must never say it happened; this costs him a minute and
+        // says only what the wire said, in his words rather than the model's.
+        Visibility::Ceo
     } else if row.kind == MachineryKind::PermissionRequested {
         // A PERMISSION REQUEST IS MACHINERY, NOT A CEO ROW.
         //
@@ -1694,6 +1710,20 @@ fn activity_state_of(row: &MachineryRecord) -> ActivityState {
         // A permission request is a thing that already happened by the time it is
         // recorded — the client auto-approved it and the record states that as a fact.
         MachineryKind::PermissionRequested => ActivityState::Completed,
+        // THE PAUSE IS WHAT THIS ROW'S STATE IS ABOUT, so both endings are `Completed`.
+        //
+        // The vendor's own outcome is kept on the record (`ToolStatus::Failed` for
+        // `compact_result: "failed"`) and is what technical mode reads. It is not what the
+        // CEO's state says, because `ActivityState::Failed` renders as a "△ failed" mark and
+        // would tell him something of HIS went wrong. Nothing did: measured twice in
+        // `cellT1`, a failed compaction attempt cost 1 ms and the turn answered normally
+        // straight after. The two endings differ in WORDS instead — see `semantic_summary`.
+        MachineryKind::Compaction => match row.status.as_ref() {
+            Some(ToolStatus::InProgress) => ActivityState::Running,
+            // An ending, of either kind. `None` cannot occur: every compaction record is
+            // built with a status by `compaction_phase`.
+            _ => ActivityState::Completed,
+        },
         _ => match row.status.as_ref() {
             Some(ToolStatus::Pending) => ActivityState::Queued,
             Some(ToolStatus::InProgress) => ActivityState::Running,
@@ -1720,6 +1750,10 @@ fn activity_type_of(row: &MachineryRecord, types: &HashMap<String, ActivityType>
         }
         // Model reasoning. Kept, never rendered.
         MachineryKind::Thought => ActivityType::Other,
+        // §12's `activityType` set is quoted verbatim in this file and has no member for
+        // this, so the honest answer is `Other` rather than a member bent to fit —
+        // `semantic_summary` gives the row its words from the KIND, not from the type.
+        MachineryKind::Compaction => ActivityType::Other,
         // Every untyped vendor kind — including the Phase-2 `plan` and `usage_update` —
         // is one dim technical row, not a guess at what it meant (§1.4 G5).
         MachineryKind::Unknown => ActivityType::Other,
@@ -1741,6 +1775,36 @@ fn activity_type_of(row: &MachineryRecord, types: &HashMap<String, ActivityType>
 /// content and live in [`ActivityDetail`]. Counting and pluralization (*"Read 8 files"*)
 /// is the renderer's rollup over these rows; a single row says what a single row did.
 fn semantic_summary(activity_type: ActivityType, row: &MachineryRecord) -> String {
+    // ---- the compaction, in the CEO's words rather than the model's --------------------
+    //
+    // He is a non-technical CEO (`ceo-decisions.md` §13) and this is voice-first (§25), so
+    // the sentence has to survive being SPOKEN: *"Rich is working, forty-four seconds. Making
+    // room to keep going."* "Auto-compaction", "context window" and "summarizing the
+    // transcript" are the model's vocabulary, not his, and none of them tell him the one
+    // thing he needs, which is that the wait has a reason and an end.
+    //
+    // Rejected, and why: "Tidying up" (true of nothing in particular, and it sounds
+    // optional); "Reorganizing" (a verb with no object — reorganizing WHAT?); "Summarizing
+    // the conversation so far" (accurate, and it invites "did he lose it?", which is a
+    // question about memory this sentence cannot answer in five words); "Freeing up memory"
+    // (reads as the machine being short of RAM, which is false); "Almost done" (an estimate,
+    // and the measured spread is 38 to 62 seconds — §22 forbids the guess).
+    //
+    // NO NUMBER OF ANY KIND LIVES HERE. The band already shows the turn's own elapsed clock
+    // beside this line, and that number is measured. A percentage, an estimate or a countdown
+    // would be invented — nothing on the wire says how far through a compaction is, and the
+    // one frame that carries a duration (`compact_boundary`) arrives when it is already over.
+    //
+    // The tense is the row's state, so the line is true whenever it is read: it is happening,
+    // or it happened.
+    if row.kind == MachineryKind::Compaction {
+        return match row.status.as_ref() {
+            Some(ToolStatus::InProgress) => "Making room to keep going".to_string(),
+            Some(ToolStatus::Failed) => "Kept going without making room".to_string(),
+            // `compact_result: "success"`, and anything else the wire ever ends with.
+            _ => "Made room to keep going".to_string(),
+        };
+    }
     let files = row.locations.len();
     match activity_type {
         ActivityType::Read if files > 1 => format!("Read {files} files"),
@@ -2506,4 +2570,84 @@ mod tests {
         assert_eq!(v["sequence"], json!(null));
         assert_ne!(v["sequence"], json!(0));
     }
+
+    // =======================================================================================
+    // THE COMPACTION ROW — what the CEO is told about a 38-62 second pause, and in what words.
+    // Frames verbatim from `docs/verification/compaction-notice-2026-09-06/raw/cellT1.jsonl`.
+    // =======================================================================================
+
+    fn compaction_row(phase: &str) -> MachineryRecord {
+        let frame = match phase {
+            "started" => json!({"type":"system","subtype":"status","status":"compacting",
+                                "session_id":"0fee2d41","uuid":"6bb40a60"}),
+            "success" => json!({"type":"system","subtype":"status","status":Value::Null,
+                                "compact_result":"success","session_id":"0fee2d41","uuid":"9e1cfd6b"}),
+            _ => json!({"type":"system","subtype":"status","status":Value::Null,
+                        "compact_result":"failed","compact_error":"too_few_groups",
+                        "session_id":"0fee2d41","uuid":"c27400bb"}),
+        };
+        record(0, frame)
+    }
+
+    fn compaction_item(phase: &str, internal_turn: bool) -> TimelineItem {
+        let row = compaction_row(phase);
+        activity_item(&row, &entity(), "thr", "turn_1", 3, internal_turn, &HashMap::new(), &HashMap::new())
+    }
+
+    #[test]
+    fn the_compaction_pause_reaches_the_ceo_in_his_words_and_says_no_number() {
+        for (phase, expected, state) in [
+            ("started", "Making room to keep going", ActivityState::Running),
+            ("success", "Made room to keep going", ActivityState::Completed),
+            // THE FAILED ATTEMPT ENDS THE PAUSE TOO, and the CEO's state says exactly that.
+            // A `failed` state would draw the "△ failed" mark for something that cost him
+            // nothing — measured twice in `cellT1`, an abandoned attempt took 1 ms and the
+            // turn answered normally straight after. The vendor's outcome survives on the
+            // record (`ToolStatus::Failed`) and in the words below.
+            ("failed", "Kept going without making room", ActivityState::Completed),
+        ] {
+            let TimelineItem::Activity { base, summary, state: got, .. } = compaction_item(phase, false) else {
+                panic!("a compaction projects as an activity row");
+            };
+            assert_eq!(summary, expected, "{phase}");
+            assert_eq!(got, state, "{phase}");
+            assert_eq!(base.visibility, Visibility::Ceo, "{phase}: silence is the defect, not the calm");
+            // NO PERCENTAGE, NO ESTIMATE, NO COUNTDOWN. The measured spread is 38.1 to 62.0
+            // seconds over 16 boundaries and nothing on the wire says how far through it is.
+            assert!(
+                !summary.chars().any(|c| c.is_ascii_digit()) && !summary.contains('%'),
+                "{phase}: a number here would be invented — got {summary:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_compaction_inside_an_internal_turn_is_still_invisible() {
+        // A re-prime or rotation turn compacting is machinery about machinery. The CEO is
+        // never told that a rotation happened (continuity §2/§5), and the whole-turn demotion
+        // has to hold over this row exactly as it holds over every other.
+        let TimelineItem::Activity { base, .. } = compaction_item("started", true) else {
+            panic!("a compaction projects as an activity row");
+        };
+        assert_eq!(base.visibility, Visibility::Internal);
+
+        // Same for a record the spine marked internal on a CEO turn.
+        let mut row = compaction_row("started");
+        row.internal = true;
+        assert_eq!(machinery_visibility(&row, false), Visibility::Internal);
+    }
+
+    #[test]
+    fn a_compaction_row_carries_its_raw_frame_for_technical_mode_and_loses_it_for_the_ceo() {
+        let item = compaction_item("failed", false);
+        let TimelineItem::Activity { detail, .. } = &item else { panic!("activity") };
+        let detail = detail.as_ref().expect("the technical half is retained");
+        assert_eq!(detail.title, "system:status", "technical mode still sees the vendor's own name");
+        // The CEO's copy has the bytes REMOVED, not flagged — the same rule every activity
+        // row follows.
+        let TimelineItem::Activity { detail, summary, .. } = item.redacted() else { panic!("activity") };
+        assert!(detail.is_none());
+        assert_eq!(summary, "Kept going without making room", "the words survive redaction; the frame does not");
+    }
+
 }

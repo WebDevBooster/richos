@@ -721,7 +721,17 @@ impl LiveTurn {
             }
         }
 
-        let mergeable = record.tool_call_id.is_some() && record.kind == crate::machinery::MachineryKind::ToolCall;
+        // A COMPACTION MERGES TOO, and it has to: its start, its 30-second heartbeats and its
+        // ending are four or five separate `system/status` frames with no correlation id
+        // between them (`machinery::compaction_key`). Unmerged they would be four rows saying
+        // the same thing. The key is the LEASE's, which is turn-scoped here because a
+        // `LiveTurn` is built per turn — `machinery::project` re-scopes it explicitly for the
+        // reload path, where one map spans every turn of the thread.
+        let mergeable = record.tool_call_id.is_some()
+            && matches!(
+                record.kind,
+                crate::machinery::MachineryKind::ToolCall | crate::machinery::MachineryKind::Compaction
+            );
         match self.merged.get_mut(&key) {
             Some(base) if mergeable => crate::machinery::merge_into(base, record.clone()),
             // Not mergeable, or first sight: this record IS the row. (An unmergeable

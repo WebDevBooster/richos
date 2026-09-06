@@ -222,6 +222,9 @@ pub enum MachineryKind {
     Thought,
     PermissionRequested,
     ClientFsCall,
+    /// The child pausing the turn to summarize its own conversation and drop the detail —
+    /// see [`compaction_phase`] for the frames, and the arithmetic that identified them.
+    Compaction,
     Unknown,
 }
 
@@ -232,9 +235,120 @@ impl MachineryKind {
             MachineryKind::Thought => "thought",
             MachineryKind::PermissionRequested => "permission_requested",
             MachineryKind::ClientFsCall => "client_fs_call",
+            MachineryKind::Compaction => "compaction",
             MachineryKind::Unknown => "unknown",
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// COMPACTION — the 38-62 SECOND SILENCE, AND THE FRAME THAT ANNOUNCES IT
+//
+// The first outside user of RichOS, 2026-09-06: a long wait *"looks like a crashed
+// application"*. One cause of a long wait is the child compacting its own context mid-turn:
+// measured at 38.4-62.0 s, mean 51.1 s, over 14 boundaries by `echo-opus-q14`
+// (`docs/verification/inner-doctrine-opens-2026-09-06/` Q1.3, re-derived here from their
+// committed frames: n=14, min 38397 ms, max 62029 ms, mean 51149.4 ms) and over 2 more of
+// mine below. For that whole time the calm surface received NOTHING, because every `system`
+// frame fell to `MachineryKind::Unknown`, which `timeline.rs` routes to `Visibility::Technical`.
+//
+// WHICH FRAME, AND WHY IT IS NOT THE ONE THE BRIEF NAMED
+// =====================================================
+// `system/compact_boundary` cannot drive a live label. It arrives at the END of the pause and
+// reports it in the past tense — its `duration_ms` is the span that already elapsed. Timed
+// against a real `claude` 2.1.263 stream
+// (`docs/verification/compaction-notice-2026-09-06/raw/cellT1.jsonl.timed.jsonl`,
+// `python3 gaps.py`):
+//
+//     turn 3 prompt sent            t =  5177 ms
+//     system/status "compacting"    t =  5190 ms   <- the pause STARTS here
+//     system/status "compacting"    t = 35190 ms   <- +30000 ms exactly, a heartbeat
+//     status compact_result:success t = 48805 ms   <- the pause ENDS here
+//     system/compact_boundary       t = 48805 ms   duration_ms = 43611
+//
+//     48805 - 5190 = 43615 ms observed against 43611 ms reported: 4 ms apart.
+//     Second boundary, same cell: 90231 - 52086 = 38145 ms against 38138 ms: 7 ms apart.
+//
+// So `system/status` is the announcement, it lands 13 ms after the prompt is accepted, and it
+// REPEATS every 30.000 s while the compaction runs. `compact_boundary` is left as an
+// `Unknown` technical record on purpose: it says nothing about the pause that the pair below
+// does not, it arrives too late to say it, and reading it would have required an edit to
+// `native.rs`, which belongs to another agent this round.
+// ---------------------------------------------------------------------------
+
+/// Where a compaction is, as the wire states it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactionPhase {
+    /// `status: "compacting"` — emitted at the start and repeated every 30.000 s after.
+    Started,
+    /// `compact_result: "success"` — the context was summarized and the pause is over.
+    MadeRoom,
+    /// `compact_result: "failed"` — the attempt was abandoned and the pause is over. Measured
+    /// twice in `cellT1` with `compact_error: "too_few_groups"`, 1 ms after the start, which
+    /// is what a 2% threshold override does to a conversation with almost no history to
+    /// summarize. **The turn then proceeded normally and answered**, both times.
+    KeptGoing,
+}
+
+impl CompactionPhase {
+    /// The record's own status. The vendor's outcome is kept HERE, truthfully, even though
+    /// `timeline.rs` shows the CEO one `completed` state for both endings — the pause is what
+    /// ended, and a red "failed" mark for a compaction that cost him nothing would be a false
+    /// alarm. The distinction survives in words, in the summary, and in the raw payload.
+    pub fn status(self) -> ToolStatus {
+        match self {
+            CompactionPhase::Started => ToolStatus::InProgress,
+            CompactionPhase::MadeRoom => ToolStatus::Completed,
+            CompactionPhase::KeptGoing => ToolStatus::Failed,
+        }
+    }
+}
+
+/// Which compaction phase a frame states, or `None` for every other frame on the wire.
+///
+/// Only two shapes match, both `system/status`, both verbatim from `cellT1.jsonl`:
+///
+/// ```json
+/// {"type":"system","subtype":"status","status":"compacting","session_id":"…","uuid":"…"}
+/// {"type":"system","subtype":"status","status":null,"compact_result":"failed",
+///  "compact_error":"too_few_groups","session_id":"…","uuid":"…"}
+/// ```
+///
+/// Deliberately NOT matched: `status: "requesting"` (measured 3 ms before `compacting` on
+/// every turn, including turns that never compact, so it announces nothing), and
+/// `system/compact_boundary` (see the block above). An unrecognized `compact_result` string
+/// is read as an ENDING rather than ignored — the pause is over either way, and the only
+/// thing at stake is which of two sentences is said.
+pub fn compaction_phase(frame: &Value) -> Option<CompactionPhase> {
+    if frame.get("type").and_then(|v| v.as_str()) != Some("system") {
+        return None;
+    }
+    if frame.get("subtype").and_then(|v| v.as_str()) != Some("status") {
+        return None;
+    }
+    if let Some(result) = frame.get("compact_result").and_then(|v| v.as_str()) {
+        return Some(if result == "success" { CompactionPhase::MadeRoom } else { CompactionPhase::KeptGoing });
+    }
+    if frame.get("status").and_then(|v| v.as_str()) == Some("compacting") {
+        return Some(CompactionPhase::Started);
+    }
+    None
+}
+
+/// The merge key that folds one compaction's start, its 30-second heartbeats and its ending
+/// into ONE row.
+///
+/// **The wire carries no correlation id.** The start, the heartbeat and the ending share only
+/// `session_id`; their `uuid`s all differ and nothing points from one to another. So the key
+/// is the lease's, and the TURN does the rest of the scoping: `LiveTurn` is built per turn
+/// (`live.rs`), and [`project`] keys a compaction row on `(turn, key)` for the reload path.
+///
+/// **The limit that leaves, named rather than discovered later:** two compactions inside ONE
+/// turn would fold into one row whose state is the later one's. Never observed — 16 of 16
+/// measured boundaries (q14's 14 and this record's 2) are one per turn, because the trigger is
+/// the incoming prompt.
+pub fn compaction_key(session_id: &str) -> String {
+    format!("compaction:{session_id}")
 }
 
 /// A tool call's lifecycle status. The four the ACP schema declares, plus `Other` so an
@@ -570,7 +684,26 @@ impl MachineryRecord {
             // ---- everything else is RETAINED verbatim (§1.4 G5) ----------------------
             "system" => {
                 let sub = frame.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
-                push(MachineryKind::Unknown, None, None, format!("system:{sub}"), None, Vec::new(), frame);
+                // THE ONE TYPED `system` FRAME: the compaction the CEO is sitting through.
+                // Everything else on this subtype family stays `Unknown` exactly as before —
+                // see [`compaction_phase`] for what is matched and what is deliberately not.
+                match compaction_phase(frame) {
+                    Some(phase) => push(
+                        MachineryKind::Compaction,
+                        Some(compaction_key(session_id)),
+                        Some(phase.status()),
+                        // The title stays the frame's own, because [`frame_title`] is
+                        // documented as the ONE place the lane and the record agree about
+                        // what a frame is called, and `is_session_meta` reads that string.
+                        format!("system:{sub}"),
+                        None,
+                        Vec::new(),
+                        frame,
+                    ),
+                    None => {
+                        push(MachineryKind::Unknown, None, None, format!("system:{sub}"), None, Vec::new(), frame)
+                    }
+                }
             }
             other => push(MachineryKind::Unknown, None, None, other.to_string(), None, Vec::new(), frame),
         }
@@ -1057,12 +1190,26 @@ pub fn project(records: Vec<MachineryRecord>) -> Vec<MachineryRecord> {
         if !turn_order.contains(&r.turn_id) {
             turn_order.push(r.turn_id.clone());
         }
-        let mergeable = r.kind == MachineryKind::ToolCall && r.tool_call_id.is_some();
+        let mergeable =
+            matches!(r.kind, MachineryKind::ToolCall | MachineryKind::Compaction) && r.tool_call_id.is_some();
         if !mergeable {
             out.push(r);
             continue;
         }
-        let key = r.tool_call_id.clone().unwrap();
+        // A COMPACTION KEY IS SCOPED TO ITS TURN; a tool call's is not.
+        //
+        // A tool call's id is the vendor's and is unique across the session, so it keys
+        // itself. A compaction carries no correlation id at all ([`compaction_key`]), so its
+        // key is the LEASE's — and a lease outlives a turn. Without the turn in the key, the
+        // two compactions measured in `cellT1` (one in turn 3, one in turn 4) would fold into
+        // ONE row: turn 4's state on turn 3's row, and one of two real events lost. `turn_id`
+        // is `None` only for the between-turn lane, which never reaches here.
+        let key = match r.kind {
+            MachineryKind::Compaction => {
+                format!("{}::{}", r.turn_id.as_deref().unwrap_or("-"), r.tool_call_id.clone().unwrap())
+            }
+            _ => r.tool_call_id.clone().unwrap(),
+        };
         match by_tool.get(&key) {
             Some(&idx) => merge_into(&mut out[idx], r),
             None => {
@@ -1713,4 +1860,142 @@ mod tests {
         assert_eq!(recs[1].kind, MachineryKind::ToolCall);
         assert_eq!(recs.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![0, 1]);
     }
+
+    // =======================================================================================
+    // THE COMPACTION PAUSE — every frame below is VERBATIM from a real `claude` 2.1.263
+    // stream, `docs/verification/compaction-notice-2026-09-06/raw/cellT1.jsonl`, with only
+    // the uuids shortened. Nothing here is a frame shape reasoned about.
+    // =======================================================================================
+
+    /// `cellT1.jsonl` line 32 — the announcement, 13 ms after the prompt was accepted.
+    fn compact_start() -> Value {
+        json!({"type":"system","subtype":"status","status":"compacting",
+               "session_id":"0fee2d41","uuid":"6bb40a60"})
+    }
+
+    /// `cellT1.jsonl` line 33 — the SAME frame again 30.000 s later, differing only by uuid.
+    fn compact_heartbeat() -> Value {
+        json!({"type":"system","subtype":"status","status":"compacting",
+               "session_id":"0fee2d41","uuid":"818ad359"})
+    }
+
+    /// `cellT1.jsonl` line 34 — the ending, at the same millisecond the silence stops.
+    fn compact_success() -> Value {
+        json!({"type":"system","subtype":"status","status":Value::Null,"compact_result":"success",
+               "session_id":"0fee2d41","uuid":"9e1cfd6b"})
+    }
+
+    /// `cellT1.jsonl` line 4 — the ending of an attempt that was abandoned 1 ms after it
+    /// started, which is what a 2% threshold override does to a short conversation.
+    fn compact_failed() -> Value {
+        json!({"type":"system","subtype":"status","status":Value::Null,"compact_result":"failed",
+               "compact_error":"too_few_groups","session_id":"0fee2d41","uuid":"c27400bb"})
+    }
+
+    #[test]
+    fn the_frame_that_announces_a_compaction_is_the_status_frame_not_the_boundary() {
+        assert_eq!(compaction_phase(&compact_start()), Some(CompactionPhase::Started));
+        assert_eq!(compaction_phase(&compact_heartbeat()), Some(CompactionPhase::Started));
+        assert_eq!(compaction_phase(&compact_success()), Some(CompactionPhase::MadeRoom));
+        assert_eq!(compaction_phase(&compact_failed()), Some(CompactionPhase::KeptGoing));
+
+        // `compact_boundary` REPORTS the pause once it is over — measured 43611 ms after the
+        // `compacting` frame in the same run — so it can never drive a live label and is
+        // deliberately left as an untyped technical record. Verbatim, `cellT1.jsonl` line 35.
+        let boundary = json!({"type":"system","subtype":"compact_boundary",
+                              "compact_metadata":{"trigger":"auto","pre_tokens":71895,
+                                                  "post_tokens":14640,"duration_ms":43611},
+                              "session_id":"0fee2d41","uuid":"99e6797c"});
+        assert_eq!(compaction_phase(&boundary), None);
+        let recs = MachineryRecord::from_native_event(&boundary, "sess", 0);
+        assert_eq!(recs[0].kind, MachineryKind::Unknown, "the boundary stays technical");
+        assert_eq!(recs[0].title, "system:compact_boundary");
+
+        // `requesting` arrives 3 ms before `compacting` on EVERY turn, including the two in
+        // `cellT1` that never compacted. It announces nothing and must not be read as a pause.
+        let requesting = json!({"type":"system","subtype":"status","status":"requesting",
+                                "session_id":"0fee2d41","uuid":"176086ad"});
+        assert_eq!(compaction_phase(&requesting), None);
+        assert_eq!(MachineryRecord::from_native_event(&requesting, "sess", 0)[0].kind, MachineryKind::Unknown);
+    }
+
+    #[test]
+    fn a_compaction_record_keeps_the_frames_own_title_so_the_lane_and_the_record_agree() {
+        let rec = &MachineryRecord::from_native_event(&compact_start(), "sess", 7)[0];
+        assert_eq!(rec.kind, MachineryKind::Compaction);
+        assert_eq!(rec.status, Some(ToolStatus::InProgress));
+        assert_eq!(rec.seq, 7, "typing a frame must not change what position it takes");
+        // `frame_title` is the ONE place the between-turn lane and the record agree about what
+        // a frame is called, and `is_session_meta` reads that string. Typing the frame must
+        // not fork that answer.
+        assert_eq!(rec.title, frame_title(&compact_start()));
+        assert!(is_session_meta(&rec.title));
+        // The vendor's own bytes survive, so technical mode still has the raw frame.
+        assert_eq!(rec.payload.as_ref().unwrap()["status"], "compacting");
+    }
+
+    #[test]
+    fn the_vendors_failure_is_kept_on_the_record_even_though_the_ceo_is_shown_a_finished_pause() {
+        let rec = &MachineryRecord::from_native_event(&compact_failed(), "sess", 0)[0];
+        assert_eq!(rec.status, Some(ToolStatus::Failed), "the record tells the truth about the attempt");
+        assert_eq!(rec.payload.as_ref().unwrap()["compact_error"], "too_few_groups");
+    }
+
+    #[test]
+    fn one_compaction_is_one_row_however_many_heartbeats_it_takes() {
+        // The exact frame sequence of `cellT1` turn 3: announcement, one 30-second heartbeat,
+        // ending. Three frames, one row, and the row's identity is the announcement's.
+        let rows = project(vec![
+            MachineryRecord::from_native_event(&compact_start(), "sess", 0).remove(0).stamp("thr", Some("t3"), false),
+            MachineryRecord::from_native_event(&compact_heartbeat(), "sess", 1)
+                .remove(0)
+                .stamp("thr", Some("t3"), false),
+            MachineryRecord::from_native_event(&compact_success(), "sess", 2).remove(0).stamp("thr", Some("t3"), false),
+        ]);
+        assert_eq!(rows.len(), 1, "three frames about one pause are one row, not three");
+        assert_eq!(rows[0].seq, 0, "the row sits where the pause STARTED");
+        assert_eq!(rows[0].status, Some(ToolStatus::Completed));
+    }
+
+    #[test]
+    fn two_compactions_in_two_turns_stay_two_rows() {
+        // MEASURED: `cellT1` compacted once in turn 3 and once in turn 4. The wire gives the
+        // two spans no correlation id and no distinguishing field — only the turn separates
+        // them — so a key that ignored the turn would report one event where there were two.
+        let rows = project(vec![
+            MachineryRecord::from_native_event(&compact_start(), "sess", 0).remove(0).stamp("thr", Some("t3"), false),
+            MachineryRecord::from_native_event(&compact_success(), "sess", 1).remove(0).stamp("thr", Some("t3"), false),
+            MachineryRecord::from_native_event(&compact_start(), "sess", 0).remove(0).stamp("thr", Some("t4"), false),
+            MachineryRecord::from_native_event(&compact_success(), "sess", 1).remove(0).stamp("thr", Some("t4"), false),
+        ]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].turn_id.as_deref(), Some("t3"));
+        assert_eq!(rows[1].turn_id.as_deref(), Some("t4"));
+    }
+
+    #[test]
+    fn a_compaction_never_merges_with_a_tool_call() {
+        // Different kinds, different keys — a `compaction:` key cannot collide with a vendor
+        // tool id, and the merge gate checks the kind as well as the key.
+        let rows = project(vec![
+            tool_open_rec("toolu_A", "Bash"),
+            MachineryRecord::from_native_event(&compact_start(), "sess", 1).remove(0).stamp("thr", Some("t3"), false),
+        ]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].kind, MachineryKind::ToolCall);
+        assert_eq!(rows[1].kind, MachineryKind::Compaction);
+        assert!(compaction_key("sess").starts_with("compaction:"));
+    }
+
+    fn tool_open_rec(id: &str, name: &str) -> MachineryRecord {
+        MachineryRecord::from_native_event(
+            &json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                    "content_block":{"type":"tool_use","id":id,"name":name,"input":{}}}}),
+            "sess",
+            0,
+        )
+        .remove(0)
+        .stamp("thr", Some("t3"), false)
+    }
+
 }
