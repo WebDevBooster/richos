@@ -688,6 +688,9 @@ data["hooks"] = {
             # CANONICAL_AGENT_CHAIN, so a sandbox that stopped at five would
             # model an engine that cannot pass its own probe.
             {"type": "command", "command": P + "/guard-model-ceiling.sh", "timeout": 10},
+            # LAST again, for the same reason: Layer C compares this chain
+            # position by position against CANONICAL_AGENT_CHAIN.
+            {"type": "command", "command": P + "/guard-stale-staging.sh", "timeout": 10},
         ]},
         {"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [
             {"type": "command", "command": P + "/guard-main-checkout-writes.sh", "timeout": 10},

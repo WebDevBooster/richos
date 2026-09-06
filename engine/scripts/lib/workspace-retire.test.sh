@@ -1365,7 +1365,15 @@ assert_contains "$OUT" "journal-unwritable" "the reason is the journal" || rc=1
 assert_contains "$OUT" '"outcome": "failed"' "outcome failed" || rc=1
 assert_dir "$CONTAINER/alpha" "the workspace is at its own path" || rc=1
 assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "byte-for-byte" || rc=1
-assert_eq "0" "$(stat -f %z "$JOURNAL" 2>/dev/null || stat -c %s "$JOURNAL")" "the journal is still empty" || rc=1
+# `wc -c` rather than a BSD-first `stat -f %z ... || stat -c %s`. On GNU
+# coreutils `-f` is --file-system: it prints a whole FILESYSTEM REPORT to
+# STDOUT and exits 1, so `2>/dev/null` hides nothing and the `||` fallback
+# APPENDS the real size to that report. The comparison then came down to "0"
+# against six lines of block counts, and this case was the only red in 400
+# assertions on Linux. Measured on both hosts 2026-09-06. Fourth instance of
+# this class after `mktemp -t`, `BASH_CMDS` and `sed -i ''`
+# (docs/ci-portability-notes.md); `wc -c` needs no branch and cannot drift.
+assert_eq "0" "$(wc -c <"$JOURNAL" | tr -d ' ')" "the journal is still empty" || rc=1
 ROUT="$(R restore "$WS_ALPHA" "$FX/restored")"
 assert_eq "3" "$?" "restore refuses" || rc=1
 assert_contains "$ROUT" "no-retirement-record" "accurately: nothing was retired" || rc=1

@@ -10,6 +10,21 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Added
+
+- Staging-staleness gate. A PreToolUse[Agent] guard refuses a dispatch that
+  works on, or tests against, a product tree whose landed commits have not
+  reached staging, so a QA verdict can no longer be taken against an
+  environment running older code. Three facts must all hold before it refuses:
+  a deploy record behind the landing branch, undeployed commits that TOUCH a
+  declared product tree, and a dispatch that is product work or a run against
+  staging. A land touching only documentation or tooling is met with silence,
+  because nothing shipped and nothing is at risk. Declaration-gated
+  (`STAGING_TREES`); `STAGING_RECORD_REQUIRED` escalates a missing record from
+  an announcement to a refusal. `scripts/staging-record.sh` is the only
+  sanctioned writer of the record and refuses a commit hash it cannot parse.
+
+
 ### Fixed
 
 - Retirement archives now include a verified Git object pack for HEAD history

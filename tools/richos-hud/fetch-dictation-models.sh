@@ -103,7 +103,12 @@ pin_field() {
 }
 
 file_size() {
-  stat -f %z "$1" 2>/dev/null || stat -c %s "$1"
+  # NOT `stat -f %z ... || stat -c %s`. On GNU coreutils `-f` is --file-system:
+  # it prints a filesystem report to STDOUT and exits 1, so `2>/dev/null` hides
+  # nothing and the fallback APPENDS the real size to that report. Here the
+  # result is compared against a pinned byte count, so on Linux every model
+  # would be reported corrupt. `wc -c` is the same answer on both hosts.
+  wc -c <"$1" | tr -d ' '
 }
 
 sha256_of() {

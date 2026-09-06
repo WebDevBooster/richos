@@ -612,10 +612,38 @@ else
         [ -f "$cand/ceo-decisions.md" ] && { LIVE_DIR="$(cd "$cand" && pwd -P)"; break; }
     done
 fi
+# WHEN THE LIVE RECORD IS ABSENT THIS SECTION FALLS BACK TO THE FIXTURE
+# REGISTER RATHER THAN SKIPPING, and the reason is a measurement rather than
+# tidiness. Until 2026-09-06 the absent case printed a NOTE and ran nothing —
+# honest, and it made this suite STRUCTURALLY RED on every host that is not the
+# one workstation carrying `../richos-hq`. On Linux, from a clean clone at
+# `381907f4f07a`, `ceo-ruled.test.sh` reported 37 passed / 1 FAILED and its
+# mutation harness `0 proven, 6 SURVIVED`: four mutants went red at the RIGHT
+# cases (1a, 1c, 1e) but were anchored on `8a`, and two — `locator-points-
+# nowhere` and `title-and-locator-disagree` — genuinely survived, because the
+# only cases exercising them never ran. Six properties of a blocking gate,
+# provable on exactly one machine on earth.
+#
+# The two checks this section makes — every locator lands on the title it
+# printed, every quoted sentence is in the file it named — are properties of
+# the PREDICATE, not of the founder's private prose. A fixture register can
+# carry them, and sections 1-7 already build one in the shape this code wants:
+# a directory holding ceo-decisions.md and open-items.md.
+#
+# THE LIVE RECORD IS STILL PREFERRED AND STILL STRONGER, so nothing is
+# weakened: on the workstation that has it, these cases run against 1,400 lines
+# of maintained register, and the case labels say WHICH register answered so a
+# reader can never mistake one for the other.
+LIVE_REGISTER_KIND="live"
 if [ -z "$LIVE_DIR" ]; then
-    echo "  NOTE  the live richos-hq record is not on this machine, so cases 8a-8d did NOT run."
-    echo "        This is not a pass. Sections 1-7 ran against the fixture only."
-else
+    LIVE_DIR="$HQ/wiki"
+    LIVE_REGISTER_KIND="fixture"
+    echo "  NOTE  the live richos-hq record is not on this machine, so cases 8a-8d run"
+    echo "        against the FIXTURE register instead. That proves the gate's citation"
+    echo "        properties on every host; it does NOT prove them against 1,400 lines of"
+    echo "        maintained record, which only the workstation carrying it can do."
+fi
+if true; then
     LIVE_DEC="$LIVE_DIR/ceo-decisions.md"
     LIVE_ITEMS="$LIVE_DIR/open-items.md"
     LIVESEAT="$SANDBOX/liveseat"
@@ -720,7 +748,7 @@ $OUT"
     live_refused() { # <case> <label>
         live_gate "$1"
         if [ "$RC" -ne 2 ]; then
-            bad "$2" "rc=$RC — the live register no longer refuses a question that was ruled on 2026-09-01: $(printf '%s' "$OUT" | head -3 | tr '\n' ' ')"
+            bad "$2" "rc=$RC — the ${LIVE_REGISTER_KIND} register no longer refuses a question the record already answers: $(printf '%s' "$OUT" | head -3 | tr '\n' ' ')"
             return
         fi
         local why
@@ -732,15 +760,15 @@ $OUT"
         fi
     }
 
-    live_refused f1 "8a  LIVE record: the install / Option D question of 2026-09-01 is refused, and every ruling it cites resolves and is quoted from the file"
-    live_refused f2 "8b  LIVE record: the logo one-tone-or-two question is refused, and every ruling it cites resolves and is quoted from the file"
-    live_refused f3 "8c  LIVE record: the splash-screens question is refused, and every ruling it cites resolves and is quoted from the file"
+    live_refused f1 "8a  ${LIVE_REGISTER_KIND} register: the install / Option D question is refused, and every ruling it cites resolves and is quoted from the file"
+    live_refused f2 "8b  ${LIVE_REGISTER_KIND} register: the logo one-tone-or-two question is refused, and every ruling it cites resolves and is quoted from the file"
+    live_refused f3 "8c  ${LIVE_REGISTER_KIND} register: the splash-screens question is refused, and every ruling it cites resolves and is quoted from the file"
 
     live_gate pos
     if [ "$RC" -eq 0 ]; then
-        ok "8d  LIVE record: the monospace question PASSES — measured against 1,400 lines of real register"
+        ok "8d  ${LIVE_REGISTER_KIND} register: the monospace question PASSES — the positive control is measured, not assumed"
     else
-        bad "8d  LIVE record: the monospace question passes" "rc=$RC out=$(printf '%s' "$OUT" | head -3 | tr '\n' ' ')"
+        bad "8d  ${LIVE_REGISTER_KIND} register: the monospace question passes" "rc=$RC out=$(printf '%s' "$OUT" | head -3 | tr '\n' ' ')"
     fi
 fi
 echo ""

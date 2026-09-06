@@ -173,6 +173,117 @@ name: engine-self-verify
 # beneath `on:`. That is the whole change. Restoring them BEFORE that dispatch would be
 # promising a platform result nobody has measured, which is the same mistake in the other
 # direction.
+#
+# =========================================================================================
+# "THAT IS THE WHOLE CHANGE" IS WRONG, AND IT IS WRONG IN THE WAY THAT WASTES A DAY
+# =========================================================================================
+#
+# THIS WORKFLOW IS DISABLED AT GITHUB, and has been since 2026-09-01. Not trigger-less —
+# DISABLED. Measured 2026-09-06 rather than inferred:
+#
+#     $ gh workflow list --all
+#       engine-self-verify   disabled   345224407
+#     $ gh api repos/<owner>/richos/actions/workflows/345224407 --jq '{state,updated_at}'
+#       {"state":"disabled_manually","updated_at":"2026-09-01T10:49:51.000+01:00"}
+#     $ gh workflow run engine-self-verify.yml --ref main
+#       HTTP 422: Cannot trigger a 'workflow_dispatch' on a disabled workflow
+#
+# So the instruction above could not have been carried out by anybody, and the fallback it
+# offers is no better: A MANUALLY DISABLED WORKFLOW DOES NOT RUN ON `push` EITHER. Adding
+# the two triggers back would have produced a file that reads as re-enabled, a green
+# checklist item, and not one execution. That is this repository's signature defect — a plan
+# recorded as ready that cannot execute — sitting inside the file whose job is to catch it.
+#
+# `packaging-ci` is in the same state (`disabled_manually`) and is not this file's business,
+# but a reader here should know the switch is not unique to this workflow.
+#
+# SO THE RE-ENABLE IS TWO STEPS, IN THIS ORDER:
+#
+#     gh workflow enable engine-self-verify.yml       # or the REST /enable endpoint
+#     gh workflow run    engine-self-verify.yml --ref main
+#
+# and only then, against a green run, restore `push:` and `pull_request:`.
+#
+# IT WAS DELIBERATELY NOT ENABLED BY THE COMMIT THAT WROTE THE PARAGRAPH ABOVE, because the
+# repository is public and enabling a workflow whose last five runs are all failures puts a
+# visible cross on the front page over defects that predate the flip. THE LEAD THEN ENABLED
+# IT, 2026-09-06T19:36:26+01:00, having verified the state independently first:
+#
+#     $ gh workflow list --all --repo <owner>/richos     # before
+#       engine-self-verify   disabled_manually   345224407
+#     $ gh workflow enable engine-self-verify --repo <owner>/richos
+#     $ gh workflow list --all --repo <owner>/richos     # after
+#       engine-self-verify   active              345224407
+#
+# `push:` and `pull_request:` are still deliberately absent and the lead declined to restore
+# them: the answer this file argues for is ONE DISPATCH on Linux, not a trigger on every
+# commit. That has not changed.
+#
+# =========================================================================================
+# WHO SWITCHED IT OFF — the pattern is unambiguous; the NAME is not obtainable
+# =========================================================================================
+#
+# A verification gate that somebody switched off without a record is the failure class this
+# engine exists to prevent, so this was chased rather than shrugged at.
+#
+# THE ACTOR'S NAME IS `unverified:` AND CANNOT BE OBTAINED FROM HERE. The workflow object
+# carries no actor field at all — its keys are badge_url, created_at, html_url, id, name,
+# node_id, path, state, updated_at, url — and `gh api /orgs/<owner>/audit-log` returns
+# `404 Not Found` because the account is a USER, not an organization, and the audit log is
+# an organization/enterprise feature. What would settle it: an org or enterprise audit log,
+# or the account owner's own record of 2026-09-01.
+#
+# THE PATTERN, HOWEVER, IS PLAIN, and it is read off timestamps rather than inferred:
+#
+#     2026-09-01T10:49:51+01:00   engine-self-verify   disabled_manually
+#     2026-09-01T10:49:52+01:00   packaging-ci         disabled_manually
+#     2026-09-04T13:28:31+01:00   app-spine-ci         active
+#     2026-09-04T13:28:32+01:00   ui-suite-ci          active
+#     2026-09-04T13:28:33+01:00   windows-companion-ci active
+#
+# One second apart in each group: two sittings, not five decisions. The 2026-09-01 group is
+# the billing block `docs/verification/workflows-on-a-clone-2026-09-04/README.md` records.
+# The 2026-09-04 group is the re-enable after that record measured all five — AND THE TWO
+# LEFT OFF ARE EXACTLY THE TWO THAT RECORD FOUND RED: this workflow (55 of 60 suites) and
+# packaging-ci (3 of 7 suites red). So they were not forgotten; they were held back because
+# they were failing, and the holding-back is what nothing wrote down.
+#
+# `packaging-ci` REMAINS `disabled_manually` ON PURPOSE. It is outside this file's subject,
+# nobody here knows why it is off, and it is being raised separately. Do not enable it as a
+# tidy-up.
+#
+# =========================================================================================
+# THE LINUX MEASUREMENT, 2026-09-06 — the row's five was six, and stale in both directions
+# =========================================================================================
+#
+# `scripts/ci-verify.sh` run WHOLE and unmodified from a clean `git clone` at
+# `381907f4f07a`, in an `ubuntu:24.04` container built the way the 2026-09-04 record
+# specifies — bash 5.2.21, git 2.43.0, python3 3.12.3, unprivileged uid 1001, and the clone
+# as the only entry in its directory so `../richos-hq` does not resolve:
+#
+#     exit 1,  71 of 77 suites,  5645 s (94 m)
+#
+#     scripts/hooks/ceo-ruled.test.sh                37 passed / 1 FAILED, and its harness
+#                                                    `0 proven, 6 SURVIVED`
+#     scripts/hooks/contract-integrity.test.sh       164 passed / 1 FAILED (case 54, which
+#                                                    runs the reconciler suite)
+#     scripts/hooks/engine-status.test.sh            15 passed / 1 FAILED — RED ON macOS TOO
+#     scripts/hooks/session-evidence.test.sh         FAILED (errors=4)
+#     scripts/lib/workspace-retire.test.sh           51 passed / 1 failed of 400 assertions
+#     scripts/reconcile-terminal-worktrees.test.sh   1 FAILED / 58 passed
+#
+# TWO NOTES ON THE CONTAINER, because a wrong container produces a verdict about itself. The
+# first pass here lacked `rsync` and died at suite 2 with `FATAL: rsync is required by the
+# collector` — a false red, and also a real gap: `ci-verify.sh` step 1 calls itself
+# "preconditions (tool versions)" and checks only bash, git and python3. The image now
+# carries the runner's toolset (rsync, procps, lsof). Separately, this container's git is
+# 2.43.0 against 2.52.0 on the dev Mac, so that was eliminated as a variable wherever it
+# could matter rather than assumed away.
+#
+# WHAT ONLY A RUNNER CAN ANSWER IS NOW DISPATCHED. Run 34052820610, `workflow_dispatch` on
+# `main` at `82c90f0c9bcf`, is the first execution of this workflow on GitHub's own hardware
+# — a 4-vCPU x86 VM against this 10-CPU arm64 container. It measures the platform, and its
+# suite list should match the six above; where it does not, the runner is right.
 
 on:
   # Deliberately no `push` and no `pull_request` — see the section above. They come back

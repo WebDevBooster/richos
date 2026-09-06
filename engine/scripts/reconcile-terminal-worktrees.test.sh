@@ -242,20 +242,53 @@ T claim --session-id "$SID" --agent-id "$A5" --ingress SubagentStop >/dev/null
 Q5="$(q "$EXT5" "$A5")"
 # Inject the write exactly between the two real manifest scans. A timed
 # background writer can finish before capture starts on a busy test host.
+#
+# ONLY THE SETTLE SLEEP INJECTS, and that condition is the whole of this case's
+# host-independence. `patch.object(rec.time, "sleep", ...)` replaces the sleep
+# on the GLOBAL time module, and `subprocess.run(..., timeout=N)` calls
+# `time.sleep` from its own wait loop — so an UNCONDITIONAL writer fires during
+# `processes_using()`'s `lsof`/`ps` calls, which run BEFORE the first manifest
+# scan. The churn file is then present in BOTH manifests, they compare equal,
+# capture succeeds, and the case fails with `states=quarantined captured out=`
+# — a verdict about how long `lsof` took, not about the settle.
+#
+# It is timing-dependent rather than platform-dependent, which is why this case
+# is the one the record calls "not stable even in its redness". MEASURED
+# 2026-09-06 at `381907f4f07a`: macOS all 59 passed; Linux (ubuntu:24.04, git
+# 2.43.0, unprivileged) C16 FAILED exactly this way. The settle is >= 1.0s by
+# default and subprocess's wait-loop delay is capped at 0.05s, so the two are
+# never confusable.
 OUT="$(RICHOS_RECONCILE_NO_KILL=1 python3 - "$REC" "$SID" "$A5" "$Q5" <<'PYSETTLE'
-import importlib.util, pathlib, sys
+import importlib.util, os, pathlib, sys
 from unittest.mock import patch
 spec = importlib.util.spec_from_file_location("rec", sys.argv[1]); rec = importlib.util.module_from_spec(spec); spec.loader.exec_module(rec)
 t = rec.tx.load_tx(sys.argv[2], sys.argv[3])
 q = pathlib.Path(sys.argv[4])
+REAL_SLEEP = rec.time.sleep
+SETTLE = float(os.environ.get("RICHOS_RECONCILE_SETTLE") or "1.0")
+injected = []
 def write_between_scans(seconds):
+    # Anything shorter than the settle belongs to some other caller. Let it sleep.
+    # (NO APOSTROPHE MAY APPEAR ANYWHERE IN THIS HEREDOC: it is a quoted heredoc
+    #  nested inside a command substitution, where bash reads a lone single-quote
+    #  as an unterminated quote and the whole FILE then fails bash -n.)
+    if seconds < SETTLE:
+        REAL_SLEEP(seconds)
+        return
+    injected.append(seconds)
     (q / "churn.txt").write_text("".join(str(i)+"\n" for i in range(1, 9)))
 with patch.object(rec.time, "sleep", write_between_scans):
     try:
         rec.capture_member(t, 1)
     except RuntimeError as error:
+        if not injected:
+            print("NEGATIVE CONTROL FAILED: the settle sleep was never taken, so "
+                  "the write for this case was never injected and the RuntimeError is "
+                  "about something else: %s" % error)
+            sys.exit(1)
         print(error)
         sys.exit(0 if "changed during the settle interval" in str(error) else 1)
+print("capture succeeded; settle sleeps intercepted: %r" % (injected,))
 sys.exit(1)
 PYSETTLE
 )"; RC=$?

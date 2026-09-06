@@ -366,6 +366,7 @@ run_layer_R() {
     notice-unstarted-rows \
     notice-ceo-asks guard-ceo-ask-first notice-ceo-unasked session-start-ceo-ask \
     guard-model-ceiling \
+    guard-stale-staging \
     notice-unasked-deferral \
     guard-agent-state-claims \
     guard-idle-land notice-waiver-repetition \
@@ -971,6 +972,7 @@ reader-teammate-hint.sh|PreToolUse
 verify-agent-prompt.sh|PreToolUse
 guard-ceo-ask-first.sh|PreToolUse
 guard-model-ceiling.sh|PreToolUse
+guard-stale-staging.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
@@ -1130,7 +1132,7 @@ BR_EOF
             # dispatch that is malformed AND unasked should be told it is
             # malformed first, because that is the one the operator can fix
             # without leaving the keyboard.
-            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh guard-ceo-ask-first.sh guard-model-ceiling.sh "
+            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh guard-ceo-ask-first.sh guard-model-ceiling.sh guard-stale-staging.sh "
             if [ "$BR_AGENT_ORDER" != "$BR_AGENT_WANT" ]; then
                 emit_fail "BR2. PreToolUse[Agent] chain ORDER wrong. want: ${BR_AGENT_WANT}got: ${BR_AGENT_ORDER}"
                 BR2_OK=0
@@ -1930,6 +1932,12 @@ CANONICAL_AGENT_CHAIN=(
     # load-bearing (both are policy questions), so the tie was broken by the
     # merge-safe choice: appending, while another engineer held hooks.json open.
     "$REPO_ROOT/scripts/hooks/guard-model-ceiling.sh"
+    # LAST, after the cost ceiling. The chain reads outward: is the SPAWN
+    # well formed, then what does it COST, then what ENVIRONMENT will it
+    # meet. A dispatch that is malformed should hear that first; whether
+    # staging is current is the least actionable thing to be told about a
+    # spawn that was never going to run.
+    "$REPO_ROOT/scripts/hooks/guard-stale-staging.sh"
 )
 
 # Resolve settings.json $CLAUDE_PROJECT_DIR placeholder → absolute path.
@@ -2692,6 +2700,11 @@ CANON = [
     # reads as two separate rulings and is exactly the noise that gets a guard
     # routed around.
     "guard-model-ceiling.sh",
+    # The staging-staleness gate. BLOCKING, and registered twice it would
+    # print its whole refusal — the undeployed commit list, the deploy
+    # command, the ack line — twice per dispatch, which reads as two
+    # separate stale environments.
+    "guard-stale-staging.sh",
 ]
 
 def load(p):
