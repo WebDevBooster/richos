@@ -1,0 +1,15 @@
+=== turn-manifest: every property, proven load-bearing by removing it ===
+  PASS  scoping-session-wide — removing it turns c. red
+  PASS  no-tool-message — removing it turns a. red
+  PASS  blank-on-empty-turn — removing it turns b. red
+  PASS  gap-reads-as-empty — removing it turns b2. red
+  PASS  silent-truncation — removing it turns e2. red
+  PASS  records-uncounted — removing it turns f. red
+  FAIL  can-block — the mutation did not apply
+          MUTATION TARGET ABSENT — the source has drifted:
+            if [ "$RC" = "0" ] && [ -n "$OUT" ]; then
+              printf '%s\n' "$OUT"
+          fi
+          exit 0
+
+✗ 6/7 proven, 1 NOT load-bearing (removable with no test noticing).

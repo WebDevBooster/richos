@@ -1,0 +1,29 @@
+=== mutation harness: is each fix load-bearing? ===
+
+  NOT PROVEN M1 root resolution -> always the engine root — the suite failed, but NOT on '1a'. It went red for some other reason, which is not proof.
+             FAIL  1c guarded the engine's tree (rc=2)
+             FAIL  2a session-repo bash write not blocked (rc=0 out=)
+             FAIL  3b untruthful token not caught (rc=0 out=)
+             FAIL  4a no state written to the session repo (rc=0 out==== Definition-drift guard: WARNING (allowed) ===
+             FAIL  4b state leaked into the engine's repository (the step-1 defect)
+             FAIL  5a no session-scoped snapshot of the session roster (out={"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "agent-definition snapshot: recorded 4 definition(s) at session start -> .claude/state/agent-definitions-cafe1234.snapshot (guard-definition-drift.sh blocks a spawn whose definition changed since)"}})
+             FAIL  5b stand-down wording (out={"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "agent-definition snapshot: recorded 4 definition(s) at session start -> .claude/state/agent-definitions-cafe1234.snapshot (guard-definition-drift.sh blocks a spawn whose definition changed since)"}})
+             FAIL  6a reaper root split (out={"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "worktree reconciler: DONE (zero dead worktrees) \u2014 terminal members with a directory present=0, pending retry=0, BLOCKED=0, hard failures (dead-present)=0, sealed transactions whose native member is gone=0, overdue pending terminal events=0, live workers positively present=0, transactions touched=0 || worktree inven)
+             FAIL  7a status ACTIVE (out={"systemMessage": "RichOS engine 1.0.0: ENFORCEMENT ACTIVE for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/root-contract.XXXXXX.HWnnAmQC2W/hostrepo/engine (?/? guards, engine at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/root-contract.XXXXXX.HWnnAmQC2W/hostrepo/engine, root via project-dir). WARNING: the guard inventory could NOT be derived from the engine's hooks/hooks.)
+             FAIL  7b status STOOD DOWN (out={"systemMessage": "RichOS engine 1.0.0: ENFORCEMENT ACTIVE for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/root-contract.XXXXXX.HWnnAmQC2W/hostrepo/engine (?/? guards, engine at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/root-contract.XXXXXX.HWnnAmQC2W/hostrepo/engine, root via project-dir). WARNING: the guard inventory could NOT be derived from the engine's hooks/hooks.)
+             FAIL  7d stand-down announced as ON
+             FAIL  8b secret scanner blocked in an unadopted repo (rc=2)
+             FAIL  9d payload session id no longer read (out={"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "agent-definition snapshot: recorded 4 definition(s) at session start -> .claude/state/agent-definitions-beef9999.snapshot)
+             FAIL  9i enforcing-hook snapshot is no longer session-scoped from the payload (out={"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "enforcing-hook snapshot: recorded the 60 hook registrations this session actually booted with -> .claude/state/enforcing-)
+  PROVEN     M2 resolve_agent_def stops stripping the namespace — removing the fix turns '8c' red
+  PROVEN     M2b strip_agent_namespace becomes an identity function — removing the fix turns '8a' red
+  PROVEN     M3 not-adopted silently falls back to the engine root — removing the fix turns '4a' red
+  PROVEN     M4 a declared root falls through instead of failing — removing the fix turns '1c' red
+  PROVEN     M5 reaper collapses its two roots into one — removing the fix turns '6a' red
+  PROVEN     M6 snapshotter reverts to the ambiguous 'skipped' — removing the fix turns '5b' red
+  PROVEN     M7 a BROKEN root stands down instead of blocking — removing the fix turns '1e' red
+  NOT PROVEN M8 an unresolvable namespace is accepted again — THE MUTATION DID NOT APPLY (the anchor it edits has moved; this harness is no longer testing what it claims)
+  PROVEN     M9 engine-status reports ACTIVE without checking — removing the fix turns '7b' red
+  PROVEN     M10 the snapshotter reads stdin unconditionally again (the 92s hang) — removing the fix turns '9c' red
+
+=== mutation harness: 2 fix(es) NOT PROVEN load-bearing, 9 proven ===
