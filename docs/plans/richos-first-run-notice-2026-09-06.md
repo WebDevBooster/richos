@@ -215,18 +215,34 @@ Not the rail (that is navigation). Not the opening screen (dismissed in one keys
 reaches the conversation by many paths). Not below the composer (the conversation is the hero
 and this is the first thing in it).
 
-**Two defects were found by rendering it and would not have been found by reading it.**
+**Five defects were found by rendering it, and not one of them would have been found by
+reading the code.** They are listed because the list is the argument for the rule: this
+surface was designed on screen, in both themes, at three widths, in the order a first-run user
+meets it.
 
 1. **It ran the full width of the pane.** `#conversation`'s children are full-bleed by default
-   and `#messages` is not — it is `--reading-width` wide with 28px gutters. So the panel's edges
-   sat 80px outside every sentence below them, which reads as browser chrome bolted on above the
-   product. It is now `calc(--reading-width - 56px)`, exactly the column `#messages` lays text
-   in.
-2. **The "Not now" receipt kept the panel's chrome**, including the 17px semibold headline, so a
-   quiet acknowledgement read as a fresh announcement. The chrome and the padding go on
+   and `#messages` is not — it is `--reading-width` wide with gutters. So the panel's edges sat
+   80px outside every sentence below them, which reads as browser chrome bolted on above the
+   product.
+2. **And the fix was only half a fix.** A `max-width` alone is right only while the pane is
+   wider than the reading column. At 1000px, where the rail takes 300 and the pane is 700, the
+   panel took the whole 700 and ran hard against the window edge — 28px proud of every sentence
+   under it, on both sides. It carries a `width` as well now.
+3. **Its gutter was the wide one at every width.** `#messages` uses three — 28px, 24px under
+   1180px, 18px once `applyBreakpoint()` sets `bp-narrow`. At 760px the panel sat at x=18's
+   neighbor while the text started at x=18. The two sets are a duplicate that cannot share a
+   selector, so check 10 reads both boxes off the rendered page at 760, 1000 and 1400 and
+   asserts the four verticals are equal.
+4. **The "Not now" receipt kept the panel's chrome**, including the 17px semibold headline, so
+   a quiet acknowledgement read as a fresh announcement. The chrome and the padding go on
    `declined`, and the type drops to the body tier.
+5. **The notice painted over the company picker.** Not a product defect but a harness one, and
+   it is the more useful of the two kinds: `onboarding_view_of` returns `no-central-folder` when
+   there is no active binding, and `mock.js` answered from its preset regardless — so the
+   preview served a state the product cannot produce. Fixed in the mock, and the real order is
+   now walked end to end by check 9.
 
-A third was found the same way and is a backend defect rather than a layout one: the refusal
+A sixth was found the same way and is a backend defect rather than a layout one: the refusal
 put `DoctrineError::Unwritable` on the CEO's screen — *"the standing instruction could not be
 written to /Users/…/onboarding.json — RichOS will not start Claude without it"*. Every clause is
 false about that file, and it carries an absolute path onto a screen `setup_view.rs` says takes
@@ -244,8 +260,9 @@ sentence written for him.
 | 3 | `app/src-tauri/src/main.rs` | `onboarding_view` / `decline_onboarding`, appended to the handler list; the three CEO-facing sentences as consts |
 | 4 | `app/ui/index.html`, `style.css`, `main.js` | the surface |
 | 5 | `app/ui/mock.js` | `onboarding_view` / `decline_onboarding` arms; default `described`, so no other suite's fixtures start painting this panel |
-| 6 | `app/ui/tests/onboarding.js` | 8 checks, 67 assertions, every one run red by breaking the shipped source |
+| 6 | `app/ui/tests/onboarding.js` | 10 checks, 80 assertions, every one run red by breaking the shipped source |
 | 7 | `app/ui/tests/contrast.js`, `contrast-debt.json` | two new walked surfaces; check 10c would otherwise refuse a shell-declared panel nobody had measured |
+| 8 | `app/ui/tests/affordances.js`, `lib/state-registry.js` | nine states classified, three fixtures driven; every sentence of the offer is ACTIONABLE and names one of the two controls in its own panel |
 
 ---
 
@@ -323,7 +340,8 @@ carries `data-contrast-exempt`, in both themes.
 **An independent UI/UX signoff.** I designed this and I built it, so I am not eligible to pass
 it. The reviewer's checks, in order:
 
-1. Drive `app/ui/tests/onboarding.js` and read check 8's printed ratios rather than this table.
+1. Drive `app/ui/tests/onboarding.js` and read check 8's printed ratios rather than this table,
+   and check 10's printed box geometry rather than my word for the alignment.
 2. Look at the offer, the receipt, the refused write and the unusable state **on screen, in both
    themes**, and judge whether the notice reads as part of the conversation or as chrome above
    it. That is the judgment call I made and cannot certify.
