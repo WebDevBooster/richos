@@ -2640,37 +2640,65 @@ struct OnboardingView {
     /// was not derived for. `None` when no thread is bound, which is itself a reason to
     /// render nothing.
     entity_id: Option<String>,
-    /// Why the company's notes could not be used — `unusable` only, and empty otherwise.
+    /// What the CEO is told when his notes exist and cannot be used — the scannable fact.
+    /// `None` in every other state, and the window renders it verbatim.
+    headline: Option<String>,
+    /// The consequence and the party, under that headline. `None` in every other state.
     ///
-    /// Composed in richos-core (`CompanyLayer::describe`) and never re-phrased here, for the
-    /// same reason `history_health` composes its own sentences: "the file is too big" and
-    /// "the file could not be read" are different repairs.
-    why: Option<String>,
+    /// **BOTH ARE COMPOSED HERE, and neither is `CompanyLayer::describe`**, which is the
+    /// operator's sentence and carries a path and a byte count
+    /// (`"…/company.md is 40961 bytes, over the 40960-byte budget"`). `setup_view.rs` sets
+    /// the register the CEO's screen owes — whole sentences, no paths, no digits — and the
+    /// boot log already prints the operator's half, so the two readers each get the one
+    /// written for them instead of sharing one written for neither.
+    ///
+    /// They live here rather than in the window for the reason `history_health` composes both
+    /// of its own: "I could not read it" and "there was nothing to read" are different
+    /// statements, and a renderer able to phrase either is a renderer able to substitute one
+    /// for the other.
+    message: Option<String>,
 }
+
+/// What he is told when there are notes about his company and they could not be read.
+///
+/// `UNUSABLE_BLOCK`'s instruction to Rich is *"Do not guess at what it said. If he asks about
+/// it, tell him plainly that his notes about this company could not be read and that whoever
+/// set RichOS up will need to look at it."* These are the same three claims on the screen —
+/// could not read, will not guess, and whose job it is — so the window and the conversation
+/// say one thing rather than two versions of one thing.
+const ONBOARDING_UNUSABLE_HEADLINE: &str = "I couldn't read your notes about this company.";
+const ONBOARDING_UNUSABLE_MESSAGE: &str =
+    "I'm working without them, and I won't guess at what they said. Whoever set RichOS up \
+     will need to look at that.";
 
 fn onboarding_view_of(state: &State<AppState>) -> OnboardingView {
     let spine = state.spine.lock().unwrap();
     let Some(binding) = spine.active_binding() else {
-        return OnboardingView { state: "no-central-folder".to_string(), entity_id: None, why: None };
+        return OnboardingView {
+            state: "no-central-folder".to_string(),
+            entity_id: None,
+            headline: None,
+            message: None,
+        };
     };
     let entity_id = Some(binding.entity_id().to_string());
-    match spine.onboarding_state(binding) {
-        richos_core::onboarding::OnboardingState::NoCentralFolder => {
-            OnboardingView { state: "no-central-folder".to_string(), entity_id, why: None }
-        }
-        richos_core::onboarding::OnboardingState::NotYet => {
-            OnboardingView { state: "not-yet".to_string(), entity_id, why: None }
-        }
-        richos_core::onboarding::OnboardingState::Declined { .. } => {
-            OnboardingView { state: "declined".to_string(), entity_id, why: None }
-        }
-        richos_core::onboarding::OnboardingState::Described => {
-            OnboardingView { state: "described".to_string(), entity_id, why: None }
-        }
+    let (name, headline, message) = match spine.onboarding_state(binding) {
+        richos_core::onboarding::OnboardingState::NoCentralFolder => ("no-central-folder", None, None),
+        richos_core::onboarding::OnboardingState::NotYet => ("not-yet", None, None),
+        richos_core::onboarding::OnboardingState::Declined { .. } => ("declined", None, None),
+        richos_core::onboarding::OnboardingState::Described => ("described", None, None),
         richos_core::onboarding::OnboardingState::Unusable { why } => {
-            OnboardingView { state: "unusable".to_string(), entity_id, why: Some(why) }
+            // The operator's half goes to the operator's channel and nowhere else — it is the
+            // only place the path and the byte count belong.
+            eprintln!("[richos] onboarding: company notes unusable — {why}");
+            (
+                "unusable",
+                Some(ONBOARDING_UNUSABLE_HEADLINE.to_string()),
+                Some(ONBOARDING_UNUSABLE_MESSAGE.to_string()),
+            )
         }
-    }
+    };
+    OnboardingView { state: name.to_string(), entity_id, headline, message }
 }
 
 /// Read where onboarding stands. The window calls it at boot and after every company change,
@@ -2700,14 +2728,33 @@ fn decline_onboarding(state: State<AppState>) -> Result<OnboardingView, String> 
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    state
-        .spine
-        .lock()
-        .unwrap()
-        .record_onboarding_declination(now_millis)
-        .map_err(|e| e.to_string())?;
+    let outcome = state.spine.lock().unwrap().record_onboarding_declination(now_millis);
+    if let Err(why) = outcome {
+        // THE ERROR THE CEO SEES IS NOT THE ERROR THE CRATE RAISED, and that is deliberate
+        // rather than a wrapper for its own sake. `record_declination` writes through
+        // `doctrine::write_verified`, so a failure comes back as `DoctrineError::Unwritable`,
+        // whose own words are *"the standing instruction could not be written to <path> —
+        // RichOS will not start Claude without it"*. Every clause of that is false about this
+        // file: it is not the standing instruction, it carries an absolute path, and nothing
+        // about starting Claude depends on it. Put on his screen — and it was, the first time
+        // this surface rendered a refusal — it is an alarming sentence about the wrong
+        // subject. The technical half goes to the operator's channel where it is true and
+        // useful.
+        eprintln!("[richos] onboarding: declination NOT recorded — {why}");
+        return Err(ONBOARDING_DECLINE_REFUSED.to_string());
+    }
     Ok(onboarding_view_of(&state))
 }
+
+/// What he is told when "Not now" could not be written down.
+///
+/// It says the thing did not happen, in his register, and it says why that matters: the
+/// alternative — closing the notice over a write that failed — is this project's own named
+/// failure mode, reporting success over work that never happened.
+const ONBOARDING_DECLINE_REFUSED: &str =
+    "I couldn't write that down, so it isn't recorded and I'll ask again next time. I'd \
+     rather say so than let you think it was settled. Whoever set RichOS up will need to \
+     look at that.";
 
 /// The authoritative answer to "which entity and thread is the CEO actually talking to?".
 #[tauri::command]
