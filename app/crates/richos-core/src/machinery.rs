@@ -351,6 +351,75 @@ pub fn compaction_key(session_id: &str) -> String {
     format!("compaction:{session_id}")
 }
 
+// ---------------------------------------------------------------------------
+// HOW LONG A COMPACTION HAS EVER TAKEN - the one number a paced bar is allowed
+//
+// CEO, 2026-09-06, asked whether the compaction row could carry a bar like the splash
+// screen's, and was told plainly that the duration is unknown:
+//
+//   *"It doesn't need to know. It just needs to move to almost full with the expected
+//    minimum time and then stay at 'almost full' until all finished etc."*
+//
+// That is the whole design, and it is why a bar can be honest here: it fills over the
+// SHORTEST compaction ever measured, and then it HOLDS. It never claims a completion it does
+// not have. Reaching almost-full and stopping is itself a true statement - *this one is
+// taking longer than the fastest case* - where a bar that stalls mid-way looks broken and a
+// bar that completes early lies.
+//
+// THE NUMBER, RE-DERIVED HERE RATHER THAN QUOTED. Every `system/compact_boundary` frame in
+// every committed cell, read by `compact_metadata.duration_ms`:
+//
+//   $ python3 -c 'import json,glob,statistics; ds=[json.loads(l)["compact_metadata"]["duration_ms"]
+//       for p in sorted(glob.glob("docs/verification/inner-doctrine-opens-2026-09-06/raw/*.jsonl"))
+//             +["docs/verification/compaction-notice-2026-09-06/raw/cellT1.jsonl"]
+//       for l in open(p) if l.strip() and json.loads(l).get("subtype")=="compact_boundary"];
+//       print(len(ds), min(ds), max(ds), statistics.mean(ds))'
+//   16 38138 62029 49865.0
+//
+//   sorted: 38138 38397 39085 42950 43611 44813 46975 49790
+//           50158 50411 50654 58298 59901 60747 61883 62029
+//
+// **One correction to the record this constant is built on, small and mine.**
+// `compaction-notice-2026-09-06/README.md` gives the population as 16 boundaries,
+// 38138-62029 ms - min and max stand exactly - and also carries "mean ~51,149 ms". That mean
+// is the n=14 one (51149.4); adding this record's own 43611 and 38138 brings the n=16 mean to
+// 49865.0. Nothing downstream reads the mean. It is corrected here so the next author does
+// not inherit a number that quietly changed population.
+//
+// WHY THE MINIMUM AND NOT THE MEAN. A bar paced on the mean would already be holding on 8 of
+// these 16 and still climbing on the other 8, so half of all compactions would see it jump
+// forward at the end from wherever it happened to have got to. Paced on the MINIMUM it is
+// climbing for the first 38.1 s of every compaction ever measured and holding for the rest of
+// every one of them: one rule, the same every time, and the hold means exactly what it says.
+//
+// THIS NUMBER NEVER REACHES THE SCREEN AS A NUMBER. It is a rate, not a claim. Nothing in the
+// UI renders "38 seconds", a percentage, a countdown or an estimate - the sentence beside the
+// bar says no number at all and two suites enforce it (`app/ui/tests/compaction-notice.js`
+// and `app/ui/tests/compaction-progress.js`).
+// ---------------------------------------------------------------------------
+
+/// The shortest compaction ever measured, in milliseconds. The derivation is directly above,
+/// and `app/ui/tests/compaction-progress.js` re-runs that command against the committed
+/// frames on every run, so this constant cannot drift from the record it claims to come from.
+pub const COMPACTION_MEASURED_MIN_MS: u64 = 38_138;
+
+/// The shortest duration ever MEASURED for a wait of this kind, or `None` when there is no
+/// measurement - which is every other kind, and the honest default.
+///
+/// It is emitted on the timeline item (`timeline.rs`, `measuredMinMs`) so a renderer can PACE
+/// something over it. It is deliberately not an estimate, a prediction or a remaining time:
+/// it is the floor of an observed population, and it says nothing whatever about the wait
+/// currently running except that no such wait has ever been shorter.
+pub fn measured_min_ms(kind: MachineryKind) -> Option<u64> {
+    match kind {
+        MachineryKind::Compaction => Some(COMPACTION_MEASURED_MIN_MS),
+        // A tool call has no floor worth pacing on: the committed runs in
+        // `docs/verification/native-claude-tool-status-2026-08-31/` hold calls from a few
+        // milliseconds to minutes, and a bar over a population that wide would be invention.
+        _ => None,
+    }
+}
+
 /// THE ONE MERGE KEY DERIVATION. Every map that folds records into rows uses this and nothing
 /// else — [`project`], `live.rs`'s `on_machinery`, and `timeline.rs`'s `resolve_last_seen` and
 /// `activity_item`.
