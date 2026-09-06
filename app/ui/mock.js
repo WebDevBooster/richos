@@ -545,6 +545,113 @@
   }
 
   // ---------------------------------------------------------------------------------------
+  // THE HOME SCREEN'S PICTURE OUT OF HIS OWN LORO (`main.rs::home_field_data`).
+  //
+  // **THE DEFAULT IS "no corpus", AND IT IS NOT A SHORTCUT.** Every other surface in this
+  // preview assumes a machine that has been set up once, and this one deliberately does not:
+  // the home screen the CEO asked to keep is the DEMONSTRATION — *"The demo is definitely
+  // needed, initially, for the user"* — so the preview, the file:// open and every acceptance
+  // run must land on exactly that, byte for byte, without opting out of anything.
+  //
+  // `__RICHOS_MOCK__.homeField` drives the other side. It takes a partial dataset and fills in
+  // whatever the field needs; `objects` is the only number the preference reads.
+  //
+  //   window.__RICHOS_MOCK__.homeField = { objects: 4000, records: 9000 };
+  //
+  // This mock does NOT compile anything and does not pretend to. What it rehearses is the
+  // SURFACE's half of the seam — the shape of the answer, the counts, and the one comparison
+  // `home.js` makes against them.
+  let homeField = null;
+
+  function homeFieldAnswer() {
+    if (!homeField) {
+      return {
+        available: false,
+        // The real command's own sentence for the ordinary state of a fresh install.
+        reason: "no corpus is configured on this machine",
+      };
+    }
+    const objects = Number(homeField.objects || 0);
+    const records = Number(homeField.records || objects);
+    // A dataset the field can actually draw: `objects` nodes over `Math.max(1, objects/8)`
+    // groups, one lane, laid out exactly as `home_field.rs` lays one out. It is generated
+    // rather than fixtured because a 2,000-node fixture in a shipped file would be a second
+    // baked dataset, and this repository already has one too many opinions about that.
+    const groups = Math.max(1, Math.round(objects / 8));
+    const nodes = [];
+    const links = [];
+    const sources = [];
+    for (let g = 0; g < groups; g++) {
+      const gid = "grp-" + String(g + 1).padStart(5, "0");
+      const first = nodes.length;
+      const n = g === groups - 1 ? objects - nodes.length : Math.min(8, objects - nodes.length);
+      for (let i = 0; i < n; i++) {
+        nodes.push({
+          id: "obj-" + String(nodes.length + 1).padStart(5, "0"),
+          type: i === 0 ? "decision" : "memory",
+          loroKind: i === 0 ? "decision" : "passage",
+          domain: "northwind",
+          cluster: gid,
+          degree: i === 0 ? n - 1 : 1,
+          significance: 0.8,
+          activity: 0,
+          recency: 0,
+          createdDay: 0,
+        });
+      }
+      if (n <= 0) continue;
+      for (let i = 1; i < n; i++) {
+        links.push({ s: nodes[first].id, t: nodes[first + i].id, kind: "same_source", class: "membership", weight: 1, cross: false });
+      }
+      sources.push({
+        id: "src-" + String(g + 1).padStart(5, "0"),
+        kind: "document",
+        domain: "northwind",
+        day: 40000,
+        ingestedDay: 40000,
+        primaryNodeId: nodes[first].id,
+        derivedCount: n,
+      });
+    }
+    return {
+      available: true,
+      field: {
+        meta: {
+          name: "RichOS company memory",
+          version: 1,
+          // THE ONE FIELD THE BANNER READS.
+          synthetic: false,
+          corpusRoot: memoryRoot || "/Users/you/RichOS/corpus",
+          corpusLayout: "corpus",
+          fingerprint: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          horizonDays: 40000,
+          counts: { records: records, objects: nodes.length, links: links.length, sources: sources.length, domains: 1 },
+          query: { topics: ["northwind"], company: "all" },
+          absent: [],
+        },
+        bragSignals: {
+          specialistsManaged: 0,
+          specialistsActiveNow: 0,
+          tasksHandledWithoutCeo: 0,
+          ceoMinutesSaved: 0,
+          monthsWorkingTogether: 0,
+          sourcesUnderstood: sources.length,
+          memoryObjects: records,
+          decisionsRemembered: groups,
+          lessonsAccumulated: 0,
+          commitmentsTracked: 0,
+        },
+        specialists: [],
+        domains: [{ id: "northwind", label: "Northwind Traders", nodeCount: nodes.length, clusters: sources.map((s, i) => ({ id: "grp-" + String(i + 1).padStart(5, "0"), label: "Group " + (i + 1), nodeCount: s.derivedCount })) }],
+        nodes: nodes,
+        links: links,
+        tasks: [],
+        sources: sources,
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------------------
   // FIRST-RUN SETUP (`setup.rs`, `setup_view.rs`) — Option D's surface
   //
   // `preset.setup` drives it:
@@ -1605,6 +1712,11 @@
         // "none"` drives the fresh install, which is the state the real defect lived in.
         case "memory_status":
           return memoryStatusOf();
+        // HIS OWN LORO, DRAWN OR NOT (`main.rs::home_field_data`). `available: false` by
+        // default — the demonstration is the first-run experience and the preview must land
+        // on it without being told to.
+        case "home_field_data":
+          return homeFieldAnswer();
         // WHAT DID NOT LOAD OUT OF THE LEDGER (`Ledger::history_health`). The default is a
         // CLEAN load, because that is what every real launch produces — the notice is
         // supposed to be invisible almost always, and a preview that showed it constantly
@@ -2818,6 +2930,19 @@
     /// Which update commands the surface actually issued, in order. Asserting on this is
     /// how a suite proves the Restart button restarts rather than merely looking pressed.
     updateCalls() { return mockUpdate.calls.slice(); },
+    /// ---- his own loro on the home screen (2026-09-06) ---------------------------------
+    /// Give `home_field_data` a corpus to answer with, or `null` to go back to answering
+    /// that there is none. The default is NONE, so a suite that wants his loro on the screen
+    /// has to ask for it — the demonstration is the shipped first-run experience and no
+    /// preview may quietly leave it.
+    ///
+    ///     __RICHOS_MOCK__.homeFieldSet({ objects: 4000, records: 9000 });
+    ///
+    /// `objects` is the only number `home.js`'s preference reads.
+    homeFieldSet(field) {
+      homeField = field ? { ...field } : null;
+      return homeField;
+    },
     /// ---- what did not load out of the ledger (2026-09-05) -----------------------------
     /// Put the history notice into a state. The default is CLEAN, so a suite that wants the
     /// notice on screen has to ask for it — the surface can never be shown to be working by

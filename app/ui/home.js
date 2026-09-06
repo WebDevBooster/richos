@@ -44,7 +44,9 @@
 // -----------------------------------------------------------------------------------------
 // THE GLOBALS THE PORTED FIELD OWNS, named here rather than discovered later:
 // `window.VARIANT` (its tuning constants, verbatim from round-11.1/v1), `window.RICHOS_USER`,
-// `window.MATURE_LORO` (the synthetic dataset), `window.REF` (the traced picture) and
+// `window.MATURE_LORO` (THE DATASET BEING DRAWN — the baked synthetic one, or the customer's
+// own compiled by `home_field_data`; there is never more than one on the page), `window.REF`
+// (the traced picture) and
 // `window.__loro` (the engine's own handle, which is also the pause/resume seam). They are
 // the round's names and they are kept so the port stays a port.
 
@@ -54,6 +56,55 @@ window.RichHome = (function () {
   // The four files of the ported field, in dependency order. Injected, never in index.html:
   // a `<script src>` in the document is on the parser's critical path and this must not be.
   var FIELD = ["home/field-data.js", "home/field-ref.js", "home/field-prep.js", "home/field-engine.js"];
+
+  // The same four MINUS the baked dataset, for the launch that draws HIS loro instead. The
+  // 4.9 MB of `field-data.js` is not merely unused on that path, it is actively wrong: it
+  // assigns `window.MATURE_LORO` on load and would overwrite the real one.
+  var FIELD_CUSTOMER = FIELD.slice(1);
+
+  // =========================================================================================
+  // WHEN THE DEMONSTRATION HANDS OVER — the one place that preference lives.
+  //
+  // **THE DEFAULT KEEPS THE DEMONSTRATION, AND IT IS MEANT TO.** CEO, 2026-09-06: *"The demo
+  // is definitely needed, initially, for the user."* The synthetic corpus on this screen is
+  // the first-run experience, not a placeholder waiting to be removed.
+  //
+  // WHY A THRESHOLD AT ALL. A five-record corpus drawn on this composition is worse than the
+  // demonstration, not better: the picture is 1,983 traced strands
+  // (`home/field-ref.js`, `nStrands:1983`), and every object is placed ON one of them. The
+  // round's dataset carries 7,500 objects — 7500 / 1983 = 3.78 objects per strand, which is
+  // what makes it look like a brain. Below one object per strand the great majority of the
+  // picture is bare thread, and it is bare in the specific way that reads as "broken" rather
+  // than as "new".
+  //
+  // SO THE NUMBER IS THE STRAND COUNT, AND IT IS A FLOOR RATHER THAN A JUDGMENT. 1,983 is the
+  // point at which the picture could, in principle, cover its own composition. It is derived
+  // from the artwork, not chosen from taste — which matters, because taste here is the CEO's
+  // and it is not settled. Measured against his own corpus on 2026-09-06: 713 records,
+  // 168 objects (`home_field_data`'s own numbers), 0.085 objects per strand. So his machine
+  // keeps the demonstration, which is the answer he asked for.
+  //
+  // WHAT IS PENDING, AND WHAT WOULD REPLACE THIS. How a handover should LOOK is
+  // `richos-hq/design/mockups/rounds/round-11.4` — five built approaches, v1 First Light,
+  // v2 The Ghost, v3 Named, v4 Arrival, v5 The Compass — and the CEO has not ruled. Whichever
+  // he picks may well replace a hard threshold with a blend, a reveal or a choice of his own;
+  // until then this constant is the whole of the policy, and `home_field_data` deliberately
+  // reports counts and decides nothing.
+  // =========================================================================================
+  var HOME_FIELD_MIN_OBJECTS = 1983;
+
+  /// How long to wait for `home_field_data` before drawing the demonstration anyway.
+  ///
+  /// A machine with no corpus answers instantly — the command never starts a process. A
+  /// machine WITH one spends one `node` per company: 6 compiles, 2.795 s wall clock, measured
+  /// against the CEO's own corpus on 2026-09-06, which sits inside the opening curtain's 3 s
+  /// hold. The ceiling is here for the case neither of those covers — a compiler that hangs —
+  /// and it is the same 8 s `settled()` gives the engine, for the same reason: a failure this
+  /// file cannot be told about must still be bounded.
+  ///
+  /// **A TIMEOUT IS NOT EVIDENCE.** It takes the demonstration and leaves the banner up, which
+  /// is what every other uncertainty on this screen does.
+  var HOME_FIELD_DEADLINE_MS = 8000;
 
   // Tuning constants for the picture — VERBATIM from `round-11.1/v1/index.html`, which took
   // them verbatim from `round-6.4/v5`. Not tuned here, and not to be tuned here: this is a
@@ -144,6 +195,16 @@ window.RichHome = (function () {
     /// `"unknown"` (no dataset has loaded, or it does not say), `"customer"` (it says it is
     /// his). Never a guess with no name on it.
     dataSource: "unknown",
+    /// WHAT THE BACKEND OFFERED, and what became of the offer. `null` until asked. This is a
+    /// RECORD OF A DECISION, never the banner's input: the banner still reads the dataset that
+    /// is actually loaded, which is the whole discipline of the section below.
+    ///   `state`     — `"unasked" | "no-bridge" | "unavailable" | "offered" | "timed-out"`
+    ///   `reason`    — the backend's own sentence when it had nothing, else `null`
+    ///   `objects`   — how many of his objects it could draw, else `null`
+    ///   `records`   — how many records his corpus holds, else `null`
+    ///   `threshold` — the number those were judged against
+    ///   `taken`     — `true` only when his loro is what got drawn
+    fieldOffer: null,
   };
 
   // =========================================================================================
@@ -256,28 +317,27 @@ window.RichHome = (function () {
   // not "his" either. The banner stays up through every uncertainty, and only a positive
   // `"synthetic": false` takes it down.
   //
-  // THE SEAM THAT DOES NOT EXIST YET, NAMED PRECISELY BECAUSE IT IS NOT BUILT.
+  // THE SEAM IS BUILT (2026-09-06), AND THIS FUNCTION DID NOT CHANGE.
   //
-  // Nothing in this product compiles a customer's own loro corpus into the shape the field
-  // consumes, so today this function returns `false` on every launch on every machine — the
-  // CEO's included — and the banner is always up. That is honest rather than convenient: the
-  // picture on his screen right now IS the synthetic corpus.
+  // It used to say, in this place, that nothing in the product compiled a customer's own loro
+  // into the shape the field consumes, and it named what would close it: *"a command — call it
+  // `home_field_data` — that compiles that corpus into the `{meta, nodes, links, sources, ...}`
+  // structure `home/field-*.js` reads, and stamps its `meta` with `"synthetic": false` plus the
+  // corpus root it came from"*. That command exists now
+  // (`app/crates/richos-core/src/home_field.rs`, `main.rs::home_field_data`), `startField()`
+  // prefers its answer over the baked `field-data.js`, and the prediction held exactly:
+  // `fieldDataIsCustomers()` goes from `false` to `true` with no edit to it at all, because it
+  // reads the dataset and the dataset changed.
   //
-  // What would close it: the Rust side already HAS the corpus. `richos_core::loro::
-  // CliContextCompiler` is wired in `app/src-tauri/src/memory.rs:87` (`wire_company_memory`)
-  // and `memory_status` (`app/src-tauri/src/main.rs:2010`) already reports whether one is
-  // provisioned. What is missing is a command — call it `home_field_data` — that compiles that
-  // corpus into the `{meta, nodes, links, sources, ...}` structure `home/field-*.js` reads,
-  // and stamps its `meta` with `"synthetic": false` plus the corpus root it came from.
-  // `startField()` would prefer its answer over the baked `field-data.js`, and this function
-  // would go from `false` to `true` with no other change anywhere: the banner would take
-  // itself down, `--home-note-inset` would go to `0px`, and the composition would be the
-  // frozen round's again.
-  //
-  // NOTE WHAT IS NOT PROPOSED: gating on `memory_status`. A provisioned corpus is not the same
-  // fact as a drawn picture, and a banner that vanished the moment a customer created a folder
-  // would be claiming his data was on screen while 7,500 synthetic objects were still on it.
-  // That is precisely the lie this element exists to prevent.
+  // WHAT IS STILL NOT PROPOSED, and is now load-bearing rather than hypothetical: gating on
+  // `memory_status`. A provisioned corpus is not the same fact as a drawn picture, and a banner
+  // that vanished the moment a customer created a folder would be claiming his data was on
+  // screen while 7,500 synthetic objects were still on it. `home_field_data` therefore COMPILES
+  // and answers with what it compiled; it is never asked whether a corpus is configured. And
+  // when its answer is not taken — which is the default, see `HOME_FIELD_MIN_OBJECTS` — the
+  // demonstration is what loads, so the dataset on the page says `"synthetic": true` and this
+  // function correctly returns `false`. The offer is recorded on `state.fieldOffer`, which is a
+  // record of a decision and is read by nothing on this path.
   // -----------------------------------------------------------------------------------------
 
   function buildNote() {
@@ -723,6 +783,79 @@ window.RichHome = (function () {
     });
   }
 
+  /// ASK THE BACKEND FOR HIS OWN LORO, AND DECIDE WHETHER IT IS WHAT GETS DRAWN.
+  ///
+  /// Resolves with the dataset to draw, or with `null` for "draw the demonstration". It never
+  /// rejects: every way this can fail is a reason to keep the demonstration, and a rejection
+  /// here would take down the whole field with it.
+  ///
+  /// **THE PREFERENCE IS THIS FUNCTION'S ALONE, AND IT IS ONE COMPARISON.**
+  /// `home_field_data` (`app/crates/richos-core/src/home_field.rs`) compiles his corpus and
+  /// reports `meta.counts.records` beside `meta.counts.objects` precisely so this line can be
+  /// the only judgment in the system: `objects >= HOME_FIELD_MIN_OBJECTS`. See that constant
+  /// for where the number comes from and for what is pending on it.
+  ///
+  /// **AND THE BANNER IS STILL NOT DECIDED HERE.** Everything below chooses which dataset to
+  /// load. What the screen then SAYS about that dataset is derived, afterwards, from the
+  /// dataset itself — `refreshNote()` reads `window.MATURE_LORO.meta.synthetic`, and takes the
+  /// banner down only on a positive `false`. So a bug in this function can put the wrong
+  /// picture up; it cannot make the screen lie about whose picture it is.
+  function askForCustomerField() {
+    var bridge = window.RichBridge;
+    var offer = { state: "unasked", reason: null, objects: null, records: null, threshold: HOME_FIELD_MIN_OBJECTS, taken: false };
+    state.fieldOffer = offer;
+
+    if (!bridge || typeof bridge.invoke !== "function") {
+      // An operator opening `index.html` in a browser. Nothing failed and nothing is wrong;
+      // there is simply no backend to ask.
+      offer.state = "no-bridge";
+      return Promise.resolve(null);
+    }
+
+    // THE CEILING, RACED AGAINST THE ANSWER. `Promise.race` and not a timer that cancels the
+    // call: nothing here can stop a `node` process that is already running, so the honest
+    // thing is to stop WAITING for it and let it finish into a result nobody reads.
+    var deadline = new Promise(function (resolve) {
+      setTimeout(function () {
+        resolve({ __timedOut: true });
+      }, HOME_FIELD_DEADLINE_MS);
+    });
+
+    return Promise.race([bridge.invoke("home_field_data"), deadline])
+      .catch(function (e) {
+        return { available: false, reason: (e && e.message) || String(e) };
+      })
+      .then(function (answer) {
+        if (answer && answer.__timedOut) {
+          offer.state = "timed-out";
+          offer.reason = "the corpus did not compile within " + HOME_FIELD_DEADLINE_MS + " ms";
+          return null;
+        }
+        // POSITIVE SIGNAL ONLY, the same rule the banner keeps: `available` has to be exactly
+        // `true` and there has to be a dataset attached. An answer that omits either is not
+        // evidence of a corpus.
+        if (!answer || answer.available !== true || !answer.field || !answer.field.meta) {
+          offer.state = "unavailable";
+          offer.reason = (answer && answer.reason) || "the backend said nothing about a corpus";
+          return null;
+        }
+        var counts = answer.field.meta.counts || {};
+        offer.objects = typeof counts.objects === "number" ? counts.objects : null;
+        offer.records = typeof counts.records === "number" ? counts.records : null;
+        offer.state = "offered";
+        // THE ONE COMPARISON. A missing count is not a big one.
+        if (offer.objects === null || offer.objects < HOME_FIELD_MIN_OBJECTS) return null;
+        offer.taken = true;
+        return answer.field;
+      })
+      .catch(function (e) {
+        // A malformed answer must not cost the screen its picture.
+        offer.state = "unavailable";
+        offer.reason = (e && e.message) || String(e);
+        return null;
+      });
+  }
+
   function startField() {
     if (fieldStarted) return;
     // The surface may already be gone: this runs on an idle callback, and a page that has
@@ -747,8 +880,24 @@ window.RichHome = (function () {
       .then(function (appearance) {
         var name = appearance && appearance.user_name;
         if (name && String(name).trim()) window.RICHOS_USER = { name: String(name).trim() };
+        // WHOSE LORO IS THIS GOING TO BE — asked BEFORE a script is injected, because the
+        // answer picks the script list. `field-data.js` assigns `window.MATURE_LORO` the
+        // moment it loads, so a real dataset installed first would simply be overwritten;
+        // the two datasets cannot both be on the page.
+        return askForCustomerField();
+      })
+      .then(function (dataset) {
+        var list = FIELD;
+        if (dataset) {
+          // THE ONE ASSIGNMENT THAT MAKES THIS HIS. `field-engine.js:103` is
+          // `const loro = window.MATURE_LORO;` — the object this line writes IS the object
+          // the picture is drawn from, which is exactly what lets `fieldDataIsCustomers()`
+          // read the truth off it rather than off a flag somebody set beside it.
+          window.MATURE_LORO = dataset;
+          list = FIELD_CUSTOMER;
+        }
         var chain = Promise.resolve();
-        FIELD.forEach(function (src) {
+        list.forEach(function (src) {
           chain = chain.then(function () {
             return loadScript(src);
           });
@@ -1336,11 +1485,17 @@ window.RichHome = (function () {
     /// than reloading the page after every write.
     reloadEntities: loadEntities,
     /// Re-derive the first-run banner from whatever dataset is currently loaded. Exported so
-    /// the acceptance suite can drive BOTH sides of the condition — including the real-loro
-    /// side, which no code path in the product can produce yet.
+    /// the acceptance suite can drive BOTH sides of the condition.
     refreshNote: refreshNote,
     /// The condition itself, exported for the same reason.
     fieldDataIsCustomers: fieldDataIsCustomers,
+    /// Ask the backend for his own loro and apply the threshold, WITHOUT loading anything.
+    /// Exported so the suite can exercise both sides of the preference against a stubbed
+    /// bridge, rather than only the side this machine's corpus happens to produce.
+    askForCustomerField: askForCustomerField,
+    /// The threshold itself, exported so a test asserts against the source of the number and
+    /// never against a copy of it typed into the test.
+    HOME_FIELD_MIN_OBJECTS: HOME_FIELD_MIN_OBJECTS,
     /// The sentence, exported so a test asserts the rendered string against the source of
     /// truth rather than against a copy of it typed into the test.
     NOTE: NOTE,
