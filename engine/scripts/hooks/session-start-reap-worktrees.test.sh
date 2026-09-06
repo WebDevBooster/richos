@@ -90,7 +90,34 @@ run_hook "$REPO"
 [ "$RC" -eq 0 ] && [ -f "$REPO/.claude/worktrees/agent-bbbb0002/wip.txt" ] && [ -f "$REPO/.claude/worktrees/agent-bbbb0003/c.txt" ] \
     && ok "W06  dirty and unmerged worktrees are untouched" || bad "W06  rc=$RC"
 
-# W07 CRASH RECOVERY: a terminal transaction left at 'quarantined' is completed
+blocked_why() { # <agent-id> -> the member's blocked_reason, or ""
+    T show --session-id "$SID" --agent-id "$1" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    m = (json.load(sys.stdin).get("members") or [{}])[0]
+except Exception:
+    m = {}
+print((m.get("blocked_reason") or "").replace("\n", " "))
+' 2>/dev/null
+}
+
+# W07 CRASH RECOVERY: a terminal transaction left at 'quarantined' is carried
+# forward to 'verified' — captured, re-read, and then RETAINED.
+#
+# INVERTED 2026-09-06 (a6c076c; docs/workspace-retirement-safety.md). This case
+# used to require state 'removed', the quarantine GONE and the context word
+# DONE. Automatic erasure is disabled: after the repeated reviews of the
+# worktree-container deletion, neither a process scan nor a final content check
+# can exclude a concurrent writer, so `unregister_member` refuses and the
+# quarantine and its Git registration stay. `verified` is the terminal member
+# state and the verdict word is BLOCKED.
+#
+# WHAT IS STILL PROVEN, which is the part that matters: the wrapper RAN the
+# reconciler and drove the member from 'quarantined' all the way to 'verified'
+# with the archive on disk (W08 reads the bytes back out of it). A wrapper that
+# runs no reconciler leaves the member at 'quarantined' and turns this red, the
+# same as before. What is NO LONGER proven here is deletion, because deletion
+# is no longer what the engine does.
 REPO="$(make_repo recover)"
 AID="a0000000000ssr01"
 add_tree "$REPO" "$AID"
@@ -104,22 +131,34 @@ Q="$REPO/.claude/worktrees/agent-$AID.richos-terminal-${SID:0:8}-$AID"
 [ -d "$Q" ] || bad "W07-setup  quarantine missing"
 run_hook "$REPO"; CTX="$(json_context "$OUT_HOOK")"
 STATE="$(T members --session-id "$SID" --agent-id "$AID" | cut -f5)"
-if [ "$RC" -eq 0 ] && [ "$STATE" = "removed" ] && [ ! -e "$Q" ] && [ -f "$SANDBOX/captures/$SID/$AID/member-0/tree.tar" ] \
-   && printf '%s' "$CTX" | grep -q 'worktree reconciler: DONE'; then
-    ok "W07  a terminal transaction left mid-way is completed at session start (captured, verified, removed) — crash recovery"
+W07_WHY="$(blocked_why "$AID")"
+if [ "$RC" -eq 0 ] && [ "$STATE" = "verified" ] && [ -d "$Q" ] && [ -f "$SANDBOX/captures/$SID/$AID/member-0/tree.tar" ] \
+   && printf '%s' "$CTX" | grep -q 'worktree reconciler: BLOCKED' \
+   && printf '%s' "$W07_WHY" | grep -q 'automatic erasure is disabled'; then
+    ok "W07  a terminal transaction left mid-way is carried forward at session start: quarantined -> captured -> verified with the archive on disk, and the quarantine RETAINED with the policy named (INVERTED 2026-09-06: it used to require removed + quarantine gone + DONE)"
 else
-    bad "W07  rc=$RC state=$STATE q=$([ -e "$Q" ] && echo present || echo gone) ctx=$CTX"
+    bad "W07  rc=$RC state=$STATE q=$([ -e "$Q" ] && echo present || echo gone) why=$W07_WHY ctx=$CTX"
 fi
 tar -xOf "$SANDBOX/captures/$SID/$AID/member-0/tree.tar" evidence.txt | grep -q '^evidence$' \
     && ok "W08  ...and the evidence survived byte-for-byte in the archive" || bad "W08  archive"
 printf '%s' "$CTX" | grep -q 'transactions touched=1' && ok "W09  the context line says how many transactions were touched" || bad "W09  ctx=$CTX"
 
-# W10 both present at session start is RESOLVED by the recovery run, never
-# reported as a hard failure for a person. INVERTED (landed review 2026-09-03,
-# blocker 3): this case used to certify PENDING with dead-present=1 — the
-# manual queue as a session-context line. The residue at the original path is
-# archived, verified and removed; the quarantine is captured and removed; the
-# context reads DONE.
+# W10 both present at session start: the RECREATED ORIGINAL IS PRESERVED and
+# the member is blocked, never reported as a hard failure for a person.
+#
+# INVERTED TWICE, and the second one is 2026-09-06 (a6c076c). The 2026-09-03
+# revision made this case certify that the residue was archived and removed and
+# the context read DONE — it had previously certified PENDING with
+# dead-present=1, the manual queue as a session-context line. a6c076c changed
+# the answer again: a path that reappeared at the original location has UNKNOWN
+# ownership, so the reconciler refuses to touch it at all and records
+# `exclusive-access-unavailable: recreated original ... is preserved; ownership
+# is unknown`. Nothing is captured, nothing is deleted, and the member stays at
+# 'quarantined'.
+#
+# What this case now proves: the reappeared bytes are STILL THERE afterwards,
+# no residue archive was fabricated over them, the reason is recorded on the
+# member, and the person is not handed a hard failure (dead-present=0).
 REPO="$(make_repo hardfail)"
 AID2="a0000000000ssr02"
 add_tree "$REPO" "$AID2"
@@ -138,18 +177,35 @@ PY
 run_hook "$REPO"; CTX="$(json_context "$OUT_HOOK")"
 STATE2="$(T members --session-id "$SID" --agent-id "$AID2" | cut -f5)"
 RES2="$SANDBOX/captures/$SID/$AID2/member-0/residue-1.tar"
-if [ "$RC" -eq 0 ] && printf '%s' "$CTX" | grep -q 'worktree reconciler: DONE' && printf '%s' "$CTX" | grep -q 'hard failures (dead-present)=0' \
-   && [ "$STATE2" = "removed" ] && [ -f "$RES2" ] && [ "$(tar -xOf "$RES2" ghost.txt)" = "ghost" ] && [ ! -e "$REPO/.claude/worktrees/agent-$AID2" ]; then
-    ok "W10  both present at session start is RESOLVED by the recovery run: residue archived and verified, member removed, context reads DONE with dead-present=0 (INVERTED: it used to certify PENDING with dead-present=1)"
+W10_WHY="$(blocked_why "$AID2")"
+if [ "$RC" -eq 0 ] && printf '%s' "$CTX" | grep -q 'worktree reconciler: BLOCKED' && printf '%s' "$CTX" | grep -q 'hard failures (dead-present)=0' \
+   && [ "$STATE2" = "quarantined" ] && printf '%s' "$W10_WHY" | grep -q 'recreated original' \
+   && [ "$(cat "$REPO/.claude/worktrees/agent-$AID2/ghost.txt" 2>/dev/null)" = "ghost" ] && [ ! -f "$RES2" ]; then
+    ok "W10  both present at session start PRESERVES the recreated original: its bytes are untouched, no residue archive is written over them, the member records 'recreated original ... ownership is unknown', and the person gets no hard failure (dead-present=0) (INVERTED 2026-09-06: it used to require the residue archived and the member removed)"
 else
-    bad "W10  rc=$RC state=$STATE2 residue=$([ -f "$RES2" ] && echo yes || echo no) ctx=$CTX"
+    bad "W10  rc=$RC state=$STATE2 residue=$([ -f "$RES2" ] && echo yes || echo no) ghost=$(cat "$REPO/.claude/worktrees/agent-$AID2/ghost.txt" 2>/dev/null) why=$W10_WHY ctx=$CTX"
 fi
 
-# W10b A BLOCKED MEMBER LEADS THE VERDICT WORD. A quarantine locked by ANOTHER
-# agent can never be removed by this run and never by waiting; before
-# 2026-09-04 the same state printed the word PENDING with a retry count, which
-# is the shape of a condition under control. Thirty members read that way for a
-# full day. The word is the finding, so the word changes.
+# W10b A BLOCKED MEMBER LEADS THE VERDICT WORD. Before 2026-09-04 this state
+# printed the word PENDING with a retry count, which is the shape of a
+# condition under control. Thirty members read that way for a full day. The
+# word is the finding, so the word changes.
+#
+# SAY WHAT STOPPED BEING PROVEN HERE (2026-09-06, a6c076c). This case was
+# written around a quarantine locked by ANOTHER agent, on the reasoning that
+# such a member can never be removed by this run and never by waiting. Since
+# automatic erasure was disabled, the member never reaches the removal step at
+# all: it is blocked by the POLICY, with `automatic erasure is disabled`, and
+# the foreign lock is no longer what produces the verdict. The lock is still
+# set up, so the case remains truthful about the scenario, but it no longer
+# ISOLATES the lock path — a member with no lock at all now blocks identically.
+# Whoever restores erasure behind an enforced access boundary should restore
+# this case's discrimination with it.
+#
+# The BLOCKED COUNT IS NO LONGER 1. W07 and W10 leave their own blocked members
+# in the same store, so a hard-coded `BLOCKED=1` was reading those cases'
+# cleanup rather than this case's finding. It asserts a positive count and this
+# member's own recorded reason instead.
 REPO="$(make_repo blocked)"
 AID2B="a000000000ssr02b"
 add_tree "$REPO" "$AID2B"
@@ -160,11 +216,13 @@ T start --session-id "$SID" --agent-id "$AID2B" --cwd "$REPO/.claude/worktrees/a
 T seal --session-id "$SID" --agent-id "$AID2B" >/dev/null
 T claim --session-id "$SID" --agent-id "$AID2B" --ingress SubagentStop >/dev/null
 run_hook "$REPO"; CTX="$(json_context "$OUT_HOOK")"
-if [ "$RC" -eq 0 ] && printf '%s' "$CTX" | grep -q 'worktree reconciler: BLOCKED' && printf '%s' "$CTX" | grep -q 'BLOCKED=1' \
+W10B_WHY="$(blocked_why "$AID2B")"
+if [ "$RC" -eq 0 ] && printf '%s' "$CTX" | grep -q 'worktree reconciler: BLOCKED' && printf '%s' "$CTX" | grep -qE 'BLOCKED=[1-9][0-9]*' \
+   && printf '%s' "$W10B_WHY" | grep -q 'automatic erasure is disabled' \
    && [ -d "$REPO/.claude/worktrees/agent-$AID2B.richos-terminal-${SID:0:8}-$AID2B" ]; then
-    ok "W10b a member blocked on a condition waiting cannot clear leads the verdict word with BLOCKED and carries its own count; the quarantine is untouched (INVERTED: it used to read PENDING with a retry count)"
+    ok "W10b a member blocked on a condition waiting cannot clear leads the verdict word with BLOCKED and carries a count; the quarantine is untouched and the member records why (INVERTED: it used to read PENDING with a retry count)"
 else
-    bad "W10b rc=$RC ctx=$CTX"
+    bad "W10b rc=$RC why=$W10B_WHY ctx=$CTX"
 fi
 
 # W11 the budget is honored (the hook must never hold a session start)
