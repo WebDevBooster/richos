@@ -65,6 +65,7 @@ pub mod belief;
 pub mod cognition;
 pub mod correction;
 pub mod config;
+pub mod doctrine;
 pub mod entity;
 pub mod feedback;
 pub mod home_field;
