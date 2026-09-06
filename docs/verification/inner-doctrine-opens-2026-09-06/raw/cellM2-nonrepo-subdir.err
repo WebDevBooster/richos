@@ -1,0 +1,13 @@
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "", "--no-session-persistence", "--session-id", "941f8b2f-3208-4da7-9947-882e96ffa049", "--permission-prompt-tool", "stdio"]
+[drive] cwd  = /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/customer-home/.claude/richos-engine/scripts
+[drive] autocompact_pct_override = None
+[drive] memory_paths = {"auto": "/Users/alex/.claude/projects/-private-tmp-claude-501--Users-alex-ab-femcboost-16b21750-131b-400e-a6b4-f9313174b201-scratchpad-q14-customer-home--claude-richos-engine-scripts/memory/"}
+[drive] model = "claude-opus-5[1m]"
+[drive] cwd(init) = "/private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/customer-home/.claude/richos-engine/scripts"
+
+===== TURN 1 =====
+PROMPT: Reply with the single word: ok
+REPLY:
+ok
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=11815 cache_write=6398 out=4 compactions=0]
+[drive] compactions = []

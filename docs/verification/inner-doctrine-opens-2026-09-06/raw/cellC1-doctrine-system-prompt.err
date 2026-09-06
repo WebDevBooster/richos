@@ -1,0 +1,45 @@
+[drive] child env keys = ['AI_AGENT', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'CLAUDECODE', 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', 'CLAUDE_CODE_BRIDGE_SESSION_ID', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', 'CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_EFFORT', 'CLAUDE_PID', 'COREPACK_ENABLE_AUTO_PIN', 'FPATH', 'GIT_EDITOR', 'HOME', 'HOMEBREW_CELLAR', 'HOMEBREW_PREFIX', 'HOMEBREW_REPOSITORY', 'INFOPATH', 'JAVA_HOME', 'LANG', 'LOGNAME', 'NoDefaultCurrentDirectoryInExePath', 'OLDPWD', 'PATH', 'PWD', 'SHELL', 'SHLVL', 'SSH_AUTH_SOCK', 'TERM', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'TERM_SESSION_ID', 'TMPDIR', 'USER', 'XPC_FLAGS', 'XPC_SERVICE_NAME', '_', '__CFBundleIdentifier', '__CF_USER_TEXT_ENCODING']
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "", "--no-session-persistence", "--session-id", "9e0077c9-eb5b-4dfe-9a71-2e6ba099ed51", "--permission-prompt-tool", "stdio", "--append-system-prompt-file", "/Users/alex/ab/richos-wt/echo-opus-q14/docs/verification/inner-doctrine-opens-2026-09-06/fixtures/doctrine-sentinel-q14.md"]
+[drive] cwd  = /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/customer-home/.claude/richos-engine
+[drive] autocompact_pct_override = 2
+[drive] memory_paths = {"auto": "/Users/alex/.claude/projects/-private-tmp-claude-501--Users-alex-ab-femcboost-16b21750-131b-400e-a6b4-f9313174b201-scratchpad-q14-customer-home--claude-richos-engine/memory/"}
+[drive] model = "claude-opus-5[1m]"
+[drive] cwd(init) = "/private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/customer-home/.claude/richos-engine"
+
+===== TURN 1 =====
+PROMPT: Answer in two short lines and use no tools: (1) the project status word, (2) the project build command. If either is not defined in your instructions, write 'unknown' for it.
+REPLY:
+Acknowledged.
+HALYARD-3175
+`make lodestone`
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=11824 cache_write=6518 out=26 compactions=0]
+
+===== TURN 2 =====
+PROMPT: Here is a batch of inventory notes. Read them and reply with the single word ok.
+
+0002: ballast transom windlass bollard spigot cordage thimble tallow quoin spigot spandrel quoin cistern kelson
+0003:  …[49264 chars total]
+REPLY:
+Acknowledged.
+ok
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=18342 cache_write=20678 out=12 compactions=0]
+[drive] COMPACT_BOUNDARY {"trigger": "auto", "pre_tokens": 51373, "post_tokens": 14842, "cumulative_dropped_tokens": 36531, "duration_ms": 42950, "preserved_segment": {"head_uuid": "59f7b75e-1c5b-43c8-b491-3210453aab0b", "anchor_uuid": "b13675ce-4296-4c07-b8d9-5bc6dc6ae1a8", "tail_uuid": "ca6a21f0-2203-445e-a93c-eb3fc7dc8373"}, "preserved_messages": {"anchor_uuid": "b13675ce-4296-4c07-b8d9-5bc6dc6ae1a8", "uuids": ["59f7b75e-1c5b-43c8-b491-3210453aab0b", "001d9141-aae0-47c4-a017-2e3a0f9ad54f", "ca6a21f0-2203-445e-a93c-eb3fc7dc8373"], "all_uuids": ["59f7b75e-1c5b-43c8-b491-3210453aab0b", "001d9141-aae0-47c4-a017-2e3a0f9ad54f", "ca6a21f0-2203-445e-a93c-eb3fc7dc8373"]}}
+
+===== TURN 3 =====
+PROMPT: Here is a batch of inventory notes. Read them and reply with the single word ok.
+
+0002: windlass windlass lantern cordage cordage furrow capstan gasket grommet bollard conduit windlass varnish thimble …[49269 chars total]
+REPLY:
+Acknowledged.
+ok
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=14644 cache_write=24470 out=12 compactions=1]
+[drive] COMPACT_BOUNDARY {"trigger": "auto", "pre_tokens": 39339, "post_tokens": 2904, "cumulative_dropped_tokens": 72966, "duration_ms": 38397, "preserved_segment": {"head_uuid": "4e7c8d1c-7b10-4287-8f43-16aec5b73902", "anchor_uuid": "5f8c7341-4392-495e-8352-f8f28f7cecb7", "tail_uuid": "0ed852a9-0e75-4401-8af3-3e1abae5d67d"}, "preserved_messages": {"anchor_uuid": "5f8c7341-4392-495e-8352-f8f28f7cecb7", "uuids": ["4e7c8d1c-7b10-4287-8f43-16aec5b73902", "0a3754bd-6b02-4a1a-a8ab-f54de8825a4e", "0921ffba-2d7f-4958-a1b8-a7369f137e83", "0ed852a9-0e75-4401-8af3-3e1abae5d67d"], "all_uuids": ["4e7c8d1c-7b10-4287-8f43-16aec5b73902", "0a3754bd-6b02-4a1a-a8ab-f54de8825a4e", "0921ffba-2d7f-4958-a1b8-a7369f137e83", "0ed852a9-0e75-4401-8af3-3e1abae5d67d"]}}
+
+===== TURN 4 =====
+PROMPT: Answer in two short lines and use no tools: (1) the project status word, (2) the project build command. If either is not defined in your instructions, write 'unknown' for it.
+REPLY:
+Acknowledged.
+HALYARD-3175
+`make lodestone`
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=14644 cache_write=4272 out=26 compactions=2]
+[drive] compactions = [{"trigger": "auto", "pre_tokens": 51373, "post_tokens": 14842, "cumulative_dropped_tokens": 36531, "duration_ms": 42950, "preserved_segment": {"head_uuid": "59f7b75e-1c5b-43c8-b491-3210453aab0b", "anchor_uuid": "b13675ce-4296-4c07-b8d9-5bc6dc6ae1a8", "tail_uuid": "ca6a21f0-2203-445e-a93c-eb3fc7dc8373"}, "preserved_messages": {"anchor_uuid": "b13675ce-4296-4c07-b8d9-5bc6dc6ae1a8", "uuids": ["59f7b75e-1c5b-43c8-b491-3210453aab0b", "001d9141-aae0-47c4-a017-2e3a0f9ad54f", "ca6a21f0-2203-445e-a93c-eb3fc7dc8373"], "all_uuids": ["59f7b75e-1c5b-43c8-b491-3210453aab0b", "001d9141-aae0-47c4-a017-2e3a0f9ad54f", "ca6a21f0-2203-445e-a93c-eb3fc7dc8373"]}}, {"trigger": "auto", "pre_tokens": 39339, "post_tokens": 2904, "cumulative_dropped_tokens": 72966, "duration_ms": 38397, "preserved_segment": {"head_uuid": "4e7c8d1c-7b10-4287-8f43-16aec5b73902", "anchor_uuid": "5f8c7341-4392-495e-8352-f8f28f7cecb7", "tail_uuid": "0ed852a9-0e75-4401-8af3-3e1abae5d67d"}, "preserved_messages": {"anchor_uuid": "5f8c7341-4392-495e-8352-f8f28f7cecb7", "uuids": ["4e7c8d1c-7b10-4287-8f43-16aec5b73902", "0a3754bd-6b02-4a1a-a8ab-f54de8825a4e", "0921ffba-2d7f-4958-a1b8-a7369f137e83", "0ed852a9-0e75-4401-8af3-3e1abae5d67d"], "all_uuids": ["4e7c8d1c-7b10-4287-8f43-16aec5b73902", "0a3754bd-6b02-4a1a-a8ab-f54de8825a4e", "0921ffba-2d7f-4958-a1b8-a7369f137e83", "0ed852a9-0e75-4401-8af3-3e1abae5d67d"]}}]
