@@ -1034,7 +1034,10 @@ async function main() {
     assert(after.rowW <= 500, `the row went past its cap at ${after.rowW}px`);
 
     await page.click('.home-chip[data-entity=""]');
-    await page.waitForTimeout(400);
+    // The collapse's own transitions, not 400ms. The slide is declared in
+    // `--home-chip-slide` and read off the stylesheet twenty lines above precisely so no
+    // duration is typed in this file; waiting on `finished` needs neither.
+    await settle(page, 5000);
     const back = await page.evaluate(READ_ROW);
     assertEqual(back.rest, ["All", "1", "2", "3", "4", "5", "6"], "the name did not collapse back to its number");
 
@@ -1604,7 +1607,12 @@ async function main() {
   // -------------------------------------------------------------------------------------
 
   await run.check("CONTRAST: every line of the home screen, measured on the rendered frame", async () => {
-    await page.waitForTimeout(400);
+    // The fact, not 400ms. What this is standing clear of is whatever the checks above left
+    // transitioning — a chip's 180ms color, a signal number's 900ms — and `settle()` reports
+    // what it waited for rather than assuming the number covered it. Removing the blind wait
+    // is how `contrast.js` found 13 hidden failures on 2026-09-06; here it found none, and the
+    // readings below are unchanged, which is a result rather than the absence of one.
+    await settle(page, 5000);
     const rows = await measure(page, [
       { name: "the mark, letterforms", sel: "#home-brand .p-ink", needs: 3, kind: "svg" },
       { name: "the mark, swoosh", sel: "#home-brand .p-signal", needs: 3, kind: "svg" },
@@ -2192,9 +2200,31 @@ async function main() {
     await page.evaluate(() => window.RichHome.openSettings());
     await page.waitForFunction(() => document.querySelectorAll(".home-prefs-row").length > 0);
     await page.focus('.home-prefs-label[data-entity="northwind"]');
+    // A NEGATIVE HAS NO SIGNAL TO WAIT FOR, SO THIS WAITS FOR THE DECISION INSTEAD OF FOR
+    // 150ms. `onHomeKey` (`home.js:734`) is a capture-phase `keydown` listener that calls
+    // `hide("enter-key")` SYNCHRONOUSLY, and `hide` sets `state.open = false` and
+    // `state.lastLeaveReason` on its first two lines (`home.js:1003-1004`) before it fades
+    // anything. So the decision is already made by the time `keyboard.press` resolves; 150ms
+    // was slack over a synchronous fact, and a longer sleep would not have made the negative
+    // any safer.
+    //
+    // AND THE NEGATIVE IS WIDENED, which is the part that is worth more than the wait. Asking
+    // only `isOpen()` would pass over a screen that left and came back. `lastLeaveReason` is
+    // written on every leave and never cleared, so requiring it to be UNCHANGED across the
+    // keystroke catches a leave whether or not anything returned afterwards.
+    const leaveBefore = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(150);
-    const stillHome = await page.evaluate(() => window.RichHome.isOpen());
+    const afterKey = await page.evaluate(() => ({
+      open: window.RichHome.isOpen(),
+      reason: window.RichHome.state.lastLeaveReason,
+    }));
+    assertEqual(
+      afterKey.reason,
+      leaveBefore,
+      `Enter inside the company-buttons panel recorded a leave ("${afterKey.reason}") — the screen went, ` +
+        `whether or not it came back`
+    );
+    const stillHome = afterKey.open;
     await page.evaluate(() => window.RichHome.closeSettings());
     assert(stillHome, "Enter inside the company-buttons panel walked out of the home screen");
 
