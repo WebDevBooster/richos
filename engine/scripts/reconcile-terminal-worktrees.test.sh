@@ -146,15 +146,80 @@ T claim --session-id "$SID" --agent-id "$A3" --ingress SubagentStop >/dev/null
 Q3="$(q "$EXT3" "$A3")"
 ( cd "$Q3" && exec sleep 300 ) &
 HOLDER=$!
-sleep 0.3
-R >/dev/null 2>&1
-if ! kill -0 "$HOLDER" 2>/dev/null && [ "$(states "$A3")" = "verified verified " ]; then
-    ok "C14  a process whose cwd is inside the quarantine is terminated before capture"
+# WAIT ON THE PRODUCT'S OWN SIGNAL, NEVER ON THE CLOCK (2026-09-06).
+#
+# This was `sleep 0.3`, and 0.3 seconds is a guess about how long a forked
+# subshell takes to `cd` and `exec`. On a busy machine it is not enough: the
+# reconciler runs before the holder's cwd is actually inside the quarantine,
+# finds nothing to terminate, and C14 fails for a reason that has nothing to do
+# with the property it tests. This suite's redness was measured under load and
+# C14 is one of the two cases `.github/workflows/engine-self-verify.yml` names
+# as unstable; a fixed timeout standing in for a readiness check is the
+# mechanism.
+#
+# The end-state signal is not invented for the test — it is the EXACT call the
+# reconciler makes. `processes_using()` finds a cwd holder with
+# `lsof -t +D <path>` and nothing else can: its `ps -axo pid=,command=` fallback
+# matches the path in ARGV, and this holder's argv is a bare `sleep 300`. So
+# polling that same call asks precisely the question the reconciler is about to
+# ask, and the case starts the moment the answer is yes.
+#
+# A TIMEOUT HERE IS A LOUD FAILURE, not a shrug: replacing one silent flake with
+# another would be no improvement. And where there is no lsof the reconciler
+# cannot see this holder either, so the property cannot be exercised at all —
+# that is a SKIP naming the reason, never a pass.
+if command -v lsof >/dev/null 2>&1; then
+    # DO NOT REWRITE THIS AS `lsof ... | grep -q`. That was the first version and
+    # it does not work here, and the honest version of this note is that I know
+    # THAT it fails and not exactly WHY.
+    #
+    # What was measured, in this suite: the pipe form polled 601 consecutive
+    # times, roughly 30 seconds, while the identical `lsof -t +D "$Q3"` run
+    # inside the loop body on polls 1, 5, 50 and 600 returned the holder pid
+    # every single time and wrote nothing to stderr. So the predicate was false
+    # at each of the moments it was demonstrably true.
+    #
+    # The leading hypothesis is `set -o pipefail` (line 17) plus `grep -q`
+    # exiting at its first match: the pipe closes under lsof and the pipeline
+    # reports lsof rather than grep. It is only a hypothesis — reduced to a
+    # standalone fixture under the same shell options it does NOT reproduce, the
+    # pipeline exits 0, so something about scanning a real worktree tree is part
+    # of it. Rather than assert a cause I have not established, the loop simply
+    # does not use a pipe: capture, then match. That form was measured working.
+    #
+    # THE REASON THIS COST MINUTES INSTEAD OF SHIPPING is the loud timeout
+    # below. A readiness check that fell through to the assertion on giving up
+    # would have left C14 green over a fixture nobody had waited for, which is
+    # the same defect one level up from the one this whole change fixes.
+    C14_POLLS=0
+    C14_READY=0
+    while [ "$C14_POLLS" -le 600 ]; do          # 600 x 0.05s = 30s
+        C14_SEEN="$(lsof -t +D "$Q3" 2>/dev/null || true)"
+        case " $(printf '%s' "$C14_SEEN" | tr '\n' ' ') " in
+            *" $HOLDER "*) C14_READY=1; break ;;
+        esac
+        C14_POLLS=$((C14_POLLS + 1))
+        sleep 0.05
+    done
+    if [ "$C14_READY" -ne 1 ]; then
+        bad "C14  the holder process never showed up under $Q3 within 30s (lsof last saw: [$C14_SEEN], holder $HOLDER $(kill -0 "$HOLDER" 2>/dev/null && echo alive || echo dead)) — the FIXTURE did not become ready, so nothing was proven about termination"
+        kill "$HOLDER" 2>/dev/null
+        wait "$HOLDER" 2>/dev/null
+    else
+        R >/dev/null 2>&1
+        if ! kill -0 "$HOLDER" 2>/dev/null && [ "$(states "$A3")" = "verified verified " ]; then
+            ok "C14  a process whose cwd is inside the quarantine is terminated before capture (fixture readiness waited on lsof, the reconciler's own detector, in $C14_POLLS poll(s))"
+        else
+            bad "C14  holder alive=$(kill -0 "$HOLDER" 2>/dev/null && echo yes || echo no) states=$(states "$A3")"
+            kill "$HOLDER" 2>/dev/null
+        fi
+        wait "$HOLDER" 2>/dev/null
+    fi
 else
-    bad "C14  holder alive=$(kill -0 "$HOLDER" 2>/dev/null && echo yes || echo no) states=$(states "$A3")"
     kill "$HOLDER" 2>/dev/null
+    wait "$HOLDER" 2>/dev/null
+    printf '  SKIP  C14  no lsof on this host. NOT PROVEN: that a process whose cwd is inside the quarantine is terminated before capture. The reconciler finds such a holder with lsof alone — its ps fallback matches the path in argv and this holder has a bare `sleep 300` — so without lsof there is nothing to detect and nothing to assert.\n'
 fi
-wait "$HOLDER" 2>/dev/null
 
 # --- 5. a recreated ORIGINAL path is preserved --------------------------------
 A4="a00000000000rc04"

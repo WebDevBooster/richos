@@ -125,7 +125,7 @@ mutant native-missing-not-in-done "C47b" "$R" \
 mutant native-presence-unexamined "C47b" "$L" \
     '            elif native_member_gone(nat)[0]:{NL}                out["sealed_native_missing"] += 1' \
     '            elif False:{NL}                out["sealed_native_missing"] += 1' \
-    "every sealed non-terminal transaction would be called present without examining its native member — `sealed_live` under a new name."
+    "every sealed non-terminal transaction would be called present without examining its native member — \`sealed_live\` under a new name (backticks escaped: this string is double-quoted, so bare ones would run the word as a command)."
 
 mutant index-failure-swallowed "C29" "$R" \
     '    for rec in git_must(quar, "ls-files", "-s", "-z").split("\0"):' \
