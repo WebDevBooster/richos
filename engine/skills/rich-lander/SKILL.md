@@ -122,6 +122,34 @@ HEAD or dirty main checkout is an IDE-visibility failure. (If you adopted the
 advanced freshness tier, also run `scripts/freshness-check.sh` here and require
 its layers green before deploy.)
 
+**NEITHER OF THOSE TWO CHECKS CAN SEE UNLANDED WORK, so run this one too — and
+run it again at every session wrap-up, before saying anything is landed, clean,
+finished or pushed:**
+
+```bash
+for b in $(git branch --format='%(refname:short)' | grep -v '^main$'); do
+  n=$(git rev-list --count main..$b)
+  [ "$n" -gt 0 ] && echo "UNLANDED: $b ($n commit(s))"
+done
+```
+
+**Why this is here.** On 2026-09-06 a session ended reporting *"Everything is
+clean and pushed"* with **six finished branches sitting outside main** — among
+them the fix for the CEO's own complaint that the app steals keyboard focus. Both
+checks above were green and stayed green, because a clean working tree and
+`main == origin/main` are **equally true whether or not a single branch has ever
+been landed**. An unmerged branch makes `git status` no dirtier and `origin/main`
+no more behind.
+
+Worse, that session had **named two of those branches by hand 59 seconds earlier**,
+inside escalation acknowledgments, citing a signoff file that existed only on an
+unmerged branch and marking the item CLOSED on that basis. **The verdict is not the
+closure; the commit reaching main is.** A judgment written on a branch nobody merged
+has not been delivered to anyone.
+
+Any output from the loop is unfinished business: land it, or state in the handoff
+that it is held, and on whose word.
+
 ### 6. Push origin main
 
 ```bash
