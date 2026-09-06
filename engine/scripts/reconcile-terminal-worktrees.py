@@ -712,6 +712,10 @@ def native_member_gone(m):
 
 
 _ADOPTION_MODULE = None
+# What the last adoption pass in THIS process did, stamped into the heartbeat.
+# "the pass did nothing" and "the pass ran and found nothing" are different
+# facts and neither may be read off the other.
+_ADOPTION_STATUS = {"ran": False, "reason": "not-run"}
 
 
 def adoption_module():
@@ -759,18 +763,27 @@ def adoption_pass():
         the OPERATOR'S REAL ledger and renaming a live engineer's worktree
         into a temporary directory. It is checked BEFORE any candidate is
         evaluated, so such a run costs nothing at all."""
+    global _ADOPTION_STATUS
     ad = adoption_module()
     if ad is None:
+        _ADOPTION_STATUS = {"ran": False, "reason": "module-absent"}
         return 0
     if str(config_value("ADOPTION_ENABLED", "1")).strip().lower() not in ("1", "on", "true", "yes"):
+        _ADOPTION_STATUS = {"ran": False, "reason": "disabled-by-config"}
         return 0
     ok, why = ad.rooting()
     if not ok:
+        # STDERR *AND* THE HEARTBEAT. The stderr line is for whoever is
+        # reading the launchd log; the heartbeat field is for everything else,
+        # because a pass that did nothing must be distinguishable from a pass
+        # that ran and found nothing WITHOUT anybody having to grep prose.
+        _ADOPTION_STATUS = {"ran": False, "reason": "inconsistent-rooting", "detail": why}
         log("adoption pass SKIPPED (fail-closed): %s" % why)
         return 0
     try:
         results = ad.adopt_all()
     except Exception as e:
+        _ADOPTION_STATUS = {"ran": False, "reason": "error", "detail": str(e)[:300]}
         log("adoption pass: %s — retried next run" % e)
         return 0
     taken = 0
@@ -787,6 +800,7 @@ def adoption_pass():
         # candidates and `adopted=0` over none are different facts, and the
         # first is the one that means the gates are doing their job.
         log("adoption pass: adopted=%d of %d candidate(s) the record names" % (taken, len(results)))
+    _ADOPTION_STATUS = {"ran": True, "adopted": taken, "candidates": len(results)}
     return taken
 
 
@@ -1128,7 +1142,8 @@ def run(max_seconds=None, only=None):
     try:
         tx.atomic_write_json(os.path.join(tx.tx_root(), "last-run.json"),
                              {"ts": tx.now_iso(), "epoch": time.time(), "pid": os.getpid(),
-                              "reconciled": n, "argv": sys.argv[1:]})
+                              "reconciled": n, "argv": sys.argv[1:],
+                              "adoption": dict(_ADOPTION_STATUS)})
     except Exception as e:
         log("heartbeat: %s" % e)
     return n
