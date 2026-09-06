@@ -2251,6 +2251,20 @@ async function main() {
     // launch and the order is what is asserted — which is both immune to when the harness
     // wakes up AND strictly stronger than what a single sample could say: a cover that went
     // early would be caught wherever it went, not only if the harness happened to be looking.
+    //
+    // AND WHAT IT LEARNED ON 2026-09-06, WHICH IS THE OTHER HALF OF THE SAME LESSON. Having
+    // stopped reading the page's CLOCK at the harness's convenience, it still read the page's
+    // RECORD at the harness's convenience — `waitForFunction(state.field === "live")` and then
+    // immediately `evaluate` — and the record is taken by a 10ms poller, so the two can be one
+    // tick apart. MEASURED, 25 cold launches: `__liveAt` was still null when the harness got
+    // its turn on 1 of them, and on that run the independent rAF observer had already seen
+    // `live` at 440ms with `performance.now()` at 461ms. Nothing was wrong with the launch;
+    // the record simply had not been taken yet.
+    //
+    // The check was RIGHT to refuse the harness clock, and wrong to have no third option
+    // besides "measure" and "fail". It now WAITS for the page's own record, which is the
+    // product's signal rather than the harness's, and if that record never appears it says so
+    // in those words and reports the gap instead of substituting a number from this process.
     const p2 = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await p2.addInitScript(() => {
       // WHEN THE BUILD ACTUALLY STARTED, which no state flag records — `state.field` is
@@ -2316,6 +2330,26 @@ async function main() {
     if (LAG_MS > 0) await p2.waitForTimeout(LAG_MS);
     await p2.waitForFunction("typeof window.RichHome === 'object'");
     await p2.waitForFunction("window.RichHome.state.field === 'live'", { timeout: 60000 });
+    // ...AND THEN FOR THE PAGE'S OWN RECORD OF THAT INSTANT, which is a separate fact and can
+    // be one 10ms tick behind the state it records. 5,000ms is four hundred ticks: a budget
+    // this wide is only reachable if the poller is dead, never if the machine is slow.
+    try {
+      await p2.waitForFunction("window.__liveAt != null", { timeout: 5000 });
+    } catch (_e) {
+      const why = await p2.evaluate(() => ({
+        field: window.RichHome.state.field,
+        installed: "__liveAt" in window,
+        now: Math.round(performance.now()),
+      }));
+      await p2.close();
+      throw new Error(
+        "the page never recorded WHEN the picture landed. Its own state said \"live\" and 5000ms later " +
+          `\`window.__liveAt\` is still null (state.field is now "${why.field}", the poller ` +
+          `${why.installed ? "is installed and stopped running" : "was never installed"}, page clock ${why.now}ms). ` +
+          "The only other number available is this process's clock, which on a runner reports the harness's lag " +
+          "as the product's launch time — so this reports the gap rather than substituting it."
+      );
+    }
     const t = await p2.evaluate(() => ({
       live: window.__liveAt == null ? null : Math.round(window.__liveAt),
       sampledAt: Math.round(performance.now()),
@@ -2339,7 +2373,10 @@ async function main() {
     // 1. STRICT. The kick-off is floored by a TIMER, not by the machine's speed, so a slow
     //    runner has no excuse here — 300ms of slack for timer imprecision and nothing more.
     assert(t.started != null, "the field scripts were never requested — nothing kicked the picture off");
-    assert(t.live != null, "nothing recorded WHEN the picture landed — the number below would be the harness's clock, not the product's");
+    // Unreachable while the wait above is doing its job, and kept for exactly that reason: a
+    // wait that silently stopped working would otherwise put this row back to reporting a null
+    // as a launch time while staying green.
+    assert(t.live != null, "the wait for the page's own record of the landing returned without the record being there");
     assert(t.domReady != null, "DOMContentLoaded was never seen, so the floor has no origin to be measured from");
     const armed = t.started - t.domReady;
     assert(
