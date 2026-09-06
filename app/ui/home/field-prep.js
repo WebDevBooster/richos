@@ -79,6 +79,28 @@ function strandColor(s, u, out, o) {
 // next to each other (Customers–Product, Operations–Talent), the biggest domain takes the crown.
 const ARC_ORDER = ['operations', 'talent', 'infrastructure', 'product', 'customers', 'revenue', 'market', 'brand', 'partnerships', 'strategy', 'capital', 'legal-risk'];
 
+// APP: THE ARC IS NOW READ OFF THE DATASET, and for the synthetic dataset it is the same list.
+//
+// `ARC_ORDER` is the twelve domain ids the round's own generator emits. Until the app could draw
+// a CUSTOMER'S loro (`home_field_data`, 2026-09-06) that was the only dataset there was, and
+// `domainIndex.get('brand')` was never `undefined`. A real corpus's domains are his COMPANY LANES
+// — `ceo`, `richos`, whatever he has — so every one of those lookups misses, and the very next
+// line, `domains[undefined].nodeCount`, throws before a single strand is allotted.
+//
+// So the order is derived: the round's preferred order for the ids this dataset actually has,
+// then anything it has that the round never heard of, in the dataset's own order.
+//
+// IT IS THE SAME LIST FOR THE ROUND'S DATA, and that is arithmetic rather than a hope. The
+// synthetic dataset carries exactly the twelve ids in `ARC_ORDER` and no others, so the filter
+// drops nothing and preserves order, and the concatenation appends nothing:
+// `arcOrderOf(...)` === `ARC_ORDER`, element for element. The composition the CEO approved is
+// therefore byte-identical over the dataset he approved it on.
+function arcOrderOf(domains, domainIndex) {
+  const known = ARC_ORDER.filter((id) => domainIndex.has(id));
+  const rest = domains.map((d) => d.id).filter((id) => ARC_ORDER.indexOf(id) < 0);
+  return known.concat(rest);
+}
+
 function prepare(loro, REF, opts) {
   opts = opts || {};
   const rnd = mulberry32(20260826);
@@ -96,9 +118,10 @@ function prepare(loro, REF, opts) {
   const lobe = strands.filter(s => s.region !== 'stem').sort((a, b) => a.angle - b.angle);
   const stem = strands.filter(s => s.region === 'stem');
   const lobeLen = lobe.reduce((a, s) => a + s.len, 0);
+  const ARC = arcOrderOf(domains, domainIndex);
   const domStrands = domains.map(() => []);
   {
-    const order = ARC_ORDER.map(id => domainIndex.get(id));
+    const order = ARC.map(id => domainIndex.get(id));
     let k = 0, acc = 0;
     order.forEach((di, oi) => {
       const share = domains[di].nodeCount / N;
@@ -116,6 +139,15 @@ function prepare(loro, REF, opts) {
       while (k < ss.length && (acc < target || c.strands.length === 0)) { c.strands.push(ss[k]); acc += ss[k].len; k++; }
     });
     while (k < ss.length) cls[cls.length - 1].strands.push(ss[k++]);
+    // APP: A CLUSTER WITH NO STRAND LEFT TO STAND ON. The `|| c.strands.length === 0` above
+    // guarantees each cluster one strand only WHILE STRANDS REMAIN — a domain with more clusters
+    // than the arc gave it strands leaves the last ones empty, and `pickStrand([])` returns
+    // `undefined`, which throws at `s.len` two lines later. It cannot happen on the round's own
+    // data (34 clusters over 1,983 strands, and today's picture draws), and it is one bad share
+    // away on a corpus whose lanes and groups nobody chose. Falling back to the domain's own
+    // strands, then to the whole lobe, is a cluster drawn in the wrong place rather than a
+    // picture that does not draw.
+    cls.forEach((c) => { if (!c.strands.length) c.strands = ss.length ? ss.slice() : lobe.slice(); });
   });
 
   // ---- node placement: on a strand of its cluster ----
@@ -147,6 +179,12 @@ function prepare(loro, REF, opts) {
   };
   for (let c = 0; c < clusterList.length; c++) {
     const ids = byCluster[c].slice().sort((a, b) => nodes[b].degree - nodes[a].degree);
+    // APP: a cluster the dataset declared and put nothing in. `nh` floors at 1, so `hubs` would
+    // be an empty slice, `groups` would stay empty, and the `groups[groups.length - 1]` below
+    // would be `undefined`. The round's data has no such cluster and `home_field.rs` emits none
+    // (`a_domains_node_count_is_its_own_nodes` asserts the clusters add up), so this is inert on
+    // both datasets that exist — and it is one line against a crash on a third.
+    if (!ids.length) continue;
     const ss = clusterList[c].strands;
     const nh = Math.max(1, Math.min(ids.length, Math.round(ids.length * 0.07), Math.floor(ss.length / 2)));
     const hubs = ids.slice(0, nh);
@@ -273,9 +311,9 @@ function prepare(loro, REF, opts) {
     const perDomain = domains.map(() => []);
     sources.forEach((s, si) => { perDomain[domainIndex.get(s.domain)].push(si); });
     let k = 0, acc = 0;
-    ARC_ORDER.forEach((id, oi) => {
+    ARC.forEach((id, oi) => {
       const di = domainIndex.get(id), list = perDomain[di];
-      const target = oi === ARC_ORDER.length - 1 ? Infinity : acc + (list.length / S) * riverLen;
+      const target = oi === ARC.length - 1 ? Infinity : acc + (list.length / S) * riverLen;
       const band = [];
       while (k < river.length && (acc < target || band.length === 0)) { band.push(river[k]); acc += river[k].len; k++; }
       list.forEach((si, j) => {
