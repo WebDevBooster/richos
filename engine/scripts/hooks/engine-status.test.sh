@@ -489,6 +489,17 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # instead of left to be noticed.
 # shell-evidence.sh was registered on 2026-09-06 to preserve Bash pipeline and
 # sequence failures; acknowledge it here as well as in the derived probe inventory.
+# guard-stale-staging.sh, added 2026-09-06: the staging-staleness gate on
+# PreToolUse[Agent]. It refuses a dispatch that works on, or tests against, a
+# product tree whose landed commits have not reached staging. The OTHER
+# inventories a registration has to be added to were derived the way the note
+# further up says rather than guessed: `grep -rln guard-model-ceiling engine/`
+# named hooks/hooks.json, .claude/settings.local.json, this set, and in
+# contract-integrity-probe.sh the SC1 guard list, the BR_EXPECTED spec table,
+# the BR2 Agent-chain order, CANONICAL_AGENT_CHAIN and the double-registration
+# list, plus contract-integrity.test.sh's own sandbox chain. All eight carry it,
+# so unlike the notice-unlanded-branches note above, this one leaves no
+# inventory owing.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -513,6 +524,7 @@ guard-publication-writes.sh
 guard-resume-isolation.sh
 guard-row-currency-commits.sh
 guard-sealed-worktree.sh
+guard-stale-staging.sh
 guard-stated-actions.sh
 guard-unresolved-claims.sh
 guard-vendoring-commits.sh
