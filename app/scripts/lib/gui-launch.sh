@@ -110,6 +110,35 @@ gui_machine() {
   mkdir -p "$home" || return 1
   ( cd "$app_dir" && cargo run -q -p richos-core --example gui_boot_machine -- "$home" "$src" ) || return 1
 
+  # -- the central folder, and the ONE thing here that is deliberately not provisioned ----
+  #
+  # `~/myrichos/companies/<id>/company.md` is what the CEO said about his company, and
+  # `company.rs` reads it at prime time. It is written HERE, in the harness, rather than by
+  # the example above, and that is the point rather than an oversight: RichOS does not create
+  # this folder and must not. A reader that helpfully created its own source could never
+  # report the source missing, which is how this machine ended up with four `corpus.*`
+  # symlinks pointing at a directory that is not there
+  # (`richos-central-folder-2026-09-06.md` §1.3, `company.rs`).
+  #
+  # So a COMPLETE machine has one because somebody put it there, and B3-B8 — which build
+  # their machines the same way and then break one thing — inherit it too. The company id is
+  # `northwind`, the same one `gui_boot_machine.rs` registers; a file under any other id
+  # would leave the boot printing `nothing on file` and would look like a product failure.
+  mkdir -p "$home/myrichos/companies/northwind" || return 1
+  cat > "$home/myrichos/companies/northwind/company.md" <<'COMPANY'
+# Northwind
+
+Recorded from a conversation with the CEO, 2026-09-06.
+
+## What the business is
+
+Northwind sells chandlery to working harbors. Its customers are harbor masters, not sailors.
+
+## Who he wants around him
+
+Not discussed yet.
+COMPANY
+
   # -- the engine, at the pointer an installed app reaches -------------------------------
   # `engine.rs` candidate 6: `$CLAUDE_CONFIG_DIR`(or `~/.claude`)`/richos-engine`, which is
   # the pointer `engine/scripts/hooks/install.sh` mints. A symlink, because that is what the
