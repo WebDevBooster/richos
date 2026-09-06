@@ -696,7 +696,7 @@ button {
    Sits at the top of the composer zone, directly over the box he types in, so it is on
    screen at every scroll position — the timeline's duration row is not, and the
    reproduction (`docs/verification/waiting-state-2026-09-06/`) is a 400px void with one
-   14px grey line in the corner of it.
+   14px line in the corner of it, in `--ink-soft`.
 
    EVERY VALUE HERE WAS COMPUTED, BOTH THEMES, against `--paper` (which is `--ground`:
    #0c1322 dark, #eae6dd light — `#composer-zone` paints it and nothing else sits between).
@@ -2485,7 +2485,7 @@ body.bp-narrow .tl-user-bubble {
    The fix keeps the breath and stops trading it against legibility: the dot is
    `--live-mark` at FULL opacity in both themes (7.68:1 dark, 5.48:1 light) and the
    animation moves its SIZE instead. The smallest frame is 70% of 6px, which is still the
-   same colour at the same contrast — a scale animation cannot dilute a ratio. */
+   same color at the same contrast — a scale animation cannot dilute a ratio. */
 .tl-pulse {
   width: 6px;
   height: 6px;
