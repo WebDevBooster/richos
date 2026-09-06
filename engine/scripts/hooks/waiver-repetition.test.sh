@@ -46,6 +46,49 @@ command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit
 SANDBOX="$(cd "$(mktemp -d -t waiver-repetition.XXXXXX)" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
+# ---------------------------------------------------------------------------
+# SANDBOX THE OPERATOR'S CONFIG DIR, for the whole suite, before anything runs.
+#
+# WHY: this suite drives the hook TWO WAYS, and only one of them was sealed.
+#
+#   run_py   calls the analyzer directly and passes --teams-root explicitly, at
+#            a path inside $SANDBOX that does not exist. Sealed.
+#   run_hook calls notice-waiver-repetition.sh, the shipped wrapper, which does
+#            NOT pass --teams-root — correctly, because in production there is
+#            no better value to pass. The analyzer then falls back to
+#            "${CLAUDE_CONFIG_DIR:-~/.claude}/teams" (notice-waiver-
+#            repetition.py, main()) and enumerates EVERY session team directory
+#            on the operator's real machine as a ledger source.
+#
+# So cases 15, 15b and 15c were reading the operator's live sessions as part of
+# their own fixture. That is not a theory. Case 15c truncates the ledger to one
+# entry and asserts the recovery line; on 2026-09-06 it went red on this machine
+# reporting "fixture-hatch-guard.sh (14x one reason, 14 subjects over 2 days)" —
+# a count the case did not write and could not have written. It was green four
+# times that evening and red five times after, with no commit in between: the
+# variable that moved was the operator's ~/.claude/teams, not this repository.
+# Reproduced deterministically by planting 14 same-reason entries in a fake
+# teams dir and changing nothing else.
+#
+# THE HOOK IS RIGHT AND THE SUITE WAS WRONG. Reading the team directories is
+# real production behavior — hatch ledgers genuinely live there — and case 20a
+# is the standing promise that this watcher has no key to stand it down with.
+# What was wrong was a sandbox that sealed one entry point and inherited the
+# machine through the other. A suite whose verdict depends on what the operator
+# did in an unrelated session is not measuring the code.
+#
+# Sandboxing CLAUDE_CONFIG_DIR is the discipline every other suite in this
+# engine already follows (scripts/lib/global-state-witness.test.sh case c5
+# names it as the correct one). Here it seals a READ rather than a write, which
+# is the same defect one direction over.
+#
+# The teams dir is created EMPTY rather than left absent, so that case 15d can
+# plant a decoy in it and prove this seal did not work by breaking the feature.
+# ---------------------------------------------------------------------------
+CLAUDE_CONFIG_DIR="$SANDBOX/config"
+export CLAUDE_CONFIG_DIR
+mkdir -p "$CLAUDE_CONFIG_DIR/teams"
+
 REPO="$SANDBOX/repo"
 mkdir -p "$REPO/scripts/hooks" "$REPO/scripts/lib" "$REPO/.claude/state"
 
@@ -170,6 +213,43 @@ write_repeated_class() {
     add 2026-09-02 alpha "recipient is the currently-running teammate spawned this session with native isolation:worktree; background agents never appear in the session roster, so every write still lands in its own existing isolated worktree"
     add 2026-09-01 beta  "the recipient is a live background teammate spawned minutes ago with native isolation:worktree and absent from the session roster by design; every write still lands in its own existing isolated worktree"
     add 2026-08-30 gamma "recipient is a currently-running background agent holding native isolation:worktree - background agents are absent from the session roster, and every write lands in its own existing isolated worktree as before"
+}
+
+# ---------------------------------------------------------------------------
+# THE SAME CLASS, DATED AGAINST THE REAL CLOCK — for the run_hook cases only.
+#
+# run_py is told what day it is (--today "$TODAY"), so absolute fixture dates
+# mean the same thing in it forever. THE WRAPPER CANNOT BE TOLD: it invokes the
+# analyzer with no --today, deliberately, because in production the day is the
+# day. So every run_hook case is evaluated against datetime.date.today(), and
+# an absolutely-dated fixture is worth less every morning.
+#
+# It expires on a date that can be named. ACTIVE_DAYS is 14, measured from the
+# NEWEST entry of a class, and the newest above is 2026-09-02 — so this fixture
+# stops being a repeated class on 2026-09-17, and cases 15 and 15b go red that
+# morning with nobody having changed anything. Measured on the shipped analyzer
+# rather than reasoned about:
+#
+#   --today 2026-09-16  ->  "fixture-hatch-guard.sh (3x one reason, 3 subjects over 3 days)"
+#   --today 2026-09-17  ->  no notice at all
+#
+# That is the identical defect the sandboxed config dir above fixes, one input
+# over: the wrapper path inherits the operator's machine, and the machine is
+# both its team directories AND its clock. Fixing half of it would have left a
+# dated bomb behind a green suite.
+#
+# The relative offsets are 0/1/2 days rather than the original 0/1/3, so the
+# class stays inside ACTIVE_DAYS on any day, and >= 2 distinct days keeps the
+# independence test (is_repeated) satisfied exactly as the absolute fixture did.
+# ---------------------------------------------------------------------------
+days_ago() { # <n> -> YYYY-MM-DD, n days before the REAL today
+    python3 -c 'import datetime,sys; print(datetime.date.today() - datetime.timedelta(days=int(sys.argv[1])))' "$1"
+}
+write_repeated_class_now() {
+    write_ledger
+    add "$(days_ago 0)" alpha "recipient is the currently-running teammate spawned this session with native isolation:worktree; background agents never appear in the session roster, so every write still lands in its own existing isolated worktree"
+    add "$(days_ago 1)" beta  "the recipient is a live background teammate spawned minutes ago with native isolation:worktree and absent from the session roster by design; every write still lands in its own existing isolated worktree"
+    add "$(days_ago 2)" gamma "recipient is a currently-running background agent holding native isolation:worktree - background agents are absent from the session roster, and every write lands in its own existing isolated worktree as before"
 }
 write_repeated_class
 if [ "$(sort -u "$LEDGER" | wc -l | tr -d ' ')" -eq 3 ]; then
@@ -389,7 +469,10 @@ else
     bad "14. the state key is stable while the situation is, and moves when it doubles" "K1=$K1 K2=$K2 K3=$K3"
 fi
 
-write_repeated_class
+# From here to the end of 15d the driver is run_hook, which cannot be told what
+# day it is — so the fixture is dated against the real clock. See
+# write_repeated_class_now.
+write_repeated_class_now
 
 # ===========================================================================
 # 15 — THE HOOK, END TO END. It says the sentence on the one channel measured
@@ -416,12 +499,65 @@ fi
 
 # 15c — and when the hatches go quiet, the operator is told the story ended.
 write_ledger
-add 2026-09-02 alpha "a single considered waiver, and nothing else"
+add "$(days_ago 0)" alpha "a single considered waiver, and nothing else"
 OUT="$(run_hook waivtst1)"; RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "clear again"; then
     ok "15c. a recovery is announced, so silence means no-change and not hope"
 else
     bad "15c. a recovery is announced, so silence means no-change and not hope" "rc=$RC out=$OUT"
+fi
+
+# ===========================================================================
+# 15d — THE SEAL IS A SEAL, NOT AN AMPUTATION.
+#
+# 15c is green above because CLAUDE_CONFIG_DIR points at an EMPTY teams
+# directory. It would be just as green if the analyzer had stopped reading team
+# directories altogether — and that is the entire failure mode this suite's
+# header is about: a checker that reports nothing passes every test it has.
+# Sealing an input and deleting an input look identical from the sealed side.
+#
+# So the seal is asserted from the other side. The team directories are a real
+# production ledger location — a teammate's acks land in the session team dir,
+# not in the repository — and the wrapper's fallback to
+# "${CLAUDE_CONFIG_DIR:-~/.claude}/teams" is the shipped behavior that finds
+# them. This case plants a repeated class in a team directory INSIDE the
+# sandbox and requires the hook to count it, which is the same code path that
+# was reading the operator's live sessions before the seal, now aimed somewhere
+# the suite owns.
+#
+# Two-sided, like everything else here: the decoy is then removed and the
+# recovery line required, so a hook that simply shouted at every turn would
+# fail the second half.
+# ===========================================================================
+DECOY="$CLAUDE_CONFIG_DIR/teams/session-decoy"
+mkdir -p "$DECOY"
+decoy_add() { # <days-ago> <subject> <reason>
+    printf '%sT12:00:00Z\tto=%s\tfixture-ack: %s\n' "$(days_ago "$1")" "$2" "$3" \
+        >> "$DECOY/fixture-acks.log"
+}
+: > "$DECOY/fixture-acks.log"
+decoy_add 0 eta   "the recipient is a running teammate holding an isolated worktree of its own, so every write still lands inside that worktree"
+decoy_add 1 theta "recipient is a currently-running teammate that holds its own isolated worktree; every write lands inside that worktree as before"
+decoy_add 2 iota  "the recipient is a live teammate with an isolated worktree of its own and every write still lands within that worktree"
+
+OUT="$(run_hook waivtst3)"; RC=$?
+say "15d" "rc=$RC out=$OUT"
+if [ "$RC" -eq 0 ] \
+   && printf '%s' "$OUT" | grep -q "REPEATED WAIVERS" \
+   && printf '%s' "$OUT" | grep -q "3x one reason"; then
+    ok "15d. a ledger in a session team directory is read, so the sandbox seals rather than blinds"
+else
+    bad "15d. a ledger in a session team directory is read, so the sandbox seals rather than blinds" "rc=$RC out=$OUT"
+fi
+
+# 15e — the negative twin. Take the decoy away and the same session is told the
+#       story ended; a hook that shouted unconditionally would pass 15d alone.
+rm -rf "$DECOY"
+OUT="$(run_hook waivtst3)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "clear again"; then
+    ok "15e. removing that ledger returns the session to clear"
+else
+    bad "15e. removing that ledger returns the session to clear" "rc=$RC out=$OUT"
 fi
 
 # ===========================================================================

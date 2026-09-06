@@ -248,6 +248,13 @@ mutant "no-recovery-line" "15c. a recovery is announced" "$SH_REL" \
     '    stop_notice_normal ""' \
     "without the recovery line the operator's last-seen state is stale forever, and silence stops meaning no-change."
 
+mutant "teams-dirs-unread" "15d. a ledger in a session team directory is read" "$PY_REL" \
+    '                if os.path.isdir(p):
+                    dirs.append(p)' \
+    '                if False:
+                    dirs.append(p)' \
+    "the session team directories are where a teammate's acks actually land; a reader that skips them reports a clean machine while the ledger it exists to read grows next door — and it looks identical to a clean machine, which is why 15c was sealed against them rather than the reading removed."
+
 mutant "quiet-without-analyzer" "16. no analyzer" "$SH_REL" \
     '    stop_notice_abnormal "no-analyzer" \
         "WAIVER-REPETITION WATCH IS OFF: scripts/hooks/notice-waiver-repetition.py is missing, so no escape-hatch ledger was read. This hook decides nothing on its own — without the analyzer it is wiring around an empty space."
