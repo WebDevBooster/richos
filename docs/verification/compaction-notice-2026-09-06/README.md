@@ -279,7 +279,45 @@ watched fail is a contrast gate nobody should believe.
 
 ---
 
-## 6. Open, and named rather than quietly absorbed
+## 6. Every check, and the commands that produced it
+
+```
+$ cargo test -p richos-core
+   889 direct passed, 0 failed, 3 ignored, across 40 binaries, + 5 doc-tests
+   (877 direct before this branch; 12 tests added, all driven by the frames in raw/)
+
+$ cd app/ui/tests && node run.js
+   28 discovered, 28 ran, 0 skipped, 552 checks observed against 447 declared, 0 failed
+
+$ node compaction-notice.js          # 20 consecutive runs
+   run 1..20: exit=0 pass=6 fail=0
+   TOTAL: 20 green, 0 not green, out of 20
+
+$ node waiting-state.js
+   10 PASS, 0 FAIL   (the suite whose threshold moved)
+
+$ node docs-claims.js
+   6 PASS, 0 FAIL    (it failed twice before app/README.md and app/ui/tests/README.md
+                      were brought to the tree: a stale crate total and a missing suite row)
+```
+
+**One thing a reader of a fresh sweep should expect and should not commit.** A full `node
+run.js` in this worktree rewrote **100** committed `app/ui/tests/shots-*/*.png`, and the
+harness reported each one itself:
+
+```
+shot changed: shots-3-1/3-1-02-the-turns-real-machinery.png — 77332/1330000 pixels (5.8144%), worst channel delta 214
+shot changed: shots-10-1/10-1-conversation-dark.png        —  9383/1330000 pixels (0.7055%), worst channel delta 211
+```
+
+Five per cent of a frame is not the pulse-phase churn the harness already pins, and none of
+these suites touch anything this branch changed. It was reproduced on both sweeps, and all 100
+were restored with `git checkout --` before committing, so this branch carries no screenshot
+churn. Worth someone's attention as its own row; it is not this one.
+
+---
+
+## 7. Open, and named rather than quietly absorbed
 
 1. **Two compactions inside ONE turn would render as one row.** The wire gives the spans no
    correlation id, so the key is `(turn, lease)`. Never observed: 16 of 16 measured boundaries
