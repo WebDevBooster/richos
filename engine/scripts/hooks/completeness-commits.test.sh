@@ -32,10 +32,9 @@
 #   (b) THE REPLAY — the real 2026-08-30 miss, refused at commit AND at push,
 #       with the dangling path named.
 #   (c) THE WHOLE TREE, NOT THE DIFF — a commit that touches an unrelated file
-#       is still refused by a citation somebody else left, and the refusal says
-#       so instead of blaming the author. This is the trade the guard makes on
-#       purpose; a test that did not pin it would let a future "optimization"
-#       quietly turn it into a diff check.
+#       is still refused by an existing citation. Origin and ownership remain
+#       unknown: local path overlap cannot establish either. A regression pins
+#       this so a future optimization cannot quietly turn it into a diff check.
 #   (d) THE MERGE ARM — a defect that exists on NEITHER branch and only in the
 #       merge is invisible at commit time and caught at push. This is the whole
 #       reason this guard has a second arm its siblings decline.
@@ -114,6 +113,18 @@ says() { # <name> <needle>
         ok "$1"
     else
         bad "$1 (refusal did not mention \"$2\")"
+    fi
+}
+
+# These assertions apply to the real checker output, including clean pushes.
+# A finding is a current-tree fact. History and blame require separate evidence.
+honest_scope() {
+    says "$1 states the audit scope" "Audit scope: current index and worktree"
+    says "$1 leaves attribution unknown" "Attribution: unknown"
+    if printf '%s' "$LAST_OUT" | grep -Eq 'before you started|nothing was looking|yours to fix|NONE of the paths|touched by this (commit|push)'; then
+        bad "$1 invents history or ownership from local changes"
+    else
+        ok "$1 makes no unsupported history or ownership claim"
     fi
 }
 
@@ -242,14 +253,41 @@ commit_all "$WHOLE"          # the defect is now HISTORY, not this commit's doin
 printf 'unrelated\n' > "$WHOLE/docs/unrelated.md"
 git -C "$WHOLE" add docs/unrelated.md >/dev/null 2>&1
 cc_case "an UNRELATED commit is still refused by a pre-existing finding" 2 "$WHOLE"
-says    "and it does not blame the author for it" "NONE of the paths named above"
+honest_scope "unrelated staged change"
 
-# The other half of the same trade: when it IS yours, it says so.
+# Even overlap with a staged file does not establish who introduced a finding.
 MINE="$(mktree mine)"
 printf 'See `docs/never-shipped.md`.\n' > "$MINE/docs/claim.md"
 git -C "$MINE" add docs/claim.md >/dev/null 2>&1
 cc_case "a commit that introduces the finding is refused"               2 "$MINE"
-says    "and it says the author owns this one" "touched by this commit"
+honest_scope "staged finding"
+# Replay the September 6 failure: the new citation is committed on a branch,
+# then merged into a clean checkout. No uncommitted diff identifies its origin.
+commit_all "$MINE"
+cc_case "a clean committed finding still refuses push" 2 "$MINE" "git -C $MINE push"
+honest_scope "clean committed finding"
+printf 'unrelated local edit\n' >> "$MINE/docs/notes.md"
+cc_case "unrelated unstaged edits do not hide a committed finding" 2 "$MINE" "git -C $MINE push"
+honest_scope "unrelated unstaged change"
+
+LANDED="$(mktree landed)"
+BASE_BRANCH="$(git -C "$LANDED" rev-parse --abbrev-ref HEAD)"
+git -C "$LANDED" checkout -qb incoming || exit 1
+printf 'See `docs/never-shipped.md`.\n' > "$LANDED/docs/new-measurement.md"
+commit_all "$LANDED"
+git -C "$LANDED" checkout -q "$BASE_BRANCH" || exit 1
+git -C "$LANDED" merge --no-ff --no-edit incoming >/dev/null 2>&1 || exit 1
+if [ -z "$(git -C "$LANDED" status --porcelain)" ] &&
+   ! git -C "$LANDED" cat-file -e 'HEAD^1:docs/new-measurement.md' 2>/dev/null &&
+   git -C "$LANDED" cat-file -e 'HEAD:docs/new-measurement.md' 2>/dev/null; then
+    ok "fixture proves the clean merge introduced the document"
+else
+    bad "landed fixture must be clean with a document absent from the first parent"
+fi
+cc_case "push refuses a citation introduced by the clean merge" 2 "$LANDED" "git -C $LANDED push"
+says "the actual merged finding is named" "docs/new-measurement.md"
+says "the rerun targets the audited repository" "--root $(cd "$LANDED" && pwd -P) --explain"
+honest_scope "clean branch land"
 
 # ---------------------------------------------------------------------------
 echo "--- (d) the MERGE arm: why this guard has a push half"
@@ -281,6 +319,7 @@ git -C "$MERGE" checkout -q "$MAIN_BRANCH"
 git -C "$MERGE" merge --no-edit mover >/dev/null 2>&1
 cc_case "the MERGE is broken and the push is refused"       2 "$MERGE" "git -C $MERGE push"
 says    "naming the path the merge stranded"               "docs/target.md"
+honest_scope "merge interaction"
 
 # ---------------------------------------------------------------------------
 echo "--- (e) no deadlock: three ways out, all of them a normal edit"

@@ -79,6 +79,31 @@ git -C "$WT" status --short                     # must be empty
   `docs-only`, `scripts-only`, or an explicit mix). Never guess — read the
   paths; guessing is how work ships to the wrong deploy target.
 
+### 2b. Validate publication completeness on the candidate tree
+
+Before reporting a branch ready and before merging it, run the existing
+publication checker against that worktree. Unit tests and a review verdict do
+not establish that the actual candidate tree passes. Use the resolved engine
+installation and the target repository explicitly, especially when the session
+is seated in a different repository:
+
+```bash
+CHECKER="<resolved engine root>/scripts/publication-completeness.sh"
+bash "$CHECKER" --root "$WT" --explain
+```
+
+A publication-bound repository must return exit 0. Exit 2 is a stand-down only
+when the checker explicitly reports NOT APPLICABLE for a repository without a
+publication declaration; any other nonzero result needs diagnosis. Preserve the
+candidate SHA, command and full result in the handoff evidence. Repeat after
+candidate changes. The PreToolUse guard also checks commits and pushes, but does
+not run for tools or sessions outside its host.
+
+A finding proves a defect in the audited tree. It does not prove who introduced
+it, that it predated this land or that nobody reviewed it. Compare the actual
+base and candidate history before reporting that attribution or storing it in
+ECS or memory. An empty local diff after a merge proves none of those claims.
+
 ### 3. Collect gitignored evidence BEFORE any removal
 
 Committed deliverables ride the merge; gitignored test/QA evidence lives only in
@@ -121,6 +146,11 @@ If any fails, STOP and diagnose — do not report done, do not deploy. A detache
 HEAD or dirty main checkout is an IDE-visibility failure. (If you adopted the
 advanced freshness tier, also run `scripts/freshness-check.sh` here and require
 its layers green before deploy.)
+
+Repeat the publication check from step 2b with `--root` set to this main
+checkout before pushing. A merge can strand a citation even when both branches
+passed separately. Require the same exit-code interpretation and record the
+merged SHA with its result.
 
 **NEITHER OF THOSE TWO CHECKS CAN SEE UNLANDED WORK, so run this one too — and
 run it again at every session wrap-up, before saying anything is landed, clean,
