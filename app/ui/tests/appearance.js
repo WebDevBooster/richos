@@ -40,7 +40,17 @@
 
 const fs = require("fs");
 const path = require("path");
-const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const {
+  leaveHome,
+  loadPlaywright,
+  shot,
+  createRun,
+  assert,
+  assertEqual,
+  HOLD_CURTAIN,
+  assertCurtainHeld,
+  UI_DIR,
+} = require("./lib/harness");
 const SOURCES = require("./lib/ui-sources");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -58,6 +68,13 @@ const CONFIG_RS = fs.readFileSync(
 /// The steps the control walks, read out of the Rust rather than typed here. A ladder
 /// changed on one side only reaches this file as a failing check instead of as a `+` that
 /// lands somewhere the store will snap away from.
+/// A DELIBERATE SLOW RUNNER, on demand: `RICHOS_APPEARANCE_LAG_MS=3000 node appearance.js`.
+/// Same knob, same reason and same seam as `splash.js`'s `RICHOS_SPLASH_LAG_MS` — a
+/// `macos-latest` runner reaches the first assertion roughly 2,000 ms later than this machine
+/// does, and until 2026-09-06 that difference alone decided whether check 4 passed. Zero, and
+/// no delay at all, unless it is set.
+const LAG_MS = Number(process.env.RICHOS_APPEARANCE_LAG_MS || 0);
+
 function rustFontSteps() {
   const m = CONFIG_RS.match(/pub const FONT_SCALE_STEPS: \[u16; \d+\] = \[([^\]]+)\]/);
   assert(m, "no FONT_SCALE_STEPS in config.rs");
@@ -119,21 +136,20 @@ async function openApp(browser, opts) {
     } catch (e) {
       /* storage unavailable — the shipped defaults apply, which is its own kind of evidence */
     }
-    if (o.holdSplash) {
-      // Neuter the yield before splash.js finishes installing itself, exactly as
-      // contrast.js does. The composition renders precisely as it ships.
-      let real;
-      Object.defineProperty(window, "RichSplash", {
-        configurable: true,
-        get: () => real,
-        set: (v) => {
-          real = v;
-          if (v && typeof v.yieldNow === "function") v.yieldNow = function () {};
-        },
-      });
-    }
   }, opts);
+  // THE CURTAIN IS HELD BY THE HARNESS, AND THE HOLD INCLUDES THE CEILING. What used to be
+  // here was a copy of contrast.js's four lines, which replaced the EXPORTED `yieldNow` and
+  // left `start()`'s internal ceiling armed — so every walk below silently had four seconds
+  // from `goto` to its last assertion, and a `macos-latest` runner does not have four seconds
+  // spare. `lib/harness.js`'s `HOLD_CURTAIN` carries the diagnosis and the measurement.
+  if (opts.holdSplash) await page.addInitScript(HOLD_CURTAIN);
   await page.goto(APP);
+  // A DELIBERATE SLOW RUNNER, on demand — the same knob and the same reason as splash.js's
+  // `RICHOS_SPLASH_LAG_MS`. Applied immediately after `goto`, it puts this suite's walks
+  // where a GitHub runner puts them, which is the only way to run the fixed checks against
+  // the condition that broke them without waiting for a real run. Zero, and no delay at all,
+  // unless it is set.
+  if (LAG_MS > 0) await page.waitForTimeout(LAG_MS);
   // The home screen is the landing surface now; this suite is about the app UI behind it.
   await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
@@ -141,6 +157,9 @@ async function openApp(browser, opts) {
     await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
   }
   await page.waitForTimeout(400);
+  // The hold is PROVEN on every walk that asked for one, not assumed. A curtain that left
+  // early makes every assertion after this one a statement about the shell instead.
+  if (opts.holdSplash) page.__curtain = await assertCurtainHeld(page);
   page.__errors = errors;
   return page;
 }
@@ -258,8 +277,59 @@ async function main() {
       "light",
       "the clamp must not overwrite what he chose — light has to still be there afterwards"
     );
+    const curtain = page.__curtain;
     await page.close();
-    return "pref stays light, the resolved theme is dark, and nothing was written";
+    return "pref stays light, the resolved theme is dark, and nothing was written — " + curtain;
+  });
+
+  await run.check("4b  the held curtain outlives the ceiling, so check 4 is not on a four-second clock", async () => {
+    // WHY THIS EXISTS, and it is not belt and braces. Check 4 above reads the clamp at
+    // whatever moment the harness happens to arrive, and until 2026-09-06 the curtain it was
+    // reading came down on its own 4,000 ms after boot — `holdMs + CEILING_GRACE_MS`, armed
+    // over an internal reference that the `yieldNow` override cannot reach. On this machine
+    // the walk arrives at ~730 ms and passes; on `macos-latest` it arrives late and run
+    // 34010691469 reported `expected "dark" / actual "light"`.
+    //
+    // `HOLD_CURTAIN` takes that timer out, and `assertCurtainHeld` proves it took exactly one
+    // timer of the right size. This check proves the CONSEQUENCE, which is the part a reader
+    // actually cares about: the curtain is still up, and still dark, well past the instant it
+    // used to leave. It waits on the PAGE's clock rather than the harness's, so it is asking
+    // "has the ceiling's moment gone by?" and never "has the test been slow enough?".
+    const page = track(
+      await openApp(browser, {
+        stored: { theme: "light", font_scale: 100, user_name: null },
+        mirror: "light",
+        holdSplash: true,
+      })
+    );
+    const held = await page.evaluate(async () => {
+      // The ceiling's own moment, read off the record `HOLD_CURTAIN` left rather than
+      // reconstructed: the instant it was armed plus the delay it was armed for. A further
+      // second puts the sample unambiguously past it on any machine.
+      const record = window.__heldCurtain;
+      const past = Math.round(record.armedAt + record.disarmed[0] + 1000);
+      await new Promise((resolve) => {
+        const tick = () => (performance.now() >= past ? resolve() : setTimeout(tick, 50));
+        tick();
+      });
+      return {
+        at: Math.round(performance.now()),
+        past: past,
+        wouldHaveFiredAt: Math.round(record.armedAt + record.disarmed[0]),
+        theme: document.documentElement.getAttribute("data-theme"),
+        pref: window.RichTheme.theme(),
+        onScreen: !!document.getElementById("splash"),
+        reason: window.RichSplash.state.reason,
+      };
+    });
+    assert(held.onScreen, "the curtain left at " + held.at + "ms, reason " + held.reason + " — the hold did not hold");
+    assertEqual(held.reason, null, "the curtain yielded for: " + held.reason);
+    assertEqual(held.theme, "dark", "the always-dark clamp was dropped while the opening screen was still up");
+    assertEqual(held.pref, "light", "and the CEO's own preference is still untouched");
+    await page.close();
+    return "sampled at " + held.at + "ms, " + (held.at - held.wouldHaveFiredAt) + "ms after the " +
+      held.wouldHaveFiredAt + "ms the ceiling would have fired at — the curtain is still up, still dark, " +
+      "and the stored preference is still light";
   });
 
   await run.check("5  the settings button is ON the opening screen, with NO theme switch", async () => {
@@ -1042,6 +1112,21 @@ main().catch((e) => {
 //      Both halves of the thing the CEO's correction explicitly forbids.
 //  17  this file: seed every shot walk with `theme: "dark"` -> check 17. Twelve files claim
 //      to show two themes while showing one.
+//   4b NOT A MUTATION — THE SHIPPED HARNESS TURNED IT RED, AND THREE CHECKS WITH IT. The
+//      hold this file used until 2026-09-06 replaced the EXPORTED `RichSplash.yieldNow` and
+//      left `start()`'s ceiling armed over the internal one, so every walk that asked for a
+//      held curtain had four seconds from `goto` to its last assertion and said so nowhere.
+//      Reproduced on this machine at `934f127` by giving the ORIGINAL file 3,300 ms of lag
+//      after `goto` — which is roughly what `macos-latest` costs it — and checks 4, 5 AND 6
+//      went red together:
+//
+//          FAIL  4  expected "dark" / actual "light"    (the clamp, dropped by the ceiling)
+//          FAIL  5  expected 0 / actual 3               (the app's theme switch, uncovered)
+//          FAIL  6  opening the menu did not lift the curtain
+//
+//      Run 34010691469 on `macos-latest` reported only the first of those, which is what a
+//      270 ms window looks like from outside. With `HOLD_CURTAIN` the same three pass at
+//      3,300 ms and at 12,000 ms of lag, and 4b is what states the reason in the log.
 //
 // THE RUST HALF — `Theme::default()` being Dark, an absent key reading as dark rather than
 // as a choice, the font ladder snapping instead of resetting, and `initials_from` returning
