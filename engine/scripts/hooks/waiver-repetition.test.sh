@@ -508,6 +508,59 @@ else
 fi
 
 # ===========================================================================
+# 15d — THE SEAL IS A SEAL, NOT AN AMPUTATION.
+#
+# 15c is green above because CLAUDE_CONFIG_DIR points at an EMPTY teams
+# directory. It would be just as green if the analyzer had stopped reading team
+# directories altogether — and that is the entire failure mode this suite's
+# header is about: a checker that reports nothing passes every test it has.
+# Sealing an input and deleting an input look identical from the sealed side.
+#
+# So the seal is asserted from the other side. The team directories are a real
+# production ledger location — a teammate's acks land in the session team dir,
+# not in the repository — and the wrapper's fallback to
+# "${CLAUDE_CONFIG_DIR:-~/.claude}/teams" is the shipped behavior that finds
+# them. This case plants a repeated class in a team directory INSIDE the
+# sandbox and requires the hook to count it, which is the same code path that
+# was reading the operator's live sessions before the seal, now aimed somewhere
+# the suite owns.
+#
+# Two-sided, like everything else here: the decoy is then removed and the
+# recovery line required, so a hook that simply shouted at every turn would
+# fail the second half.
+# ===========================================================================
+DECOY="$CLAUDE_CONFIG_DIR/teams/session-decoy"
+mkdir -p "$DECOY"
+decoy_add() { # <days-ago> <subject> <reason>
+    printf '%sT12:00:00Z\tto=%s\tfixture-ack: %s\n' "$(days_ago "$1")" "$2" "$3" \
+        >> "$DECOY/fixture-acks.log"
+}
+: > "$DECOY/fixture-acks.log"
+decoy_add 0 eta   "the recipient is a running teammate holding an isolated worktree of its own, so every write still lands inside that worktree"
+decoy_add 1 theta "recipient is a currently-running teammate that holds its own isolated worktree; every write lands inside that worktree as before"
+decoy_add 2 iota  "the recipient is a live teammate with an isolated worktree of its own and every write still lands within that worktree"
+
+OUT="$(run_hook waivtst3)"; RC=$?
+say "15d" "rc=$RC out=$OUT"
+if [ "$RC" -eq 0 ] \
+   && printf '%s' "$OUT" | grep -q "REPEATED WAIVERS" \
+   && printf '%s' "$OUT" | grep -q "3x one reason"; then
+    ok "15d. a ledger in a session team directory is read, so the sandbox seals rather than blinds"
+else
+    bad "15d. a ledger in a session team directory is read, so the sandbox seals rather than blinds" "rc=$RC out=$OUT"
+fi
+
+# 15e — the negative twin. Take the decoy away and the same session is told the
+#       story ended; a hook that shouted unconditionally would pass 15d alone.
+rm -rf "$DECOY"
+OUT="$(run_hook waivtst3)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "clear again"; then
+    ok "15e. removing that ledger returns the session to clear"
+else
+    bad "15e. removing that ledger returns the session to clear" "rc=$RC out=$OUT"
+fi
+
+# ===========================================================================
 # 16 — THE WRAPPER DECIDES NOTHING, AND SAYS SO. Five Stop wrappers in this
 #      engine hand their entire verdict to a sibling .py; a wrapper that went
 #      quiet without its analyzer would be wired, hashed, executable and
