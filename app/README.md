@@ -794,7 +794,15 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 864 tests + 5 doc-tests; 862 direct, 2 child-only
+cargo test -p richos-core                       # 880 tests + 5 doc-tests; 877 direct, 3 child-only
+#     ONE OF THE THREE NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
+#     every repository and is on no clean checkout. `home_field::tests::
+#     against_a_real_corpus_when_one_is_configured` compiles one into the home screen's
+#     picture and prints its counts; run it by hand with
+#     `RICHOS_LORO_DIR=<checkout>/loro LORO_ROOT=<checkout> cargo test -p richos-core --lib
+#     home_field -- --ignored --nocapture`. It is `#[ignore]` rather than an early `return`
+#     for the reason the two below are: a test that returns is reported `ok`.
+
 #     ONE OF THEM NEEDS A `claude` ON A MAC, and that is deliberate as of 2026-09-05.
 #     `the_real_claude_binary_on_this_machine_satisfies_the_requirement` is the POSITIVE half
 #     of the Anthropic signature pin; it used to `return` when the binary was absent, and a
