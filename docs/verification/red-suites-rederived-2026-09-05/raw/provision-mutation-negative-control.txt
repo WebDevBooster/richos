@@ -1,0 +1,95 @@
+
+== required values ==
+  PASS  provisioning: a blank COMPANY_NAME is REFUSED, never written as a TODO placeholder
+  PASS  provisioning: a refused run writes nothing
+  PASS  provisioning: a missing identity.config is REFUSED with a usage error
+
+== first run ==
+  FAIL  provisioning: a first run generates CLAUDE.md and exits 0
+      expected exit 0, got 2
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: the generated file names the CEO, so a bare boot knows who it serves
+      expected to find: Dana Whitlock
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: the generated file names the company
+      expected to find: Meridian Robotics
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: the generated file IS the Rich persona, not generic Claude
+      expected to find: You are **Rich Hand**
+  FAIL  provisioning: no adopter TODO block survives into live doctrine
+      the file does not exist, so 'lacks' proves nothing: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md
+  FAIL  provisioning: the adopter-facing template header is stripped
+      the file does not exist, so 'lacks' proves nothing: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md
+  FAIL  provisioning: the sample pagination rule never ships as this company's doctrine
+      the file does not exist, so 'lacks' proves nothing: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: an unconfigured section says NOT CONFIGURED and forbids inventing a value
+      expected to find: never invent a value to fill this gap
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: the file carries an engine-version provenance stamp
+      expected to find: <!-- richos-provisioned: engine=
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: Rich is pointed at loro for company memory
+      expected to find: loro-context.mjs compile
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: Rich is told to scope a teammate slice with --audience worker
+      expected to find: --audience worker
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: an unconfigured locale refuses to pick a dialect rather than defaulting to one
+      expected to find: No locale is recorded
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/locale.md: No such file or directory
+  FAIL  provisioning: a configured locale reaches live doctrine verbatim, where an implementer reads it
+      expected to find: **American English.** Dates M/D/YYYY, USD.
+
+== idempotency and no-clobber ==
+  FAIL  provisioning: the unchanged re-run actually completed, so the comparison below means something
+      the provisioner did not run to completion (exit 2), so an unchanged file proves nothing
+  FAIL  provisioning: re-running with unchanged inputs leaves the file byte-identical
+      the file does not exist, so 'unchanged' proves nothing: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md
+  FAIL  provisioning: an unchanged re-run reports up-to-date, not a rewrite
+      ERROR: provision-claude-md.sh: 1 unrecognized TODO block(s) in the template — refusing to render.
+       Block text: if this repository is published, name your private record here (the repo or page where moved incident detail lives), so the pointer rule above has a destination
+       The template changed; teach this script each new block before provisioning.
+  FAIL  provisioning: changed identity values REFRESH an unedited file
+      ERROR: provision-claude-md.sh: 1 unrecognized TODO block(s) in the template — refusing to render.
+       Block text: if this repository is published, name your private record here (the repo or page where moved incident detail lives), so the pointer rule above has a destination
+       The template changed; teach this script each new block before provisioning.
+grep: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp.rhYrB0jEUc/CLAUDE.md: No such file or directory
+  FAIL  provisioning: a refresh carries the new CEO name
+      expected to find: Robin Alvarez
+
+== the CEO edited it ==
+  FAIL  provisioning: the no-clobber run actually completed, so "untouched" is a decision and not a crash
+      the provisioner did not run to completion (exit 2), so an unchanged file proves nothing
+  PASS  provisioning: a CEO-edited CLAUDE.md is NEVER clobbered
+  FAIL  provisioning: the edited case reports preserved, loudly
+      ERROR: provision-claude-md.sh: 1 unrecognized TODO block(s) in the template — refusing to render.
+       Block text: if this repository is published, name your private record here (the repo or page where moved incident detail lives), so the pointer rule above has a destination
+       The template changed; teach this script each new block before provisioning.
+  FAIL  provisioning: the --upgrade run actually completed
+      the provisioner did not run to completion (exit 2), so an unchanged file proves nothing
+  FAIL  provisioning: --upgrade writes the new render BESIDE the edited file for hand-merge
+      no CLAUDE.md.new
+  PASS  provisioning: --upgrade still does not touch the edited file
+  FAIL  provisioning: the --force run actually completed
+      the provisioner did not run to completion (exit 2), so an unchanged file proves nothing
+  FAIL  provisioning: --force overwrites an edited file ONLY when explicitly asked
+      nothing changed
+  FAIL  provisioning: the hand-authored-file run actually completed
+      the provisioner did not run to completion (exit 2), so an unchanged file proves nothing
+  FAIL  provisioning: a hand-authored CLAUDE.md with no stamp is never overwritten
+      the provisioner exited 2, so an untouched file proves only that it crashed
+
+== --check and template drift ==
+  FAIL  provisioning: --check exits 1 when CLAUDE.md has not been provisioned
+      expected exit 1, got 2
+  FAIL  provisioning: --check exits 0 when the generated file is current
+      expected exit 0, got 2
+  PASS  provisioning: an UNRECOGNIZED template block fails loud rather than leaking adopter instructions
+  PASS  provisioning: a template-drift refusal writes nothing
+  PASS  provisioning: a refusal names EVERY unrecognized block, so the template is fixed in one pass
+
+== the identity seam other components read ==
+  PASS  provisioning: --identity-json exposes company_name/ceo_name as the ONE source of truth
+
+9 passed, 28 failed

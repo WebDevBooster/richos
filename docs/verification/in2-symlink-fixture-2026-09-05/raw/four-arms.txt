@@ -1,0 +1,32 @@
+
+--- REAL-unmutated ---
+  sandbox base : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-real
+  physical     : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-real
+  symlinked    : NO
+  mutated      : no
+  sandbox seen : 
+  suite exit   : 0  => GREEN
+
+--- REAL-mutated ---
+  sandbox base : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-real
+  physical     : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-real
+  symlinked    : NO
+  mutated      : yes
+  sandbox seen : 
+  suite exit   : 0  => GREEN
+
+--- LINK-unmutated ---
+  sandbox base : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-link
+  physical     : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-linktarget
+  symlinked    : YES
+  mutated      : no
+  sandbox seen : 
+  suite exit   : 0  => GREEN
+
+--- LINK-mutated ---
+  sandbox base : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-link
+  physical     : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-linktarget
+  symlinked    : YES
+  mutated      : yes
+  sandbox seen : /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/rd1/tmp-linktarget/inflight-notify.Zd5NVg
+  suite exit   : 1  => RED at 5j
