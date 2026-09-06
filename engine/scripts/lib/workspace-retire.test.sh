@@ -2047,6 +2047,58 @@ else
     bad "TWICE two retirements of one ID collided on a name or an archive — raw: $(printf '%s' "$OUT2" | tr '\n' ' ' | cut -c1-500)"
 fi
 
+# --- STAMP. The guards behind TWICE, forced: with the stamp PINNED to one
+# constant (a real collision cannot be built against microsecond stamps), the
+# second retirement must refuse or fail BEFORE anything moves, and the first
+# recovery copy must be byte-identical afterward. Without this row, the
+# exist_ok=False in preserve() and the name-taken refusal would be code no
+# case ever reaches.
+new_fixture
+rc=0
+DRV="$(python3 - "$LIB" "$LEDGER_PY" "$ENTITY" "$OWNER_REPO" "$CONTAINER/alpha" "$LEDGER" "$ALPHA_AGENT" <<'PY'
+import hashlib, importlib.util, json, os, subprocess, sys
+lib, ledger_py, entity, repo, work, ledger, owner = sys.argv[1:8]
+spec = importlib.util.spec_from_file_location("wr", lib)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m._stamp = lambda: "20260101T000000.000000Z"
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        h.update(f.read())
+    return h.hexdigest()
+r1 = m.remove_legacy(entity, repo, work, owner, force=True)
+a1 = (r1.get("preservation") or {}).get("archive")
+s1 = sha(a1) if a1 and os.path.isfile(a1) else ""
+subprocess.run(["git", "-C", repo, "worktree", "add", "-qb", "alpha-stamp", work], check=True)
+with open(os.path.join(work, "second.txt"), "w") as f:
+    f.write("second occupant\n")
+new = "6d6d6d6d6e6e6e6e"
+subprocess.run(["python3", ledger_py, "--ledger", ledger, "record", "registered", "--agent-id", new,
+                "--teammate", "zach-stamp", "--session-id", "sess-stamp", "--repo", repo,
+                "--worktree", work, "--branch", "alpha-stamp", "--class", "hand-rolled"], check=True, capture_output=True)
+subprocess.run(["python3", ledger_py, "--ledger", ledger, "record", "terminated", "--agent-id", new,
+                "--worktree", work, "--reason", "fixture", "--witness", "test"], check=True, capture_output=True)
+r2 = m.remove_legacy(entity, repo, work, new, force=True)
+print(json.dumps({"first_outcome": r1.get("outcome"), "first_archive": a1,
+                  "second_outcome": r2.get("outcome"), "second_reason_code": r2.get("reason_code"),
+                  "second_stage": r2.get("stage"),
+                  "first_archive_same_bytes": bool(s1) and os.path.isfile(a1) and sha(a1) == s1,
+                  "work_present": os.path.isdir(work),
+                  "second_file_present": os.path.isfile(os.path.join(work, "second.txt"))}))
+PY
+)"
+assert_eq "quarantined" "$(jf "$DRV" first_outcome)" "the first retirement succeeds" || rc=1
+a; case "$(jf "$DRV" second_outcome)" in failed|refused) ;; *) printf '        ASSERT FAILED: the second retirement under a pinned stamp reported %s\n' "$(jf "$DRV" second_outcome)"; rc=1 ;; esac
+a; case "$(jf "$DRV" second_reason_code)" in preservation-failed|quarantine-name-taken) ;; *) printf '        ASSERT FAILED: unexpected reason %s\n' "$(jf "$DRV" second_reason_code)"; rc=1 ;; esac
+assert_eq "true" "$(jf "$DRV" first_archive_same_bytes)" "the first archive is byte-identical — not written over" || rc=1
+assert_eq "true" "$(jf "$DRV" work_present)" "the second occupant is untouched at its path" || rc=1
+assert_eq "true" "$(jf "$DRV" second_file_present)" "with its file" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "STAMP with the stamp pinned to one constant, the second retirement of the same ID stops before anything moves (preservation refuses the existing directory) and the first recovery copy is byte-identical — the collision guards are reached, not merely present"
+else
+    bad "STAMP a forced name collision overwrote an archive or moved the workspace — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-500)"
+fi
+
 echo "--- RECHECK 2026-09-06: the reviewer's own script, verbatim ---"
 
 RECHECK_PY="$SCRIPT_DIR/workspace-retire.recheck-2026-09-06.py"
