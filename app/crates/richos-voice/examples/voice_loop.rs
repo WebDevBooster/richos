@@ -170,7 +170,9 @@ fn main() {
         .unwrap_or_else(|_| std::env::current_dir().unwrap().join("../engine"));
     let claude_bin = resolve_claude_bin();
     println!("[{:>6} ms] attaching compute lease ({})", clock.ms(), claude_bin.display());
-    match NativeCognition::start(&claude_bin, &engine) {
+    let doctrine = richos_core::doctrine::ensure_for_install().expect("render the standing instruction");
+    let skills = richos_core::skills::ensure_for_install().expect("render the skills");
+    match NativeCognition::start(&claude_bin, &engine, &doctrine, &skills) {
         Ok(cog) => {
             spine.attach_lease(Box::new(cog));
             println!("[{:>6} ms] lease attached", clock.ms());

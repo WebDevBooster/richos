@@ -83,7 +83,17 @@ done
 }
 
 fn connect(script: &PathBuf) -> NativeClient {
-    match NativeClient::spawn(script, std::path::Path::new("/tmp")) {
+    // The chat lease carries RichOS's standing instruction, so these fakes need one on disk.
+    // Rendered by the real `doctrine` module rather than stubbed, so a doctrine that stopped
+    // satisfying `preflight` would break these too.
+    let dir = std::env::temp_dir().join(format!("richos-doctrine-fake-{}", std::process::id()));
+    let doctrine = richos_core::doctrine::ensure_rendered(
+        &dir,
+        &richos_core::doctrine::DoctrineIdentity::default(),
+    )
+    .expect("the doctrine fixture must render");
+    let skills = richos_core::skills::ensure_rendered(&dir).expect("the skills fixture must render");
+    match NativeClient::spawn(script, std::path::Path::new("/tmp"), &doctrine, &skills) {
         Ok(c) => c,
         Err(e) => panic!("the fake agent should have completed the handshake: {e}"),
     }

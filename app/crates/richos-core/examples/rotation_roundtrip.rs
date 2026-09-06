@@ -38,7 +38,17 @@ struct LiveLeaseFactory {
 }
 impl LeaseFactory for LiveLeaseFactory {
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
-        let cog = NativeCognition::start(&self.claude_bin, &self.engine_dir)?;
+        let doctrine = richos_core::doctrine::ensure_for_install()
+            .map_err(|e| richos_core::native::NativeError::DoctrineMissing {
+                path: "the application support directory".to_string(),
+                why: e.to_string(),
+            })?;
+        let skills = richos_core::skills::ensure_for_install()
+            .map_err(|e| richos_core::native::NativeError::SkillsMissing {
+                path: "the application support directory".to_string(),
+                why: e.to_string(),
+            })?;
+        let cog = NativeCognition::start(&self.claude_bin, &self.engine_dir, &doctrine, &skills)?;
         Ok(Box::new(cog))
     }
 }

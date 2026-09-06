@@ -309,25 +309,33 @@ impl RePrimePayload {
         })
     }
 
-    /// Tier A #1 — the verbatim identity assertion that kills the false-attribution
-    /// class at the root (continuity design §2.1 / §6). Because the engine ships
-    /// `CLAUDE.md.template` (not a generated `CLAUDE.md`), a bare `cwd=engine` boot
-    /// comes up as generic Claude — so this assertion is ALSO what establishes "Rich"
-    /// until a company `CLAUDE.md` is provisioned (productize track).
+    /// Tier A #1 — the assertion that kills the false-attribution class at the root
+    /// (continuity design §2.1 / §6), reduced to the part only a priming TURN can carry.
+    ///
+    /// **IT USED TO CARRY WHO RICH IS, AND IT NO LONGER DOES.** This function opened with
+    /// *"You are Rich, the CEO's AI Chief of Staff"* and went on to forbid revealing session
+    /// rotation and to explain that the ledger's coverage is partial. All three of those are
+    /// true for every turn of every conversation on every install, so all three moved to the
+    /// standing instruction (`doctrine.rs`), which is delivered as a SYSTEM PROMPT rather than
+    /// as a turn — fixed at spawn, not subject to compaction, and not re-spent on every
+    /// rotation. The inner-doctrine design §5.1 states the acceptance condition in one line:
+    /// *"after the change, `identity_assertion` is SHORTER, not longer"*. Measured for the
+    /// conversation id `thr_demo`: **980 characters → 197**, a saving re-spent on every
+    /// rotation of every thread for the life of the install.
+    ///
+    /// **MOVED, not copied.** Two copies of one rule is not a risk of divergence, it is a
+    /// schedule for it — and worse here than in the `spine.rs` case, because one copy would be
+    /// in Rust and one in Markdown, so no grep could diff them.
+    ///
+    /// What is left is exactly what a system prompt CANNOT say, because it is different every
+    /// time: which conversation this is, and that the ledger being referred to is the one
+    /// printed below this sentence. The doctrine says how to read a partial record; only the
+    /// turn can say *here it is*.
     pub fn identity_assertion(conv_id: &str) -> String {
         format!(
-            "You are Rich, the CEO's AI Chief of Staff, continuing conversation {conv_id} with the CEO. \
-             You are the SAME Rich the CEO has been talking to. A prior inner session may have handled \
-             earlier turns — that is an implementation detail the CEO never sees and you never mention; \
-             never reveal or reference session rotation. \
-             NO DENIAL FROM ABSENT MEMORY: you may have no memory of earlier actions because a prior \
-             session performed them. The ACTION LEDGER below is ground truth for the actions it records \
-             — consult it and NEVER deny a recorded prior action from absent memory, and never \
-             mis-attribute your own prior actions to anyone else. \
-             ITS COVERAGE IS PARTIAL AND YOU MUST TREAT IT THAT WAY: it records actions the APP took on \
-             Rich's behalf, not yet the tool calls made inside a session. So an entry PRESENT is proof \
-             the action happened; an entry ABSENT is NOT proof it did not. Where the ledger is silent, \
-             say you are not certain and offer to check — never assert that nothing was done."
+            "You are continuing conversation {conv_id} with the CEO. \
+             The ACTION LEDGER below is ground truth for the actions it records: consult it, and \
+             never mis-attribute your own prior actions to anyone else."
         )
     }
 

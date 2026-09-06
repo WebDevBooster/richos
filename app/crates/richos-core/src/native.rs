@@ -102,6 +102,54 @@ use std::time::Duration;
 /// this doc.
 pub const PERMISSION_PROMPT_TOOL: &str = "--permission-prompt-tool";
 
+/// The flag that carries RichOS's standing instruction into the child (`doctrine.rs`).
+///
+/// **The SECOND semi-documented flag this file hangs off, and it is in the same fragility
+/// class as [`PERMISSION_PROMPT_TOOL`] for a slightly different reason.** It is not its own
+/// entry in `claude --help`; it appears only inside `--bare`'s description (help line 52 on
+/// 2.1.263). It was proven real with a positive control, because a first test gave a false
+/// green — `claude --anything --help` exits 0, so `--help` proves nothing about a flag:
+///
+/// ```text
+/// $ claude --append-system-prompt-file /etc/hosts --definitely-not-a-flag --print x 2>&1 | head -1
+/// error: unknown option '--definitely-not-a-flag'      # so the -file flag IS known
+/// $ claude --append-system-prompt-file /nonexistent/zzz.md --print x ; echo $?
+/// Error: Append system prompt file not found: /nonexistent/zzz.md
+/// 1
+/// ```
+///
+/// The same three defenses as the permission flag, written the same way on purpose:
+///
+/// - it is in [`chat_child_args`] unconditionally — no environment override, no fallback path,
+///   pinned by `chat_args_always_carry_the_doctrine_flag`;
+/// - a binary that REJECTS it is caught at [`NativeClient::spawn`] (exit 1, zero bytes of
+///   stdout, the child's own stderr in [`NativeError::Startup`]), and a MISSING file is caught
+///   even earlier by [`preflight`], which names the path;
+/// - a binary that accepts it and silently stops honoring it is the case nothing structural can
+///   catch. That is what the behavioral sentinel is for, and why the sentinel is a release gate
+///   rather than a one-off — see `tests/doctrine_sentinel.rs`.
+pub const APPEND_SYSTEM_PROMPT_FILE: &str = "--append-system-prompt-file";
+
+/// The flag that carries RichOS's own SKILLS into the child (`skills.rs`).
+///
+/// Unlike the two flags above this one is fully documented (`--plugin-dir <path>`, "Load a
+/// plugin from a directory or .zip for this session only"), and `--bare`'s own help names it
+/// among the ways to *"explicitly provide context"*. So the fragility here is not the flag.
+///
+/// **The fragility is that it fails SILENTLY, and that is measured.** A `--plugin-dir` naming a
+/// path that does not exist produces exit 0, a clean handshake, `plugins: []` and a perfectly
+/// ordinary turn — `docs/verification/inner-doctrine-skills-2026-09-06/`, cell K4. That is the
+/// exact quiet degradation `--append-system-prompt-file` was chosen for NOT doing. So the
+/// loudness is built rather than inherited, in two layers:
+///
+/// - [`preflight`] proves the manifest and every declared `SKILL.md` are present and non-empty
+///   before a process exists, and raises [`NativeError::SkillsMissing`] naming the file;
+/// - the reader thread reads the first `system/init` frame's `plugins` array and records
+///   [`skills::SkillsVerdict`], so a directory the BINARY declined is a positive signal rather
+///   than an absence somebody has to notice. The module doc above records that no such field
+///   exists for [`PERMISSION_PROMPT_TOOL`]; for this one it does, and it is used.
+pub const PLUGIN_DIR: &str = "--plugin-dir";
+
 /// How long [`NativeClient::spawn`] waits for the `initialize` handshake before refusing.
 ///
 /// **Measured, not guessed:** the handshake answered in **697.9 ms** on 2.1.252 with the
@@ -213,6 +261,28 @@ pub enum NativeError {
     /// because on a rejected flag that single line IS the diagnosis.
     #[error("claude failed to start ({reason}); the child said: {stderr}")]
     Startup { reason: String, stderr: String },
+    /// **LOUD, and the whole reason `--append-system-prompt-file` won over the alternatives.**
+    /// RichOS's standing instruction (`doctrine.rs`) is not at the path we are about to hand
+    /// the child. Raised BEFORE the spawn, so the failure names the file rather than arriving
+    /// as an exit code — and so it can never be a fallback.
+    ///
+    /// A Claude started without it is not Rich; it is a generic coding assistant wearing the
+    /// product's window. Design §3.2: an absent instruction file under the rejected
+    /// `--setting-sources project` candidate produces a successful handshake and a subtly wrong
+    /// assistant, which is the class this app refuses to ship.
+    #[error("RichOS's standing instruction is not at {path} ({why}) — it will not start Claude without it, because a Claude started without it is not Rich")]
+    DoctrineMissing { path: String, why: String },
+    /// **LOUD, and loud only because we make it so.** A skill RichOS ships is not on disk where
+    /// it is about to be handed to the child.
+    ///
+    /// Its own variant rather than a reuse of [`NativeError::DoctrineMissing`], because the two
+    /// have different fixes and — more importantly — different failure physics. A missing
+    /// doctrine file is refused by `claude` itself (exit 1, its own stderr). A missing
+    /// `--plugin-dir` is accepted in silence: exit 0, clean handshake, `plugins: []`, an
+    /// ordinary turn (measured, `inner-doctrine-skills-2026-09-06/` cell K4). This variant is
+    /// the whole of the loudness for that path.
+    #[error("a skill RichOS ships is not at {path} ({why}) — it will not start Claude with a skill missing, because `--plugin-dir` accepts a path that is not there without saying so")]
+    SkillsMissing { path: String, why: String },
 }
 
 impl From<NativeError> for CognitionError {
@@ -340,6 +410,31 @@ pub fn child_args(session_id: &str) -> Vec<String> {
     .iter()
     .map(|s| s.to_string())
     .collect()
+}
+
+/// The CEO-facing chat lease's argument vector: [`child_args`] plus the standing instruction.
+///
+/// **Why this is its own function rather than a line inside [`child_args`].** `child_args` is
+/// the base vector THREE other launch shapes are built from — the managed worker
+/// ([`managed_child_args`]), the workspace inspector, and the tool-free registrar that answers
+/// under a JSON schema. None of those is a conversation with the CEO, so none of them may carry
+/// a doctrine written for one:
+///
+/// - the doctrine tells its reader to speak in plain prose and never show a file path, which is
+///   the opposite of what a managed worker editing files is for;
+/// - the registrar's whole job is to emit a structured value, and a persona is a bias on it.
+///
+/// The inner-doctrine design's §4.1 rule decides this the same way it decides the file's
+/// contents: what is true for every turn of every CONVERSATION is not automatically true for
+/// every child process. [`managed_child_args`] is untouched by this — the CEO ruled its own
+/// change waits on a consolidation (design §8), and it never reaches this function.
+pub fn chat_child_args(session_id: &str, doctrine: &Path, skills: &Path) -> Vec<String> {
+    let mut args = child_args(session_id);
+    args.push(APPEND_SYSTEM_PROMPT_FILE.to_string());
+    args.push(doctrine.display().to_string());
+    args.push(PLUGIN_DIR.to_string());
+    args.push(skills.display().to_string());
+    args
 }
 
 /// Managed workers retain user, project and local settings, including configured
@@ -568,15 +663,21 @@ pub struct NativeClient {
     between: Arc<Mutex<BetweenTurn>>,
     /// The child's own stderr, bounded, so a startup failure can quote it verbatim.
     stderr_tail: Arc<Mutex<std::collections::VecDeque<String>>>,
+    /// Shared with the reader thread, so `skills_verdict()` can answer what the child said
+    /// about `--plugin-dir` without going through the turn channel.
+    reader_state: Arc<Mutex<ReaderState>>,
     _reader: JoinHandle<()>,
     _stderr: JoinHandle<()>,
 }
 
 /// The mutable state the reader thread carries across frames within one turn.
 ///
-/// Held behind one `Mutex` rather than three atomics because the three fields are only ever
-/// read and written together, on one thread, and a single lock makes that obvious.
-#[derive(Default)]
+/// Held behind one `Mutex` rather than separate atomics because the fields are only ever read
+/// and written together, on one thread, and a single lock makes that obvious.
+///
+/// `Default` is written out below rather than derived, because `skills_verdict`'s honest
+/// starting value is `NotYetReported` and a derived default would be whichever variant happens
+/// to be declared first.
 struct ReaderState {
     /// The model this session is running, from `system/init.model`.
     ///
@@ -603,6 +704,30 @@ struct ReaderState {
     /// `source=measured` after his FIRST prompt. The gap belongs to a lease that was never
     /// primed, and nothing else.
     context_window: Option<u64>,
+    /// Whether the binary actually loaded RichOS's skills, read off `system/init.plugins`.
+    ///
+    /// **The mitigation `--permission-prompt-tool` cannot have.** This file's module doc records
+    /// that a flag which is still ACCEPTED but silently stops working is undetectable, because
+    /// the initialize reply carries no field naming the permission prompt tool. For
+    /// [`PLUGIN_DIR`] that field EXISTS — the init frame lists every loaded plugin by name,
+    /// path and version (measured, `inner-doctrine-skills-2026-09-06/` cell K2) — so the same
+    /// class of silent failure is caught here rather than merely regretted.
+    ///
+    /// It starts [`skills::SkillsVerdict::NotYetReported`] and stays there for a lease that has
+    /// never run a turn, because the init frame lands with the first TURN and not with the
+    /// handshake. That is a third state, not a pessimistic default: "nobody has told us" and
+    /// "we were told no" call for opposite responses.
+    skills_verdict: crate::skills::SkillsVerdict,
+}
+
+impl Default for ReaderState {
+    fn default() -> Self {
+        ReaderState {
+            session_model: None,
+            context_window: None,
+            skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
+        }
+    }
 }
 
 /// Prove, BEFORE spawning, which of a launch's two preconditions is not met.
@@ -627,7 +752,7 @@ struct ReaderState {
 /// where `ENOENT` is now unambiguous *because this function already cleared the working
 /// directory*. Nothing here executes the binary or reads its contents: existence, file type
 /// and the execute bit only.
-fn preflight(bin: &Path, cwd: &Path) -> Result<(), NativeError> {
+fn preflight(bin: &Path, cwd: &Path, doctrine: Option<&Path>, skills: Option<&Path>) -> Result<(), NativeError> {
     // ---- the binary -------------------------------------------------------------------
     if bin.components().count() > 1 {
         match std::fs::metadata(bin) {
@@ -660,12 +785,64 @@ fn preflight(bin: &Path, cwd: &Path) -> Result<(), NativeError> {
 
     // ---- the working directory --------------------------------------------------------
     match std::fs::metadata(cwd) {
-        Err(_) => Err(NativeError::WorkingDirMissing { path: cwd.display().to_string() }),
+        Err(_) => return Err(NativeError::WorkingDirMissing { path: cwd.display().to_string() }),
         Ok(meta) if !meta.is_dir() => {
-            Err(NativeError::WorkingDirNotADirectory { path: cwd.display().to_string() })
+            return Err(NativeError::WorkingDirNotADirectory { path: cwd.display().to_string() })
         }
-        Ok(_) => Ok(()),
+        Ok(_) => {}
     }
+
+    // ---- the standing instruction ------------------------------------------------------
+    //
+    // `claude` itself refuses a missing file — `Error: Append system prompt file not found:
+    // <path>`, exit 1, zero bytes of stdout, measured 2026-09-06 on 2.1.263 — so this check is
+    // not what makes the failure loud. It makes it EARLY and SPECIFIC: a refusal here names the
+    // doctrine file and says what it is for, instead of arriving as a startup error the reader
+    // has to attribute among the four things that can produce one. Same reasoning, and the same
+    // incident, as `WorkingDirMissing`: reporting one fault as another sends whoever set RichOS
+    // up looking in the wrong place.
+    //
+    // EMPTY IS ALSO A FAILURE. A zero-byte file is a file `claude` accepts, so it would hand
+    // the CEO a generic assistant with a clean handshake — precisely the silent degradation
+    // this channel was chosen to avoid.
+    if let Some(doctrine) = doctrine {
+        match std::fs::metadata(doctrine) {
+            Err(e) => {
+                return Err(NativeError::DoctrineMissing {
+                    path: doctrine.display().to_string(),
+                    why: e.to_string(),
+                })
+            }
+            Ok(meta) if !meta.is_file() => {
+                return Err(NativeError::DoctrineMissing {
+                    path: doctrine.display().to_string(),
+                    why: "it is not a file".to_string(),
+                })
+            }
+            Ok(meta) if meta.len() == 0 => {
+                return Err(NativeError::DoctrineMissing {
+                    path: doctrine.display().to_string(),
+                    why: "it is empty, and an empty instruction is no instruction".to_string(),
+                })
+            }
+            Ok(_) => {}
+        }
+    }
+
+    // ---- the skills ---------------------------------------------------------------------
+    //
+    // THIS ONE IS NOT A NICETY. `claude` refuses a missing `--append-system-prompt-file` by
+    // itself; it accepts a missing `--plugin-dir` in silence — exit 0, clean handshake,
+    // `plugins: []`, an ordinary turn (measured, cell K4). So if this check is ever removed,
+    // deleting a skill file stops being an error and becomes a product that is quietly less
+    // than it says it is. The whole evening was about that failure shape.
+    if let Some(skills) = skills {
+        if let Err((path, why)) = crate::skills::verify_present(skills) {
+            return Err(NativeError::SkillsMissing { path: path.display().to_string(), why });
+        }
+    }
+
+    Ok(())
 }
 
 impl NativeClient {
@@ -676,22 +853,40 @@ impl NativeClient {
     /// one moment at which a rejected flag, a missing login, or a binary that is not `claude`
     /// at all can be caught before the CEO types anything — so it is done eagerly, with a
     /// bound, and its failure is a hard [`NativeError`] carrying the child's own stderr.
-    pub fn spawn(bin: &Path, cwd: &Path) -> Result<Self, NativeError> {
-        Self::spawn_with_policy(bin, cwd, false)
+    /// **`doctrine` is required and is not an `Option`.** The chat lease is the CEO's
+    /// conversation, and a chat lease with no standing instruction is the generic-Claude
+    /// failure this whole channel exists to make impossible (`doctrine.rs`). Making it a
+    /// parameter rather than something this function resolves for itself is the same call
+    /// `entity.rs` makes about its own directory: the shell resolves `app_data_dir()` and that
+    /// is the authority, so this file does not carry a second opinion about where it lives.
+    pub fn spawn(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
+        Self::spawn_with_tools(bin, cwd, false, None, None, Some((doctrine, skills)))
     }
 
     fn spawn_with_policy(bin: &Path, cwd: &Path, managed: bool) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, managed, None, None)
+        Self::spawn_with_tools(bin, cwd, managed, None, None, None)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>) -> Result<Self, NativeError> {
+        // The standing instruction and the skills belong to the CEO-facing chat lease alone.
+        // See `chat_child_args`.
+        debug_assert!(
+            standing.is_none() || (!managed && schema.is_none() && registrar_model.is_none()),
+            "the standing instruction and the skills are written for a conversation with the \
+             CEO; a managed worker, an inspector and a registrar are not that"
+        );
+        let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
         // Refuse BEFORE spawning, so the error names WHICH path is wrong instead of an
         // errno that stands for two different faults. See `preflight`.
-        preflight(bin, cwd)?;
+        preflight(bin, cwd, doctrine, skills)?;
         let managed_workspace = if managed { Some(cwd.canonicalize()?) } else { None };
 
         let session_id = uuid::Uuid::new_v4().to_string();
-        let mut args = if managed { managed_child_args(&session_id) } else { child_args(&session_id) };
+        let mut args = match (managed, standing) {
+            (true, _) => managed_child_args(&session_id),
+            (false, Some((d, s))) => chat_child_args(&session_id, d, s),
+            (false, None) => child_args(&session_id),
+        };
         if let Some(model) = registrar_model {
             args = child_args(&session_id);
             args.extend(["--model".into(), model.into()]);
@@ -814,6 +1009,7 @@ impl NativeClient {
             current_prompt,
             between,
             stderr_tail,
+            reader_state: Arc::clone(&state),
             _reader: reader_handle,
             _stderr: stderr_handle,
         };
@@ -1000,8 +1196,30 @@ impl NativeClient {
 
         // ---- session identity ----------------------------------------------------------
         if ty == "system" && msg.get("subtype").and_then(|v| v.as_str()) == Some("init") {
+            let mut st = state.lock().unwrap();
             if let Some(m) = msg.get("model").and_then(|v| v.as_str()) {
-                state.lock().unwrap().session_model = Some(m.to_string());
+                st.session_model = Some(m.to_string());
+            }
+            // THE SECOND LOUDNESS LAYER FOR `--plugin-dir`. Read once per frame — the init
+            // frame repeats every turn and says the same thing, so a later rejection is caught
+            // too. The verdict is a FACT FROM THE CHILD, not an inference: `plugins` lists what
+            // it actually loaded.
+            let before = st.skills_verdict;
+            st.skills_verdict = crate::skills::verdict_from_init(&msg);
+            if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
+                && before != crate::skills::SkillsVerdict::Rejected
+            {
+                // Diagnostics are machinery and NEVER reach the CEO (see the stderr drain
+                // above); this is for whoever is looking at why Rich is thinner than he should
+                // be. `preflight` already proved the files are on disk, so reaching here means
+                // the BINARY declined them, which is the one case no file check can see.
+                eprintln!(
+                    "[richos] THE SKILLS DID NOT LOAD. `{PLUGIN_DIR}` was accepted and \
+                     `{}` is not in this session's plugin list, so every skill RichOS ships is \
+                     absent from this lease. The files passed preflight, so this is the binary \
+                     declining them — check `claude --version` against the last release gate.",
+                    crate::skills::PLUGIN_NAME
+                );
             }
         }
 
@@ -1161,6 +1379,16 @@ impl NativeClient {
     /// The session id — OURS, minted at spawn and passed to the child as `--session-id`.
     pub fn session_id(&self) -> &str {
         &self.session_id
+    }
+
+    /// Did the binary actually load RichOS's skills? Read off `system/init.plugins`.
+    ///
+    /// [`skills::SkillsVerdict::NotYetReported`] until the first turn, because that is when the
+    /// init frame arrives. A caller that treats `NotYetReported` as a failure would report a
+    /// fresh lease as broken; a caller that treats it as success would report an unknown as a
+    /// fact. It is three states for that reason.
+    pub fn skills_verdict(&self) -> crate::skills::SkillsVerdict {
+        self.reader_state.lock().map(|s| s.skills_verdict).unwrap_or(crate::skills::SkillsVerdict::NotYetReported)
     }
 
     /// Take everything the agent said while no turn was in flight (§1.5, gap #1).
@@ -1411,8 +1639,14 @@ impl NativeCognition {
     /// **`cwd` replaces ACP's `session/new {cwd}`.** The native binary takes its working
     /// directory from the process, and echoes it back on `system/init.cwd` — measured
     /// (`raw/run3:1`).
-    pub fn start(claude_bin: &Path, engine_cwd: &Path) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn(claude_bin, engine_cwd)?;
+    ///
+    /// **`doctrine` is the rendered standing instruction and `skills` is the rendered plugin
+    /// root** — `doctrine::ensure_rendered` + `skills::ensure_rendered` (the shell, which knows
+    /// its own data directory), or `doctrine::ensure_for_install` + `skills::ensure_for_install`
+    /// (everything headless). Both are required, because the alternative is a lease that comes
+    /// up as generic Claude, or as Rich with nothing to reach for, and says nothing about it.
+    pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
+        let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
         Ok(NativeCognition { client, session_id })
     }
@@ -1425,7 +1659,7 @@ impl NativeCognition {
     }
 
     pub fn start_inspector_with_schema(bin: &Path, workspace: &Path, schema: serde_json::Value) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema), None)?;
+        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema), None, None)?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id })
     }
@@ -1433,7 +1667,7 @@ impl NativeCognition {
     /// A detached transcriber has no tools, plugins or workspace access. Managed
     /// callbacks still deny unexpected permission requests and drop kills its group.
     pub fn start_registrar(bin: &Path, neutral_cwd: &Path, schema: Value, model: &str) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, neutral_cwd, true, Some(schema), Some(model))?;
+        let client = NativeClient::spawn_with_tools(bin, neutral_cwd, true, Some(schema), Some(model), None)?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id })
     }
@@ -1521,9 +1755,190 @@ mod native_driver_tests {
         std::env::remove_var("RICHOS_PERMISSION_PROMPT_TOOL");
     }
 
+    // ---- the standing instruction (doctrine.rs, inner-doctrine design §7.1/§7.2) --------
+
+    #[test]
+    fn chat_args_always_carry_the_doctrine_flag() {
+        // The same structural guarantee as the permission flag, for the same reason: there is
+        // no code path that drops `--append-system-prompt-file` and continues. `chat_child_args`
+        // is a pure function with no branches, so proving it here proves it everywhere.
+        let doctrine = Path::new("/Users/example/Library/Application Support/com.richos.app/inner-doctrine.md");
+        let skills = Path::new("/Users/example/Library/Application Support/com.richos.app/rich-skills");
+        let args = chat_child_args("sess-1", doctrine, skills);
+        let i = args
+            .iter()
+            .position(|a| a == APPEND_SYSTEM_PROMPT_FILE)
+            .expect("the chat lease must always carry the standing instruction");
+        assert_eq!(args[i + 1], doctrine.display().to_string(), "and it must name the rendered file");
+
+        // The base vector survives underneath it — a doctrine that arrived by dropping the
+        // permission channel would be a bad trade.
+        assert!(args.iter().any(|a| a == PERMISSION_PROMPT_TOOL));
+        let j = args.iter().position(|a| a == "--setting-sources").unwrap();
+        assert_eq!(args[j + 1], "", "--setting-sources '' stays exactly as it was (native.rs:316-317)");
+
+        // A path with spaces in it needs no treatment at all: `Command::args` hands a vector
+        // to `execve` with no shell in between. `Application Support` has a space in it, so
+        // this is the production case and not a hypothetical one.
+        assert!(args[i + 1].contains("Application Support"));
+
+        // And no environment variable can turn it off: `chat_child_args` reads none.
+        std::env::set_var("RICHOS_APPEND_SYSTEM_PROMPT_FILE", "");
+        std::env::set_var("RICHOS_DOCTRINE", "");
+        assert!(chat_child_args("x", doctrine, skills).iter().any(|a| a == APPEND_SYSTEM_PROMPT_FILE));
+        std::env::remove_var("RICHOS_APPEND_SYSTEM_PROMPT_FILE");
+        std::env::remove_var("RICHOS_DOCTRINE");
+    }
+
+    #[test]
+    fn the_doctrine_never_reaches_a_managed_worker_or_the_base_vector() {
+        // §4.1's boundary rule applied to processes rather than to sentences: a managed worker
+        // editing files, an inspector and a registrar answering under a JSON schema are not
+        // conversations with the CEO, and a persona written for one would be wrong instruction
+        // for all three. `managed_child_args` is untouched (design §8).
+        for args in [child_args("s"), managed_child_args("s")] {
+            assert!(
+                !args.iter().any(|a| a == APPEND_SYSTEM_PROMPT_FILE),
+                "the doctrine leaked into a non-chat argument vector: {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_doctrine_fails_loudly_and_names_the_path() {
+        // THE FAILURE PATH THAT MAKES THIS CHANNEL WORTH CHOOSING. Under the rejected
+        // `--setting-sources project` candidate an absent instruction file is a successful
+        // handshake and a generic Claude; here it is a refusal, before the process exists.
+        // The binary below is PRESENT and executable and the working directory EXISTS, so the
+        // only fault is the doctrine — which is what makes the variant meaningful.
+        let script = write_script("doctrine-missing", "exit 0\n");
+        let absent = std::env::temp_dir().join(format!("richos-no-doctrine-{}.md", uuid::Uuid::new_v4().simple()));
+        assert!(!absent.exists());
+
+        let err = NativeClient::spawn(&script, Path::new("/tmp"), &absent, &skills_fixture())
+            .err()
+            .expect("a missing standing instruction must never be a degraded success");
+        let msg = err.to_string();
+        assert!(matches!(err, NativeError::DoctrineMissing { .. }), "{msg}");
+        assert!(msg.contains(&absent.display().to_string()), "the failure must name the file: {msg}");
+        assert!(msg.contains("not Rich"), "the failure must say what is at stake: {msg}");
+        assert!(!msg.contains("claude binary was not found"), "reported as the wrong fault: {msg}");
+    }
+
+    #[test]
+    fn an_empty_doctrine_is_a_refusal_and_not_an_empty_instruction() {
+        // `claude` ACCEPTS a zero-byte file, so this one is ours to catch: it would hand the
+        // CEO a generic assistant behind a clean handshake.
+        let script = write_script("doctrine-empty", "exit 0\n");
+        let empty = script.parent().unwrap().join("inner-doctrine.md");
+        std::fs::write(&empty, b"").unwrap();
+        let err = NativeClient::spawn(&script, Path::new("/tmp"), &empty, &skills_fixture()).err().expect("empty is not instruction");
+        assert!(matches!(err, NativeError::DoctrineMissing { .. }), "{err}");
+        assert!(err.to_string().contains("empty"), "{err}");
+    }
+
+    #[test]
+    fn a_directory_where_the_doctrine_should_be_says_so_rather_than_saying_it_is_absent() {
+        let script = write_script("doctrine-is-a-dir", "exit 0\n");
+        let dir = script.parent().unwrap().join("inner-doctrine.md.dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        let err = NativeClient::spawn(&script, Path::new("/tmp"), &dir, &skills_fixture()).err().expect("a directory is not a doctrine");
+        assert!(matches!(err, NativeError::DoctrineMissing { .. }), "{err}");
+        assert!(err.to_string().contains("not a file"), "{err}");
+    }
+
+    // ---- the skills (skills.rs; measured in inner-doctrine-skills-2026-09-06/) -----------
+
+    #[test]
+    fn chat_args_always_carry_the_skills_flag() {
+        let doctrine = Path::new("/Users/example/Library/Application Support/com.richos.app/inner-doctrine.md");
+        let skills = Path::new("/Users/example/Library/Application Support/com.richos.app/rich-skills");
+        let args = chat_child_args("sess-1", doctrine, skills);
+        let i = args
+            .iter()
+            .position(|a| a == PLUGIN_DIR)
+            .expect("the chat lease must always carry RichOS's own skills");
+        assert_eq!(args[i + 1], skills.display().to_string());
+        // The directory is the APP's, not the operator's `~/.claude` and not the visited
+        // folder. The CEO ruled that authority comes from what RichOS writes.
+        assert!(args[i + 1].contains("com.richos.app"), "{:?}", args[i + 1]);
+        assert!(!args[i + 1].contains("/.claude/"), "the operator's own directory is not a source of authority");
+
+        // And no environment variable turns it off: `chat_child_args` reads none.
+        std::env::set_var("RICHOS_PLUGIN_DIR", "");
+        std::env::set_var("RICHOS_SKILLS", "");
+        assert!(chat_child_args("x", doctrine, skills).iter().any(|a| a == PLUGIN_DIR));
+        std::env::remove_var("RICHOS_PLUGIN_DIR");
+        std::env::remove_var("RICHOS_SKILLS");
+    }
+
+    #[test]
+    fn the_skills_never_reach_a_managed_worker_or_the_base_vector() {
+        for args in [child_args("s"), managed_child_args("s")] {
+            assert!(
+                !args.iter().any(|a| a == PLUGIN_DIR),
+                "RichOS's skills leaked into a non-chat argument vector: {args:?}"
+            );
+        }
+    }
+
+    /// **THE ONE THAT MATTERS MOST, because the binary will not do it for us.** Measured (cell
+    /// K4): `--plugin-dir` naming a path that is not there exits 0 with a clean handshake and
+    /// `plugins: []`. Without this check, deleting a skill file would be a product that is
+    /// quietly less than it says it is.
+    #[test]
+    fn a_missing_skill_fails_loudly_and_names_the_file() {
+        let script = write_script("skills-missing", "exit 0\n");
+        let absent = std::env::temp_dir().join(format!("richos-no-skills-{}", uuid::Uuid::new_v4().simple()));
+        assert!(!absent.exists());
+
+        let err = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &absent)
+            .err()
+            .expect("a missing skill must never be a degraded success");
+        let msg = err.to_string();
+        assert!(matches!(err, NativeError::SkillsMissing { .. }), "{msg}");
+        assert!(msg.contains("plugin.json"), "the failure must name the file it looked for: {msg}");
+        assert!(
+            msg.contains("without saying so"),
+            "the failure must say WHY we check rather than leaving it to the binary: {msg}"
+        );
+        assert!(!msg.contains("claude binary was not found"), "reported as the wrong fault: {msg}");
+    }
+
+    #[test]
+    fn a_skill_file_that_was_emptied_is_a_refusal_too() {
+        let script = write_script("skills-empty", "exit 0\n");
+        let root = skills_fixture();
+        std::fs::write(crate::skills::skill_path(&root, "american-english"), b"").unwrap();
+        let err = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &root)
+            .err()
+            .expect("an empty skill is no skill");
+        assert!(matches!(err, NativeError::SkillsMissing { .. }), "{err}");
+        assert!(err.to_string().contains("empty"), "{err}");
+    }
+
+    /// The second layer, in a unit test rather than a live one: a lease that has run no turn
+    /// has heard nothing, and that is its own state.
+    #[test]
+    fn a_fresh_lease_reports_the_skills_verdict_as_not_yet_reported() {
+        let script = write_script(
+            "verdict",
+            "read -r line\n\
+             printf '%s\\n' '{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{}}}'\n\
+             sleep 5\n",
+        );
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
+            .expect("the handshake should succeed");
+        assert_eq!(
+            client.skills_verdict(),
+            crate::skills::SkillsVerdict::NotYetReported,
+            "the init frame arrives with the first TURN; before that we have been told nothing"
+        );
+    }
+
     #[test]
     fn a_missing_binary_fails_loudly_and_names_the_path() {
-        let err = NativeClient::spawn(Path::new("/nonexistent/definitely/not/claude"), Path::new("/tmp"))
+        let err = NativeClient::spawn(Path::new("/nonexistent/definitely/not/claude"), Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
             .err()
             .expect("a missing binary must not be a degraded success");
         match &err {
@@ -1545,7 +1960,7 @@ mod native_driver_tests {
         let missing = std::env::temp_dir().join(format!("richos-no-such-engine-{}", uuid::Uuid::new_v4().simple()));
         assert!(!missing.exists());
 
-        let err = NativeClient::spawn(&script, &missing)
+        let err = NativeClient::spawn(&script, &missing, &doctrine_fixture(), &skills_fixture())
             .err()
             .expect("a missing working directory must not be a degraded success");
         let msg = err.to_string();
@@ -1562,7 +1977,7 @@ mod native_driver_tests {
         let file = script.parent().unwrap().join("engine-that-is-a-file");
         std::fs::write(&file, b"not a directory").unwrap();
 
-        let err = NativeClient::spawn(&script, &file).err().expect("a file is not a working directory");
+        let err = NativeClient::spawn(&script, &file, &doctrine_fixture(), &skills_fixture()).err().expect("a file is not a working directory");
         let msg = err.to_string();
         assert!(matches!(err, NativeError::WorkingDirNotADirectory { .. }), "{msg}");
         assert!(msg.contains("is not a directory"), "{msg}");
@@ -1579,7 +1994,7 @@ mod native_driver_tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
         }
-        let err = NativeClient::spawn(&script, Path::new("/tmp")).err().expect("an unrunnable binary must fail");
+        let err = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).err().expect("an unrunnable binary must fail");
         let msg = err.to_string();
         assert!(matches!(err, NativeError::BinaryNotExecutable { .. }), "{msg}");
         assert!(!msg.contains("was not found"), "a present file must never be reported as absent: {msg}");
@@ -1592,7 +2007,7 @@ mod native_driver_tests {
         // install is upstream of the engine directory, so it is the one named. Pinned here so
         // the order is a decision on the record rather than an accident of code layout.
         let missing_dir = std::env::temp_dir().join(format!("richos-no-such-engine-{}", uuid::Uuid::new_v4().simple()));
-        let err = NativeClient::spawn(Path::new("/nonexistent/definitely/not/claude"), &missing_dir)
+        let err = NativeClient::spawn(Path::new("/nonexistent/definitely/not/claude"), &missing_dir, &doctrine_fixture(), &skills_fixture())
             .err()
             .expect("must fail");
         assert!(matches!(err, NativeError::BinaryMissing { .. }), "{err}");
@@ -1614,7 +2029,7 @@ mod native_driver_tests {
             "flag-reject",
             "echo \"error: unknown option '--permission-prompt-tool'\" >&2\nexit 1\n",
         );
-        let err = NativeClient::spawn(&script, Path::new("/tmp"))
+        let err = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
             .err()
             .expect("a rejected flag must never be a silent degrade");
         let msg = err.to_string();
@@ -1660,7 +2075,7 @@ mod native_driver_tests {
         // Disconnected arm; the Timeout arm is bounded by HANDSHAKE_TIMEOUT and is not worth
         // 30 s of test time to exercise.
         let script = write_script("silent", "sleep 0.3\nexit 0\n");
-        let err = NativeClient::spawn(&script, Path::new("/tmp")).err().expect("silence is not success");
+        let err = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).err().expect("silence is not success");
         assert!(matches!(err, NativeError::Startup { .. }), "{err}");
     }
 
@@ -1674,12 +2089,32 @@ mod native_driver_tests {
              printf '%s\\n' '{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{\"account\":{\"email\":\"x@y\"}}}}'\n\
              sleep 5\n",
         );
-        let client = match NativeClient::spawn(&script, Path::new("/tmp")) {
+        let client = match NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()) {
             Ok(c) => c,
             Err(e) => panic!("handshake should have succeeded: {e}"),
         };
         assert_eq!(client.session_id().len(), 36, "a uuid, hyphenated, as --session-id requires");
         assert!(client.session_id().contains('-'));
+    }
+
+    /// A rendered standing instruction on disk, for the spawn tests.
+    ///
+    /// The REAL renderer, not a stub file: these tests then fail if `doctrine.rs` ever stops
+    /// producing something `preflight` will accept, which is the only way the two halves of
+    /// this feature can be checked against each other without a live binary.
+    /// A rendered SKILL PLUGIN on disk, for the spawn tests. The real renderer again, so a
+    /// `skills.rs` that stopped producing something `preflight` accepts breaks these too.
+    fn skills_fixture() -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("richos-skills-fixture-{}", uuid::Uuid::new_v4().simple()));
+        crate::skills::ensure_rendered(&dir).expect("the skills fixture must render")
+    }
+
+    fn doctrine_fixture() -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("richos-doctrine-fixture-{}", uuid::Uuid::new_v4().simple()));
+        crate::doctrine::ensure_rendered(&dir, &crate::doctrine::DoctrineIdentity::default())
+            .expect("the doctrine fixture must render")
     }
 
     fn write_script(name: &str, body: &str) -> std::path::PathBuf {

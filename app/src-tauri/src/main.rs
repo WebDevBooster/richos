@@ -177,6 +177,25 @@ impl MachineryObserver for TauriMachineryEmitter {
 struct EngineLeaseFactory {
     claude_bin: Arc<Mutex<PathBuf>>,
     engine_dir: Arc<Mutex<PathBuf>>,
+    /// Where RichOS keeps its own files — `app_data_dir()`, the same directory the ledger,
+    /// `config.json` and `entities.json` live in.
+    ///
+    /// **Not a rendered path frozen at boot, and that distinction is the point.** The standing
+    /// instruction is re-rendered and re-verified on EVERY lease this factory spawns
+    /// (`doctrine::ensure_rendered`), so a doctrine that was edited, truncated or deleted since
+    /// the last rotation is replaced before the successor sees it, and a CEO who has just typed
+    /// his name into settings is addressed by it at the next rotation rather than at the next
+    /// relaunch. A cached path would be an answer computed before the thing it describes could
+    /// change — the defect `claude_bin` above joined this struct to fix.
+    ///
+    /// **The CEO's name is read from `config.json` ON DISK, not from `AppState::config`, and
+    /// that is deadlock avoidance rather than a shortcut.** This factory is called from inside
+    /// the spine's mutex (rotation and crash recovery happen mid-turn), and the lock order
+    /// stated three times in this file is config → registry → entity → spine. Taking the config
+    /// lock here would take two of them in the opposite order. `ConfigStore::open` reads and
+    /// never writes (`config.rs`), and `set_user_name` persists immediately, so the file is as
+    /// current as the lock would have been.
+    data_dir: PathBuf,
 }
 
 impl LeaseFactory for EngineLeaseFactory {
@@ -198,7 +217,20 @@ impl LeaseFactory for EngineLeaseFactory {
             .lock()
             .map(|b| b.clone())
             .unwrap_or_else(|_| PathBuf::from("claude"));
-        let cog = NativeCognition::start(&bin, &dir)?;
+        // The standing instruction, rendered and verified before the successor exists. A
+        // failure here is a failure to spawn: a lease with no doctrine is a generic Claude
+        // wearing the product's window, and `doctrine.rs` has no fallback for that on purpose.
+        let doctrine = richos_core::doctrine::ensure_rendered(
+            &self.data_dir,
+            &richos_core::doctrine::identity_from_config(&self.data_dir),
+        )
+        .map_err(|e| CognitionError::Io(e.to_string()))?;
+        // The skills, rendered and verified beside it and for the same reason. A missing one
+        // is a refusal at `preflight`, because `--plugin-dir` accepts a path that is not there
+        // without saying so (`skills.rs`).
+        let skills = richos_core::skills::ensure_rendered(&self.data_dir)
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let cog = NativeCognition::start(&bin, &dir, &doctrine, &skills)?;
         Ok(Box::new(cog))
     }
 }
@@ -1345,7 +1377,21 @@ fn main() {
             // THE CELL THE LEASE FACTORY READS, beside `engine_cell` and for the same reason
             // (see `EngineLeaseFactory`). A successful first-run install rewrites it.
             let claude_bin_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(claude_bin.clone()));
-            match NativeCognition::start(&claude_bin, &engine) {
+            // RichOS's standing instruction, written into RichOS's own directory before the
+            // first lease exists (`doctrine.rs`). A failure to render it is reported and the
+            // attach is not attempted: `NativeCognition::start` would refuse anyway, and the
+            // refusal here names the directory rather than the flag.
+            let doctrine = richos_core::doctrine::ensure_rendered(
+                &data_dir,
+                &richos_core::doctrine::identity_from_config(&data_dir),
+            );
+            let skills = richos_core::skills::ensure_rendered(&data_dir);
+            match doctrine
+                .as_ref()
+                .map_err(|e| e.to_string())
+                .and_then(|d| skills.as_ref().map_err(|e| e.to_string()).map(|s| (d, s)))
+                .and_then(|(d, s)| NativeCognition::start(&claude_bin, &engine, d, s).map_err(|e| e.to_string()))
+            {
                 Ok(cog) => {
                     // The POSITIVE half, and it is here because its absence is not evidence:
                     // before this line, a successful boot was silent and a reader had to
@@ -1381,6 +1427,7 @@ fn main() {
             spine.set_lease_factory(Box::new(EngineLeaseFactory {
                 claude_bin: Arc::clone(&claude_bin_cell),
                 engine_dir: Arc::clone(&engine_cell),
+                data_dir: data_dir.clone(),
             }));
 
             // ==============================================================================
@@ -2872,7 +2919,17 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
         if let Ok(mut cell) = state.claude_bin.lock() {
             *cell = claude_bin.clone();
         }
-        match NativeCognition::start(&claude_bin, &engine) {
+        let doctrine = richos_core::doctrine::ensure_rendered(
+            &state.data_dir,
+            &richos_core::doctrine::identity_from_config(&state.data_dir),
+        );
+        let skills = richos_core::skills::ensure_rendered(&state.data_dir);
+        match doctrine
+            .as_ref()
+            .map_err(|e| e.to_string())
+            .and_then(|d| skills.as_ref().map_err(|e| e.to_string()).map(|s| (d, s)))
+            .and_then(|(d, s)| NativeCognition::start(&claude_bin, &engine, d, s).map_err(|e| e.to_string()))
+        {
             Ok(cog) => {
                 eprintln!(
                     "[richos] compute lease attached after first-run setup, over {} in {}",

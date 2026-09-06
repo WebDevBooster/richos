@@ -89,7 +89,9 @@ fn main() {
     eprintln!("[probe] claude     = {}", claude_bin.display());
     eprintln!("[probe] engine cwd = {}", engine_dir.display());
 
-    let verdict = match NativeCognition::start(&claude_bin, &engine_dir) {
+    let doctrine = richos_core::doctrine::ensure_for_install().expect("render the standing instruction");
+    let skills = richos_core::skills::ensure_for_install().expect("render the skills");
+    let verdict = match NativeCognition::start(&claude_bin, &engine_dir, &doctrine, &skills) {
         Err(e) => {
             // A LOCAL failure is reported to `judge` as one, and `judge` refuses to turn it
             // into a statement about the API. That is the point: "claude would not start"

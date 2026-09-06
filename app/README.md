@@ -233,6 +233,30 @@ app/
     tests/native_cancel_tests.rs 3 interrupt tests against a REAL CHILD PROCESS over real
                               stdio (a POSIX-sh fake `claude` the test writes itself), in two
                               variants: compliant, and deliberately deaf to the interrupt
+    src/skills.rs             THE SKILLS RichOS gives its inner Rich — the on-demand half of
+                              src/doctrine.rs. Rendered as a PLUGIN into the app's own
+                              directory and passed with `--plugin-dir`, because a project
+                              `.claude/skills/` does not reach a child started with
+                              `--setting-sources ''` and a plugin path does (measured; the
+                              engine's own 28 skills never reached it for exactly that
+                              reason). A missing plugin dir is accepted by the binary in
+                              SILENCE — exit 0, clean handshake, `plugins: []` — so the
+                              loudness is ours: `preflight` refuses before the spawn, and the
+                              reader thread reads `system/init.plugins` for the case only the
+                              wire can see. Ships ONE skill, American English
+                              (docs/verification/inner-doctrine-skills-2026-09-06/)
+    tests/doctrine_sentinel.rs 1 LIVE test, #[ignore] by default, and a RELEASE GATE rather
+                              than a one-off: does the standing instruction RichOS renders
+                              (src/doctrine.rs) actually reach the model? Two cells against
+                              the real binary through the PRODUCT'S own arg vector and
+                              locator, differing in exactly one thing — the contents of the
+                              file --append-system-prompt-file names. The sentinel carries a
+                              BEHAVIOR as well as a token, so a null result distinguishes
+                              "never read it" from "read it and did not echo". It costs a
+                              real API turn, so `ignored` is what libtest prints — a not-run,
+                              never a pass; run it with --ignored against the binary a
+                              release ships against
+                              (docs/verification/inner-doctrine-live-2026-09-06/)
     tests/between_turn_tests.rs 4 tests for techy-mode §1.5 gap #1, also against a REAL
                               CHILD PROCESS: the frame the agent emits at session start and
                               after a turn's result — which used to hit no sink at all — is
@@ -794,7 +818,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 893 tests + 5 doc-tests; 890 direct, 3 child-only
+cargo test -p richos-core                       # 936 tests + 5 doc-tests; 932 direct, 4 child-only
 #     ONE OF THE THREE NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
 #     every repository and is on no clean checkout. `home_field::tests::
 #     against_a_real_corpus_when_one_is_configured` compiles one into the home screen's
@@ -810,6 +834,14 @@ cargo test -p richos-core                       # 893 tests + 5 doc-tests; 890 d
 #     — `$RICHOS_CLAUDE_BIN` points it at a binary anywhere. Off macOS it reports
 #     `ignored, NOT CHECKABLE ON THIS TARGET: …` (the pin is read by `/usr/bin/codesign`),
 #     which is what `app-spine-ci.yml`'s ubuntu runner now prints in place of a green line.
+
+#     AND ONE IS A RELEASE GATE, added 2026-09-06. `tests/doctrine_sentinel.rs` costs a real
+#     API turn against the customer's own subscription, so it cannot be in the default run —
+#     but `--append-system-prompt-file` is semi-documented and the binary self-updates, so
+#     "does RichOS's standing instruction still reach the model?" has to be re-asked against
+#     the binary each release ships against, and the answer recorded with that version:
+#         cargo test -p richos-core --test doctrine_sentinel -- --ignored --nocapture
+#     Last run: PASS against 2.1.263 (docs/verification/inner-doctrine-live-2026-09-06/).
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 196 tests
