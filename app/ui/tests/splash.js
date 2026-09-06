@@ -30,6 +30,7 @@ const os = require("os");
 const { leaveHome, loadPlaywright, shot, captureSettled, publishShot, publishShotFile, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const { contrastRatio, round2, hex } = require("./lib/contrast");
 
+const SOURCES = require("./lib/ui-sources");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const LIB_FILE = path.join(UI_DIR, "splash-library.js");
 const RENDERER_FILE = path.join(UI_DIR, "splash.js");
@@ -1722,9 +1723,23 @@ async function main() {
       assert(js.includes('"' + cmd + '"'), cmd + " is never invoked by main.js");
     }
     // And the three timestamps §7 needs are stored, not displayed: nothing reads them back.
+    //
+    // "THE UI" WAS `main.js` UNTIL 2026-09-05, which is the wrong file to have picked: this
+    // surface's own renderer is `splash.js`, and `splash-library.js` beside it. A timestamp
+    // leaking into either would have been invisible to the check written to forbid it. The
+    // question goes to every shipped UI file the manifest reaches now.
     assert(/splash_first_shown_at/.test(cfg) && /splash_disabled_at/.test(cfg), "the two measurement timestamps");
-    assert(!/splash_first_shown_at|splash_disabled_at/.test(js), "a measurement timestamp reached the UI");
-    return "config.rs default true via a named fn · 3 commands declared, registered and invoked · 2 timestamps stored, 0 displayed";
+    const leaked = SOURCES.uiMatches(/splash_first_shown_at|splash_disabled_at/);
+    assertEqual(
+      leaked.map((l) => l.site),
+      [],
+      "a measurement timestamp reached the UI at: " + leaked.map((l) => l.site).join(", ")
+    );
+    return (
+      "config.rs default true via a named fn · 3 commands declared, registered and invoked · " +
+      "2 timestamps stored, 0 displayed anywhere in the " + SOURCES.stateSources().length +
+      " shipped UI file(s)"
+    );
   });
 
   // ---- the number the whole thing turns on -------------------------------------------------

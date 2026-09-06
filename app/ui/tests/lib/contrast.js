@@ -28,6 +28,15 @@
 //     splash wordmark is SVG. Counted and named, never silently passed.
 //   * text over a raster image, `text-shadow`, `-webkit-text-stroke` — reported unresolvable.
 //   * paint order between two overlapping non-hit-testable layers.
+//   * `::before`/`::after` generated text USED TO BE ON THIS LIST WITHOUT BEING WRITTEN ON
+//     IT, which is worse than a gap: the walk collects `nodeType === 3` children and a
+//     pseudo-element is not a node, so `content: "Settings"` on the settings button — text
+//     §15 puts on every screen — was never measured and never counted, under a header whose
+//     own thesis is that "the number that would embarrass this file is a count of nodes
+//     quietly skipped". It is measured now, in its own `generated` bucket, and what STILL
+//     cannot be measured from here is a pseudo-element that is positioned AND has no opaque
+//     background of its own: it has no box to hit-test, so it is reported unprovable rather
+//     than composited against a host it may not be painting over.
 
 "use strict";
 
@@ -525,6 +534,160 @@ function probeBody(options) {
       text: snippet,
       large: isLargeText(parseFloat(cs.fontSize), cs.fontWeight),
     });
+  }
+
+  // ---- text the STYLESHEET puts on screen (`::before` / `::after`) -----------------------
+  //
+  // THE WALK ABOVE COLLECTS `nodeType === 3` CHILDREN, AND A PSEUDO-ELEMENT IS NOT A NODE.
+  // So every character rendered by a `content:` declaration was outside this file entirely —
+  // not measured, not counted, and not on the "WHAT IT DOES NOT SEE" list at the top, which
+  // is the part that made it dangerous. A surface could print `N nodes measured, 0 failures`
+  // with authored text on it that nothing had ever looked at.
+  //
+  // There is one in the shipped tree, and it is not a decoration: `style.css`'s
+  // `.setbtn::after { content: "Settings" }` — the tooltip on the settings button §15 puts
+  // on every screen, including the opening screen where it is the only control there is.
+  // `lib/ui-sources.js`'s `cssContentStrings()` derives the same inventory from the
+  // STYLESHEETS, and `contrast.js` joins the two so neither side can be short.
+  //
+  // THREE BUCKETS, BECAUSE THEY ARE THREE DIFFERENT FACTS, and the middle one is the whole
+  // reason this is not just "measure it":
+  //
+  //   checked     visible, resolvable, held to the same 4.5 / 3.0 floors as any other text.
+  //   hidden      NOT ON SCREEN RIGHT NOW — `opacity: 0` until hover, `display: none`.
+  //               Named rather than skipped, so a caller can drive it into view and come
+  //               back; the settings tooltip is exactly this and is measured on hover.
+  //   unprovable  visible, and its ink or its background could not be resolved. A FAILURE
+  //               TO PROVE, never a pass — the same rule the rest of this file uses.
+  //
+  // WHY AN ABSOLUTELY-POSITIONED PSEUDO WITH A TRANSPARENT BACKGROUND IS UNPROVABLE RATHER
+  // THAN MEASURED AGAINST ITS HOST. A pseudo-element has no `Range` and no `getClientRects`,
+  // so there is no point to hit-test with. For one that flows INSIDE its host that does not
+  // matter — its background is the host's. For one that is `position: absolute` it does: the
+  // settings tooltip sits `calc(100% + 8px)` BELOW the button, over whatever the app is
+  // showing there, and compositing it over the button's own background would report a
+  // comfortable ratio for a stack that is not the one the eye receives. That is precisely
+  // the ancestor-walk mistake this file removed from `outage.js` on 2026-09-05.
+  out.generated = { considered: 0, checked: 0, passed: 0, hidden: {}, unprovable: {}, measured: [] };
+  for (let i = 0; i < everything.length; i++) {
+    const el = everything[i];
+    if (SKIP[el.tagName]) continue;
+    if (el.ownerSVGElement || el.tagName === "svg") continue;
+    for (let p = 0; p < 2; p++) {
+      const pseudo = p === 0 ? "::before" : "::after";
+      const gs = getComputedStyle(el, pseudo);
+      const raw = gs.content;
+      if (!raw || raw === "none" || raw === "normal") continue;
+
+      // The authored text: every quoted run in the `content` list, concatenated. `attr()`,
+      // `counter()` and `url()` contribute nothing here — they are not authored sentences,
+      // and there are none in this tree.
+      let text = "";
+      const q = /"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'/g;
+      let qm;
+      while ((qm = q.exec(raw))) text += qm[1] !== undefined ? qm[1] : qm[2];
+      if (!text.trim()) continue; // `content: ""` — a decorative box, not text
+      out.generated.considered++;
+
+      const path = shortPath(el) + pseudo;
+      const snippet = text.replace(/\s+/g, " ").trim().slice(0, 48);
+      const opacity = cumulativeOpacity(el) * (parseFloat(gs.opacity) || 0);
+
+      if (gs.display === "none" || gs.visibility !== "visible" || !(opacity > 0.001)) {
+        file(out.generated.hidden, path, {
+          path: path,
+          text: snippet,
+          why:
+            gs.display === "none"
+              ? "display: none"
+              : gs.visibility !== "visible"
+              ? "visibility: " + gs.visibility
+              : "cumulative opacity " + round2(opacity),
+        });
+        continue;
+      }
+
+      const rawFg = parseCssColor(gs.color);
+      if (!rawFg) {
+        file(out.generated.unprovable, path, { path: path, text: snippet, why: "unparseable color '" + gs.color + "'" });
+        continue;
+      }
+      if (gs.backgroundImage !== "none") {
+        file(out.generated.unprovable, path, { path: path, text: snippet, why: "a background-image behind generated text" });
+        continue;
+      }
+      const own = parseCssColor(gs.backgroundColor);
+      let bg = null;
+      let via = "its own background";
+      if (own && own.a >= 0.999) {
+        bg = own;
+      } else if (gs.position === "absolute" || gs.position === "fixed") {
+        file(out.generated.unprovable, path, {
+          path: path,
+          text: snippet,
+          why:
+            "positioned " + gs.position + " with a background that is not opaque — it can paint " +
+            "anywhere, and a pseudo-element has no box this walk can hit-test",
+        });
+        continue;
+      } else {
+        // It flows inside its host, so the host's resolved stack IS its background.
+        const r = el.getBoundingClientRect();
+        const pt =
+          r.width >= 1 && r.height >= 1 && r.left >= 0 && r.top >= 0 &&
+          r.left < window.innerWidth && r.top < window.innerHeight
+            ? { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+            : null;
+        const st = stackFor(el, pt);
+        if (st.why) {
+          file(out.generated.unprovable, path, { path: path, text: snippet, why: st.why });
+          continue;
+        }
+        const rb = resolveBackground(st.chain);
+        if (rb.why) {
+          file(out.generated.unprovable, path, { path: path, text: snippet, why: rb.why });
+          continue;
+        }
+        bg = own && own.a > 0 ? compositeOver(own, rb.color) : rb.color;
+        via = "its host's resolved stack";
+      }
+
+      const fg = compositeOver({ r: rawFg.r, g: rawFg.g, b: rawFg.b, a: rawFg.a * opacity }, bg);
+      const size = parseFloat(gs.fontSize);
+      const threshold = el.closest("[data-contrast-role='indicator']")
+        ? INDICATOR
+        : isLargeText(size, gs.fontWeight)
+        ? LARGE
+        : NORMAL;
+      const ratio = round2(contrastRatio(fg, bg));
+      out.generated.checked++;
+      out.generated.measured.push({
+        path: path,
+        text: snippet,
+        ratio: ratio,
+        threshold: threshold,
+        fg: hex(fg),
+        bg: hex(bg),
+        fontSize: Math.round(size * 10) / 10,
+        fontWeight: gs.fontWeight,
+        via: via,
+      });
+      if (ratio >= threshold) {
+        out.generated.passed++;
+        continue;
+      }
+      file(out.failures, "generated " + path + " " + hex(fg) + " on " + hex(bg), {
+        selector: path,
+        ratio: ratio,
+        threshold: threshold,
+        fg: hex(fg),
+        bg: hex(bg),
+        fontSize: Math.round(size * 10) / 10,
+        fontWeight: gs.fontWeight,
+        text: snippet,
+        large: isLargeText(size, gs.fontWeight),
+      });
+    }
   }
 
   // ---- non-text indicators (§1.4.11) ----------------------------------------------------

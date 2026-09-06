@@ -12,8 +12,43 @@
       "surface": "opening-screen"
     }
   ],
+  "unwalkedPanels": [
+    {
+      "id": "home",
+      "why": "The home screen, and it is COVERED SOMEWHERE ELSE rather than uncovered: round-11.1/v1 \"Constellation\" is a WebGL canvas composition, so a computed-style walk can read nothing painted on it. tests/home.js measures it FROM THE PIXELS instead — 16 elements, worst 4.23:1, on the rendered frame — which check 14 already names. Two DOM checkers over one canvas would be one checker rotting."
+    },
+    {
+      "id": "voice-panel",
+      "why": "The voice panel mid-listen. Reaching it needs a live audio device: main.js hides the talk button entirely when voice_readiness refuses, and the panel only paints once start_voice_capture has a real stream. A browser fixture that forced it open would be measuring markup the product does not paint on a machine with no microphone."
+    },
+    {
+      "id": "slideover",
+      "why": "The drill-down slideover, and drill_down is not implemented behind it — no seeded thread in mock.js produces a drill target, so nothing in a browser can open it. Named in this file's header as a gap since it was written; this entry is the same claim in a form the suite can hold to."
+    },
+    {
+      "id": "slideover-backdrop",
+      "why": "The slideover's own backdrop. It cannot be on screen without the slideover above it, so it shares that entry's reason exactly."
+    },
+    {
+      "id": "drill-chip-zone",
+      "why": "The drill-down's chip strip, which is the affordance that OPENS the slideover. Same unreachability and same reason: no seeded conversation carries a drill target."
+    },
+    {
+      "id": "rail-scrim",
+      "why": "The rail's scrim on a narrow window — a translucent sheet with no text in it and no boundary of its own, so it is neither a text node nor a non-text INDICATOR under check 3's definition. What matters about a scrim is what can still be read THROUGH it, and check 8 measures exactly that on every run: a 12% sheet takes 4.54:1 down to 4.25:1 and the 4.25 is what gets reported, not the stylesheet's 4.54."
+    },
+    {
+      "id": "inspector-scrim",
+      "why": "The worker inspector's scrim, on the same footing as the rail's. The inspector ITSELF is walked (surface `inspector`, 146 nodes measured) — it is only the sheet beside it that carries nothing to measure."
+    }
+  ],
   "surfaceFloors": {
     "shell": {
+      "checked": 78,
+      "considered": 228
+    },
+    "settings-tooltip": {
+      "//": "The shell with the settings button hovered, so the node floor is the shell's own (78/228 — this surface measures 90 of 408 today, exactly as `shell` does). The floor that actually belongs to THIS surface is not a node count: it is check 11b, which requires `style.css`'s `.setbtn::after` content string to be MEASURED in both themes rather than reported hidden, and fails if this driver stops reaching the hover state.",
       "checked": 78,
       "considered": 228
     },
@@ -98,6 +133,18 @@
     "setup-blocked": {
       "checked": 18,
       "considered": 394
+    },
+    "entity-view": {
+      "checked": 110,
+      "considered": 436
+    },
+    "thread-menu": {
+      "checked": 98,
+      "considered": 414
+    },
+    "techy-nothing-recorded": {
+      "checked": 116,
+      "considered": 430
     }
   },
   "signatures": {}

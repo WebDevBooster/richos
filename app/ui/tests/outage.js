@@ -24,6 +24,7 @@
 
 const { loadPlaywright, openFixture, createRun, assert, assertEqual } = require("./lib/harness");
 const { rustStrings, normalize } = require("./lib/state-strings");
+const C = require("./lib/contrast");
 
 const THREAD = "thr_outage";
 const TURN = "turn_outage";
@@ -149,46 +150,99 @@ const cardText = (page) =>
   });
 
 // ---------------------------------------------------------------------------------------
-// CONTRAST — computed from the pixels the renderer actually produced, never eyeballed
+// CONTRAST — through the SHARED library, because this file used to have its own
 // ---------------------------------------------------------------------------------------
+//
+// WHAT WAS HERE UNTIL 2026-09-05, and why a second copy of the arithmetic is worse than no
+// check at all. This file carried its own `CONTRAST_PROBE`: forty lines of hand-rolled WCAG
+// math and, under it, an `opaqueBehind(el)` that walked the node's ANCESTORS looking for the
+// first opaque `background-color`. Three properties came with that, none of them stated:
+//
+//   1. AN ANCESTOR WALK IS NOT THE PAINT STACK. It cannot see a scrim, an overlay or any
+//      sibling painted over the node, so it reports the comfortable ratio of a background
+//      that is not the one the eye receives. `lib/contrast.js` resolves the background from
+//      `document.elementsFromPoint` inside the text's own line box — the browser's real
+//      stack — for exactly this reason, and its header says so.
+//   2. A GRADIENT IS INVISIBLE TO IT. An element with `background-image` has
+//      `background-color: rgba(0,0,0,0)`, so the walk stepped straight past it and measured
+//      against something further up. The shared library REFUSES a gradient by name: a color
+//      it cannot resolve is a failure to prove, never a pass.
+//   3. IT FELL BACK TO WHITE. `return [255, 255, 255]` when nothing opaque was found — a
+//      guess, reported as a measurement, in a file whose own header says the numbers are
+//      "computed from the pixels the renderer actually produced, never eyeballed".
+//
+// It also parsed with `s.match(/[\d.]+/g)`, which turns `color(display-p3 1 0 0)` into
+// numbers rather than refusing it, and used WCAG 2.0's published `0.03928` linearization
+// threshold where the shared library uses the exact `0.04045`. Neither would have changed a
+// verdict here today. That is the point: a second implementation that agrees today is a
+// second implementation that will disagree silently later, and the disagreement will be in
+// whichever copy nobody is testing.
+//
+// So the card is measured by the same probe that walks the whole shell, and this file makes
+// no arithmetic claims of its own. What it still does itself is the TYPE SCALE — §15's 14px
+// floor — because a font size is read, not computed, and there is nothing to get wrong.
 
-const CONTRAST_PROBE = `(() => {
-  const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
-  const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  const parse = (s) => (s.match(/[\\d.]+/g) || []).map(Number);
-  const opaqueBehind = (el) => {
-    let n = el;
-    while (n) {
-      const c = parse(getComputedStyle(n).backgroundColor);
-      if (c.length >= 3 && (c.length < 4 || c[3] === 1)) return [c[0], c[1], c[2]];
-      n = n.parentElement;
-    }
-    return [255, 255, 255];
+const CARD_PARTS = ["tl-intervention-body", "tl-intervention-note", "tl-intervention-action"];
+
+/// The whole fixture page, measured by `lib/contrast.js`'s probe.
+///
+/// NOT FILTERED TO A SELECTOR, and that is a correction rather than a shortcut. The first
+/// version of this function kept only the paths containing one of `CARD_PARTS`, and it
+/// silently dropped the card's own BUTTON: the probe's `shortPath` prefers an id over a
+/// class chain, so the retry control comes back as `button#retry:turn_outage` with the word
+/// "intervention" nowhere in it. Ten nodes measured, three kept, and the one the CEO presses
+/// among the seven thrown away — a filter that reported a clean card over two thirds of it,
+/// written into the same commit that removed a hand-rolled probe for being unsound.
+///
+/// The fixture renders one turn and one card and nothing else, so every node the probe finds
+/// here is something this suite put on screen. Gating on all of it is both simpler and
+/// stricter, and `cardNodes` below is what keeps it honest — it asserts the card's own parts
+/// are among what was measured, so "the page is clean" can never mean "the card was not on it".
+async function contrastOfPage(page) {
+  await page.evaluate(C.pageScript());
+  const out = await page.evaluate((o) => window.__contrastProbe(o), {
+    surface: "outage-card",
+    theme: "driven",
+  });
+  return {
+    measured: out.measuredPaths || [],
+    failures: Object.values(out.failures),
+    unresolvable: Object.values(out.unresolvable),
+    obscured: Object.values(out.obscured).map((o) => o.path),
   };
-  const over = (fg, a, bg) => [0, 1, 2].map((i) => fg[i] * a + bg[i] * (1 - a));
-  const ratio = (a, b) => {
-    const l1 = lum(a), l2 = lum(b);
-    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-  };
-  const out = [];
-  for (const el of document.querySelectorAll(".tl-intervention-body, .tl-intervention-note, .tl-intervention-action")) {
-    const cs = getComputedStyle(el);
-    const c = parse(cs.color);
-    const bg = opaqueBehind(el);
-    const fg = c.length === 4 ? over([c[0], c[1], c[2]], c[3], bg) : [c[0], c[1], c[2]];
-    out.push({
-      cls: el.className,
-      px: parseFloat(cs.fontSize),
-      bold: parseInt(cs.fontWeight, 10) >= 700,
-      ratio: Math.round(ratio(fg, bg) * 100) / 100,
-      text: (el.textContent || "").slice(0, 40),
+}
+
+/// Which of the card's own parts the probe measured, matched against the DOM rather than
+/// against a guess at the probe's path format. Each element's real path prefix is derived in
+/// the page — `button#id` when it has an id, `tag.firstClass` otherwise, which is the rule
+/// `shortPath` follows — so a change to either side shows up as a missing part rather than
+/// as a quietly smaller number.
+async function cardNodes(page, measured) {
+  const wanted = await page.evaluate((parts) => {
+    const sel = parts.map((c) => "." + c).join(", ");
+    return Array.from(document.querySelectorAll(sel)).map((el) => {
+      const tag = el.tagName.toLowerCase();
+      return el.id ? tag + "#" + el.id : tag + "." + String(el.className).split(/\s+/)[0];
     });
-  }
-  return out;
-})()`;
+  }, CARD_PARTS);
+  const missing = wanted.filter((w) => !measured.some((m) => m.indexOf(w) >= 0));
+  return { wanted, missing };
+}
 
-async function contrastOfCard(page) {
-  return page.evaluate(CONTRAST_PROBE);
+/// The type scale, read straight off the computed style. Not a contrast claim, so it needs
+/// no probe and makes no arithmetic of its own.
+async function typeOfCard(page) {
+  return page.evaluate((parts) => {
+    const sel = parts.map((c) => "." + c).join(", ");
+    return Array.from(document.querySelectorAll(sel)).map((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        cls: el.className,
+        px: parseFloat(cs.fontSize),
+        text: (el.textContent || "").slice(0, 40),
+      };
+    });
+  }, CARD_PARTS);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -304,20 +358,55 @@ async function main() {
       }, theme);
       await page.evaluate((s) => window.__render(s), snapshot(overloadItem("RichOS tried 2 times and stopped there.")));
       await page.waitForSelector(".tl-intervention");
-      const rows = await contrastOfCard(page);
-      assert(rows.length >= 3, `expected at least 3 measured lines, got ${rows.length}`);
-      const fails = [];
-      for (const r of rows) {
-        // 3:1 only for large text (>=24px, or >=18.66px bold). Nothing on this card is
-        // large, so every line here is held to 4.5:1 — the floor is derived from the
-        // MEASURED size, never assumed.
-        const floor = r.px >= 24 || (r.bold && r.px >= 18.66) ? 3 : 4.5;
-        if (r.ratio < floor) fails.push(`${r.cls} ${r.px}px ${r.ratio}:1 < ${floor}:1 — "${r.text}"`);
-        // §15's type scale: nothing readable below 14px.
-        if (r.px < 14) fails.push(`${r.cls} is ${r.px}px, below the 14px floor`);
-      }
-      assertEqual(fails, [], `contrast/type failures in ${theme} mode`);
-      return rows.map((r) => `${r.px}px ${r.ratio}:1`).join(", ");
+      const seen = await contrastOfPage(page);
+
+      // WHAT WAS MEASURED, BY NAME, BEFORE ANYTHING IS SAID ABOUT WHAT FAILED. A probe that
+      // reached nothing reports zero failures, and zero failures over zero nodes is the exact
+      // shape of "green over something that never ran". So the card's own parts — both
+      // sentences, the loss note, and the button the CEO presses — are asserted PRESENT in
+      // the measurement, not merely absent from the failures.
+      const card = await cardNodes(page, seen.measured);
+      assert(card.wanted.length >= 4, `the card rendered ${card.wanted.length} measurable part(s); this state has at least 4`);
+      assertEqual(
+        card.missing,
+        [],
+        `these part(s) of the card are on screen and the contrast probe measured NONE of them ` +
+          `in ${theme} mode. They are not passing; nothing looked at them.`
+      );
+
+      // The 4.5 / 3.0 floors and the large-text rule are the library's, applied by the same
+      // code that walks the whole shell. This file no longer decides either.
+      assertEqual(
+        seen.failures.map((f) => `${f.selector} ${f.ratio}:1 < ${f.threshold}:1 — "${f.text || ""}"`),
+        [],
+        `WCAG AA failures on the outage fixture in ${theme} mode`
+      );
+      assertEqual(
+        seen.unresolvable.map((u) => `${u.path}: ${u.why}`),
+        [],
+        `colors on the outage fixture that the gate cannot PROVE in ${theme} mode — a failure ` +
+          `to prove is never a pass`
+      );
+      assertEqual(
+        seen.obscured,
+        [],
+        `nothing on this fixture is behind anything, so a node filed 'obscured' means the ` +
+          `probe measured it nowhere: ${seen.obscured.join(", ")}`
+      );
+
+      // §15's type scale, read rather than computed: nothing readable below 14px.
+      const type = await typeOfCard(page);
+      assertEqual(
+        type.filter((t) => t.px < 14).map((t) => `${t.cls} is ${t.px}px, below the 14px floor`),
+        [],
+        `type-scale failures in ${theme} mode`
+      );
+
+      return (
+        `${seen.measured.length} node(s) measured by lib/contrast.js's probe, including all ` +
+        `${card.wanted.length} of the card's own (${card.wanted.join(", ")}); 0 failures, ` +
+        `0 unprovable, 0 obscured; type ${[...new Set(type.map((t) => t.px))].sort((a, b) => a - b).join("/")}px`
+      );
     });
   }
 

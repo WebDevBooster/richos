@@ -35,6 +35,7 @@ const fs = require("fs");
 const path = require("path");
 const { leaveHome, loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
+const SOURCES = require("./lib/ui-sources");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_JS = fs.readFileSync(path.join(UI_DIR, "main.js"), "utf8");
 
@@ -348,15 +349,33 @@ async function main() {
   await run.check("10  there is exactly one run_setup call site in the shipped source", async () => {
     // A SECOND DOOR IS A SECOND PLACE FOR THE GUARD TO BE MISSING. `memory.js` holds the
     // same rule over `provision_memory` for the same reason.
-    const sites = (MAIN_JS.match(/invoke\(\s*"run_setup"/g) || []).length;
-    assertEqual(sites, 1, "run_setup is invoked from " + sites + " places in main.js");
+    //
+    // AND UNTIL 2026-09-05 THIS CHECK WATCHED ONE DOOR OF TWELVE. It read `MAIN_JS` — a
+    // single `readFileSync` of `main.js` — under a title saying "the shipped source". The
+    // shell loads twelve `role: "ui"` files; a second `invoke("run_setup")` written into
+    // `updates.js`, `home.js` or `settings-button.js` left this printing "one call site" in
+    // green. `SOURCES.uiMatches` puts the question to every file the manifest reaches, with
+    // comments stripped, and there is no file argument to narrow it back to one.
+    const searched = SOURCES.stateSources();
+    assert(searched.length >= 12, "the shipped-UI list is " + searched.length + " file(s) — that is not this tree");
+    const found = SOURCES.uiMatches(/invoke\(\s*"run_setup"/);
+    assertEqual(
+      found.length,
+      1,
+      "run_setup is invoked from " + found.length + " place(s) across the " + searched.length +
+        " shipped UI file(s): " + found.map((f) => f.site).join(", ")
+    );
+    assertEqual(found[0].file, "main.js", "the one call site moved to " + found[0].site);
     // ...and the setup question is asked before the memory one, in the source as well as on
     // screen, so the order is not an accident of two async calls racing.
     const setupAt = MAIN_JS.indexOf("maybeAskAboutSetup()");
     const memoryAt = MAIN_JS.indexOf("maybeAskAboutMemory()");
     assert(setupAt > 0 && memoryAt > 0, "both question helpers must exist");
     bump(2);
-    return "one call site; the ordering is explicit in the source";
+    return (
+      "one call site (" + found[0].site + ") across " + searched.length +
+      " shipped UI file(s); the ordering is explicit in the source"
+    );
   });
 
   // =======================================================================================
@@ -492,18 +511,25 @@ async function main() {
     }
     // AND IN THE SOURCE, so a later slice that re-adds the one-line convenience fails here
     // rather than on a customer's Mac.
+    //
     // COMMENTS STRIPPED FIRST. The note above the (absent) listener quotes the line it
-    // replaced, so a naive grep matches the explanation and calls it the defect.
-    const code = MAIN_JS.split("\n")
-      .filter((l) => !l.trim().startsWith("//"))
-      .join(" ")
-      .replace(/\s+/g, " ");
-    assert(
-      !/setupSheetEl\)\s*closeSetupSheet/.test(code),
-      "main.js closes the setup sheet on a backdrop click again"
+    // replaced, so a naive grep matches the explanation and calls it the defect. That
+    // stripping used to be three lines here — `split("\n").filter(l => !l.startsWith("//"))`
+    // — which is right about `//` and blind to a `/* */` block, and which read `main.js`
+    // ALONE while calling itself a claim about the source. Both are now
+    // `lib/ui-sources.js`'s job: one scanner that `run.js` self-tests on every run, over
+    // every shipped UI file the manifest reaches.
+    const reAdded = SOURCES.uiMatches(/setupSheetEl\)\s*closeSetupSheet/);
+    assertEqual(
+      reAdded.map((m) => m.site),
+      [],
+      "the setup sheet is closed on a backdrop click again, at: " + reAdded.map((m) => m.site).join(", ")
     );
     bump(1);
-    return "backdrop, Escape and the panel body are all inert; only the two buttons dismiss it";
+    return (
+      "backdrop, Escape and the panel body are all inert; only the two buttons dismiss it — " +
+      "and the re-add is refused across all " + SOURCES.stateSources().length + " shipped UI file(s)"
+    );
   });
 
   // =======================================================================================
@@ -680,6 +706,13 @@ main().catch((e) => {
 //  9   main.js `runSetup`: drop `setupGoEl.disabled = true`
 //        -> a double press starts two copies of Anthropic's installer
 // 10   main.js: add a second run_setup call site
+// 10b  updates.js: `invoke("run_setup", {})` in a function nothing calls
+//        -> `run_setup is invoked from 2 place(s) across the 12 shipped UI file(s):
+//           updates.js:831, main.js:3006`
+//        THIS IS THE ONE THAT MATTERS. Before 2026-09-05 this check read `main.js` alone,
+//        so a second door in any of the other eleven shipped files left it printing "one
+//        call site" in green — under a comment saying "A SECOND DOOR IS A SECOND PLACE FOR
+//        THE GUARD TO BE MISSING". The door it was watching was one of twelve.
 // 12   main.js `refreshVoiceReadiness`: default voiceAvailable to true on an unknown answer
 //        -> ◉ is offered on a machine with no speech model, and the mic goes hot
 // 12b  main.js `renderFirstRun`: append GREETING_VOICE_INVITE unconditionally

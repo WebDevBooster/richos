@@ -9,10 +9,16 @@
 // HOW THIS FILE IS KEPT HONEST
 // ============================
 // `lib/state-strings.js` scrapes the shipped source and produces the inventory. This file
-// annotates it. `affordances.js` asserts the two sets are EQUAL — a string added to
-// index.html, main.js, timeline.js, the Tauri command layer or a `ceo_message()` and not
-// classified here fails the suite, and a row here whose string no longer exists in the
-// product fails it too. There is no way to add a state and quietly skip the question.
+// annotates it. `affordances.js` asserts the two sets are EQUAL — a string added to ANY
+// shipped UI file, to the Tauri command layer or to a `ceo_message()` and not classified
+// here fails the suite, and a row here whose string no longer exists in the product fails it
+// too. There is no way to add a state and quietly skip the question.
+//
+// "ANY SHIPPED UI FILE" IS NEW WORDING AND IT USED TO BE A LIE. This sentence read
+// "index.html, main.js, timeline.js" until 2026-09-05, and so did the scraper — three files
+// against nine `<script src>` tags. `lib/ui-sources.js` derives the list from the tree now;
+// the 55 rows that arrived the day it landed are grouped at the bottom of this file under
+// the heading that says which surfaces had no gate over them.
 //
 // This file is therefore a list, and a list is the thing this whole sequence has been
 // burned by eleven times. The difference is that nothing READS this list as an inventory:
@@ -1970,5 +1976,453 @@ module.exports = [
       "`ReachabilityVerdict::Unmeasured` — a fresh install with no measured request sizes. " +
       "It refuses to probe at all rather than pick a number, because a probe with no scale " +
       "would spend the customer's own Claude quota to learn nothing. Example-only today.",
+  },
+
+  // =======================================================================================
+  // THE SIX FILES THE INVENTORY COULD NOT SEE UNTIL 2026-09-05
+  // =======================================================================================
+  //
+  // `lib/state-strings.js` read three files — index.html, main.js, timeline.js — while
+  // `index.html` shipped nine `<script src>` tags and the tree held twelve product files.
+  // Everything from here down was OUTSIDE the affordance rule entirely: a state in any of
+  // these could have asked the CEO to do something with no control anywhere near it and
+  // this suite would have reported green over it.
+  //
+  // The source list is derived now (`lib/ui-sources.js`), so these arrived as 55
+  // unclassified states the moment the derivation landed, and each one is answered below.
+  // They are grouped by file rather than by bucket, because what is worth reading here is
+  // which surface had no gate over it — the buckets are on every row anyway.
+
+  // ---- updates.js — the update surface, CEO ruling §26 ----------------------------------
+  //
+  // THE ONE THAT MATTERS MOST. §26 governs this file, and the clause it turns on is that
+  // the update affordance must not be ACTIONABLE while work is running. The gate that would
+  // check whether that state names its control could not see the file the state lives in.
+  {
+    s: "The update did not complete.",
+    c: "ACTIONABLE",
+    control: "#update-check",
+    fixture: "updates-failed",
+    why:
+      "The `failed` headline for every failure that is not a refused signature. He can act: " +
+      "`paint()` keeps `#update-check` visible in `failed` and relabels it 'Try again'. A " +
+      "REFUSED SIGNATURE is the deliberate exception — `isSignature(v)` leaves the label as " +
+      "'Check for updates' rather than inviting a retry of a security check that will refuse " +
+      "identically — and it still has a control, so the row holds in both.",
+  },
+  {
+    s: "Restart when you are ready — nothing is lost.",
+    c: "ACTIONABLE",
+    control: "#update-relaunch",
+    fixture: "updates-ready",
+    why:
+      "The `ready` sub-line. 'Restart when you are ready' is an offer and `#update-relaunch` " +
+      "is directly under it. WHILE RICHOS IS BUSY the control is absent by ruling, and the " +
+      "sentence is not alone then either: `join(gateClauses(v), …)` puts 'I'll wait to " +
+      "restart until everything has finished' IN FRONT of it, so the state that has no button " +
+      "carries its own account of why. The fixture drives the idle case, which is the case " +
+      "the control claim is about.",
+  },
+  {
+    s: "I'll wait to restart until everything has finished — nothing will be interrupted.",
+    c: "INFORMATIONAL",
+    fixture: "updates-waiting-ready",
+    why:
+      "CEO ruling §26, and the reason this file had to become visible to this rule. RichOS " +
+      "is working, an update is installed, and the restart control is REMOVED rather than " +
+      "disabled — 'instead of a regular update button, they'd get some other visual cue but " +
+      "not an actionable thing'. So there is deliberately nothing to press, and the sentence " +
+      "is INFORMATIONAL rather than ACTIONABLE: it is RichOS saying it will act by itself. " +
+      "Not NEEDS-SOMEONE-ELSE either — nobody is being waited on but RichOS.",
+  },
+  {
+    s: "I'll wait until everything has finished — nothing will be interrupted.",
+    c: "INFORMATIONAL",
+    fixture: "updates-waiting-available",
+    why:
+      "The same ruling in the `available` state, and mode-proof on purpose: it does not say " +
+      "the button comes back and it does not say RichOS will install by itself, because each " +
+      "of those is true of exactly one of the two update modes.",
+  },
+  {
+    s:
+      "There is no update server yet, so RichOS cannot check for new versions. Where updates " +
+      "are published has not been decided.",
+    c: "INFORMATIONAL",
+    fixture: "updates-unconfigured",
+    why:
+      "The `unconfigured` state, and the honest one: this build points at a placeholder " +
+      "endpoint. NOT ACTIONABLE — `paint()` disables `#update-check` in exactly this state, " +
+      "so there is no control and the row does not claim one. NOT NEEDS-SOMEONE-ELSE either, " +
+      "and that is the interesting half: there is no party to name. It is not an operator's " +
+      "setting he could be pointed at, it is a decision the RichOS project has not taken, so " +
+      "a sentence naming 'whoever set RichOS up' would be inventing an owner. It states the " +
+      "fact and stops, which is what an INFORMATIONAL state is for.",
+  },
+  {
+    s: "RichOS has not checked for updates yet.",
+    c: "INFORMATIONAL",
+    fixture: "updates-idle",
+    why:
+      "The `idle` state on a launch that has not reached its three-second check. 'Never " +
+      "checked' is deliberately a DIFFERENT state from 'checked, and you are current' — a " +
+      "row that collapsed the two would be silent about an updater that had stopped running.",
+  },
+  {
+    s: "Checking for updates…",
+    c: "INFORMATIONAL",
+    why: "The `checking` state. Transient, self-resolving, and nothing is asked of anyone.",
+  },
+  {
+    s: "Checking the download and installing…",
+    c: "INFORMATIONAL",
+    why: "The `installing` headline. Bytes are already moving; nothing is waiting on him.",
+  },
+  {
+    s: "RichOS is confirming this update was signed by us before it puts it in place.",
+    c: "INFORMATIONAL",
+    why:
+      "The `installing` sub-line, and it is on screen for a reason: the signature check is " +
+      "the property the whole updater rests on, and a step nobody is told about is a step " +
+      "nobody misses when it stops happening.",
+  },
+  {
+    s: "RichOS cannot tell what state the update is in.",
+    c: "INFORMATIONAL",
+    why:
+      "The `default` arm — a state the backend sent that this file does not know. It reports " +
+      "itself as unknown, which the file's own comment calls the alternative to 'the single " +
+      "worst answer this file could give', namely falling back to 'up to date'. `#update-" +
+      "check` is visible and enabled here, so he is not stuck; the sentence itself asks " +
+      "nothing and claims nothing.",
+  },
+  {
+    s: "It has been ready for a day.",
+    c: "INFORMATIONAL",
+    why:
+      "`readyFor()` at exactly one day. It appears only after a day and never under one, so " +
+      "it is not a line that is always there, and it is a fact rather than a nudge — the " +
+      "control it would nudge toward is either present already or deliberately absent.",
+  },
+  {
+    s: "Check for updates",
+    c: "CONTROL",
+    why: "`#update-check`'s label in every state but a non-signature failure, where it reads 'Try again'.",
+  },
+  {
+    s: "Download and install",
+    c: "CONTROL",
+    why: "`#update-install`'s label. Hidden, not disabled, while RichOS is working (§26).",
+  },
+  {
+    s: "Restart to finish",
+    c: "CONTROL",
+    why: "`#update-relaunch`'s label. Hidden, not disabled, while RichOS is working (§26).",
+  },
+  {
+    s: "Show the technical reason",
+    c: "CONTROL",
+    why: "`#update-why`'s collapsed label — the vendor's own error text, one press behind the sentence.",
+  },
+  {
+    s: "Hide the technical reason",
+    c: "CONTROL",
+    why: "The same button once expanded. Both labels ship, so both are in the inventory.",
+  },
+  {
+    s: "Downloading the update",
+    c: "CONTROL",
+    why:
+      "The `aria-label` of `#update-progress`. It is the accessible name of an element, which " +
+      "is what this bucket is for — but the element is a `progressbar`, not something to " +
+      "press, so it names no affordance and needs none.",
+  },
+  {
+    s: "Open the update settings.",
+    c: "CONTROL",
+    why:
+      "The tail of `#update-cue`'s accessible name, composed as `said + ' Open the update " +
+      "settings.'`. The visible label is a STATEMENT ('RichOS 0.1.2 is available.') and a " +
+      "button's name should say what pressing it does, so the name is the statement plus the " +
+      "act — WCAG 2.5.3 'Label in Name' is why the visible words come first and verbatim.",
+  },
+  {
+    s: "You are running",
+    c: "FRAGMENT",
+    why: "`'You are running ' + currentVersion + '.'` — the `available` sub-line's tail, never alone.",
+  },
+  {
+    s: "You are still running RichOS",
+    c: "FRAGMENT",
+    why: "`'You are still running RichOS ' + currentVersion + '.'` — the `failed` sub-line.",
+  },
+  {
+    s: "It has been ready for",
+    c: "FRAGMENT",
+    why: "`'It has been ready for ' + days + ' days.'` — the plural arm of `readyFor()`.",
+  },
+  {
+    s: "1 minute ago",
+    c: "FRAGMENT",
+    why: "`when()`'s singular arm, composed into `'Checked ' + when(...) + '.'` and never rendered alone.",
+  },
+  {
+    s: "is up to date.",
+    c: "FRAGMENT",
+    why: "`current + ' is up to date.'` — the `upToDate` headline's tail.",
+  },
+  {
+    s: "is ready to install.",
+    c: "FRAGMENT",
+    why: "`waitingSaid()`'s `available` head: `version + ' is ready to install.'`.",
+  },
+  {
+    s: "is installed and needs a restart.",
+    c: "FRAGMENT",
+    why: "`waitingSaid()`'s `ready` head: `version + ' is installed and needs a restart.'`.",
+  },
+
+  // ---- home.js — the home screen the CEO lands on ---------------------------------------
+  {
+    s:
+      "Every button shows a number, and clicking one slides that company's name out. Give a " +
+      "button its own label here instead, or take it off the home screen. This changes the " +
+      "button only — the company itself, and everything filed under it, stays exactly as it " +
+      "is.",
+    c: "ACTIONABLE",
+    control: "#home-prefs-list input.home-prefs-label",
+    fixture: "home-prefs",
+    why:
+      "The company-buttons dialog's note, and it is an instruction in two clauses — 'Give a " +
+      "button its own label here instead, or take it off the home screen'. Both controls are " +
+      "in the same dialog: the text box named here, and the checkbox beside it. The text box " +
+      "is the one the first clause points at and the one whose absence would make the " +
+      "sentence a lie.",
+  },
+  {
+    s: "I couldn't draw the picture on this display. Everything else works.",
+    c: "INFORMATIONAL",
+    why:
+      "`degrade()` — no WebGL, a script that would not load, a shader that would not " +
+      "compile. Deliberately not ACTIONABLE and deliberately not an apology with a retry " +
+      "button: there is nothing he can do about a display that cannot run the composition, " +
+      "and the second clause is the part that matters, because the way through to the app " +
+      "stays reachable. `loading.style.pointerEvents = 'none'` is that promise in code.",
+  },
+  {
+    s: "This is what your home screen could look like once Rich knows enough about you and your business.",
+    c: "INFORMATIONAL",
+    why:
+      "The note under the demonstration composition. On an open-source launch it is the " +
+      "first sentence a stranger reads inside RichOS, and it deliberately carries no " +
+      "asterisk, no 'demo mode' and nothing to dismiss.",
+  },
+  {
+    s: "I can't read your companies right now, so there is nothing to change here yet.",
+    c: "INFORMATIONAL",
+    fixture: "home-prefs-no-entities",
+    why:
+      "`prefsFoot()` with zero rows — the backend has not answered, or answered with " +
+      "nothing. It is INFORMATIONAL rather than a failure with a retry because the read " +
+      "retries itself and the dialog is already open on his own action; what it must not do " +
+      "is render an empty list and let him think he has no companies.",
+  },
+  {
+    s: "With one company shown, the buttons are off the home screen — a row of one is just noise.",
+    c: "INFORMATIONAL",
+    why:
+      "`prefsFoot()` at one visible row. The CEO's rule — 'the company buttons should only " +
+      "appear if the user has more than one company' — stated where the control that " +
+      "produced it is, so a row disappearing is explained rather than mysterious.",
+  },
+  {
+    s: "With no companies shown, the buttons are off the home screen.",
+    c: "INFORMATIONAL",
+    why: "The same line at zero visible rows, said without the aside that only fits the one-row case.",
+  },
+  {
+    s: "RichOS — go to the home screen",
+    c: "CONTROL",
+    why:
+      "The rail wordmark's accessible name once `bindWordmark()` gives it `role=button`. It " +
+      "is the CEO's own instruction — 'a click on the logo (in the upper left corner) brings " +
+      "the user back to the home screen' — and the name says where it goes rather than what " +
+      "it is a picture of.",
+  },
+  {
+    s: "Which company this picture is of",
+    c: "CONTROL",
+    why:
+      "`#home-entities-label`, the accessible name of the entity row's `role=group`. It " +
+      "labels a set of controls; it is not a state anything can be in.",
+  },
+  {
+    s: "Company buttons on the home screen",
+    c: "CONTROL",
+    why:
+      "`#home-prefs-title`, and the dialog's own accessible name through `aria-labelledby`. " +
+      "A heading that names the surface it opens, not a state the surface can be in.",
+  },
+  {
+    s: "button says on the home screen",
+    c: "FRAGMENT",
+    why:
+      "`'What the ' + name + ' button says on the home screen'` — each label box's accessible " +
+      "name, composed around the company's name and never rendered without it.",
+  },
+  {
+    s: "showing on the home screen.",
+    c: "FRAGMENT",
+    why: "`shown + ' of ' + rows.length + ' showing on the home screen.'` — `prefsFoot()`'s ordinary arm.",
+  },
+  {
+    s: "did not load",
+    c: "NOT-RENDERED",
+    why:
+      "`new Error(src + ' did not load')` in the script loader. It reaches `state.fieldError` " +
+      "and stops there: `degrade()` records the reason and paints its own fixed sentence, so " +
+      "no path puts this text on screen. Verified by reading every use of `state.fieldError` " +
+      "— it is written at home.js:815 and :1234 and read nowhere.",
+  },
+  {
+    s: "the picture did not start within 8 seconds",
+    c: "NOT-RENDERED",
+    why:
+      "`settled()`'s deadline rejection, and the bound on how long the honest failure can " +
+      "take. Same path as above: it becomes `state.fieldError`, which nothing renders.",
+  },
+  {
+    s: "the home screen would not build:",
+    c: "NOT-RENDERED",
+    why:
+      "The `start()` catch. A home screen that will not build leaves NOTHING behind and the " +
+      "app boots normally, so there is no surface for this to be printed on — which is the " +
+      "posture `splash.js` takes for the same reason.",
+  },
+
+  // ---- home/field-engine.js — the WebGL composition's own text --------------------------
+  {
+    s: "loro · <span class=\"v\" data-k=\"months\"></span> months · <b><span class=\"v\" data-k=\"memories\"></span> memories</b>",
+    c: "INFORMATIONAL",
+    why:
+      "`#home-brand-line`. It renders as 'loro · 14 months · 7,500 memories' — the two " +
+      "numbers are filled by `setSignals()` and the markup is the sentence's skeleton. " +
+      "Nothing is asked; it is the composition saying what it is a picture of.",
+  },
+  {
+    s: "· working now",
+    c: "FRAGMENT",
+    why: "`'· ' + N + ' working now'`, the small line under the specialist count. Never alone.",
+  },
+  {
+    s: "tasks handled without you",
+    c: "FRAGMENT",
+    why: "A signal's label, rendered under its number by `sig()`. The number is the sentence.",
+  },
+  {
+    s: "of your attention saved",
+    c: "FRAGMENT",
+    why: "The same shape: `'1,234 h'` above, this beneath it.",
+  },
+  {
+    s: "an email thread",
+    c: "FRAGMENT",
+    why:
+      "`SOURCE_WORD['email-thread']`, composed into the learning ticker — 'Ash learned from " +
+      "an email thread · Finance → 3 new memories'. One noun out of a ten-entry map.",
+  },
+  {
+    s: "· <i></i> → new memor",
+    c: "FRAGMENT",
+    why:
+      "The ticker's own skeleton between its interpolations, caught by the scrape as the " +
+      "literal run of text between `${}` holes. It is three fragments of one sentence, and " +
+      "the sentence is the row above.",
+  },
+  {
+    s: "the picture could not start",
+    c: "NOT-RENDERED",
+    why:
+      "The last-resort value of `window.__loroFailed` when the thrown error carried no " +
+      "message. `home.js`'s `settled()` reads it, rejects, and `degrade()` paints its own " +
+      "sentence — so this string is a diagnostic the CEO never sees.",
+  },
+
+  // ---- settings-button.js — the universal settings button, CEO ruling §15 ----------------
+  {
+    s:
+      "That was set when RichOS was started up, from outside this window, so it can't be " +
+      "changed from in here — whoever set RichOS up is the one who changes it.",
+    c: "NEEDS-SOMEONE-ELSE",
+    why:
+      "The pinned-company row's `title`. He cannot change it and the sentence names who can, " +
+      "which is the whole of this bucket's contract. It is also the row `affordances.js` " +
+      "already drove by hand — 'a company pinned outside the window is stated, never offered " +
+      "as a dead control' — with a comment saying the string inventory could not see it. It " +
+      "can now, so the hand-written cover and the derived rule agree on the same sentence.",
+  },
+  {
+    s:
+      "Got it — the bug report starts from this exact screen, as it stands. Nothing leaves " +
+      "this machine until you say so.",
+    c: "INFORMATIONAL",
+    why:
+      "The 'Bust a bug' acknowledgement toast. What the button opens is not designed yet, and " +
+      "a control that appears to do nothing is indistinguishable from a broken one — so it " +
+      "says the one thing that IS decided. Nothing is asked of him; the second sentence is a " +
+      "promise, not an instruction.",
+  },
+  {
+    s: "Follow the system",
+    c: "CONTROL",
+    why:
+      "The accessible name of the theme segment's middle option. §15 makes `system` something " +
+      "he can pick and never the thing he gets without picking, which is why it is a control " +
+      "and not a state.",
+  },
+
+  // ---- splash.js and splash-library.js — the opening curtain ----------------------------
+  {
+    s: "The Operating System for the AI-Enabled CEO",
+    c: "INFORMATIONAL",
+    why:
+      "The only text on the opening curtain, at 18px — above §15's 16px floor for text meant " +
+      "to be read. The curtain is `pointer-events: none` for its whole life and yields on the " +
+      "first of three signals, so there is nothing on the surface to act on by construction.",
+  },
+  {
+    s: "Splash screen #1 — the ruled standard, the rule struck along its own ghost",
+    c: "NOT-RENDERED",
+    why:
+      "A library entry's `name` field. `splash.js` reads `id`, `seconds` and `tokens` from an " +
+      "entry and never `name` — it is there so a person opening `splash-library.js` can tell " +
+      "the two approved compositions apart. Verified: `entry.name` appears nowhere in " +
+      "splash.js.",
+  },
+  {
+    s: "Splash screen #2 — midnight suede, the strap sewn live in gold thread",
+    c: "NOT-RENDERED",
+    why: "The second entry's `name`, on the same footing as the first.",
+  },
+  {
+    s: "not a fresh launch (",
+    c: "NOT-RENDERED",
+    why:
+      "`state.declined`, which records WHY the curtain did not run. It is read by " +
+      "`RichSplash.state()` for the suite and painted nowhere — the whole point of the branch " +
+      "is that a crash-restart costs nothing at all, and printing an explanation would be a " +
+      "cost. Verified: every use of `state.declined` in splash.js is a write.",
+  },
+  {
+    s: "no usable variation in the library",
+    c: "NOT-RENDERED",
+    why: "The same field, for a missing, unparseable or wholly malformed library.",
+  },
+  {
+    s: "the chosen variation would not render:",
+    c: "NOT-RENDERED",
+    why:
+      "The same field again, after `build(entry)` threw. `removeSelf()` runs first, so the " +
+      "launch is a normal one with nothing drawn and there is no curtain left to print on.",
   },
 ];
