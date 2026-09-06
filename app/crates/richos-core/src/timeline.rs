@@ -645,6 +645,22 @@ pub enum TimelineItem {
         started_at: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         completed_at: Option<u64>,
+        /// THE SHORTEST WAIT OF THIS KIND EVER MEASURED, in milliseconds
+        /// (`machinery::measured_min_ms`), or `None` - which is every kind but one.
+        ///
+        /// It exists for one reason, and the reason is the CEO's own design for a compaction
+        /// bar (2026-09-06): *"It doesn't need to know. It just needs to move to almost full
+        /// with the expected minimum time and then stay at 'almost full' until all finished
+        /// etc."* A renderer paces something over this span and then HOLDS at almost-full
+        /// until the real ending arrives on the wire.
+        ///
+        /// IT IS NOT AN ESTIMATE AND IT IS NEVER SHOWN. It says nothing about the wait now
+        /// running except that no such wait has ever been shorter, and no number derived from
+        /// it reaches the screen - not a percentage, not a countdown, not a remaining time.
+        /// The renderer that consumes it (`app/ui/main.js`, THE PACED BAR) needs no idea what
+        /// a compaction is, which is what keeps that file free of a vendor concept.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        measured_min_ms: Option<u64>,
         /// Technical-mode only. Removed outright from a CEO view.
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<ActivityDetail>,
@@ -1695,6 +1711,9 @@ pub(crate) fn activity_item(
         // completion time, because it has no completion.
         completed_at: matches!(state, ActivityState::Completed | ActivityState::Failed)
             .then(|| last_seen.get(&key).copied().unwrap_or(row.at)),
+        // From the KIND alone, so the live path and a reload cannot disagree about the pace
+        // of a bar any more than they can disagree about its sentence.
+        measured_min_ms: crate::machinery::measured_min_ms(row.kind),
         detail: Some(ActivityDetail {
             title: row.title.clone(),
             summary: row.summary.clone(),
@@ -2712,6 +2731,68 @@ mod tests {
         let TimelineItem::Activity { completed_at, base, .. } = item else { panic!("activity") };
         assert_eq!(completed_at, Some(48_805), "turn 3's pause ended when turn 3's pause ended");
         assert_eq!(base.updated_at, None, "and nothing later touched that row");
+    }
+
+    // THE PACE A BAR IS DRAWN AT - the CEO's design, 2026-09-06: *"It doesn't need to know.
+    // It just needs to move to almost full with the expected minimum time and then stay at
+    // 'almost full' until all finished etc."*
+    //
+    // The wire carries the SPAN and never a position, a percentage or a remaining time. The
+    // renderer owns where a bar is; the crate owns the only measured number it is paced on.
+
+    #[test]
+    fn a_compaction_carries_the_measured_floor_and_every_other_row_carries_none() {
+        for phase in ["started", "success", "failed"] {
+            let TimelineItem::Activity { measured_min_ms, .. } = compaction_item(phase, false) else {
+                panic!("a compaction projects as an activity row");
+            };
+            assert_eq!(
+                measured_min_ms,
+                Some(crate::machinery::COMPACTION_MEASURED_MIN_MS),
+                "a compaction is paced at its measured floor in every phase, {phase} included - \
+                 an ending that dropped the field would make a bar vanish at the instant it \
+                 should complete"
+            );
+        }
+
+        // Every other row. A tool call is the one that matters: it is the other long wait on
+        // this surface, its committed population runs from milliseconds to minutes, and a bar
+        // over it would be invention rather than measurement.
+        let mut tool = compaction_row("started");
+        tool.kind = MachineryKind::ToolCall;
+        tool.tool_call_id = Some("toolu_A".into());
+        let TimelineItem::Activity { measured_min_ms, .. } =
+            activity_item(&tool, &entity(), "thr", "turn_1", 3, false, &HashMap::new(), &HashMap::new())
+        else {
+            panic!("activity");
+        };
+        assert_eq!(measured_min_ms, None, "nothing but a compaction has a measured floor");
+    }
+
+    #[test]
+    fn the_measured_floor_is_the_shortest_boundary_ever_recorded_and_is_never_spoken() {
+        // The constant's own derivation lives beside it in `machinery.rs` and is re-run
+        // against the committed frames by `app/ui/tests/compaction-progress.js`. What is
+        // asserted HERE is the pair of properties the crate is responsible for.
+        //
+        // 1. It is the minimum of the measured population and not its mean (49865) or its
+        //    maximum (62029). Paced on the mean, half of all measured compactions would see
+        //    the bar jump forward at the end from wherever it had got to; paced on the
+        //    minimum it climbs for the first 38.1 s of every one of them and holds after.
+        assert_eq!(crate::machinery::COMPACTION_MEASURED_MIN_MS, 38_138);
+
+        // 2. It never becomes a sentence. The summary is the CEO's whole reading of a
+        //    compaction, and it says no number of any kind - not this one, not a percentage,
+        //    not a countdown.
+        for phase in ["started", "success", "failed"] {
+            let TimelineItem::Activity { summary, .. } = compaction_item(phase, false) else {
+                panic!("activity");
+            };
+            assert!(
+                !summary.chars().any(|c| c.is_ascii_digit()),
+                "the compaction sentence says a number: {summary:?}"
+            );
+        }
     }
 
 }
