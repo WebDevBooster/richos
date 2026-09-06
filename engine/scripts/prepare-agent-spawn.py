@@ -9,6 +9,7 @@ on a cross-repo-worktree: prompt line. Live guards remain authoritative.
 import argparse
 import json
 from pathlib import Path
+import re
 import shlex
 import sys
 
@@ -32,7 +33,7 @@ def prepare(value):
     contract = ("If notified that main moved, inspect the change and acknowledge it durably from your worktree: "
                 f"{helper} --sha <sha> --impact <conflict|stale-record|grew-scope|none> "
                 '--detail "<your assessment>" --paths "<paths or none>". A chat reply alone is not the acknowledgement.')
-    if contract not in result["prompt"]:
+    if not re.search(r"inflight-ack\.sh|inflight-acks/", result["prompt"]):
         result["prompt"] = result["prompt"].rstrip() + "\n\n" + contract
     return result
 

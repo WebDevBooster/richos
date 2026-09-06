@@ -533,7 +533,9 @@ fi
 if printf '%s' "$OUT" | grep -q 'ceo-todos-deferred: <truthful reason>' \
    && printf '%s' "$OUT" | grep -q 'cancellation as an answer' \
    && printf '%s' "$OUT" | grep -q 'complete current work queue' \
-   && ! printf '%s' "$OUT" | grep -q 'REFUSES every teammate'; then
+   && printf '%s' "$OUT" | grep -q 'PUT THIS TO THE CEO BEFORE DISPATCHING ANYONE' \
+   && printf '%s' "$OUT" | grep -q 'on 2026-08-31' \
+   && printf '%s' "$OUT" | grep -q 'for work he has directed in this session'; then
     ok "E4. startup accurately explains authorized deferral without fabricating an answer"
 else
     bad "E4. startup deferral contract" "$OUT"

@@ -41,6 +41,12 @@ so the repository's discovered suite runner includes it.
 The paired ECS branch `codex/ecs-session-start-recovery` fixes host context overflow,
 adds visible ECS startup status and provides fenced editable checkpoint requests.
 Merge the paired changes, run scripts/hooks/install.sh from the engine main
-checkout to refresh its ignored checksum sidecars, then reload/restart the terminal session. The
+checkout to refresh its ignored checksum sidecars, then require contract-integrity-probe.sh exit 0 and engine-status.test.sh 16/16
+on main. Start a new session to exercise the new SessionStart text; plugin reload
+alone is not evidence that SessionStart ran. The
 five-record live ECS repair and backed-up memory correction are documented in the
 femcboost review `docs/reviews/ecs-startup-recovery-2026-09-06.md`.
+
+Sage review follow-up: retain the imperative CEO-ask instruction and its
+2026-08-31 history, then state the logged exception without weakening its default.
+Recognize either verifier-accepted acknowledgement form when preparing a spawn.

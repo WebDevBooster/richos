@@ -21,6 +21,13 @@ class SpawnPreparation(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.prepare(dict(name="dev-opus-t1", subagent_type="dev", prompt="Build", **extra))
 
+    def test_existing_helper_or_file_contract_is_not_duplicated(self):
+        for prompt in ("On main changes run ~/.claude/richos-engine/scripts/inflight-ack.sh with the required fields.",
+                       "Write .claude/inflight-acks/<sha12>.<teammate>.ack with sha/impact/detail/paths/teammate."):
+            result = module.prepare(dict(name="dev-opus-t1", subagent_type="dev", prompt=prompt))
+            self.assertEqual(result["prompt"], prompt)
+            self.assertEqual(result["isolation"], "worktree")
+
     def test_prepared_payload_passes_real_verifier_and_keeps_task_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
