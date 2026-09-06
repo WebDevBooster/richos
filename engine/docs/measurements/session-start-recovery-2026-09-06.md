@@ -44,8 +44,14 @@ Merge the paired changes, run scripts/hooks/install.sh from the engine main
 checkout to refresh its ignored checksum sidecars, then require contract-integrity-probe.sh exit 0 and engine-status.test.sh 16/16
 on main. Start a new session to exercise the new SessionStart text; plugin reload
 alone is not evidence that SessionStart ran. The
-five-record live ECS repair and backed-up memory correction are documented in the
-the review that occasioned it, which lives in the operator's PRIVATE record repository (femcboost) and is not part of this published tree — named here so a reader with only the public repository is told where it is rather than sent to a path they will never have.
+five-record live ECS repair and backed-up memory correction are documented in
+“New-session failure review and recovery” (6 September 2026), in the private
+femcboost repository under docs/reviews, file ecs-startup-recovery-2026-09-06.md.
+That private record is not included in this public repository. Its follow-up,
+“Response to Sage's startup recovery review” (same private directory, file
+sage-review-response-2026-09-06.md), identifies errors in the initial live repair
+and provides owner repair proposals; the initial repair is not a verified final
+state.
 
 Sage review follow-up: retain the imperative CEO-ask instruction and its
 2026-08-31 history, then state the logged exception without weakening its default.

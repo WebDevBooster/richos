@@ -140,8 +140,9 @@
 # SOMEBODY ELSE LEFT. That is the same trade guard-ceo-todos-commits.sh makes
 # and for the same reason: the original failure was not a bad line being
 # written, it was a bad line SITTING there while everyone read past it. So the
-# refusal says which findings this change is implicated in and which were
-# already there, and it never pretends the second kind are the author's fault.
+# refusal reports the current-tree findings without assigning their origin.
+# A local diff cannot establish who introduced a finding or when it arrived.
+# In particular, a clean checkout after a merge has no uncommitted diff.
 #
 # THERE IS NO DEADLOCK, and that was checked rather than hoped: the checker
 # reads `git ls-files` (the INDEX — so a staged fix counts) and the WORKTREE's
@@ -553,22 +554,9 @@ case "$CC_RC" in
 esac
 
 # --- Blocked ---------------------------------------------------------------
-# WHOSE FINDING IS THIS? Derived, by intersecting the findings with what this
-# change actually touches, so the author is never told to fix somebody else's
-# stale row without being told that is what it is.
-CHANGED="$(git -C "$CC_REPO" diff --cached --name-only 2>/dev/null || true)
-$(git -C "$CC_REPO" diff --name-only 2>/dev/null || true)"
-CHANGED="$(printf '%s\n' "$CHANGED" | LC_ALL=C sort -u | sed '/^$/d')"
-
-YOURS=0
-while IFS= read -r rel; do
-    [ -n "$rel" ] || continue
-    if printf '%s' "$OUT" | grep -qF -- "$rel"; then
-        YOURS=$((YOURS + 1))
-    fi
-done <<CHANGED_EOF
-$CHANGED
-CHANGED_EOF
+# This audit reads the current index and worktree, not a historical comparison
+# or the refs selected by push. Neither path overlap nor an empty local diff
+# establishes the finding's origin. Do not turn those into blame or history.
 
 {
     echo "=== PUBLICATION COMPLETENESS: REFUSING THIS ${VERB} ==="
@@ -581,16 +569,12 @@ CHANGED_EOF
     echo ""
     printf '%s\n' "$OUT" | sed 's/^/  /'
     echo ""
-    if [ "$YOURS" -gt 0 ]; then
-        _S=""; [ "$YOURS" -gt 1 ] && _S="s"
-        echo "  $YOURS file${_S} named above ${_S:+are}${_S:-is} touched by this ${VERB}, so at least"
-        echo "  part of this is yours to fix here and now."
-    else
-        echo "  NONE of the paths named above are files this ${VERB} touches. This"
-        echo "  finding was already on the tree before you started — which is"
-        echo "  the point: it sat there because nothing was looking. Fixing it"
-        echo "  is a small commit, and it is how it stops sitting there."
-    fi
+    echo "  Audit scope: current index and worktree, not a commit or push range."
+    echo "  Attribution: unknown. This check does not establish who introduced"
+    echo "  a finding, when it arrived or whether an earlier review examined it."
+    echo "  A clean checkout after a commit or merge can contain a new finding."
+    echo "  Verify Git history separately before reporting an origin or recording"
+    echo "  one in ECS or memory. The current-tree findings above still block."
     echo ""
     echo "  THREE WAYS THROUGH, all of them a normal edit — the checker reads the"
     echo "  INDEX and the WORKTREE, so a fix counts the moment you make it:"
@@ -605,6 +589,7 @@ CHANGED_EOF
     echo "  2026-08-30 was in-the-moment judgement about whether a claim was"
     echo "  backed; an override token would rebuild exactly that."
     echo ""
-    echo "  Run it yourself: $CHECKER --explain"
+    echo "  Recheck this repository (including when seated elsewhere):"
+    printf '    bash %q --root %q --explain\n' "$CHECKER" "$CC_REPO"
 } >&2
 exit 2
