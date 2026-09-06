@@ -113,7 +113,7 @@ would have meant the walk never reached the panel.
 
 ### The branch's own gate is load-bearing — five mutations of the SHIPPED source
 
-Applied to `app/ui/runs.js` / `app/ui/style.css` on this unmerged branch, each asserted to have
+Applied to app/ui/runs.js (on the unmerged branch `codex/durable-orchestration`; without backticks because it does not exist on `main` yet) / `app/ui/style.css` on this unmerged branch, each asserted to have
 applied (the script throws if the needle drifted), each reverted immediately, hashes verified.
 
 | # | Mutation | `node app/ui/tests/runs.js` |
