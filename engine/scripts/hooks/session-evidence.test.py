@@ -35,7 +35,30 @@ class SessionEvidence(unittest.TestCase):
         return output['updatedInput']['command']
 
     def test_original_failures_are_reproduced_and_fixed_in_bash_and_zsh(self):
-        for interpreter in ('/bin/bash', '/bin/zsh'):
+        # THE INTERPRETER LIST IS DISCOVERED, NOT TYPED. `/bin/zsh` is the login
+        # shell on macOS and is ABSENT on a stock Linux — including a GitHub
+        # `ubuntu-latest` runner. Hardcoding it made this suite ERROR four times
+        # with `FileNotFoundError: /bin/zsh` on Linux at `381907f4f07a`, which is
+        # a verdict about the image rather than about the rewrite. It is the same
+        # class as `mktemp -t`, `BASH_CMDS` and `sed -i ''` in
+        # docs/ci-portability-notes.md.
+        #
+        # AND AN ABSENT SHELL IS SAID, NEVER PASSED OVER. Skipping in silence
+        # would let this suite report a full green while half of what it claims
+        # to cover never ran, which is the failure this engine keeps finding in
+        # itself. bash is REQUIRED — it is the shell the hook actually rewrites
+        # for, so its absence is a real failure and not a skip.
+        interpreters = []
+        for candidate in ('/bin/bash', '/bin/zsh'):
+            if os.path.exists(candidate):
+                interpreters.append(candidate)
+            elif candidate == '/bin/bash':
+                self.fail('/bin/bash is absent; it is the shell this hook rewrites for, so this is a failure rather than a skip')
+            else:
+                print('  NOTE %s is not on this host, so the rewrite was NOT exercised under it. '
+                      'This is not a pass for that shell.' % candidate)
+        self.assertIn('/bin/bash', interpreters)
+        for interpreter in interpreters:
             for command in ('false | tail -1', 'false; echo finished',
                             "python3 -c 'raise SystemExit(7)' 2>&1 | head -9", 'definitely_missing_test_command_xyz | tail -3'):
                 with self.subTest(shell=interpreter, command=command):
