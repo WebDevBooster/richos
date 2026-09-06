@@ -489,6 +489,70 @@ async function measure(page, list) {
   );
 }
 
+/// A DETERMINISTIC picture of everything the CEO's theme preference could change about a list
+/// of elements. Nothing here is sampled from a frame, so nothing here moves on its own.
+///
+/// Two halves. The TOKENS are every custom property that resolves on `:root` — 53 on this
+/// build, which is the whole vocabulary both palettes are written in. The NODES are, for each
+/// selector, the resolved colors, shadow, filter and geometry of the element AND of every
+/// ancestor up to `<html>`, so a leak that repainted a container rather than the text itself
+/// still moves the fingerprint.
+///
+/// PROVEN DETERMINISTIC AND PROVEN SENSITIVE, because a leak detector that is only one of those
+/// is not a detector. Twelve alternating dark/light walks produced 1 distinct fingerprint;
+/// writing `data-theme="light"` onto `<html>` moved 40 of the 53 tokens and all 6 node chains.
+/// The check that uses it stages that same leak itself rather than trusting this sentence.
+///
+/// IT IS INSTALLED IN THE PAGE rather than being an `evaluate` callback, because the caller has
+/// to stage a leak, read the fingerprint and put the page back WITHOUT a round trip in the
+/// middle: a surface left in the wrong lighting across an `await` is a surface some other
+/// check, or a screenshot, can catch mid-lie.
+function installFingerprint(page) {
+  return page.evaluate(() => {
+    if (window.__themeFingerprint) return;
+    window.__themeFingerprint = function (list) {
+      const PROPS = [
+        "color", "background-color", "background-image", "opacity", "box-shadow", "filter",
+        "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+        "-webkit-text-fill-color", "text-shadow", "mix-blend-mode",
+      ];
+      const out = { tokens: {}, nodes: {} };
+      const rootCs = getComputedStyle(document.documentElement);
+      for (let i = 0; i < rootCs.length; i++) {
+        const p = rootCs[i];
+        if (p.slice(0, 2) === "--") out.tokens[p] = rootCs.getPropertyValue(p).trim();
+      }
+      for (const sel of list) {
+        const el = document.querySelector(sel);
+        if (!el) {
+          out.nodes[sel] = "MISSING";
+          continue;
+        }
+        const chain = [];
+        let node = el;
+        while (node && node.nodeType === 1) {
+          const cs = getComputedStyle(node);
+          const r = node.getBoundingClientRect();
+          chain.push(
+            (node.id ? "#" + node.id : node.tagName) +
+              "{" + PROPS.map((p) => cs.getPropertyValue(p)).join("|") + "}" +
+              "@" + [r.left, r.top, r.width, r.height].map((n) => Math.round(n)).join(",")
+          );
+          if (node === document.documentElement) break;
+          node = node.parentElement;
+        }
+        out.nodes[sel] = chain.join(" << ");
+      }
+      return out;
+    };
+  });
+}
+
+async function themeFingerprint(page, sels) {
+  await installFingerprint(page);
+  return page.evaluate((l) => window.__themeFingerprint(l), sels);
+}
+
 function reportRatios(rows) {
   return rows
     .map((r) => {
@@ -1504,8 +1568,76 @@ async function main() {
     // preference, not a write to it, so the case that matters is a CEO who has CHOSEN light.
     //
     // So this drives that case and MEASURES the result, rather than asserting the attribute and
-    // stopping. If the clamp ever leaked, these numbers would move and this check would say so
-    // in the same breath as the ones above.
+    // stopping.
+    //
+    // ---------------------------------------------------------------------------------------
+    // WHAT THIS CHECK ASSERTED UNTIL 2026-09-06, AND WHY IT WAS THE WRONG INSTRUMENT FOR IT
+    // ---------------------------------------------------------------------------------------
+    //
+    // It took the six ratios measured under each preference and required the two lists to be
+    // EQUAL AS STRINGS, under the message "the clamp is leaking".
+    //
+    // MEASURED, 40 theme walks on an otherwise idle machine: five of the six readings are
+    // bit-identical every single walk, and one is not. `"Enter" under the door` reads 8.6:1 on
+    // 38 walks and 8.34:1 on 2 — a 5% failure rate, which is the 2-in-7 two people reproduced
+    // independently. The cause is in `worst()` above: it samples THE PIXEL THAT MINIMIZES
+    // CONTRAST WITH THE INK inside the glyph's own line box, and behind that glyph is the
+    // PICTURE. Its worst neighbor moves between rgb(16,21,36) and rgb(20,24,40) as the nebula
+    // drifts. Against ink rgb(166,179,203) that is 8.6:1 and 8.34:1 — both clear the 4.5:1
+    // floor by better than 3.8x, on a screen where nothing is wrong.
+    //
+    // SO THE OLD ASSERTION FAILED ABOUT ONE RUN IN TWENTY AND, WHEN IT DID, IT NAMED A CAUSE IT
+    // HAD NOT ESTABLISHED. Nothing leaked. Two photographs of a moving composition disagreed in
+    // the second decimal. That is worse than a bare failure: it sent an engineer looking for a
+    // clamp bug that does not exist. A check that names a cause may only name one it has
+    // established; where it cannot, it reports what it measured and says the cause is open.
+    //
+    // WAITING FOR THE ANIMATION TO SETTLE IS NOT THE FIX HERE, AND THAT WAS MEASURED TOO. At
+    // the instant of `setTheme()` this surface has exactly three animations running and all
+    // three are ENDLESS — `home-drift`, `home-sill-breathe`, `home-breathe`. The finite count
+    // is zero and `settle()` returns in 0ms. There is nothing in flight to wait out; the thing
+    // that moves is a WebGL canvas on `requestAnimationFrame`, which never settles by design,
+    // because "Working now" is what it means. Holding it with `__loro.pause()` across both
+    // walks DOES work — 15/15 agreement, measured — and is not used, because it mutates product
+    // state inside a contrast check to buy a comparison that is not the right one anyway.
+    //
+    // ---------------------------------------------------------------------------------------
+    // THE GUARANTEE IS UNCHANGED. THE INSTRUMENT IS NOW THE ONE THAT CARRIES IT
+    // ---------------------------------------------------------------------------------------
+    //
+    //   WCAG, exactly as before: every element measured on the rendered frame, under BOTH
+    //   preferences, against ITS OWN floor — 4.5:1 for the four normal-text rows, 3:1 for the
+    //   two `edge` rows, which are non-text indicators (WCAG 1.4.11). That is `failures(rows)`
+    //   below and it is the entire meaning of "clears the floor". Comparing two measurements to
+    //   EACH OTHER never proved it and could not have: two readings that agreed at 2:1 would
+    //   have passed that assertion.
+    //
+    //   THE CLAMP, from what actually carries a theme to this surface. `theme-boot.js:78` has
+    //   exactly one channel — `root.setAttribute("data-theme", resolved())` — and no stylesheet
+    //   under `app/ui` names `prefers-color-scheme` (grepped: zero hits in every .css), so
+    //   nothing can repaint without going through that attribute. The attribute, the force
+    //   flag, and a COMPUTED-STYLE FINGERPRINT of all six targets and their full ancestor
+    //   chains, plus every one of the 53 theme tokens on `:root`, are compared between the two
+    //   preferences and must be identical. That is a strictly FINER leak detector than one
+    //   worst-pixel ratio: it sees a leak in any color on any ancestor, not only in the single
+    //   pixel that happened to be worst on one frame.
+    //
+    //   AND THE PICTURE CANNOT CARRY A LEAK, which is why its pixels are reported rather than
+    //   asserted equal. `home/field-data.js`, `field-prep.js`, `field-engine.js` and
+    //   `field-ref.js` contain no reference to `RichTheme`, `data-theme` or
+    //   `prefers-color-scheme` (grepped: zero hits across all four), so the composition it
+    //   paints is the same composition under either preference.
+    //
+    // THE FINGERPRINT IS PROVEN DETERMINISTIC AND PROVEN SENSITIVE, because a leak detector
+    // that is only one of those is not a detector: 12 alternating dark/light walks produced 1
+    // distinct fingerprint, and writing `data-theme="light"` onto `<html>` moved 40 of the 53
+    // tokens and all 6 node chains.
+    //
+    // ONE THING THE OLD ASSERTION NEVER REACHED, AND THIS ONE DOES. The clamp is SELF-HEALING:
+    // `home.js:1415` re-raises `forceDark` from inside the theme notification, so
+    // `RichTheme.forceDark(false)` cannot drop it while this screen is open. That is what
+    // actually protects the surface, it was untested, and it is asserted at the foot of this
+    // check by driving it.
     const targets = [
       { name: "the first-run banner", sel: "#home-note-line", needs: 4.5 },
       { name: "the door's label", sel: "#home-enter .home-enter-label", needs: 4.5 },
@@ -1514,10 +1646,41 @@ async function main() {
       { name: "a numbered button", sel: '.home-chip[data-entity="northwind"] .home-chip-rest', needs: 4.5 },
       { name: "a numbered button's edge", sel: '.home-chip[data-entity="northwind"]', needs: 3, kind: "edge" },
     ];
+
+    // IT IS LOOKING AT WHAT IT SAYS IT IS LOOKING AT. A green walk over the wrong surface is
+    // the failure this repository keeps finding — `contrast.js` shipped one measuring sixteen
+    // absent nodes of one thread and eight present ones of another, and it was caught only
+    // because the floor happened to notice the eight. So the surface is named before anything
+    // is measured, and `failures()` below refuses a row that is MISSING or UNRESOLVABLE rather
+    // than passing over it.
+    const surface = await page.evaluate(() => ({
+      open: window.RichHome.isOpen(),
+      hidden: document.getElementById("home").hidden,
+      focus: (document.activeElement && document.activeElement.id) || (document.activeElement || {}).tagName || null,
+      found: {
+        note: !!document.querySelector("#home-note-line"),
+        door: !!document.querySelector("#home-enter"),
+        cap: !!document.querySelector("#home-door-cap"),
+        chip: !!document.querySelector('.home-chip[data-entity="northwind"]'),
+      },
+    }));
+    assert(surface.open && !surface.hidden, "the home screen is not the surface in front, so this would measure something else");
+    assertEqual(
+      Object.keys(surface.found).filter((k) => !surface.found[k]),
+      [],
+      "the home screen is up but the things this check names are not on it"
+    );
+
     const seen = {};
+    const prints = {};
+    let endless = [];
     for (const theme of ["dark", "light"]) {
       await page.evaluate((t) => window.RichTheme.setTheme(t), theme);
-      await page.waitForTimeout(400);
+      // The fact, not a duration. On this surface a theme switch has nothing finite to wait
+      // for, and this returns in ~0ms and says so; if a transition is ever added to the themed
+      // properties, this waits for it instead of photographing it half-lit.
+      const s = await settle(page, 5000);
+      endless = s.endless;
       const state = await page.evaluate(() => ({
         pref: window.RichTheme.theme(),
         rendered: document.documentElement.getAttribute("data-theme"),
@@ -1526,17 +1689,100 @@ async function main() {
       assertEqual(state.pref, theme, "the CEO's own preference was not set to " + theme);
       assertEqual(state.rendered, "dark", "§15's clamp let " + theme + " mode reach the home screen");
       assert(state.forced, "the always-dark clamp is not raised while the preference is " + theme);
+      prints[theme] = await themeFingerprint(page, targets.map((t) => t.sel));
       const rows = await measure(page, targets);
       const bad = failures(rows);
       assertEqual(bad.length, 0, "under the floor with the preference set to " + theme + ":\n" + reportRatios(bad));
-      seen[theme] = rows.map((r) => r.name + " " + r.ratio + ":1");
+      seen[theme] = rows;
     }
+
+    // THE LEAK TEST. Every theme token and every measured element's whole ancestor chain, under
+    // one preference against the other. Nothing here is sampled from a frame.
+    const tokenDrift = Object.keys(prints.dark.tokens).filter((k) => prints.dark.tokens[k] !== prints.light.tokens[k]);
+    assertEqual(
+      tokenDrift,
+      [],
+      "these `:root` tokens resolve differently under the two preferences, so the preference is reaching " +
+        "this surface:\n          " +
+        tokenDrift.map((k) => `${k}: dark ${prints.dark.tokens[k]} vs light ${prints.light.tokens[k]}`).join("\n          ")
+    );
+    const nodeDrift = Object.keys(prints.dark.nodes).filter((k) => prints.dark.nodes[k] !== prints.light.nodes[k]);
+    assertEqual(
+      nodeDrift,
+      [],
+      "these elements resolve differently under the two preferences — color, shadow or geometry, on the " +
+        "element or on an ancestor:\n          " +
+        nodeDrift.map((k) => `${k}\n            dark  ${prints.dark.nodes[k]}\n            light ${prints.light.nodes[k]}`).join("\n          ")
+    );
+    const tokenCount = Object.keys(prints.dark.tokens).length;
+    assert(tokenCount > 20, `only ${tokenCount} custom properties resolved on :root — the fingerprint is not seeing the palette`);
+
+    // THE POSITIVE PROBE FOR THE TWO NEGATIVES ABOVE. "These two fingerprints are equal" passes
+    // perfectly over a fingerprint that reads nothing, which is how a check goes green while
+    // measuring the wrong screen — the exact failure `contrast.js` shipped and was lucky to
+    // catch. So a leak is STAGED and the detector has to see it.
+    //
+    // It has to be staged by writing the attribute, and that is a finding rather than a
+    // shortcut: `RichTheme.forceDark(false)` cannot be used, because `home.js:1415` re-raises
+    // it from inside the notification while the screen is open. `data-theme` on `<html>` is the
+    // one channel a real leak would have to come through (`theme-boot.js:78`), so staging it
+    // there is staging the real thing.
+    const control = await page.evaluate((sels) => {
+      const before = document.documentElement.getAttribute("data-theme");
+      document.documentElement.setAttribute("data-theme", "light");
+      const read = window.__themeFingerprint(sels);
+      document.documentElement.setAttribute("data-theme", before);
+      return { read, restored: document.documentElement.getAttribute("data-theme") };
+    }, targets.map((t) => t.sel));
+    const controlTokens = Object.keys(prints.dark.tokens).filter((k) => prints.dark.tokens[k] !== control.read.tokens[k]);
+    const controlNodes = Object.keys(prints.dark.nodes).filter((k) => prints.dark.nodes[k] !== control.read.nodes[k]);
+    assert(
+      controlTokens.length > 20,
+      `a staged leak moved only ${controlTokens.length} of ${tokenCount} theme tokens — this fingerprint is not ` +
+        `reading the palette, so the two equalities above prove nothing`
+    );
+    assertEqual(
+      controlNodes.length,
+      targets.length,
+      `a staged leak moved ${controlNodes.length} of ${targets.length} element chains — the ones it did not move ` +
+        `are not being read, so their equality above is vacuous`
+    );
+    assertEqual(control.restored, "dark", "the staged leak was not put back");
+
+    // AND THE CLAMP HOLDS ITSELF UP. Ask it to come down while the screen is open; it must not.
+    const healed = await page.evaluate(() => {
+      window.RichTheme.forceDark(false);
+      return {
+        forced: window.RichTheme.forcedDark(),
+        rendered: document.documentElement.getAttribute("data-theme"),
+        pref: window.RichTheme.theme(),
+      };
+    });
+    assert(healed.forced, "forceDark(false) took the clamp down while the home screen was open");
+    assertEqual(healed.rendered, "dark", "the surface rendered light for a moment after the clamp was asked to drop");
+    assertEqual(healed.pref, "light", "re-raising the clamp overwrote the CEO's own preference instead of forcing over it");
+
     await page.evaluate(() => window.RichTheme.setTheme("dark"));
-    // The two runs must agree, because there is one lighting. A drift here IS the leak.
-    assertEqual(seen.light, seen.dark, "the same elements measured differently under the two preferences — the clamp is leaking");
+
+    // THE PIXELS ARE REPORTED, AND WHERE THE PICTURE MOVED UNDER THEM IT IS NAMED AS THE
+    // PICTURE. This is the sentence the old assertion should have been: an observation with an
+    // established cause, not a diagnosis with a guessed one.
+    const moved = seen.dark
+      .map((d, i) => ({ d, l: seen.light[i] }))
+      .filter((p) => p.d.ratio !== p.l.ratio)
+      .map(
+        (p) =>
+          `${p.d.name} ${p.d.ratio}:1 over rgb(${p.d.worstPx.join(",")}) and ${p.l.ratio}:1 over ` +
+          `rgb(${p.l.worstPx.join(",")}) — the nebula, not the theme; both clear ${p.d.needs}:1`
+      );
     return (
-      "preference dark and preference light both render dark, and measure identically:\n          " +
-      seen.dark.join("\n          ")
+      `preference dark and preference light both render dark, and all ${tokenCount} theme tokens and all ` +
+      `${targets.length} element chains resolve identically; forceDark(false) put itself back up with the screen open\n          ` +
+      `measured under preference light (focus on ${surface.focus}, endless animations held by the meter: ${endless.join(", ")}):\n          ` +
+      reportRatios(seen.light) +
+      (moved.length
+        ? `\n          the live picture moved under ${moved.length} of ${targets.length} between the two walks: ` + moved.join("; ")
+        : `\n          the live picture happened not to move under any of the ${targets.length} between the two walks`)
     );
   });
 
