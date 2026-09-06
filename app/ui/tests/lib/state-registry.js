@@ -2611,4 +2611,79 @@ module.exports = [
       "the CEO and neither asks anything of him; whoever set RichOS up reads them in the " +
       "boot log.",
   },
+  // -------------------------------------------------------------------------------------
+  // THE WAITING STATE (main.js "THE WAITING STATE", 2026-09-06)
+  // -------------------------------------------------------------------------------------
+  //
+  // Eight strings, added because the first outside user of RichOS said a long turn "looks
+  // like a crashed application" and the app had one 14px line and a 5px dot to answer him
+  // with. Every one is a STATEMENT of something observed — none asks the CEO for anything,
+  // and none can be made true or false by an act of his. `#stop` is visible for the whole
+  // of every live turn (`syncComposerMode`), so a CEO who wants the turn back always has
+  // the control; it is simply not what any of these sentences is about.
+  //
+  // Kept together at the end of the file, on purpose: `app/ui/tests/**` belongs to another
+  // engineer this session, so this block is strictly additive and touches no existing row.
+  {
+    s: "Rich is working",
+    c: "INFORMATIONAL",
+    why:
+      "The waiting band's headline for `rich://turn-status: working` — the ledger's own " +
+      "transition, read back out of the ledger before it is emitted (`spine.rs` " +
+      "`turn_status_event`). A statement about a turn, with nothing in it for him to do.",
+  },
+  {
+    s: "Rich has your message",
+    c: "INFORMATIONAL",
+    why:
+      "The same band's headline for `queued`: the prompt is durably `received` and no lease " +
+      "has been handed it yet. Nothing to act on — the turn moves itself to `working`.",
+  },
+  {
+    s: "He hasn't started on it yet",
+    c: "INFORMATIONAL",
+    why:
+      "The detail line under `queued`, and the whole content of that state: the message is " +
+      "recorded and the work has not begun. It reports; it does not ask.",
+  },
+  {
+    s: "Rich is picking this back up",
+    c: "INFORMATIONAL",
+    why:
+      "The headline for `rich://turn-status: recovering` — a turn whose lease died and is " +
+      "being replayed. The replay is automatic (`spine.rs`), so there is nothing to press.",
+  },
+  {
+    s: "Rich is letting go of this turn",
+    c: "INFORMATIONAL",
+    why:
+      "The headline while a CEO stop is in flight, set from `stop_turn`'s durable answer " +
+      "rather than an event (the same source `timeline.js`'s `stopping` row uses). He has " +
+      "already acted; this is the acknowledgement of it.",
+  },
+  {
+    s: "Nothing has come back yet",
+    c: "INFORMATIONAL",
+    why:
+      "Zero content events observed on a turn this window watched from its start. The " +
+      "honest alternative to a fabricated progress claim — there is no percentage, step " +
+      "count or estimate anywhere in the ACP wire to render (see " +
+      "`docs/verification/acp-emission-probe-2026-08-28.md`).",
+  },
+  {
+    s: "Nothing new for",
+    c: "FRAGMENT",
+    why:
+      "Template hole: completed by a formatted duration (`Nothing new for 41s`). The whole " +
+      "sentence is informational — it says how long it has been since the last event the " +
+      "timeline accepted for this thread, which is true at every value it can take.",
+  },
+  {
+    s: "Writing the reply",
+    c: "INFORMATIONAL",
+    why:
+      "What `rich://message-started` / `message-delta` licenses and nothing more. `phase` is " +
+      "`unknown` on every message this runtime emits (`live.rs`), so naming a kind of " +
+      "writing would be inventing one.",
+  },
 ];

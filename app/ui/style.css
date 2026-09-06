@@ -81,6 +81,11 @@
   --gold: #c2a35c;
   --gold-text: #c2a35c;
   --gold-soft: rgba(194, 163, 92, 0.13);
+  /* THE ALIVENESS MARK — its own token because it is a NON-TEXT INDICATOR that must hold
+     3:1 at every instant of every animation, and `--gold` does not survive being faded:
+     the old `.tl-pulse` breathed `--gold` between 0.2 and 0.7 opacity and computed 1.40:1
+     at its trough here. Full opacity, always. 7.68:1 on the ground. */
+  --live-mark: #c2a35c;
   /* The ink that sits ON the accent — dark in BOTH themes. 7.68:1 over `--gold`. */
   --on-gold: #0c1322;
 
@@ -230,6 +235,11 @@
   --gold: #9c7c34;
   --gold-text: #715715;
   --gold-soft: rgba(156, 124, 52, 0.12);
+  /* And here the split earns itself a second time. Light `--gold` is 3.15:1 on the ground —
+     a pass with nothing left over, and a FAIL the moment it is faded by a single percent,
+     which is how the old pulse reached 2.14:1 at its brightest and 1.22:1 at its dimmest in
+     this theme. The reading gold is the mark: 5.48:1 on the ground. */
+  --live-mark: #715715;
   /* Unchanged from dark, and that is the point: the ink on a gold chip is the dark ink in
      both themes. 4.72:1 over light `--gold`. */
   --on-gold: #0c1322;
@@ -677,6 +687,113 @@ button {
   border-top: 1px solid var(--line);
   background: var(--paper);
   flex-shrink: 0;
+}
+
+/* ---- THE WAITING STATE (main.js "THE WAITING STATE") ---------------------------------------
+   The first outside user's report, 2026-09-06: *"a lot of spinning wheels waiting … no
+   interaction of feedback, so it looks like a crashed application."*
+
+   Sits at the top of the composer zone, directly over the box he types in, so it is on
+   screen at every scroll position — the timeline's duration row is not, and the
+   reproduction (`docs/verification/waiting-state-2026-09-06/`) is a 400px void with one
+   14px line in the corner of it, in `--ink-soft`.
+
+   EVERY VALUE HERE WAS COMPUTED, BOTH THEMES, against `--paper` (which is `--ground`:
+   #0c1322 dark, #eae6dd light — `#composer-zone` paints it and nothing else sits between).
+   Arithmetic: `tests/lib/contrast.js`, the same functions `tests/contrast.js` runs.
+
+     .wait-head    `--ink`        18px    dark 14.55:1   light 14.90:1
+     .wait-time    `--ink-soft`   18px    dark  6.47:1   light  5.86:1
+     .wait-detail  `--ink-soft`   16px    dark  6.47:1   light  5.86:1
+     .wait-detail  `--attention`  16px    dark  7.88:1   light  5.42:1   (quiet)
+     .wait-mark    `--live-mark`  10px    dark  7.68:1   light  5.48:1   (non-text, 3:1)
+     .wait-mark    `--attention`  10px    dark  7.88:1   light  5.42:1   (quiet, non-text)
+
+   NOTHING IS EXEMPT HERE EXCEPT ONE THING, AND IT IS DECLARED: the flash ring
+   (`wait-mark--flash`'s `box-shadow`) is decoration that repeats what the solid dot beside
+   it already says. It carries no information of its own, it is `aria-hidden` with its host,
+   and the dot it expands out of holds 7.68:1 / 5.48:1 at every instant. The ring fades to
+   transparent by design and is therefore not held to 3:1.
+   ------------------------------------------------------------------------------------------ */
+
+.turn-wait {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 12px 28px 4px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+}
+
+/* THE MARK. A solid dot at full opacity in both themes — never an alpha and never a
+   breathing opacity, which is exactly how `.tl-pulse` came to spend part of its cycle at
+   1.40:1 in dark and all of it below 2.14:1 in light. */
+.wait-mark {
+  grid-column: 1;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--live-mark);
+  align-self: center;
+}
+
+/* ONE FLASH PER ARRIVING SIGNAL — never a loop. This is the whole honesty of the band: with
+   nothing coming back the mark is STILL, so it cannot keep reassuring after the process has
+   stopped. `main.js`'s `flashWaitMark()` restarts it per event. */
+.wait-mark--flash {
+  animation: wait-flash 900ms ease-out 1;
+}
+
+@keyframes wait-flash {
+  0% {
+    box-shadow: 0 0 0 0 var(--live-mark);
+  }
+  100% {
+    box-shadow: 0 0 0 9px transparent;
+  }
+}
+
+.wait-head {
+  grid-column: 2;
+  font-size: 1.125rem; /* 18px — §15's tier for text meant to be read, not skipped */
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.wait-time {
+  grid-column: 3;
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums; /* or the row jitters every second as 1 replaces 8 */
+  color: var(--ink-soft);
+  line-height: 1.3;
+}
+
+.wait-detail {
+  grid-column: 2 / 4;
+  font-size: 1rem; /* 16px — §15's floor for text meant to be easily read */
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+/* THE QUIET STATE. Not an error and not a diagnosis — the app does not know that anything
+   is wrong, and says only what it does know: nothing has arrived for this long. The ink
+   moves to `--attention` and the mark stops flashing because nothing is arriving to flash
+   it, which is the state made visible rather than a second animation. */
+.turn-wait[data-tone="quiet"] .wait-mark {
+  background: var(--attention);
+}
+
+.turn-wait[data-tone="quiet"] .wait-detail {
+  color: var(--attention);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wait-mark--flash {
+    animation: none;
+  }
 }
 
 #composer-row {
@@ -2349,23 +2466,41 @@ body.bp-narrow .tl-user-bubble {
 }
 
 /* §17.4: ONE subtle pulse for active work, and only one. Never bouncing dots across
-   several rows, never multiple simultaneous spinners. */
+   several rows, never multiple simultaneous spinners.
+
+   IT USED TO BREATHE ITS OPACITY, AND THAT WAS A MEASURED CONTRAST FAILURE. This mark is
+   the only thing in the timeline saying the app is alive, which makes it a non-text UI
+   indicator owing 3:1 in BOTH themes (CLAUDE.md, "Contrast — WCAG AA, ALWAYS, BOTH
+   THEMES"). It was `--accent` at `opacity: 0.55` animating between 0.2 and 0.7, and the
+   arithmetic on the composited result (`tests/lib/contrast.js`, against `--ground`) is:
+
+     dark   0.2 -> 1.40:1   0.45 -> 2.48:1   0.55 -> 3.11:1   0.7 -> 4.31:1
+     light  0.2 -> 1.22:1   0.45 -> 1.60:1   0.55 -> 1.79:1   0.7 -> 2.14:1
+
+   So in dark it failed for the part of every 1.8s cycle spent under ~0.55, and in LIGHT it
+   never cleared the floor at any point of its cycle — its brightest instant was 2.14:1, and
+   under `prefers-reduced-motion`, where it is pinned at 0.7, it sat there permanently. That
+   is the "spinning wheel" the first outside user could not see (main.js, THE WAITING STATE).
+
+   The fix keeps the breath and stops trading it against legibility: the dot is
+   `--live-mark` at FULL opacity in both themes (7.68:1 dark, 5.48:1 light) and the
+   animation moves its SIZE instead. The smallest frame is 70% of 6px, which is still the
+   same color at the same contrast — a scale animation cannot dilute a ratio. */
 .tl-pulse {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--accent);
-  opacity: 0.55;
+  background: var(--live-mark);
   animation: tl-breathe 1.8s ease-in-out infinite;
 }
 
 @keyframes tl-breathe {
   0%,
   100% {
-    opacity: 0.2;
+    transform: scale(0.7);
   }
   50% {
-    opacity: 0.7;
+    transform: scale(1);
   }
 }
 
@@ -2713,9 +2848,12 @@ body.bp-narrow .tl-user-bubble {
    "Respect prefers-reduced-motion. In reduced motion mode, replace pulses with a static
    active mark." The mark stays — it is the status — it simply stops moving. */
 @media (prefers-reduced-motion: reduce) {
+  /* "Replace pulses with a static active mark." It stops moving; it does NOT dim — the old
+     `opacity: 0.7` here is what pinned the light-mode mark at 2.14:1 for every CEO with
+     reduced motion switched on, permanently rather than for part of a cycle. */
   .tl-pulse {
     animation: none;
-    opacity: 0.7;
+    transform: scale(1);
   }
   .tl-chevron,
   .tl-user-actions,
