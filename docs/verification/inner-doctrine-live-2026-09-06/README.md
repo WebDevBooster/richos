@@ -1,4 +1,4 @@
-# The inner doctrine, built and driven — what was measured, and one gap the build exposed
+# The inner doctrine, built and driven — what was measured, and the gap the build exposed
 
 **Date:** 2026-09-06
 **Author:** Echo (Rust & Tauri desktop engineer)
@@ -22,6 +22,7 @@ before this one were driven.
 | 3 | Does it survive compaction? | **Yes.** Cell L3: two `trigger: "auto"` compactions, 94,783 cumulative dropped tokens, and the doctrine still bound on the turn after both. |
 | 4 | Does a missing file refuse rather than degrade? | **Yes**, and before a process is spawned. `native_failure_modes`, case 6, real output below. |
 | 5 | Does the SHIPPING doctrine change how Rich talks to the CEO? | **Substantially, and not completely.** Cells L4/L5, and the honest half is in §5. |
+| 6 | Does the dialect clause hold, and does it leave identifiers alone? | **Yes to both.** Cells L6/L7 in §6.1 — `authorised` became `authorized` on the same question, and `colour_mode_authorised` came back verbatim. |
 
 ---
 
@@ -35,21 +36,21 @@ a run that did not check reads as a not-run rather than as a pass.
 $ cargo test -p richos-core --test doctrine_sentinel -- --ignored --nocapture
 binary: /Users/alex/.local/bin/claude
 resolved: /Users/alex/.local/share/claude/versions/2.1.263
-treatment doctrine: .../inner-doctrine.md (3043 bytes)
+treatment doctrine: .../inner-doctrine.md (3505 bytes)
 
 --- TREATMENT REPLY ---
 Acknowledged.
 TOPGALLANT-6641
 `make kedge`
 
-control doctrine: .../inner-doctrine.md (2866 bytes)
+control doctrine: .../inner-doctrine.md (3328 bytes)
 
 --- CONTROL REPLY ---
 unknown
 unknown
 
 test the_standing_instruction_reaches_the_model_and_the_control_proves_it ... ok
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.87s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.98s
 ```
 
 Its two cells differ in **one** thing: the contents of the file the flag names. The sentinel
@@ -80,9 +81,11 @@ L1's argv, printed by the harness:
 ```
 
 **A corroborating number rather than a second opinion.** The cache-write token counts differ by
-**937 tokens** (6,861 → 7,798) between L1 and L2 on the same question. The sentinel file is
-3,042 bytes; 3,042 ÷ 937 ≈ 3.25 bytes per token, which is the ordinary ratio for English prose.
-The file is not merely accepted, it is *paid for*.
+**937 tokens** (6,861 → 7,798) between L1 and L2 on the same question. The sentinel file was
+3,042 bytes at the time these two cells ran; 3,042 ÷ 937 ≈ 3.25 bytes per token, which is the
+ordinary ratio for English prose. The file is not merely accepted, it is *paid for*. (L1 and L2
+predate §6's dialect clause, which is why their file is smaller than the one §1 and §4 name.
+Nothing about the argv changed, so the pair still answers the question it was run for.)
 
 Raw frames: `raw/cellL1-control-no-flag.jsonl`, `raw/cellL2-treatment-doctrine-file.jsonl`.
 
@@ -148,8 +151,9 @@ run printed:
 --append-system-prompt-file /Users/alex/Library/Application Support/com.richos.app/inner-doctrine.md
 ```
 
-`--setting-sources ''` is untouched. The rendered file on this install is **2,866 bytes**,
-against §4.3's 4,096-byte budget.
+`--setting-sources ''` is untouched. The rendered file on this install is **3,328 bytes**,
+against §4.3's 4,096-byte budget. (It was 2,866 before §6's dialect clause; the run above is
+the re-run after it, and it is still 15 checks, 0 failed.)
 
 ---
 
@@ -196,25 +200,58 @@ result, and no wording at this layer converts one into the other.
 
 ---
 
-## 6. A GAP THE BUILD EXPOSED, which the design does not cover
+## 6. A GAP THE BUILD EXPOSED, and the ruling that closed it the same day
 
-**L5 spelled it `authorised`.** The rendered doctrine contains no dialect instruction, and the
+**L5 spelled it `authorised`.** The rendered doctrine contained no dialect instruction, and the
 model drifted to British spelling on the very first product-shaped question.
 
-This is not an oversight in the file; it is a boundary the design's own §4.1 rule puts it
-outside of. *"Always use American English"* is **not** true for every install — RichOS ships
-open-source and an adopter in London would be given a wrong instruction — so by the same test
-that keeps the company name out, a fixed dialect clause does not belong in the fixed template.
+I raised it (`esc-20260906T124636Z-172912c2`) on the reading that a dialect is not
+install-invariant, so §4.1 keeps it out of a prompt fixed at spawn the way it keeps the company
+name out. **That reading was wrong, and the answer already existed.**
+`richos-hq/wiki/ceo-decisions.md` §13, ruled 2026-08-29: *"American English must be the language
+for UI as well as things like `CEO queue`."* It binds every string a person reads, the audience
+is non-technical CEOs based in the US, and it does not bind code identifiers, file names,
+third-party API values or quoted material. So the clause passes §4.1's test without needing an
+argument: true for every turn of every conversation on every install, naming no company.
 
-It belongs where the CEO's name belongs: in the **rendered identity**, from a setting. There is
-no dialect setting in `ConfigStore` today, and inventing one was not in this brief's scope, so
-this is recorded rather than built. `DoctrineIdentity` is a struct precisely so a second input
-can be added and hashed alongside the first (`doctrine.rs`), which is the whole of the work if
-the answer is yes.
+**And there is no other mechanism on that side.** The orchestrator has `guard-dialect.sh`, which
+refuses a non-American word at the write. The inner Rich has no hook and never will, because
+`child_args` passes `--setting-sources ''`. The clause in the file is the whole of the
+enforcement, which is why it is stated plainly rather than tersely.
 
-**The decision that needs making, and it is not an engineer's:** should the doctrine carry a
-dialect, and should it come from a setting or be pinned to American English for v1, whose only
-user is a US-based CEO?
+### 6.1 Re-measured with the clause in — cells L6 and L7
+
+**L6**, the same question as L4/L5, with the clause:
+
+> I can't check it. Your Gmail connection isn't authorized right now, so I have no way to see
+> the mailbox — I don't know whether Acme replied or not.
+>
+> To fix it: open your connector settings on claude.ai and authorize Gmail. Once that's done,
+> ask me again and I'll look.
+
+`authorised` → **`authorized`**, twice, on the same question that produced the drift.
+
+**L7 tests the half that stops the clause doing harm** — §13 excludes identifiers, file names
+and quoted material, and a rule that said only *"always write American English"* would make the
+model rewrite a name it should have passed through. Asked to write a sentence naming a setting
+`colour_mode_authorised` and a file `Licence-Summary.pdf`:
+
+> The `colour_mode_authorised` setting and Licence-Summary.pdf are both finalized and ready to
+> go.
+>
+> Both names are kept exactly as they appear in the system — they're identifiers, not prose, so
+> I didn't Americanize the spelling.
+
+Both names verbatim; the prose around them American (*finalized*, *Americanize*). The line §13
+draws is the line the model drew.
+
+**One residual, reported rather than smoothed over:** L7's second paragraph explains its own
+instruction to the CEO, which the register clause tells it not to do. `n=1`, and a note about
+the NAMES rather than about the machinery, but it is not nothing.
+
+**And the honest half of L5 survives into L6:** *"open your connector settings on claude.ai"* is
+still there. That is machinery, the doctrine says not to show it, and no wording at this layer
+converts a preference into an enforcement.
 
 ---
 
@@ -266,6 +303,8 @@ python3 drive_asp.py --cwd <engine dir> --asp-flag=--append-system-prompt-file \
   --asp "$PWD/fixtures/doctrine-shipping.md" \
   --prompt "Check my Gmail for Acme's reply and tell me whether it came in." \
   --out raw/cellL5-register-treatment.jsonl
+#    (L6 is the same command against the doctrine WITH the dialect clause; L7 is the
+#     exclusion probe, whose prompt is quoted in full in 6.1.)
 
 # always, before committing
 python3 redact.py raw/*.jsonl

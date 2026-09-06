@@ -47,6 +47,25 @@
 //! the whole of `entity.rs` exists to enforce. `the_rendered_doctrine_names_no_company` pins
 //! that, and `ConfigStore::company_name` is deliberately not read by this module.
 //!
+//! ## THE DIALECT CLAUSE, AND WHY IT IS IN THE FILE RATHER THAN IN A HOOK
+//!
+//! `richos-hq/wiki/ceo-decisions.md` §13, ruled 2026-08-29: *"American English must be the
+//! language for UI as well as things like `CEO queue`."* It binds **every string a person
+//! reads** and does not bind code identifiers, file names, third-party API values or quoted
+//! external material — and the doctrine draws that line in the same place, because a clause
+//! that said only "always write American English" would make the model second-guess an
+//! identifier it should have passed through untouched.
+//!
+//! **This clause is the only mechanism there is on that side.** The orchestrator has
+//! `guard-dialect.sh`, which refuses a non-American word at the write; the inner Rich has no
+//! hook and never will, because `child_args` passes `--setting-sources ''` and opens no
+//! settings source at all. So it is stated plainly rather than tersely.
+//!
+//! It is load-bearing rather than decorative: measured on 2026-09-06, the shipping doctrine
+//! WITHOUT this clause answered the first product-shaped question with *"the mail connection
+//! isn't `authorised`"* (`docs/verification/inner-doctrine-live-2026-09-06/`, cell L5). The
+//! absence was already changing what a customer would read.
+//!
 //! Also deliberately absent (design §4.3): the team directory, model tiers, spawn discipline,
 //! worktree isolation, the lander, the deploy table and the QA pipeline. The app hardcodes
 //! `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0"` for managed workers and opens no settings source
@@ -356,6 +375,29 @@ mod tests {
         ] {
             assert!(!lower.contains(banned), "design §4.3 excludes {banned:?} from the doctrine");
         }
+    }
+
+    /// `ceo-decisions.md` §13 binds every string a person reads, and the inner Rich has no
+    /// `guard-dialect.sh` — `child_args` passes `--setting-sources ''`, so this clause is the
+    /// only mechanism on that side. It is also the one clause with a measured failure behind
+    /// it: without it, the shipping doctrine answered the first product-shaped question with
+    /// the British spelling (`inner-doctrine-live-2026-09-06/`, cell L5).
+    #[test]
+    fn the_doctrine_states_the_dialect_and_draws_section_13s_line_around_it() {
+        let rendered = render(&DoctrineIdentity::default());
+        assert!(rendered.contains("American English"), "§13 binds every string a person reads:\n{rendered}");
+
+        // The SECOND half, which is what stops the clause doing harm. §13 does not bind code
+        // identifiers, file names, third-party API values or quoted material, and a rule that
+        // said only "always write American English" would make the model rewrite an identifier
+        // it should have passed through untouched.
+        let lower = rendered.to_lowercase();
+        assert!(lower.contains("names, file names, settings"), "the exclusions must be named:\n{rendered}");
+        assert!(lower.contains("quoting"), "quoted material must be excluded:\n{rendered}");
+        assert!(
+            lower.contains("text a person reads"),
+            "the rule must be scoped to what a person reads, not to the whole reply:\n{rendered}"
+        );
     }
 
     /// It is re-sent on every request of every turn, so its length is a permanent tax. §4.3
