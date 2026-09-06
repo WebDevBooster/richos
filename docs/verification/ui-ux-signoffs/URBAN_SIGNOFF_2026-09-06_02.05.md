@@ -100,7 +100,7 @@ library's `NORMAL`, `LARGE` and `INDICATOR` floors substituted to 21:1 (substitu
 have applied, 3/3 sites) produced **672 failures reporting their real ratios**. Silence there would
 have meant the walk never reached the panel.
 
-**The branch's own gate is load-bearing.** I mutated the shipped app/ui/runs.js (on the unmerged branch `codex/durable-orchestration`; written without backticks because it does not exist on `main` yet), deleting only the
+**The branch's own gate is load-bearing.** I mutated the shipped `app/ui/runs.js`, deleting only the
 `data-run-more` marker while leaving the button rendering, and ran `node app/ui/tests/runs.js`:
 **three checks went red** — "Long decisions keep question and answers in one uncapped flow with
 persistent reading controls", "The long-question guard rejects both the old cap and a missing
@@ -204,7 +204,7 @@ and that no JavaScript inventory could ever see it because the text is composed 
 
 `src-tauri/src/run_view.rs` now projects the CEO's request as the task description and Rich's
 accepted scope as the completion expectation. I did not take that on trust. I compiled
-app/crates/richos-core/examples/run_view_probe.rs (on the unmerged branch `codex/durable-orchestration`; written without backticks because it does not exist on `main` yet) — which runs the **production**
+`app/crates/richos-core/examples/run_view_probe.rs` — which runs the **production**
 `registration::validate` → `autonomy::plan` → `RunController::tick` → `projection::view` chain with
 a scripted host and a real verification tick — and rendered its three serialized views in the
 shipping shell, opening every nested disclosure a curious CEO would open. What is on the screen:
