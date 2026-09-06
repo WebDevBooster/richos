@@ -11,7 +11,7 @@
 //! cargo run -p richos-core --example native_failure_modes
 //! ```
 //!
-//! Five cases, in the order a failure would actually be met:
+//! Six cases, in the order a failure would actually be met:
 //!
 //!   1. **The binary is not where we looked.** Refused BEFORE a process is spawned, naming
 //!      the path — not an exit code.
@@ -26,6 +26,11 @@
 //!      never indefinite.
 //!   5. **A child that answers the handshake but refuses it.** A `subtype` that is not
 //!      `success` is a refusal, not a success with a caveat.
+//!   6. **RichOS's standing instruction is not on disk.** The newest of the six, and the
+//!      reason `--append-system-prompt-file` was chosen over the alternatives: an absent
+//!      instruction file under `--setting-sources project` would have been a clean
+//!      handshake and a generic Claude. Here the binary is present, the working directory
+//!      exists, and only the doctrine is missing — so the refusal names the doctrine.
 //!
 //! And the negative control, without which the four above prove nothing: **the real binary,
 //! with the real flags, completes the handshake.** If that fails too, the four failures
@@ -38,15 +43,33 @@
 //! tool, so there is nothing to assert against. That is **unproven**, it is stated in
 //! `native.rs`'s module doc too, and it is not fixable from this side.
 
-use richos_core::native::{child_args, resolve_claude_bin, NativeCognition, PERMISSION_PROMPT_TOOL};
+use richos_core::native::{
+    chat_child_args, resolve_claude_bin, NativeCognition, APPEND_SYSTEM_PROMPT_FILE,
+    PERMISSION_PROMPT_TOOL,
+};
 use std::path::{Path, PathBuf};
 
 fn main() {
     let mut failures = 0usize;
     let mut cases = 0usize;
 
+    // RichOS's standing instruction, rendered for THIS install exactly as the app renders it
+    // (`doctrine.rs`). Every case below drives the production argument vector, doctrine
+    // included, rather than a simplified one.
+    let doctrine = match richos_core::doctrine::ensure_for_install() {
+        Ok(p) => p,
+        Err(e) => {
+            println!("\n  the standing instruction could not be rendered: {e}");
+            println!("  NOTHING WAS VERIFIED — a check that did not happen must not report ok.");
+            std::process::exit(2);
+        }
+    };
+    println!("\n=== THE STANDING INSTRUCTION ===");
+    println!("  {}", doctrine.display());
+    println!("  {} bytes", std::fs::metadata(&doctrine).map(|m| m.len()).unwrap_or(0));
+
     println!("\n=== THE FLAG VECTOR ===");
-    let args = child_args("00000000-0000-0000-0000-000000000000");
+    let args = chat_child_args("00000000-0000-0000-0000-000000000000", &doctrine);
     println!("  {}", args.join(" "));
     let armed = args
         .iter()
@@ -54,10 +77,16 @@ fn main() {
         .map(|i| args.get(i + 1).map(String::as_str) == Some("stdio"))
         .unwrap_or(false);
     check(&mut cases, &mut failures, armed, "the undocumented flag is present and armed", "there is no code path that drops it");
+    let carries = args
+        .iter()
+        .position(|a| a == APPEND_SYSTEM_PROMPT_FILE)
+        .map(|i| args.get(i + 1).map(String::as_str) == Some(doctrine.display().to_string().as_str()))
+        .unwrap_or(false);
+    check(&mut cases, &mut failures, carries, "the standing instruction is named in the vector", "the second semi-documented flag, pinned the same way");
 
     // ---- 1. no binary ------------------------------------------------------------------
     println!("\n=== 1. THE BINARY IS NOT THERE ===");
-    let err = NativeCognition::start(Path::new("/nonexistent/definitely/not/claude"), Path::new("/tmp"))
+    let err = NativeCognition::start(Path::new("/nonexistent/definitely/not/claude"), Path::new("/tmp"), &doctrine)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — which is impossible".into());
@@ -68,7 +97,7 @@ fn main() {
     // ---- 2. a child that rejects the flag ----------------------------------------------
     println!("\n=== 2. A CHILD THAT REJECTS THE FLAG (the §16 risk, reproduced) ===");
     let script = fake("flag-reject", "echo \"error: unknown option '--permission-prompt-tool'\" >&2\nexit 1\n");
-    let err = NativeCognition::start(&script, Path::new("/tmp"))
+    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — a rejected flag was treated as success".into());
@@ -89,7 +118,7 @@ fn main() {
         "real-bad-flag",
         &format!("exec \"{}\" --richos-flag-that-cannot-exist \"$@\"\n", real.display()),
     );
-    let err = NativeCognition::start(&probe, Path::new("/tmp"))
+    let err = NativeCognition::start(&probe, Path::new("/tmp"), &doctrine)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — the real binary accepted a flag that cannot exist".into());
@@ -102,7 +131,7 @@ fn main() {
     println!("\n=== 4. A CHILD THAT STARTS AND SAYS NOTHING ===");
     let script = fake("silent", "sleep 0.4\nexit 0\n");
     let began = std::time::Instant::now();
-    let err = NativeCognition::start(&script, Path::new("/tmp"))
+    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — silence was treated as success".into());
@@ -121,7 +150,7 @@ fn main() {
          printf '%s\\n' '{\"type\":\"control_response\",\"response\":{\"subtype\":\"error\",\"request_id\":\"req_init\",\"error\":\"nope\"}}'\n\
          sleep 5\n",
     );
-    let err = NativeCognition::start(&script, Path::new("/tmp"))
+    let err = NativeCognition::start(&script, Path::new("/tmp"), &doctrine)
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "IT STARTED — a refusal was read as a success".into());
@@ -129,10 +158,25 @@ fn main() {
     check(&mut cases, &mut failures, err.contains("refused"), "a non-success subtype is a refusal", "never a success with a caveat");
     let _ = std::fs::remove_dir_all(script.parent().unwrap());
 
+    // ---- 6. the standing instruction is not on disk -------------------------------------
+    println!("\n=== 6. RICHOS'S STANDING INSTRUCTION IS NOT THERE ===");
+    // The binary is PRESENT and executable and the working directory EXISTS. The only fault
+    // is the doctrine, which is what makes this case mean anything at all.
+    let absent = std::env::temp_dir().join("richos-no-such-doctrine-please-do-not-create-me.md");
+    let _ = std::fs::remove_file(&absent);
+    let err = NativeCognition::start(&real, Path::new("/tmp"), &absent)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| "IT STARTED — a Claude with no standing instruction is not Rich".into());
+    println!("  {err}");
+    check(&mut cases, &mut failures, err.contains(&absent.display().to_string()), "refused, naming the instruction file", "not an exit code, and not the wrong fault");
+    check(&mut cases, &mut failures, err.contains("not Rich"), "and says what is at stake", "a generic Claude behind the product's window is the failure this prevents");
+    check(&mut cases, &mut failures, !err.contains("binary was not found"), "and it is not reported as a missing binary", "reporting one fault as another sends the reader to the wrong place");
+
     // ---- the negative control ----------------------------------------------------------
     println!("\n=== THE NEGATIVE CONTROL: the real binary, the real flags ===");
     let began = std::time::Instant::now();
-    match NativeCognition::start(&real, Path::new("/tmp")) {
+    match NativeCognition::start(&real, Path::new("/tmp"), &doctrine) {
         Ok(cog) => {
             let ms = began.elapsed().as_secs_f64() * 1000.0;
             println!("  handshake OK in {ms:.1} ms, session = {}", richos_core::Cognition::session_id(&cog));

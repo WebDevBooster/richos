@@ -704,7 +704,8 @@ for line in sys.stdin:
         "permission denial during priming is not swallowed"
     );
     drop(model);
-    let legacy = NativeCognition::start(&fake, &tmp.0).unwrap();
+    let doctrine = richos_core::doctrine::ensure_rendered(&tmp.0, &richos_core::doctrine::DoctrineIdentity::default()).unwrap();
+    let legacy = NativeCognition::start(&fake, &tmp.0, &doctrine).unwrap();
     assert!(
         legacy.prepare_managed(&tmp.0).is_err(),
         "the legacy auto-approving adapter cannot enter a run"

@@ -125,7 +125,11 @@ fn main() {
     let claude_bin = resolve_claude_bin();
     eprintln!("[roundtrip] claude     = {}", claude_bin.display());
     eprintln!("[roundtrip] engine cwd = {}", engine_dir.display());
-    let cognition = NativeCognition::start(&claude_bin, &engine_dir).expect("start the native claude session");
+        // RichOS's standing instruction (`doctrine.rs`). Rendered for THIS install, exactly as
+    // the app renders it, so this example drives the real argument vector and not a
+    // simplified one.
+    let doctrine = richos_core::doctrine::ensure_for_install().expect("render the standing instruction");
+    let cognition = NativeCognition::start(&claude_bin, &engine_dir, &doctrine).expect("start the native claude session");
     eprintln!("[roundtrip] session    = {}", cognition.session_id());
     spine.attach_lease(Box::new(cognition));
 

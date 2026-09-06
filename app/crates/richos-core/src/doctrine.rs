@@ -234,7 +234,18 @@ pub fn ensure_rendered(config_dir: &Path, identity: &DoctrineIdentity) -> Result
     // Written to a temporary file in the same directory and renamed, so a crash between the two
     // never leaves HALF a doctrine in place — a truncated system prompt would be honored, and it
     // would be honored silently. `rename` within one directory is atomic on macOS.
-    let tmp = config_dir.join(format!("{DOCTRINE_FILENAME}.incoming.{}", std::process::id()));
+    //
+    // THE STAGING NAME IS UNIQUE PER CALL, not per process, and that was a real defect rather
+    // than a hypothetical one: with `.incoming.<pid>` four parallel tests in one process raced
+    // on one staging path — one renamed it away while another was still writing to it — and the
+    // loser failed with `No such file or directory` on a directory that existed. The app has
+    // the same shape available to it: a boot attach and a rotation can render concurrently in
+    // one process. A uuid costs nothing and removes the race rather than narrowing it.
+    let tmp = config_dir.join(format!(
+        "{DOCTRINE_FILENAME}.incoming.{}.{}",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
     std::fs::write(&tmp, want.as_bytes()).map_err(|e| DoctrineError::Unwritable {
         path: tmp.display().to_string(),
         why: e.to_string(),
@@ -484,6 +495,35 @@ mod tests {
     fn no_staging_file_is_left_behind_on_success() {
         let t = Temp::new("residue");
         ensure_rendered(&t.0, &DoctrineIdentity::default()).unwrap();
+        let residue: Vec<_> = std::fs::read_dir(&t.0)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains("incoming"))
+            .collect();
+        assert!(residue.is_empty(), "staging residue left behind: {residue:?}");
+    }
+
+    /// **A regression test with a date on it.** Four `between_turn_tests` cases rendering into
+    /// one directory at once failed with `No such file or directory` because the staging name
+    /// was `.incoming.<pid>` and they shared a process: one renamed the staging file away while
+    /// another was still writing it. The app can do the same thing — a boot attach and a
+    /// rotation render concurrently — so this is pinned rather than tidied away in the tests.
+    #[test]
+    fn concurrent_renders_into_one_directory_do_not_race_on_the_staging_file() {
+        let t = Temp::new("concurrent");
+        let id = DoctrineIdentity::new(Some("Nadia Kessler"));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let dir = t.0.clone();
+                let id = id.clone();
+                std::thread::spawn(move || ensure_rendered(&dir, &id))
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap().expect("a concurrent render must not fail");
+        }
+        assert_eq!(std::fs::read_to_string(doctrine_path(&t.0)).unwrap(), render(&id));
         let residue: Vec<_> = std::fs::read_dir(&t.0)
             .unwrap()
             .filter_map(|e| e.ok())
