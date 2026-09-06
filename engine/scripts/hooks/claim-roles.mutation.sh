@@ -76,7 +76,23 @@ mutant() { # <name> <expected-failing-case> <rel-file> <old> <new> <why>
         printf '          %s\n' "$why"
         FAIL=$((FAIL + 1)); return
     fi
-    if ! grep -q "FAIL  $want" "$dir/out.txt"; then
+    # Literal token with a boundary, not a bare regex: an unescaped `.` matches
+    # any character, so `z1.` also matched `FAIL  z1b.` and `z9.` matched
+    # anything beginning `z9`. Demonstrated on the sibling harnesses the same
+    # night -- a mutant reported the case that killed it and that case could not
+    # have failed. The token is trimmed first, because a trailing space in the
+    # case name puts the boundary one character late.
+    want_re="$(printf '%s' "$want" | sed 's/[[:space:]]*$//' | sed 's/[][\.*^$(){}?+|\/]/\\&/g')"
+    # NO TRAILING BOUNDARY, and that is a correction to this very change made an
+    # hour after it: the first version required the token to end at a
+    # non-alphanumeric, which assumed every suite writes `FAIL  z1. some words`.
+    # claim-roles' suite writes `FAIL  z1.landed-claim-about-a-dangling-commit`,
+    # so the boundary demanded a space where a slug begins and turned ALL TWENTY
+    # of its mutants into misfires -- twenty reds that looked exactly like
+    # findings. The boundary was never what fixed anything: ESCAPING is. With
+    # `.` taken literally, `z1.` cannot match `z1b.` and `C1.` cannot match
+    # `C10.`, because the character after the prefix is a digit and not a dot.
+    if ! grep -q "FAIL  ${want_re}" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at %s (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
         FAIL=$((FAIL + 1)); return
@@ -143,9 +159,16 @@ mutant nameless-number-hidden "y7." "$P" \
 echo ""
 echo "=== the state-claim arms, proven load-bearing by removing them ==="
 
+# REPOINTED 2026-09-06. The needle moved when state_verdict's consumer gained an
+# `if pol == "positive":` wrapper: this block went from 12-space to 16-space
+# indentation, and the mutation stopped applying. The harness refused rather than
+# passing, which is right, but until it was repointed the arm that catches a
+# merge that never ran -- the 2026-09-01 failure itself -- was proven by nothing.
+# The 16-space `if v[0] == "violation":` appears TWICE in the source; it is the
+# second line that makes this pair unique, which is why both are in the anchor.
 mutant no-state-block "z1." "$P" \
-    '            if v[0] == "violation":\n                bad_states.append((kind, sha, sentence, v[1], v[2]))' \
-    '            if False:\n                bad_states.append((kind, sha, sentence, v[1], v[2]))' \
+    '                if v[0] == "violation":\n                    bad_states.append((kind, sha, sentence, v[1], v[2]))' \
+    '                if False:\n                    bad_states.append((kind, sha, sentence, v[1], v[2]))' \
     "the arm that catches a merge that never ran — the 2026-09-01 failure itself."
 
 mutant state-block-not-in-verdict "x." "$P" \
@@ -173,8 +196,46 @@ mutant no-bare-hex "z6." "$P" \
     '    for tok in _backticked(sentence):' \
     "a SHA written without backticks is the same claim; the corpus carries 19 of them."
 
+# REPOINTED 2026-09-06. `(integrated or published)` was renamed `(mi or mp)` in
+# state_claims(), so this target did not merely move -- it ceased to exist. Same
+# consequence: the verb requirement was proven by nothing until now.
+# THIS MUTANT APPLIES NOW AND IS STILL NOT PROVEN, AND THE REASON IS NOT THIS
+# FILE. It is left red deliberately: reaching a green tick here would mean
+# naming a witness that does not witness, which is the defect this whole family
+# of harnesses exists to refuse.
+#
+# What the repointed string bought is real -- the harness has stopped saying
+# "the mutation did not apply", which was false comfort in the other direction.
+# What it revealed is that THE SUITE UNDER IT IS NOT DETERMINISTIC. Five runs of
+# byte-identical code on 2026-09-06, minutes apart:
+#
+#   suite exited 0 (mutant "survived")            3 of 5
+#   suite went red, but not at z7.                2 of 5
+#   and `no-reachability-requirement`, a
+#   completely different mutant, flaked too       1 of 5
+#
+# So `18 killed / 19 killed` out of 20 is a coin toss, not a measurement, and
+# claim-roles.mutation.sh is invoked by contract-integrity.test.sh -- which is
+# therefore intermittently red for this reason and not for a defect.
+#
+# What is known about the mechanism, stated as far as it was actually checked
+# and no further. Removing the verb test does not merely widen the check:
+# execution then reaches `claim_polarity(s, (mi or mp).start())` with both
+# matches None, so the analyzer RAISES on the first verb-less sentence carrying
+# a hex token. The guard fails open on an analyzer it cannot run, so every case
+# asserting only an exit code sees 0 and stays green -- including `z7.`, which
+# was written to be this property's witness and asserts nothing but the code.
+# The cases that DO notice are the ones asserting a message or a reachability
+# verdict, and those are exactly the two that flake.
+#
+# THE FIX BELONGS IN scripts/hooks/guard-unresolved-claims.test.sh, WHICH NOBODY
+# HAS CLAIMED: its reachability cases need to stop depending on state that moves
+# under them, and `z7.` needs to assert the absence of a state verdict rather
+# than only an exit code. Both would give this property a stable witness. Until
+# then the honest state is red, and a green tick here would be the more
+# expensive lie.
 mutant state-claim-needs-no-verb "z7." "$P" \
-    '        if not (integrated or published):\n            continue' \
+    '        if not (mi or mp):\n            continue' \
     '        if False:\n            continue' \
     "without the verb this stops being a state check and becomes an ancestry test on every hex token in the reply."
 

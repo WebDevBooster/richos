@@ -22,6 +22,13 @@
 
 set -uo pipefail
 
+# EXPORTED, not set per invocation, and that is deliberate. This harness runs
+# the suite it mutates -- sometimes the sandboxed copy, sometimes the one in
+# the real tree -- and that suite now invokes this harness at its end. Exported
+# once here, the flag reaches every child however many invocation sites this
+# file grows; set per-call, one missed site is an infinite regress.
+export RICHOS_MUTATION_INNER=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_ENGINE="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -59,7 +66,26 @@ mutate() {
         bad "$label — the suite still PASSED with the fix removed. The fix is not load-bearing, or nothing covers it."
         return
     fi
-    if ! printf '%s' "$out" | grep -q "FAIL.*$expect"; then
+    # `FAIL.*$expect` let the token match anywhere after the word FAIL,
+    # including inside another case's message body, and an unescaped `.` in the
+    # token matched any character. Both are false-precision in a clause whose
+    # whole job is precision -- see the note in turn-manifest.mutation.sh for
+    # the demonstration. Literal token, at the head of the label, ending at a
+    # non-alphanumeric. The token is TRIMMED first: ceo-asks writes its
+    # cases as "C3. " with a trailing space, which put the boundary one
+    # character late and turned five sound mutants red on the first run of
+    # this very change.
+    expect_re="$(printf '%s' "$expect" | sed 's/[[:space:]]*$//' | sed 's/[][\.*^$(){}?+|\/]/\\&/g')"
+    # NO TRAILING BOUNDARY, and that is a correction to this very change made an
+    # hour after it: the first version required the token to end at a
+    # non-alphanumeric, which assumed every suite writes `FAIL  z1. some words`.
+    # claim-roles' suite writes `FAIL  z1.landed-claim-about-a-dangling-commit`,
+    # so the boundary demanded a space where a slug begins and turned ALL TWENTY
+    # of its mutants into misfires -- twenty reds that looked exactly like
+    # findings. The boundary was never what fixed anything: ESCAPING is. With
+    # `.` taken literally, `z1.` cannot match `z1b.` and `C1.` cannot match
+    # `C10.`, because the character after the prefix is a digit and not a dot.
+    if ! printf '%s' "$out" | grep -q "FAIL  ${expect_re}"; then
         bad "$label — the suite failed, but NOT on '$expect'. It went red for some other reason, which is not proof."
         printf '%s\n' "$out" | grep '  FAIL' | sed 's/^/           /'
         return
@@ -215,11 +241,18 @@ PY
 
 # M8. The spawn guard's unresolvable-namespace refusal degrades back to
 # "undeterminable -> accept".
+# The mutated LINE never moved; the file under it did. Model resolution was
+# extracted from guard-worktree-isolation.sh into scripts/lib/resolve-model.sh,
+# and from that commit this mutator opened a path whose content it no longer
+# described. It refused rather than passing -- the harness's third clause again
+# -- but nothing ran it, so M8's property (a namespaced subagent_type with no
+# resolvable definition must be reported UNRESOLVABLE, never as the empty
+# string) was proven by nothing until 2026-09-05.
 m_unresolvable_accepted() {
     local M="$1"
     python3 - "$M" <<'PY' || return 1
 import sys
-p = sys.argv[1] + "/scripts/hooks/guard-worktree-isolation.sh"
+p = sys.argv[1] + "/scripts/lib/resolve-model.sh"
 s = open(p).read()
 old = '''    2) printf 'UNRESOLVABLE'; return 0 ;;'''
 if old not in s:
@@ -269,8 +302,22 @@ PYEOF
 echo "=== mutation harness: is each fix load-bearing? ==="
 echo ""
 
+# M1's witness was `1a` and `1a` no longer witnesses anything about the SEAT.
+# guard-main-checkout-writes.sh now resolves governance FROM THE FILE
+# (richos_governing_root) rather than from the seat, so a write to
+# $SESSREPO/src/x.js is judged by $SESSREPO's own PROTECTED_PATHS whichever
+# repository the session is seated in -- and 1a stays green with the seat
+# resolver mutated to answer the engine root. Measured, not reasoned: under M1
+# the suite goes red at fourteen cases and 1a is not one of them.
+#
+# `1c` IS sensitive, and precisely so. It writes to $ENGINE/app/x.js from a
+# session in $SESSREPO. Unmutated, that file is out of the seat jurisdiction
+# and the guard stands down. Mutated, the seat IS the engine, the file is
+# inside it, the engine own config protects app/, and the write is blocked --
+# which is the pre-contract defect this whole row exists for. So the witness
+# moves to the case that can still tell the difference.
 mutate "M1 root resolution -> always the engine root" \
-       "scripts/hooks/root-contract.test.sh" "1a" m_engine_root_always
+       "scripts/hooks/root-contract.test.sh" "1c" m_engine_root_always
 mutate "M2 resolve_agent_def stops stripping the namespace" \
        "scripts/lib/resolve-roots.test.sh" "8c" m_no_namespace_strip
 mutate "M2b strip_agent_namespace becomes an identity function" \

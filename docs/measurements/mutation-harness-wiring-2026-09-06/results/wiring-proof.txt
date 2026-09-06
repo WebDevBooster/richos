@@ -1,0 +1,30 @@
+THE WIRING CATCHES SOMETHING THE RUNNER COULD NOT SEE BEFORE.
+
+The break is deliberate and behavior-preserving: in a throwaway copy of
+the engine, turn-manifest.sh's  if [ -n "$OUT" ]  became
+if [ -n "${OUT}" ]. The hook does exactly what it did. What moved is the
+needle a mutant sits on -- which is the real-world defect this row is
+about, not an invented one, and which no behavioral suite can see by
+construction.
+
+=== BEFORE: turn-manifest.test.sh exactly as it stood at 58790b4 ===
+  PASS  h.  stdout is valid JSON carrying systemMessage + suppressOutput
+  PASS  g.  every case exited 0 — this hook has no path that can block a turn
+
+✓ 41/41 turn-manifest checks passed.
+  rc=0, and the harness was invoked 0 times.
+
+=== AFTER: the same hook, the same edit, the wired suite ===
+=== running the mutation harness: turn-manifest.mutation.sh ===
+=== turn-manifest: every property, proven load-bearing by removing it ===
+  FAIL  can-block — the mutation did not apply
+          MUTATION TARGET ABSENT — the source has drifted:
+✗ 6/7 proven, 1 NOT load-bearing (removable with no test noticing).
+✗ 41/42 passed, 1 FAILED.
+  rc=1.
+
+run-all-tests.sh discovers turn-manifest.test.sh by its existing
+*.test.sh glob (confirmed with --list on the same sandbox), and turns a
+non-zero suite rc into a named FAIL at run-all-tests.sh:296-299. So the
+chain from this defect to a red runner is complete, and no line of the
+runner was edited to make it so.

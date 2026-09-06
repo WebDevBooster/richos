@@ -1,0 +1,13 @@
+# The first exploratory run: all eight harnesses CONCURRENTLY.
+# Not comparable with the serial numbers; recorded because it is the
+# evidence for the parallel-versus-serial gap named in the README, and
+# because it is the run on which two of the eight went red for the first
+# time in their existence.
+ceo-asks rc=0 secs=230
+ceo-ruled rc=0 secs=116
+ceo-todos rc=0 secs=584
+root-contract rc=1 secs=609
+turn-manifest rc=1 secs=33
+unasked-deferral rc=0 secs=227
+unstarted-rows rc=0 secs=454
+waiver-repetition rc=0 secs=102

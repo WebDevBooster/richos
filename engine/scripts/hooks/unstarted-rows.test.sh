@@ -472,6 +472,38 @@ if [ "$?" -eq 2 ]; then ok "7c  the lint exits 2 when it could not read — neve
 else bad "7c  the lint exits 2 when it could not read"; fi
 mv "$SANDBOX/rec.hidden" "$REPO/wiki/open-items.md"
 
+# --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
+# Until 2026-09-05 it ran from NOTHING. run-all-tests.sh discovers *.test.sh;
+# contract-integrity.test.sh names a hand-typed set of harnesses that never
+# included this one; and the only other mention of the file anywhere in the
+# repository was a comment. So every property it proves load-bearing was
+# proven exactly when somebody remembered to type its path. Recorded as row
+# 3.28 of wiki/open-items.md.
+#
+# ITS FAILURE IS THIS SUITE'S FAILURE, not a warning. A harness whose result is
+# advisory is a harness nobody has to fix.
+#
+# RICHOS_MUTATION_INNER is the only thing standing between this and an infinite
+# regress: the harness EXPORTS it before running any copy of this suite, so the
+# inner run skips this block. Never remove one half without the other.
+# A MISSING HARNESS IS A FAILURE, NOT A SKIP, and that sentence was earned
+# forty minutes ago rather than reasoned. The first draft of this block wrote
+# the directory variable with one dollar sign too many, so the path expanded to
+# the shell PID followed by the variable name, the test was false, the harness was
+# skipped in silence and the suite printed a full green tally in 3.7 seconds.
+# That is the exact defect this whole row is about, rebuilt inside the fix for
+# it, and only the WALL CLOCK gave it away. So the guard now says so out loud.
+if [ -z "${RICHOS_MUTATION_INNER:-}" ]; then
+    echo ""
+    echo "=== running the mutation harness: unstarted-rows.mutation.sh ==="
+    if [ -x "$SRC_DIR/unstarted-rows.mutation.sh" ]; then
+        "$SRC_DIR/unstarted-rows.mutation.sh" || FAIL=$((FAIL + 1))
+    else
+        echo "  FAIL  MUT. unstarted-rows.mutation.sh is missing or not executable — IT DID NOT RUN"
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
 echo ""
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
