@@ -46,6 +46,49 @@ command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit
 SANDBOX="$(cd "$(mktemp -d -t waiver-repetition.XXXXXX)" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
+# ---------------------------------------------------------------------------
+# SANDBOX THE OPERATOR'S CONFIG DIR, for the whole suite, before anything runs.
+#
+# WHY: this suite drives the hook TWO WAYS, and only one of them was sealed.
+#
+#   run_py   calls the analyzer directly and passes --teams-root explicitly, at
+#            a path inside $SANDBOX that does not exist. Sealed.
+#   run_hook calls notice-waiver-repetition.sh, the shipped wrapper, which does
+#            NOT pass --teams-root — correctly, because in production there is
+#            no better value to pass. The analyzer then falls back to
+#            "${CLAUDE_CONFIG_DIR:-~/.claude}/teams" (notice-waiver-
+#            repetition.py, main()) and enumerates EVERY session team directory
+#            on the operator's real machine as a ledger source.
+#
+# So cases 15, 15b and 15c were reading the operator's live sessions as part of
+# their own fixture. That is not a theory. Case 15c truncates the ledger to one
+# entry and asserts the recovery line; on 2026-09-06 it went red on this machine
+# reporting "fixture-hatch-guard.sh (14x one reason, 14 subjects over 2 days)" —
+# a count the case did not write and could not have written. It was green four
+# times that evening and red five times after, with no commit in between: the
+# variable that moved was the operator's ~/.claude/teams, not this repository.
+# Reproduced deterministically by planting 14 same-reason entries in a fake
+# teams dir and changing nothing else.
+#
+# THE HOOK IS RIGHT AND THE SUITE WAS WRONG. Reading the team directories is
+# real production behavior — hatch ledgers genuinely live there — and case 20a
+# is the standing promise that this watcher has no key to stand it down with.
+# What was wrong was a sandbox that sealed one entry point and inherited the
+# machine through the other. A suite whose verdict depends on what the operator
+# did in an unrelated session is not measuring the code.
+#
+# Sandboxing CLAUDE_CONFIG_DIR is the discipline every other suite in this
+# engine already follows (scripts/lib/global-state-witness.test.sh case c5
+# names it as the correct one). Here it seals a READ rather than a write, which
+# is the same defect one direction over.
+#
+# The teams dir is created EMPTY rather than left absent, so that case 15d can
+# plant a decoy in it and prove this seal did not work by breaking the feature.
+# ---------------------------------------------------------------------------
+CLAUDE_CONFIG_DIR="$SANDBOX/config"
+export CLAUDE_CONFIG_DIR
+mkdir -p "$CLAUDE_CONFIG_DIR/teams"
+
 REPO="$SANDBOX/repo"
 mkdir -p "$REPO/scripts/hooks" "$REPO/scripts/lib" "$REPO/.claude/state"
 
