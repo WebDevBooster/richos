@@ -141,6 +141,26 @@ struct QueuedProactiveEmit {
 /// same adapter, same day. It is unbounded in that direction, which is why it may never
 /// again be the primary trigger.
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+
+/// The owned-work contract, appended to the priming turn when `owned_work_enabled`.
+///
+/// **One constant, because two copies of one rule is a schedule for divergence rather than a
+/// risk of it.** This text sat as a verbatim duplicate at two call sites — the rotation path
+/// and the first-attach path — and the only test touching it asserted a nine-word substring
+/// (`run_tests.rs`, *"You have a durable execution team"*), so the two copies could have
+/// diverged in 980 of their 989 characters and stayed green. Measured before the collapse:
+/// the two string literals were byte-identical at 991 source characters / **989 decoded
+/// characters** each. (`docs/plans/richos-inner-doctrine-2026-09-06.md` §2 reports 1043; that
+/// is the length of the whole `if self.owned_work_enabled { … }` STATEMENT — 29 + 17 + 993 +
+/// 2 + 2 = 1043 — not of the literal. Both numbers are right about different things.)
+///
+/// **It stays in the priming turn and does NOT move to the inner-doctrine file.** The
+/// doctrine file is a system prompt, fixed at spawn, and `owned_work_enabled` is turned on
+/// AFTER the spawn (`Spine::enable_owned_work`). A clause whose condition can flip after the
+/// prompt is fixed is a lie waiting for the flip — the inner-doctrine design's §4.1 boundary
+/// rule, and §4.3's "anything conditional" exclusion.
+pub const OWNED_WORK_CONTRACT: &str = "\nYou have a durable execution team managed by RichOS. Answer the CEO normally in your own voice. For work requests, own the complete outcome and resolve routine choices. For EVERY action request, including a single file edit, do not execute it in the conversation turn. Acknowledge ownership without claiming completion. State the deliverable and essential acceptance constraints concisely in one prose paragraph, including prohibitions and any changed requirements. No headings, lists or filesystem paths in this acknowledgment. Refer to the original request for unchanged details; the host preserves the full request and prior scope verbatim. A separate tool-free transcriber records your commitment verbatim. It cannot invent missing scope. Resolve routine choices yourself. Do not offer to start later when you can accept now. A correction revises the current assignment, not a second job waiting for it to end. Never claim execution finished until the host supplies verified results.\n";
+
 /// Fallback context-window budget, used ONLY while no `usage_update` has arrived for the
 /// current lease. Overridable via `set_context_budget`.
 ///
@@ -2574,7 +2594,7 @@ impl Spine {
             RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
-        if self.owned_work_enabled { priming.push_str("\nYou have a durable execution team managed by RichOS. Answer the CEO normally in your own voice. For work requests, own the complete outcome and resolve routine choices. For EVERY action request, including a single file edit, do not execute it in the conversation turn. Acknowledge ownership without claiming completion. State the deliverable and essential acceptance constraints concisely in one prose paragraph, including prohibitions and any changed requirements. No headings, lists or filesystem paths in this acknowledgment. Refer to the original request for unchanged details; the host preserves the full request and prior scope verbatim. A separate tool-free transcriber records your commitment verbatim. It cannot invent missing scope. Resolve routine choices yourself. Do not offer to start later when you can accept now. A correction revises the current assignment, not a second job waiting for it to end. Never claim execution finished until the host supplies verified results.\n"); }
+        if self.owned_work_enabled { priming.push_str(OWNED_WORK_CONTRACT); }
         // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime:rotation]", Source::Internal);
 
@@ -2700,7 +2720,7 @@ impl Spine {
             RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
-        if self.owned_work_enabled { priming.push_str("\nYou have a durable execution team managed by RichOS. Answer the CEO normally in your own voice. For work requests, own the complete outcome and resolve routine choices. For EVERY action request, including a single file edit, do not execute it in the conversation turn. Acknowledge ownership without claiming completion. State the deliverable and essential acceptance constraints concisely in one prose paragraph, including prohibitions and any changed requirements. No headings, lists or filesystem paths in this acknowledgment. Refer to the original request for unchanged details; the host preserves the full request and prior scope verbatim. A separate tool-free transcriber records your commitment verbatim. It cannot invent missing scope. Resolve routine choices yourself. Do not offer to start later when you can accept now. A correction revises the current assignment, not a second job waiting for it to end. Never claim execution finished until the host supplies verified results.\n"); }
+        if self.owned_work_enabled { priming.push_str(OWNED_WORK_CONTRACT); }
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime]", Source::Internal);
         // ... and as an Internal ACTION, claim-then-execute: this is the first-attach

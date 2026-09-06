@@ -1016,7 +1016,11 @@ fn rich_keeps_voice_and_reports_without_registration_or_redundant_priming() {
     assert!(!messages.iter().any(|m|m.text.contains("\"kind\"")),"private registration JSON must not enter the conversation");
     let chunks:Vec<_>=events.0.lock().unwrap().iter().filter_map(|e|if let StreamEvent::Chunk{text_delta,..}=e{Some(text_delta.clone())}else{None}).collect();
     assert_eq!(chunks,vec!["Here is the answer.","The work is verified."],"both the answer and report must reach the existing speech listener once");
-    assert!(calls.lock().unwrap().iter().any(|p|p.contains("You have a durable execution team")),"Rich must be primed with the actual handoff contract before answering");
+    // THE WHOLE CONTRACT, not nine words of it. This assertion used to read
+    // `.contains("You have a durable execution team")` against a literal that existed twice
+    // in `spine.rs`, so the two copies could diverge in 980 of their 989 characters and stay
+    // green (inner-doctrine design §2/§5.1). There is one copy now and the test names it.
+    assert!(calls.lock().unwrap().iter().any(|p|p.contains(richos_core::spine::OWNED_WORK_CONTRACT)),"Rich must be primed with the actual handoff contract, in full, before answering");
     assert!(calls.lock().unwrap()[0].contains("one prose paragraph"));
     assert!(calls.lock().unwrap()[0].contains("No headings, lists or filesystem paths"));
     let other=spine.create_thread("Other context",&EntityId::parse("company").unwrap()).unwrap();
