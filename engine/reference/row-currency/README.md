@@ -171,9 +171,27 @@ rather than passing in silence.
 
 **Adoption costs nothing on the day it happens.** `ROW_HEADLINE_REQUIRED`
 defaults to `0`: a row *with* a warrant is held to it from the first character,
-and a row *without* one is counted and named at every landing. Measured on the
-real record: declaring the sections produced **zero refusals and 26 rows
-named**. Set `ROW_HEADLINE_REQUIRED="1"` when the page is ready for teeth.
+and a row *without* one is counted and named at every landing.
+
+**The two keys are not interchangeable, and describing them as two equivalent
+one-line switch-ons is how the wrong one gets flipped.** Re-measured 2026-09-06
+against a throwaway clone of the real record, running the shipped guard over a
+simulated `git commit` — every state committed before it was read:
+
+| declaration | guard exit | what the landing sees |
+|---|---|---|
+| neither key | `0` | `sections=-`, `HEADLINE-NOT-ADOPTED` |
+| `ROW_HEADLINE_SECTIONS="3"` | `0` | `sections=3 rows=27 missing=27`, a NOTE |
+| ...plus a fresh machine-written row | `0` | `rows=28 missing=28`, still a NOTE |
+| a row carrying a STALE headline warrant | `2` | `HEADLINE-STALE`, named, with the paste |
+| `ROW_HEADLINE_REQUIRED="1"` | `2` | **27 `HEADLINE-UNDERIVABLE` refusals** |
+| both removed again (negative control) | `0` | `sections=-` |
+
+So declaring the JURISDICTION refuses nothing on the day it lands — not even
+the rows a mechanical sweep appends, which is the case the guard's own mutation
+harness is built around. Declaring `ROW_HEADLINE_REQUIRED="1"` refuses the next
+landing and every one after it until each row has been given a warrant. Set it
+when the page is ready for teeth, and not before.
 
 Re-running what the rows record is a separate, on-demand tool, and deliberately
 never a hook — one of the commands in that record takes 2,168 seconds, and a

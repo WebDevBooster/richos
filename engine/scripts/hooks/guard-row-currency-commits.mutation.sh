@@ -136,10 +136,36 @@ mutant headline-terminal-not-exempt "a terminal row was not counted by the HC ce
 # has three same-day instances of: a blocking check with a large false-positive
 # class gets waived, and a waived check is a dead one. The mechanical sweep
 # appends rows to this record on its own and cannot state a warrant.
+#
+# READ THE NEXT MUTANT'S REASON CAREFULLY, BECAUSE ITS EARLIER WORDING WAS READ
+# BACKWARDS AND COST A DAY. It said "declaring ROW_HEADLINE_SECTIONS would
+# refuse the next landing and every landing after it", which sounds like an
+# argument AGAINST declaring the jurisdiction key. It is the opposite: it is
+# what would happen IF THIS MUTATION WERE THE SHIPPED CODE — if the default
+# blocked — and this mutant exists to guarantee that it does not. Declaring
+# ROW_HEADLINE_SECTIONS is safe precisely BECAUSE this property holds.
+#
+# MEASURED ON THE REAL RECORD, 2026-09-06, against a throwaway clone of
+# richos-hq at `4f2c0a804f30` with its sibling roots symlinked, running the
+# shipped guard over a simulated `git commit`:
+#
+#   undeclared                                  exit 0, HEADLINE-NOT-ADOPTED
+#   ROW_HEADLINE_SECTIONS="3" declared          exit 0, sections=3 rows=27
+#                                               missing=27, a NOTE and nothing
+#                                               refused
+#   ...plus a fresh mechanical-sweep row append exit 0, rows=28 missing=28
+#   a row that DOES carry a stale headline       exit 2, HEADLINE-STALE at 3.98
+#   ROW_HEADLINE_REQUIRED="1"                   exit 2, 27 HEADLINE-UNDERIVABLE
+#   both keys removed again (negative control)  exit 0, sections=-
+#
+# So the two keys are NOT interchangeable and must never be described as two
+# equivalent one-line switch-ons: the jurisdiction key costs nothing on the day
+# it lands, and the REQUIRED key is the one that would refuse every landing
+# until 27 rows were rewritten.
 mutant headline-default-blocks "the default made a warrantless row a refusal" "$P" \
     '            if headline_required:' \
     '            if True:' \
-    "declaring ROW_HEADLINE_SECTIONS would refuse the next landing and every landing after it, including the ones the mechanical sweep writes, and the declaration would be deleted within the day."
+    "the DEFAULT would block: with ROW_HEADLINE_REQUIRED unset, declaring ROW_HEADLINE_SECTIONS would then refuse the next landing and every landing after it, including the ones the mechanical sweep writes, and the declaration would be deleted within the day. Measured on the real record at richos-hq `4f2c0a804f30`, the shipped default does the opposite: exit 0, 27 rows named, nothing refused, and a fresh sweep append still exit 0. This mutant is what makes declaring the jurisdiction key safe — it is not a reason to avoid declaring it."
 
 mutant headline-required-toothless "ROW_HEADLINE_REQUIRED=1 did not refuse a warrantless row" "$P" \
     '            if headline_required:' \
