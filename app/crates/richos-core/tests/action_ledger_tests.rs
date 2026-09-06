@@ -327,17 +327,40 @@ fn the_action_ledger_section_is_always_rendered_so_the_assertion_never_points_at
 }
 
 #[test]
-fn the_identity_assertion_states_the_ledgers_partial_coverage_rather_than_overclaiming() {
+fn the_ledgers_partial_coverage_is_stated_rather_than_overclaimed() {
     // Honesty about the KNOWN gap: tool calls made inside a session are still dropped at
     // `native::decide_permission` (documented in the business-action-governance plan, 2026-08-24
     // and deliberately out of scope here). So the ledger is authoritative for what it
     // records and silent elsewhere — and the successor is told exactly that, so an absent
     // entry can never be read as proof an action did not happen.
+    //
+    // THE GUARANTEE MOVED CHANNEL ON 2026-09-06 AND THIS TEST MOVED WITH IT. It used to be
+    // asserted in the priming TURN and it is now in the standing instruction (`doctrine.rs`),
+    // which is delivered as a system prompt — fixed at spawn, not subject to compaction, not
+    // re-spent on every rotation (inner-doctrine design §4.2 item 3, §5.1). A test that had
+    // simply been deleted alongside the sentence it checked would have retired a guarantee
+    // while looking like a tidy-up, so this one names the same fact in its new home.
+    let doctrine = richos_core::doctrine::render(&richos_core::doctrine::DoctrineIdentity::default());
+    assert!(doctrine.contains("That record is partial"), "{doctrine}");
+    assert!(
+        doctrine.contains("An\nentry in it is proof the thing happened; the absence of an entry is not proof that it did not."),
+        "the ledger's asymmetry must be stated, not implied:\n{doctrine}"
+    );
+    assert!(doctrine.contains("never tell him nothing was done"), "{doctrine}");
+    assert!(doctrine.contains("Say you are not certain, and offer to check."), "{doctrine}");
+
+    // And the turn keeps ONLY what a system prompt cannot say: which conversation this is,
+    // and that the ledger meant is the one printed below. §5.1's acceptance condition is that
+    // the assertion got SHORTER; 980 characters became 197 for this conversation id.
     let assertion = RePrimePayload::identity_assertion("thr_demo");
-    assert!(assertion.contains("NO DENIAL FROM ABSENT MEMORY"));
+    assert_eq!(assertion.len(), 197, "the assertion is: {assertion}");
+    assert!(assertion.contains("conversation thr_demo"));
     assert!(assertion.contains("ground truth for the actions it records"));
-    assert!(assertion.contains("COVERAGE IS PARTIAL"));
-    assert!(assertion.contains("is NOT proof it did not"));
+    // Moved, not copied — two copies of one rule, one in Rust and one in Markdown, could not
+    // even be diffed by a grep.
+    assert!(!assertion.contains("COVERAGE IS PARTIAL"), "the moved clause was left behind: {assertion}");
+    assert!(!assertion.contains("session rotation"), "the moved clause was left behind: {assertion}");
+    assert!(!assertion.contains("Chief of Staff"), "the moved clause was left behind: {assertion}");
 }
 
 #[test]

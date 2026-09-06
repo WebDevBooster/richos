@@ -92,8 +92,12 @@ fn lease_is_reprimed_before_first_turn() {
 
     let reprimes = reprimes_ref.lock().unwrap();
     assert_eq!(reprimes.len(), 1, "exactly one re-prime injection");
-    assert!(reprimes[0].contains("You are Rich"), "identity assertion present");
-    assert!(reprimes[0].contains("NO DENIAL FROM ABSENT MEMORY"), "anti-false-attribution rule present");
+    // "You are Rich" and the no-denial-from-absent-memory rule moved to the standing
+    // instruction on 2026-09-06 — a system prompt, fixed at spawn, rather than a turn
+    // (`doctrine.rs`; inner-doctrine design §4.2, §5.1). They are checked there by
+    // `action_ledger_tests::the_ledgers_partial_coverage_is_stated_rather_than_overclaimed`.
+    assert!(reprimes[0].contains("continuing conversation"), "the successor is told which conversation it is in");
+    assert!(reprimes[0].contains("never mis-attribute your own prior actions"), "anti-false-attribution rule present");
     // The re-prime happens; the CEO prompt is delivered after it.
     assert_eq!(*prompts_ref.lock().unwrap(), vec!["hello".to_string()]);
     let _ = std::fs::remove_file(&path);

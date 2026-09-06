@@ -569,8 +569,15 @@ fn rotation_re_primes_the_successor_with_identity_and_the_action_ledger() {
     let successor_reprimes = per_spawn_reprimes[0].lock().unwrap();
     assert_eq!(successor_reprimes.len(), 1, "the successor was re-primed exactly once, before any CEO turn");
     let priming_text = &successor_reprimes[0];
-    assert!(priming_text.contains("You are Rich"), "identity assertion present");
-    assert!(priming_text.contains("NO DENIAL FROM ABSENT MEMORY"), "anti-false-attribution rule present");
+    // WHO Rich is, and the no-denial-from-absent-memory rule, moved OUT of the priming turn on
+    // 2026-09-06 and into the standing instruction delivered as a system prompt
+    // (`doctrine.rs`; inner-doctrine design §4.2, §5.1). Both are checked in their new home by
+    // `action_ledger_tests::the_ledgers_partial_coverage_is_stated_rather_than_overclaimed`.
+    // What the TURN still has to carry is what a prompt fixed at spawn cannot: which
+    // conversation this is, and a pointer to the ledger printed below it.
+    assert!(priming_text.contains(&format!("continuing conversation {thread}")), "the successor is told which conversation it is in: {priming_text}");
+    assert!(priming_text.contains("ground truth for the actions it records"), "the ledger pointer is present");
+    assert!(priming_text.contains("never mis-attribute your own prior actions"), "anti-false-attribution rule present");
     assert!(
         priming_text.contains("spawned worker mark-sonnet-f1"),
         "the action ledger (ground truth) is in the successor's re-prime, not just the predecessor's memory"
