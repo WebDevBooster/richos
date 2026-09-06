@@ -283,8 +283,8 @@ watched fail is a contrast gate nobody should believe.
 
 ```
 $ cargo test -p richos-core
-   889 direct passed, 0 failed, 3 ignored, across 40 binaries, + 5 doc-tests
-   (877 direct before this branch; 12 tests added, all driven by the frames in raw/)
+   890 direct passed, 0 failed, 3 ignored, across 40 binaries, + 5 doc-tests
+   (877 direct before this branch; 13 tests added, all driven by the frames in raw/)
 
 $ cd app/ui/tests && node run.js
    28 discovered, 28 ran, 0 skipped, 552 checks observed against 447 declared, 0 failed

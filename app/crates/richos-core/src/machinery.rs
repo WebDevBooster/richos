@@ -351,6 +351,25 @@ pub fn compaction_key(session_id: &str) -> String {
     format!("compaction:{session_id}")
 }
 
+/// THE ONE MERGE KEY DERIVATION. Every map that folds records into rows uses this and nothing
+/// else — [`project`], `live.rs`'s `on_machinery`, and `timeline.rs`'s `resolve_last_seen` and
+/// `activity_item`.
+///
+/// It exists because the compaction key is the LEASE's and a lease outlives a turn, so the key
+/// has to carry the turn — and a second copy of that rule is how one map disagrees with
+/// another. It nearly did: `resolve_last_seen` keyed on `tool_call_id` alone, which would have
+/// given turn 3's compaction row turn 4's `completedAt`.
+///
+/// A tool call keys on the vendor's own id, which is unique across the session, so the turn
+/// changes nothing for it and is not added.
+pub fn merge_key(row: &MachineryRecord) -> String {
+    match (row.kind, row.tool_call_id.as_ref()) {
+        (MachineryKind::Compaction, Some(id)) => format!("{}::{}", row.turn_id.as_deref().unwrap_or("-"), id),
+        (_, Some(id)) => id.clone(),
+        (_, None) => row.machinery_id.clone(),
+    }
+}
+
 /// A tool call's lifecycle status. The four the ACP schema declares, plus `Other` so an
 /// unrecognized wire value is RETAINED rather than silently dropped (§1.4 G5's rule
 /// applied one level down, to a field instead of a kind).
@@ -1196,20 +1215,11 @@ pub fn project(records: Vec<MachineryRecord>) -> Vec<MachineryRecord> {
             out.push(r);
             continue;
         }
-        // A COMPACTION KEY IS SCOPED TO ITS TURN; a tool call's is not.
-        //
-        // A tool call's id is the vendor's and is unique across the session, so it keys
-        // itself. A compaction carries no correlation id at all ([`compaction_key`]), so its
-        // key is the LEASE's — and a lease outlives a turn. Without the turn in the key, the
+        // [`merge_key`], never a second copy of it. A compaction's key carries its TURN,
+        // because the key itself is the lease's and a lease outlives a turn: without that, the
         // two compactions measured in `cellT1` (one in turn 3, one in turn 4) would fold into
-        // ONE row: turn 4's state on turn 3's row, and one of two real events lost. `turn_id`
-        // is `None` only for the between-turn lane, which never reaches here.
-        let key = match r.kind {
-            MachineryKind::Compaction => {
-                format!("{}::{}", r.turn_id.as_deref().unwrap_or("-"), r.tool_call_id.clone().unwrap())
-            }
-            _ => r.tool_call_id.clone().unwrap(),
-        };
+        // ONE row — turn 4's state on turn 3's row, and one of two real events lost.
+        let key = merge_key(&r);
         match by_tool.get(&key) {
             Some(&idx) => merge_into(&mut out[idx], r),
             None => {

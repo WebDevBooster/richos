@@ -693,7 +693,11 @@ impl LiveTurn {
         record: &MachineryRecord,
         worker_rows: &dyn Fn() -> Vec<WorkerEventRow>,
     ) -> Vec<LiveEvent> {
-        let key = record.tool_call_id.clone().unwrap_or_else(|| record.machinery_id.clone());
+        // `machinery::merge_key`, the SAME derivation the reload path folds on, so a live row
+        // and a reloaded row can never be keyed two different ways. A `LiveTurn` is per turn,
+        // so the turn the key carries for a compaction is always this one — which is exactly
+        // why calling the shared function costs nothing and stops a second rule being born.
+        let key = crate::machinery::merge_key(record);
 
         let seen = self.last_seen.entry(key.clone()).or_insert(record.at);
         if record.at > *seen {

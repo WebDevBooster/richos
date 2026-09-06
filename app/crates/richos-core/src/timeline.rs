@@ -1665,7 +1665,7 @@ pub(crate) fn activity_item(
     let state = activity_state_of(row);
     let visibility = machinery_visibility(row, internal_turn);
 
-    let key = row.tool_call_id.clone().unwrap_or_else(|| row.machinery_id.clone());
+    let key = crate::machinery::merge_key(row);
     let updated = last_seen.get(&key).copied().filter(|&t| t > row.at);
     let vendor_kind = (row.kind == MachineryKind::Unknown).then(|| row.title.clone());
 
@@ -1871,7 +1871,11 @@ fn resolve_activity_types(records: &[&MachineryRecord]) -> HashMap<String, Activ
 fn resolve_last_seen(records: &[&MachineryRecord]) -> HashMap<String, u64> {
     let mut out: HashMap<String, u64> = HashMap::new();
     for r in records {
-        let key = r.tool_call_id.clone().unwrap_or_else(|| r.machinery_id.clone());
+        // `machinery::merge_key`, the SAME derivation the merge itself uses. Keying on
+        // `tool_call_id` alone was correct while every mergeable row was a tool call and
+        // became wrong the moment a compaction's key was the lease's: two compactions in one
+        // thread share that key, so turn 3's row would have reported turn 4's `completedAt`.
+        let key = crate::machinery::merge_key(r);
         let e = out.entry(key).or_insert(r.at);
         if r.at > *e {
             *e = r.at;
@@ -2678,6 +2682,36 @@ mod tests {
                 "the CEO's copy carries no raw frame"
             );
         }
+    }
+
+
+    #[test]
+    fn two_compactions_in_one_thread_do_not_share_a_completion_time() {
+        // THE BUG THIS EXISTS FOR, found by reading rather than by a failure: `resolve_last_seen`
+        // keyed on `tool_call_id` alone, which is correct while every mergeable row is a tool
+        // call (a vendor id is unique across the session) and WRONG the moment a compaction's
+        // key is the lease's. Two compactions in one thread share that key, so the first row
+        // would have reported the second one's instant as its own `completedAt` — 89 seconds
+        // late in `cellT1`'s real spacing.
+        let mut first = compaction_row("success");
+        first.turn_id = Some("t3".into());
+        first.at = 48_805;
+        let mut second = compaction_row("success");
+        second.turn_id = Some("t4".into());
+        second.at = 90_231;
+
+        let last_seen = resolve_last_seen(&[&first, &second]);
+        // The map itself, first: two spans are two entries. With one entry both rows read the
+        // later instant, and the assertion below would pass for the wrong reason — the lookup
+        // would simply miss and fall back to the row's own `at`.
+        assert_eq!(last_seen.len(), 2, "two compactions are two keys: {last_seen:?}");
+        assert_eq!(last_seen.get(&crate::machinery::merge_key(&first)), Some(&48_805));
+        assert_eq!(last_seen.get(&crate::machinery::merge_key(&second)), Some(&90_231));
+
+        let item = activity_item(&first, &entity(), "thr", "t3", 3, false, &HashMap::new(), &last_seen);
+        let TimelineItem::Activity { completed_at, base, .. } = item else { panic!("activity") };
+        assert_eq!(completed_at, Some(48_805), "turn 3's pause ended when turn 3's pause ended");
+        assert_eq!(base.updated_at, None, "and nothing later touched that row");
     }
 
 }
