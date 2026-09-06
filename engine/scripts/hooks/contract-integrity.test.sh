@@ -2071,8 +2071,23 @@ fi
 rm -rf "$ROOT"
 
 # Case 50 — the session-start wrapper passes --execute again (the old sweep,
-# back). Q3's first arm must go red: a merged, clean, unlocked native worktree
-# was removed at session start.
+# back). Layer Q must go red.
+#
+# WHICH ARM CATCHES IT CHANGED ON 2026-09-06 (a6c076c), AND 50b SAYS SO RATHER
+# THAN GOING QUIET. This case used to assert the DESTRUCTION arm: the revived
+# sweep removed a merged, clean, unlocked native worktree, and Q3's first arm
+# named the loss. Automatic erasure is now disabled in the sanctioned remover,
+# so a revived --execute run reports `reaped=0 skipped=1 errors=1` and destroys
+# nothing. The mutation is still caught, one step earlier and by a different
+# arm: the wrapper's inventory summary reads `summary (EXECUTE)` instead of
+# DRY-RUN, and Layer Q refuses that outright.
+#
+# WHAT STOPPED BEING PROVEN HERE, and where it still is: this case no longer
+# demonstrates that Layer Q sees actual destruction. Case 45c does — it installs
+# an inventory that calls `git worktree remove --force` directly, bypassing the
+# sanctioned remover entirely, and 45d asserts Layer Q names the destroyed work.
+# So the destruction arm keeps a case of its own; what moved is only which
+# mutation reaches it.
 ROOT="$(make_sandbox)"
 python3 - "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" <<'PY'
 import sys
@@ -2086,8 +2101,9 @@ shasum -a 256 "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" | awk '{prin
     > "$ROOT/scripts/hooks/session-start-reap-worktrees.sh.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "50.wrapper-with-execute-fails-layerQ" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'REMOVED a merged, clean, unlocked native worktree'; then
-    PASS=$((PASS+1)); printf '  PASS  50b.layer-Q-names-the-revived-sweep\n'
+if printf '%s' "$PROBE_OUT" | grep -qF "the wrapper's inventory is not labeled DRY-RUN" \
+   && printf '%s' "$PROBE_OUT" | grep -qF 'summary (EXECUTE)'; then
+    PASS=$((PASS+1)); printf '  PASS  50b.layer-Q-names-the-revived-sweep (by the DRY-RUN arm: the summary reads EXECUTE. INVERTED 2026-09-06 — it used to be named by the destruction arm, which a6c076c made unreachable from this mutation; 45c/45d keep that arm)\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("50b.layer-Q-names-the-revived-sweep"); printf '  FAIL  50b.layer-Q-names-the-revived-sweep\n'
 fi
