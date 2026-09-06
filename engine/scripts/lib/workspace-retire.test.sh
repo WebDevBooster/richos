@@ -4,7 +4,11 @@
 # SPECIFIES, one section per row of its acceptance table.
 #
 # Source: richos-hq docs/verification/worktree-container-deletion-2026-09-05.md,
-# section "Acceptance criteria" (ten rows). Its own instructions, followed here:
+# section "Acceptance criteria" (ten rows), plus the independent review of the
+# first fix, richos-hq docs/verification/worktree-removal-fix-review-2026-09-06/
+# (three reproduced findings; its reproduce.py is vendored beside this file and
+# run verbatim in the last section). The diagnosis's own instructions, followed
+# here:
 #
 #   "Use disposable fixtures only. No test should target real workspaces."
 #   "Tests must assert preservation of sibling file contents and relevant
@@ -240,22 +244,28 @@ new_fixture() { # [--alive] [--indeterminate]
     BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
 }
 
+# The JSON travels in the ENVIRONMENT, not on stdin. The first version of this
+# helper piped the JSON to `python3 -` while handing the program to the same
+# stdin through a heredoc; the heredoc won, `sys.stdin.read()` returned nothing
+# after the program, and the helper printed nothing — silently, for every call.
+# No row used it until 2026-09-06, when four new rows did and all four failed
+# over a product that was behaving correctly. A helper nobody calls is a helper
+# nobody has proven.
 json_field() { # <json> <dotted.path>
-    python3 - "$2" <<PY
-import json, sys
-d = json.loads(sys.stdin.read())
-cur = d
-for k in sys.argv[1].split('.'):
-    if isinstance(cur, dict):
-        cur = cur.get(k)
-    else:
-        cur = None
+    JF_JSON="$1" python3 -c '
+import json, os, sys
+try:
+    cur = json.loads(os.environ.get("JF_JSON") or "null")
+except Exception:
+    cur = None
+for k in sys.argv[1].split("."):
+    cur = cur.get(k) if isinstance(cur, dict) else None
     if cur is None:
         break
 print("" if cur is None else (cur if isinstance(cur, str) else json.dumps(cur)))
-PY
+' "$2"
 }
-jf() { printf '%s' "$1" | json_field "$1" "$2"; }
+jf() { json_field "$1" "$2"; }
 
 echo "=== workspace-retire: the ten acceptance rows of the 2026-09-05 diagnosis ==="
 echo
@@ -1041,6 +1051,489 @@ if [ "$rc" -eq 0 ]; then
 else
     bad "LEG  the legacy route stopped working for a registered worktree"
 fi
+
+# ==========================================================================
+# THE 2026-09-06 REVIEW — three findings the first fix missed, each
+# reproduced by the reviewer's script against c3e52af, each closed here.
+#
+# Source: richos-hq docs/verification/worktree-removal-fix-review-2026-09-06/
+# (README.md, reproduce.py, results.json). The reviewer's script is vendored
+# beside this suite as workspace-retire.review-2026-09-06.py with ONE changed
+# line (ENGINE) and is run verbatim in the last row of this section. The rows
+# before it are the same three probes expressed in this suite's own fixtures,
+# plus the negative and positive controls the reviewer's script does not carry.
+#
+# THE GENERAL RULE THESE ROWS HOLD THE CODE TO: a NOT-ALIVE that rests on
+# ABSENCE — an unregistered owner, a missing record, no lifecycle event — is
+# not evidence of death and never authorizes a destructive act. Only positive
+# evidence may, and only for an owner BOUND to the path.
+# ==========================================================================
+echo "--- REVIEW 2026-09-06, finding 1: the legacy route and the unbound owner ---"
+
+# The resolver's own word for the fixture's owner, read directly and not
+# through the code under test. A refusal row whose owner was not actually
+# alive would be proving the wrong thing.
+resolver_verdict() { # <entity> <agent-id>
+    python3 "$SCRIPT_DIR/agent-liveness.py" --entity "$1" --owner "$2" --format triple 2>/dev/null | cut -f1
+}
+
+# --- F1-control. THE NEGATIVE CONTROL: the helper as it stood at the reviewed
+# revision (c3e52af) DOES delete a live worker's registered worktree on a
+# bogus owner. Without this, F1a would be a refusal over a fixture nobody
+# proved destructible.
+LIVE_PID=""
+new_fixture --alive
+printf 'only copy of live work\n' >"$CONTAINER/alpha/uncommitted.txt"
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+NATIVE_ALPHA="$ENTITY/.claude/worktrees/agent-$ALPHA_AGENT"
+REV_DIR="$FX/reviewed-revision"
+mkdir -p "$REV_DIR/lib"
+cp "$SCRIPT_DIR/agent-liveness.sh" "$SCRIPT_DIR/agent-liveness.py" \
+   "$SCRIPT_DIR/resolve-roots.sh" "$SCRIPT_DIR/worktree-ledger.py" "$REV_DIR/lib/" 2>/dev/null
+REV_SH="$REV_DIR/remove-agent-worktree.sh"
+if git -C "$SCRIPT_DIR" cat-file -e 'c3e52afe4ac1dda240cae987f1fd14426f24c3d6:engine/scripts/remove-agent-worktree.sh' 2>/dev/null; then
+    git -C "$SCRIPT_DIR" show 'c3e52afe4ac1dda240cae987f1fd14426f24c3d6:engine/scripts/remove-agent-worktree.sh' >"$REV_SH"
+    chmod +x "$REV_SH"
+    rc=0
+    assert_eq "ALIVE" "$(resolver_verdict "$ENTITY" "$ALPHA_AGENT")" "the fixture's real owner is ALIVE by the resolver's own word" || rc=1
+    REV_OUT="$(bash "$REV_SH" --entity-repo "$ENTITY" --repo "$OWNER_REPO" \
+        --owner never-registered --force "$CONTAINER/alpha" 2>&1)"
+    REV_RC=$?
+    assert_eq "0" "$REV_RC" "the reviewed revision reported SUCCESS" || rc=1
+    assert_contains "$REV_OUT" "confirmed not alive" "it called a nonexistent owner 'confirmed not alive'" || rc=1
+    assert_absent "$CONTAINER/alpha" "it DELETED the live worker's workspace" || rc=1
+    assert_dir "$NATIVE_ALPHA" "while the real owner's isolation worktree stood locked beside it" || rc=1
+    if [ "$rc" -eq 0 ]; then
+        ok "F1-control  NEGATIVE CONTROL — the helper at the reviewed revision c3e52af deletes a live worker's registered worktree on a bogus owner and exits 0 (the reviewer's finding 1, reproduced)"
+    else
+        bad "F1-control  the reviewed revision did not reproduce finding 1 — F1a below would be proving nothing"
+    fi
+else
+    notcovered "F1-control  negative control against the reviewed revision" \
+        "the object c3e52af:engine/scripts/remove-agent-worktree.sh is not in this clone's history, so the destructibility of the fixture could not be shown from the code that had the defect."
+fi
+if [ -n "${LIVE_PID:-}" ]; then kill "$LIVE_PID" 2>/dev/null; fi
+
+# --- F1a. THE REVIEWER'S PROBE: a live worker's registered worktree, a bogus
+# owner. Refused, before mutation, with the uncommitted file intact.
+LIVE_PID=""
+new_fixture --alive
+printf 'only copy of live work\n' >"$CONTAINER/alpha/uncommitted.txt"
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+BEFORE_WT="$(wt_snapshot "$OWNER_REPO")"
+NATIVE_ALPHA="$ENTITY/.claude/worktrees/agent-$ALPHA_AGENT"
+rc=0
+assert_eq "ALIVE" "$(resolver_verdict "$ENTITY" "$ALPHA_AGENT")" "the real owner is ALIVE" || rc=1
+OUT="$(H --repo "$OWNER_REPO" --owner never-registered --force "$CONTAINER/alpha")"
+RC=$?
+assert_eq "3" "$RC" "refused (exit 3)" || rc=1
+assert_contains "$OUT" "owner-unbound" "the reason is the UNBOUND owner, not a liveness guess" || rc=1
+a; case "$OUT" in *"removed agent worktree"*) printf '        ASSERT FAILED: a success line was printed\n'; rc=1 ;; esac
+assert_dir "$CONTAINER/alpha" "the workspace is still there" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "byte-for-byte, uncommitted file included" || rc=1
+assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git still registers it" || rc=1
+assert_dir "$NATIVE_ALPHA" "the owner's isolation worktree is untouched" || rc=1
+# --- F1b. Same fixture, the REAL owner asserted: refused because ALIVE.
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "3" "$?" "the real owner, alive, refuses too" || rc=1
+assert_contains "$OUT" "owner-alive" "alive reason code" || rc=1
+assert_contains "$OUT" "ALIVE" "the banner carries the verdict word" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "still byte-for-byte" || rc=1
+if [ -n "${LIVE_PID:-}" ]; then kill "$LIVE_PID" 2>/dev/null; fi
+if [ "$rc" -eq 0 ]; then
+    ok "F1a/b  a bogus owner against a live worker's registered worktree is REFUSED as owner-unbound before mutation, and the real owner is refused as ALIVE — the uncommitted file, the registration and the isolation worktree are untouched"
+else
+    bad "F1a/b  the legacy route acted on, or misdescribed, a live worker's workspace"
+fi
+
+# --- F1c. THE GENERAL RULE, not the case: an owner the record DOES bind to the
+# path, whose only evidence is absence (no isolation worktree, host session
+# still running) — refused as INDETERMINATE. Then the POSITIVE control: a
+# witnessed termination on record, same fixture, and the removal proceeds.
+new_fixture --indeterminate
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner eeee5555ffff6666 --force "$CONTAINER/alpha")"
+assert_eq "3" "$?" "absence-only evidence refuses" || rc=1
+assert_contains "$OUT" "owner-indeterminate" "indeterminate reason code" || rc=1
+assert_contains "$OUT" "absence is not a termination signal" "the refusal names the doctrine" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "alpha untouched" || rc=1
+L record terminated --agent-id eeee5555ffff6666 --worktree "$CONTAINER/alpha" \
+    --reason "test fixture: witnessed termination" --witness test
+L record terminated --agent-id "$ALPHA_AGENT" --worktree "$CONTAINER/alpha" \
+    --reason "test fixture: witnessed termination" --witness test
+OUT="$(H --repo "$OWNER_REPO" --owner eeee5555ffff6666 --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "with a witnessed termination on record the same request proceeds" || rc=1
+assert_contains "$OUT" "removed agent worktree" "success line" || rc=1
+assert_absent "$CONTAINER/alpha" "the worktree was removed" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F1c   an owner the record binds to the path is still refused while its only evidence is ABSENCE, and the identical request proceeds once a witnessed termination is on record — the refusal was the evidence, not something else"
+else
+    bad "F1c   absence-only evidence authorized a removal, or positive evidence did not"
+fi
+
+# --- F1d. NO record, NO isolation worktree, an owner nobody can bind: refused
+# whatever the owner string is. And the one binding that needs no record —
+# the agent's OWN isolation worktree, registered and unlocked — proceeds and
+# is copied to the ownership ledger as a witnessed termination.
+new_fixture
+git -C "$OWNER_REPO" worktree add -q -b delta "$CONTAINER/delta"
+printf 'delta payload\n' >"$CONTAINER/delta/delta.txt"
+BEFORE_DELTA="$(snapshot "$CONTAINER/delta")"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner agent-nobody --force "$CONTAINER/delta")"
+assert_eq "3" "$?" "an unbindable owner refuses" || rc=1
+assert_contains "$OUT" "owner-unbound" "unbound reason code" || rc=1
+assert_eq "$BEFORE_DELTA" "$(snapshot "$CONTAINER/delta")" "delta untouched" || rc=1
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/delta")"
+assert_eq "3" "$?" "a real, terminated owner asserted against a path it does not own refuses" || rc=1
+assert_contains "$OUT" "owner-unbound" "still unbound: the owner's state says nothing about THIS path" || rc=1
+assert_eq "$BEFORE_DELTA" "$(snapshot "$CONTAINER/delta")" "delta still untouched" || rc=1
+mkdir -p "$ENTITY/.claude/worktrees"
+git -C "$ENTITY" worktree add -q -b worktree-agent-0a0a0a0a0b0b0b0b "$ENTITY/.claude/worktrees/agent-0a0a0a0a0b0b0b0b"
+OUT="$(H --owner 0a0a0a0a0b0b0b0b --force "$ENTITY/.claude/worktrees/agent-0a0a0a0a0b0b0b0b")"
+assert_eq "0" "$?" "the agent's own unlocked isolation worktree is removed" || rc=1
+assert_contains "$OUT" "observed-isolation-worktree" "the basis is an OBSERVATION of this very directory" || rc=1
+assert_absent "$ENTITY/.claude/worktrees/agent-0a0a0a0a0b0b0b0b" "gone" || rc=1
+a; grep -q '"agent_id": "0a0a0a0a0b0b0b0b"' "$LEDGER" && grep -q '"witness": "remove-agent-worktree"' "$LEDGER" \
+    || { printf '        ASSERT FAILED: the observed verdict was not copied to the ownership ledger\n'; rc=1; }
+if [ "$rc" -eq 0 ]; then
+    ok "F1d   with no record and no isolation worktree NO owner string authorizes anything — not a nonsense one, not a real terminated agent asserted against somebody else's path — while an agent's own unlocked isolation worktree is removed on that observation and the observation is written to the ledger"
+else
+    bad "F1d   an unbound owner was accepted, or the native binding failed"
+fi
+
+# --- F1e. --force PRESERVES before it destroys. The legacy route's `--force`
+# is what lets git delete dirty and untracked content; the reviewer required
+# the same preservation transaction as retirement. Restore reproduces it.
+new_fixture
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "forced legacy removal succeeds" || rc=1
+JSON="$(printf '%s\n' "$OUT" | python3 -c 'import sys,json; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
+assert_eq "verified" "$(jf "$JSON" preservation.status)" "the tree was preserved and VERIFIED before removal" || rc=1
+assert_eq "complete" "$(jf "$JSON" journal)" "the completion record landed" || rc=1
+assert_absent "$CONTAINER/alpha" "the worktree is gone" || rc=1
+REST="$FX/restored-legacy"
+ROUT="$(R restore "$WS_ALPHA" "$REST")"
+assert_eq "0" "$?" "restore from a legacy removal's archive succeeds" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$REST/workspace")" "every byte of the removed tree — staged, dirty, untracked, ignored — comes back" || rc=1
+N_INTENT="$(R records "$WS_ALPHA" | python3 -c 'import json,sys; rs=json.load(sys.stdin); print(sum(1 for r in rs if r.get("operation")=="remove" and r.get("outcome")=="in-progress"))')"
+assert_eq "1" "$N_INTENT" "exactly one remove-intent record precedes the completion" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F1e   a --force legacy removal preserves the tree (verified) before git destroys it, records intent and completion, and restore reproduces every byte"
+else
+    bad "F1e   a forced legacy removal did not preserve, or did not record — raw: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+echo "--- REVIEW 2026-09-06, finding 2: worker startup after the last check ---"
+
+# A python driver shared by F2a/F2b: it imports the library and schedules a
+# REAL acquisition (a live native lock, a real ownership record, a real file)
+# at the interleaving named by its first argument. Nothing about liveness is
+# mocked; only WHEN the worker arrives is chosen.
+race_driver() { # <inside-preserve|before-rename> <ws-id> <new-agent-id>
+    python3 - "$LIB" "$LEDGER_PY" "$1" "$2" "$3" "$ENTITY" "$OWNER_REPO" "$CONTAINER/alpha" "$LEDGER" <<'PY'
+import importlib.util, json, os, subprocess, sys
+lib, ledger_py, when, wsid, new, entity, repo, work, ledger = sys.argv[1:10]
+spec = importlib.util.spec_from_file_location("wr", lib)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+def acquire():
+    native = os.path.join(entity, ".claude", "worktrees", "agent-" + new)
+    os.makedirs(os.path.dirname(native), exist_ok=True)
+    subprocess.run(["git", "-C", entity, "worktree", "add", "-qb", "native-" + new, native], check=True)
+    subprocess.run(["git", "-C", entity, "worktree", "lock", "--reason",
+                    "claude agent agent-%s (pid %d start test)" % (new, os.getpid()), native], check=True)
+    subprocess.run(["python3", ledger_py, "--ledger", ledger, "record", "registered", "--agent-id", new,
+                    "--teammate", "zach-newcomer", "--session-id", "sess-new", "--repo", repo,
+                    "--worktree", work, "--branch", "alpha", "--class", "hand-rolled"],
+                   check=True, capture_output=True)
+    with open(os.path.join(work, "new-live-work.txt"), "w") as f:
+        f.write("written after the last check\n")
+
+if when == "inside-preserve":
+    real = m.preserve
+    def wrapped(ws, target, dest):
+        r = real(ws, target, dest)
+        assert r["status"] == "verified", r
+        acquire()
+        return r
+    m.preserve = wrapped
+else:
+    real_rename = m.FsTarget.rename_to
+    def wrapped_rename(self, new_base):
+        acquire()
+        return real_rename(self, new_base)
+    m.FsTarget.rename_to = wrapped_rename
+
+res = m.retire(wsid, entity=entity, retention=0)
+sweep = m.sweep(retention=0, execute=True)
+print(json.dumps({"outcome": res.get("outcome"), "reason_code": res.get("reason_code"),
+                  "reason": res.get("reason"), "sweep_actions": [i.get("action") for i in sweep["items"]]}))
+PY
+}
+
+# --- F2a. THE REVIEWER'S INTERLEAVING: the worker acquires INSIDE preservation
+# (after the under-lock check, before the rename). Layer one refuses; nothing
+# is renamed; the worker's file is where it wrote it.
+new_fixture
+BEFORE_ALPHA_INODE="$(inode_of "$CONTAINER/alpha")"
+BEFORE_WT="$(wt_snapshot "$OWNER_REPO")"
+rc=0
+DRV="$(race_driver inside-preserve "$WS_ALPHA" 5555aaaa6666bbbb)"
+assert_eq "refused" "$(jf "$DRV" outcome)" "retirement refused" || rc=1
+assert_eq "reacquired" "$(jf "$DRV" reason_code)" "because the workspace was reacquired" || rc=1
+assert_dir "$CONTAINER/alpha" "the workspace is at its own path" || rc=1
+assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "and is the same object" || rc=1
+a; [ -f "$CONTAINER/alpha/new-live-work.txt" ] || { printf '        ASSERT FAILED: the worker'"'"'s file is not at the original path\n'; rc=1; }
+assert_eq "written after the last check" "$(cat "$CONTAINER/alpha/new-live-work.txt" 2>/dev/null)" "with its bytes" || rc=1
+a; [ -z "$(ls -d "$CONTAINER"/alpha.richos-retired-* 2>/dev/null)" ] || { printf '        ASSERT FAILED: a quarantine directory exists\n'; rc=1; }
+assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git registrations unchanged" || rc=1
+assert_eq "[]" "$(jf "$DRV" sweep_actions)" "the sweep found nothing to erase" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F2a   a worker that acquires the workspace INSIDE preservation is detected before the rename: retirement refuses (reacquired), nothing is renamed, the worker's new file is at the original path, and the sweep erases nothing"
+else
+    bad "F2a   a worker acquiring during preservation lost its work or its path — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+# --- F2b. THE TIGHTER WINDOW: the worker acquires between the LAST pre-rename
+# check and the rename itself. Layer two catches it AFTER the rename and
+# renames the directory BACK through the same parent descriptor.
+new_fixture
+BEFORE_ALPHA_INODE="$(inode_of "$CONTAINER/alpha")"
+BEFORE_WT="$(wt_snapshot "$OWNER_REPO")"
+rc=0
+DRV="$(race_driver before-rename "$WS_ALPHA" 7777aaaa8888bbbb)"
+assert_eq "refused" "$(jf "$DRV" outcome)" "retirement refused" || rc=1
+assert_eq "reacquired-after-quarantine" "$(jf "$DRV" reason_code)" "caught after the rename" || rc=1
+assert_contains "$(jf "$DRV" reason)" "UNDONE" "the outcome says the rename was undone" || rc=1
+assert_dir "$CONTAINER/alpha" "the workspace is back at its own path" || rc=1
+assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "the same object, renamed there and back" || rc=1
+assert_eq "written after the last check" "$(cat "$CONTAINER/alpha/new-live-work.txt" 2>/dev/null)" "the worker's file rode along" || rc=1
+a; [ -z "$(ls -d "$CONTAINER"/alpha.richos-retired-* 2>/dev/null)" ] || { printf '        ASSERT FAILED: a quarantine directory remains\n'; rc=1; }
+assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git still registers the worktree (nothing was pruned)" || rc=1
+assert_eq "[]" "$(jf "$DRV" sweep_actions)" "the sweep erases nothing: no completed quarantine is on record" || rc=1
+N_INTENT="$(R records "$WS_ALPHA" | python3 -c 'import json,sys; rs=json.load(sys.stdin); print(sum(1 for r in rs if r.get("outcome")=="in-progress"))')"
+assert_eq "1" "$N_INTENT" "the intent is on record" || rc=1
+RECON="$(R reconcile)"
+assert_eq "[]" "$(jf "$RECON" dangling)" "and reconcile shows it RESOLVED by the refusal record — nothing dangling" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F2b   a worker that acquires between the last check and the rename is caught AFTER the rename: the directory is renamed back (same inode), git still registers it, the worker's file is intact, and no completed quarantine exists for the sweep to erase"
+else
+    bad "F2b   an acquisition in the rename window was not undone — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+# --- F2c. THE BACKSTOP: the sweep erases only a quarantine whose every byte is
+# in the verified archive. Content that appeared after preservation keeps it.
+new_fixture
+rc=0
+OUT="$(H --workspace "$WS_ALPHA" --retention-days 0)"
+assert_eq "0" "$?" "retirement succeeds" || rc=1
+QPATH="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["quarantine"]["path"])' 2>/dev/null)"
+printf 'a late writer\n' >"$QPATH/late.txt"
+SOUT="$(R sweep --retention-days 0 --execute)"
+assert_contains "$SOUT" "quarantine-diverged" "an extra file keeps the quarantine" || rc=1
+assert_dir "$QPATH" "kept" || rc=1
+rm -f "$QPATH/late.txt"
+cp "$QPATH/untracked.txt" "$FX/untracked.orig"
+printf 'changed after preservation\n' >>"$QPATH/untracked.txt"
+SOUT="$(R sweep --retention-days 0 --execute)"
+assert_contains "$SOUT" "quarantine-diverged" "changed bytes keep the quarantine" || rc=1
+assert_dir "$QPATH" "still kept" || rc=1
+cp "$FX/untracked.orig" "$QPATH/untracked.txt"
+SOUT="$(R sweep --retention-days 0 --execute)"
+assert_contains "$SOUT" '"action": "erased"' "with every byte covered, the erase proceeds" || rc=1
+assert_absent "$QPATH" "erased" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F2c   the sweep refuses (quarantine-diverged) while the quarantine holds any byte the verified archive does not — an extra file, a changed file — and erases once it holds nothing more"
+else
+    bad "F2c   the sweep erased content the archive did not cover, or never erased at all"
+fi
+
+echo "--- REVIEW 2026-09-06, finding 3: the journal that would not take a record ---"
+
+# --- F3a. THE REVIEWER'S PROBE: a read-only journal. Nothing moves, the
+# outcome is failed, restore has nothing to find because nothing was retired.
+# Then the positive control: writable journal, same fixture, retirement proceeds.
+new_fixture
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+mkdir -p "$RICHOS_WORKSPACE_RETIRE_DIR"
+JOURNAL="$RICHOS_WORKSPACE_RETIRE_DIR/retirements.jsonl"
+: >"$JOURNAL"
+chmod 400 "$JOURNAL"
+rc=0
+OUT="$(H --workspace "$WS_ALPHA")"
+RC=$?
+assert_eq "4" "$RC" "failed (exit 4), not success" || rc=1
+assert_contains "$OUT" "journal-unwritable" "the reason is the journal" || rc=1
+assert_contains "$OUT" '"outcome": "failed"' "outcome failed" || rc=1
+assert_dir "$CONTAINER/alpha" "the workspace is at its own path" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "byte-for-byte" || rc=1
+assert_eq "0" "$(stat -f %z "$JOURNAL" 2>/dev/null || stat -c %s "$JOURNAL")" "the journal is still empty" || rc=1
+ROUT="$(R restore "$WS_ALPHA" "$FX/restored")"
+assert_eq "3" "$?" "restore refuses" || rc=1
+assert_contains "$ROUT" "no-retirement-record" "accurately: nothing was retired" || rc=1
+chmod 600 "$JOURNAL"
+OUT="$(H --workspace "$WS_ALPHA")"
+assert_eq "0" "$?" "with the journal writable the same retirement proceeds" || rc=1
+assert_contains "$OUT" '"outcome": "quarantined"' "quarantined" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F3a   an unwritable journal fails the retirement BEFORE anything moves (outcome failed, workspace byte-identical, journal empty, restore accurately finds nothing), and the identical retirement proceeds once the journal is writable"
+else
+    bad "F3a   an unwritable journal was reported as a retirement, or the workspace moved"
+fi
+
+# --- F3b. THE COMPLETION record cannot be written AFTER the rename (the intent
+# landed). The rename is UNDONE, the outcome is failed, git still registers
+# the worktree, and reconcile shows the intent resolved as source-present.
+new_fixture
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+BEFORE_ALPHA_INODE="$(inode_of "$CONTAINER/alpha")"
+BEFORE_WT="$(wt_snapshot "$OWNER_REPO")"
+rc=0
+DRV="$(python3 - "$LIB" "$WS_ALPHA" "$ENTITY" <<'PY'
+import importlib.util, json, sys
+lib, wsid, entity = sys.argv[1:4]
+spec = importlib.util.spec_from_file_location("wr", lib)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+real = m.append_record
+def failing(rec):
+    # Only the COMPLETION record fails: the intent before it lands.
+    if rec.get("operation") == "retire" and rec.get("outcome") == "quarantined":
+        return False
+    return real(rec)
+m.append_record = failing
+res = m.retire(wsid, entity=entity)
+m.append_record = real
+print(json.dumps({"outcome": res.get("outcome"), "stage": res.get("stage"),
+                  "reason_code": res.get("reason_code"), "reason": res.get("reason")}))
+PY
+)"
+assert_eq "failed" "$(jf "$DRV" outcome)" "outcome failed" || rc=1
+assert_eq "journal-completion" "$(jf "$DRV" stage)" "at the completion write" || rc=1
+assert_eq "journal-unwritable" "$(jf "$DRV" reason_code)" "reason code" || rc=1
+assert_contains "$(jf "$DRV" reason)" "UNDONE" "the rename was undone" || rc=1
+assert_dir "$CONTAINER/alpha" "the workspace is back at its own path" || rc=1
+assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "same object" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "byte-for-byte" || rc=1
+assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git still registers it — nothing was pruned" || rc=1
+a; [ -z "$(ls -d "$CONTAINER"/alpha.richos-retired-* 2>/dev/null)" ] || { printf '        ASSERT FAILED: a quarantine directory remains\n'; rc=1; }
+RECON="$(R reconcile)"
+assert_eq "1" "$(printf '%s' "$RECON" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["dangling"]))')" "reconcile lists the one dangling intent" || rc=1
+assert_contains "$RECON" "source-present" "and says the workspace is at its own path" || rc=1
+ROUT="$(R restore "$WS_ALPHA" "$FX/restored-from-intent")"
+assert_eq "0" "$?" "restore finds the archive through the INTENT record" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$FX/restored-from-intent/workspace")" "and reproduces the tree" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F3b   when the completion record cannot be written after the rename, the rename is undone (same inode, git registration intact, nothing pruned), the outcome is failed, reconcile names the dangling intent as source-present, and restore still finds the verified archive through the intent"
+else
+    bad "F3b   a lost completion record left the workspace moved, or reported success — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+# --- F3c. The sweep records BEFORE it erases; a journal that will not take the
+# record erases nothing.
+new_fixture
+rc=0
+OUT="$(H --workspace "$WS_ALPHA" --retention-days 0)"
+assert_eq "0" "$?" "retirement succeeds" || rc=1
+QPATH="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["quarantine"]["path"])' 2>/dev/null)"
+JOURNAL="$RICHOS_WORKSPACE_RETIRE_DIR/retirements.jsonl"
+chmod 400 "$JOURNAL"
+SOUT="$(R sweep --retention-days 0 --execute)"
+chmod 600 "$JOURNAL"
+assert_contains "$SOUT" "journal-unwritable" "the sweep names the journal" || rc=1
+assert_dir "$QPATH" "and erases nothing" || rc=1
+SOUT="$(R sweep --retention-days 0 --execute)"
+assert_contains "$SOUT" '"action": "erased"' "writable again, the erase proceeds" || rc=1
+assert_absent "$QPATH" "erased" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F3c   the sweep erases nothing it cannot first put on record, and erases once it can"
+else
+    bad "F3c   the sweep erased without a record"
+fi
+
+# --- F3d. The legacy route holds the same line: an unwritable journal fails
+# the removal before anything is touched.
+new_fixture
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+mkdir -p "$RICHOS_WORKSPACE_RETIRE_DIR"
+JOURNAL="$RICHOS_WORKSPACE_RETIRE_DIR/retirements.jsonl"
+: >"$JOURNAL"
+chmod 400 "$JOURNAL"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+RC=$?
+chmod 600 "$JOURNAL"
+assert_eq "4" "$RC" "failed (exit 4)" || rc=1
+assert_contains "$OUT" "journal-unwritable" "the reason is the journal" || rc=1
+assert_dir "$CONTAINER/alpha" "the worktree is still there" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "byte-for-byte" || rc=1
+# The positive twin, same fixture: with the journal writable the identical
+# request removes the worktree — so the refusal above was the journal and not
+# some earlier gate wearing its label.
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "writable again, the identical removal proceeds" || rc=1
+assert_absent "$CONTAINER/alpha" "and the worktree is gone" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F3d   the legacy route removes nothing it cannot first put on record, and removes once it can"
+else
+    bad "F3d   the legacy route removed without a record, or never removed"
+fi
+
+echo "--- REVIEW 2026-09-06: the reviewer's own script, verbatim ---"
+
+# The reviewer's reproduce.py, vendored beside this suite with one changed line
+# (ENGINE points at the engine it ships with), run as the reviewer ran it and
+# read as the reviewer said to read it: by the named outcomes, never the exit
+# status. Its temporary root is placed inside this suite's sandbox.
+REVIEW_PY="$SCRIPT_DIR/workspace-retire.review-2026-09-06.py"
+rc=0
+a; [ -f "$REVIEW_PY" ] || { printf '        ASSERT FAILED: the vendored reviewer script is missing at %s\n' "$REVIEW_PY"; rc=1; }
+REVIEW_ORIG=/Users/alex/ab/richos-hq/docs/verification/worktree-removal-fix-review-2026-09-06/reproduce.py
+if [ -f "$REVIEW_ORIG" ]; then
+    # Counted as an assertion ONLY when the reviewer's original is here to
+    # compare against. An absent reference is a note, never a pass.
+    a; diff <(sed 1,12d "$REVIEW_PY" | grep -v '^ENGINE = ') <(grep -v '^ENGINE = ' "$REVIEW_ORIG") >/dev/null 2>&1 \
+        || { printf '        ASSERT FAILED: the vendored script differs from the reviewer'"'"'s beyond the ENGINE line\n'; rc=1; }
+else
+    printf '        note: the reviewer'"'"'s original is not on this machine (%s); the vendored copy was not byte-compared to it in this run\n' "$REVIEW_ORIG"
+fi
+REVIEW_OUT="$(cd "$SANDBOX" && TMPDIR="$SANDBOX" PYTHONDONTWRITEBYTECODE=1 python3 "$REVIEW_PY" 2>&1)"
+REVIEW_RC=$?
+assert_eq "0" "$REVIEW_RC" "the reviewer's script ran to completion (its own asserts hold)" || rc=1
+REVIEW_JSON="$(printf '%s\n' "$REVIEW_OUT" | sed -n '/^\[/,/^\]/p')"
+REVIEW_ROOT="$(printf '%s\n' "$REVIEW_OUT" | sed -n 's/^Evidence: \(.*\)\/results.json$/\1/p')"
+read_case() { # <case> <field>
+    printf '%s' "$REVIEW_JSON" | python3 -c '
+import json, sys
+rs = json.loads(sys.stdin.read())
+r = [x for x in rs if x.get("case") == sys.argv[1]][0]
+v = r.get(sys.argv[2])
+print(v if isinstance(v, str) else json.dumps(v))' "$1" "$2" 2>/dev/null
+}
+assert_eq "ALIVE" "$(read_case legacy_unknown_owner_live_target verified_liveness)" "case 1: the owner was verified ALIVE" || rc=1
+assert_eq "3" "$(read_case legacy_unknown_owner_live_target exit)" "case 1: the helper refused (exit 3; was 0)" || rc=1
+assert_eq "true" "$(read_case legacy_unknown_owner_live_target workspace_survived)" "case 1: the workspace survived (was false)" || rc=1
+assert_eq "true" "$(read_case legacy_unknown_owner_live_target native_owner_workspace_survived)" "case 1: the owner's isolation worktree survived" || rc=1
+assert_contains "$(read_case legacy_unknown_owner_live_target output)" "owner-unbound" "case 1: refused as owner-unbound" || rc=1
+assert_eq "ALIVE" "$(read_case worker_acquires_after_last_liveness_check liveness_before_rename)" "case 2: the new worker was ALIVE before the rename" || rc=1
+assert_eq "refused" "$(read_case worker_acquires_after_last_liveness_check outcome)" "case 2: retirement refused (was quarantined)" || rc=1
+assert_eq "true" "$(read_case worker_acquires_after_last_liveness_check original_path_survived)" "case 2: the original path survived (was false)" || rc=1
+assert_eq "[]" "$(read_case worker_acquires_after_last_liveness_check sweep)" "case 2: the sweep erased nothing (was one erase)" || rc=1
+a; [ -f "$REVIEW_ROOT/startup-after-check/work/new-live-work.txt" ] \
+    || { printf '        ASSERT FAILED: case 2: the new worker'"'"'s file is not at the original path (%s)\n' "$REVIEW_ROOT"; rc=1; }
+assert_eq "failed" "$(read_case retirement_journal_unwritable outcome)" "case 3: outcome failed (was quarantined)" || rc=1
+assert_eq "true" "$(read_case retirement_journal_unwritable workspace_survived_at_original_path)" "case 3: the workspace survived at its path (was false)" || rc=1
+assert_eq "0" "$(read_case retirement_journal_unwritable journal_bytes)" "case 3: the journal is empty" || rc=1
+assert_eq "refused" "$(read_case retirement_journal_unwritable restore_outcome)" "case 3: restore refuses — accurately, nothing was retired" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "REVIEW  the reviewer's reproduce.py, run verbatim: finding 1 refuses with the workspace intact, finding 2 refuses with the original path and the new worker's file intact and nothing swept, finding 3 fails with the workspace intact and nothing to restore — read by the named outcomes, as the reviewer specified"
+else
+    bad "REVIEW  the reviewer's script still reproduces at least one finding"
+fi
+
 
 echo
 echo "=== workspace-retire: $PASS passed, $FAIL failed, $NOTCOVERED not covered (stated by name above), $ASSERTS assertions ==="
