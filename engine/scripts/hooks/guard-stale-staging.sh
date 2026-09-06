@@ -131,6 +131,30 @@
 # every rooted hook carries it byte-identically.
 #
 # ===========================================================================
+# THE UNEVALUATED-PAYLOAD DECLARATION, AND WHY IT LOOKS WRONG UNTIL YOU READ IT
+# ===========================================================================
+# UNEVALUATED-PAYLOAD-EXEMPT: payload-independent — in a repository that has
+# not declared STAGING_TREES this hook stands down at the adoption switch
+# BEFORE it parses anything, so its verdict on an empty, truncated or non-JSON
+# payload is the same exit 0 in the same silence as its verdict on a perfect
+# one. Most repositories on a machine are in that state and none of them
+# adopted this contract, so announcing there would be a nag about a gate they
+# never asked for — and stale-staging.test.sh case 1d asserts the stronger
+# thing, that an unadopted repository is not merely quiet but accumulates NO
+# STATE, which a notice would violate by writing
+# .claude/state/unevaluated-payloads.log into it.
+#
+# THE CLAIM IS CONDITIONAL AND THE CONDITION IS THE DECLARATION. Where
+# STAGING_TREES IS declared this hook is emphatically payload-DEPENDENT, and it
+# wires scripts/lib/unevaluated-notice.sh a few lines below exactly like its
+# siblings — an adopted repository hears about a call this guard could not
+# read. So read the marker above as "payload-independent while stood down",
+# which is the only state unevaluated-payload.test.sh can observe from a
+# repository that has not adopted the contract, and which that suite verifies
+# empirically rather than on trust: it drives all four payloads and requires
+# the output to be identical.
+#
+# ===========================================================================
 # THE ESCAPE HATCH — a live prompt line, with a reason, logged
 # ===========================================================================
 #     stale-staging-ack: <reason>
