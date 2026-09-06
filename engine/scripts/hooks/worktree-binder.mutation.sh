@@ -48,8 +48,8 @@ mutant bind-failure-swallowed "B18" "$D" \
     "a refused rebind would look like a clean spawn; the agent would carry the wrong member set with nothing said."
 
 mutant banner-does-not-exit "B06" "$D" \
-    'if [ "${#WARN[@]}" -gt 0 ] || [ "${#REAPED[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then{NL}  exit 2' \
-    'if [ "${#WARN[@]}" -gt 0 ] || [ "${#REAPED[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then{NL}  exit 2' \
+    'if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then{NL}  exit 2' \
+    'if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then{NL}  exit 2' \
     "the binding-failed banner would print and the hook would exit 0 — the lead's context never receives it."
 
 mutation_end

@@ -90,7 +90,7 @@
 #   the rename and undo on any change, record before and after, unlock and
 #   prune the git registration. NOTHING IS DELETED. The directory is gone from
 #   its path and from git, which is all the reaper ever relied on; the bytes
-#   sit in quarantine for the retention period and in a verified archive
+#   remain in quarantine indefinitely and in a verified archive
 #   after it.
 #
 #   WHY (the second review's three findings, all on this route): a worker that
@@ -172,7 +172,8 @@ usage, RETIREMENT mode (preferred):
 
   List identities:   python3 <engine>/scripts/lib/workspace-retire.py list
   Delete a branch:   python3 <engine>/scripts/lib/workspace-retire.py retire-branch <ws-id>
-  Expire quarantine: python3 <engine>/scripts/lib/workspace-retire.py sweep --execute
+  Inspect retention: python3 <engine>/scripts/lib/workspace-retire.py sweep
+  Quarantines are kept indefinitely; sweep --execute refuses without exclusive access.
   Restore:           python3 <engine>/scripts/lib/workspace-retire.py restore <ws-id> <dest>
   Dangling intents:  python3 <engine>/scripts/lib/workspace-retire.py reconcile
 

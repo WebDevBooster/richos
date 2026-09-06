@@ -45,15 +45,10 @@ mutant writers-not-killed "C14" "$R" \
     '    left = []{NL}    if left:{NL}        raise RuntimeError("processes still using %s after SIGKILL: %s" % (quar, left))' \
     "a process standing in the quarantine would survive capture and could recreate the path after removal."
 
-mutant residue-not-reclaimed "C15" "$R" \
+mutant residue-ownership-ignored "C15" "$R" \
     '    if os.path.lexists(orig):{NL}        foreign = _foreign_registration(m, orig)' \
     '    if False:{NL}        foreign = _foreign_registration(m, orig)' \
-    "a recreated original path would sit beside a removed quarantine forever, uncounted."
-
-mutant backup-ref-not-protected "C04" "$R" \
-    '    if "re-created" in outcomes:{NL}        fields["backup_ref_recreated"] = True{NL}    return tx.update_member(sid, aid, index, **fields)' \
-    '    if "re-created" in outcomes:{NL}        fields["backup_ref_recreated"] = True{NL}    git_out(repo, "update-ref", "-d", ref) if ref else None{NL}    return tx.update_member(sid, aid, index, **fields)' \
-    "unregistering would delete the backup ref — the only thing that keeps unlanded commits reachable once the harness deletes the branch (PF11)."
+    "capture would proceed despite unknown ownership at a recreated original path."
 
 # (retired 2026-09-03: hard-failure-hidden mutated `done` to ignore present
 # directories. No member state parks a directory any more — every condition
@@ -97,15 +92,10 @@ mutant native-gone-backstop-trigger-happy "C40" "$R" \
 
 L="scripts/lib/worktree-transactions.py"
 
-mutant residue-unverified "C19" "$R" \
-    '                _verify_tar(rpath, rman){NL}                residue_verified = True' \
-    '                residue_verified = False' \
-    "the residue at an original path would be deleted on the strength of an archive nobody verified — the both-present policy requires both exact paths archived AND verified before anything is removed (landed review 2026-09-03, blocker 3)."
-
-mutant foreign-original-deleted "C45" "$R" \
+mutant foreign-original-misclassified "C45" "$R" \
     '        foreign = _foreign_registration(m, orig)' \
     '        foreign = ""' \
-    "a worktree git registers at the original path — somebody else's, prepared later at the same path — would be archived as residue and DELETED: a live worker's tree destroyed by name resemblance."
+    "a registered replacement workspace would be misclassified as unknown residue."
 
 mutant drift-parked-as-failed "C44" "$R" \
     '    if m.get("head") and head and head != m.get("head"):{NL}        n = int(m.get("head_drift_count") or 0) + 1' \
@@ -162,64 +152,25 @@ mutant artifacts-not-private "C34" "$R" \
     '    pass{AND}        pass{AND}    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)' \
     "captures holding ignored secrets would be created at the ambient umask, readable by every account on the machine."
 
-mutant retention-never-runs "C37" "$R" \
-    '    try:{NL}        retention_pass(){NL}    except Exception as e:' \
-    '    try:{NL}        pass{NL}    except Exception as e:' \
-    "captures, backup refs and transaction records would accumulate forever; the secret-retention window would be unbounded."
-
-mutant record-expires-before-artifacts "C36" "$R" \
-    '            if age >= tx_days and artifacts_gone:' \
-    '            if age >= tx_days:' \
-    "a transaction record would be deleted while its backup ref still existed — an artifact orphaned from the record that explains it."
-
-mutant backup-ref-expiry-assumed "C38" "$R" \
-    '                    gone, why = _expire_backup_ref(m.get("repo"), ref)' \
-    '                    gone, why = True, "assumed"' \
-    "a rejected `git update-ref -d` would still stamp the member expired; transaction retention trusts the stamp and deletes the only record saying the ref exists, and the ref lives on forever, untracked (landed review 2026-09-03, blocker 4)."
-
-mutant backup-ref-exit-code-trusted "C38b" "$R" \
-    '    if _ref_exists(repo, ref):{NL}        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref' \
-    '    if False:{NL}        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref' \
-    "a deletion that exited 0 without removing the ref would be believed — the exact ref is what must be verified absent, not the exit code."
-
 mutant budget-ignored "C23" "$R" \
     '        if deadline and time.time() > deadline:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \
     '        if False:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \
     "a SessionStart crash-recovery run could hold a session start for as long as the backlog takes."
 
-# --- THE HARNESS LOCK (2026-09-04). Each mutant here removes ONE precondition
-# on breaking a git worktree lock. The lock is the platform's own signal, and
-# the whole safety of this revision is that it is released only over an object
-# that is provably nobody's workspace with its bytes provably preserved.
+# These mutants reintroduce erasure only inside disposable engine copies.
+mutant verified-erasure-reintroduced "C02" "$R" \
+    '    raise BlockedFailure("exclusive-access-unavailable: automatic erasure is disabled; "{NL}                         "quarantine and Git registration are retained")' \
+    '    __import__("shutil").rmtree(t["members"][index]["quarantine"]){NL}    raise BlockedFailure("unsafe deletion")' \
+    "a verified quarantine would lose its files before reporting blocked."
 
-mutant lock-never-broken "C48" "$R" \
-    '            _break_own_quarantine_lock(t, index, repo, quar, reg.get(tx.norm_path(quar)))' \
-    '            pass' \
-    "the pre-2026-09-04 behavior returns: a verified quarantine locked by its own agent retries forever, and worktrees accumulate one per dispatch until the session process exits."
+mutant unregistered-erasure-reintroduced "C49" "$R" \
+    '    raise BlockedFailure("exclusive-access-unavailable: automatic erasure is disabled; "{NL}                         "the unregistered quarantine is retained")' \
+    '    __import__("shutil").rmtree(t["members"][index]["quarantine"]){NL}    raise BlockedFailure("unsafe deletion")' \
+    "a transaction queued by the old version would erase a late write."
 
-mutant foreign-lock-broken "C52" "$R" \
-    '    if holder != aid:{NL}        refuse("P4: the lock is signed %r, not by this member'"'"'s agent %r" % (holder or lock_line, aid))' \
-    '    if False:{NL}        refuse("P4: the lock is signed %r, not by this member'"'"'s agent %r" % (holder or lock_line, aid))' \
-    "a lock left by ANY other agent — including one that is still running — would be broken and its worktree removed. This is the live-agent eviction of wiki 12.1, mechanized."
-
-mutant quarantine-name-not-checked "C60" "$R" \
-    '    if tx.norm_path(quar) != tx.norm_path(expected) or tx.norm_path(quar) != tx.norm_path(m.get("quarantine") or ""):' \
-    '    if False:' \
-    "the lock break could be aimed at any path a transaction record happened to name, instead of only at the canonical quarantine name that ONLY a terminal ingress can create."
-
-mutant archive-not-required "C58" "$R" \
-    '    if not (m.get("verified_ts") and cap and os.path.isdir(cap)):' \
-    '    if False:' \
-    "a lock would be broken and a directory deleted with no verified archive on disk — the bytes would be preserved only by assertion."
-
-mutant blocked-reported-as-retry "C54" "$R" \
-    '        "members_blocked_on_a_condition_waiting_cannot_clear": m["blocked"],' \
-    '        "members_blocked_on_a_condition_waiting_cannot_clear": 0,' \
-    "a deadlock would be reported as a normal retry again — thirty stuck members read as a fleet under control for a full day on 2026-09-04."
-
-mutant blocked-backoff-compounds "C62" "$R" \
-    '        delay = base if blocked else min(base * (2 ** max(attempts - 1, 0)), cap)' \
-    '        delay = min(base * (2 ** max(attempts - 1, 0)), cap)' \
-    "a blocked member would compound to six hours again, so a repair that lands at any moment would go unnoticed for most of a working day and read as not working."
+mutant capture-expiry-reintroduced "C35" "$R" \
+    '    return {"captures": 0, "backup_refs": 0, "transactions": 0,' \
+    '    for t in tx.iter_transactions():{NL}        for m in t.get("members", []):{NL}            c = m.get("capture_dir"){NL}            if c and os.path.isdir(c):{NL}                __import__("shutil").rmtree(c){NL}    return {"captures": 0, "backup_refs": 0, "transactions": 0,' \
+    "capture expiry would delete the recovery artifacts retained by policy."
 
 mutation_end

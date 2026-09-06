@@ -12,6 +12,19 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- Retirement archives now include a verified Git object pack for HEAD history
+  and every index stage. Restore builds an independent recovery repository,
+  preserving staged content after the original objects are pruned. Older
+  archives report incomplete Git recovery and unsupported submodule indexes
+  refuse retirement.
+- Quarantine sweep no longer erases directories. A coverage check cannot exclude
+  a late writer, so `sweep --execute` refuses with exit 3 until exclusive access
+  can be enforced. The detector preserves and reports unknown directories.
+  The terminal reconciler also retains quarantines, Git registrations and
+  recovery artifacts, reporting blocked cleanup rather than deleting them.
+  See [the safety contract](docs/workspace-retirement-safety.md) for recovery
+  commands, regression coverage and the remaining OS boundary.
+
 - **The legacy worktree remover still had three ways to destroy something
   the retirement route protected** (`scripts/lib/workspace-retire.py`,
   `scripts/remove-agent-worktree.sh`, `scripts/lib/workspace-retire.test.sh`,

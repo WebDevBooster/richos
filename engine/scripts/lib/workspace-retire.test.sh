@@ -826,32 +826,16 @@ notcovered "R9   OS boundary denies writes outside an agent's authority" \
            pass: any check it ran would be a check of itself. The half that IS in this
            module's power is asserted immediately below."
 
-# What this module CAN prove: it holds no code path that erases anything
-# outside the retention sweep, and the sweep's target is never caller-supplied.
+# Managed retirement has no directory-erasing call while exclusive access
+# cannot be enforced. Behavioral coverage below also proves the sweep retains.
 rc=0
-# Match CALL SITES — `name(` — not the word. The first version of this scan
-# matched the module docstring's own sentence "no `rm`, no `rmtree`", which is
-# a scan finding the promise instead of the thing promised.
 ERASERS="$(grep -n 'shutil\.rmtree(\|os\.remove(\|os\.unlink(\|shutil\.move(\|os\.rmdir(' "$LIB" || true)"
-SWEEP_START="$(grep -n '^def sweep(' "$LIB" | cut -d: -f1)"
-SWEEP_END="$(grep -n '^def list_workspaces(' "$LIB" | cut -d: -f1)"
-OUTSIDE=""
-while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    n="${line%%:*}"
-    if [ "$n" -lt "$SWEEP_START" ] || [ "$n" -gt "$SWEEP_END" ]; then
-        OUTSIDE="$OUTSIDE$line
-"
-    fi
-done <<EOF
-$ERASERS
-EOF
-assert_eq "" "$(printf '%s' "$OUTSIDE" | tr -d '[:space:]')" "every erasing call in the module lives inside sweep()" || rc=1
-a; [ -n "$ERASERS" ] || { printf '        ASSERT FAILED: found NO erasing calls at all — the scan matched nothing and would pass over a gutted file\n'; rc=1; }
+assert_eq "" "$ERASERS" "no directory-erasing API in managed retirement" || rc=1
+assert_contains "$(cat "$LIB")" 'def sweep(' "the implementation under test exists" || rc=1
 if [ "$rc" -eq 0 ]; then
-    ok "R9-partial  the retirement module contains exactly one erasing call site and it is inside the retention sweep (the scan is proven non-empty, so it cannot pass by matching nothing)"
+    ok "R9-partial  managed retirement contains no directory-erasing operation"
 else
-    bad "R9-partial  an erasing call exists outside the retention sweep"
+    bad "R9-partial  managed retirement can erase a directory"
 fi
 
 # ==========================================================================
@@ -910,11 +894,10 @@ else
 fi
 
 # ==========================================================================
-# REQUIREMENT 6 — retention actually retains, and the sweep erases only what
-# this module minted. (The row above proves the refusals; this proves the
-# positive, so that a sweep which never erases anything cannot pass.)
+# REQUIREMENT 6 — expiration is advisory until exclusive access is enforced.
+# An eligible quarantine must remain intact even when --execute is supplied.
 # ==========================================================================
-echo "--- retention: the sweep retains, then erases, and only its own names ---"
+echo "--- retention: expiry never authorizes an unsafe erase ---"
 
 new_fixture
 rc=0
@@ -931,15 +914,15 @@ printf 'decoy\n' >"$CONTAINER/decoy/keep.txt"
 DECOY="$(snapshot "$CONTAINER/decoy")"
 
 SOUT="$(R sweep --retention-days 0 --execute)"
-assert_contains "$SOUT" "erased" "retention elapsed, the quarantine is erased" || rc=1
-assert_absent "$QPATH" "the quarantine is gone once retention elapsed" || rc=1
+assert_contains "$SOUT" "exclusive-access-unavailable" "expiry cannot authorize unsafe erasure" || rc=1
+assert_dir "$QPATH" "quarantine retained after expiry without an exclusive writer boundary" || rc=1
 assert_eq "$DECOY" "$(snapshot "$CONTAINER/decoy")" "a directory the sweep has no record of is untouched" || rc=1
 assert_eq "$BEFORE_BETA" "$(snapshot "$CONTAINER/beta")" "the sibling workspace is untouched by the sweep" || rc=1
 a
 ARCHIVE="$(R records "$WS_ALPHA" | python3 -c 'import json,sys; rs=[r for r in json.load(sys.stdin) if r.get("outcome")=="quarantined"]; print(rs[-1]["preservation"]["archive"])' 2>/dev/null)"
 [ -f "$ARCHIVE" ] || { printf '        ASSERT FAILED: the verified archive did not survive the sweep\n'; rc=1; }
 if [ "$rc" -eq 0 ]; then
-    ok "RET  the quarantine is RETAINED inside its period and erased after it, the verified archive outlives the erase, and an unrecorded sibling directory is never touched"
+    ok "RET  the quarantine and archive are RETAINED before and after expiry, and an unrecorded sibling directory is never touched"
 else
     bad "RET  retention did not retain, did not expire, or the sweep reached beyond its own records"
 fi
@@ -1355,12 +1338,12 @@ assert_contains "$SOUT" "quarantine-diverged" "changed bytes keep the quarantine
 assert_dir "$QPATH" "still kept" || rc=1
 cp "$FX/untracked.orig" "$QPATH/untracked.txt"
 SOUT="$(R sweep --retention-days 0 --execute)"
-assert_contains "$SOUT" '"action": "erased"' "with every byte covered, the erase proceeds" || rc=1
-assert_absent "$QPATH" "erased" || rc=1
+assert_contains "$SOUT" "exclusive-access-unavailable" "coverage cannot authorize unsafe erasure" || rc=1
+assert_dir "$QPATH" "retained without an enforced writer boundary" || rc=1
 if [ "$rc" -eq 0 ]; then
-    ok "F2c   the sweep refuses (quarantine-diverged) while the quarantine holds any byte the verified archive does not — an extra file, a changed file — and erases once it holds nothing more"
+    ok "F2c   the sweep refuses (quarantine-diverged) while the quarantine holds any byte the verified archive does not — an extra file, a changed file — and retains even when the archive covers every byte"
 else
-    bad "F2c   the sweep erased content the archive did not cover, or never erased at all"
+    bad "F2c   the sweep erased content the archive did not cover, or failed to retain the complete recovery"
 fi
 
 echo "--- REVIEW 2026-09-06, finding 3: the journal that would not take a record ---"
@@ -1454,13 +1437,13 @@ JOURNAL="$RICHOS_WORKSPACE_RETIRE_DIR/retirements.jsonl"
 chmod 400 "$JOURNAL"
 SOUT="$(R sweep --retention-days 0 --execute)"
 chmod 600 "$JOURNAL"
-assert_contains "$SOUT" "journal-unwritable" "the sweep names the journal" || rc=1
+assert_contains "$SOUT" "exclusive-access-unavailable" "sweep refuses regardless of journal permissions" || rc=1
 assert_dir "$QPATH" "and erases nothing" || rc=1
 SOUT="$(R sweep --retention-days 0 --execute)"
-assert_contains "$SOUT" '"action": "erased"' "writable again, the erase proceeds" || rc=1
-assert_absent "$QPATH" "erased" || rc=1
+assert_contains "$SOUT" "exclusive-access-unavailable" "a writable journal cannot authorize erasure" || rc=1
+assert_dir "$QPATH" "retained without an enforced writer boundary" || rc=1
 if [ "$rc" -eq 0 ]; then
-    ok "F3c   the sweep erases nothing it cannot first put on record, and erases once it can"
+    ok "F3c   the sweep retains the quarantine regardless of journal writability"
 else
     bad "F3c   the sweep erased without a record"
 fi
@@ -1969,10 +1952,10 @@ assert_contains "$GLOB_SEEN" "beta" "the scanners' glob enumerates a real siblin
 a; case "$GLOB_SEEN" in *richos-retired*) printf '        ASSERT FAILED: the scanners'"'"' glob enumerates the quarantine (%s)\n' "$GLOB_SEEN"; rc=1 ;; esac
 # The sweep still finds and erases it where it is (the location did not break retention).
 SOUT="$(R sweep --retention-days 0 --execute)"
-assert_contains "$SOUT" '"action": "erased"' "the sweep erases it there once retention elapses" || rc=1
-assert_absent "$QPATH" "erased" || rc=1
+assert_contains "$SOUT" "exclusive-access-unavailable" "sweep retains quarantine after expiry" || rc=1
+assert_dir "$QPATH" "retained without an enforced writer boundary" || rc=1
 if [ "$rc" -eq 0 ]; then
-    ok "QDIR  the quarantine lives in <parent>/.richos-retired/, which the \`*/\` glob of the residue scan and of the auto-reaping hook does not enumerate (while the same glob does enumerate a real sibling), and the sweep still erases it there after retention"
+    ok "QDIR  the quarantine lives in <parent>/.richos-retired/, which the \`*/\` glob of the residue scan and of the auto-reaping hook does not enumerate (while the same glob does enumerate a real sibling), and the sweep retains it after expiry"
 else
     bad "QDIR  the quarantine is where a scanner would delete or report it"
 fi
@@ -2157,6 +2140,15 @@ if [ "$rc" -eq 0 ]; then
     ok "RECHECK  the reviewer's second reproduce.py, run verbatim: finding 1 refuses as reacquired with the workspace and the new file intact, finding 2 quarantines with a verified archive, finding 3 refuses with the unrelated branch and its ref intact — read by the named outcomes, as the reviewer specified"
 else
     bad "RECHECK  the reviewer's second script still reproduces at least one finding"
+fi
+
+
+# Independent recovery after original object loss and late-write retention.
+a
+if PYTHONDONTWRITEBYTECODE=1 python3 "$SCRIPT_DIR/workspace-retire.safety.test.py"; then
+    ok "SAFETY  independent Git recovery and non-erasure regression suite"
+else
+    bad "SAFETY  recovery or non-erasure regression failed"
 fi
 
 
