@@ -55,57 +55,99 @@ name: engine-self-verify
 # the engine's only previous Linux execution on 2026-08-29 — 24 suites then, 60 now.
 # Replaced with a `_sed_inplace` helper; MT and MC now run and pass, on both hosts.
 #
-# FIVE SUITES ARE RED. `ci-verify.sh`, run whole and unmodified on Linux from that clone:
-# **exit 1, 55 of 60 suites, 65m40s.** The list is the runner's own:
+# FIVE SUITES WERE RED AT `fc56c20`. `ci-verify.sh`, run whole and unmodified on Linux from
+# that clone: **exit 1, 55 of 60 suites, 65m40s.** The list was the runner's own:
 #
-#   contract-integrity.test.sh              its cases 54 and IN2, both below.
+#   contract-integrity.test.sh              its cases 54 and IN2.
 #   guard-worktree-isolation.test.sh        RED ON macOS TOO. Base cases pass; its clause-7
 #                                           mutation harness reports 3 of 7 properties not
 #                                           proven load-bearing, identically on each host.
 #   provision-claude-md.test.sh             RED ON macOS TOO. 18 cases on Linux, and every
 #                                           case in the suite's provisioning block.
-#   reconcile-terminal-worktrees.test.sh    RED ON LINUX, GREEN ON A QUIET macOS. And it is
-#                                           not stable even in its redness: C16 under load,
-#                                           C14 on the quiet Linux pass. Also
-#                                           contract-integrity's case 54.
-#   install-reconciler-schedule.test.sh     RED ON LINUX ONLY, and it is honest redness:
-#                                           cases S17-S20 shim `launchctl` and assert launchd
-#                                           behavior on a host that has no launchd. Section 7
-#                                           of that file already carries a macOS-only gate;
-#                                           these four do not. What they should assert off
-#                                           Darwin is a question about what install.sh ought
-#                                           to DO there, which is not this file's to answer.
+#   reconcile-terminal-worktrees.test.sh    RED ON LINUX, GREEN ON A QUIET macOS. And not
+#                                           stable even in its redness: C16 under load, C14
+#                                           on the quiet Linux pass.
+#   install-reconciler-schedule.test.sh     RED ON LINUX ONLY, and honest redness: cases
+#                                           S17-S20 shim `launchctl` and assert launchd
+#                                           behavior on a host that has no launchd.
 #
 # THE RED LIST WAS MEASURED TWICE, ON PURPOSE. The first Linux pass ran while the machine
 # carried eleven other agents at a load average up to 58, and a red list taken under those
-# conditions cannot tell a defect from a flake — `reconcile-terminal-worktrees.test.sh` did
-# in fact fail on a loaded Mac and pass 57/57 on a quiet one. So the whole thing was re-run
-# on a quiet host before any of it was written down. Two suites changed classification
-# between the passes; the five above are what survived both.
+# conditions cannot tell a defect from a flake. So the whole thing was re-run on a quiet host
+# before any of it was written down. Two suites changed classification between the passes;
+# the five above are what survived both.
 #
-# Two more, named because they are the OTHER kinds of red:
+# =========================================================================================
+# RE-MEASURED AT `934f127` ON 2026-09-06 — 429 COMMITS LATER, AND THE LIST ABOVE WAS STALE
+# =========================================================================================
 #
-#   CL1.claim-gate-suite-passes   A FLAKE. Failed in one Linux pass, passed in the next, and
-#                                 `guard-unresolved-claims.test.sh` passes standalone in 3 s.
-#                                 That is the load-related flake its own cost measurement
-#                                 already documents, not a defect.
-#   IN2.inflight-notify-mutations A DIVERGENCE, and a precise one. It failed in both Linux
-#                                 passes, so it was not dismissed as a flake — it was run
-#                                 standalone on each host. macOS: 27/27 mutants killed.
-#                                 Linux: 26 killed, ONE SURVIVED — `abspath-not-realpath`.
-#                                 That property can only be proven load-bearing on a host
-#                                 where the two differ, and on macOS they do, because /tmp is
-#                                 a symlink to /private/tmp. On Linux /tmp is real, the
-#                                 mutant changes nothing observable, and it survives. Same
-#                                 hazard `ci-portability-notes.md` already lists for the
-#                                 /var -> /private/var physicalization, seen from the other
-#                                 side. Closing it means giving the fixture a symlinked path
-#                                 so the distinction exists on Linux too — a change to that
-#                                 harness, not to this file.
+# THE LIST ABOVE IS KEPT VERBATIM BECAUSE IT WAS TRUE WHEN IT WAS TAKEN. It is not a defect
+# list any more; it is a dated measurement, and the dating is the point. Four hundred and
+# twenty-nine commits landed between the two, three of them changing the very contracts these
+# suites assert. A red list is perishable, and this one perished in two days.
 #
-# NONE OF THIS IS CAUSED BY GOING PUBLIC. Two of the five are red on the machine the engine
-# is developed on, today, and a third is red on the platform CI uses. The flip does not
-# create them; it publishes them.
+# Every line below is a command that was run on macOS at `934f127` and its output. Nothing
+# here is inferred from the list above.
+#
+#   contract-integrity.test.sh            CASES 54 AND IN2 BOTH PASS. IN2 was closed by
+#                                         `a7f22e4` ("IN2 passed on this Mac by accident of
+#                                         the host, not by property of the test") — the
+#                                         symlinked-tmpdir fixture the note below asked for
+#                                         was built, so the Linux divergence is gone. The
+#                                         suite was nonetheless red, 142 passed / 24 failed,
+#                                         for a reason nobody had written down: TWENTY-ONE of
+#                                         the twenty-four were the probe's Layer Q, which
+#                                         asserted a terminal member reaches `removed` with
+#                                         the quarantine GONE. `a6c076c` (2026-09-06 04:35)
+#                                         disabled automatic erasure, making `verified`-plus-
+#                                         retained the contract, and did not touch the probe.
+#                                         Every `<name>-probe-passes` case runs the whole
+#                                         probe and wants exit 0, so one stale layer failed
+#                                         twenty-one of them. FIXED, with two negative
+#                                         controls (recovery gutted; erasure restored).
+#   guard-worktree-isolation.test.sh      REPRODUCED EXACTLY as recorded. The 2026-09-03
+#                                         cwd-spawn inversion had moved the suite out from
+#                                         under its harness: Q02 stopped carrying the
+#                                         externals property, and Q04/Q08 stopped
+#                                         discriminating because clause 7f now refuses every
+#                                         cwd-only spawn with exit 2 regardless. FIXED —
+#                                         all 174 pass, all 7 properties proven.
+#   provision-claude-md.test.sh           ALREADY GREEN, 37/37 in 0.7s. Fixed by `0b6842a`
+#                                         and `eb70a5a` after this file was written. Nothing
+#                                         was owed here.
+#   reconcile-terminal-worktrees.test.sh  GREEN ON A LOADED macOS — 59/59 plus all 30
+#                                         mutation properties, in 30m40s at load average
+#                                         7.5-10.9 with another suite running beside it. C14
+#                                         and C16, the two cases named above as the unstable
+#                                         ones, both pass. That is a stronger result than
+#                                         "green on a quiet Mac", and it is still not a
+#                                         Linux result.
+#   install-reconciler-schedule.test.sh   GREEN ON macOS both before and after, as expected
+#                                         for Linux-only redness. The real question this file
+#                                         asked — what install.sh ought to DO off Darwin —
+#                                         turned out to be already answered by install.sh, in
+#                                         two places, neither of which was under test. S16b,
+#                                         S16c and S16d now assert the off-Darwin contract ON
+#                                         EVERY HOST by shimming `uname`, and S17-S20 are
+#                                         gated on Darwin with a SKIP line naming what goes
+#                                         unproven. 30 pass.
+#
+# TWO THINGS THIS PASS DID NOT DO, said plainly rather than left to be discovered:
+#
+#   1. NOTHING HERE WAS VERIFIED ON LINUX. There is no Linux host on this machine. The
+#      install-reconciler-schedule fix is correct BY CONSTRUCTION — the four launchd cases
+#      cannot run where there is no launchd, and what replaces them runs on both hosts — but
+#      "by construction" is an argument, not a measurement. `workflow_dispatch` exists for
+#      exactly this: dispatch this workflow on a named SHA and the Linux answer is a fact
+#      instead of an argument.
+#   2. THE TRIGGERS ARE STILL OFF, deliberately. Restoring `push:` on a public repository is
+#      a promise that the gate is green on the platform it runs on, and that promise cannot
+#      be made from a Mac. Dispatch first; restore the triggers against THAT run.
+#
+# NONE OF THIS WAS CAUSED BY GOING PUBLIC, and that has not changed. What has changed is the
+# lesson: the redness that cost the most here was not on the list at all. It was a contract
+# that moved under a probe eighty minutes before the pass began, and the only thing that
+# found it was running the suite instead of reading about it.
 #
 # =========================================================================================
 # WHY THE TRIGGERS ARE GONE, AND EXACTLY WHAT PUTS THEM BACK
@@ -121,16 +163,20 @@ name: engine-self-verify
 # before, which is worth saying plainly: the post-flip checklist says to DISPATCH all five,
 # and this one could not be dispatched at all.
 #
-# TO RE-ENABLE: get the five suites above green, then restore
+# TO RE-ENABLE: the five suites are green on macOS at `934f127` (see the re-measurement
+# above). What is left is one dispatch on Linux. Run this workflow with `workflow_dispatch`
+# on a named SHA, read the result, and if it is green restore
 #
 #     push:
 #     pull_request:
 #
-# beneath `on:`. That is the whole change. Nothing else in this file is waiting on anything.
+# beneath `on:`. That is the whole change. Restoring them BEFORE that dispatch would be
+# promising a platform result nobody has measured, which is the same mistake in the other
+# direction.
 
 on:
   # Deliberately no `push` and no `pull_request` — see the section above. They come back
-  # unchanged when the four suites are green.
+  # unchanged after one green `workflow_dispatch` run on Linux.
   workflow_dispatch:
 
 permissions:
