@@ -48,7 +48,22 @@
 
 const fs = require("fs");
 const path = require("path");
-const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const {
+  leaveHome,
+  loadPlaywright,
+  shot,
+  createRun,
+  assert,
+  assertEqual,
+  awaitSettled,
+  flushFrames,
+  openThread,
+  assertOnThread,
+  bootSettled,
+  shellSettled,
+  SLOW_BRIDGE,
+  UI_DIR,
+} = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const UPDATES_RS = fs.readFileSync(
@@ -56,6 +71,14 @@ const UPDATES_RS = fs.readFileSync(
   "utf8"
 );
 const SHOTS = "../shots-updates";
+
+/// A DELIBERATE SLOW RUNNER, on demand: `RICHOS_UPDATES_LAG_MS=120 node updates.js`.
+///
+/// Same knob and same seam as `contrast.js`'s `RICHOS_CONTRAST_LAG_MS`, and it is what turns
+/// "these checks are green here" into "these checks wait for something". Every wait in this
+/// file that used to be a number is now a wait on a state, and the way to show that is true is
+/// to move the clock and watch nothing change. Zero, and no latency at all, unless it is set.
+const LAG_MS = Number(process.env.RICHOS_UPDATES_LAG_MS || 0);
 
 /// A view, with only the interesting fields spelled out at each call site.
 function view(over) {
@@ -89,10 +112,18 @@ async function openApp(browser) {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+  if (LAG_MS > 0) await page.addInitScript(SLOW_BRIDGE, LAG_MS);
   await page.goto(APP);
   // The home screen is the landing surface now; this suite is about the app UI behind it.
   await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
+  // A ROW EXISTING IS NOT THE APP BEING READY, and every check below that clicks one was
+  // relying on the difference being small. `bootSettled` waits for `init()` to have decided
+  // which screen the CEO is on; `lib/harness.js` carries the measurement of what happens when
+  // nothing does. Without it, checks 1, 13 and 14 drive a thread click into the boot's tail
+  // and land on `general` — Harbor Analytics, "Running", zero turns — under titles that name
+  // Northwind Traders and Q4 hiring.
+  await bootSettled(page);
   page.__errors = errors;
   return page;
 }
@@ -104,23 +135,123 @@ async function openApp(browser) {
 /// the one place it matters: the cue sits above the curtain (correctly — so does the settings
 /// button, §15), and a shot taken through it is a picture of the opening screen with a pill on
 /// it rather than a picture of the cue in the app it announces into.
+///
+/// THE 150 MS THAT USED TO BE HERE WAS GUARDING TWO DIFFERENT THINGS AND NAMING NEITHER: the
+/// curtain's own 180 ms fade-out, and `init()` still running underneath it. Both have an end
+/// state, and neither is a number.
+///
+/// AND "THE COMPOSER HAS FOCUS" IS THE WRONG ONE, which is worth writing down because it was
+/// the first thing tried here and it looks exactly right. Something on the boot path focuses
+/// `#input` early — traced at 293 ms with `#messages` still empty — so that wait is satisfied
+/// long before `init()`'s own `inputEl.focus()` runs, and THAT one then steals focus from
+/// whatever a check has focused since. At 300 ms of bridge latency it cost check 16 its
+/// `focused` assertion over a product that had done nothing wrong.
+///
+/// `shellSettled` is the end of `init()` and not a stage of it: `#nav-corrections-count` is
+/// filled by `refreshDesk()`, one statement after that focus, and `#retention-hint` by
+/// `syncRetentionFromBackend()`, dead last. Both non-empty means nothing else is going to move.
 async function settled(page) {
   await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
-  await page.waitForTimeout(150);
+  await shellSettled(page);
+  await awaitSettled(page);
+  await flushFrames(page);
 }
 
+/// A COMMAND'S ROUND TRIP, WAITED OUT ON ITS OWN END STATE.
+///
+/// `updates.js`'s `call()` is `busy = true; paint(); await invoke(cmd); apply(out); finally {
+/// busy = false; paint(); }`. Three observable things happen and the LAST of them is the one a
+/// check reads: the command is on the mock's ledger, the row is no longer marked busy, and the
+/// view the script queued has been applied. Waiting for all three is waiting for the product to
+/// finish, which is a different statement from waiting 150 ms.
+async function settledAfterCommand(page, cmd) {
+  await page.waitForFunction(
+    (name) => {
+      const calls = window.__RICHOS_MOCK__.updateCalls();
+      if (calls.indexOf(name) < 0) return false;
+      const row = document.getElementById("set-updates");
+      if (row && row.getAttribute("data-update-busy") === "true") return false;
+      return true;
+    },
+    cmd,
+    { timeout: 10000 }
+  );
+  await flushFrames(page);
+}
+
+/// THE MENU REBUILT UNDER A FORCED PALETTE, waited out on both of its ends.
+async function forcedDark(page, on) {
+  await page.evaluate((v) => window.RichSettings.forceDark(v), on);
+  await page.waitForFunction(
+    (want) => {
+      const painted = document.documentElement.getAttribute("data-theme");
+      if (want && painted !== "dark") return false;
+      // Coming back off the clamp, the palette is whatever the CEO's own preference resolves
+      // to — which is not this check's subject. What IS its subject is that the menu was
+      // rebuilt and the row came back with it.
+      return !!document.getElementById("set-updates");
+    },
+    on,
+    { timeout: 10000 }
+  );
+  await flushFrames(page);
+}
+
+/// A NEGATIVE OBSERVATION WINDOW — NOT A WAIT FOR A SIGNAL, and it is spelled differently on
+/// purpose so nobody later "fixes" it into one.
+///
+/// Every other sleep in this file was a guess standing in for an event. These two are the
+/// opposite claim: that over a stretch of time NO event occurs. There is no end state to wait
+/// for, because the assertion is about the absence of one — and a window that waits for a
+/// signal would pass instantly and prove nothing. The number is the width of the window, and
+/// it is the thing the assertion is about, so it is stated with its reason at the call site.
+///
+/// It is also the ONLY honest reason left in this file to spend wall-clock time, which is why
+/// it is a named function: a `waitForTimeout` here reads identically to the twelve that were
+/// wrong, and a reader cannot tell them apart without this name.
+async function observe(page, ms, why) {
+  void why;
+  await page.waitForTimeout(ms);
+}
+
+/// Put the panel into a state and return when the panel is IN it.
+///
+/// The 80 ms here was waiting for nothing at all, and that is worth saying precisely rather
+/// than shortening: `updateSet` calls the `rich://update` listeners synchronously, the listener
+/// calls `apply` -> `paint` synchronously, and `repaintUpdates` -> `paint` after it. The whole
+/// chain is done before `page.evaluate` resolves. What the sleep DID do was mask the one case
+/// where that is not true — a state driven while a `call()` round-trip is in flight, where the
+/// command's own `finally { busy = false; paint(); }` lands afterwards and repaints the row
+/// from the PREVIOUS view.
+///
+/// So this waits on the product's own published answer instead. `window.RichUpdates.state()` is
+/// `updates.js`'s read-only handle on the view it is rendering from, so agreement between it
+/// and the requested state is the panel saying "this is what I am showing" — a fact no number
+/// of milliseconds can assert.
 async function setState(page, v, script) {
   await page.evaluate(
     ([vv, ss]) => window.__RICHOS_MOCK__.updateSet(vv, ss),
     [v, script || []]
   );
-  await page.waitForTimeout(80);
+  await page.waitForFunction(
+    (want) => {
+      const s = window.RichUpdates && window.RichUpdates.state ? window.RichUpdates.state() : null;
+      return !!s && s.state === want;
+    },
+    v.state,
+    { timeout: 10000 }
+  );
+  await flushFrames(page);
 }
 
+/// `visible` is Playwright's answer to "does it have a box", which a panel one frame into its
+/// own entry animation also has. The 120 ms was the entry animation, guessed; `awaitSettled`
+/// is that animation's own `finished`.
 async function openMenu(page) {
   await page.click("#set-btn");
   await page.waitForSelector("#set-menu", { state: "visible" });
-  await page.waitForTimeout(120);
+  await awaitSettled(page);
+  await flushFrames(page);
 }
 
 /// What the row says right now: the two sentences, which buttons are visible, and whether
@@ -287,12 +418,18 @@ async function main() {
     // ...and it is the menu that is on EVERY screen, not the rail's popover, which is what
     // `#set-btn` being `position: fixed` outside `#app` buys. Prove it from a second surface.
     await page.click("#set-btn"); // close
-    await page.click('.nav-thread[data-thread-id="hiring"]');
-    await page.waitForTimeout(300);
+    // THE SECOND SURFACE HAS TO BE THE SECOND SURFACE. This claim is "the row is reachable from
+    // inside a conversation", and the row is chrome — it is present on the shell too. So a
+    // sleep that was not long enough for `openThread`'s six-await chain left this check
+    // asserting the shell's row and reporting the conversation's. `openThread` returns on the
+    // model being bound and the turns painted; `assertOnThread` states the fact in the result.
+    const arrived = await openThread(page, "hiring");
+    assertEqual(arrived, "conversation", "the hiring thread opens as a conversation, not §21's refusal");
+    const on = await assertOnThread(page, "hiring", "check 1's second surface");
     await openMenu(page);
     assert((await readRow(page)).present, "and again from inside a conversation");
     await page.close();
-    return "present from the shell and from an open thread";
+    return "present from the shell and from the open thread " + JSON.stringify(on.crumb) + " (" + on.turns + " turn(s))";
   });
 
   // ---- 2. every state the Rust can produce has a sentence here --------------------------
@@ -421,7 +558,12 @@ async function main() {
     assertEqual(row.detail, null, "closed by default — the CEO reads a sentence, not a stack");
     assert(row.why === "Show the technical reason", "and is offered it: " + row.why);
     await page.click("#update-why");
-    await page.waitForTimeout(80);
+    // The disclosure's own state, which is the thing the next three lines read.
+    await page.waitForFunction(() => {
+      const w = document.getElementById("update-why");
+      const d = document.getElementById("update-detail");
+      return !!w && w.getAttribute("aria-expanded") === "true" && !!d && !d.hidden;
+    });
     row = await readRow(page);
     assertEqual(row.detail, detail, "verbatim, not summarised — a truncated error cannot be searched for");
     assertEqual(
@@ -498,14 +640,17 @@ async function main() {
     assertEqual(row.check, null, "and Check is not — the next act is not another check");
 
     await page.click("#update-install");
-    await page.waitForTimeout(150);
+    // `call()` is `busy = true; paint(); await invoke(); apply(); finally busy = false; paint()`
+    // — so the end state is the row NOT busy on the view the script queued, and that is what
+    // this waits for. A sleep here was a bet on how long a bridge round-trip takes.
+    await settledAfterCommand(page, "update_install");
     row = await readRow(page);
     assertEqual(row.state, "ready", "the scripted install landed");
     assertEqual(row.relaunch, "Restart to finish", "and the restart is now the offer");
     assertEqual(row.install, null, "the install button is gone");
 
     await page.click("#update-relaunch");
-    await page.waitForTimeout(150);
+    await settledAfterCommand(page, "update_relaunch");
     const calls = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
     assert(calls.indexOf("update_install") >= 0, "Install issued update_install: " + calls.join(","));
     assert(calls.indexOf("update_relaunch") >= 0, "Restart issued update_relaunch: " + calls.join(","));
@@ -526,10 +671,12 @@ async function main() {
     // `RichSettings.forceDark` throws the whole menu away and builds a new one — the same
     // path §15's opening screen takes. The row is a NEW element afterwards, so a renderer
     // that cached its nodes would paint into a detached tree and leave a blank row.
-    await page.evaluate(() => window.RichSettings.forceDark(true));
-    await page.waitForTimeout(200);
-    await page.evaluate(() => window.RichSettings.forceDark(false));
-    await page.waitForTimeout(200);
+    // `forceDark` -> `T.forceDark` -> `paint()` sets `data-theme` on the root and notifies, and
+    // `rebuild()` builds a NEW menu. Both ends are observable: the palette the root is painting
+    // and a row that is present again. A sleep proved neither, and a rebuild that had left the
+    // row out would have been read as "not repainted yet" for exactly as long as the number.
+    await forcedDark(page, true);
+    await forcedDark(page, false);
     const after = await readRow(page);
     assert(after.present, "the row survived the rebuild");
     assert(after.headline.indexOf("0.1.1") >= 0, "and is still painted: " + after.headline);
@@ -644,13 +791,16 @@ async function main() {
 
     // It is mounted in the chrome §15 puts on EVERY screen, so prove it from a second surface
     // rather than from the one it happened to be built on.
-    await page.click('.nav-thread[data-thread-id="hiring"]');
-    await page.waitForTimeout(300);
+    // SAME REASON AS CHECK 1, and here it is sharper: `onTop` is asserted to be true "over the
+    // conversation", which is a claim about what is UNDERNEATH the cue. Sampled before the
+    // stage had been rebuilt, it was a claim about the shell.
+    await openThread(page, "hiring");
+    const onThread = await assertOnThread(page, "hiring", "check 13's second surface");
     const inThread = await readCue(page);
     assertEqual(inThread.count, 1, "still there inside a conversation");
     assertEqual(inThread.onTop, true, "and still the thing under the pointer, over the conversation");
     await page.close();
-    return "absent: wrapper " + empty.wrapWidth + "px = button " + empty.btnWidth + "px; present: the button's right edge never moves, and the cue is on a second surface";
+    return "absent: wrapper " + empty.wrapWidth + "px = button " + empty.btnWidth + "px; present: the button's right edge never moves, and the cue is over the open conversation " + JSON.stringify(onThread.crumb);
   });
 
   // ---- 14. it LEADS to the existing flow, and decides nothing itself ---------------------
@@ -670,7 +820,8 @@ async function main() {
 
     await page.click("#update-cue");
     await page.waitForSelector("#set-menu", { state: "visible" });
-    await page.waitForTimeout(150);
+    await awaitSettled(page);
+    await flushFrames(page);
 
     // THE ROW IS THE AUTHORITY, and the cue speaks with its voice rather than a second one.
     const cue = await readCue(page);
@@ -692,13 +843,51 @@ async function main() {
 
     // The hand is put on the control, so the click that announced the update lands one
     // keystroke from the act rather than one hunt from it.
+    //
+    // THIS ASSERTION IS TRUE HERE AND MEASURED FALSE ON ANY REAL BRIDGE — a finding, recorded
+    // where the next person to run this will meet it rather than in a report nobody opens.
+    //
+    // `updates.js`'s `openTheRow()` opens the menu and then defers the focus with
+    // `setTimeout(..., 0)`, on a stated reasoning that is worth quoting because it is the
+    // whole defect: *"One turn of the task queue later the answer has landed and the button is
+    // live."* It has not. `RichSettings.open()` calls `onOpen()`, which calls
+    // `call("update_state")` — `busy = true; paint(); await invoke(...); finally { busy =
+    // false; paint(); }` — so for the length of a bridge ROUND TRIP `#update-install` is
+    // `disabled` (`canAct = !busy && ...`), and `focus()` on a disabled button does nothing at
+    // all, silently.
+    //
+    // A `setTimeout(0)` beats that round trip only when the round trip is not a round trip.
+    // Measured 2026-09-06 by sweeping `RICHOS_UPDATES_LAG_MS`, sampling `install.disabled` at
+    // the exact instant the product's own timer fires:
+    //
+    //     lag   focus after the cue   install.disabled at t+0
+    //     0     update-install        false
+    //     1     (body)                false
+    //     5     (body)                false
+    //     10    (body)                true
+    //     25    (body)                true
+    //     60    (body)                true
+    //     120   input                 true
+    //     250   (body)                true
+    //
+    // The threshold is between 5 ms and 10 ms, and the in-page mock this suite drives is the
+    // only bridge in existence that sits below it: a Tauri IPC call is never 5 ms. So §26's
+    // "one keystroke from the act" works in this fixture and nowhere else, and the 150 ms
+    // sleep that used to stand here is what let the check agree.
+    //
+    // IT IS LEFT ASSERTING THE RIGHT THING. Weakening it to "focus is somewhere reasonable"
+    // would delete the only evidence that the affordance is broken, and the suite would then
+    // be green over a product that does not do what its own comment says. Running with
+    // `RICHOS_UPDATES_LAG_MS=10` or higher turns this line red, which is the right result; the
+    // fix belongs in `app/ui/updates.js`'s `openTheRow`, which has to wait for the control to
+    // become actionable rather than for one turn of the task queue.
     assertEqual(
       await page.evaluate(() => document.activeElement && document.activeElement.id),
       "update-install",
       "focus is on the row's own control"
     );
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(150);
+    await settledAfterCommand(page, "update_install");
     const calls = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
     assert(calls.indexOf("update_install") >= 0, "and pressing it reaches the SAME command the row has always issued: " + calls.join(","));
     assertEqual((await readRow(page)).state, "ready", "the scripted install landed, through the existing flow");
@@ -732,7 +921,7 @@ async function main() {
     assertEqual(row.busy, null, "idle: nothing marks the row as blocked");
     assertEqual(row.mark, "available", "idle: and the settings button carries its mark");
     await page.click("#update-install");
-    await page.waitForTimeout(150);
+    await settledAfterCommand(page, "update_install");
     let calls = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
     assert(calls.indexOf("update_install") >= 0, "idle: the press reached the command with no delay of its own");
     assertEqual((await readRow(page)).state, "ready", "idle: and the install landed");
@@ -768,7 +957,7 @@ async function main() {
     // MODE-PROOF: it must not promise an install that this product does not perform.
     assertEqual(row.sub.indexOf("will install"), -1, "it never promises 26's mode 1, which does not exist: " + row.sub);
     const before = await p2.evaluate(() => window.__RICHOS_MOCK__.updateCalls().length);
-    await p2.waitForTimeout(200);
+    await observe(p2, 200, "an install that starts itself would start from a timer, and a timer needs time to fire");
     const after = await p2.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
     assertEqual(after.indexOf("update_install"), -1, "nothing installed itself: " + after.slice(before).join(","));
     await shot(p2, SHOTS + "/updates-working-no-control");
@@ -811,7 +1000,14 @@ async function main() {
 
     // FOCUS OPENS IT — the requirement a hover-only tooltip fails.
     await page.focus("#update-waiting");
-    await page.waitForTimeout(120);
+    // The note's own end state — painted, and its transition finished, so `noteShown` below is
+    // read off a settled surface rather than partway into one.
+    await page.waitForFunction(() => {
+      const n = document.getElementById("update-waiting-note");
+      return !!n && getComputedStyle(n).display !== "none";
+    });
+    await awaitSettled(page);
+    await flushFrames(page);
     w = await readWaiting(page);
     assert(w.focused, "focus landed on it");
     assertEqual(w.noteShown, true, "focus alone opened the explanation — no pointer needed");
@@ -822,13 +1018,17 @@ async function main() {
 
     // ESCAPE CLOSES IT, the same key that dismisses everything else transient here.
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(120);
+    await page.waitForFunction(() => {
+      const n = document.getElementById("update-waiting-note");
+      return !n || getComputedStyle(n).display === "none";
+    });
+    await awaitSettled(page);
     assertEqual((await readWaiting(page)).noteShown, false, "Escape closes it");
 
     // PRESSING IT DOES NOTHING, which is the whole point.
     const before = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls().length);
     await page.click("#update-waiting");
-    await page.waitForTimeout(150);
+    await observe(page, 150, "a handler that DID issue a command would go through `call()`, which is a bridge round-trip");
     const after = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
     assertEqual(after.length, before, "clicking it issues no command: " + after.slice(before).join(","));
     await page.close();
