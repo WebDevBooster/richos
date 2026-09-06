@@ -134,6 +134,7 @@ fi
 case "$VERDICT" in
   CLEAN)
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="PC" {printf "  PREMISE CENSUS  %s %s %s %s %s %s %s %s %s %s\n", $2,$3,$4,$5,$6,$7,$8,$9,$10,$11}'
+    printf '%s\n' "$BODY" | awk -F'\t' '$1=="HC" {printf "  HEADLINE CENSUS %s %s %s %s %s %s %s %s %s %s\n", $2,$3,$4,$5,$6,$7,$8,$9,$10,$11}'
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  NOTE   %s\n         %s\n", $2, $3}'
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="SKIP" {printf "  SKIP   item %s — %s\n         %s\n", $2, $3, $4}'
     printf '✓ row currency: %s governed row(s) still describe the work they point at (%s not checkable).\n' \

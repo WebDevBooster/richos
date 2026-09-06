@@ -52,6 +52,48 @@ ROW_STATUS_TOKENS="OPEN BUILT BOUNDED BLOCKED-ON-RICH CLOSED"
 # run, because a finished row is not open work and should leave the page.
 ROW_TERMINAL_TOKENS="CLOSED"
 
+# OPTIONAL, and OFF until you write it. Which of the governed sections must also
+# carry a `**Headline:**` warrant — the row's own first sentence, digested, plus
+# either the command that settles it and that command's output, or the word
+# `unverified` and what would settle it.
+#
+#   **Headline:** `4f2a9c1e83bd` — `./scripts/some-suite.sh` → `37 passed, 0 failed`
+#   **Headline:** `4f2a9c1e83bd` — unverified "one uninterrupted run of the suite, read at its final counts line"
+#
+# WHY YOU WOULD WANT IT. `ROW_SECTIONS` above pins the WORK a row points at. On
+# 2026-09-06 sixteen rows of one record were re-derived and found overtaken, and
+# ELEVEN OF THE SIXTEEN HAD A MATCHING PIN: the file had not moved, the world
+# had, and the row's bold first sentence — the part that gets quoted into a
+# brief — was false while every warrant on the page was green. The hex is a
+# digest of the rest of the row, so appending a correction underneath a headline,
+# or re-stamping a pin above it, refuses the next landing until a person has
+# looked at that first sentence again. Re-stamping is not re-reading.
+#
+# THE COST, measured over 124 real commits to the record this was built for: 86
+# landings would have fired, 157 rows in total, median ONE row per landing — and
+# every one of those landings was already editing the row it named. Adoption is a
+# one-time warrant on every governed row, exactly as ROW_SECTIONS was.
+#
+# Must name only sections that are already in ROW_SECTIONS. Re-run the recorded
+# commands with scripts/row-headline-verify.sh; deliberately never in a hook.
+# ROW_HEADLINE_SECTIONS="3"
+
+# OPTIONAL, and 0 unless you say otherwise. Whether a governed row that carries
+# NO headline warrant at all is a refusal.
+#
+# It is 0 by default for the reason PREMISE_REQUIRED is, and the reason is not
+# timidity. A record adopts this contract with rows already on it, and in this
+# engine some of those rows are written BY A MACHINE — the mechanical sweep
+# appends a row to the record on its own, at a turn end, and it does not know
+# how to state a headline warrant. A check that refused every landing the moment
+# the declaration went in would be deleted the same day, which is the failure
+# this project has three recorded instances of in one day.
+#
+# So at 0: a row WITH a warrant is held to it from the first character, and a
+# row WITHOUT one is COUNTED in the HC census and NAMED in a note at every
+# landing. The teeth are one line away when the page is ready for them.
+# ROW_HEADLINE_REQUIRED="0"
+
 # OPTIONAL. The words that turn a number in a commit message into a claim about
 # an item, so that "we closed item 4.2" must come with a change to 4.2's row.
 # An allowlist, because the set of words that can precede a decimal number is

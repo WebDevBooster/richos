@@ -147,6 +147,43 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **A row's headline is a claim, and a claim carries the command that settles it
+  or the word `unverified`** (`scripts/lib/row-currency.{sh,py}`,
+  `scripts/row-headline-verify.sh`) — MINOR.
+
+  On 2026-09-06 all 35 rows of one working record were re-derived against the
+  code and **16 were overtaken — eleven of them with a MATCHING blob pin**.
+  Every warrant on the page was green while eleven headlines were false, and
+  five briefs written that day carried premises measurement refuted, each one
+  taken from a headline rather than from a run. A pin proves a file has not
+  moved; it cannot prove the sentence about the file is still true, and rows
+  here are written finding-first, so corrections land *underneath* a headline
+  that goes on being quoted.
+
+  CHECK 3 adds a third warrant in the grammar the other two already use:
+  `**Headline:** \`<digest>\` — \`<command>\` → \`<output>\``, or
+  `\`<digest>\` — unverified "<what would settle it>"`. The hex digests the
+  rest of the row, so appending a correction or re-stamping a pin refuses the
+  next landing until a person has re-read the first sentence —
+  **re-stamping is not re-reading**. `unverified` is a first-class answer and is
+  counted and named by the `HC` census on every verdict, so the honest setting
+  can never be the quiet one.
+
+  Declaration-gated (`ROW_HEADLINE_SECTIONS`), and `ROW_HEADLINE_REQUIRED`
+  defaults to `0` on the `PREMISE_REQUIRED` precedent: adoption produced **zero
+  refusals and 26 named rows** on the real record, because that record's own
+  mechanical sweep appends rows it cannot warrant. Cost measured over 124 real
+  commits before shipping — 86 landings would fire, **median one row**, and the
+  replay of the landing that produced the defect fires on 26 of 26 changed rows
+  and is silent on all 9 untouched ones
+  (`docs/measurements/row-headline-check-2026-09-06/`).
+
+  `scripts/row-headline-verify.sh` re-runs what the rows record, on demand and
+  never in a hook: one command in that record takes 2,168 seconds, and a record
+  file is a document rather than a trusted script. It prints every command
+  before running it and refuses, without running them, anything that could make
+  the machine produce sound and anything that writes, publishes or destroys.
+
 - **Unmerged work is NAMED in the report, not merely counted**
   (`scripts/reap-stale-worktrees.sh`) — PATCH.
 

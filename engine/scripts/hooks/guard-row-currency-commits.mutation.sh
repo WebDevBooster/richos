@@ -71,4 +71,94 @@ mutant shell-heredoc-blanked-too "shell-fed heredoc not refused" "$G" \
     'if b > a:' \
     "a heredoc piped into a shell would be blanked along with the documents, so a shell-fed body carrying a landing would go unexamined. (Backticks are deliberately absent from this sentence: the harness passes it through a double-quoted shell word, and a backticked example would EXECUTE.)"
 
+# ===========================================================================
+# CHECK 3 — THE HEADLINE WARRANT
+# ===========================================================================
+# Added 2026-09-06, and the mutants below are aimed at one measured failure:
+# eleven of the sixteen rows re-derived and found overtaken that day had a
+# MATCHING blob pin. Everything in CHECK 1 was green while eleven headlines
+# were false. So the properties that matter are (a) the digest is actually
+# compared, (b) it covers the row and not the warrant that carries it,
+# (c) the normalization boundary holds in BOTH directions, (d) the two settings
+# really are the only two, (e) the not-required default really is a default and
+# really can be escalated, and (f) the verifier's two refusals refuse.
+P="scripts/lib/row-currency.py"
+V="scripts/row-headline-verify.sh"
+
+# --- 5. THE HEADLINE MUTANT: the digest is compared at all ------------------
+mutant headline-never-compared "a correction under an unchanged headline was allowed" "$P" \
+    '        if dm.group("digest") != want:' \
+    '        if False:' \
+    "a correction could be appended under a headline nobody re-read and the landing would go through — which is the 2026-09-06 defect exactly, with a green warrant on the same line."
+
+# --- 6. THE DIGEST EXCLUDES THE WARRANT THAT CARRIES IT ---------------------
+# Without this, adopting a warrant CHANGES the row, so the act of stamping a
+# row makes it stale and no row can ever be current. A contract nobody can
+# satisfy is a contract that gets deleted.
+mutant headline-digests-itself "a current headline warrant was refused" "$P" \
+    '    return line[:m.start()] + (tail[nxt.start():] if nxt else "")' \
+    '    return line' \
+    "the digest would cover the warrant carrying it, so writing the warrant would invalidate it and no row could ever be stamped current."
+
+# --- 7/8. THE NORMALIZATION BOUNDARY, BOTH DIRECTIONS ----------------------
+# These two are a pair and neither is meaningful alone: a normalizer that
+# strips everything passes the formatting case, and one that strips nothing
+# passes the reworded case.
+mutant headline-normalizes-everything "changing one word of the headline DOES cost a re-read" "$P" \
+    '_HEADLINE_NORM_DROP = re.compile(r"[*_`|]")' \
+    '_HEADLINE_NORM_DROP = re.compile(r"[^ ]")' \
+    "every row would digest to the same value, so rewriting the entire headline would cost nothing and the check would be a decoration."
+
+mutant headline-normalizes-nothing "re-emphasizing a phrase costs no re-read" "$P" \
+    '_HEADLINE_NORM_DROP = re.compile(r"[*_`|]")' \
+    '_HEADLINE_NORM_DROP = re.compile(r"(?!x)x")' \
+    "re-bolding a phrase or reflowing a cell would demand a fresh re-read, which is ceremony over formatting and the fastest way to get a check waived."
+
+# --- 9/10. THERE ARE EXACTLY TWO SETTINGS ---------------------------------
+mutant headline-evidence-optional "a headline warrant with neither a command nor an unverified declaration is refused" "$P" \
+    '            if not em or not em.group("cmd").strip():' \
+    '            if False:' \
+    "a headline could carry a digest and a sentence of prose — a claim written in a voice that sounds checked, which is the shape the CEO's own rule about briefs exists to forbid."
+
+mutant headline-bare-unverified "an unverified declaration with no real reason is refused" "$P" \
+    'MIN_UNVERIFIED_WORDS = 4' \
+    'MIN_UNVERIFIED_WORDS = 0' \
+    "a bare marker would exempt a row, which is a way to switch the check off while looking like a considered decision."
+
+# --- 11. A FINISHED ROW IS EXEMPT, AND COUNTED -----------------------------
+mutant headline-terminal-not-exempt "a terminal row was not counted by the HC census" "$P" \
+    '            if sm and sm.group("tok") in terminal:' \
+    '            if sm and sm.group("tok") in ():' \
+    "a CLOSED row would be asked to keep a headline current about work that has finished, and the census would stop distinguishing an exempt row from a checked one."
+
+# --- 12/13. THE DEFAULT IS A DECISION, IN BOTH DIRECTIONS ------------------
+# The default matters as much as the teeth do, and for the reason this project
+# has three same-day instances of: a blocking check with a large false-positive
+# class gets waived, and a waived check is a dead one. The mechanical sweep
+# appends rows to this record on its own and cannot state a warrant.
+mutant headline-default-blocks "the default made a warrantless row a refusal" "$P" \
+    '            if headline_required:' \
+    '            if True:' \
+    "declaring ROW_HEADLINE_SECTIONS would refuse the next landing and every landing after it, including the ones the mechanical sweep writes, and the declaration would be deleted within the day."
+
+mutant headline-required-toothless "ROW_HEADLINE_REQUIRED=1 did not refuse a warrantless row" "$P" \
+    '            if headline_required:' \
+    '            if False:' \
+    "the escalation would be a setting that reads as switched on and refuses nothing, which is the green-tick-over-a-scanner-that-never-ran failure this engine keeps finding in itself."
+
+# --- 14/15. THE VERIFIER REFUSES BEFORE IT RUNS ---------------------------
+# The only two mutants here whose failure mode is worse than a missed defect:
+# this tool executes strings taken out of a document, and one of the two
+# refusals exists because a standing order says this machine must not make a
+# sound.
+mutant verifier-runs-sound "a sound-capable command was run or not refused" "$V" \
+    '    if SOUND.search(cmd):' \
+    '    if False and SOUND.search(cmd):' \
+    "a row whose evidence command drives a speech synthesizer would be executed, and the standing silence order on this machine would be broken by a verification tool."
+
+mutant verifier-runs-mutations "a mutating command was run or not refused" "$V" \
+    '    if MUTATES.search(cmd):' \
+    '    if False and MUTATES.search(cmd):' \
+    "a row whose evidence command pushes, deletes or installs would be executed by the tool that is supposed to be reading the tree, so verifying the record could change it."
+
 mutation_end
