@@ -1292,7 +1292,6 @@ assert_eq "written after the last check" "$(cat "$CONTAINER/alpha/new-live-work.
 a; [ -z "$(ls -d "$CONTAINER"/alpha.richos-retired-* 2>/dev/null)" ] || { printf '        ASSERT FAILED: a quarantine directory exists\n'; rc=1; }
 assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git registrations unchanged" || rc=1
 assert_eq "[]" "$(jf "$DRV" sweep_actions)" "the sweep found nothing to erase" || rc=1
-kill %% 2>/dev/null; wait 2>/dev/null
 if [ "$rc" -eq 0 ]; then
     ok "F2a   a worker that acquires the workspace INSIDE preservation is detected before the rename: retirement refuses (reacquired), nothing is renamed, the worker's new file is at the original path, and the sweep erases nothing"
 else
@@ -1471,10 +1470,16 @@ assert_eq "4" "$RC" "failed (exit 4)" || rc=1
 assert_contains "$OUT" "journal-unwritable" "the reason is the journal" || rc=1
 assert_dir "$CONTAINER/alpha" "the worktree is still there" || rc=1
 assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "byte-for-byte" || rc=1
+# The positive twin, same fixture: with the journal writable the identical
+# request removes the worktree — so the refusal above was the journal and not
+# some earlier gate wearing its label.
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "writable again, the identical removal proceeds" || rc=1
+assert_absent "$CONTAINER/alpha" "and the worktree is gone" || rc=1
 if [ "$rc" -eq 0 ]; then
-    ok "F3d   the legacy route removes nothing it cannot first put on record"
+    ok "F3d   the legacy route removes nothing it cannot first put on record, and removes once it can"
 else
-    bad "F3d   the legacy route removed without a record"
+    bad "F3d   the legacy route removed without a record, or never removed"
 fi
 
 echo "--- REVIEW 2026-09-06: the reviewer's own script, verbatim ---"
@@ -1486,9 +1491,15 @@ echo "--- REVIEW 2026-09-06: the reviewer's own script, verbatim ---"
 REVIEW_PY="$SCRIPT_DIR/workspace-retire.review-2026-09-06.py"
 rc=0
 a; [ -f "$REVIEW_PY" ] || { printf '        ASSERT FAILED: the vendored reviewer script is missing at %s\n' "$REVIEW_PY"; rc=1; }
-a; diff <(sed 1,12d "$REVIEW_PY" | grep -v '^ENGINE = ') <(grep -v '^ENGINE = ' /Users/alex/ab/richos-hq/docs/verification/worktree-removal-fix-review-2026-09-06/reproduce.py) >/dev/null 2>&1 \
-    || [ ! -f /Users/alex/ab/richos-hq/docs/verification/worktree-removal-fix-review-2026-09-06/reproduce.py ] \
-    || { printf '        ASSERT FAILED: the vendored script differs from the reviewer'"'"'s beyond the ENGINE line\n'; rc=1; }
+REVIEW_ORIG=/Users/alex/ab/richos-hq/docs/verification/worktree-removal-fix-review-2026-09-06/reproduce.py
+if [ -f "$REVIEW_ORIG" ]; then
+    # Counted as an assertion ONLY when the reviewer's original is here to
+    # compare against. An absent reference is a note, never a pass.
+    a; diff <(sed 1,12d "$REVIEW_PY" | grep -v '^ENGINE = ') <(grep -v '^ENGINE = ' "$REVIEW_ORIG") >/dev/null 2>&1 \
+        || { printf '        ASSERT FAILED: the vendored script differs from the reviewer'"'"'s beyond the ENGINE line\n'; rc=1; }
+else
+    printf '        note: the reviewer'"'"'s original is not on this machine (%s); the vendored copy was not byte-compared to it in this run\n' "$REVIEW_ORIG"
+fi
 REVIEW_OUT="$(cd "$SANDBOX" && TMPDIR="$SANDBOX" PYTHONDONTWRITEBYTECODE=1 python3 "$REVIEW_PY" 2>&1)"
 REVIEW_RC=$?
 assert_eq "0" "$REVIEW_RC" "the reviewer's script ran to completion (its own asserts hold)" || rc=1
