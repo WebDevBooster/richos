@@ -1347,7 +1347,14 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             _rm_rc=0
             _rm_out=""
             if [ -n "$_owner_agent" ] && [ -x "$REMOVER_SH" ]; then
-                _rm_out="$(REMOVE_AGENT_ENTITY_REPO="$ENTITY_ROOT" \
+                # RICHOS_PROJECTS_DIR is handed down so the remover judges a
+                # hand-rolled tree's owner from the SAME transcript index this
+                # run did (the exhaustion rule reads a session's last write
+                # from its transcript). Since 2026-09-06 the remover decides
+                # from the ownership ledger and never from absence; an
+                # authority that reads different evidence is a disagreement
+                # manufactured by the caller, not found by the check.
+                _rm_out="$(REMOVE_AGENT_ENTITY_REPO="$ENTITY_ROOT" RICHOS_PROJECTS_DIR="$_projects" \
                     "$REMOVER_SH" --owner "$_owner_agent" --repo "$repo" \
                     --entity-repo "$ENTITY_ROOT" "$path" 2>&1)" || _rm_rc=$?
             else

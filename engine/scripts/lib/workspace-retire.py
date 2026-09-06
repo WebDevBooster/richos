@@ -62,47 +62,103 @@ dangling registration is pruned. No `rm`, no `rmtree`, no `git worktree
 remove --force`, no code path that erases a directory a caller pointed at.
 
 Erasure happens in exactly one place — `sweep`, the retention expiry — and it
-will only erase a directory that satisfies FIVE independent conditions, all
+will only erase a directory that satisfies SIX independent conditions, all
 minted by this operation itself and none supplied by a caller:
 
-    1. it is named in this module's own retirement record;
+    1. it is named in this module's own COMPLETED retirement record (an
+       intent whose completion never landed is never erased);
     2. its name matches the quarantine pattern this module mints;
     3. its (st_dev, st_ino) equals the identity recorded at rename time;
     4. it is not a symlink;
-    5. a preservation archive for it exists and re-verifies.
+    5. a preservation archive for it exists and re-verifies;
+    6. every entry now in the directory is in that archive, byte for byte
+       (review 2026-09-06, finding 2 — the archive authorizes the erasure of
+       exactly what it holds).
+
+And the erase is put on record before it happens. The legacy route
+(`remove`) does still remove a registered worktree with `git worktree
+remove`, because the reaper relies on the directory being gone; it preserves
+first whenever `--force` could destroy content, and it reaches that line only
+through the same authority as everything else.
 
 ===========================================================================
-ABSENCE IS NOT AUTHORITY
+ABSENCE IS NOT AUTHORITY — AND THERE IS ONE AUTHORITY
 ===========================================================================
 The incident's liveness verdict was NOT-ALIVE for an owner that did not
 exist. The resolver was answering "no such agent is locked here", which is
 true of every string that is not an agent id, and the remover read it as
 "confirmed dead".
 
-So the termination check here is `worktree_ledger.judge()`, which returns
-NOT-ALIVE only on POSITIVE evidence (a witnessed termination on record, an
-observed registered-and-unlocked isolation worktree, or a host session
-process provably gone) and lands absence in INDETERMINATE. ALIVE,
-INDETERMINATE and UNRESOLVED all refuse. `judge()` is asked twice: once
-before the lock, and again under it.
+The first fix (2026-09-05) put a positive-evidence check in THIS file's
+retirement path and left the legacy path-addressed route reading the lock
+resolver directly. The review of 2026-09-06 reproduced the incident's own
+logic error through that route: `--owner never-registered` against a
+registered worktree whose real owner was verified ALIVE deleted it, exit 0.
+Absence of a record was still being read as evidence of death, one door over.
+
+So there is now ONE function every destructive path consults —
+`termination_authority()` — and it authorizes only when BOTH hold:
+
+    BINDING     the asserted owner is bound to THIS exact path: an ownership
+                record names it, or the path is that agent's own isolation
+                worktree registered in the repository (the harness names the
+                directory after the agent). An owner nobody can bind to the
+                path is `owner-unbound`, however dead it may be.
+    EVIDENCE    NOT-ALIVE rests on something POSITIVE: a witnessed
+                termination on record, an OBSERVED registered-and-unlocked
+                (or stale-locked) isolation worktree, or a host session
+                provably over. The ledger's `judge()` lands absence in
+                INDETERMINATE by construction, and the native branch requires
+                the resolver's `registered` flag rather than trusting the
+                verdict word.
+
+ALIVE, INDETERMINATE, UNRESOLVED and unbound all refuse. The legacy route
+(`remove`), retirement (`retire`) and the sweep (through the record) share
+this one function. Two implementations of "may I destroy this" is how one of
+them silently becomes the stale one.
 
 ===========================================================================
-SERIALIZATION AGAINST WORKER STARTUP
+SERIALIZATION AGAINST WORKER STARTUP — THREE LAYERS, ONE LIMIT
 ===========================================================================
 An exclusive `flock` on `<root>/locks/<ws-id>.lock` is held across every
-mutating step. Under that lock the ledger is RE-READ and the ownership
-records for the path are compared against the snapshot taken before it: any
-record that appeared in between means somebody acquired this workspace while
-we were deciding, and the operation refuses (`reacquired`).
+mutating step; under it the ledger is RE-READ and compared against the
+snapshot taken before it. That catches a worker that acquired while we were
+waiting for the lock.
 
-READ THE LIMIT HONESTLY: this serializes retirements against each other and
-against any caller that takes the same lock. `create-teammate-worktree.sh`
-does not take it yet — wiring the creation path is deliberately out of this
-change's scope. What protects against an unlocked creator is the re-read, the
-re-run liveness verdict, and the filesystem-identity re-check taken
-immediately before the rename. See `startup_guard()` for the entry point a
-creator should call, and the report accompanying this change for the gap.
+It did NOT catch a worker that acquired AFTER the under-lock check and before
+the rename (review 2026-09-06, finding 2): the new worker's file was in the
+quarantine, absent from the archive, and the sweep erased it. So:
 
+    LAYER 1   after preservation, before the rename: records and verdict are
+              re-read; a change refuses `reacquired`, nothing renamed.
+    LAYER 2   after the rename: re-read AGAIN; a change renames the directory
+              BACK through the held parent descriptor and refuses
+              `reacquired-after-quarantine`. The worker's cwd followed the
+              inode through both renames; its files are where it put them.
+    LAYER 3   the sweep erases only a quarantine whose every byte is in the
+              verified archive (`quarantine-diverged` otherwise). The archive
+              authorizes the erasure of exactly what it holds.
+
+THE LIMIT, stated: the creation path does not take this lock
+(`startup_guard()` exists for it; `create-teammate-worktree.sh` is outside
+this file, and the harness's native isolation worktrees are created by code
+this repository does not own). A process using the directory with no lock,
+no record and no session identity is invisible to every layer above. That is
+the case the incident analysis's OS-enforced boundary exists for, and nothing
+in this module can stand in for it.
+
+===========================================================================
+THE JOURNAL IS WRITTEN BEFORE THE MOVE, AND EVERY WRITE IS READ
+===========================================================================
+Review 2026-09-06, finding 3: a read-only journal, a renamed and pruned
+workspace, `quarantined` reported, `restore` answering `no-retirement-record`.
+Now: the journal is probed for append before anything is touched; an INTENT
+record naming the planned quarantine path is written before the rename and
+refuses the operation if it cannot be; the COMPLETION record is written
+before `git worktree prune` and, if it cannot be, the rename is UNDONE and the
+outcome is `failed`; the sweep records before it erases; `restore` reads the
+newest record carrying a verified archive, completed or not; `reconcile` lists
+every intent whose completion never landed, with what the disk says now.
 ===========================================================================
 CLI
 ===========================================================================
@@ -114,6 +170,10 @@ CLI
     workspace-retire.py sweep [--retention-days N] [--execute]
     workspace-retire.py restore <ws-id> <destination>
     workspace-retire.py records [<ws-id>]
+    workspace-retire.py reconcile              intents whose completion never landed
+    workspace-retire.py authorize --entity-repo E --repo R --owner O --path P
+    workspace-retire.py remove    --entity-repo E --repo R --owner O --path P
+                                [--force] [--branch B]   (the legacy route)
 
 Every subcommand prints ONE JSON object (or a JSON array for `list`/`records`)
 on stdout. Exit codes:
@@ -122,6 +182,7 @@ on stdout. Exit codes:
     2   usage
     3   refused          — nothing was mutated
     4   failed           — an attempted step failed; see `stage`
+    5   remove only: the target is a directory that is not a registered worktree
 
 Environment:
     RICHOS_WORKSPACE_RETIRE_DIR   state root (default ~/.claude/state/workspace-retirement)
@@ -151,11 +212,13 @@ OUTCOME_ALREADY = "already-retired"
 OUTCOME_QUARANTINED = "quarantined"
 OUTCOME_FAILED = "failed"
 OUTCOME_OK = "ok"
+OUTCOME_IN_PROGRESS = "in-progress"   # an INTENT on record; the completion is a later record
 
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_REFUSED = 3
 EXIT_FAILED = 4
+EXIT_UNREGISTERED = 5   # legacy route only: a directory that is not a registered worktree
 
 WS_ID_RE = re.compile(r"^ws-[0-9a-f]{16}$")
 QUARANTINE_RE = re.compile(r"\.richos-retired-ws-[0-9a-f]{16}-\d{8}T\d{6}Z$")
@@ -343,6 +406,45 @@ def last_retirement(ws_id):
     deliberately do NOT make a workspace look retired."""
     hits = [r for r in read_records(ws_id) if r.get("outcome") == OUTCOME_QUARANTINED]
     return hits[-1] if hits else None
+
+
+def last_preserving_record(ws_id):
+    """The newest record for this workspace that carries a VERIFIED
+    preservation archive — a completed quarantine, a completed legacy
+    removal, or an INTENT whose completion never landed (a crash, or a
+    journal that stopped taking writes between the two).
+
+    `restore` reads this and not `last_retirement()`, because the archive was
+    verified before the intent was written, and a workspace whose completion
+    record is missing is exactly the workspace somebody most needs to find.
+    Review 2026-09-06, finding 3: with the completion record lost, `restore`
+    answered `no-retirement-record` over an intact archive.
+    """
+    hits = [r for r in read_records(ws_id)
+            if r.get("operation") in ("retire", "remove")
+            and r.get("outcome") in (OUTCOME_QUARANTINED, OUTCOME_OK, OUTCOME_IN_PROGRESS)
+            and (r.get("preservation") or {}).get("status") == "verified"]
+    return hits[-1] if hits else None
+
+
+def journal_probe():
+    """Prove the journal can take a record BEFORE anything is moved.
+
+    Review 2026-09-06, finding 3: the journal was a read-only file, the
+    workspace was renamed and pruned, `append_record()` returned False, the
+    caller ignored it and reported `quarantined`. A retirement nobody can find
+    the record of is a workspace nobody can find. So the journal is opened for
+    append first — an operation that fails for every reason a later append
+    would — and every later append's return value is read.
+    """
+    path = records_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        os.close(fd)
+        return True, ""
+    except OSError as e:
+        return False, "the retirement journal %s cannot be opened for append (%s)" % (path, e)
 
 
 # --------------------------------------------------------------------------
@@ -687,13 +789,29 @@ def startup_guard(ws_id, wait_seconds=30.0):
     begin while it is held, and a creation that begins after retirement took
     the lock will find the workspace quarantined rather than half-renamed.
 
-    `create-teammate-worktree.sh` is not wired to it in this change — that is
-    the creation path, and it is out of scope here. Until it is, what stands
-    between an unlocked creator and a retirement in flight is the re-read of
-    the ownership records under the lock, the second liveness verdict, and the
-    filesystem-identity re-check taken immediately before the rename. That is
-    a narrow race, not an eliminated one, and it is stated rather than
-    implied.
+    `create-teammate-worktree.sh` is not wired to it — that is the creation
+    path and it is outside this file. The harness's own native isolation
+    worktrees are created by code this repository does not own and can never
+    be wired to it. So the lock alone is NOT what protects a starting worker;
+    what does, as of the 2026-09-06 review (finding 2), is three layers that
+    need nothing from the creator:
+
+      1. after preservation and before the rename, the ownership records and
+         the termination verdict are re-read; any change refuses (`reacquired`);
+      2. after the rename, they are re-read AGAIN; any change renames the
+         directory BACK through the same parent descriptor and refuses
+         (`reacquired-after-quarantine`) — a worker that acquired in the
+         microseconds between the last check and the rename finds its
+         workspace where it left it;
+      3. the retention sweep erases a quarantine only when every byte in it is
+         in the verified archive (`quarantine-diverged` otherwise), so a file
+         written into the directory after preservation is never the copy that
+         goes.
+
+    What remains open, stated rather than implied: a process that is using
+    the directory without a lock, an ownership record or a session identity
+    is invisible to every check here. That is the case the OS-enforced
+    boundary in the incident analysis exists for.
     """
     lock = WorkspaceLock(ws_id, wait_seconds=wait_seconds)
     return lock if lock.acquire() else None
@@ -925,11 +1043,12 @@ def restore(ws_id, destination):
     destination, then re-verify what landed against the manifest. This is what
     makes requirement 6 a claim rather than a hope: retention is worth nothing
     if the archive was never proven to reproduce the tree."""
-    rec = last_retirement(ws_id)
+    rec = last_preserving_record(ws_id)
     if not rec:
         return {"operation": "restore", "outcome": OUTCOME_REFUSED,
                 "reason_code": "no-retirement-record",
-                "reason": "no completed retirement is on record for %s." % ws_id}
+                "reason": "no retirement or removal carrying a verified preservation "
+                          "archive is on record for %s." % ws_id}
     pres = rec.get("preservation") or {}
     archive = pres.get("archive") or ""
     mpath = pres.get("manifest") or ""
@@ -975,6 +1094,493 @@ def restore(ws_id, destination):
             "git": manifest.get("git", {}).get("head"),
             "reason": "every recorded entry was restored and re-verified byte for byte."}
 
+
+# --------------------------------------------------------------------------
+# the termination authority — ONE function, consulted by EVERY path that destroys
+# --------------------------------------------------------------------------
+
+AUTH_BASIS_WITNESSED = "witnessed-termination"
+AUTH_BASIS_OBSERVED = "observed-isolation-worktree"
+AUTH_BASIS_SESSION = "session-provably-over"
+
+
+def _owner_forms(owner):
+    """'<id>' or 'agent-<id>' -> ('<id>', 'agent-<id>'); ('', '') for nothing."""
+    o = (owner or "").strip()
+    if not o:
+        return "", ""
+    bare = o[len("agent-"):] if o.startswith("agent-") else o
+    return bare, "agent-" + bare
+
+
+def _public_auth(auth):
+    return {k: auth.get(k) for k in ("authorized", "verdict", "basis", "binding", "reason_code")}
+
+
+def termination_authority(entity, repo, path, owner="", records=None, ledger_mod=None,
+                          live_mod=None):
+    """May THIS path be destroyed on the strength of what is known about its
+    owner? Returns a dict; `authorized` is True only on BINDING and EVIDENCE.
+
+    BINDING — the owner is tied to this exact path by one of exactly two
+    things: an ownership record (`registered`/`prepared`) naming the path, or
+    the path being that agent's own isolation worktree, registered in `repo`
+    under the directory name the harness gives it. When `owner` is empty
+    (retirement mode, where the record IS the caller's identity), a record
+    must exist. Anything else is `owner-unbound` — and on 2026-09-05 the
+    unbound owner was the whole incident: a string naming nobody, a real
+    path, and a resolver truthfully reporting that nobody was locked here.
+
+    EVIDENCE — NOT-ALIVE must rest on something that happened, never on
+    something that is missing. Through a record, the ledger's `judge()`
+    decides: it lands absence in INDETERMINATE by construction and returns
+    NOT-ALIVE only for a witnessed termination, an OBSERVED registered
+    isolation worktree that is unlocked or stale-locked, or a host session
+    provably over. Through the native binding, the resolver's own evidence
+    decides, and `registered` must be True: an unlocked or stale-locked
+    worktree that IS there is an observation; a worktree that is not there is
+    nothing.
+
+    Never raises. Never writes. The verdict dict it consulted rides along as
+    `liveness` so the record can carry it.
+    """
+    out = {"authorized": False, "verdict": "", "basis": "", "binding": "",
+           "reason_code": "", "reason": "", "owner": owner or "", "liveness": None}
+    if ledger_mod is None:
+        out.update(reason_code="ledger-missing",
+                   reason="scripts/lib/worktree-ledger.py could not be loaded; without the "
+                          "ownership record nothing binds an owner to a path and nothing is "
+                          "authorized.")
+        return out
+    if live_mod is None:
+        out.update(reason_code="liveness-resolver-missing",
+                   reason="scripts/lib/agent-liveness.py could not be loaded, so the isolation-"
+                          "worktree lock cannot be read. A termination that cannot be witnessed "
+                          "is not a termination.")
+        return out
+    if records is None:
+        records = ledger_mod.read_all()
+    bare, agent_dir = _owner_forms(owner)
+    lp = lex_path(path)
+
+    regs = ledger_mod.registrations(records, worktree=path)
+    if not regs:
+        regs = [r for r in records if r.get("event") in ledger_mod.OWNERSHIP_EVENTS
+                and lex_path(r.get("worktree") or "") == lp]
+    owners = sorted({(r.get("agent_id") or "").strip() for r in regs if r.get("agent_id")})
+    teammates = sorted({(r.get("teammate") or "").strip() for r in regs if r.get("teammate")})
+
+    if regs:
+        if bare and bare not in owners and agent_dir not in owners \
+                and bare not in teammates and (owner or "").strip() not in teammates:
+            out.update(binding="ownership-record", reason_code="owner-unbound",
+                       reason=("the ownership record for %s names owner(s) %s and teammate(s) %s — "
+                               "not '%s'. An owner that does not match is a caller who does not "
+                               "know what it is acting on, and whether THAT owner is alive says "
+                               "nothing about this path. On 2026-09-05 exactly this shape deleted "
+                               "the parent of every workspace on the machine."
+                               % (lp, owners or "<none>", teammates or "<none>", owner)))
+            return out
+        out["binding"] = "ownership-record"
+        v = ledger_mod.judge(entity, path, [], records, write=False, repo=repo, mod=live_mod)
+        out["liveness"] = v
+        out["verdict"] = v.get("verdict") or ""
+        if v.get("verdict") != ledger_mod.NOT_ALIVE:
+            word = str(v.get("verdict") or "unresolved").lower()
+            out.update(reason_code="owner-" + word,
+                       reason=("the owner of %s is %s: %s. Destroying a workspace requires a "
+                               "POSITIVE, witnessed termination — never the ABSENCE of an owner, "
+                               "which is what authorized the 2026-09-05 deletion."
+                               % (lp, v.get("verdict"), v.get("reason"))))
+            return out
+        reason = v.get("reason") or ""
+        if "witnessed termination" in reason:
+            basis = AUTH_BASIS_WITNESSED
+        elif "OBSERVED now" in reason:
+            basis = AUTH_BASIS_OBSERVED
+        else:
+            basis = AUTH_BASIS_SESSION
+        out.update(authorized=True, basis=basis, reason_code="terminated", reason=reason)
+        return out
+
+    # No ownership record names this path.
+    if not bare:
+        out.update(reason_code="owner-unbound",
+                   reason=("no ownership record names %s and no owner was asserted. Nothing binds "
+                           "anybody to this directory, so nothing is authorized." % lp))
+        return out
+    # The one other binding: the agent's OWN isolation worktree, registered
+    # in the repository under the harness's directory name. Its registration
+    # and lock are an observation about THIS path, not about another
+    # directory somewhere else.
+    try:
+        rec = live_mod.resolve(repo, agent_dir)
+    except Exception as e:
+        out.update(reason_code="owner-indeterminate",
+                   reason="the liveness resolver failed for %s in %s: %s" % (agent_dir, repo, e))
+        return out
+    out["liveness"] = rec
+    out["verdict"] = rec.get("verdict") or ""
+    ev = rec.get("evidence") or {}
+    matched = ev.get("worktree_path") or ""
+    if not ev.get("registered") or not same_path(matched, path):
+        out.update(reason_code="owner-unbound",
+                   reason=("no ownership record names %s, and it is not agent %s's own isolation "
+                           "worktree in %s%s. The absence of a record says nothing about who owns "
+                           "this directory, and the absence of a lock says nothing about whether "
+                           "anyone stopped — it is true of every string that is not an agent id. "
+                           "Nothing is removed. If this is really an orphan, look at it and remove "
+                           "it by hand; if a caller built these arguments, the caller is the bug."
+                           % (lp, agent_dir, lex_path(repo),
+                              (" (the resolver matched %s instead)" % matched) if ev.get("registered") else "")))
+        return out
+    out["binding"] = "native-worktree"
+    if rec.get("verdict") == live_mod.ALIVE:
+        out.update(reason_code="owner-alive",
+                   reason="agent %s is ALIVE: %s. Nothing is removed." % (agent_dir, rec.get("reason")))
+        return out
+    if rec.get("verdict") != live_mod.NOT_ALIVE:
+        out.update(reason_code="owner-indeterminate",
+                   reason=("agent %s is INDETERMINATE: %s. Failing closed — a worktree we cannot "
+                           "prove dead is not removed." % (agent_dir, rec.get("reason"))))
+        return out
+    # NOT-ALIVE with registered=True: the worktree IS here and is unlocked,
+    # or locked by a pid that is provably dead. An observation of this path.
+    out.update(authorized=True, basis=AUTH_BASIS_OBSERVED, reason_code="terminated",
+               reason="OBSERVED now: " + (rec.get("reason") or ""))
+    if ledger_mod.terminations(records, bare):
+        out["reason"] += " (a witnessed termination for this agent is also on record)"
+    return out
+
+
+def _rename_back(target, qbase):
+    """Undo a quarantine rename through the SAME parent descriptor it was
+    made through. None on success, else the error text. The directory inode
+    is unchanged either way; only its name moves."""
+    try:
+        if os.rename in os.supports_dir_fd:
+            os.rename(qbase, target.base, src_dir_fd=target.pfd, dst_dir_fd=target.pfd)
+        else:
+            os.rename(os.path.join(target.parent, qbase), target.path)
+        return None
+    except OSError as e:
+        return str(e)
+
+
+def _reacquired_since(ws, mod, live_mod, lock_entity):
+    """Re-read the ownership records and re-run the authority for a workspace
+    already validated. ("", "") when nothing changed; else (code, why)."""
+    fresh = resolve_workspace(ws["id"], ledger=mod)
+    if not fresh.get("ok"):
+        return fresh["reason_code"], fresh["reason"]
+    if fresh["record_signature"] != ws["record_signature"]:
+        return "reacquired", ("the ownership records for %s changed (%s -> %s): a worker acquired "
+                              "this workspace while retirement was in flight."
+                              % (ws["id"], ws["record_signature"], fresh["record_signature"]))
+    auth = termination_authority(lock_entity, ws["repo"], ws["path"], records=fresh["_all"],
+                                 ledger_mod=mod, live_mod=live_mod)
+    if not auth["authorized"]:
+        return auth["reason_code"], auth["reason"]
+    return "", ""
+
+
+# --------------------------------------------------------------------------
+# the legacy, path-addressed route — a ROUTE, with no authority of its own
+# --------------------------------------------------------------------------
+
+def remove_legacy(entity, repo, path, owner, force=False, branch="", lock_wait=5.0,
+                  dry_run=False):
+    """`remove-agent-worktree.sh --owner <id> <path>`: the reaper's route and
+    the operator's, now decided HERE and nowhere else.
+
+    Until 2026-09-06 the shell helper decided this itself by asking the lock
+    resolver about the owner and proceeding on NOT-ALIVE — which the resolver
+    returns for an owner that does not exist. The 2026-09-05 containment
+    stopped the recursive delete of an unregistered path and left that
+    decision in place; the review reproduced it against a registered worktree
+    whose real owner was verified ALIVE. This function runs the same
+    `termination_authority()` as retirement, takes the same workspace lock,
+    preserves (verified) when `--force` could destroy dirty content, writes
+    its intent to the same journal before the removal and the completion
+    after it, and copies the positive verdict to the ownership ledger.
+
+    It still REMOVES rather than quarantines: the reaper relies on the
+    directory being gone and on deleting the branch itself with `-d`, and an
+    operator with `--force` has already collected artifacts. What it never
+    does is decide from absence, act on an owner it cannot bind to the path,
+    or touch a directory that is not a registered worktree of `repo`.
+    """
+    bare, agent_dir = _owner_forms(owner)
+    p = lex_path(path)
+    r = lex_path(repo)
+    e_lock = lex_path(entity) if entity else r
+    out = {"operation": "authorize" if dry_run else "remove", "ts": now_iso(),
+           "owner": owner or "", "owner_id": agent_dir, "path": p, "repo": r,
+           "entity": e_lock, "force": bool(force), "branch": {"name": branch, "deleted": False}}
+
+    def refuse(code, reason, extra=None, exit_code=None):
+        out.update({"outcome": OUTCOME_REFUSED, "reason_code": code, "reason": reason})
+        if extra:
+            out.update(extra)
+        if exit_code is not None:
+            out["exit"] = exit_code
+        return out
+
+    def failed(stage, code, reason, extra=None):
+        out.update({"outcome": OUTCOME_FAILED, "stage": stage, "reason_code": code, "reason": reason})
+        if extra:
+            out.update(extra)
+        return out
+
+    if not p or not bare:
+        return refuse("usage", "--owner and a worktree path are both required.", exit_code=EXIT_USAGE)
+    if p == "/" or os.path.dirname(p) == p:
+        return refuse("path-is-root", "%s has no parent; it is not a worktree." % p)
+    mod = _ledger_module()
+    live_mod = mod._liveness_module() if mod is not None else None
+    if mod is None:
+        return refuse("ledger-missing", "scripts/lib/worktree-ledger.py could not be loaded; "
+                                        "nothing binds an owner to a path without it.")
+    records = mod.read_all()
+
+    reg_paths = registered_worktree_paths(r)
+    if reg_paths is None:
+        return refuse("repo-unreadable",
+                      "git could not list the worktrees of %s, so it is not established that %s is "
+                      "one of them. Failing closed." % (r, p))
+
+    # A container first: the incident's target was a parent directory, and a
+    # directory that holds other worktrees is refused whatever else it is.
+    for other in sorted(known_workspace_paths(records) | {lex_path(x) for x in reg_paths}
+                        | {norm_path(x) for x in reg_paths}):
+        if _is_proper_ancestor(p, other):
+            return refuse("path-is-parent",
+                          "%s CONTAINS another worktree (%s). A directory that holds other "
+                          "workspaces is a container, not a workspace; on 2026-09-05 this shape "
+                          "took every workspace on the machine. Nothing is removed."
+                          % (p, other), exit_code=EXIT_UNREGISTERED)
+
+    if not any(same_path(p, x) for x in reg_paths):
+        if os.path.isdir(p) or os.path.islink(p):
+            return refuse("not-registered-worktree",
+                          "%s is a directory, and it is NOT a registered worktree of %s. This is the "
+                          "case where nothing has established what the path IS — so it is the case "
+                          "where this operation does least, not most. Until 2026-09-05 it did an "
+                          "unconditional 'rm -rf' here and deleted the parent directory of every "
+                          "RichOS worktree on the machine, reporting success. If this really is an "
+                          "orphaned agent directory, look at it and remove it by hand. If a caller "
+                          "built this path, the caller is the bug." % (p, r),
+                          exit_code=EXIT_UNREGISTERED)
+        return refuse("path-absent",
+                      "nothing exists at %s and %s does not register it. There is nothing to remove, "
+                      "and a branch is not deleted on the strength of a path that is not there."
+                      % (p, r))
+
+    ws_id = workspace_id(r, p)
+    ws = {"id": ws_id, "repo": r, "path": p, "branch": branch, "class": "", "owners": [bare],
+          "teammates": [], "sessions": [], "records": 0, "record_signature": ""}
+    out["workspace"] = _public_ws(ws)
+
+    target = FsTarget(p)
+    if not target.open():
+        return refuse(target.error_code, target.error)
+    try:
+        fsid = target.fsid()
+        dotgit = os.path.join(p, ".git")
+        if not os.path.lexists(dotgit):
+            return refuse("not-a-worktree-root", "%s has no .git entry; it is not a git worktree." % p,
+                          exit_code=EXIT_UNREGISTERED)
+        if os.path.isdir(dotgit) and not os.path.islink(dotgit):
+            return refuse("main-checkout", "%s has a .git DIRECTORY: it is a repository's main "
+                                           "checkout, never a removal target." % p)
+
+        auth = termination_authority(e_lock, r, p, owner=bare, records=records,
+                                     ledger_mod=mod, live_mod=live_mod)
+        out["liveness"] = auth.get("liveness")
+        out["authority"] = _public_auth(auth)
+        if not auth["authorized"]:
+            return refuse(auth["reason_code"], auth["reason"])
+
+        if dry_run:
+            out.update({"outcome": OUTCOME_OK, "reason_code": "would-remove",
+                        "reason": "every gate passed; nothing was mutated (authorize only)."})
+            return out
+
+        ok, why = journal_probe()
+        if not ok:
+            return failed("journal", "journal-unwritable",
+                          "%s. A removal nobody can find the record of does not begin. Nothing was "
+                          "removed." % why)
+
+        lock = WorkspaceLock(ws_id, wait_seconds=lock_wait)
+        if not lock.acquire():
+            if lock.error:
+                return failed("lock", "lock-unavailable", "%s. Nothing was removed." % lock.error)
+            return refuse("workspace-busy",
+                          "another operation holds the workspace lock for %s (%s). Nothing was "
+                          "removed." % (ws_id, lock.path))
+        try:
+            records2 = mod.read_all()
+            auth2 = termination_authority(e_lock, r, p, owner=bare, records=records2,
+                                          ledger_mod=mod, live_mod=live_mod)
+            out["liveness"] = auth2.get("liveness")
+            out["authority"] = _public_auth(auth2)
+            if not auth2["authorized"]:
+                return refuse(auth2["reason_code"], "under the lock, " + auth2["reason"])
+            if not target.still_the_same():
+                return refuse("identity-changed",
+                              "%s is no longer the object validated a moment ago (%s). Nothing "
+                              "was removed." % (p, fsid))
+
+            pres = None
+            if force:
+                # --force is the flag that lets git destroy dirty and
+                # untracked content. So it is the flag that preserves first.
+                dest = os.path.join(preserved_dir(), ws_id, _stamp())
+                pres = preserve(ws, target, dest)
+                out["preservation"] = pres
+                if pres.get("status") != "verified":
+                    rec = failed("preservation", "preservation-failed",
+                                 "preservation did not verify (%s). Nothing was removed; the "
+                                 "worktree is untouched at %s." % (pres.get("reason"), p))
+                    append_record(rec)
+                    return rec
+
+            head = _git_out(p, "rev-parse", "HEAD")
+            cur_branch = _git_out(p, "symbolic-ref", "--short", "HEAD")
+            backup_ref = ""
+            if head:
+                backup_ref = "refs/richos/retired/%s/%s" % (ws_id, cur_branch or branch or "HEAD")
+                rr = _git(r, "update-ref", backup_ref, head)
+                if rr is None or rr.returncode != 0:
+                    rec = failed("backup-ref", "backup-ref-failed",
+                                 "could not create the backup ref %s in %s. Nothing was removed."
+                                 % (backup_ref, r))
+                    append_record(rec)
+                    return rec
+            out["branch"] = {"name": branch, "checked_out": cur_branch, "backup_ref": backup_ref,
+                             "head": head, "deleted": False}
+
+            intent = dict(out)
+            intent.update({"outcome": OUTCOME_IN_PROGRESS, "stage": "remove-intent",
+                           "ts": now_iso(), "fsid": fsid})
+            if not append_record(intent):
+                return failed("journal", "journal-unwritable",
+                              "the retirement journal at %s would not take the intent record. "
+                              "Nothing was removed." % records_path())
+
+            if not target.still_the_same():
+                rec = refuse("identity-changed",
+                             "%s changed identity after the intent was recorded. Nothing was "
+                             "removed." % p)
+                append_record(rec)
+                return rec
+
+            # A dead agent's native worktree may still carry a stale lock;
+            # unlock so `git worktree remove` proceeds (no-op if not locked).
+            _git(r, "worktree", "unlock", p)
+            args = ["worktree", "remove"] + (["--force"] if force else []) + [p]
+            rm = _git(r, *args)
+            if rm is None or rm.returncode != 0:
+                rec = failed("remove", "remove-failed",
+                             "'git worktree remove' exited %s for %s (repo %s): %s. The worktree "
+                             "likely has untracked/modified files. Collect any artifacts first "
+                             "(scripts/collect-worktree-artifacts.sh), then re-run with --force."
+                             % (rm.returncode if rm else "?", p, r,
+                                (rm.stderr.strip() if rm else "git could not run")))
+                append_record(rec)
+                return rec
+            _git(r, "worktree", "prune")
+
+            if branch:
+                if _git_out(r, "rev-parse", "--verify", "--quiet", "refs/heads/" + branch):
+                    d = _git(r, "branch", "-D", branch)
+                    if d is not None and d.returncode == 0:
+                        out["branch"]["deleted"] = True
+                    else:
+                        out["branch"]["note"] = ("could not delete branch %s (%s); its tip stays "
+                                                 "reachable from %s" % (
+                                                     branch, (d.stderr.strip() if d else "git could not run"),
+                                                     backup_ref or "<no backup ref>"))
+                else:
+                    out["branch"]["note"] = "branch %s not found in %s — nothing to delete" % (branch, r)
+
+            # An OBSERVATION is copied to the ownership ledger: the isolation
+            # worktree this removal (or a later one) destroys is the only
+            # evidence a hand-rolled tree in another repository ever had
+            # about its owner, so the verdict is written down before it is
+            # gone. ONLY an observation. A witnessed termination is already
+            # on record. A session-over inference rests on the process table
+            # and the session registry, which outlive this removal and can
+            # be re-derived at any time — persisting it would upgrade the
+            # weakest positive evidence into "witnessed termination on
+            # record" for every later sweep (the reaper's own suite catches
+            # exactly that: its case 20c re-registers a reaped agent under an
+            # unaccounted process and requires INDETERMINATE, not a reap on
+            # the strength of what an earlier run concluded).
+            if auth2.get("basis") == AUTH_BASIS_OBSERVED and not mod.terminations(records2, bare):
+                mod.append({"event": "terminated", "agent_id": bare, "worktree": p,
+                            "reason": auth2["reason"], "witness": "remove-agent-worktree"})
+
+            out.update({"outcome": OUTCOME_OK, "reason_code": "removed", "ts": now_iso(),
+                        "reason": "%s removed from %s (%s: %s)%s."
+                                  % (p, r, auth2.get("basis"), auth2.get("reason"),
+                                     "; preserved and verified first" if pres else "")})
+            out["journal"] = "complete" if append_record(out) else "incomplete"
+            return out
+        finally:
+            lock.release()
+    finally:
+        target.close()
+
+
+def reconcile():
+    """Every retirement or removal INTENT with no later record resolving it,
+    and what the disk says about it now. Reports; never mutates.
+
+    A dangling intent is what a crash — or a journal that stopped taking
+    writes — between the intent and the completion leaves behind. The sweep
+    never erases from an intent, so a `quarantined-uncommitted` directory is
+    safe where it stands; `restore` can extract its archive.
+    """
+    recs = read_records()
+    out = []
+    for i, r in enumerate(recs):
+        if r.get("outcome") != OUTCOME_IN_PROGRESS or r.get("operation") not in ("retire", "remove"):
+            continue
+        wsid = (r.get("workspace") or {}).get("id") or ""
+        op = r.get("operation")
+        later = [x for x in recs[i + 1:]
+                 if (x.get("workspace") or {}).get("id") == wsid and x.get("operation") == op
+                 and x.get("outcome") in (OUTCOME_QUARANTINED, OUTCOME_OK, OUTCOME_FAILED,
+                                          OUTCOME_REFUSED)]
+        if later:
+            continue
+        q = r.get("quarantine") or {}
+        src = q.get("source_path") or (r.get("workspace") or {}).get("path") or r.get("path") or ""
+        qp = q.get("path") or ""
+        arc = (r.get("preservation") or {}).get("archive") or ""
+        item = {"workspace": wsid, "operation": op, "intent_ts": r.get("ts"),
+                "source_path": src, "quarantine_path": qp,
+                "source_present": bool(src and os.path.lexists(src)),
+                "quarantine_present": bool(qp and os.path.lexists(qp)),
+                "archive": arc, "archive_present": bool(arc and os.path.isfile(arc))}
+        if item["quarantine_present"] and not item["source_present"]:
+            item["state"] = ("quarantined-uncommitted: the directory was moved and the completion "
+                             "record never landed. The quarantine is intact and the sweep never "
+                             "erases from an intent; `restore` extracts the archive.")
+        elif item["source_present"] and not item["quarantine_present"]:
+            item["state"] = ("source-present: the operation did not complete (or was undone); "
+                             "the workspace is at its own path and nothing needs recovering.")
+        elif item["source_present"] and item["quarantine_present"]:
+            item["state"] = ("both-present: a replacement occupies the source path and the "
+                             "quarantine is intact.")
+        else:
+            item["state"] = ("neither-present: the source is gone and so is the quarantine (a "
+                             "legacy removal, or somebody erased by hand). The archive is the "
+                             "recovery copy if it is present.")
+        out.append(item)
+    return {"operation": "reconcile", "outcome": OUTCOME_OK, "dangling": out, "ts": now_iso()}
 
 # --------------------------------------------------------------------------
 # retirement
@@ -1113,7 +1719,8 @@ def retire(ws_id, assert_owner="", assert_repo="", assert_path="",
                             "this operation does least — until 2026-09-05 it did MOST here, an "
                             "unconditional recursive delete." % (ws["path"], ws["repo"]), ws)
 
-        # --- Requirement 4: verified termination, on positive evidence only.
+        # --- Requirement 4: verified termination, on POSITIVE evidence only,
+        # decided by the ONE authority every destructive path consults.
         #
         # THE RESOLVER IS PASSED EXPLICITLY, and this line is why. `judge()`
         # takes the liveness module as a keyword argument that DEFAULTS TO
@@ -1137,29 +1744,30 @@ def retire(ws_id, assert_owner="", assert_repo="", assert_path="",
                             "cannot be read. Failing closed: a termination that cannot be "
                             "witnessed is not a termination.", ws)
         lock_entity = lex_path(entity) if entity else ws["repo"]
-        verdict = mod.judge(lock_entity, ws["path"], [], ws["_all"], write=False,
-                            repo=ws["repo"], mod=live_mod)
-        if verdict.get("verdict") != mod.NOT_ALIVE:
-            return _refusal(ws_id, "owner-" + str(verdict.get("verdict", "unresolved")).lower(),
-                            "the owner of %s is %s: %s. Retirement requires a POSITIVE, "
-                            "witnessed termination — never the ABSENCE of an owner, which is "
-                            "what authorized the 2026-09-05 deletion."
-                            % (ws["path"], verdict.get("verdict"), verdict.get("reason")),
-                            ws, {"liveness": verdict})
-        if "absent/unregistered" in (verdict.get("reason") or ""):
-            # Defensive: judge() does not return NOT-ALIVE on absence today,
-            # and if a future change makes it, this operation still refuses.
-            return _refusal(ws_id, "owner-absence-only",
-                            "the only evidence of termination is an absence (%s). Absence is not "
-                            "a termination signal." % verdict.get("reason"), ws,
-                            {"liveness": verdict})
+        auth = termination_authority(lock_entity, ws["repo"], ws["path"], records=ws["_all"],
+                                     ledger_mod=mod, live_mod=live_mod)
+        verdict = auth.get("liveness")
+        if not auth["authorized"]:
+            return _refusal(ws_id, auth["reason_code"], auth["reason"], ws,
+                            {"liveness": verdict, "authority": _public_auth(auth)})
 
         if dry_run:
             return {"operation": "retire", "outcome": OUTCOME_OK, "dry_run": True,
                     "reason_code": "would-retire", "ts": now_iso(),
                     "workspace": _public_ws(ws), "liveness": verdict,
-                    "fsid": fsid,
+                    "authority": _public_auth(auth), "fsid": fsid,
                     "reason": "every gate passed; nothing was mutated because --dry-run was given."}
+
+        # --- Requirement 8, its precondition: the journal must be able to
+        # take a record BEFORE anything moves (review 2026-09-06, finding 3).
+        ok, why = journal_probe()
+        if not ok:
+            return {"operation": "retire", "outcome": OUTCOME_FAILED, "stage": "journal",
+                    "reason_code": "journal-unwritable", "ts": now_iso(),
+                    "workspace": _public_ws(ws), "liveness": verdict,
+                    "reason": ("%s. A retirement nobody can find the record of is a workspace "
+                               "nobody can find, so it does not begin. The workspace was NOT "
+                               "touched and is still at %s." % (why, ws["path"]))}
 
         # --- Requirement 4 (second half): serialize.
         lock = WorkspaceLock(ws_id, wait_seconds=lock_wait)
@@ -1190,13 +1798,13 @@ def retire(ws_id, assert_owner="", assert_repo="", assert_path="",
                                 "retirement was deciding. Nothing was done."
                                 % (ws_id, ws["record_signature"], fresh["record_signature"]),
                                 fresh)
-            verdict2 = mod.judge(lock_entity, ws["path"], [], fresh["_all"], write=False,
-                                 repo=ws["repo"], mod=live_mod)
-            if verdict2.get("verdict") != mod.NOT_ALIVE:
-                return _refusal(ws_id, "owner-" + str(verdict2.get("verdict")).lower(),
-                                "under the lock, the owner of %s resolved %s: %s."
-                                % (ws["path"], verdict2.get("verdict"), verdict2.get("reason")),
-                                ws, {"liveness": verdict2})
+            auth2 = termination_authority(lock_entity, ws["repo"], ws["path"],
+                                          records=fresh["_all"], ledger_mod=mod, live_mod=live_mod)
+            verdict2 = auth2.get("liveness")
+            if not auth2["authorized"]:
+                return _refusal(ws_id, auth2["reason_code"],
+                                "under the lock, " + auth2["reason"], ws,
+                                {"liveness": verdict2, "authority": _public_auth(auth2)})
             if not target.still_the_same():
                 return _refusal(ws_id, "identity-changed",
                                 "%s is no longer the object validated a moment ago (recorded "
@@ -1235,13 +1843,45 @@ def retire(ws_id, assert_owner="", assert_repo="", assert_path="",
                     append_record(rec)
                     return rec
 
-            # --- Requirement 3 again, at the last possible moment, and
-            # requirement 6: quarantine by RENAME. Nothing is deleted.
+            # --- THE RACE, LAYER ONE (review 2026-09-06, finding 2). The
+            # preservation took time, and a worker may have acquired this
+            # workspace while it ran. Re-read the records and the verdict
+            # BEFORE the rename; anything changed refuses, nothing moves.
+            code, why = _reacquired_since(ws, mod, live_mod, lock_entity)
+            if code:
+                return _refusal(ws_id, code,
+                                "after preservation and before the rename, %s Nothing was renamed; "
+                                "the workspace is untouched at %s. The preservation archive at %s "
+                                "is harmless and may be discarded."
+                                % (why, ws["path"], pres.get("archive")), ws,
+                                {"preservation": pres})
             if not target.still_the_same():
                 return _refusal(ws_id, "identity-changed",
                                 "%s changed identity between preservation and quarantine. "
                                 "Nothing was renamed." % ws["path"], ws)
+
+            # --- Requirement 8 (finding 3): the INTENT is on record before
+            # the move. If it cannot be, the move does not happen.
             qbase = "%s.richos-retired-%s-%s" % (target.base, ws_id, _stamp())
+            qplanned = os.path.join(target.parent, qbase)
+            binfo = {"name": branch, "backup_ref": backup_ref, "head": head, "deleted": False,
+                     "note": "branch deletion is a separate operation (retire-branch)"}
+            intent = {"operation": "retire", "outcome": OUTCOME_IN_PROGRESS,
+                      "stage": "quarantine-intent", "ts": now_iso(),
+                      "workspace": _public_ws(ws), "liveness": verdict2, "preservation": pres,
+                      "quarantine": {"path": qplanned, "source_path": ws["path"],
+                                     "source_fsid": fsid},
+                      "branch": binfo,
+                      "reason": "about to rename %s to %s" % (ws["path"], qplanned)}
+            if not append_record(intent):
+                return {"operation": "retire", "outcome": OUTCOME_FAILED, "stage": "journal",
+                        "reason_code": "journal-unwritable", "ts": now_iso(),
+                        "workspace": _public_ws(ws), "preservation": pres,
+                        "reason": ("the retirement journal at %s would not take the intent "
+                                   "record. Nothing was renamed; the workspace is untouched at "
+                                   "%s." % (records_path(), ws["path"]))}
+
+            # --- Requirement 6: quarantine by RENAME. Nothing is deleted.
             try:
                 qpath = target.rename_to(qbase)
             except OSError as e:
@@ -1260,14 +1900,44 @@ def retire(ws_id, assert_owner="", assert_repo="", assert_path="",
             except OSError:
                 qfsid = ""
 
-            prune = _git(ws["repo"], "worktree", "prune")
-            prune_ok = bool(prune is not None and prune.returncode == 0)
+            # --- THE RACE, LAYER TWO. A worker that acquired in the
+            # microseconds between layer one and the rename is found HERE,
+            # and the rename is undone through the same parent descriptor.
+            # Its cwd followed the inode both ways; its files are where it
+            # put them.
+            code, why = _reacquired_since(ws, mod, live_mod, lock_entity)
+            if code:
+                undo = _rename_back(target, qbase)
+                if undo is None:
+                    rec = _refusal(ws_id, code + "-after-quarantine",
+                                   "after the rename, %s The rename was UNDONE: the workspace is "
+                                   "back at %s, byte for byte, and nothing was pruned. The "
+                                   "preservation archive at %s is harmless."
+                                   % (why, ws["path"], pres.get("archive")), ws,
+                                   {"preservation": pres, "quarantine": None})
+                else:
+                    rec = {"operation": "retire", "outcome": OUTCOME_FAILED,
+                           "stage": "quarantine-undo", "reason_code": code + "-after-quarantine",
+                           "ts": now_iso(), "workspace": _public_ws(ws), "preservation": pres,
+                           "quarantine": {"path": qpath, "source_path": ws["path"],
+                                          "source_fsid": fsid, "fsid": qfsid},
+                           "reason": ("after the rename, %s The rename back FAILED (%s): the "
+                                      "workspace is at %s, intact, and nothing was pruned. "
+                                      "Anything written after preservation is there too; the "
+                                      "sweep never erases from an intent."
+                                      % (why, undo, qpath))}
+                append_record(rec)
+                return rec
 
+            # --- Requirement 8: the COMPLETION record — BEFORE git forgets
+            # the worktree, so that if it cannot be written the rename can
+            # still be undone into a worktree git still knows.
             until = datetime.now(timezone.utc) + timedelta(days=retention_days(retention))
             rec = {
                 "operation": "retire", "outcome": OUTCOME_QUARANTINED, "ts": now_iso(),
                 "workspace": _public_ws(ws),
                 "liveness": verdict2,
+                "authority": _public_auth(auth2),
                 "preservation": pres,
                 "quarantine": {
                     "path": qpath, "source_path": ws["path"], "source_fsid": fsid,
@@ -1275,21 +1945,43 @@ def retire(ws_id, assert_owner="", assert_repo="", assert_path="",
                     "retain_until": until.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                     "retention_days": retention_days(retention),
                 },
-                "branch": {"name": branch, "backup_ref": backup_ref, "head": head,
-                           "deleted": False,
-                           "note": "branch deletion is a separate operation (retire-branch)"},
-                "git_worktree_prune": "ok" if prune_ok else "failed",
+                "branch": binfo,
+                "git_worktree_prune": "pending",
                 "reason": ("the workspace was preserved (verified), its tip made reachable from "
                            "%s, and its directory RENAMED to quarantine. Nothing was deleted."
                            % (backup_ref or "<no head>")),
             }
-            append_record(rec)
+            if not append_record(rec):
+                undo = _rename_back(target, qbase)
+                fail = {"operation": "retire", "outcome": OUTCOME_FAILED,
+                        "stage": "journal-completion", "reason_code": "journal-unwritable",
+                        "ts": now_iso(), "workspace": _public_ws(ws), "preservation": pres}
+                if undo is None:
+                    fail["reason"] = ("the retirement journal at %s would not take the completion "
+                                      "record. The rename was UNDONE: the workspace is back at %s "
+                                      "and git still registers it. No retirement is reported "
+                                      "because none is on record." % (records_path(), ws["path"]))
+                else:
+                    fail["quarantine"] = {"path": qpath, "source_path": ws["path"],
+                                          "source_fsid": fsid, "fsid": qfsid}
+                    fail["reason"] = ("the retirement journal at %s would not take the completion "
+                                      "record, and the rename back failed (%s). The workspace is "
+                                      "at %s, intact, still registered with git, and named by the "
+                                      "intent record; `reconcile` lists it and `restore` extracts "
+                                      "the archive." % (records_path(), undo, qpath))
+                return fail
+
+            prune = _git(ws["repo"], "worktree", "prune")
+            rec["git_worktree_prune"] = "ok" if (prune is not None and prune.returncode == 0) else "failed"
+            append_record({"operation": "retire", "outcome": "note", "stage": "prune",
+                           "ts": now_iso(), "workspace": _public_ws(ws),
+                           "quarantine": rec["quarantine"],
+                           "git_worktree_prune": rec["git_worktree_prune"]})
             return rec
         finally:
             lock.release()
     finally:
         target.close()
-
 
 # --------------------------------------------------------------------------
 # requirement 7: branch retirement, separate, with its own checks
@@ -1402,18 +2094,52 @@ def retire_branch(ws_id, retention=None, dry_run=False):
 # requirement 6: retention expiry — the ONLY code here that erases
 # --------------------------------------------------------------------------
 
+def quarantine_covered(qpath, manifest):
+    """True only when EVERY entry now present in the quarantine directory is
+    in the manifest with the same type, bytes and link target.
+
+    Review 2026-09-06, finding 2: a worker wrote a file into the directory
+    after preservation; the archive re-verified (against its own manifest,
+    which of course it matched) and the sweep erased the quarantine — the
+    only copy of that file. An archive authorizes the erasure of exactly what
+    it holds and nothing else. Entries in the manifest that are missing from
+    the quarantine are fine: the archive still has them.
+    """
+    want = {e["path"]: e for e in manifest.get("entries", []) if e.get("path", "").startswith("workspace")}
+    try:
+        live = _walk_manifest(qpath, "workspace")
+    except OSError as e:
+        return False, "the quarantine could not be walked: %s" % e
+    for e in live:
+        w = want.get(e["path"])
+        if w is None:
+            return False, "%s is present in the quarantine and absent from the archive" % e["path"]
+        if w.get("type") != e.get("type"):
+            return False, "%s is a %s in the quarantine and a %s in the archive" % (
+                e["path"], e.get("type"), w.get("type"))
+        if e["type"] == "file" and w.get("sha256") != e.get("sha256"):
+            return False, "%s differs from the archived bytes" % e["path"]
+        if e["type"] == "symlink" and w.get("linkname") != e.get("linkname"):
+            return False, "symlink %s points somewhere the archive did not record" % e["path"]
+    return True, "ok"
+
+
 def sweep(retention=None, execute=False):
     """Erase quarantines whose retention has elapsed.
 
     This is the only function in this module that removes a directory, and it
-    will remove nothing it did not itself mint. Five conditions, ALL required:
-    the path is named in this module's own retirement record; its basename
-    matches the quarantine pattern; its (st_dev, st_ino) equals the identity
-    recorded at rename time; it is not a symlink; and its preservation archive
-    exists and re-verifies against its manifest.
+    will remove nothing it did not itself mint. SIX conditions, ALL required:
+    the path is named in this module's own COMPLETED retirement record; its
+    basename matches the quarantine pattern; its (st_dev, st_ino) equals the
+    identity recorded at rename time; it is not a symlink; its preservation
+    archive exists and re-verifies against its manifest; and every entry now
+    in the directory is in that archive (`quarantine_covered`). Then the
+    erase is put on record BEFORE it happens.
 
     Any one of them failing is a SKIP with a named reason, never a best-effort
-    delete. There is no caller-supplied path anywhere in this function.
+    delete. There is no caller-supplied path anywhere in this function. An
+    INTENT record (`in-progress`) never reaches here: a quarantine whose
+    completion was never recorded is never erased.
     """
     days = retention_days(retention)
     now = datetime.now(timezone.utc)
@@ -1491,28 +2217,52 @@ def sweep(retention=None, execute=False):
                                    "quarantine is kept." % why})
             results.append(item)
             continue
+        # The archive authorizes the erasure of exactly what it holds.
+        covered, why = quarantine_covered(qpath, manifest)
+        if not covered:
+            item.update({"action": "skip", "reason_code": "quarantine-diverged",
+                         "reason": "the quarantine holds content the verified archive does not "
+                                   "(%s). Something wrote into it after preservation, and erasing "
+                                   "it would take the only copy. It is kept." % why})
+            results.append(item)
+            continue
         if not execute:
             item.update({"action": "would-erase", "reason_code": "retention-elapsed",
-                         "reason": "retention elapsed and the preservation archive re-verified."})
+                         "reason": "retention elapsed, the archive re-verified, and the quarantine "
+                                   "holds nothing the archive does not."})
+            results.append(item)
+            continue
+        # The record precedes the erase. An erase nobody can find the record
+        # of is the finding-3 shape one operation over.
+        if not append_record({"operation": "sweep", "outcome": OUTCOME_IN_PROGRESS,
+                              "stage": "erase-intent", "workspace": rec.get("workspace"),
+                              "quarantine": q, "preservation": pres,
+                              "reason": "retention elapsed; erasing the quarantine."}):
+            item.update({"action": "skip", "reason_code": "journal-unwritable",
+                         "reason": "the retirement journal would not take the erase record, so "
+                                   "nothing is erased."})
             results.append(item)
             continue
         try:
             shutil.rmtree(qpath)
         except Exception as e:
             item.update({"action": "failed", "reason_code": "erase-failed", "reason": str(e)})
+            append_record({"operation": "sweep", "outcome": OUTCOME_FAILED, "stage": "erase",
+                           "workspace": rec.get("workspace"), "quarantine": q,
+                           "reason": "rmtree failed: %s" % e})
             results.append(item)
             continue
         item.update({"action": "erased", "reason_code": "retention-elapsed",
                      "reason": "quarantine erased; the verified preservation archive remains at %s."
                                % archive})
-        append_record({"operation": "sweep", "outcome": OUTCOME_OK,
-                       "workspace": rec.get("workspace"), "quarantine": q,
-                       "preservation": pres,
-                       "reason": "retention elapsed; quarantine erased, archive retained."})
+        done = append_record({"operation": "sweep", "outcome": OUTCOME_OK,
+                              "workspace": rec.get("workspace"), "quarantine": q,
+                              "preservation": pres,
+                              "reason": "retention elapsed; quarantine erased, archive retained."})
+        item["journal"] = "complete" if done else "incomplete"
         results.append(item)
     return {"operation": "sweep", "outcome": OUTCOME_OK, "retention_days": days,
             "execute": bool(execute), "items": results, "ts": now_iso()}
-
 
 # --------------------------------------------------------------------------
 # listing
@@ -1556,12 +2306,48 @@ def _emit(obj):
 
 
 def _exit_for(obj):
+    if obj.get("exit") is not None:
+        return int(obj["exit"])
     o = obj.get("outcome")
     if o == OUTCOME_REFUSED:
         return EXIT_REFUSED
     if o == OUTCOME_FAILED:
         return EXIT_FAILED
     return EXIT_OK
+
+
+def _say(*lines):
+    for l in lines:
+        sys.stderr.write(l + "\n")
+
+
+def _report_remove(res):
+    """The human-readable face of the legacy route, on stderr. The JSON is on
+    stdout; this is what a shell caller's `2>&1` capture and an operator's
+    eye read. The refusal banner deliberately carries the verdict WORD
+    (ALIVE / INDETERMINATE) where the verdict decided it."""
+    o = res.get("outcome")
+    if o == OUTCOME_OK:
+        auth = res.get("authority") or {}
+        b = (res.get("branch") or {})
+        _say("✓ removed agent worktree: %s%s — agent '%s' %s. %s"
+             % (res.get("path"), (" (branch %s)" % b.get("name")) if b.get("deleted") else "",
+                res.get("owner_id"), auth.get("basis") or "terminated", res.get("reason") or ""))
+        if b.get("name") and not b.get("deleted") and b.get("note"):
+            _say("note: " + b["note"])
+        if res.get("journal") == "incomplete":
+            _say("note: the completion record did NOT land in the retirement journal; the intent "
+                 "record did. `workspace-retire.py reconcile` lists it.")
+        return
+    label = "REFUSING" if o == OUTCOME_REFUSED else "FAILED"
+    _say("=== remove-agent-worktree: %s — %s ===" % (label, res.get("reason_code")),
+         "  target : %s" % res.get("path"),
+         "  repo   : %s" % res.get("repo"),
+         "  owner  : %s" % res.get("owner_id"))
+    if res.get("stage"):
+        _say("  stage  : %s" % res.get("stage"))
+    _say("  " + str(res.get("reason") or "").replace("\n", "\n  "))
+    _say("(<engine>/scripts/lib/workspace-retire.py remove)")
 
 
 def main(argv=None):
@@ -1602,6 +2388,22 @@ def main(argv=None):
 
     p = sub.add_parser("records")
     p.add_argument("workspace", nargs="?", default="")
+
+    p = sub.add_parser("reconcile")
+
+    for name in ("authorize", "remove"):
+        p = sub.add_parser(name)
+        p.add_argument("--entity-repo", default="",
+                       help="the repository whose isolation-worktree locks are authoritative "
+                            "for a hand-rolled worktree's owner")
+        p.add_argument("--repo", required=True, help="the repository that registers <path>")
+        p.add_argument("--owner", required=True, help="agent id or agent-<id>; must be BOUND to <path>")
+        p.add_argument("--path", required=True, help="the registered worktree to act on")
+        p.add_argument("--force", action="store_true",
+                       help="remove only: pass --force to git worktree remove; the tree is "
+                            "PRESERVED (verified archive) first")
+        p.add_argument("--branch", default="", help="remove only: delete this branch after removal")
+        p.add_argument("--lock-wait", type=float, default=5.0)
 
     p = sub.add_parser("workspace-id")
     p.add_argument("repo")
@@ -1646,6 +2448,16 @@ def main(argv=None):
     if args.cmd == "sweep":
         _emit(sweep(retention=args.retention_days, execute=args.execute))
         return EXIT_OK
+    if args.cmd == "reconcile":
+        _emit(reconcile())
+        return EXIT_OK
+    if args.cmd in ("authorize", "remove"):
+        res = remove_legacy(args.entity_repo, args.repo, args.path, args.owner,
+                            force=args.force, branch=args.branch, lock_wait=args.lock_wait,
+                            dry_run=(args.cmd == "authorize"))
+        _report_remove(res)
+        _emit(res)
+        return _exit_for(res)
     if args.cmd == "restore":
         res = restore(args.workspace, args.destination)
         _emit(res)
