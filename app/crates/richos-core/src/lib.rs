@@ -67,6 +67,7 @@ pub mod correction;
 pub mod config;
 pub mod entity;
 pub mod feedback;
+pub mod home_field;
 pub mod journal;
 pub mod heard;
 pub mod launch;
