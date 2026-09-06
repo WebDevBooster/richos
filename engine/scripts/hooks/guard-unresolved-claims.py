@@ -928,6 +928,159 @@ def nameless_dispatch(message, prose):
     return bool(prose and not AGENT_RE.search(message))
 
 
+# --- the 2026-09-06 failure: "clean and pushed" over six unlanded branches ---
+#
+# A session ended reporting "Everything is clean and pushed" while SIX finished
+# branches sat outside main, one of them the fix for the CEO's own complaint
+# that the app steals keyboard focus. Both checks it ran were green and both
+# were CORRECT -- the working tree was clean, and main did match origin/main.
+#
+#     NEITHER OF THOSE TWO FACTS CAN SEE AN UNLANDED BRANCH, AND BETWEEN THEM
+#     THEY ARE THE ENTIRE VOCABULARY OF THE WORD "CLEAN".
+#
+# This is the SHA-FREE sibling of the state claims above. Those need a hex token
+# to have anything to ask git about; the sentence that did the damage cites no
+# commit at all, which is precisely why nothing caught it. So the question here
+# is asked of the REPOSITORY SET rather than of a citation: is any branch
+# holding work main does not have, with nothing live standing over it?
+#
+# IT REPORTS AND IT MUST NEVER BLOCK, and that is not a preference. This guard
+# has three recorded false-positive incidents -- g11, g12, g13 in the CEO's
+# backlog -- and two of them are the same defect twice: it blocked a TRUE
+# statement because it could not read a negation, and it blocked a commit whose
+# MESSAGE merely described a forbidden command. A blocking guard with a
+# false-positive class gets waived on the day, and habitual waiving is how a
+# defense decays into a formality. Blocking is a decision for later, backed by a
+# measured false-positive rate that does not exist yet.
+#
+# MEASURED -- 161 non-scratchpad transcripts on this machine, 5,683 assistant
+# messages, 2026-09-06:
+#
+#   first draft (scope word + landing word in one sentence)
+#       202 messages (3.55%), and 45 sampled and hand-read: 31 true / 14 false
+#       = 68.9% precision. The false ones were nearly all one of two genres --
+#       the orchestrator QUOTING this failure ("the same kind of claim as
+#       'clean and pushed'"), and the contrastive idiom "everything else".
+#
+#   shipped (quotation spans masked, `everything else` excluded)
+#       171 messages (3.01%), 45 sampled and hand-read: 37 true / 8 false
+#       = 82.2% precision.
+#
+# Masking quotations is what moved it, and it moved it 13 points. The remaining
+# false ones are future conditionals ("once everything is landed"), rules being
+# described rather than states being asserted, and one "everything from Clark's
+# landed brief" where `landed` modifies a noun.
+#
+# 82% is the EXTRACTION rate, not the report rate. A report needs the claim AND
+# a branch actually holding unlanded work with nothing live on it, so the
+# composite is far rarer -- and on the day it fires, it fires on the sentence
+# that was about to be sent.
+COMPLETE_QUOTED = re.compile(r"`[^`]*`|“[^”]*”|\"[^\"]{0,300}\"")
+COMPLETE_SCOPE = re.compile(
+    r"\b(?:"
+    r"everything(?!\s+else)"
+    r"|every(?:\s+\w+){0,2}\s+branch(?:es)?"
+    r"|all\s+(?:of\s+it|the\s+work|work|branches|the\s+branches)"
+    r"|all\s+(?:\w+\s+){0,2}repos?(?:itor(?:y|ies))?"
+    r"|nothing\s+(?:left|outstanding|pending|remaining|unmerged|unlanded)"
+    r"|no\s+(?:unmerged|unlanded|outstanding|open)\s+\w+"
+    r"|(?:repos?|repositor(?:y|ies)|trees?|working\s+trees?)\s+(?:is|are)\s+clean"
+    r"|clean\s+and\s+(?:pushed|landed|merged)"
+    r")\b", re.I)
+COMPLETE_STATE = re.compile(
+    r"\b(?:clean|landed|merged|pushed|finished|done|completed?|shipped"
+    r"|wrapped\s+up|up\s+to\s+date|in\s+sync)\b", re.I)
+# The scope word and the completion word have to be in the same sentence AND
+# near each other. Without the window, "all three repos" at the start of a long
+# paragraph-sentence pairs with a `done` eighty words later that is about
+# something else entirely.
+COMPLETE_WINDOW = 120
+MAX_COMPLETE_CLAIMS = 4
+
+
+def completeness_claims(text):
+    """[(sentence, polarity)] -- SHA-free assertions that the work is all in.
+
+    Quotation spans are BLANKED before matching, not stripped, so every offset
+    still lines up with the original sentence and `claim_polarity` reads the
+    same clause a person would. That one change is worth 13 points of precision,
+    because the orchestrator quotes this exact failure constantly.
+    """
+    out = []
+    for s in SENTENCE_SPLIT.split(text):
+        s = s.strip()
+        if not s or len(s) > 600:
+            continue
+        probe = COMPLETE_QUOTED.sub(lambda m: " " * (m.end() - m.start()), s)
+        ms = COMPLETE_SCOPE.search(probe)
+        if not ms:
+            continue
+        for mt in COMPLETE_STATE.finditer(probe):
+            if abs(mt.start() - ms.start()) <= COMPLETE_WINDOW:
+                out.append((s[:400], claim_polarity(probe, mt.start())))
+                break
+        if len(out) >= MAX_COMPLETE_CLAIMS:
+            break
+    return out
+
+
+def operator_line(text):
+    """Put ONE line where the operator will actually read it.
+
+    Every other report in this guard's observation block goes to stderr, and
+    scripts/lib/stop-hook-notice.sh measured what that is worth on the Stop
+    event: a hook's stderr AND its plain stdout are filed into the transcript
+    as a `hook_success` attachment and shown to the operator NOWHERE. Only
+    {"systemMessage": ...} on stdout reaches him.
+
+    THIS ONE CLASS GETS THE OPERATOR CHANNEL AND THE OTHERS DO NOT, and the
+    difference is the failure being caught. A path that did not resolve is a
+    footnote in a report he is reading anyway. A sentence telling him the work
+    is all in, WHILE it is not, is the report -- and by the time he could read
+    a transcript attachment he has already believed it.
+
+    It is NOT de-duplicated, deliberately, and the reasoning is the one
+    scripts/lib/unevaluated-notice.sh sets out for the PreToolUse case: a
+    stand-down is a persistent CONDITION and belongs on the state-change
+    channel, but this is a property of ONE TURN -- this sentence, asserted now.
+    Suppressing the second occurrence would not de-duplicate a condition, it
+    would decline to mention the second false claim. The Stop notice
+    (notice-unlanded-branches.sh) is the state-change half of the same fact and
+    goes quiet after the first turn, which is why this half must not.
+    """
+    sys.stdout.write(json.dumps({"suppressOutput": True,
+                                 "systemMessage": text}) + "\n")
+
+
+def unlanded_sweep(entity_root, session_id):
+    """(result, error) from scripts/lib/unlanded-branches.py, loaded by path.
+
+    Loaded rather than duplicated: the Stop notice and this guard MUST agree
+    about what counts as unlanded work, and two implementations of one predicate
+    is how "it was quiet at the turn end" and "it is loud in the report" become
+    two different answers.
+
+    Returns (None, reason) on any failure. A reason is never swallowed -- the
+    caller prints it, because a sub-check that did not run must not be reported
+    in the same words as one that ran and found nothing.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "..", "lib", "unlanded-branches.py")
+    if not os.path.isfile(path):
+        return None, "scripts/lib/unlanded-branches.py is missing at %s" % path
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("richos_unlanded", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        # Ledger path left to the module, which reads RICHOS_WORKTREE_LEDGER --
+        # the same override every other reader of that file uses.
+        return mod.sweep(entity_root, session_id, None,
+                         os.environ.get("UNLANDED_BRANCHES_EXTRA_REPOS", "")), ""
+    except Exception as exc:  # never wedge a turn over a sub-check
+        return None, "the sweep raised %s: %s" % (type(exc).__name__, exc)
+
+
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
@@ -1068,6 +1221,26 @@ def main():
                 time.monotonic() + STATE_BUDGET_SECONDS):
             absence_reports.append((v, sp, fp, entity_root))
 
+    # --- REPORTING: "everything is clean and pushed" over unlanded branches --
+    # Gated on the CLAIM, so the sweep's ~0.5s of git only happens on the 3% of
+    # turns that assert completeness. NEGATED claims are silent for the same
+    # reason they are silent above: understating what landed has never been the
+    # failure this engine protects against, and "nothing has landed yet" being
+    # true is not a finding.
+    complete_reports = []
+    complete_unevaluated = ""
+    cclaims = [(s, pol) for s, pol in completeness_claims(message)
+               if pol == "positive"]
+    if cclaims:
+        swept, why = unlanded_sweep(entity_root, session_id)
+        if swept is None:
+            # NOT silence. A turn asserting completeness while the check that
+            # could contradict it did not run is exactly the state this whole
+            # class exists to stop being invisible.
+            complete_unevaluated = why
+        elif swept.get("findings"):
+            complete_reports.append((cclaims[0][0], swept))
+
     # --- observation record -------------------------------------------------
     # Written for EVERY turn, blocked or not, so the reporting layer is a record
     # rather than a rumour. Identifiers only -- never the message, never the
@@ -1096,6 +1269,13 @@ def main():
                              for k, sh, _, rp, rf in bad_states],
         "value_absence": [{"value": v, "surviving": sp, "file": fp}
                           for v, sp, fp, _ in absence_reports],
+        "completeness_claims": [{"polarity": pol} for _, pol
+                                in completeness_claims(message)],
+        "unlanded_branches": [{"repo": f["label"], "branch": f["branch"],
+                               "commits": f["commits"], "tip": f["tip"]}
+                              for _, sw in complete_reports
+                              for f in sw["findings"]],
+        "unlanded_unevaluated": complete_unevaluated,
         "verdict": "block" if (unresolved_names or unresolved_shas
                                or undispatched_roles or bad_states) else "pass",
     }
@@ -1111,7 +1291,7 @@ def main():
     if not (unresolved_names or unresolved_shas or undispatched_roles
             or bad_states):
         if (unresolved_paths or prose or stale_roles or absence_reports
-                or state_reports):
+                or state_reports or complete_reports or complete_unevaluated):
             lines = ["=== claim check: PASSED, with observations (not blocking) ==="]
             for p in unresolved_paths:
                 lines.append("  path cited but unresolved and ungrounded: %s" % p)
@@ -1142,7 +1322,58 @@ def main():
                 lines.append("    you wrote #%s; %s is the same value and is still in %s" % (v, sp, fp))
                 lines.append("    (grep every spelling before saying gone -- this fires on 54% of value")
                 lines.append("     citations in the corpus, so it is reported and never enforced)")
+            for sentence, sw in complete_reports:
+                lines.append("  YOU CALLED IT DONE, AND %d BRANCH(ES) HOLD WORK MAIN DOES NOT HAVE:"
+                             % sw["n_findings"])
+                lines.append("    \"%s\"" % sentence.replace("\n", " ").strip()[:200])
+                for f in sw["findings"][:6]:
+                    lines.append("      %s %s — %d commit(s) ahead of %s, tip %s, %s days old%s"
+                                 % (f["label"], f["branch"], f["commits"],
+                                    f["trunk"], f["tip"],
+                                    f["age_days"] if f["age_days"] is not None else "?",
+                                    (", " + f["teammate"]) if f["teammate"] else ""))
+                if sw["n_findings"] > 6:
+                    lines.append("      (+%d more — scripts/unlanded-branches-lint.sh)"
+                                 % (sw["n_findings"] - 6))
+                lines.append("    A clean working tree and main == origin/main are BOTH TRUE while")
+                lines.append("    these exist, and neither can see them. That is the whole of the")
+                lines.append("    2026-09-06 failure: six finished branches outside main, two green")
+                lines.append("    checks, and a correct answer to a question nobody asked.")
+                lines.append("    (reported, never enforced — this guard has three recorded")
+                lines.append("     false-positive incidents and a blocking gate with a")
+                lines.append("     false-positive class gets waived, which is how a defense dies)")
+            if complete_unevaluated:
+                lines.append("  a completeness claim was made and the unlanded-branch check DID NOT RUN:")
+                lines.append("    %s" % complete_unevaluated)
+                lines.append("    Do not read this as agreement. Run scripts/unlanded-branches-lint.sh.")
             lines.append("  record: .claude/state/claim-checks.jsonl")
+
+            # THE ONE LINE THAT LEAVES THE TRANSCRIPT. See operator_line().
+            for sentence, sw in complete_reports:
+                named = "; ".join(
+                    "%s %s (%d commit%s)" % (f["label"], f["branch"],
+                                             f["commits"],
+                                             "" if f["commits"] == 1 else "s")
+                    for f in sw["findings"][:4])
+                extra = ("" if sw["n_findings"] <= 4
+                         else " (+%d more)" % (sw["n_findings"] - 4))
+                operator_line(
+                    "YOU CALLED IT DONE AND IT IS NOT — \"%s\" — while %d "
+                    "branch(es) hold work main does not have: %s%s. A clean "
+                    "working tree and main == origin/main are both TRUE while "
+                    "these exist and neither can see them. "
+                    "scripts/unlanded-branches-lint.sh "
+                    "(hook: scripts/hooks/guard-unresolved-claims.sh)"
+                    % (sentence.replace("\n", " ").strip()[:160],
+                       sw["n_findings"], named, extra))
+            if complete_unevaluated:
+                operator_line(
+                    "A COMPLETENESS CLAIM WENT OUT UNCHECKED: this turn said "
+                    "the work is all in, and the check that could contradict "
+                    "it did not run (%s). Do not read this as agreement; run "
+                    "scripts/unlanded-branches-lint.sh. "
+                    "(hook: scripts/hooks/guard-unresolved-claims.sh)"
+                    % complete_unevaluated[:200])
             sys.stderr.write("\n".join(lines) + "\n")
         return 0
 

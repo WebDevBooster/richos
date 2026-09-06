@@ -1,0 +1,1050 @@
+{
+  "silent/dark": [
+    {
+      "label": "2s",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "",
+        "detail": "Nothing has come back yet",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_silent",
+        "status": "working",
+        "startedAt": 1788673245591,
+        "acceptedAt": 1788673244688,
+        "lastAt": 1788673245591,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "1s",
+          "detail": "Nothing has come back yet",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:40 AM",
+        "Copy",
+        "Working",
+        "Rich is working",
+        "Nothing has come back yet",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "10s",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "8s",
+        "detail": "Nothing has come back yet",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 8s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_silent",
+        "status": "working",
+        "startedAt": 1788673245591,
+        "acceptedAt": 1788673244688,
+        "lastAt": 1788673245591,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "9s",
+          "detail": "Nothing has come back yet",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:40 AM",
+        "Copy",
+        "Working for 8s",
+        "Rich is working",
+        "8s",
+        "Nothing has come back yet",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "30s",
+      "band": {
+        "tone": "quiet",
+        "head": "Rich is working",
+        "time": "28s",
+        "detail": "Nothing new for 28s",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 28s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_silent",
+        "status": "working",
+        "startedAt": 1788673245591,
+        "acceptedAt": 1788673244688,
+        "lastAt": 1788673245591,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "29s",
+          "detail": "Nothing new for 29s",
+          "tone": "quiet"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:40 AM",
+        "Copy",
+        "Working for 28s",
+        "Rich is working",
+        "28s",
+        "Nothing new for 28s",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "60s",
+      "band": {
+        "tone": "quiet",
+        "head": "Rich is working",
+        "time": "58s",
+        "detail": "Nothing new for 58s",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 58s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_silent",
+        "status": "working",
+        "startedAt": 1788673245591,
+        "acceptedAt": 1788673244688,
+        "lastAt": 1788673245591,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "59s",
+          "detail": "Nothing new for 59s",
+          "tone": "quiet"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:40 AM",
+        "Copy",
+        "Working for 58s",
+        "Rich is working",
+        "58s",
+        "Nothing new for 58s",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    }
+  ],
+  "active/dark": [
+    {
+      "label": "activity just arrived",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "2s",
+        "detail": "Read the Q3 board pack",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 2s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_active",
+        "status": "working",
+        "startedAt": 1788673307105,
+        "acceptedAt": 1788673306203,
+        "lastAt": 1788673308707,
+        "lastWhat": "Read the Q3 board pack",
+        "signals": 1,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "2s",
+          "detail": "Read the Q3 board pack · 1s ago",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:41 AM",
+        "Copy",
+        "⌄",
+        "Working for 2s",
+        "◐",
+        "Read the Q3 board pack",
+        "running",
+        "Rich is working",
+        "2s",
+        "Read the Q3 board pack",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "8s after that activity",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "10s",
+        "detail": "Read the Q3 board pack · 8s ago",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 10s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_active",
+        "status": "working",
+        "startedAt": 1788673307105,
+        "acceptedAt": 1788673306203,
+        "lastAt": 1788673308707,
+        "lastWhat": "Read the Q3 board pack",
+        "signals": 1,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "10s",
+          "detail": "Read the Q3 board pack · 9s ago",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:41 AM",
+        "Copy",
+        "⌄",
+        "Working for 10s",
+        "◐",
+        "Read the Q3 board pack",
+        "running",
+        "Rich is working",
+        "10s",
+        "Read the Q3 board pack · 8s ago",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "writing the reply",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "11s",
+        "detail": "Writing the reply",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 11s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_active",
+        "status": "working",
+        "startedAt": 1788673307105,
+        "acceptedAt": 1788673306203,
+        "lastAt": 1788673317982,
+        "lastWhat": "Writing the reply",
+        "signals": 3,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "11s",
+          "detail": "Writing the reply",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:41 AM",
+        "Copy",
+        "⌄",
+        "Working for 11s",
+        "◐",
+        "Read the Q3 board pack",
+        "running",
+        "Rich said",
+        "Rich",
+        "Here is where the numbers land.",
+        "Copy",
+        "Rich is working",
+        "11s",
+        "Writing the reply",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "quiet after the writing stopped",
+      "band": {
+        "tone": "quiet",
+        "head": "Rich is working",
+        "time": "38s",
+        "detail": "Nothing new for 27s",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 38s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_active",
+        "status": "working",
+        "startedAt": 1788673307105,
+        "acceptedAt": 1788673306203,
+        "lastAt": 1788673317982,
+        "lastWhat": "Writing the reply",
+        "signals": 3,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "38s",
+          "detail": "Nothing new for 27s",
+          "tone": "quiet"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:41 AM",
+        "Copy",
+        "⌄",
+        "Working for 38s",
+        "◐",
+        "Read the Q3 board pack",
+        "running",
+        "Rich said",
+        "Rich",
+        "Here is where the numbers land.",
+        "Copy",
+        "Rich is working",
+        "38s",
+        "Nothing new for 27s",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    }
+  ],
+  "dead/dark": [
+    {
+      "label": "6s in, still working",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "4s",
+        "detail": "Nothing has come back yet",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 4s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_dead",
+        "status": "working",
+        "startedAt": 1788673348321,
+        "acceptedAt": 1788673347418,
+        "lastAt": 1788673348321,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "5s",
+          "detail": "Nothing has come back yet",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:42 AM",
+        "Copy",
+        "Working for 4s",
+        "Rich is working",
+        "4s",
+        "Nothing has come back yet",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "the turn died",
+      "band": null,
+      "durationRow": "Stopped after 6s",
+      "failureCardOnScreen": false,
+      "composerMode": "idle",
+      "stopVisible": false,
+      "waitModel": null,
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:42 AM",
+        "Copy",
+        "Stopped after 6s",
+        "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up.",
+        "Everything I'd already written above is saved.",
+        "Pick it back up",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment",
+        "▷"
+      ]
+    },
+    {
+      "label": "5s after it died",
+      "band": null,
+      "durationRow": "Stopped after 6s",
+      "failureCardOnScreen": false,
+      "composerMode": "idle",
+      "stopVisible": false,
+      "waitModel": null,
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:42 AM",
+        "Copy",
+        "Stopped after 6s",
+        "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up.",
+        "Everything I'd already written above is saved.",
+        "Pick it back up",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment",
+        "▷"
+      ]
+    }
+  ],
+  "silent/light": [
+    {
+      "label": "2s",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "",
+        "detail": "Nothing has come back yet",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_silent",
+        "status": "working",
+        "startedAt": 1788673361061,
+        "acceptedAt": 1788673360159,
+        "lastAt": 1788673361062,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "1s",
+          "detail": "Nothing has come back yet",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:42 AM",
+        "Copy",
+        "Working",
+        "Rich is working",
+        "Nothing has come back yet",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "10s",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "8s",
+        "detail": "Nothing has come back yet",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 8s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_silent",
+        "status": "working",
+        "startedAt": 1788673361061,
+        "acceptedAt": 1788673360159,
+        "lastAt": 1788673361062,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "9s",
+          "detail": "Nothing has come back yet",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:42 AM",
+        "Copy",
+        "Working for 8s",
+        "Rich is working",
+        "8s",
+        "Nothing has come back yet",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "30s",
+      "band": {
+        "tone": "quiet",
+        "head": "Rich is working",
+        "time": "28s",
+        "detail": "Nothing new for 28s",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 28s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_silent",
+        "status": "working",
+        "startedAt": 1788673361061,
+        "acceptedAt": 1788673360159,
+        "lastAt": 1788673361062,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "29s",
+          "detail": "Nothing new for 29s",
+          "tone": "quiet"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:42 AM",
+        "Copy",
+        "Working for 28s",
+        "Rich is working",
+        "28s",
+        "Nothing new for 28s",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "60s",
+      "band": {
+        "tone": "quiet",
+        "head": "Rich is working",
+        "time": "58s",
+        "detail": "Nothing new for 58s",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 58s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_silent",
+        "status": "working",
+        "startedAt": 1788673361061,
+        "acceptedAt": 1788673360159,
+        "lastAt": 1788673361062,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "59s",
+          "detail": "Nothing new for 59s",
+          "tone": "quiet"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:42 AM",
+        "Copy",
+        "Working for 58s",
+        "Rich is working",
+        "58s",
+        "Nothing new for 58s",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    }
+  ],
+  "active/light": [
+    {
+      "label": "activity just arrived",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "2s",
+        "detail": "Read the Q3 board pack",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 2s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_active",
+        "status": "working",
+        "startedAt": 1788673422505,
+        "acceptedAt": 1788673421603,
+        "lastAt": 1788673424109,
+        "lastWhat": "Read the Q3 board pack",
+        "signals": 1,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "2s",
+          "detail": "Read the Q3 board pack · 1s ago",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:43 AM",
+        "Copy",
+        "⌄",
+        "Working for 2s",
+        "◐",
+        "Read the Q3 board pack",
+        "running",
+        "Rich is working",
+        "2s",
+        "Read the Q3 board pack",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "8s after that activity",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "10s",
+        "detail": "Read the Q3 board pack · 8s ago",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 10s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_active",
+        "status": "working",
+        "startedAt": 1788673422505,
+        "acceptedAt": 1788673421603,
+        "lastAt": 1788673424109,
+        "lastWhat": "Read the Q3 board pack",
+        "signals": 1,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "10s",
+          "detail": "Read the Q3 board pack · 9s ago",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:43 AM",
+        "Copy",
+        "⌄",
+        "Working for 10s",
+        "◐",
+        "Read the Q3 board pack",
+        "running",
+        "Rich is working",
+        "10s",
+        "Read the Q3 board pack · 8s ago",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "writing the reply",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "11s",
+        "detail": "Writing the reply",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 11s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_active",
+        "status": "working",
+        "startedAt": 1788673422505,
+        "acceptedAt": 1788673421603,
+        "lastAt": 1788673433381,
+        "lastWhat": "Writing the reply",
+        "signals": 3,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "11s",
+          "detail": "Writing the reply",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:43 AM",
+        "Copy",
+        "⌄",
+        "Working for 11s",
+        "◐",
+        "Read the Q3 board pack",
+        "running",
+        "Rich said",
+        "Rich",
+        "Here is where the numbers land.",
+        "Copy",
+        "Rich is working",
+        "11s",
+        "Writing the reply",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "quiet after the writing stopped",
+      "band": {
+        "tone": "quiet",
+        "head": "Rich is working",
+        "time": "38s",
+        "detail": "Nothing new for 27s",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 38s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_active",
+        "status": "working",
+        "startedAt": 1788673422505,
+        "acceptedAt": 1788673421603,
+        "lastAt": 1788673433381,
+        "lastWhat": "Writing the reply",
+        "signals": 3,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "38s",
+          "detail": "Nothing new for 27s",
+          "tone": "quiet"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:43 AM",
+        "Copy",
+        "⌄",
+        "Working for 38s",
+        "◐",
+        "Read the Q3 board pack",
+        "running",
+        "Rich said",
+        "Rich",
+        "Here is where the numbers land.",
+        "Copy",
+        "Rich is working",
+        "38s",
+        "Nothing new for 27s",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    }
+  ],
+  "dead/light": [
+    {
+      "label": "6s in, still working",
+      "band": {
+        "tone": "working",
+        "head": "Rich is working",
+        "time": "4s",
+        "detail": "Nothing has come back yet",
+        "visible": true,
+        "markFlashing": true
+      },
+      "durationRow": "Working for 4s",
+      "failureCardOnScreen": false,
+      "composerMode": "working",
+      "stopVisible": true,
+      "waitModel": {
+        "turnId": "turn_dead",
+        "status": "working",
+        "startedAt": 1788673463710,
+        "acceptedAt": 1788673462808,
+        "lastAt": 1788673463711,
+        "lastWhat": null,
+        "signals": 0,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "5s",
+          "detail": "Nothing has come back yet",
+          "tone": "working"
+        },
+        "quietAfterMs": 25000
+      },
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:44 AM",
+        "Copy",
+        "Working for 4s",
+        "Rich is working",
+        "4s",
+        "Nothing has come back yet",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment"
+      ]
+    },
+    {
+      "label": "the turn died",
+      "band": null,
+      "durationRow": "Stopped after 6s",
+      "failureCardOnScreen": false,
+      "composerMode": "idle",
+      "stopVisible": false,
+      "waitModel": null,
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:44 AM",
+        "Copy",
+        "Stopped after 6s",
+        "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up.",
+        "Everything I'd already written above is saved.",
+        "Pick it back up",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment",
+        "▷"
+      ]
+    },
+    {
+      "label": "5s after it died",
+      "band": null,
+      "durationRow": "Stopped after 6s",
+      "failureCardOnScreen": false,
+      "composerMode": "idle",
+      "stopVisible": false,
+      "waitModel": null,
+      "visibleText": [
+        "Harbor Analytics",
+        "/",
+        "Running",
+        "You said",
+        "Draft the Q4 board memo from the numbers in the folder.",
+        "6:44 AM",
+        "Copy",
+        "Stopped after 6s",
+        "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up.",
+        "Everything I'd already written above is saved.",
+        "Pick it back up",
+        "⋯ 1 working · 1 done · 1 I can't see",
+        "No assignment yet",
+        "Tell Rich what needs doing in the conversation. He will carry out the assignment and check the result.",
+        "Import an assignment",
+        "▷"
+      ]
+    }
+  ]
+}

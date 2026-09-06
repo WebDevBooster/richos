@@ -43,8 +43,19 @@
 #      shell surviving --execute — is carried by the locked-native gate, which
 #      cases 2 and 24 already hold down. A label that vanished would cost a
 #      reader information and could not cost anyone a worktree.
+#   W10 (the live-owner veto reaching the report) and W11 (transaction-sourced
+#      shell labeling) are NOT mutated HERE. W10's property lives in
+#      scripts/lib/worktree-adoption.py and its own harness mutates it
+#      directly (live-session-veto-removed -> A03); mutating this file would
+#      test the same code through a slower path. W11 is a label, for the same
+#      reason W4 is not mutated.
+#   W7b/W7c/W7d are NOT mutated. W7c ("a recorded path git still registers is
+#      never residue") is the dangerous inversion of W7, and the two ship as a
+#      matched pair in one world: a pass that called nothing residue fails W7
+#      and a pass that called everything residue fails W7c, so both directions
+#      are already red without a mutant.
 #
-# Both are covered by the suite. Neither is covered by a mutant, and that
+# All are covered by the suite. None is covered by a mutant here, and that
 # distinction is the point of writing it down.
 
 set -uo pipefail
@@ -95,5 +106,19 @@ mutant refusal-not-recognized "W6" "$F" \
     'elif [ "$_rm_rc" -eq 3 ]; then' \
     'elif [ "$_rm_rc" -eq 333 ]; then' \
     "a refusal from the authoritative liveness check ('this agent is ALIVE') would be reported as an ordinary removal failure, so the one case where the two authorities contradict each other would read like a flaky git error."
+
+# The record-driven residue pass goes away and the coverage silently narrows
+# back to whatever a density test happens to qualify as a container.
+mutant record-driven-pass-removed "W7" "$F" \
+    'if [ -f "$LEDGER_PY" ] && [ -f "$LIB_DIR/worktree-transactions.py" ] && command -v python3 >/dev/null 2>&1; then{NL}    _rec_paths=' \
+    'if false; then{NL}    _rec_paths=' \
+    "residue and orphaned processes outside a qualified container would go unreported again — the '/private/tmp' blind line, back, over a directory the record knows everything about."
+
+# THE VERDICT LIES. Every selected tree reads as adoptable, so the line claims
+# NO OPERATOR ACTION over trees nothing will ever take.
+mutant verdict-claims-all-adoptable "W9" "$F" \
+    '                NOT_ADOPTABLE_COUNT=$((NOT_ADOPTABLE_COUNT + 1)){NL}                case " $NOT_ADOPTABLE_GATES " in *" $_ad_gate "*) : ;; *) NOT_ADOPTABLE_GATES="$NOT_ADOPTABLE_GATES $_ad_gate" ;; esac' \
+    '                : ' \
+    "the verdict would say ALL ARE ADOPTABLE and NO OPERATOR ACTION over worktrees the adoption gate refused — the same class of lie as 'reaped=11' over a run that removed nothing, one level up."
 
 mutation_end

@@ -2562,4 +2562,128 @@ module.exports = [
       "The same field again, after `build(entry)` threw. `removeSelf()` runs first, so the " +
       "launch is a normal one with nothing drawn and there is no curtain left to print on.",
   },
+
+  // -------------------------------------------------------------------------------------
+  // WHY HIS OWN LORO IS NOT THE PICTURE (`home_field_data`, 2026-09-06)
+  //
+  // Four reasons the home screen keeps drawing the demonstration. NOT ONE OF THEM REACHES
+  // THE DOM, and that is the design rather than an oversight: the demonstration is what the
+  // CEO asked to keep — *"The demo is definitely needed, initially, for the user"* — so a
+  // launch that draws it has nothing to report. There is no failure to explain, no request
+  // to make of him, and nothing for him to act on; the screen already carries the one
+  // sentence that matters, which is the first-run banner.
+  //
+  // Two land on `RichHome.state.fieldOffer`, which the acceptance suite reads and the CEO
+  // never sees. Two are `eprintln!` in the boot log, which is the operator's window and not
+  // his — the same split `MemoryStatus::detail` already uses.
+  // -------------------------------------------------------------------------------------
+  {
+    s: "the backend said nothing about a corpus",
+    c: "NOT-RENDERED",
+    why:
+      "`home.js`'s own words for an answer that was not a positive `available: true` with a " +
+      "dataset attached. Recorded on `state.fieldOffer.reason` for the acceptance suite; " +
+      "nothing renders it, because the screen is drawing the demonstration and that is what " +
+      "it is supposed to be doing.",
+  },
+  {
+    s: "the corpus did not compile within",
+    c: "NOT-RENDERED",
+    why:
+      "The head of `home.js`'s timeout sentence (it continues with the millisecond ceiling). " +
+      "Same destination: `state.fieldOffer.reason`, read by the suite and by nobody else. A " +
+      "timeout is not evidence of anything, so the demonstration stays and says nothing new.",
+  },
+  {
+    s: "the corpus could not be read: {e}",
+    c: "NOT-RENDERED",
+    why:
+      "`main.rs::home_field_data`, the census-probe failure, returned as `reason` on an " +
+      "`available: false` answer and printed to the boot log beside it. Machine-facing: `{e}` " +
+      "is a compiler's stderr line, which is not CEO copy — the same split `MemoryStatus` " +
+      "makes between its `detail` and the surface's own sentence.",
+  },
+  {
+    s: "the corpus could not be compiled: {e}",
+    c: "NOT-RENDERED",
+    why:
+      "The same, for the arm where every topic failed to compile. Neither string is shown to " +
+      "the CEO and neither asks anything of him; whoever set RichOS up reads them in the " +
+      "boot log.",
+  },
+  // -------------------------------------------------------------------------------------
+  // THE WAITING STATE (main.js "THE WAITING STATE", 2026-09-06)
+  // -------------------------------------------------------------------------------------
+  //
+  // Eight strings, added because the first outside user of RichOS said a long turn "looks
+  // like a crashed application" and the app had one 14px line and a 5px dot to answer him
+  // with. Every one is a STATEMENT of something observed — none asks the CEO for anything,
+  // and none can be made true or false by an act of his. `#stop` is visible for the whole
+  // of every live turn (`syncComposerMode`), so a CEO who wants the turn back always has
+  // the control; it is simply not what any of these sentences is about.
+  //
+  // Kept together at the end of the file, on purpose: `app/ui/tests/**` belongs to another
+  // engineer this session, so this block is strictly additive and touches no existing row.
+  {
+    s: "Rich is working",
+    c: "INFORMATIONAL",
+    why:
+      "The waiting band's headline for `rich://turn-status: working` — the ledger's own " +
+      "transition, read back out of the ledger before it is emitted (`spine.rs` " +
+      "`turn_status_event`). A statement about a turn, with nothing in it for him to do.",
+  },
+  {
+    s: "Rich has your message",
+    c: "INFORMATIONAL",
+    why:
+      "The same band's headline for `queued`: the prompt is durably `received` and no lease " +
+      "has been handed it yet. Nothing to act on — the turn moves itself to `working`.",
+  },
+  {
+    s: "He hasn't started on it yet",
+    c: "INFORMATIONAL",
+    why:
+      "The detail line under `queued`, and the whole content of that state: the message is " +
+      "recorded and the work has not begun. It reports; it does not ask.",
+  },
+  {
+    s: "Rich is picking this back up",
+    c: "INFORMATIONAL",
+    why:
+      "The headline for `rich://turn-status: recovering` — a turn whose lease died and is " +
+      "being replayed. The replay is automatic (`spine.rs`), so there is nothing to press.",
+  },
+  {
+    s: "Rich is letting go of this turn",
+    c: "INFORMATIONAL",
+    why:
+      "The headline while a CEO stop is in flight, set from `stop_turn`'s durable answer " +
+      "rather than an event (the same source `timeline.js`'s `stopping` row uses). He has " +
+      "already acted; this is the acknowledgement of it.",
+  },
+  {
+    s: "Nothing has come back yet",
+    c: "INFORMATIONAL",
+    why:
+      "Zero content events observed on a turn this window watched from its start. The " +
+      "honest alternative to a fabricated progress claim — there is no percentage, step " +
+      "count or estimate anywhere in the ACP wire to render (see " +
+      "`docs/verification/acp-emission-probe-2026-08-28.md`).",
+  },
+  {
+    s: "Nothing new for",
+    c: "FRAGMENT",
+    why:
+      "Template hole: completed by a formatted duration (`Nothing new for 41s`). The whole " +
+      "sentence is informational — it says how long it has been since the last event the " +
+      "timeline accepted for this thread, which is true at every value it can take.",
+  },
+  {
+    s: "Writing the reply",
+    c: "INFORMATIONAL",
+    why:
+      "What `rich://message-started` / `message-delta` licenses and nothing more. `phase` is " +
+      "`unknown` on every message this runtime emits (`live.rs`), so naming a kind of " +
+      "writing would be inventing one.",
+  },
 ];

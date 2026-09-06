@@ -35,6 +35,18 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 unset CLAUDE_PROJECT_DIR
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 export RICHOS_WORKTREE_CAPTURE_DIR="$SANDBOX/captures"
+# THE OWNERSHIP LEDGER IS SANDBOXED FOR THE SAME REASON THE TRANSACTION STORE
+# IS, and until 2026-09-06 it was not. That was a hermeticity gap this suite
+# already had an opinion about — case W15 asserts that no transaction for the
+# test session reaches the operator's real store — applied to one of the two
+# stores. It became visible when the reconciler gained its adoption pass, which
+# reads the ledger: with the transaction store redirected and the ledger left
+# at its default, the pass refuses fail-closed (correctly, and loudly) and its
+# refusal landed in the context line four cases assert against.
+#
+# The refusal was right and this is the fix it was asking for. Redirecting both
+# is what "sandboxed" was always supposed to mean.
+export RICHOS_WORKTREE_LEDGER="$SANDBOX/wt-ledger.jsonl"
 export RICHOS_RECONCILE_SETTLE=0.2
 SID="deadbeef-0000-4000-8000-000000000000"
 T() { python3 "$TX_PY" "$@"; }

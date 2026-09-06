@@ -128,9 +128,10 @@ function declaredChecks(src) {
   return (out.match(/\brun\.check\s*\(/g) || []).length;
 }
 
-// The self-test. Four things a naive `grep -c` gets wrong, asserted on every run rather than
+// The self-test. Five things a naive `grep -c` gets wrong, asserted on every run rather than
 // trusted: a live call counts, a commented-out one does not, a block comment does not close
-// the file, and the string forms are not calls.
+// the file, the string forms are not calls, and a template literal nested inside another
+// template's `${ ... }` does not end the outer one.
 (function selfTestTheScanner() {
   const fixture = [
     'await run.check("one", async () => {});',
@@ -145,10 +146,16 @@ function declaredChecks(src) {
     // ...and its other half, a division that must not be read as a regex opening.
     "const d = (a) / 2; const e = b / c;",
     'await run.check("four", async () => {});',
+    // MEASURED, 2026-09-06, on `home.js:2013` and `home/field-engine.js:719`. A template
+    // whose interpolation opens another template used to end at the INNER backtick, which
+    // inverted string/code polarity for the rest of the file and swallowed the call below —
+    // home.js was read as declaring 32 checks where it declares 33.
+    "const u = `a ${x ? `b ${y}c` : `d ${y}e`} f`;",
+    'await run.check("five", async () => {});',
   ].join("\n");
   const got = declaredChecks(fixture);
-  if (got !== 4) {
-    console.error(`the declared-check scanner is broken: expected 4 on its own fixture, got ${got}`);
+  if (got !== 5) {
+    console.error(`the declared-check scanner is broken: expected 5 on its own fixture, got ${got}`);
     process.exit(2);
   }
 })();

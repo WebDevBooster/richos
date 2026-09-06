@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 #
-# worktree-binder.mutation.sh — PROVES the binder (third job of
-# detect-nonnative-worktree.sh) CAN FAIL, one property at a time. Invoked by
-# detect-nonnative-worktree.test.sh; the loop is scripts/lib/mutation-harness.sh.
-# Case ids (B06 etc.) are the ones that suite prints on both PASS and FAIL.
+# worktree-binder.mutation.sh — PROVES the properties of
+# detect-nonnative-worktree.sh CAN FAIL, one at a time: the binder (its third
+# job) and, since 2026-09-06, tell (c)'s consultation of the retirement
+# journal. Invoked by detect-nonnative-worktree.test.sh; the loop is
+# scripts/lib/mutation-harness.sh. Case ids (B06 etc.) are the ones that suite
+# prints on both PASS and FAIL.
 
 set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/mutation-harness.sh
 . "$SCRIPT_DIR/../lib/mutation-harness.sh"
-mutation_begin "detect-nonnative-worktree binder" "scripts/hooks/detect-nonnative-worktree.test.sh"
+mutation_begin "detect-nonnative-worktree binder + residue" "scripts/hooks/detect-nonnative-worktree.test.sh"
 
 D="scripts/hooks/detect-nonnative-worktree.sh"
 
@@ -48,8 +50,26 @@ mutant bind-failure-swallowed "B18" "$D" \
     "a refused rebind would look like a clean spawn; the agent would carry the wrong member set with nothing said."
 
 mutant banner-does-not-exit "B06" "$D" \
-    'if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then{NL}  exit 2' \
-    'if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then{NL}  exit 2' \
+    'if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then{NL}  exit 2' \
+    'if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then{NL}  exit 2' \
     "the binding-failed banner would print and the hook would exit 0 — the lead's context never receives it."
+
+# TELL (c): the retirement journal is actually READ. Without this the hook
+# still preserves every byte -- the refusal half of the suite stays green,
+# which is precisely the point of proving it -- but it reports a retirement
+# quarantine's recreated path and a genuine mystery as one undifferentiated
+# list of unknowns, which is the glob it replaced wearing calmer language.
+#
+# NOT MUTATED, AND SAID RATHER THAN IMPLIED: the dot-directory and
+# `*.richos-retired-*` skip in the same loop is deliberately REDUNDANT today,
+# because bash's default globbing already never matches a dot-prefixed name.
+# Removing it changes no observable behavior, so it cannot be proven
+# load-bearing here and no mutant pretends otherwise. Its test is a regression
+# tripwire for the day something turns dotglob on, and the real defense is that
+# no code path deletes anything at all.
+mutant residue-journal-not-consulted "(c) POSITIVE TWIN" "$D" \
+    '    _WHY=""{NL}    if [ -f "$_RETIRE_PY" ]; then' \
+    '    _WHY=""{NL}    if false; then' \
+    "a recreated path the retirement journal fully accounts for would be reported as an unknown of unknown ownership, alongside the genuine mysteries the operator actually needs to look at."
 
 mutation_end
