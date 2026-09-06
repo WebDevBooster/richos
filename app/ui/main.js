@@ -1907,6 +1907,13 @@ const PACE_LAND_MIN_MS = 180;
 /// CEO pointed at (`splash.css` `splash-strike-fill`).
 const PACE_LAND_EASE = "cubic-bezier(0.25, 0.6, 0.35, 1)";
 
+/// THE BAND'S REPAINT INTERVAL, and the climbing bar's transition duration, which have to be
+/// THE SAME NUMBER or the interpolation is wrong: each repaint asks the bar to travel to the
+/// position it will hold when the next repaint arrives, so a transition shorter than the tick
+/// stops early and one longer than it never gets there. It was written twice before it was
+/// named once, which is the kind of pair that drifts.
+const WAIT_TICK_MS = 1000;
+
 /// The id of the span whose position was last PAINTED, so the first paint of a span can land
 /// at its true position with no transition. Without it, a bar on a compaction this window
 /// joined 20s late would sweep up from zero — animating through positions it was never at.
@@ -2171,13 +2178,12 @@ function renderWaitPace(band, copy) {
   // arriving at the same rate, just not interpolated. A loading bar that does not move is a
   // broken loading bar (`splash.js` makes the same call for the same reason).
   const still = first || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  fill.style.transition = still
-    ? "none"
-    : copy.pace.done
-      ? "width " + Math.round(copy.pace.landMs) + "ms " + PACE_LAND_EASE
-      : // The tick owns the clock, so one second of linear interpolation between two true
-        // positions is exactly the span the next repaint will replace.
-        "width 1000ms linear";
+  // Two durations and two easings, ONE expression. While it climbs the tick owns the clock,
+  // so the transition is exactly WAIT_TICK_MS of linear interpolation between two true
+  // positions — the span the next repaint will replace. When it lands, the catch-up is a
+  // measured distance at a fixed speed (`paceLandingMs`) on the splash strike's own easing.
+  const ms = copy.pace.done ? Math.round(copy.pace.landMs) : WAIT_TICK_MS;
+  fill.style.transition = still ? "none" : "width " + ms + "ms " + (copy.pace.done ? PACE_LAND_EASE : "linear");
   fill.style.width = (copy.pace.position * 100).toFixed(3) + "%";
   pacePaintedId = copy.pace.id;
 }
@@ -2207,7 +2213,7 @@ function renderWaitBand() {
 /// timestamps on return, never accumulate).
 function startOrStopWaitTimer() {
   if (waitTurn && !waitTimer && !document.hidden) {
-    waitTimer = window.setInterval(renderWaitBand, 1000);
+    waitTimer = window.setInterval(renderWaitBand, WAIT_TICK_MS);
   } else if ((!waitTurn || document.hidden) && waitTimer) {
     window.clearInterval(waitTimer);
     waitTimer = null;
