@@ -143,6 +143,18 @@
   //   window.__RICHOS_MOCK_PRESET__ = { pinnedByEnvironment: true }   // RICHOS_ENTITY set
   //   window.__RICHOS_MOCK_PRESET__ = { memory: "none" }              // fresh install, no corpus
   //   window.__RICHOS_MOCK_PRESET__ = { memory: "no-compiler" }       // a corpus it cannot read
+  //   window.__RICHOS_MOCK_PRESET__ = { homeField: { objects: 4000, records: 9000 } }
+  //                                                                   // his own loro, before the field starts
+  //
+  // `homeField` IS THE SECOND STATE A SETTER CANNOT REACH, and it is measured rather than
+  // assumed. `home.js` starts the field from its own `requestIdleCallback`, and that callback
+  // asks `home_field_data` at ~348-358ms from navigation on this machine (five runs:
+  // 358.0, 349.0, 348.0, 352.0, 347.0ms). A browser harness gets its first turn at ~85-98ms,
+  // so `__RICHOS_MOCK__.homeFieldSet()` called after load wins that race by about 260ms and
+  // loses it on any machine slower than this one — home.js's own `RICHOS_SPLASH_LAG_MS` note
+  // records the harness's next instruction landing ~2,000ms late on a GitHub `macos-latest`
+  // runner, which is 7.6x the whole margin. The answer arrives before the page can ask, or it
+  // is a coin toss decided by machine load.
   const preset = (typeof window !== "undefined" && window.__RICHOS_MOCK_PRESET__) || {};
   let activeThreadId = "chosenEntity" in preset && !preset.chosenEntity ? null : "general";
 
@@ -561,7 +573,12 @@
   // This mock does NOT compile anything and does not pretend to. What it rehearses is the
   // SURFACE's half of the seam — the shape of the answer, the counts, and the one comparison
   // `home.js` makes against them.
-  let homeField = null;
+  //
+  // `preset.homeField` is the same fact supplied BEFORE any of the page's own scripts run,
+  // which is the only way to have it in place before the field's own idle callback asks for
+  // it — see the pre-boot switch above. Absent, this stays `null` and the demonstration is
+  // what the preview lands on, byte for byte, without anything opting out.
+  let homeField = preset.homeField ? { ...preset.homeField } : null;
 
   function homeFieldAnswer() {
     if (!homeField) {
@@ -2939,6 +2956,12 @@
     ///     __RICHOS_MOCK__.homeFieldSet({ objects: 4000, records: 9000 });
     ///
     /// `objects` is the only number `home.js`'s preference reads.
+    ///
+    /// THIS SETTER CANNOT BEAT THE FIELD'S OWN START, and a caller that needs the answer in
+    /// place for the launch itself wants `__RICHOS_MOCK_PRESET__.homeField` instead — the
+    /// page asks on its own idle callback ~260ms after a harness gets its first turn, which
+    /// is a margin, not a guarantee. Use this one to change the answer for an EXPLICIT
+    /// `askForCustomerField()` call, which is what it is exact for.
     homeFieldSet(field) {
       homeField = field ? { ...field } : null;
       return homeField;
