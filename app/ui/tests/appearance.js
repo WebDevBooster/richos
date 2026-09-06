@@ -47,6 +47,10 @@ const {
   createRun,
   assert,
   assertEqual,
+  awaitSettled,
+  flushFrames,
+  bootSettled,
+  settleOnThread,
   HOLD_CURTAIN,
   assertCurtainHeld,
   UI_DIR,
@@ -65,16 +69,102 @@ const CONFIG_RS = fs.readFileSync(
   "utf8"
 );
 
-/// The steps the control walks, read out of the Rust rather than typed here. A ladder
-/// changed on one side only reaches this file as a failing check instead of as a `+` that
-/// lands somewhere the store will snap away from.
-/// A DELIBERATE SLOW RUNNER, on demand: `RICHOS_APPEARANCE_LAG_MS=3000 node appearance.js`.
-/// Same knob, same reason and same seam as `splash.js`'s `RICHOS_SPLASH_LAG_MS` — a
-/// `macos-latest` runner reaches the first assertion roughly 2,000 ms later than this machine
-/// does, and until 2026-09-06 that difference alone decided whether check 4 passed. Zero, and
-/// no delay at all, unless it is set.
+/// A DELIBERATE SLOW RUNNER, on demand: `RICHOS_APPEARANCE_LAG_MS=120 node appearance.js`.
+///
+/// THE SEAM MOVED, and the number that is useful moved with it. This knob used to be one
+/// `waitForTimeout(LAG_MS)` after `goto` — a stand-in for a `macos-latest` runner reaching the
+/// first assertion about 2,000 ms later than this machine does, which is why the useful value
+/// was around 3,000. That reproduces LATENESS and nothing else: every check is delayed by the
+/// same amount, the app and the driver stay in exactly the order they were in, and the failure
+/// this directory actually has is an ORDERING failure.
+///
+/// It now sits inside `RichBridge.invoke` (`INSTRUMENT_BRIDGE` below), which is the seam
+/// `contrast.js`'s knob already used and the one that decides things: the driver keeps its own
+/// speed while every answer the app is waiting for arrives late, so a check that was relying on
+/// a round trip finishing inside a sleep fails. A useful value here is now tens or low hundreds
+/// of milliseconds rather than thousands. Zero, and no latency at all, unless it is set.
 const LAG_MS = Number(process.env.RICHOS_APPEARANCE_LAG_MS || 0);
 
+/// EVERY BRIDGE CALL THE PAGE COMPLETES, recorded — and optionally slowed down.
+///
+/// WHY A LEDGER AND NOT A LONGER SLEEP. Almost every check below presses a control and then
+/// asserts what the DURABLE STORE holds: `.theme-opt` writes through `set_theme`, the font
+/// keys through `set_font_scale`, the Techy row through `set_techy_default`, the name field
+/// through `set_user_name`. Those are round trips, and the sleeps that stood after them were
+/// bets on how long a round trip takes.
+///
+/// AND THE OBVIOUS FIX IS THE WRONG ONE, which is the whole reason this is a ledger. Waiting
+/// for `localStorage` to hold `"light"` would make check 3's assertion — that the store holds
+/// `"light"` — unfalsifiable: the wait and the assertion would be the same sentence, and a
+/// product that wrote `"dark"` would hang rather than fail, which is a check that cannot go
+/// red. So the wait is on a DIFFERENT fact from the assertion: that the call has completed.
+/// What it wrote is still entirely open, and still asserted.
+///
+/// Recorded in a `finally`, so a command the mock does not implement (`set_splash_enabled` is
+/// one — it rejects with "no such command", which `main.js` swallows on purpose) still counts
+/// as completed. The alternative would hang on exactly the paths the product treats as fine.
+const INSTRUMENT_BRIDGE = (lagMs) => {
+  let real;
+  window.__invokes = [];
+  Object.defineProperty(window, "RichBridge", {
+    configurable: true,
+    get: () => real,
+    set: (v) => {
+      real = v;
+      const invoke = v.invoke.bind(v);
+      v.invoke = async (name, args) => {
+        if (lagMs > 0) await new Promise((r) => setTimeout(r, lagMs));
+        try {
+          return await invoke(name, args);
+        } finally {
+          window.__invokes.push(name);
+        }
+      };
+    },
+  });
+};
+
+const invokeCount = (page, name) =>
+  page.evaluate((n) => (window.__invokes || []).filter((x) => x === n).length, name);
+
+/// Return once one more `name` call has COMPLETED than there were before, and the page has
+/// stopped moving. `before` comes from `invokeCount` at the call site, so this cannot be
+/// satisfied by a call that had already happened.
+async function afterInvoke(page, name, before, opts) {
+  opts = opts || {};
+  await page.waitForFunction(
+    ([n, b]) => (window.__invokes || []).filter((x) => x === n).length > b,
+    [name, before],
+    { timeout: opts.timeout || 10000 }
+  );
+  await settledPage(page);
+}
+
+/// Every finite animation and transition on the page has finished, and the result is painted.
+async function settledPage(page) {
+  await awaitSettled(page);
+  await flushFrames(page);
+}
+
+/// An overlay that is un-hidden AND has finished its entry animation.
+///
+/// `.overlay-panel` runs `overlay-in 0.16s`, and a walk or a screenshot taken partway through
+/// it is of a frame nobody looks at. `contrast.js` carries the measurement: sampling one of
+/// these mid-fade is how `p#feedback-title` came to be reported at 1.39:1 against two colors
+/// that exist in neither palette.
+async function overlayOpen(page, selector) {
+  await page.waitForSelector(selector + ":not([hidden])");
+  await page.evaluate(async (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    await Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
+  }, selector);
+  await flushFrames(page);
+}
+
+/// The steps the control walks, read out of the Rust rather than typed here. A ladder changed
+/// on one side only reaches this file as a failing check instead of as a `+` that lands
+/// somewhere the store will snap away from.
 function rustFontSteps() {
   const m = CONFIG_RS.match(/pub const FONT_SCALE_STEPS: \[u16; \d+\] = \[([^\]]+)\]/);
   assert(m, "no FONT_SCALE_STEPS in config.rs");
@@ -143,20 +233,29 @@ async function openApp(browser, opts) {
   // from `goto` to its last assertion, and a `macos-latest` runner does not have four seconds
   // spare. `lib/harness.js`'s `HOLD_CURTAIN` carries the diagnosis and the measurement.
   if (opts.holdSplash) await page.addInitScript(HOLD_CURTAIN);
+  // The bridge ledger every wait below is built on, installed before any of the page's own
+  // scripts run so no call can be missed. It carries the lag knob too, at the seam where lag
+  // actually decides things — see `INSTRUMENT_BRIDGE`.
+  await page.addInitScript(INSTRUMENT_BRIDGE, LAG_MS);
   await page.goto(APP);
-  // A DELIBERATE SLOW RUNNER, on demand — the same knob and the same reason as splash.js's
-  // `RICHOS_SPLASH_LAG_MS`. Applied immediately after `goto`, it puts this suite's walks
-  // where a GitHub runner puts them, which is the only way to run the fixed checks against
-  // the condition that broke them without waiting for a real run. Zero, and no delay at all,
-  // unless it is set.
-  if (LAG_MS > 0) await page.waitForTimeout(LAG_MS);
+  // The knob now sits INSIDE the bridge (`INSTRUMENT_BRIDGE` above) rather than as one delay
+  // after `goto`. That is a strictly harder condition and a more honest one: a single pause
+  // before the app starts delays every check equally and changes no ORDERING, while latency on
+  // each call is what actually reorders a driver against the app — which is the condition that
+  // decided run 34010691469 and the condition the fixed checks have to survive.
   // The home screen is the landing surface now; this suite is about the app UI behind it.
   await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
   if (!opts.holdSplash) {
     await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
   }
-  await page.waitForTimeout(400);
+  // `init()` HAS DECIDED, rather than 400 ms have passed — and deliberately NOT "the theme is
+  // what was asked for", which is what checks 1, 2 and 17 assert three lines later. A wait on
+  // the asserted value is an assertion that cannot fail. `bootSettled` waits on `init()`
+  // reaching its own branch point, which is many statements after `syncAppearanceFromBackend`,
+  // so the reconciliation has provably landed and every theme assertion keeps its teeth.
+  await bootSettled(page);
+  await settledPage(page);
   // The hold is PROVEN on every walk that asked for one, not assumed. A curtain that left
   // early makes every assertion after this one a statement about the shell instead.
   if (opts.holdSplash) page.__curtain = await assertCurtainHeld(page);
@@ -172,10 +271,17 @@ const menuRows = (page) =>
     )
   );
 
+/// `.setmenu` carries `animation: setrise 0.2s ... both` — opacity 0 to 1 over a 14px
+/// translate — so `visible` is true of a menu one frame into its own rise. The 150 ms was that
+/// animation, guessed; this is the animation's own `finished`.
 async function openMenu(page) {
   await page.click("#set-btn");
   await page.waitForSelector("#set-menu", { state: "visible" });
-  await page.waitForTimeout(150);
+  await page.evaluate(async () => {
+    const m = document.getElementById("set-menu");
+    if (m) await Promise.all(m.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
+  });
+  await flushFrames(page);
 }
 
 async function main() {
@@ -242,8 +348,11 @@ async function main() {
   await run.check("3  switching the theme writes through to the durable store", async () => {
     const page = track(await openApp(browser));
     await openMenu(page);
+    const wrote = await invokeCount(page, "set_theme");
     await page.click('.theme-opt[data-th="light"]');
-    await page.waitForTimeout(300);
+    // The WRITE has completed. What it wrote is the next four assertions' business and is not
+    // waited for — see `afterInvoke` for why that distinction is the whole point.
+    await afterInvoke(page, "set_theme", wrote);
     assertEqual(await themeOf(page), "light", "the document crossed over");
     const stored = await page.evaluate(() => JSON.parse(window.localStorage.getItem("richos-mock-config")));
     assertEqual(stored.theme, "light", "and the STORE holds it, not just the mirror");
@@ -361,7 +470,11 @@ async function main() {
     await openMenu(page);
     assert(await page.evaluate(() => !!document.getElementById("splash")), "opening the menu did not lift the curtain");
     await page.click("#bug-btn");
-    await page.waitForTimeout(300);
+    // `bustABug` is synchronous — `close(true)` and then `toast(...)` — so this waits for the
+    // toast to EXIST, not for it to say anything. What it says is asserted below, and a toast
+    // that arrived empty would still fail there.
+    await page.waitForSelector("#bug-toast", { state: "attached" });
+    await settledPage(page);
     const after = await page.evaluate(() => ({
       splash: !!document.getElementById("splash"),
       toast: (document.getElementById("bug-toast") || {}).textContent || "",
@@ -370,9 +483,18 @@ async function main() {
     assert(after.toast.length > 20, "something acknowledged it — a control that appears to do nothing reads as broken");
     // ...while an ordinary click still dismisses, exactly as it did before.
     await page.mouse.click(700, 400);
-    await page.waitForTimeout(900);
+    // THE WAIT AND THE CLAIM ARE THE SAME SENTENCE HERE, and that is fine BECAUSE IT IS
+    // BOUNDED: a curtain that never leaves exhausts the budget and the check fails with the
+    // sentence below, which is the outcome a 900 ms sleep produced too. What changes is that a
+    // curtain which leaves in 950 ms now passes instead of failing, and one that never leaves
+    // still fails. `removeSelf` takes the node out 220 ms after the yield, so 5 s is four
+    // times the whole ceremony.
+    const dismissed = await page
+      .waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
     assert(
-      await page.evaluate(() => !document.getElementById("splash")),
+      dismissed,
       "the first-input dismissal is otherwise UNCHANGED — the exception is exactly one control wide"
     );
     await page.close();
@@ -384,17 +506,21 @@ async function main() {
   await run.check("7  the settings button is on every surface, above every overlay", async () => {
     const surfaces = [
       ["shell", async () => {}],
-      ["thread", async (p) => { await p.click('.nav-thread[data-thread-id="hiring"]'); await p.waitForSelector(".tl-turn"); }],
-      ["corrections", async (p) => { await p.click("#nav-corrections"); await p.waitForSelector("#corrections-overlay:not([hidden])"); }],
-      ["feedback", async (p) => { await p.click("#nav-feedback"); await p.waitForTimeout(300); }],
-      ["search", async (p) => { await p.click("#nav-search"); await p.waitForTimeout(250); }],
-      ["preferences", async (p) => { await p.click("#rail-settings"); await p.waitForSelector("#assertiveness-popover", { state: "visible" }); }],
+      // `.tl-turn` is satisfied by the PREVIOUS thread's turn — the old rows sit in `#messages`
+      // until `loadTimeline` replaces them — so that selector never proved this thread had
+      // arrived. `settleOnThread` is the end state: the rail row, the bound model and the
+      // painted turns, all three.
+      ["thread", async (p) => { await p.click('.nav-thread[data-thread-id="hiring"]'); await settleOnThread(p, "hiring"); }],
+      ["corrections", async (p) => { await p.click("#nav-corrections"); await overlayOpen(p, "#corrections-overlay"); }],
+      ["feedback", async (p) => { await p.click("#nav-feedback"); await overlayOpen(p, "#feedback-overlay"); }],
+      ["search", async (p) => { await p.click("#nav-search"); await overlayOpen(p, "#search-overlay"); }],
+      ["preferences", async (p) => { await p.click("#rail-settings"); await overlayOpen(p, "#assertiveness-popover"); }],
     ];
     const report = [];
     for (const [name, drive] of surfaces) {
       const page = track(await openApp(browser));
       await drive(page);
-      await page.waitForTimeout(250);
+      await settledPage(page);
       // Visible is not enough. ON TOP is the claim — §15 says "above every overlay" — so
       // this is a hit test at the button's own centre, which is what a pointer would do.
       const onTop = await page.evaluate(() => {
@@ -567,10 +693,11 @@ async function main() {
       return true;
     });
     assert(prevented, "spy installed");
+    const grew = await invokeCount(page, "set_font_scale");
     await page.keyboard.down("Meta");
     await page.keyboard.press("=");
     await page.keyboard.up("Meta");
-    await page.waitForTimeout(200);
+    await afterInvoke(page, "set_font_scale", grew);
     assertEqual(
       await page.evaluate(() => window.__readPrevented()),
       true,
@@ -584,10 +711,11 @@ async function main() {
     const stored = await page.evaluate(() => JSON.parse(window.localStorage.getItem("richos-mock-config")));
     assertEqual(stored.font_scale, after, "...and it is durable, not just painted");
 
+    const reset = await invokeCount(page, "set_font_scale");
     await page.keyboard.down("Meta");
     await page.keyboard.press("0");
     await page.keyboard.up("Meta");
-    await page.waitForTimeout(200);
+    await afterInvoke(page, "set_font_scale", reset);
     assertEqual(await page.evaluate(() => window.RichTheme.scale()), 100, "⌘0 resets");
     await page.close();
     return "⌘= 100 -> " + after + "% (root " + root + "), durable, and ⌘0 resets";
@@ -596,8 +724,9 @@ async function main() {
   await run.check("10  the Text size row and the shortcut are ONE state, not two that agree", async () => {
     const page = track(await openApp(browser));
     await openMenu(page);
+    const up = await invokeCount(page, "set_font_scale");
     await page.click("#font-up");
-    await page.waitForTimeout(200);
+    await afterInvoke(page, "set_font_scale", up);
     const viaRow = await page.evaluate(() => ({
       scale: window.RichTheme.scale(),
       reading: document.getElementById("font-val").textContent,
@@ -605,10 +734,11 @@ async function main() {
     assertEqual(viaRow.reading, viaRow.scale + "%", "the row shows what the state is");
 
     // Now move it by KEYSTROKE while the row is on screen. A second state would not follow.
+    const down = await invokeCount(page, "set_font_scale");
     await page.keyboard.down("Meta");
     await page.keyboard.press("-");
     await page.keyboard.up("Meta");
-    await page.waitForTimeout(200);
+    await afterInvoke(page, "set_font_scale", down);
     const after = await page.evaluate(() => ({
       scale: window.RichTheme.scale(),
       reading: document.getElementById("font-val").textContent,
@@ -622,18 +752,30 @@ async function main() {
   await run.check("11  Techy Mode: the menu row and the rail preference are ONE state", async () => {
     const page = track(await openApp(browser));
     await openMenu(page);
+    // THE WRITE IS THREE ROUND TRIPS, NOT ONE, and the rail's own checkbox is painted by the
+    // SECOND. `setTechyDefault` is `await set_techy_default` -> `await refreshTechy` (a
+    // `techy_mode` read, which is what runs `renderTechySettings` and sets
+    // `#techy-default.checked`) -> `await loadTimeline`. Waiting only for the write leaves the
+    // rail one round trip behind, and at 300 ms of latency this check read `false` off a
+    // checkbox that was about to be `true`.
+    const viaMenu = await invokeCount(page, "set_techy_default");
+    const menuRead = await invokeCount(page, "techy_mode");
     await page.click("#set-techy");
-    await page.waitForTimeout(700);
+    await afterInvoke(page, "set_techy_default", viaMenu);
+    await afterInvoke(page, "techy_mode", menuRead);
     await page.click("#rail-settings");
-    await page.waitForSelector("#assertiveness-popover", { state: "visible" });
+    await overlayOpen(page, "#assertiveness-popover");
     assertEqual(
       await page.evaluate(() => document.getElementById("techy-default").checked),
       true,
       "the rail's own preference followed the menu"
     );
     // ...and back the other way, which is the direction a one-way binding still passes.
+    const viaRail = await invokeCount(page, "set_techy_default");
+    const railRead = await invokeCount(page, "techy_mode");
     await page.click("#techy-default");
-    await page.waitForTimeout(700);
+    await afterInvoke(page, "set_techy_default", viaRail);
+    await afterInvoke(page, "techy_mode", railRead);
     await page.click("#rail-settings");
     await openMenu(page);
     assertEqual(
@@ -668,14 +810,20 @@ async function main() {
       }));
     assertEqual(await both(), { menu: true, gear: true }, "both start on, which is the shipped default");
 
+    // `set_splash_enabled` is NOT implemented by the mock — `main.js` fires it and swallows
+    // the rejection on purpose, because the local mirror is what decides the next launch. The
+    // ledger records a completion either way (it pushes in a `finally`), so this waits for the
+    // round trip to be over rather than for it to have succeeded.
+    const offCall = await invokeCount(page, "set_splash_enabled");
     await page.click("#set-splash");
-    await page.waitForTimeout(400);
+    await afterInvoke(page, "set_splash_enabled", offCall);
     await page.click("#rail-settings");
-    await page.waitForSelector("#assertiveness-popover", { state: "visible" });
+    await overlayOpen(page, "#assertiveness-popover");
     assertEqual(await both(), { menu: false, gear: false }, "the gear followed the menu");
 
+    const onCall = await invokeCount(page, "set_splash_enabled");
     await page.click("#splash-enabled");
-    await page.waitForTimeout(400);
+    await afterInvoke(page, "set_splash_enabled", onCall);
     await page.click("#rail-settings");
     await openMenu(page);
     assertEqual(await both(), { menu: true, gear: true }, "and the menu followed the gear");
@@ -815,10 +963,11 @@ async function main() {
     assert(at100.rail >= 16, "the readable floor is 16px — the rail thread title is " + at100.rail);
     assert(at100.kbd >= 14, "the skippable floor is 14px — the ⌘K keycap is " + at100.kbd);
 
+    const scaled = await invokeCount(page, "set_font_scale");
     await page.keyboard.down("Meta");
     await page.keyboard.press("=");
     await page.keyboard.up("Meta");
-    await page.waitForTimeout(250);
+    await afterInvoke(page, "set_font_scale", scaled);
     const at110 = await sample();
     for (const k of Object.keys(at100)) {
       assert(
@@ -897,8 +1046,9 @@ async function main() {
         "dark rail, non-text floor 3:1"
     );
     await openMenu(page);
+    const crossed = await invokeCount(page, "set_theme");
     await page.click('.theme-opt[data-th="light"]');
-    await page.waitForTimeout(350);
+    await afterInvoke(page, "set_theme", crossed);
     const light = await page.evaluate(() => {
       const w = document.getElementById("rail-wordmark");
       return {
@@ -943,10 +1093,15 @@ async function main() {
     assert(unset.richLabelGone, "Rich's nameplate is gone from the CEO's own rail");
 
     await page.click("#rail-identity");
-    await page.waitForSelector("#assertiveness-popover", { state: "visible" });
+    await overlayOpen(page, "#assertiveness-popover");
     await page.fill("#user-name-input", "Alex Booster");
+    // The `change` handler is `await set_user_name` and THEN `await renderUserIdentity()`,
+    // which re-reads `get_user_identity`. The second read is what paints the initials and the
+    // label this check asserts on, so it is the second read that is waited for — waiting for
+    // the write alone would sample the rail one round trip early.
+    const reread = await invokeCount(page, "get_user_identity");
     await page.dispatchEvent("#user-name-input", "change");
-    await page.waitForTimeout(400);
+    await afterInvoke(page, "get_user_identity", reread);
     const named = await page.evaluate(() => ({
       isUnset: document.getElementById("rail-identity").classList.contains("is-unset"),
       initials: document.getElementById("rail-initials").textContent,
@@ -963,11 +1118,14 @@ async function main() {
 
   await run.check("17  every surface, photographed in BOTH themes", async () => {
     const surfaces = [
-      ["conversation", async (p) => { await p.click('.nav-thread[data-thread-id="hiring"]'); await p.waitForSelector(".tl-turn"); }],
-      ["corrections", async (p) => { await p.click("#nav-corrections"); await p.waitForSelector("#corrections-overlay:not([hidden])"); }],
-      ["feedback", async (p) => { await p.click("#nav-feedback"); await p.waitForTimeout(400); }],
-      ["search", async (p) => { await p.click("#nav-search"); await p.waitForTimeout(300); }],
-      ["preferences", async (p) => { await p.click("#rail-settings"); await p.waitForSelector("#assertiveness-popover", { state: "visible" }); }],
+      // A SHOT OF THE WRONG THREAD IS THE WORST OF THESE TO GET WRONG, because it lands in
+      // git as evidence and the next diff cannot tell a regression from a race. Same three
+      // facts as everywhere else.
+      ["conversation", async (p) => { await p.click('.nav-thread[data-thread-id="hiring"]'); await settleOnThread(p, "hiring"); }],
+      ["corrections", async (p) => { await p.click("#nav-corrections"); await overlayOpen(p, "#corrections-overlay"); }],
+      ["feedback", async (p) => { await p.click("#nav-feedback"); await overlayOpen(p, "#feedback-overlay"); }],
+      ["search", async (p) => { await p.click("#nav-search"); await overlayOpen(p, "#search-overlay"); }],
+      ["preferences", async (p) => { await p.click("#rail-settings"); await overlayOpen(p, "#assertiveness-popover"); }],
       ["settings-menu", async (p) => { await openMenu(p); }],
     ];
     const made = [];
@@ -981,7 +1139,9 @@ async function main() {
         );
         assertEqual(await themeOf(page), theme, name + " did not open in the theme it is labelled with");
         await drive(page);
-        await page.waitForTimeout(350);
+        // `shot()` settles finite animations of its own accord (`captureSettled`), so this is
+        // the paint after the driver rather than a second guess at the same fade.
+        await settledPage(page);
         const s = await shot(page, SHOTS + "/10-1-" + name + "-" + theme, { fullPage: false });
         made.push(path.basename(s.file));
         await page.close();

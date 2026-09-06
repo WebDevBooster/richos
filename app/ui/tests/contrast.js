@@ -86,8 +86,14 @@ const {
   createRun,
   assert,
   assertEqual,
+  awaitSettled,
+  bootSettled,
+  shellSettled: harnessShellSettled,
+  settleOnThread,
+  assertOnThread,
   HOLD_CURTAIN,
   assertCurtainHeld,
+  SLOW_BRIDGE,
   UI_DIR,
 } = require("./lib/harness");
 const C = require("./lib/contrast");
@@ -159,13 +165,11 @@ const LAG_MS = Number(process.env.RICHOS_CONTRAST_LAG_MS || 0);
 /// It is a wait on the two elements' own end state and not a longer sleep: on this machine it
 /// returns on the first poll, and on a slower one it returns when the reads land instead of
 /// when a number somebody picked runs out.
-async function shellSettled(p) {
-  await p.waitForFunction(() => {
-    const count = document.getElementById("nav-corrections-count");
-    const hint = document.getElementById("retention-hint");
-    return !!count && count.textContent.trim() !== "" && !!hint && hint.textContent.trim() !== "";
-  });
-}
+/// MOVED TO `lib/harness.js`, and this line is what is left of it. It turned out to be two
+/// facts in one wait: the ink this file has to measure, and `init()` having run every one of
+/// its statements — which is what `updates.js` needed, for a focus steal rather than for a
+/// text node. The reasoning above is this file's; the implementation is shared.
+const shellSettled = (p) => harnessShellSettled(p);
 
 /// Wait for an overlay's ENTRY ANIMATION to have finished, on the animation's own clock.
 ///
@@ -187,6 +191,73 @@ async function overlaySettled(p, selector) {
     await Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   }, selector);
+}
+
+/// A PSEUDO-ELEMENT'S OWN TRANSITION, waited out rather than counted out.
+///
+/// `.setbtn::after` is `transition: opacity 0.15s ease 0.2s` — a 200 ms delay before a 150 ms
+/// fade — and this file's own comment did that arithmetic and then wrote 500. The arithmetic
+/// was right and it is still a bet: it says how long the transition takes on a machine that
+/// starts it immediately, and a busy one does not.
+/// `getComputedStyle(el, "::after").opacity` is the pseudo-element's CURRENT value, which is
+/// the thing being waited for, so this returns when the tooltip is actually opaque rather than
+/// when a stopwatch says it should be.
+///
+/// It matters more here than almost anywhere: this surface exists to measure ONE string, and a
+/// walk that samples it at 0.83 opacity measures a blend of the tooltip and whatever is behind
+/// it — which is exactly how `p#feedback-title` came to be reported at 1.39:1 against two
+/// colors that exist in neither palette.
+/// The update row is showing the state it was set to, in a menu that has finished opening.
+///
+/// `#set-menu` being `visible` is a box, and `updateSet` reaching the row is a separate fact
+/// from the menu having arrived — `RichSettings.openMenu` also calls `onOpen()`, which re-reads
+/// `update_state` over the bridge and repaints the row from the answer. So the state a walk
+/// measures is the one that read produced, not the one the driver set, and 400 ms was a bet on
+/// the two agreeing in time. `data-update-state` is the row's own published answer.
+async function updatesRowShowing(p, state) {
+  await p.waitForSelector("#set-menu", { state: "visible" });
+  await p.waitForFunction(
+    (want) => {
+      const row = document.getElementById("set-updates");
+      return !!row && row.getAttribute("data-update-state") === want && row.getAttribute("data-update-busy") !== "true";
+    },
+    state,
+    { timeout: 10000 }
+  );
+  // AND THE MENU'S OWN RISE, which is the other half and was the half the 400 ms was really
+  // paying for. `.setmenu` carries `animation: setrise 0.2s ... both`, opacity 0 -> 1 over a
+  // 14px translate — so a walk that stopped at "the row says `available`" measures the menu's
+  // ink blended into whatever is behind it. MEASURED, on the first run of this file with the
+  // state wait in and this line out: 23 NEW failures on `updates-available` and 23 on
+  // `updates-downloading`, headed by `span#set-theme-label` at 3.82:1, 3.34:1 and 3.5:1 — three
+  // different ratios for one element across two surfaces, which is the signature of a blend
+  // rather than of a defect. With this line in, all 46 are gone and the surfaces read as they
+  // did before. A determinism fix that manufactures failures is not a fix.
+  await overlaySettled(p, "#set-menu");
+}
+
+async function pseudoOpaque(p, selector, pseudo) {
+  await p.waitForFunction(
+    ([sel, ps]) => {
+      const el = document.querySelector(sel);
+      if (!el) return false;
+      return parseFloat(getComputedStyle(el, ps).opacity) >= 0.999;
+    },
+    [selector, pseudo],
+    { timeout: 10000 }
+  );
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
+/// Every FINITE animation and transition anywhere on the page has finished.
+///
+/// `overlaySettled` above asks the same question of one subtree and is the right tool when the
+/// thing that moved is a panel. This is the whole-page form, for the surfaces where what
+/// settles is not inside one container — a menu that rebuilds the chrome around it, a pane
+/// swap, a row that appears beside a button.
+async function pageSettled(p) {
+  await awaitSettled(p);
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
 
 async function atHiringThread(p) {
@@ -265,18 +336,23 @@ const SURFACES = [
     what: "the settings button's tooltip — the one string the stylesheet itself renders",
     drive: async (p) => {
       await p.hover(".setbtn");
-      // `transition: opacity 0.15s ease 0.2s` — a 200ms delay before a 150ms fade. Waiting
-      // 500ms is the frame math, not a guess: 200 + 150 = 350ms to full opacity.
-      await p.waitForTimeout(500);
+      // The tooltip's own opacity, read off the pseudo-element. See `pseudoOpaque` for why the
+      // frame math that used to stand here was still a bet.
+      await pseudoOpaque(p, ".setbtn", "::after");
     },
   },
   {
     name: "thread",
     what: "a seeded conversation with a settled turn and a delegation summary",
     drive: async (p) => {
+      // A `.tl-turn` EXISTING is not this thread's turn existing — the previous thread's turns
+      // are in the DOM until `loadTimeline` replaces them, so that selector was already
+      // satisfied before the click's own work had started. `atHiringThread` is the same three
+      // facts the assignment drivers wait for, and the reason is written above it.
       await p.click('.nav-thread[data-thread-id="hiring"]');
-      await p.waitForSelector(".tl-turn");
-      await p.waitForTimeout(400);
+      await atHiringThread(p);
+      await pageSettled(p);
+      await assertStillHiring(p, "thread");
     },
   },
   {
@@ -285,7 +361,16 @@ const SURFACES = [
     drive: async (p) => {
       await p.click("#nav-corrections");
       await p.waitForSelector("#corrections-overlay:not([hidden])");
-      await p.waitForTimeout(400);
+      // UN-HIDING THE OVERLAY IS NOT THE DESK BEING READY, the same distinction the `feedback`
+      // driver below already carries. `openCorrections` renders what it already had, RE-READS
+      // over the bridge, renders again, and only then moves focus into the panel — so focus
+      // inside the overlay is that function's own last statement and the one signal that
+      // cannot be true before the re-read has landed.
+      await p.waitForFunction(() => {
+        const o = document.getElementById("corrections-overlay");
+        return !!o && !o.hidden && o.contains(document.activeElement);
+      });
+      await overlaySettled(p, "#corrections-overlay");
     },
   },
   {
@@ -314,20 +399,34 @@ const SURFACES = [
       await p.keyboard.press("Meta+k");
       await p.waitForSelector("#search-overlay:not([hidden])");
       await p.fill("#search-input", "a");
-      await p.waitForTimeout(400);
+      // A 120 MS DEBOUNCE AND A BRIDGE ROUND TRIP, neither of which a sleep can see the end of.
+      // This waits for the surface's own title instead: results, AND the selected row — the
+      // `.is-active` one, which is where `--accent` lands and the whole reason this walk names
+      // it. `aria-expanded` is `renderSearchResults`'s own answer to "are there hits".
+      await p.waitForFunction(() => {
+        const input = document.getElementById("search-input");
+        if (!input || input.getAttribute("aria-expanded") !== "true") return false;
+        return document.querySelectorAll("#search-results .result-item.is-active").length === 1;
+      });
+      await overlaySettled(p, "#search-overlay");
     },
   },
   {
     name: "inspector",
     what: "the worker inspector open over an expanded transcript",
     drive: async (p) => {
+      // SAME AS `thread`: `.tl-duration-btn` belongs to A turn, not to THIS thread's turn, so
+      // the three clicks below were being aimed at whatever was on the stage. Everything this
+      // walk measures hangs off that first one landing on the right conversation.
       await p.click('.nav-thread[data-thread-id="hiring"]');
+      await atHiringThread(p);
       await p.waitForSelector(".tl-duration-btn");
       await p.click(".tl-duration-btn");
       await p.waitForSelector(".tl-chip");
       await p.click(".tl-chip");
       await p.waitForSelector("#inspector:not([hidden])");
-      await p.waitForTimeout(400);
+      await overlaySettled(p, "#inspector");
+      await assertStillHiring(p, "inspector");
     },
   },
   {
@@ -335,17 +434,43 @@ const SURFACES = [
     what: "the technical view pinned on for one conversation (§3.3)",
     drive: async (p) => {
       await p.click('.nav-thread[data-thread-id="hiring"]');
-      await p.waitForTimeout(300);
+      await atHiringThread(p);
       await p.keyboard.press("Meta+Shift+T");
-      await p.waitForTimeout(500);
+      // WHAT THE PRODUCT PUBLISHES WHEN THE MODE GOES ON, and it is deliberately not
+      // `#techy-state`: `renderTechyState` only fills that element when the machinery read
+      // carries a `sentence`, and on `hiring` it does not — measured 2026-09-06, the element
+      // stays hidden with no `data-state` for as long as you care to watch, which is correct
+      // and is why waiting for it timed out. `#techy-chip` is `hidden = !on` and `#between-turns`
+      // is the techy-only lane, and both flip inside the SAME `loadTimeline` pass that repaints
+      // the conversation — so the pair is the mode being on with its reload finished.
+      await p.waitForFunction(() => {
+        const chip = document.getElementById("techy-chip");
+        const lane = document.getElementById("between-turns");
+        return !!chip && !chip.hidden && !!lane && !lane.hidden;
+      });
+      await pageSettled(p);
+      await assertStillHiring(p, "technical-view");
     },
   },
   {
     name: "unbound",
     what: "the refusal pane for a thread that predates entity scoping (§21)",
     drive: async (p) => {
+      // §21'S REFUSAL IS AN END STATE, and `settleOnThread` knows about it: an unbound thread
+      // never reaches `loadTimeline`, so waiting for turns would wait out a timeout over a
+      // screen that is completely correct. What is waited for instead is the pane being on
+      // screen with the refusal's own three lines filled — 600 ms was a guess at how long the
+      // bridge takes to refuse.
       await p.click('.nav-thread[data-thread-id="legacy"]');
-      await p.waitForTimeout(600);
+      const branch = await settleOnThread(p, "legacy");
+      assertEqual(branch, "unbound", "the legacy thread is the one that has no entity home");
+      await p.waitForFunction(() => {
+        const t = document.getElementById("unbound-view-title");
+        const b = document.getElementById("unbound-view-body");
+        const d = document.getElementById("unbound-view-detail");
+        return [t, b, d].every((n) => n && n.textContent.trim() !== "");
+      });
+      await pageSettled(p);
     },
   },
   {
@@ -354,7 +479,7 @@ const SURFACES = [
     drive: async (p) => {
       await p.click("#rail-settings");
       await p.waitForSelector("#assertiveness-popover:not([hidden])");
-      await p.waitForTimeout(300);
+      await overlaySettled(p, "#assertiveness-popover");
     },
   },
   // NO SEPARATE SURFACE FOR THE COMPANY RADIOS, and that is a measured decision rather than
@@ -373,7 +498,7 @@ const SURFACES = [
     what: "the launch-time company picker, its note, and the blocked composer behind it",
     drive: async (p) => {
       await p.waitForSelector("#entity-picker:not([hidden])");
-      await p.waitForTimeout(300);
+      await overlaySettled(p, "#entity-picker");
     },
     preset: { chosenEntity: null },
   },
@@ -389,7 +514,14 @@ const SURFACES = [
       await p.waitForSelector("#entity-picker:not([hidden])");
       await p.keyboard.press("Escape");
       await p.waitForSelector("#entity-picker", { state: "hidden" });
-      await p.waitForTimeout(300);
+      // The composer BEHIND the dismissed dialog is what this walk measures, so the wait is on
+      // that: its blocked sentence and the control rendered under it, both filled.
+      await p.waitForFunction(() => {
+        const line = document.getElementById("composer-blocked");
+        const action = document.getElementById("composer-choose-company");
+        return !!line && !line.hidden && line.textContent.trim() !== "" && !!action && !action.hidden;
+      });
+      await pageSettled(p);
     },
     preset: { chosenEntity: null },
   },
@@ -404,7 +536,7 @@ const SURFACES = [
     what: "the first-run memory question: its note, the location it offers, and the two buttons",
     drive: async (p) => {
       await p.waitForSelector("#memory-setup:not([hidden])");
-      await p.waitForTimeout(300);
+      await overlaySettled(p, "#memory-setup");
     },
     preset: { memory: "none" },
   },
@@ -419,7 +551,7 @@ const SURFACES = [
       await p.waitForSelector("#memory-setup:not([hidden])");
       await p.click("#memory-setup-go");
       await p.waitForSelector("#memory-setup-close:not([hidden])");
-      await p.waitForTimeout(300);
+      await overlaySettled(p, "#memory-setup");
     },
     preset: { memory: "none", memoryCompiler: false },
   },
@@ -436,7 +568,7 @@ const SURFACES = [
     what: "the first-run consent step: what is missing, why, and the account he still needs",
     drive: async (p) => {
       await p.waitForSelector("#setup-sheet:not([hidden])");
-      await p.waitForTimeout(300);
+      await overlaySettled(p, "#setup-sheet");
     },
     preset: { setup: "missing-both" },
   },
@@ -446,7 +578,7 @@ const SURFACES = [
     drive: async (p) => {
       await p.waitForSelector("#setup-sheet:not([hidden])");
       await p.waitForSelector("#setup-error:not([hidden])");
-      await p.waitForTimeout(300);
+      await overlaySettled(p, "#setup-sheet");
     },
     preset: { setup: "unpinned" },
   },
@@ -473,8 +605,7 @@ const SURFACES = [
         })
       );
       await p.click("#set-btn");
-      await p.waitForSelector("#set-menu", { state: "visible" });
-      await p.waitForTimeout(400);
+      await updatesRowShowing(p, "available");
     },
   },
   {
@@ -490,8 +621,7 @@ const SURFACES = [
         })
       );
       await p.click("#set-btn");
-      await p.waitForSelector("#set-menu", { state: "visible" });
-      await p.waitForTimeout(400);
+      await updatesRowShowing(p, "downloading");
     },
   },
   {
@@ -512,9 +642,15 @@ const SURFACES = [
         })
       );
       await p.click("#set-btn");
-      await p.waitForSelector("#set-menu", { state: "visible" });
+      await updatesRowShowing(p, "failed");
       await p.click("#update-why");
-      await p.waitForTimeout(400);
+      // The vendor's own reason, disclosed — which is the ink this walk exists to measure, so
+      // it is waited for rather than assumed to be one sleep behind the click.
+      await p.waitForFunction(() => {
+        const d = document.getElementById("update-detail");
+        return !!d && !d.hidden && d.textContent.trim() !== "";
+      });
+      await pageSettled(p);
     },
   },
   // THE WAITING CUE, which is the one place on this surface where a NON-TEXT indicator has to
@@ -545,7 +681,9 @@ const SURFACES = [
       await p.waitForSelector("#update-waiting");
       await p.focus("#update-waiting");
       await p.waitForSelector("#update-waiting-note", { state: "visible" });
-      await p.waitForTimeout(400);
+      // The note owes 4.5:1 at 16px and the glyph, border and focus ring each owe 3:1, so this
+      // walk is worthless sampled mid-fade. `visible` is a box; this is the end of the motion.
+      await pageSettled(p);
     },
   },
   // ---- THE THREE CHECK 10c FOUND ON THE DAY IT WAS WRITTEN --------------------------------
@@ -561,7 +699,15 @@ const SURFACES = [
     drive: async (p) => {
       await p.click(".nav-group-label");
       await p.waitForSelector("#entity-view:not([hidden])");
-      await p.waitForTimeout(400);
+      // `showEntityView` fills the name and the lede synchronously, so an EMPTY name means the
+      // pane on screen is not the one this walk is named for — the shell's leftovers, or a pane
+      // mid-swap. Its facts and thread list are what the surface promises to measure.
+      await p.waitForFunction(() => {
+        const name = document.getElementById("entity-view-name");
+        const line = document.getElementById("entity-view-line");
+        return !!name && name.textContent.trim() !== "" && !!line && line.textContent.trim() !== "";
+      });
+      await overlaySettled(p, "#entity-view");
     },
   },
   {
@@ -574,7 +720,13 @@ const SURFACES = [
       await p.hover('.nav-thread[data-thread-id="acme"]');
       await p.click('.nav-thread[data-thread-id="acme"] + .nav-thread-more');
       await p.waitForSelector("#thread-menu:not([hidden])");
-      await p.waitForTimeout(300);
+      // The menu is BUILT on open, so "not hidden" can be true of an empty container for a
+      // frame. Its own rows are what this walk measures.
+      await p.waitForFunction(() => {
+        const m = document.getElementById("thread-menu");
+        return !!m && !m.hidden && m.querySelectorAll("button").length > 0;
+      });
+      await overlaySettled(p, "#thread-menu");
     },
   },
   {
@@ -584,11 +736,16 @@ const SURFACES = [
       // `partner` is the seeded thread with an empty machinery store. The whole point of
       // `#techy-state` is that "nothing was recorded" and "I can't read it" are DIFFERENT
       // statements, so the surface that says the first one has to be legible.
+      // `.tl-turn` again belongs to whatever thread is on the stage. The keystroke below sets
+      // the technical view for the ACTIVE thread, so a walk that pressed it before `partner`
+      // had arrived would pin the technical view onto a different conversation and then measure
+      // the answer it gave about that one.
       await p.click('.nav-thread[data-thread-id="partner"]');
-      await p.waitForSelector(".tl-turn");
+      await settleOnThread(p, "partner");
       await p.keyboard.press("Meta+Shift+T");
       await p.waitForSelector('#techy-state[data-state="nothing_recorded"]');
-      await p.waitForTimeout(300);
+      await pageSettled(p);
+      await assertOnThread(p, "partner", "techy-nothing-recorded");
     },
   },
   {
@@ -619,7 +776,13 @@ const SURFACES = [
         await window.__RICHOS_HISTORY_NOTICE__();
       });
       await p.waitForSelector("#history-notice:not([hidden])");
-      await p.waitForTimeout(400);
+      // Both halves on screen, since the walk's whole claim is that it measures the worst-case
+      // foreground on the worst-case background and the two share the panel.
+      await p.waitForFunction(() => {
+        const n = document.getElementById("history-notice");
+        return !!n && !n.hidden && n.textContent.trim().length > 80;
+      });
+      await overlaySettled(p, "#history-notice");
     },
   },
   {
@@ -635,7 +798,35 @@ const SURFACES = [
     what: "the opening screen, curtain held up (its one HTML text line; the rest is SVG)",
     drive: async (p) => {
       await p.waitForSelector("#splash", { timeout: 5000 });
-      await p.waitForTimeout(700);
+      // THE BAR IS THE ONE THING ON THIS SURFACE `captureSettled` CANNOT SEE, and it is the
+      // thing that was moving under the 700 ms this replaces.
+      //
+      // Every CSS animation here ends by 1,380 ms (measured 2026-09-06: four `splash-rise`
+      // stages at 950/1080/1220/1380 and the bar's own transition at 1320), so `awaitSettled`
+      // and `pinLoops` between them handle everything in `document.getAnimations()`. The
+      // LOADING BAR IS NOT IN THERE: `splash.js` paints it from its own
+      // `requestAnimationFrame` tick, on `shownAt`, so its fill is a function of wall-clock
+      // time since the curtain went up and no animation-based settle can observe it. A shot
+      // taken at any fixed offset photographs the bar at whatever fraction the machine had
+      // reached, which is why `opening-screen.png` moved by 4,043 / 4,292 / 4,670 pixels
+      // across three consecutive runs when the sample point was moved.
+      //
+      // `state.barStopped` is the product's own answer — "true once `tick()` has returned
+      // without asking for another frame" — and after it there is nothing left moving. That is
+      // roughly the 3 s hold plus the flare, which is affordable precisely because
+      // `HOLD_CURTAIN` has disarmed the ceiling: there is no clock underneath this walk for a
+      // longer wait to fall foul of, and `assertCurtainHeld` has already proved it.
+      await pageSettled(p);
+      await p.waitForFunction(
+        () => {
+          const s = window.RichSplash;
+          if (!s || !s.state || !s.state.shown || s.state.reason) return false;
+          if (!document.getElementById("splash")) return false;
+          return s.state.barStopped === true;
+        },
+        undefined,
+        { timeout: 15000 }
+      );
     },
   },
 ];
@@ -710,23 +901,11 @@ async function openApp(browser, theme, holdSplash, preset) {
   }
   // A DELIBERATE SLOW RUNNER, on demand. Wrapping the bridge at its ASSIGNMENT, so every
   // caller in the page is behind it — including the ones a driver sets off and returns from.
-  if (LAG_MS > 0) {
-    await page.addInitScript((ms) => {
-      let real;
-      Object.defineProperty(window, "RichBridge", {
-        configurable: true,
-        get: () => real,
-        set: (v) => {
-          real = v;
-          const invoke = v.invoke.bind(v);
-          v.invoke = async (name, args) => {
-            await new Promise((r) => setTimeout(r, ms));
-            return invoke(name, args);
-          };
-        },
-      });
-    }, LAG_MS);
-  }
+  // This file wrote the slow runner first and inline; it now lives in `lib/harness.js` as
+  // `SLOW_BRIDGE`, byte-identical in behavior, so `updates.js` can ask the same question of
+  // itself. One copy, because two copies of a diagnostic drift and then disagree about what
+  // was reproduced.
+  if (LAG_MS > 0) await page.addInitScript(SLOW_BRIDGE, LAG_MS);
   // A PRE-BOOT MOCK PRESET, for the one state a setter cannot reach: "no company has ever
   // been chosen" is decided before `init()` branches on whether a thread is active, so it
   // has to be in place before any of the page's own scripts run (mock.js's own comment on
@@ -758,7 +937,23 @@ async function openApp(browser, theme, holdSplash, preset) {
   // while still being painted over everything. Waiting for it to leave rather than racing
   // it: a walk taken underneath it would report the whole shell unresolvable.
   await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
-  await page.waitForTimeout(300);
+  // WAIT FOR `init()` TO HAVE DECIDED, NOT FOR 300 MS — AND DELIBERATELY NOT FOR THE THEME.
+  //
+  // What the 300 ms was buying is `syncAppearanceFromBackend()`, which reads `get_appearance`
+  // over the bridge and hands the answer to `RichTheme.sync`. THE BACKEND WINS, so a walk that
+  // sampled before it landed would read the mirror's value and label itself with a palette the
+  // store was about to overrule.
+  //
+  // WAITING FOR `data-theme` TO EQUAL THE ASKED-FOR THEME WOULD BE THE WRONG FIX, and it is
+  // worth saying why out loud: the very next line ASSERTS that equality, so a wait on it would
+  // make the assertion unfalsifiable — a check that cannot fail, which is this directory's
+  // oldest defect wearing a determinism fix as a disguise. `bootSettled` waits on something
+  // else entirely: `init()` reaching its own branch point, which is many statements AFTER the
+  // appearance sync (`syncAppearanceFromBackend` is called before `refreshNavigation`, and the
+  // branch is after it). So the reconciliation has provably happened and `assertTheme` still
+  // has every one of its teeth.
+  await bootSettled(page);
+  await pageSettled(page);
   // THE THEME IS CHECKED HERE AND NOT EARLIER, and the reason is a real one this assertion
   // caught the day the splash gained a duration. While the opening screen's curtain is up
   // the resolved theme is CLAMPED TO DARK (§15's one permanent exception), so a light walk

@@ -705,11 +705,315 @@ async function leaveHome(page) {
   return true;
 }
 
+// ---------------------------------------------------------------------------------------
+// A DELIBERATE SLOW RUNNER
+// ---------------------------------------------------------------------------------------
+
+/// An init script that puts `ms` of latency on EVERY bridge call the page makes. Pass it to
+/// `page.addInitScript` before `goto`.
+///
+/// WHY THIS IS THE VERIFICATION LEVER AND TWENTY GREEN RUNS ARE NOT. A blind
+/// `waitForTimeout(300)` after a click passes twenty times out of twenty on this machine and
+/// fails on a `macos-latest` runner that reaches the same line two seconds later — so a green
+/// standalone count proves the machine, not the check. This reproduces the runner's condition
+/// on demand, at the seam that actually decides it: `main.js` awaits six bridge calls between
+/// a thread row being clicked and its turns being on screen, so 120 ms here is 720 ms of extra
+/// distance for a driver to be wrong about.
+///
+/// A CHECK THAT IS GREEN AT ZERO AND GREEN AT 120 IS A CHECK THAT WAITED FOR A SIGNAL. One
+/// that is green at zero and reports the previous screen at 120 was measuring the clock, and
+/// that is the difference this exists to make visible.
+///
+/// Wrapped at the ASSIGNMENT of `window.RichBridge` rather than after load, so every caller in
+/// the page is behind it — including the ones a driver sets off and returns from. `contrast.js`
+/// wrote this first, inline; it is here so the other suites can ask the same question.
+const SLOW_BRIDGE = (ms) => {
+  let real;
+  Object.defineProperty(window, "RichBridge", {
+    configurable: true,
+    get: () => real,
+    set: (v) => {
+      real = v;
+      const invoke = v.invoke.bind(v);
+      v.invoke = async (name, args) => {
+        await new Promise((r) => setTimeout(r, ms));
+        return invoke(name, args);
+      };
+    },
+  });
+};
+
+// ---------------------------------------------------------------------------------------
+// ARRIVING ON A THREAD — THE END STATE, NOT THE CLICK
+// ---------------------------------------------------------------------------------------
+
+/// Two animation frames: one for a style or DOM change to be taken up, one for it to be
+/// painted. Every "and now it is on screen" in this directory needs exactly this, and several
+/// places were spelling it out inline.
+///
+/// It is NOT a substitute for `awaitSettled`. A frame flush proves the browser got as far as a
+/// paint; it says nothing about a 160 ms fade still being 40% through it.
+async function flushFrames(page) {
+  await page
+    .evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+    .catch(() => {});
+}
+
+/// Wait until `main.js`'s `init()` has decided which screen the CEO lands on.
+///
+/// THE RAIL IS CLICKABLE BEFORE THE APP HAS FINISHED STARTING, and that is not a harness
+/// detail — it is a measured property of the shipped boot. `init()` calls
+/// `refreshNavigation()`, which renders real `.nav-thread` buttons wired to real handlers, and
+/// THEN makes six more bridge calls (`renderHistoryNotice`, `refreshEntityChoice`,
+/// `refreshMemory`, `refreshVoiceReadiness`, `refreshSetup`, `active_thread`) before its own
+/// `await openThread(active)`. A thread opened inside that window is opened, and then
+/// overwritten, because `openThread`'s early return only fires when the ids MATCH.
+///
+/// MEASURED 2026-09-06 at 120 ms of bridge latency, clicking `hiring` as soon as its row
+/// exists:
+///
+///     {"active":"general","bound":"general","crumb":"Running","entity":"Harbor Analytics","turns":0}
+///
+/// ...against what the same click produces once this wait is in front of it:
+///
+///     {"active":"hiring","bound":"hiring","crumb":"Q4 hiring","entity":"Northwind Traders","turns":1}
+///
+/// That first line is the wrong-screen failure in its natural habitat, and it is the reason
+/// this exists: a driver that clicks a thread before the app has finished starting is not
+/// driving the app, it is racing it, and the app wins about as often as the machine is busy.
+///
+/// THE END STATE IS `init()` REACHING ITS LAST STATEMENT, not a number. Either it took one of
+/// the arms that ASK — the entity picker, the memory question, the setup sheet, §21's refusal
+/// — and put a dialog on screen, or it opened the active thread and ran to the end.
+///
+/// AND "THE MODEL IS BOUND" IS NOT THE END, WHICH COST A CHECK TO LEARN. `openThread` calls
+/// `RichTimeline.bind()` and THEN awaits `refreshTechy` and `loadTimeline`, so a wait that
+/// stopped at the binding returns with the conversation still unpainted. Measured 2026-09-06 at
+/// 120 ms of bridge latency, sampling the moment such a wait returned and again two seconds
+/// later:
+///
+///     lag=0   at return: {"bound":"general","prose":18,   "rail":16}
+///     lag=120 at return: {"bound":"general","prose":null, "rail":16}
+///     lag=120 2s later : {"bound":"general","prose":18,   "rail":16}
+///
+/// `appearance.js` check 13 reads `.tl-prose` straight out of `openApp` and failed on that
+/// `null` — correctly, because the surface was not there yet.
+///
+/// AND THE COMPOSER HOLDING FOCUS IS NOT THE END EITHER, which was the second guess and is
+/// worth recording so it is not made a third time. `init()` does end with `inputEl.focus()` —
+/// but something earlier on the boot path focuses the composer too. Traced 2026-09-06 at 120 ms
+/// of latency, every `focusin` on the document from `goto` onward:
+///
+///     {"at":46, "id":"home-enter","messages":0,"prose":false}
+///     {"at":293,"id":"input",     "messages":0,"prose":false}
+///
+/// `#input` takes focus at 293 ms with `#messages` still empty, which is hundreds of
+/// milliseconds before `loadTimeline` can have painted anything.
+///
+/// SO THE SIGNAL IS THE CONVERSATION ITSELF. `flushRender` writes into `#messages`, and the
+/// conversation view is never empty — a thread with no items still renders Rich's opening
+/// greeting (`messages children: 1` on the boot thread, whose model holds zero items). One
+/// element in `#messages` is therefore "a conversation has been painted", which is the thing
+/// every caller of this actually needs and the thing neither earlier guess was.
+async function bootSettled(page, opts) {
+  opts = opts || {};
+  await page.waitForFunction(
+    () => {
+      // The arms that ASK rather than open. `startNewThreadFlow` opens the entity picker;
+      // `maybeAskAboutSetup` and `maybeAskAboutMemory` open their own sheets; §21's refusal
+      // paints `#unbound-view`. None of them paints a conversation, so they are accepted on
+      // their own terms.
+      const asking = ["entity-picker", "memory-setup", "setup-sheet", "unbound-view"].some((id) => {
+        const n = document.getElementById(id);
+        return n && !n.hidden;
+      });
+      if (asking) return true;
+      const m = window.__RICHOS_TIMELINE__ ? window.__RICHOS_TIMELINE__() : null;
+      if (!m || !m.threadId) return false;
+      const messages = document.getElementById("messages");
+      return !!messages && messages.children.length > 0;
+    },
+    undefined,
+    { timeout: opts.timeout || 15000 }
+  );
+  await flushFrames(page);
+}
+
+/// Wait until `init()` has finished ENTIRELY — including the four reads it deliberately does
+/// after the app is usable.
+///
+/// `bootSettled` above is "a conversation is painted", which is the moment the CEO can start
+/// reading. It is NOT the last thing `init()` does. Five statements come after it, and one of
+/// them takes focus:
+///
+///     if (entityPickerEl.hidden && memorySetupEl.hidden) inputEl.focus();
+///     if (window.RichSplash) window.RichSplash.yieldNow("app-ready");
+///     await refreshDesk();          // fills #nav-corrections-count
+///     syncSplashFromBackend(); noteSplashShown(); readLaunchRecord();
+///     syncRetentionFromBackend();   // fills #retention-hint
+///
+/// THAT `inputEl.focus()` IS A FOCUS STEAL FROM ANYTHING A CHECK HAS FOCUSED, and at 300 ms of
+/// bridge latency it lands hundreds of milliseconds after `bootSettled` returns, because
+/// `hydrateRunningTurn` sits between them. `updates.js` check 16 — "the waiting cue explains
+/// itself by keyboard" — focuses `#update-waiting`, and at that latency init took the focus
+/// back before the check could read it: `focused` came out false over a product that had done
+/// nothing wrong.
+///
+/// So this waits on the two elements the LAST reads fill. `#nav-corrections-count` is
+/// `refreshDesk`'s, one statement after the focus; `#retention-hint` is
+/// `syncRetentionFromBackend`'s, dead last. Both non-empty means every statement in `init()`
+/// has run and nothing else is going to move.
+///
+/// `contrast.js` wrote this first and for a different reason — those two text nodes are ink it
+/// has to measure, and both were still empty when its drivers returned at 60 ms per call. It is
+/// the same wait for the same shell, so it lives here now rather than in one suite.
+async function shellSettled(page, opts) {
+  opts = opts || {};
+  await page.waitForFunction(
+    () => {
+      const count = document.getElementById("nav-corrections-count");
+      const hint = document.getElementById("retention-hint");
+      return !!count && count.textContent.trim() !== "" && !!hint && hint.textContent.trim() !== "";
+    },
+    undefined,
+    { timeout: opts.timeout || 15000 }
+  );
+}
+
+/// Wait until the conversation on screen IS the thread whose row was clicked.
+///
+/// WHY THIS IS A FUNCTION AND NOT A SLEEP, and the reason is the worst defect this directory
+/// has produced. `main.js`'s `openThread` is a chain of six awaits — `switch_thread`,
+/// `refreshActiveContext`, `showConversationView`, `renderRail`, `refreshTechy`,
+/// `loadTimeline` — and `renderRail()` runs FIFTH. So the rail marks the new row active while
+/// the previous thread's turns are still the ones in `#messages`, and a driver that clicked and
+/// then slept was betting the whole chain finished inside its number. At 120 ms of bridge
+/// latency it does not: measured 2026-09-06, a walk that had slept 400 ms was reading
+/// *Harbor Analytics / "Running"* under a check whose own title said *Northwind Traders / Q4
+/// hiring*, with sixteen nodes of the intended thread missing and eight of the previous one
+/// present. It reported PASS. Two fewer nodes and it would have reported a clean sweep of the
+/// wrong screen.
+///
+/// THE END STATE IS BOTH HALVES, and the second one is the half a sleep cannot see: the rail
+/// row is active AND the timeline model is bound to this thread AND its turns are painted.
+/// `window.__RICHOS_TIMELINE__()` is `main.js`'s own read-only handle on the model it renders
+/// from, so this asks the product what it is showing rather than inferring it from the rail.
+///
+/// §21'S REFUSAL IS AN END STATE TOO. An unbound thread never reaches `loadTimeline` — it
+/// paints `#unbound-view` and returns — so waiting for turns on `legacy` would wait out a
+/// timeout for a screen that is correct. Both branches are accepted and the caller is told
+/// which one it got.
+///
+/// Returns `"conversation"` or `"unbound"`, so a check that names one of them can assert it
+/// rather than assume it.
+async function settleOnThread(page, threadId, opts) {
+  opts = opts || {};
+  const expectTurns = opts.expectTurns !== false;
+  try {
+    await page.waitForFunction(
+      ([id, wantTurns]) => {
+        const active = document.querySelector(".nav-thread-row.is-active .nav-thread");
+        if (!active || active.dataset.threadId !== id) return false;
+        const unbound = document.getElementById("unbound-view");
+        if (unbound && !unbound.hidden) return true;
+        const m = window.__RICHOS_TIMELINE__ ? window.__RICHOS_TIMELINE__() : null;
+        if (!m || m.threadId !== id) return false;
+        return wantTurns ? document.querySelectorAll("#messages .tl-turn").length > 0 : true;
+      },
+      [threadId, expectTurns],
+      { timeout: opts.timeout || 15000 }
+    );
+  } catch (e) {
+    // A BARE TIMEOUT IS A BAD FAILURE MESSAGE, and this one has the whole diagnosis in reach:
+    // which thread the rail marks, which one the model is bound to, and what the scope line
+    // says. "Timeout 15000ms exceeded" sends the next reader to the harness; this sends them
+    // to the screen.
+    const on = await page
+      .evaluate(() => {
+        const m = window.__RICHOS_TIMELINE__ ? window.__RICHOS_TIMELINE__() : null;
+        return {
+          active: (document.querySelector(".nav-thread-row.is-active .nav-thread") || { dataset: {} })
+            .dataset.threadId,
+          bound: m ? m.threadId : null,
+          entity: ((document.getElementById("scope-entity") || {}).textContent || "").trim(),
+          crumb: ((document.getElementById("scope-thread") || {}).textContent || "").trim(),
+          turns: document.querySelectorAll("#messages .tl-turn").length,
+        };
+      })
+      .catch(() => null);
+    throw new Error(
+      "the app never arrived on thread " + JSON.stringify(threadId) + ". It is showing " +
+        (on
+          ? JSON.stringify(on.entity + " / " + on.crumb) + " — the rail marks " +
+            JSON.stringify(on.active) + ", the model is bound to " + JSON.stringify(on.bound) +
+            ", " + on.turns + " turn(s) painted"
+          : "a page that could not be read") +
+        ". A check that went on from here would be measuring that screen under this one's title."
+    );
+  }
+  await flushFrames(page);
+  const unbound = await page.evaluate(() => {
+    const u = document.getElementById("unbound-view");
+    return !!(u && !u.hidden);
+  });
+  return unbound ? "unbound" : "conversation";
+}
+
+/// Click a thread's row and return when the app is actually showing it. The one-line form of
+/// the pair every driver in this directory was writing by hand, half of them without the wait.
+async function openThread(page, threadId, opts) {
+  await page.click('.nav-thread[data-thread-id="' + threadId + '"]');
+  return settleOnThread(page, threadId, opts);
+}
+
+/// The same fact as `settleOnThread`, ASSERTED rather than waited for — for the end of a
+/// driver, where a late answer arriving from an earlier click and re-rendering the stage has to
+/// be a named failure and not a node count that happens to clear its floor.
+async function assertOnThread(page, threadId, surface) {
+  const on = await page.evaluate(() => {
+    const m = window.__RICHOS_TIMELINE__ ? window.__RICHOS_TIMELINE__() : null;
+    const u = document.getElementById("unbound-view");
+    return {
+      active: (document.querySelector(".nav-thread-row.is-active .nav-thread") || { dataset: {} }).dataset
+        .threadId,
+      bound: m ? m.threadId : null,
+      crumb: ((document.getElementById("scope-thread") || {}).textContent || "").trim(),
+      turns: document.querySelectorAll("#messages .tl-turn").length,
+      unbound: !!(u && !u.hidden),
+    };
+  });
+  const ok = on.active === threadId && (on.unbound || (on.bound === threadId && on.turns > 0));
+  assert(
+    ok,
+    (surface || "this walk") +
+      " is not on the thread it is named for: asked for " +
+      JSON.stringify(threadId) +
+      ", the rail marks " +
+      JSON.stringify(on.active) +
+      ", the model is bound to " +
+      JSON.stringify(on.bound) +
+      ", the scope line reads " +
+      JSON.stringify(on.crumb) +
+      ", " +
+      on.turns +
+      " turn(s) painted. Whatever this measured, it is not the surface in its title"
+  );
+  return on;
+}
+
 module.exports = {
   loadPlaywright,
   openFixture,
   leaveHome,
   leaveSplash,
+  awaitSettled,
+  flushFrames,
+  bootSettled,
+  shellSettled,
+  openThread,
+  settleOnThread,
+  assertOnThread,
+  SLOW_BRIDGE,
   HOLD_CURTAIN,
   assertCurtainHeld,
   skipSuite,
