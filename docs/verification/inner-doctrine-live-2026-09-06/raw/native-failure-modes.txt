@@ -1,0 +1,48 @@
+
+=== THE STANDING INSTRUCTION ===
+  /Users/alex/Library/Application Support/com.richos.app/inner-doctrine.md
+  2866 bytes
+
+=== THE FLAG VECTOR ===
+  --print --input-format=stream-json --output-format=stream-json --include-partial-messages --verbose --setting-sources  --no-session-persistence --session-id 00000000-0000-0000-0000-000000000000 --permission-prompt-tool stdio --append-system-prompt-file /Users/alex/Library/Application Support/com.richos.app/inner-doctrine.md
+  PASS the undocumented flag is present and armed           there is no code path that drops it
+  PASS the standing instruction is named in the vector      the second semi-documented flag, pinned the same way
+
+=== 1. THE BINARY IS NOT THERE ===
+  the claude binary was not found at /nonexistent/definitely/not/claude — RichOS drives Claude Code directly and cannot run without it
+  PASS refused before a process was spawned                 the error names a path, not an exit code
+  PASS and says why it matters                              a customer-facing consequence, not a stack trace
+
+=== 2. A CHILD THAT REJECTS THE FLAG (the §16 risk, reproduced) ===
+  claude failed to start (the child exited before answering the handshake); the child said: error: unknown option '--permission-prompt-tool'
+  PASS loud, and not a degraded success                     lease_ready goes false and every send is refused
+  PASS the child's own words, verbatim                      on this failure that ONE line is the whole diagnosis
+
+=== 3. THE REAL BINARY, GIVEN A FLAG IT DOES NOT KNOW ===
+  binary: /Users/alex/.local/bin/claude
+  claude failed to start (the child exited before answering the handshake); the child said: error: unknown option '--richos-flag-that-cannot-exist'
+  PASS the REAL binary's rejection is caught                not a fake's — this is the actual claude on this machine
+  PASS and its own error reaches the operator               so a flag that moves announces itself
+
+=== 4. A CHILD THAT STARTS AND SAYS NOTHING ===
+  claude failed to start (the child exited before answering the handshake); the child said: (nothing on stderr)
+  returned after 755 ms
+  PASS silence is a failure, not a pass                     a boot that hangs forever is the one thing worse than a refusal
+  PASS and it RETURNED — bounded, never indefinite          HANDSHAKE_TIMEOUT is the ceiling; the child died first
+
+=== 5. A CHILD THAT ANSWERS THE HANDSHAKE AND REFUSES IT ===
+  claude failed to start (the initialize handshake was refused (subtype Some("error"))); the child said: (nothing on stderr)
+  PASS a non-success subtype is a refusal                   never a success with a caveat
+
+=== 6. RICHOS'S STANDING INSTRUCTION IS NOT THERE ===
+  RichOS's standing instruction is not at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-no-such-doctrine-please-do-not-create-me.md (No such file or directory (os error 2)) — it will not start Claude without it, because a Claude started without it is not Rich
+  PASS refused, naming the instruction file                 not an exit code, and not the wrong fault
+  PASS and says what is at stake                            a generic Claude behind the product's window is the failure this prevents
+  PASS and it is not reported as a missing binary           reporting one fault as another sends the reader to the wrong place
+
+=== THE NEGATIVE CONTROL: the real binary, the real flags ===
+  handshake OK in 949.1 ms, session = 20fce846-72ff-4f20-bfa4-704bdceb2b1d
+  PASS the five failures above fail for the RIGHT reason    this machine's claude answers the handshake with our real arg vector
+
+15 checks, 0 failed.
+[failure-modes] ALL CHECKS PASS — every failure is loud, named and bounded.
