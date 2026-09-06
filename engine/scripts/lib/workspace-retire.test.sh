@@ -2041,8 +2041,23 @@ assert_ne "$ARCHIVE1" "$(jf "$J2" preservation.archive)" "with a DIFFERENT archi
 assert_eq "$ARCHIVE1_SHA" "$(shasum -a 256 "$ARCHIVE1" | cut -d' ' -f1)" "and the FIRST archive is byte-identical to before — the recovery copy was not written over" || rc=1
 assert_dir "$Q1" "the first quarantine still exists" || rc=1
 assert_eq "second occupant" "$(cat "$(jf "$J2" quarantine.path)/second.txt" 2>/dev/null)" "the second quarantine holds the second occupant" || rc=1
+# The property itself, deterministically: two retirements in this row are more
+# than a second apart on a slow machine, so the collision above only shows when
+# the clock cooperates. What the fix establishes is that IMMEDIATE calls to the
+# stamp differ. Fifty back-to-back calls must yield more than one value; a
+# whole-second stamp yields one (unless they straddle a boundary within ~100 us).
+STAMPS="$(python3 - "$LIB" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("wr", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+vals = [m._stamp() for _ in range(50)]
+print(len(set(vals)), m.QUARANTINE_RE.search("x.richos-retired-ws-0123456789abcdef-" + vals[0]) is not None)
+PY
+)"
+a; [ "${STAMPS%% *}" -gt 1 ] 2>/dev/null || { printf '        ASSERT FAILED: fifty immediate stamps yielded %s distinct value(s) — the stamp cannot tell two retirements apart\n' "${STAMPS%% *}"; rc=1; }
+assert_eq "True" "${STAMPS##* }" "and a name minted with such a stamp is one the sweep recognizes" || rc=1
 if [ "$rc" -eq 0 ]; then
-    ok "TWICE the same workspace ID retired twice with no pause mints two distinct quarantine names and two distinct archives, and the first recovery copy is byte-identical afterward"
+    ok "TWICE the same workspace ID retired twice with no pause mints two distinct quarantine names and two distinct archives, the first recovery copy is byte-identical afterward, and fifty immediate stamps are distinct"
 else
     bad "TWICE two retirements of one ID collided on a name or an archive — raw: $(printf '%s' "$OUT2" | tr '\n' ' ' | cut -c1-500)"
 fi
