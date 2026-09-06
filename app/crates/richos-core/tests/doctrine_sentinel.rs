@@ -119,10 +119,10 @@ fn one_turn(doctrine_path: &Path, question: &str) -> String {
 }
 
 #[test]
-#[ignore = "LIVE: costs one API turn against this machine's own claude subscription and \
-            needs a signed-in binary. It is a RELEASE GATE (inner-doctrine design §7.4) — \
-            run it with --ignored against the binary the release ships against and record \
-            the version. `ignored` here is a NOT-RUN, never a pass."]
+// The attribute is ONE LINE on purpose: `app/ui/tests/docs-claims.js` counts `#[ignore]`
+// with a line-anchored regex to reconcile the README's "N direct, M child-only" against the
+// tree, and an attribute wrapped across lines is a test the reconciliation cannot see.
+#[ignore = "LIVE: costs one API turn against this machine's own claude subscription and needs a signed-in binary. It is a RELEASE GATE (inner-doctrine design §7.4) — run it with --ignored against the binary the release ships against and record the version. `ignored` here is a NOT-RUN, never a pass."]
 fn the_standing_instruction_reaches_the_model_and_the_control_proves_it() {
     let bin = resolve_claude_bin();
     println!("binary: {}", bin.display());
