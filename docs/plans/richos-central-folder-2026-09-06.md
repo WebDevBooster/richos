@@ -1,5 +1,32 @@
 # The central folder — how the rules follow the person, when the folders belong to different companies
 
+> **CORRECTION, 2026-09-06, by Rich — every recommendation in this document about
+> `claude-orchestration-kit` IS WRONG, AND THE ERROR IS MINE.**
+>
+> I briefed this design by asking "where do today's guards go?" and listing four folders that
+> carry hooks, **including `claude-orchestration-kit`**. Sage answered the question I asked. The
+> question was wrong.
+>
+> **The kit is a STANDALONE PRODUCT** — a drop-in starter-kit other people copy into their own
+> repositories (`README.md`: *"Copy it into your repo, point it at your project"*). It is not one
+> of the CEO's working folders, and its last commit is 2026-08-06, so it is a frozen release
+> rather than live work. **Its hooks are not stale forks of the engine's; they are the thing being
+> shipped.** On an adopter's machine the RichOS engine plugin does not exist at all, so deleting
+> the kit's copies would not relocate protection — it would remove it, from a product, for
+> everyone who ever adopts it.
+>
+> **So: nothing in the kit is to be retired, deleted, or consolidated.** Rows V6, 7 and the
+> "delete the folder copies" line below are struck. The CEO caught this before anything was
+> deleted; an agent had already been dispatched to do it and was stopped.
+>
+> **What survives is the same measurement pointed the other way.** The drift is real — the kit
+> ships an isolation guard at 37% of the engine's current size — and that is a *product-quality*
+> finding about the kit: whoever adopts it gets protections far behind what this project relies
+> on. The answer to that is to bring the kit's hooks FORWARD, never to remove them, and it is a
+> separate decision about a separate product.
+
+
+
 Sage (architect) · 2026-09-06 · repo `richos`, branch `sage-opus-mr1`, from `9f433ae`
 
 The CEO framed it in one sentence — **the rules follow the person, not the folder** — and then
