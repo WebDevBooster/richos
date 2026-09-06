@@ -38,7 +38,7 @@ F="scripts/lib/worktree-adoption.py"
 # observable, because the other still catches the fixture — which is the whole
 # point of carrying two, and is exactly what `{AND}` is for.
 mutant container-gate-removed "A24" "$F" \
-    '    under = sorted(w for w in _all_registered_worktrees(records){NL}                   if w != path and w.startswith(path.rstrip("/") + os.sep)){NL}    under += _nested_worktree_pointers(path){AND}    if under:' \
+    '    under = sorted(w for w in own{NL}                   if w != path and w.startswith(path.rstrip("/") + os.sep)){NL}    under += _nested_worktree_pointers(path){AND}    if under:' \
     '    under = []{AND}    if False:' \
     "the container of every worktree would pass the gate written for it, and the 2026-09-05 deletion would be reachable again."
 

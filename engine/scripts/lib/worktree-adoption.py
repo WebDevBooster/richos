@@ -108,7 +108,14 @@ left to G2. G2 already refuses `/Users/alex/ab/richos-wt` because a container
 is not a worktree top level; G3 refuses it a second time on a second property,
 because the failure that day was a malformed caller supplying the container of
 all worktrees and one refusal for one reason is how that becomes possible
-again.
+again. G3 carries two independent probes — the candidate's own repository's
+worktree list, and a shallow scan for a nested `gitdir: .../worktrees/`
+pointer belonging to any other repository. Their joint limit is declared at
+`_nested_worktree_pointers`.
+
+EVERY GATE IS O(1) IN GIT CALLS. `evaluate()` runs inside a session-start
+inventory, once per selected worktree, so a gate that consulted a whole-machine
+registry would put hundreds of `git worktree list` calls on a hook path.
 
 ===========================================================================
 HERMETIC ROOTING — FAIL-CLOSED, NOT BEST-EFFORT
@@ -389,37 +396,11 @@ def _git(cwd, *args):
     return tx._git(cwd, *args)
 
 
-# Two whole-machine indexes, each derived once per process. Both are pure
-# reads; they are cached because `adopt --all` evaluates every path the record
-# names (622 registrations on this machine) and re-deriving either one per
-# candidate turns a pass into thousands of `git worktree list` calls.
-_REGISTRY_CACHE = None
+# One whole-machine index, derived once per process. It is a pure read, and it
+# is cached because `adopt --all` evaluates every path the record names (497
+# candidates on this machine) and re-deriving it per candidate would turn one
+# pass into hundreds of thousands of transaction reads.
 _CLAIM_CACHE = None
-
-
-def _all_registered_worktrees(records=None):
-    """{path: repo} over every repository any candidate belongs to. Used by G3
-    only: a container is refused because something else is registered UNDER
-    it, and that question needs the whole registry, not one repository."""
-    global _REGISTRY_CACHE
-    if _REGISTRY_CACHE is not None:
-        return _REGISTRY_CACHE
-    out = {}
-    scanned = set()
-    for p in candidate_paths(records):
-        if not os.path.isdir(p):
-            continue
-        repo = tx.main_checkout_of(p)
-        if not repo or repo in scanned:
-            continue
-        scanned.add(repo)
-        reg = tx.registered_worktrees(repo)
-        if not reg:
-            continue
-        for wtp in reg:
-            out[wtp] = repo
-    _REGISTRY_CACHE = out
-    return out
 
 
 def _claimed_paths():
@@ -445,14 +426,24 @@ def _claimed_by_transaction(path):
 
 def _nested_worktree_pointers(path):
     """Immediate subdirectories of `path` that are themselves linked worktrees,
-    found WITHOUT the registry: a linked worktree's top level holds a `.git`
+    found WITHOUT any registry: a linked worktree's top level holds a `.git`
     FILE reading `gitdir: .../worktrees/<name>`.
 
-    The registry half of G3 can only see repositories the record names. This
-    half sees a nested workspace whose repository nobody ever registered, which
-    is precisely the shape a malformed caller produces, and it costs one
-    shallow listing. Two independent probes for one gate, because on 2026-09-05
-    the container had exactly one refusal standing between it and `rm -rf`."""
+    The registry half of G3 asks the candidate's OWN repository, which answers
+    the common case exactly and costs one `git worktree list`. This half costs
+    one shallow listing and sees a nested workspace belonging to ANY other
+    repository, registered or not — which is precisely the shape a malformed
+    caller produces. Two independent probes for one gate, because on 2026-09-05
+    the container had exactly one refusal standing between it and `rm -rf`.
+
+    WHAT NEITHER PROBE SEES, stated rather than implied: a worktree of a
+    DIFFERENT repository nested two or more levels down. The registry half is
+    scoped to one repository and this half to one directory level. Widening
+    either means a whole-machine registry (hundreds of `git worktree list`
+    calls per evaluation, and this runs inside a session-start inventory) or a
+    recursive walk of an arbitrary tree. G2 refuses every container shaped like
+    the one that failed, because a container is not a worktree top level, and
+    G3 is the second refusal rather than the only one."""
     out = []
     try:
         names = os.listdir(path)
@@ -475,9 +466,8 @@ def _nested_worktree_pointers(path):
 def _invalidate_caches():
     """Adoption writes a transaction, so the claim index it just used is stale
     the instant it returns. `adopt --all` must not evaluate the next candidate
-    against a registry and a claim map from before its own write."""
-    global _REGISTRY_CACHE, _CLAIM_CACHE
-    _REGISTRY_CACHE = None
+    against a claim map from before its own write."""
+    global _CLAIM_CACHE
     _CLAIM_CACHE = None
 
 
@@ -524,7 +514,8 @@ def evaluate(path, records=None):
         return _refuse("linked-worktree", "the main checkout of %s could not be resolved" % path)
 
     # G3 not-a-container — the 2026-09-05 control, on its own property.
-    under = sorted(w for w in _all_registered_worktrees(records)
+    own = tx.registered_worktrees(repo) or {}
+    under = sorted(w for w in own
                    if w != path and w.startswith(path.rstrip("/") + os.sep))
     under += _nested_worktree_pointers(path)
     if under:
