@@ -1,0 +1,10 @@
+[drive] bin  = /Users/alex/.local/bin/claude
+[drive] cwd  = /Users/alex/ab/richos-wt/echo-opus-sn1/docs/verification/claude-md-sentinel-2026-09-06/fixtures/no-claude-md
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "", "--no-session-persistence", "--session-id", "ffd0073a-82e7-42da-b308-2501aaf23a70", "--permission-prompt-tool", "stdio"]
+[drive] handshake ok in 0.597s
+[drive] result subtype = success stop_reason = end_turn
+[drive] tool requests denied = []
+----- ASSISTANT TEXT -----
+unknown
+unknown
+----- END -----

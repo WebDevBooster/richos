@@ -1,0 +1,10 @@
+[drive] bin  = /Users/alex/.local/bin/claude
+[drive] cwd  = /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/sentinel/nonrepo
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "user", "--no-session-persistence", "--session-id", "7b0c888a-d869-48d7-a569-521f8334fd0c", "--permission-prompt-tool", "stdio"]
+[drive] handshake ok in 2.872s
+[drive] result subtype = success stop_reason = end_turn
+[drive] tool requests denied = []
+----- ASSISTANT TEXT -----
+unknown
+unknown
+----- END -----
