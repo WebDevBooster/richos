@@ -473,6 +473,9 @@ if [ "$FAIL" -eq 1 ]; then
   for reason in "${FAIL_REASONS[@]}"; do
     echo "  - $reason" >&2
   done
+  echo "  For a NEW isolated spawn, prepare the complete task-specific Agent JSON with:" >&2
+  echo "    python3 \"$ENGINE_ROOT/scripts/prepare-agent-spawn.py\" --file <input.json>" >&2
+  echo "  It supplies both native isolation and the acknowledgement contract. It grants no exemptions and is not a resume helper." >&2
   echo "(hook: scripts/hooks/verify-agent-prompt.sh)" >&2
   exit 2
 fi

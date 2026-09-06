@@ -530,6 +530,17 @@ else
     bad "E2. it names the top item rather than counting the items" "$OUT"
 fi
 
+if printf '%s' "$OUT" | grep -q 'ceo-todos-deferred: <truthful reason>' \
+   && printf '%s' "$OUT" | grep -q 'cancellation as an answer' \
+   && printf '%s' "$OUT" | grep -q 'complete current work queue' \
+   && printf '%s' "$OUT" | grep -q 'PUT THIS TO THE CEO BEFORE DISPATCHING ANYONE' \
+   && printf '%s' "$OUT" | grep -q 'on 2026-08-31' \
+   && printf '%s' "$OUT" | grep -q 'for work he has directed in this session'; then
+    ok "E4. startup accurately explains authorized deferral without fabricating an answer"
+else
+    bad "E4. startup deferral contract" "$OUT"
+fi
+
 write_seat_config ""
 OUT="$(cd "$SEAT" && RICHOS_ENTITY_ROOT="$SEAT" bash "$SSTART" </dev/null 2>/dev/null)"
 if [ -z "$OUT" ]; then
@@ -544,7 +555,8 @@ echo "=== F. the CLI face gives the same verdict the hooks give ==="
 
 reset_ledger
 OUT="$(bash "$STATUS" "$SEAT" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'verdict    : OPEN'; then
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'verdict    : OPEN' \
+   && printf '%s' "$OUT" | grep -q 'ceo-todos-deferred:'; then
     ok "F1. ceo-asks-status.sh exits 1 and reports OPEN when he has not been asked"
 else
     bad "F1. ceo-asks-status.sh exits 1 and reports OPEN when he has not been asked" "rc=$RC $OUT"

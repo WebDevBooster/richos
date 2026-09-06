@@ -85,10 +85,13 @@ if python3 "$LEDGER_PY" prepared --session-id feedface-0000-4000-8000-0000000000
 else
     bad "C04  prepared lookup by exact key failed"
 fi
-if printf '%s' "$OUT" | grep -q "cwd: \"$WT\"" && printf '%s' "$OUT" | grep -q "cross-repo-worktree: $WT"; then
-    ok "C05  prints both sanctioned spawn shapes carrying the path"
+if printf '%s' "$OUT" | grep -q 'isolation: "worktree"' \
+   && printf '%s' "$OUT" | grep -q "cross-repo-worktree: $WT" \
+   && printf '%s' "$OUT" | grep -q 'prepare-agent-spawn.py' \
+   && ! printf '%s' "$OUT" | grep -q 'cwd: "'; then
+    ok "C05  prints native+external and acknowledgement preparation; never recommends cwd-only"
 else
-    bad "C05  spawn shapes: $OUT"
+    bad "C05  spawn contract: $OUT"
 fi
 
 # 2. REFUSALS, each named. Nothing is created and nothing is registered.
