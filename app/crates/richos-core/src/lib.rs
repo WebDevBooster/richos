@@ -63,6 +63,7 @@
 
 pub mod belief;
 pub mod cognition;
+pub mod company;
 pub mod correction;
 pub mod config;
 pub mod doctrine;
