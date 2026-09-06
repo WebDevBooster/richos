@@ -38,8 +38,13 @@
 #   (H1) LIVE agent (locked wt + live pid)        -> REFUSE (exit 3), nothing removed
 #   (H2) STALE lock (dead pid)                    -> removed (exit 0)
 #   (H3) UNLOCKED entity worktree                 -> removed (exit 0)
-#   (H4) ABSENT entity worktree (hand-rolled      -> removed (exit 0), correct repo
-#        external-repo worktree)
+#   (H4) UNBOUND owner: no ownership record       -> REFUSE (exit 3), nothing
+#        names the path and no entity worktree         removed. Absence of a
+#        exists                                        record is not evidence
+#                                                      of death.
+#   (H4c) THE POSITIVE TWIN: the same shape, but the   -> removed (exit 0)
+#        owner is registered against the exact path
+#        and a witnessed termination is on record
 #   (H5) liveness on the HAND-ROLLED worktree lock is NOT trusted — a live pid
 #        there with an unlocked entity worktree is still DEAD (the incident)
 #   (H6) missing required args                    -> usage error (exit 2)
@@ -447,7 +452,17 @@ else
     printf '  FAIL  H3b unlocked removal left no witnessed termination in the ledger\n'; FAIL=$((FAIL + 1))
 fi
 
-# (H4) hand-rolled external-repo worktree, no entity worktree at all -> removed there.
+# (H4) hand-rolled external-repo worktree with NO ownership record and no
+# entity worktree -> REFUSED (exit 3), nothing removed.
+#
+# THIS CASE ASSERTED THE OPPOSITE UNTIL 2026-09-05, AND THE ASSERTION WAS THE
+# BUG. It said: no record names this path, no isolation worktree is locked
+# anywhere, therefore the owner is dead, therefore delete. Every clause is
+# true of a string that names nobody at all — which is exactly the shape that
+# reached the helper on 2026-09-05 and recursively deleted the parent of every
+# workspace on the machine. Absence of a record is not evidence of death; it
+# is the absence of evidence. The helper now refuses with `owner-unbound`, and
+# this case pins the refusal so it cannot be relaxed back.
 OTHER="$HB/other"
 mkdir -p "$OTHER"
 git -C "$OTHER" init -q -b main >/dev/null 2>&1
@@ -458,15 +473,46 @@ git -C "$OTHER" add r.txt >/dev/null 2>&1
 git -C "$OTHER" commit -qm r >/dev/null 2>&1
 WT_HAND="$HB/other-norm-wt"
 git -C "$OTHER" worktree add -q -b feat "$WT_HAND" >/dev/null 2>&1
-helper_case "H4 hand-rolled external wt (no entity wt) -> removed" 0 no "$WT_HAND" \
+helper_case "H4 unbound owner, no ownership record -> REFUSE, nothing removed" 3 yes "$WT_HAND" \
     --owner agent-norm999 "$WT_HAND" --repo "$OTHER" --branch feat --force
-# THE NEGATIVE THAT MATTERS: this verdict rested on the entity worktree being
-# ABSENT. Writing it as a termination would launder absence into positive
-# evidence for every later sweep. Nothing is written.
+H4_OUT="$("$HELPER" --entity-repo "$ENT" --owner agent-norm999 "$WT_HAND" --repo "$OTHER" --branch feat --force 2>&1 >/dev/null)"
+if printf '%s' "$H4_OUT" | grep -qF "owner-unbound"; then
+    printf '  PASS  H4a the refusal names the reason: owner-unbound\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  H4a the refusal does not name owner-unbound\n'; FAIL=$((FAIL + 1))
+fi
+# THE NEGATIVE THAT MATTERS: an absence-based verdict must never be copied into
+# the ownership ledger, where a later sweep would read it back as positive
+# evidence. A refusal writes nothing, so nothing is laundered.
 if ! wl_has norm999; then
     printf '  PASS  H4b an ABSENCE-based verdict is NOT written to the ownership ledger\n'; PASS=$((PASS + 1))
 else
     printf '  FAIL  H4b an absence-based verdict was laundered into a witnessed termination\n'; FAIL=$((FAIL + 1))
+fi
+
+# (H4c/H4d) THE POSITIVE TWIN, and it is not optional. A negative case with no
+# positive twin passes for the wrong reason: a helper that refused every call
+# would satisfy H4, H4a and H4b perfectly while removing nothing anyone asked
+# it to remove. So bind the same shape properly — register the owner against
+# this exact path, record a WITNESSED termination for it — and the same helper
+# on the same arguments removes the tree.
+WT_BOUND="$HB/other-bound-wt"
+git -C "$OTHER" worktree add -q -b featbound "$WT_BOUND" >/dev/null 2>&1
+LEDGER_PY="$SRC_DIR/../lib/worktree-ledger.py"
+python3 "$LEDGER_PY" --ledger "$WL" record registered \
+    --teammate zach-opus-bound1 --agent-id bound004 --session-id sandbox-h4c-0000 \
+    --repo "$OTHER" --worktree "$WT_BOUND" --branch featbound --class hand-rolled >/dev/null 2>&1
+python3 "$LEDGER_PY" --ledger "$WL" record terminated \
+    --agent-id bound004 --teammate zach-opus-bound1 --worktree "$WT_BOUND" \
+    --reason "sandbox: the owner was observed registered-and-unlocked and stopped" \
+    --witness sandbox-h4c >/dev/null 2>&1
+helper_case "H4c bound owner + witnessed termination -> removed" 0 no "$WT_BOUND" \
+    --owner agent-bound004 "$WT_BOUND" --repo "$OTHER" --branch featbound --force
+H4D_REGS="$(grep -c '"agent_id": "bound004"' "$WL" 2>/dev/null || echo 0)"
+if [ "$H4D_REGS" -eq 2 ]; then
+    printf '  PASS  H4d the witnessed termination was USED, not duplicated (2 rows on record)\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  H4d expected exactly the 2 seeded rows for bound004, found %s\n' "$H4D_REGS"; FAIL=$((FAIL + 1))
 fi
 
 # (H5) THE INCIDENT: a LIVE pid on the HAND-ROLLED worktree must NOT be trusted.

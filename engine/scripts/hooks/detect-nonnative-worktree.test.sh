@@ -74,7 +74,8 @@ make_sandbox() {
     cp "$HOOK_SRC" "$root/scripts/hooks/detect-nonnative-worktree.sh"
     cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" \
        "$SCRIPT_DIR/../lib/worktree-transactions.py" "$SCRIPT_DIR/../lib/worktree-ledger.py" \
-       "$SCRIPT_DIR/../lib/agent-liveness.py" "$root/scripts/lib/"
+       "$SCRIPT_DIR/../lib/agent-liveness.py" "$SCRIPT_DIR/../lib/workspace-retire.py" \
+       "$root/scripts/lib/"
     chmod +x "$root/scripts/hooks/detect-nonnative-worktree.sh"
     # The spawn-intent guard-worktree-isolation.sh would have written for this
     # suite's fixed tool_use_id: a native isolation spawn, no externals.
@@ -146,6 +147,7 @@ run_case() {
     local name="$1" expected="$2" repo="$3" json="$4"
     local actual
     printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKTREE_TX_DIR="$repo/tx" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
+        RICHOS_WORKSPACE_RETIRE_DIR="$repo/retire" \
         "$repo/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
     actual=$?
     if [ "$actual" -eq "$expected" ]; then
@@ -179,6 +181,7 @@ run_case_msg() {
     local name="$1" needle="$2" repo="$3" json="$4"
     local out
     out="$(printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKTREE_TX_DIR="$repo/tx" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
+        RICHOS_WORKSPACE_RETIRE_DIR="$repo/retire" \
         "$repo/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"
     if printf '%s' "$out" | grep -qF "$needle"; then
         printf '  PASS  %s\n' "$name"
@@ -324,6 +327,103 @@ if [ -d "$ROOT/.claude/worktrees/agent-beefbeef12" ]; then
     printf '  PASS  registered worktree untouched when no residue exists\n'; PASS=$((PASS + 1))
 else
     printf '  FAIL  registered worktree removed when no residue exists\n'; FAIL=$((FAIL + 1))
+fi
+rm -rf "$ROOT"
+
+# =========================================================================
+# (c) THE JOURNAL IS CONSULTED — and what it can and cannot establish
+# =========================================================================
+# Tell (c) used to reason "unregistered == unowned == safe to auto-reap" and
+# ran `rm -rf` on the result: the 2026-09-05 deletion's inference, reached
+# independently in a second file. The deletion is gone. What replaced it must
+# not be the same glob wearing calmer language, so the retirement journal is
+# consulted and the two kinds of entry are named apart. These cases pin BOTH
+# halves, because a detector that reported everything as an unknown mystery
+# would pass a refusal-only test perfectly while telling the operator nothing.
+
+# seed_retirement <repo> <path> — one completed quarantine record for <path>,
+# written into the SANDBOX journal that run_case redirects the hook to.
+seed_retirement() {
+    local repo="$1" wtpath="$2"
+    mkdir -p "$repo/retire"
+    RETIRE_DIR="$repo/retire" WTPATH="$wtpath" python3 - <<'PY'
+import json, os, time
+d = os.environ["RETIRE_DIR"]
+os.makedirs(d, exist_ok=True)
+rec = {"operation": "retire", "outcome": "quarantined", "reason_code": "quarantined",
+       "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+       "workspace": {"id": "ws-00000000feedface", "path": os.environ["WTPATH"]},
+       "quarantine": {"path": os.path.join(os.path.dirname(os.environ["WTPATH"]),
+                                           ".richos-retired",
+                                           os.path.basename(os.environ["WTPATH"])
+                                           + ".richos-retired-ws-00000000feedface-20260906T000000Z")},
+       "preservation": {"status": "verified"}}
+with open(os.path.join(d, "retirements.jsonl"), "a", encoding="utf-8") as f:
+    f.write(json.dumps(rec) + "\n")
+PY
+}
+
+# --- (c) THE REFUSAL: the journal cannot account for this path, so it is
+# named as unestablished and every byte is left alone. Nothing this detector
+# reads can establish a directory as OWNERLESS, so nothing is removable.
+ROOT="$(make_sandbox)"
+add_worktree "$ROOT" "agent-cafefeed20" "worktree-cafefeed20"
+mkdir -p "$ROOT/.claude/worktrees/agent-deaddead21"
+printf 'irreplaceable\n' > "$ROOT/.claude/worktrees/agent-deaddead21/work.txt"
+run_case_msg "(c) journal silent -> reported as PRESERVED, ownership unknown" "PRESERVED" "$ROOT" \
+    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
+run_case_msg "(c) journal silent -> the report says nothing establishes it as ownerless" \
+    "establishes a directory as ownerless" "$ROOT" \
+    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
+if [ "$(cat "$ROOT/.claude/worktrees/agent-deaddead21/work.txt" 2>/dev/null)" = "irreplaceable" ]; then
+    printf '  PASS  (c) the unexplained directory and its bytes are intact\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  (c) the unexplained directory was damaged or removed\n'; FAIL=$((FAIL + 1))
+fi
+rm -rf "$ROOT"
+
+# --- (c) THE POSITIVE TWIN: the same directory, in the same place, with the
+# SAME name — and a retirement record naming it. Now the journal accounts for
+# it, so it is reported as EXPLAINED rather than as an unknown. This is what
+# proves the journal is READ: the only difference between this case and the one
+# above is one line in the journal, so a hook that ignored the journal would
+# fail here while passing the refusal.
+ROOT="$(make_sandbox)"
+add_worktree "$ROOT" "agent-cafefeed22" "worktree-cafefeed22"
+mkdir -p "$ROOT/.claude/worktrees/agent-deaddead21"
+printf 'irreplaceable\n' > "$ROOT/.claude/worktrees/agent-deaddead21/work.txt"
+seed_retirement "$ROOT" "$ROOT/.claude/worktrees/agent-deaddead21"
+run_case_msg "(c) POSITIVE TWIN: journal accounts for the path -> reported as EXPLAINED" \
+    "EXPLAINED" "$ROOT" "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
+run_case_msg "(c) the explanation carries the journal's own outcome and workspace id" \
+    "ws-00000000feedface" "$ROOT" "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
+run_case_msg "(c) and the operator is pointed at the recovery command, not at a mystery" \
+    "workspace-retire.py restore" "$ROOT" "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
+run_case "(c) an EXPLAINED entry is still a signal, not silence -> exit 2" 2 "$ROOT" \
+    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
+if [ "$(cat "$ROOT/.claude/worktrees/agent-deaddead21/work.txt" 2>/dev/null)" = "irreplaceable" ]; then
+    printf '  PASS  (c) an EXPLAINED entry is preserved too — explained is not permission\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  (c) an EXPLAINED entry was damaged or removed\n'; FAIL=$((FAIL + 1))
+fi
+rm -rf "$ROOT"
+
+# --- (c) THE QUARANTINE ITSELF is never residue. The container is
+# ".richos-retired" and each quarantine inside it is "<base>.richos-retired-ws-
+# <id>-<stamp>Z"; both are dot-prefixed, so bash's default globbing already
+# skipped them — which is exactly why the skip is now WRITTEN DOWN. This case
+# is the regression that notices if that ever stops being true, whether the
+# cause is a `shopt -s dotglob` added for an unrelated reason or a rename.
+ROOT="$(make_sandbox)"
+add_worktree "$ROOT" "agent-cafefeed24" "worktree-cafefeed24"
+mkdir -p "$ROOT/.claude/worktrees/.richos-retired/agent-old25.richos-retired-ws-00000000feedface-20260906T000000Z"
+printf 'archived\n' > "$ROOT/.claude/worktrees/.richos-retired/agent-old25.richos-retired-ws-00000000feedface-20260906T000000Z/work.txt"
+run_case "(c) a retirement quarantine alone is not residue -> clean exit 0" 0 "$ROOT" \
+    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
+if [ "$(cat "$ROOT/.claude/worktrees/.richos-retired/agent-old25.richos-retired-ws-00000000feedface-20260906T000000Z/work.txt" 2>/dev/null)" = "archived" ]; then
+    printf '  PASS  (c) the quarantine and its bytes are intact\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  (c) the quarantine was damaged or removed\n'; FAIL=$((FAIL + 1))
 fi
 rm -rf "$ROOT"
 
