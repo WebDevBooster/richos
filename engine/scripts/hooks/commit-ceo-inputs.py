@@ -174,6 +174,7 @@ import json
 import os
 import re
 import subprocess
+import stat
 import sys
 import time
 
@@ -242,6 +243,8 @@ def candidates(text):
     nothing at all. A missed handover costs one file. A mechanism nobody
     tolerates costs all of them, permanently.
     """
+    # Automated task completion payloads are transport metadata, not handovers.
+    text = re.sub(r"<(task-notification|system-reminder)\b[^>]*>.*?</\1>", "", text, flags=re.S)
     found = []
     seen = set()
 
@@ -265,6 +268,37 @@ def candidates(text):
         add(m.group(1), "absolute" if m.group(1).startswith("/") else "tilde")
 
     return found
+
+
+def is_handover_file(path):
+    """Exclude directories, devices, OS tools and Claude operational state.
+
+    A symlink to a regular file, including a dangling link, still reaches the
+    existing refusal gates. A symlink to a directory is not a file handover.
+    This predicate is also used to recheck historical notice entries.
+    """
+    if os.path.isdir(path):
+        return False
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True  # Unknown is left to the existing visible refusal path.
+    if not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)):
+        return False
+    if any(path == root or path.startswith(root + "/")
+           for root in ("/bin", "/sbin", "/usr/bin", "/usr/sbin", "/dev", "/proc", "/sys")):
+        return False
+    claude = os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude"))
+    if path in {os.path.join(claude, name) for name in ("settings.json", "settings.local.json")}:
+        return False
+    if any(path.startswith(os.path.join(claude, name) + "/")
+           for name in ("state", "teams", "projects")):
+        return False
+    if re.search(r"/(?:private/)?tmp/claude-[^/]+/.+/tasks/[^/]+\.output$", path):
+        return False
+    return True
 
 
 def physical(p):
@@ -741,6 +775,8 @@ def main():
     for rawc, source in cands:
         p = resolve(rawc, cwd)
         if p is None or p in seen:
+            continue
+        if not is_handover_file(p):
             continue
         seen.add(p)
         state, repo, detail = classify(p)

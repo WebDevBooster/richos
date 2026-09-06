@@ -508,6 +508,7 @@ HOOK_FILES+=(
     # commit past the credential and publication gates. Every other entry here
     # protects a decision. This one also protects a write.
     "$REPO_ROOT/scripts/hooks/commit-ceo-inputs.py"
+    "$REPO_ROOT/scripts/hooks/shell-evidence.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

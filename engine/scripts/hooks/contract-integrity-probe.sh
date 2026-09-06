@@ -978,6 +978,7 @@ guard-named-persons-writes.sh|PreToolUse
 guard-dialect.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
+shell-evidence.sh|PreToolUse
 guard-interactive-prompt.sh|PreToolUse
 guard-inflight-notify.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
@@ -1004,6 +1005,7 @@ task-completed-handoff.sh|TaskCompleted
 guard-unresolved-claims.sh|Stop
 turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
+notice-unlanded-branches.sh|Stop
 notice-inflight-acks.sh|Stop
 notice-mechanical-findings.sh|Stop
 guard-ceo-ruled-ask.sh|PreToolUse

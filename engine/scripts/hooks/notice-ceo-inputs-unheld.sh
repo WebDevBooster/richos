@@ -178,8 +178,18 @@ notice_clean() {
 [ -f "$LEDGER" ] || notice_clean
 
 set +e
-UNRESOLVED="$(LEDGER="$LEDGER" python3 -c '
-import json, os, subprocess, sys
+UNRESOLVED="$(INGRESS_ANALYZER="$ENGINE_ROOT/scripts/hooks/commit-ceo-inputs.py" LEDGER="$LEDGER" python3 -c '
+import importlib.util, json, os, subprocess, sys
+
+try:
+    spec = importlib.util.spec_from_file_location("ingress", os.environ["INGRESS_ANALYZER"])
+    ingress = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ingress)
+    if not callable(getattr(ingress, "is_handover_file", None)):
+        raise ImportError("input classifier missing")
+except (OSError, KeyError, AttributeError, ImportError, SyntaxError):
+    print("BROKEN\tinput classifier unavailable")
+    sys.exit(0)
 
 path = os.environ["LEDGER"]
 
@@ -215,7 +225,7 @@ for line in lines:
 
 def still_unheld(p):
     """Re-decided against git every turn. Never trusted from the ledger."""
-    if not os.path.lexists(p):
+    if not ingress.is_handover_file(p):
         return False
     base = p if os.path.isdir(p) else os.path.dirname(p) or "/"
     if not os.path.isdir(base):
@@ -248,7 +258,7 @@ set -e
 
 if printf '%s' "$UNRESOLVED" | grep -q '^BROKEN'; then
     stop_notice_abnormal "ledger-unreadable" \
-        "INGRESS FOLLOW-UP — CANNOT READ ITS LEDGER at $LEDGER, so a file you handed over that a gate refused is no longer being tracked to a conclusion. $HOOK_TAG"
+        "INGRESS FOLLOW-UP — CANNOT READ ITS LEDGER OR INPUT CLASSIFIER (ledger: $LEDGER), so a file you handed over that a gate refused is no longer being tracked to a conclusion. $HOOK_TAG"
     exit 0
 fi
 

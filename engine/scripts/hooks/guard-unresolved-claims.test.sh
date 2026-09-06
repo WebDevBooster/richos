@@ -85,6 +85,28 @@ cat >"$TEAM_DIR/config.json" <<'JSON'
 JSON
 printf '{"teammate":"echo-opus-k3"}\n' > "$TEAM_DIR/idle-events.jsonl"
 
+# Short IDs must contain both letters and digits to exercise the claim gate.
+# Random seven-character IDs can be entirely decimal (or alphabetic). Extend
+# the real object prefix in that case instead of silently testing no claim.
+claim_fixture_sha() {
+    local full="$1" width token
+    [[ "$full" =~ ^[0-9a-f]{40}$ ]] || return 1
+    for ((width=7; width<=40; width++)); do
+        token="${full:0:width}"
+        if [[ "$token" == *[0-9]* && "$token" == *[a-f]* ]]; then
+            printf '%s\n' "$token"
+            return 0
+        fi
+    done
+    return 1
+}
+# Deterministic controls cover both formerly random failure shapes.
+if [ "$(claim_fixture_sha 1234567abcdef0123456789abcdef0123456789a)" != 1234567a ] ||
+   [ "$(claim_fixture_sha abcdefa123456789abcdef0123456789abcdef01)" != abcdefa1 ]; then
+    echo 'FATAL: claim fixture prefix selection failed' >&2
+    exit 1
+fi
+
 # --- the governed repository ----------------------------------------------
 # A real git repo, because the SHA resolver runs `git cat-file` against it.
 ENTITY="$SANDBOX/entity"
@@ -106,7 +128,7 @@ mkdir -p "$ENTITY/docs"
 printf 'real\n' > "$ENTITY/docs/real-file.md"
 git -C "$ENTITY" add -A >/dev/null 2>&1
 git -C "$ENTITY" commit -qm seed >/dev/null 2>&1
-LIVE_SHA="$(git -C "$ENTITY" rev-parse --short=7 HEAD)"
+LIVE_SHA="$(claim_fixture_sha "$(git -C "$ENTITY" rev-parse HEAD)")"
 # Hex, 7 chars, has a digit and a letter, and names no object anywhere.
 DEAD_SHA="d0d0d0d"
 
@@ -124,14 +146,14 @@ git -C "$ENTITY" checkout -q -b unlanded-branch
 printf 'not landed\n' > "$ENTITY/docs/unlanded.md"
 git -C "$ENTITY" add -A >/dev/null 2>&1
 git -C "$ENTITY" commit -qm "on a branch, never merged" >/dev/null 2>&1
-BRANCH_SHA="$(git -C "$ENTITY" rev-parse --short=7 HEAD)"
+BRANCH_SHA="$(claim_fixture_sha "$(git -C "$ENTITY" rev-parse HEAD)")"
 git -C "$ENTITY" checkout -q "$DEFAULT_BRANCH"
 
 git -C "$ENTITY" checkout -q -b doomed
 printf 'rewritten away\n' > "$ENTITY/docs/doomed.md"
 git -C "$ENTITY" add -A >/dev/null 2>&1
 git -C "$ENTITY" commit -qm "the shape a history rewrite leaves behind" >/dev/null 2>&1
-DANGLING_SHA="$(git -C "$ENTITY" rev-parse --short=7 HEAD)"
+DANGLING_SHA="$(claim_fixture_sha "$(git -C "$ENTITY" rev-parse HEAD)")"
 git -C "$ENTITY" checkout -q "$DEFAULT_BRANCH"
 git -C "$ENTITY" branch -qD doomed >/dev/null 2>&1
 
@@ -141,7 +163,7 @@ git -C "$ENTITY" update-ref "refs/remotes/origin/$DEFAULT_BRANCH" "$LIVE_SHA"
 printf 'not pushed\n' > "$ENTITY/docs/unpushed.md"
 git -C "$ENTITY" add -A >/dev/null 2>&1
 git -C "$ENTITY" commit -qm "committed, not pushed" >/dev/null 2>&1
-UNPUSHED_SHA="$(git -C "$ENTITY" rev-parse --short=7 HEAD)"
+UNPUSHED_SHA="$(claim_fixture_sha "$(git -C "$ENTITY" rev-parse HEAD)")"
 
 # A value present in TWO spellings, one of which a claim will not name.
 printf -- '--mark: #9C7C34;\n' > "$ENTITY/docs/style.css"
@@ -177,10 +199,9 @@ git -C "$ENTITY" commit -qm "two spellings of one value" >/dev/null 2>&1
 FIXTURE_BAD=""
 for _pair in "LIVE_SHA:$LIVE_SHA" "BRANCH_SHA:$BRANCH_SHA" "DANGLING_SHA:$DANGLING_SHA" "UNPUSHED_SHA:$UNPUSHED_SHA"; do
     _name="${_pair%%:*}"; _val="${_pair#*:}"
-    case "$_val" in
-        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-        *) FIXTURE_BAD="$FIXTURE_BAD $_name='$_val'" ;;
-    esac
+    if ! [[ "$_val" =~ ^[0-9a-f]{7,40}$ && "$_val" == *[0-9]* && "$_val" == *[a-f]* ]]; then
+        FIXTURE_BAD="$FIXTURE_BAD $_name='$_val'"
+    fi
 done
 # ...and that they are DISTINCT. Four names for one commit would silently
 # collapse the three-way ref-graph distinction the cases are built on.

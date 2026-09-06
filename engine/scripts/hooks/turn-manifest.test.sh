@@ -379,7 +379,7 @@ run "$(payload "$MIXED_TR")"
 has "ERROR — String to replace not found in file." \
     "d.  is_error renders ERROR plus the result's own first line"
 has "NO RESULT" "d1. a call with no tool_result says so, rather than 'ok'"
-has "ok — 2 line(s)" "d2. plain output renders ok with a measured size"
+has "RETURNED — 2 line(s)" "d2. plain Bash output reports returned, not verification"
 has "Bash×1, SendMessage×1, Edit×1, Agent×1" "d3. the header tallies every call by tool name"
 
 # ===========================================================================
