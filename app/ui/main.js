@@ -3948,7 +3948,15 @@ async function renderHistoryNotice() {
 /// doc bans the durable version of that idea by name.
 let firstRunState = null;
 
-const FIRST_RUN_HEADLINE = "I don't know anything about your business yet.";
+/// THE HEADLINE, and the word it deliberately does not contain is "anything".
+///
+/// It read "I don't know anything about your business yet." until it was put on screen
+/// directly after the company picker, where the CEO has just typed his company's name. RichOS
+/// therefore knows exactly one thing about his business, and a headline claiming it knows
+/// nothing is a small untruth in the first sentence of the product — which is a strange place
+/// to spend the trust this whole surface exists to build. Knowing a name is not knowing a
+/// business; the body below enumerates what is actually missing.
+const FIRST_RUN_HEADLINE = "I don't know your business yet.";
 
 /// THE OFFER, in the register the rest of the app uses: what is missing, what it would take,
 /// and what it buys. Every clause is here for a reason and none of them is decoration.

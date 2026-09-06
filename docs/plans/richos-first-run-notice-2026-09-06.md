@@ -74,7 +74,7 @@ top of a finished screen, which is what a fourth dialog would have been.
 A block at the head of `#conversation`, in the conversation's own reading column, above the
 messages.
 
-> **I don't know anything about your business yet.**
+> **I don't know your business yet.**
 >
 > There's nothing on file about what this company does, who it's for, or how you want to work.
 > I can ask you about it — about twenty minutes — and write your answers down, so I use them
@@ -179,6 +179,10 @@ Every clause of the offer is there for a reason, and the omissions are decisions
 
 **In, and why.**
 
+- **The headline does not say "anything".** It did, until it was put on screen directly
+  after the company picker — where the CEO has just typed his company's name, so RichOS
+  knows exactly one thing about his business and a headline claiming it knows nothing is a
+  small untruth in the product's first sentence. Knowing a name is not knowing a business.
 - *"There's nothing on file"* — a fact about this install, not a failure of his.
 - *"about twenty minutes"* — the same words `OFFER_BLOCK` gives Rich, so the screen and the
   conversation quote one number.

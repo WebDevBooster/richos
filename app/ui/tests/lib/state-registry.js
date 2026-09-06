@@ -2698,7 +2698,7 @@ module.exports = [
   // `PARTY` regex gained `Whoever set RichOS up` on the same day for that reason — it already
   // carried both cases of "operator" and only one of this phrase.
   {
-    s: "I don't know anything about your business yet.",
+    s: "I don't know your business yet.",
     c: "ACTIONABLE",
     control: "#first-run-start",
     fixture: "first-run-offer",
