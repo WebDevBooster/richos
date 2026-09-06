@@ -27,8 +27,8 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 # Declare the governed repository rather than inheriting the launching
 # session's — same reasoning as scan-secrets.test.sh: run from a session seated
@@ -369,19 +369,46 @@ case_exit "V15. a broken registry also refuses a REPORTING verdict" \
 if [ -n "${RICHOS_MUTATION_INNER:-}" ]; then
     echo "  (V8-V12 skipped inside a mutation sandbox — they are about the SHIPPED tree)"
 else
-    REPO_TOP="$(cd "$ENGINE_ROOT/.." && pwd)"
+    REPO_TOP="$(cd "$ENGINE_ROOT/.." && pwd -P)"
+    CHECKOUT_ROOT="$(git -C "$ENGINE_ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ "$CHECKOUT_ROOT" = "$ENGINE_ROOT" ] \
+       || { [ -z "$CHECKOUT_ROOT" ] && [ "$ENGINE_ROOT" != "$REPO_TOP/engine" ]; }; then
+        # An adopter copies engine/ to its own root, without RichOS's parent
+        # registry. Exercise the actual shipped skill paths under an explicit
+        # isolated registry instead of guessing that absent provenance exempts
+        # them. RichOS checkouts continue exercising their REAL registry.
+        REPO_TOP="$SANDBOX/shipped-skill-registry"
+        mkvendrepo "$REPO_TOP" \
+            'REDISTRIBUTABLE_PATHS="engine/skills"' \
+            "engine/skills/copywriting${TABX}third-party${TABX}MIT${TABX}2025 Corey Haines${TABX}coreyhaines31/marketingskills${TABX}68f5eaf64e85${TABX}2026-03-04${TABX}certain${TABX}test fixture${TABX}docs/fixture-provenance.md" \
+            "engine/skills/landing-page-taste${TABX}third-party${TABX}MIT${TABX}2026 Leonxlnx${TABX}Leonxlnx/taste-skill${TABX}72e299530e2e${TABX}2026-08-23${TABX}certain${TABX}test fixture${TABX}docs/fixture-provenance.md" \
+            "engine/skills/rich-lander${TABX}richos${TABX}AGPL-3.0-only${TABX}RichOS${TABX}-${TABX}-${TABX}2026${TABX}high${TABX}test fixture${TABX}docs/fixture-provenance.md"
+        for skill_file in copywriting/references/natural-transitions.md landing-page-taste/SKILL.md rich-lander/SKILL.md; do
+            mkdir -p "$REPO_TOP/engine/skills/$(dirname "$skill_file")"
+            cp "$ENGINE_ROOT/skills/$skill_file" "$REPO_TOP/engine/skills/$skill_file" \
+                || { echo "FATAL: missing shipped skill $skill_file" >&2; exit 1; }
+        done
+        mkdir -p "$REPO_TOP/docs/legal"
+        echo "  (standalone engine: real guard, shipped skill files, isolated explicit provenance registry)"
+    elif [ ! -f "$REPO_TOP/.richos/vendored-material" ]; then
+        echo "FATAL: RichOS engine/ checkout requires its real parent vendored-material registry" >&2
+        exit 1
+    fi
     case_exit "V8. THE DAMAGED FILE accepts upstream's own spelling" \
         0 Write "$REPO_TOP/engine/skills/copywriting/references/natural-transitions.md" "$BRITISH"
     case_exit "V9. the SECOND damaged file (landing-page-taste) too" \
         0 Write "$REPO_TOP/engine/skills/landing-page-taste/SKILL.md" "$BRITISH"
 
     # RE-VENDORING VERBATIM. Not the same assertion as V8: this is the WHOLE
-    # upstream file, the bytes the 2026-08-30 sweep replaced, fetched from the
-    # commit that replaced them. Before this change the repair was refused by
-    # the guard that caused the damage.
-    UP="$SANDBOX/upstream-natural-transitions.md"
-    if git -C "$REPO_TOP" show 06f4a8221a61^:engine/skills/copywriting/references/natural-transitions.md >"$UP" 2>/dev/null \
-       && [ -s "$UP" ]; then
+    # upstream file, the bytes the 2026-08-30 sweep replaced. Pin it with its
+    # license in the shipped test fixtures: shallow checkouts and adopters do
+    # not possess RichOS's old commit objects. No network or history required.
+    UP="$SCRIPT_DIR/fixtures/third_party/copywriting/natural-transitions.md"
+    if [ -s "$UP" ] && python3 - "$UP" <<'UPSTREAM_HASH'
+import hashlib, sys
+raise SystemExit(0 if hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest() == "4ff23f8943af2f65b072f26f1c53ce55f19cc26d7be211c11cae8e34b43e859f" else 1)
+UPSTREAM_HASH
+    then
         UPJSON="$(python3 -c '
 import json, sys
 print(json.dumps({"tool_name": "Write", "tool_input": {
@@ -392,9 +419,21 @@ print(json.dumps({"tool_name": "Write", "tool_input": {
         [ $? -eq 0 ] && ok "V10. RE-VENDORING the file VERBATIM from upstream succeeds" \
                      || bad "V10. RE-VENDORING the file VERBATIM from upstream succeeds" \
                             "the guard that caused the divergence still forbids the repair"
+        # The complete fixture must actually activate dialect enforcement on
+        # our own material, rather than pass because it no longer exercises it.
+        FIRSTPARTY_JSON="$(python3 - "$REPO_TOP/engine/skills/rich-lander/SKILL.md" "$UP" <<'FIRSTPARTY_PAYLOAD'
+import json, sys
+print(json.dumps({"tool_name": "Write", "tool_input": {
+    "file_path": sys.argv[1], "content": open(sys.argv[2], encoding="utf-8").read()}}))
+FIRSTPARTY_PAYLOAD
+)"
+        printf '%s' "$FIRSTPARTY_JSON" | "$HOOK" >/dev/null 2>&1
+        [ $? -eq 2 ] && ok "V10b. the SAME upstream bytes are refused for first-party material" \
+                     || bad "V10b. the SAME upstream bytes are refused for first-party material" \
+                            "the fixture passed without exercising the ownership exemption"
     else
         bad "V10. RE-VENDORING the file VERBATIM from upstream succeeds" \
-            "could not read 06f4a8221a61^ — the check would have passed by never running"
+            "the pinned upstream fixture is missing or has changed — this check cannot be skipped"
     fi
 
     case_exit "V11. a RichOS-authored skill in the real tree is still blocked" \

@@ -316,3 +316,13 @@ Vendoring anything means three things in the same commit:
 
 A dependency whose own license forbids combination with the AGPL cannot be
 bundled, however convenient it is.
+
+## Copywriting regression test fixture
+
+`engine/scripts/hooks/fixtures/third_party/copywriting/natural-transitions.md`
+contains the complete upstream copywriting reference used to verify re-vendoring.
+It is test input, not a separately installed skill. Source and revision match the
+copywriting entry above: Corey Haines's marketingskills at
+`68f5eaf64e858438db47e436d7a3bef0e9d69721`. The adjacent `LICENSE` reproduces the MIT
+notice and `README.md` records the extraction revision and SHA-256. The bytes are
+unmodified and retain the upstream spellings.

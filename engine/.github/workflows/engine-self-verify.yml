@@ -71,6 +71,9 @@ jobs:
     timeout-minutes: 150
     steps:
       - name: Checkout
+        # Portable regression fixtures ship with the engine. An adopter's
+        # history cannot supply RichOS-specific commits, so this template does
+        # not pretend that fetching more adopter history supplies those bytes.
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Set up Python

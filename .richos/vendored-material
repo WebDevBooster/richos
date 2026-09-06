@@ -130,9 +130,10 @@
 #                    ever been vendored there. WIDEN THIS LIST the day that
 #                    changes — it is one edit, in the file the vendoring
 #                    happens next to.
-#   engine/scripts, engine/reference, docs/   engine source and record. Not a
-#                    redistribution surface for other people's work.
-REDISTRIBUTABLE_PATHS="engine/skills engine/tools app/ui/fonts"
+#   engine/scripts/hooks/fixtures/third_party now contains a licensed
+#                    copywriting regression input. Other engine/scripts,
+#                    engine/reference and docs remain first-party source.
+REDISTRIBUTABLE_PATHS="engine/skills engine/tools app/ui/fonts engine/scripts/hooks/fixtures/third_party"
 
 # ---------------------------------------------------------------------------
 # THE ENTRIES
@@ -221,3 +222,6 @@ app/ui/fonts/Newsreader-Regular.woff2,app/ui/fonts/Newsreader-Italic.woff2,app/u
 app/ui/fonts/NotoSansMath-subset.woff2,app/ui/fonts/LICENSE-NotoSansMath.txt	third-party	OFL-1.1	2022 The Noto Project Authors	https://github.com/notofonts/math	unpinned	2026-09-01 richos f4b6678	certain	subset — permitted by the OFL; the reserved-font-name clause is not engaged because the subset keeps the original name	docs/legal/THIRD-PARTY-NOTICES.md
 app/ui/fonts/NotoSansSymbols-subset.woff2,app/ui/fonts/NotoSansSymbols2-subset.woff2,app/ui/fonts/LICENSE-NotoSansSymbols.txt	third-party	OFL-1.1	2022 The Noto Project Authors	https://github.com/notofonts/symbols	unpinned	2026-09-01 richos f4b6678	certain	subset — permitted by the OFL; the reserved-font-name clause is not engaged because the subset keeps the original name	docs/legal/THIRD-PARTY-NOTICES.md
 app/ui/fonts/fonts.css	richos	AGPL-3.0-only	RichOS	-	-	2026-09-01 richos f4b6678	high	verbatim — the @font-face declarations that load the families above	docs/legal/THIRD-PARTY-NOTICES.md
+
+# --- pinned third-party regression inputs ---------------------------------
+engine/scripts/hooks/fixtures/third_party/copywriting	third-party	MIT	2025 Corey Haines	coreyhaines31/marketingskills, skills/copywriting/references/natural-transitions.md	68f5eaf64e858438db47e436d7a3bef0e9d69721	2026-09-07 regression fixture copied from pre-06f4a8221a61	certain	upstream input verbatim; adjacent README is RichOS provenance	engine/scripts/hooks/fixtures/third_party/copywriting/README.md
