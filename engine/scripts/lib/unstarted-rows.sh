@@ -317,6 +317,7 @@ ur_resolve() {
 ur_collect_claims() {
     local root line wt br claimfile id
     local pairs=""
+    UR_CLAIMS_BROKEN=""
     for root in $UR_SCAN_ROOTS; do
         wt=""
         br=""
@@ -356,7 +357,7 @@ EOF
 $pairs
 EOF
 
-    UR_CLAIMS_JSON="$(UR_PAIRS="$pairs" UR_CLAIMFILE_LINES="$claimlines" python3 -c '
+    UR_CLAIMS_JSON="$(python3 -c '
 import json, os
 
 # ONE ENTRY PER LIVE WORKTREE, carrying the RAW haystack rather than a set of
@@ -370,7 +371,7 @@ import json, os
 # one worktree three times is a receipt nobody reads twice.
 wts = []
 seen_paths = set()
-for line in os.environ.get("UR_PAIRS", "").split("\n"):
+for line in os.fdopen(3).read().split("\n"):
     if not line.strip():
         continue
     parts = line.split("\t")
@@ -387,7 +388,7 @@ for line in os.environ.get("UR_PAIRS", "").split("\n"):
     })
 
 by_path = {w["path"]: w for w in wts}
-for line in os.environ.get("UR_CLAIMFILE_LINES", "").split("\n"):
+for line in os.fdopen(4).read().split("\n"):
     if not line.strip():
         continue
     wt, _, rid = line.partition("\t")
@@ -396,8 +397,11 @@ for line in os.environ.get("UR_CLAIMFILE_LINES", "").split("\n"):
         w["ids"].append(rid.strip())
 
 print(json.dumps({"worktrees": wts}))
-' 2>/dev/null || printf '{"worktrees":[]}')"
-    [ -n "$UR_CLAIMS_JSON" ] || UR_CLAIMS_JSON='{"worktrees":[]}'
+' 3<<<"$pairs" 4<<<"$claimlines" 2>/dev/null)" || {
+        UR_CLAIMS_JSON=""
+        UR_CLAIMS_BROKEN="the existing work claims could not be encoded; coverage is unknown."
+        return 0
+    }
     return 0
 }
 
@@ -416,12 +420,16 @@ ur_sweep() {
     UR_N_UNSTARTED=0; UR_N_CLAIMED=0; UR_N_DECLARED=0
     UR_N_CLOSED=0; UR_N_OTHER=0; UR_N_ROWS=0
     UR_UNSTARTED=""; UR_ROWS=""
+    if [ -n "${UR_CLAIMS_BROKEN:-}" ]; then
+        UR_BROKEN_REASON="$UR_CLAIMS_BROKEN"
+        return 0
+    fi
 
     job="$(UR_QF="$UR_QUEUE_FILE" UR_QL="$UR_QUEUE_LABEL" \
            UR_RF="$UR_RECORD_FILE" UR_RL="$UR_RECORD_LABEL" \
            UR_SEC="$UR_SECTIONS" UR_ST="$UR_STATUS_TOKENS" \
            UR_TT="$UR_TERMINAL_TOKENS" UR_AT="$UR_ACTIONABLE_TOKENS" \
-           UR_CL="${UR_CLAIMS_JSON:-}" python3 -c '
+           python3 -c '
 import json, os
 
 def read(p):
@@ -432,7 +440,7 @@ def read(p):
         return None
 
 try:
-    claims = json.loads(os.environ.get("UR_CL") or "{}")
+    claims = json.loads(os.fdopen(3).read().strip() or "{}")
 except Exception:
     claims = {}
 
@@ -446,7 +454,7 @@ print(json.dumps({
     "terminal_tokens": os.environ["UR_TT"].split(),
     "actionable_tokens": os.environ["UR_AT"].split(),
     "claims": claims,
-}))' 2>/dev/null)"
+}))' 3<<<"${UR_CLAIMS_JSON:-}" 2>/dev/null)"
     if [ -z "$job" ]; then
         UR_BROKEN_REASON="the sweep job could not be assembled — python3 produced nothing."
         return 0
@@ -458,7 +466,7 @@ print(json.dumps({
         return 0
     fi
 
-    head="$(printf '%s\n' "$out" | head -1)"
+    head="$(printf '%s\n' "$out" | sed -n '1p')"
     UR_ROWS="$(printf '%s\n' "$out" | tail -n +2)"
     case "$head" in
         BROKEN*)

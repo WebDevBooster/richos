@@ -326,7 +326,7 @@ ca_items_json() {
         rc=0
         tsv="$(ct_items "$CT_TODO_RECORD" "$repo/$CT_TODO_RECORD" "$repo" 2>/dev/null)" || rc=$?
         if [ "$rc" -ne 0 ]; then
-            CA_BROKEN="$repo/$CT_TODO_RECORD could not be parsed ($(printf '%s' "$tsv" | head -1))"
+            CA_BROKEN="$repo/$CT_TODO_RECORD could not be parsed ($(printf '%s' "$tsv" | sed -n '1p'))"
             return 2
         fi
         # awk, not sed: BSD sed does not read `\t` as a tab in a replacement, so
@@ -339,10 +339,10 @@ ca_items_json() {
 $CA_REPOS
 EOF
 
-    CA_ITEMS_TSV="$all" python3 -c '
+    python3 -c '
 import json, os, sys
 rows = []
-for line in (os.environ.get("CA_ITEMS_TSV") or "").split("\n"):
+for line in sys.stdin.read().split("\n"):
     f = line.split("\t")
     if not f or f[0] != "ITEM":
         continue
@@ -354,7 +354,7 @@ for line in (os.environ.get("CA_ITEMS_TSV") or "").split("\n"):
     })
 with open(sys.argv[1], "w", encoding="utf-8") as fh:
     json.dump(rows, fh)
-' "$out" || { CA_BROKEN="the item records could not be encoded"; return 2; }
+' "$out" <<<"$all" || { CA_BROKEN="the item records could not be encoded"; return 2; }
     return 0
 }
 
