@@ -381,6 +381,91 @@ async function installMeter(page) {
   });
 }
 
+/// Wait for everything on this surface that is GOING to stop to have stopped, and say what was
+/// waited for and what was deliberately left running.
+///
+/// WHY THIS IS NOT A SLEEP, AND WHAT A SLEEP COSTS. A measurement taken while a color is still
+/// transitioning is real arithmetic over a frame nobody will ever look at, which is exactly why
+/// it survives review — it does not look like a mistake, it looks like a number. `contrast.js`
+/// priced it on 2026-09-06: replacing ONE `waitForTimeout(400)` with a wait on the animation's
+/// own end state, and changing nothing else, surfaced 13 contrast failures headed by
+/// `p#feedback-title` at 1.39:1 that a 160ms fade had been hiding the whole time.
+///
+/// It is also not a LONGER sleep, which is the other half. The number replaced here was 1100ms
+/// against a settle measured at 842, 847, 897, 903 and 911ms on this machine — about 200ms of
+/// slack, which is a machine-speed bet rather than a fact. Waiting on `finished` cannot be one
+/// frame short on a slow runner and cannot be 200ms wasteful on a fast one.
+///
+/// WHAT IT CANNOT WAIT FOR, DECLARED RATHER THAN QUIETLY SKIPPED. An animation with
+/// `iteration-count: infinite` has no `finished` to await, and this surface keeps three running
+/// for as long as it is up: `home-drift` on `#home-bokeh` (38s), `home-sill-breathe` on the
+/// sill's dot (2.4s) and `home-breathe` on the loading pulse (1.2s). They are RETURNED BY NAME
+/// so the caller prints them, because "everything that ends has ended" and "nothing is moving"
+/// are different sentences and only the first one is true. The meter's own sheet holds all
+/// three at their base value for the duration of a screenshot, which is where that matters.
+///
+/// AND IT CANNOT WAIT FOR THE PICTURE, which is the point of the picture. `home/field-*.js`
+/// draws on `requestAnimationFrame` for as long as the screen is up; there is no settled state
+/// to reach, and a check that demanded one would be asking the product to stop being what it
+/// is. Where that motion reaches a measurement, it is reported and not asserted — see
+/// "CONTRAST, BOTH THEMES" below.
+///
+/// The budget is a REFUSAL and not a fallback: something finite that has not finished inside it
+/// is named and thrown, never measured anyway.
+async function settle(page, budgetMs) {
+  const budget = budgetMs || 5000;
+  const r = await page.evaluate(async (ms) => {
+    const timing = (a) => (a.effect && a.effect.getTiming ? a.effect.getTiming() : {});
+    // THIS WEBKIT REPORTS AN INFINITE ITERATION COUNT AS `null`, NOT AS `Infinity` — probed on
+    // all three of this surface's endless animations. So the test is "is it a finite number",
+    // never `!== Infinity`: the second spelling lets every endless animation through and then
+    // awaits a `finished` that never resolves, which is a hang dressed as a wait.
+    const ends = (a) => {
+      const n = timing(a).iterations;
+      return typeof n === "number" && isFinite(n);
+    };
+    const name = (a) => {
+      const t = a.effect && a.effect.target;
+      const where = t
+        ? t.id
+          ? "#" + t.id
+          : t.tagName.toLowerCase() + (t.classList && t.classList[0] ? "." + t.classList[0] : "")
+        : "(no target)";
+      return (a.transitionProperty || a.animationName || a.constructor.name) + " on " + where;
+    };
+    const all = document.getAnimations();
+    const finite = all.filter(ends);
+    const endless = Array.from(new Set(all.filter((a) => !ends(a)).map(name)));
+    const t0 = performance.now();
+    let timedOut = false;
+    await Promise.race([
+      Promise.all(finite.map((a) => a.finished.catch(() => {}))),
+      new Promise((res) =>
+        setTimeout(() => {
+          timedOut = true;
+          res();
+        }, ms)
+      ),
+    ]);
+    // Two frames: one for the style change the last finished animation asked for, one for the
+    // paint of it.
+    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    return {
+      waited: finite.map(name),
+      ms: Math.round(performance.now() - t0),
+      endless,
+      timedOut,
+      unfinished: timedOut ? document.getAnimations().filter(ends).map(name) : [],
+    };
+  }, budget);
+  assert(
+    !r.timedOut,
+    `the surface would not settle inside ${budget}ms — still running: ` +
+      (r.unfinished.join(", ") || "(nothing finite, so the budget ran out on a paint rather than on an animation)")
+  );
+  return r;
+}
+
 /// Measure a list of `{ name, sel, needs, kind?, ink? }` against the rendered frame.
 async function measure(page, list) {
   const targets = await page.evaluate((l) => window.__meter.targets(l), list);
@@ -392,7 +477,12 @@ async function measure(page, list) {
   // ANIMATE BACK — the signal numbers over 900ms. A screenshot taken by a later check in that
   // window catches them half-lit and commits a frame that looks like a rendering defect. It
   // did: `home-named.png` shipped once with five ghosted numbers down the left column.
-  await page.waitForTimeout(1100);
+  //
+  // MEASURED, on this machine, five consecutive calls: removing the sheet creates 14 finite
+  // CSSTransitions — seven `color` at 180ms on the chips, seven at 900ms on the signal numbers
+  // — and they finish in 903, 842, 847, 897 and 911ms. This waits for those, by name, instead
+  // of for the 1100ms that used to be typed here.
+  await settle(page, 5000);
   return page.evaluate(
     ({ b64, targets }) => window.__meter.worst(b64, targets),
     { b64: buf.toString("base64"), targets }
