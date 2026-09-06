@@ -57,8 +57,20 @@
 //! duty than the doctrine file's (that one is cached in the system prefix; this one is a turn).
 //! [`COMPANY_BUDGET_BYTES`] is **8192**, and the arithmetic rather than a feeling: the shipping
 //! doctrine measured 3,505 bytes, and 8 KB is a little over twice that, or roughly 2,000 tokens
-//! at four bytes per token, re-spent on every rotation of every thread. That is a **decision**,
-//! not a measurement, and it is stated as one.
+//! at four bytes per token, re-spent on every rotation of every thread. That the number is a
+//! **decision** rather than a measurement is stated rather than hidden — but it was sized
+//! against the real files rather than against nothing. All six company files that shipped with
+//! the central folder, measured 2026-09-06 with
+//! `for f in ~/myrichos/companies/*/company.md; do wc -c < "$f"; done`:
+//!
+//! ```text
+//! 2991  femcboost      2726  prospects
+//! 2971  deeply         2355  webinar-booster
+//! 2828  richos         2334  gpt-exporter
+//! ```
+//!
+//! So the budget is 2.7x the largest company file that exists, and every one of the six is
+//! inside it with room for an interview to add to it.
 //!
 //! **A file over budget is NOT truncated.** Half a house rule is a wrong house rule, and it would
 //! be wrong silently — the exact defect class this repository spent 2026-09-06 removing from

@@ -358,6 +358,17 @@ pub struct Spine {
     /// test and headless run therefore behaves exactly as it did.
     control: TurnControl,
     owned_work_enabled: bool,
+    /// THE CENTRAL FOLDER, or `None` when nobody has told this spine where it is.
+    ///
+    /// `None` is the shipped default and it is a real state rather than a placeholder: every
+    /// headless example and every test in this crate runs without one and gets exactly the
+    /// priming turn it got before this field existed. The Tauri shell sets it at boot
+    /// ([`Spine::set_central_root`]).
+    ///
+    /// What it buys is `company.rs`: `<central>/companies/<entity>/company.md`, read at prime
+    /// time and appended to the scoped assertion — `richos-central-folder-2026-09-06.md` §6,
+    /// right-hand column, the half that "waits on the app".
+    central_root: Option<std::path::PathBuf>,
     /// Where [`Spine::timeline`] reads the engine's worker-lifecycle stream from, so a
     /// `Task` tool call can be joined to the worker it spawned (UX §7).
     ///
@@ -440,6 +451,7 @@ impl Spine {
             turn_in_progress: false,
             control: TurnControl::detached(),
             owned_work_enabled: false,
+            central_root: None,
             queue: VecDeque::new(),
             lease_primed: false,
             lease_primed_thread: None,
@@ -772,6 +784,40 @@ impl Spine {
     /// The managed-run host uses the existing cancellation channel to enforce
     /// its time budget on the currently installed managed worker.
     pub fn enable_owned_work(&mut self) { self.owned_work_enabled = true; self.lease_primed = false; }
+
+    /// Tell this spine where the central folder is, so the company layer reaches the model.
+    ///
+    /// **It clears `lease_primed`, exactly as [`Spine::enable_owned_work`] does, and for the
+    /// same reason.** The priming turn is what carries the company layer; a lease already
+    /// primed without it would keep serving the conversation with no company material until
+    /// the next thread switch, and nothing would say so. Un-priming re-issues it at the next
+    /// turn, which is the cheap and honest answer.
+    ///
+    /// This never creates the folder and never checks it here. `company.rs` reads it at prime
+    /// time and reports what it found; a path stored at boot and validated at boot would be a
+    /// path that is right once, and the four dangling `corpus.*` symlinks on this machine are
+    /// what that costs (`richos-central-folder-2026-09-06.md` §1.3).
+    pub fn set_central_root(&mut self, root: std::path::PathBuf) {
+        self.central_root = Some(root);
+        self.lease_primed = false;
+    }
+
+    /// What the company layer looks like for one thread, right now.
+    ///
+    /// `None` means no central folder has been set — which is NOT the same as a central folder
+    /// with nothing in it ([`crate::company::CompanyLayer::NoHome`]), and the two must stay
+    /// apart: one is "nobody told the app where to look", the other is "the app looked and the
+    /// company is not there". Collapsing them would report an unconfigured install as an
+    /// un-interviewed one.
+    pub fn company_layer(&self, binding: &ThreadBinding) -> Option<crate::company::CompanyLayer> {
+        let root = self.central_root.as_ref()?;
+        Some(crate::company::CompanyLayer::read(root, binding.entity_id()))
+    }
+
+    /// The company block for a priming turn, or `None` when there is nothing honest to send.
+    fn company_block(&self, binding: &ThreadBinding) -> Option<String> {
+        self.company_layer(binding)?.render_for_priming(binding.entity_id())
+    }
 
     pub fn owned_worker_context(&mut self, binding: &ThreadBinding) -> Result<String, SpineError> {
         let mut payload = RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
@@ -2594,6 +2640,9 @@ impl Spine {
             RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
+        // The company layer, BEFORE the owned-work contract: this is the CEO's material and
+        // the contract is an instruction, so the instruction stays last (`company.rs`).
+        if let Some(block) = self.company_block(binding) { priming.push_str(&block); }
         if self.owned_work_enabled { priming.push_str(OWNED_WORK_CONTRACT); }
         // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime:rotation]", Source::Internal);
@@ -2720,6 +2769,9 @@ impl Spine {
             RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
+        // The company layer, BEFORE the owned-work contract: this is the CEO's material and
+        // the contract is an instruction, so the instruction stays last (`company.rs`).
+        if let Some(block) = self.company_block(binding) { priming.push_str(&block); }
         if self.owned_work_enabled { priming.push_str(OWNED_WORK_CONTRACT); }
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime]", Source::Internal);
