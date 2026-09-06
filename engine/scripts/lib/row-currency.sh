@@ -254,6 +254,7 @@ rc_load_declaration() {
     RC_MODE=""
     RC_PEER_SPEC=""
     RC_HEADLINE_SECTIONS=""
+    RC_HEADLINE_REQUIRED="0"
     RC_ROW_SECTIONS=""
     RC_STATUS_TOKENS="$RC_DEFAULT_STATUS_TOKENS"
     RC_TERMINAL_TOKENS="$RC_DEFAULT_TERMINAL_TOKENS"
@@ -297,6 +298,7 @@ rc_load_declaration() {
             ROW_RECORD_REPO)    RC_PEER_SPEC="$val" ;;
             ROW_SECTIONS)       RC_ROW_SECTIONS="$val" ;;
             ROW_HEADLINE_SECTIONS) RC_HEADLINE_SECTIONS="$val" ;;
+            ROW_HEADLINE_REQUIRED) RC_HEADLINE_REQUIRED="$val" ;;
             ROW_STATUS_TOKENS)  RC_STATUS_TOKENS="$val" ;;
             ROW_TERMINAL_TOKENS) RC_TERMINAL_TOKENS="$val" ;;
             ROW_CLAIM_WORDS)    RC_CLAIM_WORDS="$val" ;;
@@ -314,8 +316,8 @@ rc_load_declaration() {
         # A peer says where the record is and nothing else. Row settings live
         # with the rows, in one place, or the day the two copies disagree
         # somebody reads a page a gate called fine.
-        if [ -n "$RC_HEADLINE_SECTIONS" ]; then
-            RC_BROKEN_REASON="$ROW_CURRENCY_DECLARATION declares ROW_RECORD_REPO (the peer form) and ROW_HEADLINE_SECTIONS. A peer names where the record is; which of that record's sections carry a headline warrant is the RECORD's declaration to make, and a second copy of that fact is the drift this engine keeps finding in itself."
+        if [ -n "$RC_HEADLINE_SECTIONS" ] || [ "$RC_HEADLINE_REQUIRED" != "0" ]; then
+            RC_BROKEN_REASON="$ROW_CURRENCY_DECLARATION declares ROW_RECORD_REPO (the peer form) and a ROW_HEADLINE_* key. A peer names where the record is; which of that record's sections carry a headline warrant, and whether one is required, are the RECORD's declarations to make, and a second copy of that fact is the drift this engine keeps finding in itself."
             return 2
         fi
         RC_MODE="peer"
@@ -552,6 +554,7 @@ rc_build_job() {
     RC_JOB_MSG="$msg" RC_JOB_MSRC="$msrc" RC_JOB_ACTION="$action" \
     RC_JOB_LABEL="$RC_RECORD_REL" RC_JOB_SECTIONS="$RC_ROW_SECTIONS" \
     RC_JOB_HEADLINE_SECTIONS="$RC_HEADLINE_SECTIONS" \
+    RC_JOB_HEADLINE_REQUIRED="${RC_HEADLINE_REQUIRED:-0}" \
     RC_JOB_EMIT_HEADLINES="${RC_EMIT_HEADLINES:-}" \
     RC_JOB_PREMISE_SECTIONS="${CT_PREMISE_SECTIONS:-}" \
     RC_JOB_PREMISE_REQUIRED="${CT_PREMISE_REQUIRED:-0}" \
@@ -600,6 +603,7 @@ job = {
     "baselines":       baselines,
     "row_sections":    (os.environ.get("RC_JOB_SECTIONS") or "").split(),
     "headline_sections": (os.environ.get("RC_JOB_HEADLINE_SECTIONS") or "").split(),
+    "headline_required": (os.environ.get("RC_JOB_HEADLINE_REQUIRED") or "0") == "1",
     "emit_headlines":  bool(os.environ.get("RC_JOB_EMIT_HEADLINES")),
     "premise_sections": (os.environ.get("RC_JOB_PREMISE_SECTIONS") or "").split(),
     "premise_required": (os.environ.get("RC_JOB_PREMISE_REQUIRED") or "0") == "1",
@@ -660,7 +664,7 @@ rc_refusal() {
     # with its tab characters still in it. Same reason the guard and the CLI
     # both use awk for this line.
     printf '%s\n' "$result" | awk -F'\t' '$1=="PC" {printf "  PREMISE CENSUS  %s %s %s %s %s %s %s %s %s %s\n", $2,$3,$4,$5,$6,$7,$8,$9,$10,$11}'
-    printf '%s\n' "$result" | awk -F'\t' '$1=="HC" {printf "  HEADLINE CENSUS %s %s %s %s %s %s %s %s %s\n", $2,$3,$4,$5,$6,$7,$8,$9,$10}'
+    printf '%s\n' "$result" | awk -F'\t' '$1=="HC" {printf "  HEADLINE CENSUS %s %s %s %s %s %s %s %s %s %s\n", $2,$3,$4,$5,$6,$7,$8,$9,$10,$11}'
     printf '%s\n' "$result" | while IFS="$(printf '\t')" read -r kind a b c; do
         case "$kind" in
             V)    printf '  BLOCK  item %s — %s\n         %s\n' "$a" "$b" "$c" ;;

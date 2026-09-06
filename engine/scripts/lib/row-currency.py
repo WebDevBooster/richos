@@ -703,7 +703,8 @@ def headline_digest(item):
     return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:HEADLINE_DIGEST_LEN]
 
 
-def check_headlines(items, terminal, violations, notes, fixes, hc):
+def check_headlines(items, terminal, headline_required, violations, notes,
+                    fixes, hc):
     """CHECK 3 - the row's first sentence is re-derivable, or says it is not.
 
     THE CENSUS RIDES ON EVERY VERDICT, clean or not, declared or not, for the
@@ -730,15 +731,17 @@ def check_headlines(items, terminal, violations, notes, fixes, hc):
         body = headline_body(it)
         if body is None or not body.strip():
             hc["missing"].append(iid)
-            violations.append((
-                iid, "HEADLINE-UNDERIVABLE",
-                "this row states a finding in its first sentence and carries no "
-                "`**Headline:**` warrant, so nothing can re-derive it and nothing "
-                "can tell when it stops being true. Give it the command that "
-                "settles it and that command's output, or say `unverified "
-                "\"<what would settle it>\"`. Eleven rows with MATCHING pins were "
-                "found carrying false headlines on 2026-09-06: a pin proves the "
-                "file has not moved, never that the sentence about it is true."))
+            if headline_required:
+                violations.append((
+                    iid, "HEADLINE-UNDERIVABLE",
+                    "this row states a finding in its first sentence and carries "
+                    "no `**Headline:**` warrant, and this record declares "
+                    "ROW_HEADLINE_REQUIRED=1. Give it the command that settles it "
+                    "and that command's output, or say `unverified \"<what would "
+                    "settle it>\"`. Eleven rows with MATCHING pins were found "
+                    "carrying false headlines on 2026-09-06: a pin proves the "
+                    "file has not moved, never that the sentence about it is "
+                    "true."))
             continue
 
         hc["stated"] += 1
@@ -800,6 +803,26 @@ def check_headlines(items, terminal, violations, notes, fixes, hc):
                    "still the honest answer.")))
             fixes.append((iid, "**Headline:** `%s` - %s" % (want, rest)))
 
+    # NAMED RATHER THAN REFUSED BY DEFAULT, and the argument is the same one
+    # PREMISE_REQUIRED makes: a record adopts this contract with rows already on
+    # it, and some of those rows are written BY A MACHINE. The mechanical sweep
+    # appends rows to this record on its own, and a check that refused every
+    # land the moment the declaration went in would be deleted the same day —
+    # which is failure mode 1 exactly, and this engine has three recorded
+    # instances of it in a single day. So adoption costs nothing on day one: a
+    # row without a warrant is COUNTED and NAMED at every landing, a row WITH
+    # one is held to it from the first character, and the teeth are one
+    # declared key away when the page is ready for them.
+    if hc["missing"] and not headline_required:
+        notes.append((
+            "HEADLINE-NOT-STATED",
+            "%d governed row(s) carry no `**Headline:**` warrant, so nothing can "
+            "tell when their first sentence stops being true: %s. On 2026-09-06 "
+            "eleven rows in exactly this state had MATCHING pins and false "
+            "headlines. Declare ROW_HEADLINE_REQUIRED=1 in %s to make this a "
+            "refusal."
+            % (len(hc["missing"]), ", ".join(hc["missing"]),
+               ROW_DECLARATION_LABEL)))
     if hc["unverified_rows"]:
         notes.append((
             "HEADLINE-UNVERIFIED",
@@ -1130,7 +1153,8 @@ def main():
     # --- CHECK 3: HEADLINE -------------------------------------------------
     hc = {"rows": 0, "stated": 0, "verified": 0, "unverified": 0, "stale": 0,
           "broken": 0, "terminal": 0, "missing": [], "unverified_rows": []}
-    check_headlines(items, terminal, violations, notes, fixes, hc)
+    check_headlines(items, terminal, bool(job.get("headline_required")),
+                    violations, notes, fixes, hc)
     if not headline_sections and governed:
         # NOT a violation, and it is the only place in this file that argues for
         # its own adoption. A record with no headline warrant is not broken; it
@@ -1207,11 +1231,12 @@ def main():
     # that has adopted CHECK 3 and a record that has never heard of it both go
     # quiet when every row is fine; `HC sections=-` and `HC sections=3 rows=35`
     # are the two facts a reader must never have to guess between.
-    out.append("HC\tsections=%s\trows=%d\tstated=%d\tverified=%d\tunverified=%d"
-               "\tstale=%d\tmissing=%d\tbroken=%d\tterminal=%d"
-               % (",".join(headline_sections) or "-", hc["rows"], hc["stated"],
-                  hc["verified"], hc["unverified"], hc["stale"],
-                  len(hc["missing"]), hc["broken"], hc["terminal"]))
+    out.append("HC\tsections=%s\trequired=%d\trows=%d\tstated=%d\tverified=%d"
+               "\tunverified=%d\tstale=%d\tmissing=%d\tbroken=%d\tterminal=%d"
+               % (",".join(headline_sections) or "-",
+                  1 if job.get("headline_required") else 0,
+                  hc["rows"], hc["stated"], hc["verified"], hc["unverified"],
+                  hc["stale"], len(hc["missing"]), hc["broken"], hc["terminal"]))
     # THE VERIFIER'S INPUT. Emitted only when asked, because it is the one thing
     # here that names a command somebody is about to RUN, and a checker that
     # hands out executable strings by default is a checker whose output is a

@@ -68,6 +68,21 @@
 #       share one implementation; the three section-3 refusal sentences are
 #       asserted AT RUNTIME, out of real refusals, so a refactor cannot quietly
 #       reword a contract 20 governed rows are written against.
+#   (n) THE HEADLINE WARRANT — the row's own first sentence. Adopted and
+#       unadopted; a correction appended under an unchanged headline (the real
+#       2026-09-06 shape) REFUSED, WITH THE SAME LAND PROVEN SILENT UNDER
+#       CHECK 1 ALONE, which is the whole reason the check exists; the paste
+#       that clears it; `unverified` with a reason and without; a warrant with
+#       no evidence and no declaration; a malformed digest; a CLOSED row exempt;
+#       the normalization boundary asserted in BOTH directions (re-bolding is
+#       free, changing a word is not); a headline section that is not a row
+#       section, and a peer that declares the key, both BROKEN; and the HC
+#       census asserted PRESENT on a clean run, for the reason the PC line is.
+#   (o) THE VERIFIER — scripts/row-headline-verify.sh. A match, a mismatch, an
+#       `unverified` row, a command that would make this machine SPEAK and one
+#       that would push: both refused WITHOUT BEING RUN, asserted by the
+#       side effect they would have had. Not-adopted is exit 2, never a green
+#       tick over zero rows.
 #
 # Run directly: scripts/hooks/row-currency.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
@@ -220,6 +235,34 @@ declare_premise() {
 }
 
 commit_record() { git -C "$1" add -A >/dev/null 2>&1; git -C "$1" commit -qm "${2:-record}" >/dev/null 2>&1; }
+
+# declare_headlines <record-repo> <sections>
+declare_headlines() { printf 'ROW_HEADLINE_SECTIONS="%s"\n' "$2" >> "$1/.row-currency"; }
+
+# digest_of <record-repo> <item-id>
+#
+# THE PREDICATE'S OWN FUNCTION, never a second implementation. A fixture that
+# computed the digest its own way would prove the suite agrees with itself and
+# nothing whatever about the guard — which is the shape of every check this
+# engine has caught passing over nothing.
+digest_of() {
+    RCD_REC="$1/wiki/open-items.md" RCD_ID="$2" \
+    RCD_LIB="$ENGINE_ROOT/scripts/lib/row-currency.py" python3 -c '
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("rc", os.environ["RCD_LIB"])
+rc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rc)
+text = open(os.environ["RCD_REC"], encoding="utf-8").read()
+items, _, _ = rc.parse_record(text, ["3"], (), ["3"])
+for it in items:
+    if it["id"] == os.environ["RCD_ID"]:
+        sys.stdout.write(rc.headline_digest(it))
+        break
+else:
+    sys.stderr.write("digest_of: no row %s\n" % os.environ["RCD_ID"])
+    sys.exit(1)
+'
+}
 
 payload() {
     # payload <cwd> <command>
@@ -1046,6 +1089,361 @@ git -C "$WORK" add -A >/dev/null 2>&1
 run_guard "$WORK" 'git commit -m \"work\"'
 [ "$GRC" -eq 0 ] && ok "entity.json and a README share .richos/ without breaking anything" \
                  || bad "an unrelated neighbor in .richos/ was treated as a stray (rc=$GRC): $GOUT"
+
+# ===========================================================================
+# (n) THE HEADLINE WARRANT — the row's own first sentence
+# ===========================================================================
+# The case this whole section exists for is n3/n3b, and they are a PAIR: the
+# same landing, refused with the headline warrant declared and silent without
+# it. Eleven of the sixteen rows found overtaken on 2026-09-06 had a MATCHING
+# pin, so a suite that only proved the new check fires would prove nothing
+# about whether it was needed.
+# ---------------------------------------------------------------------------
+hl_row() {
+    # hl_row <prose-suffix> <headline-field-or-empty> <oid> [status]
+    printf '| 3.7 | **The shipper writes nothing to disk on a cold start.**%s | %s**State:** `%s` — `work/lib/thing.js`@`%s` |' \
+        "$1" "$2" "${4:-OPEN}" "$3"
+}
+hl_field() { printf '**Headline:** `%s` — %s ' "$1" "$2"; }
+HL_EVID='`grep -c writeFile lib/thing.js` → `0`'
+
+# --- n1. NOT ADOPTED: silent, and SAYING SO ---------------------------------
+set -- $(mk_pair hl_unadopted); REC="$1"; WORK="$2"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "$(hl_row '' '' "$OID")"
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"land\"'
+if [ "$GRC" -eq 0 ]; then ok "a record that has not declared ROW_HEADLINE_SECTIONS is untouched"
+else bad "the headline check fired where it was never declared (rc=$GRC): $GOUT"; fi
+case "$GOUT" in
+    *"HEADLINE CENSUS: sections=-"*) ok "the HC census rides on an undeclared run — 'not adopted' is never silence" ;;
+    *) bad "no HC census on an undeclared run: $GOUT" ;;
+esac
+case "$GOUT" in
+    *HEADLINE-NOT-ADOPTED*) ok "an unadopted record is told, at the landing, how to switch CHECK 3 on" ;;
+    *) bad "no adoption note on an unadopted record: $GOUT" ;;
+esac
+
+# --- n2. ADOPTED AND CURRENT: clean, and the census proves it ran ------------
+set -- $(mk_pair hl_clean); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "$(hl_row '' '' "$OID")"
+DIG="$(digest_of "$REC" 3.7)"
+[ -n "$DIG" ] || bad "fixture: digest_of returned nothing"
+write_record "$REC" "$(hl_row '' "$(hl_field "$DIG" "$HL_EVID")" "$OID")"
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"land\"'
+[ "$GRC" -eq 0 ] && ok "a row whose headline warrant matches its own body lands untouched" \
+                 || bad "a current headline warrant was refused (rc=$GRC): $GOUT"
+case "$GOUT" in
+    *"rows=1 stated=1 verified=1"*) ok "the HC census counts the row it checked on a CLEAN run" ;;
+    *) bad "the HC census did not count a clean adopted row: $GOUT" ;;
+esac
+
+# --- n3. THE REAL SHAPE: a correction lands under an unchanged headline ------
+CORR=' **RE-DERIVED — it writes a cache file on every cold start; the source read was of another branch.**'
+set -- $(mk_pair hl_corrected); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "$(hl_row '' '' "$OID")"
+DIG="$(digest_of "$REC" 3.7)"
+write_record "$REC" "$(hl_row '' "$(hl_field "$DIG" "$HL_EVID")" "$OID")"
+commit_record "$REC" "adopt"
+write_record "$REC" "$(hl_row "$CORR" "$(hl_field "$DIG" "$HL_EVID")" "$OID")"
+git -C "$REC" add -A >/dev/null 2>&1
+run_guard "$REC" 'git commit -m \"land\"'
+if [ "$GRC" -ne 0 ] && case "$GOUT" in *HEADLINE-STALE*) true ;; *) false ;; esac; then
+    ok "a correction appended under an untouched headline is REFUSED — the 2026-09-06 shape"
+else
+    bad "a correction under an unchanged headline was allowed (rc=$GRC): $GOUT"
+fi
+case "$GOUT" in
+    *"Re-run it: grep -c writeFile"*) ok "the refusal names the command that settles the headline, beside the paste" ;;
+    *) bad "the refusal did not print the row's own evidence command: $GOUT" ;;
+esac
+
+# --- n3b. THE NEGATIVE CONTROL, and it is the argument for the whole check ---
+# The IDENTICAL landing, with the headline warrant not declared. CHECK 1 is
+# structurally blind here: nothing under the pin moved. If this case ever goes
+# red, CHECK 3 has stopped being necessary and should be deleted rather than
+# kept for its own sake.
+set -- $(mk_pair hl_control); REC="$1"; WORK="$2"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "$(hl_row '' '' "$OID")"
+commit_record "$REC" "adopt"
+write_record "$REC" "$(hl_row "$CORR" '' "$OID")"
+git -C "$REC" add -A >/dev/null 2>&1
+run_guard "$REC" 'git commit -m \"land\"'
+[ "$GRC" -eq 0 ] && ok "CONTROL: the same correction, with CHECK 1 alone, is waved through — the pin never moved" \
+                 || bad "the control landing was refused by CHECK 1, so n3 proves nothing (rc=$GRC): $GOUT"
+
+# --- n4. THE PASTE CLEARS IT ------------------------------------------------
+set -- $(mk_pair hl_paste); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "$(hl_row '' '' "$OID")"
+DIG="$(digest_of "$REC" 3.7)"
+write_record "$REC" "$(hl_row '' "$(hl_field "$DIG" "$HL_EVID")" "$OID")"
+commit_record "$REC" "adopt"
+write_record "$REC" "$(hl_row "$CORR" "$(hl_field "$DIG" "$HL_EVID")" "$OID")"
+git -C "$REC" add -A >/dev/null 2>&1
+run_guard "$REC" 'git commit -m \"land\"'
+PASTED="$(printf '%s\n' "$GOUT" | sed -n 's/^ *\*\*Headline:\*\* `\([0-9a-f]\{12\}\)`.*/\1/p' | head -1)"
+if [ -n "$PASTED" ]; then
+    write_record "$REC" "$(hl_row "$CORR" "$(hl_field "$PASTED" "$HL_EVID")" "$OID")"
+    git -C "$REC" add -A >/dev/null 2>&1
+    run_guard "$REC" 'git commit -m \"land\"'
+    [ "$GRC" -eq 0 ] && ok "pasting the printed warrant clears the refusal — the correction is the only fix" \
+                     || bad "the printed paste did not clear the refusal (rc=$GRC): $GOUT"
+else
+    bad "the refusal printed no **Headline:** warrant to paste: $GOUT"
+fi
+
+# --- n5. ADOPTED AND MISSING: named by default, refused when required -------
+# THE ADOPTION PATH, and it is the answer to failure mode 1. This record's own
+# mechanical sweep APPENDS rows to it at a turn end and cannot state a headline
+# warrant; a check that refused every landing the moment the declaration went in
+# would be deleted the same day. So the default names them, and the teeth are a
+# declared key. Both halves are asserted, because a default that could not be
+# escalated would be a permanent note, and teeth nobody can defer would be
+# waived.
+set -- $(mk_pair hl_missing); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "$(hl_row '' '' "$OID")"
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"land\"'
+[ "$GRC" -eq 0 ] && ok "a row with no headline warrant does not block by default — adoption costs nothing on day one" \
+                 || bad "the default made a warrantless row a refusal (rc=$GRC): $GOUT"
+case "$GOUT" in
+    *HEADLINE-NOT-STATED*3.7*) ok "...and it is NAMED at every landing, and counted, rather than passed in silence" ;;
+    *) bad "a warrantless row was neither refused nor named: $GOUT" ;;
+esac
+case "$GOUT" in
+    *"missing=1"*) ok "the HC census counts the warrantless row" ;;
+    *) bad "a warrantless row was not counted by the census: $GOUT" ;;
+esac
+printf 'ROW_HEADLINE_REQUIRED="1"\n' >> "$REC/.row-currency"
+commit_record "$REC" "require"
+run_guard "$REC" 'git commit -m \"land\"'
+if [ "$GRC" -ne 0 ] && case "$GOUT" in *HEADLINE-UNDERIVABLE*) true ;; *) false ;; esac; then
+    ok "ROW_HEADLINE_REQUIRED=1 turns the note into a refusal — the escalation is one declared line"
+else
+    bad "ROW_HEADLINE_REQUIRED=1 did not refuse a warrantless row (rc=$GRC): $GOUT"
+fi
+
+# --- n6/n7/n9. THE THREE MALFORMED SHAPES -----------------------------------
+hl_malformed_case() {
+    # hl_malformed_case <name> <headline-body> <expected-code> <what it is>
+    set -- $(mk_pair "$1") "$2" "$3" "$4"; local rec="$1" work="$2" body="$3" code="$4" what="$5"
+    declare_headlines "$rec" "3"
+    local oid; oid="$(oid_of "$work" lib/thing.js)"
+    write_record "$rec" "$(hl_row '' "**Headline:** $body " "$oid")"
+    commit_record "$rec"
+    run_guard "$rec" 'git commit -m \"land\"'
+    if [ "$GRC" -ne 0 ] && case "$GOUT" in *"$code"*) true ;; *) false ;; esac; then
+        ok "$what"
+    else
+        bad "$what — not refused as $code (rc=$GRC): $GOUT"
+    fi
+}
+hl_malformed_case hl_baddigest '`nope` — `true` → `x`' HEADLINE-MALFORMED \
+    "a headline warrant that does not open with the row's digest is refused"
+hl_malformed_case hl_noevidence '`000000000000` — the shipper looks fine to me' HEADLINE-NO-EVIDENCE \
+    "a headline warrant with neither a command nor \`unverified\` is refused — those are the only two settings"
+hl_malformed_case hl_thinreason '`000000000000` — unverified "dunno"' HEADLINE-UNVERIFIED-NO-REASON \
+    "\`unverified\` with no real reason is refused — a bare marker exempts nothing"
+
+# --- n8. `unverified` WITH A REASON: allowed, AND COUNTED, AND NAMED --------
+set -- $(mk_pair hl_unverified); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+UNV='unverified "one uninterrupted run of the suite, read at its final counts line"'
+write_record "$REC" "$(hl_row '' '' "$OID")"
+DIG="$(digest_of "$REC" 3.7)"
+write_record "$REC" "$(hl_row '' "$(hl_field "$DIG" "$UNV")" "$OID")"
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"land\"'
+[ "$GRC" -eq 0 ] && ok "a headline that declares itself unverified, with what would settle it, lands" \
+                 || bad "a well-formed unverified headline was refused (rc=$GRC): $GOUT"
+case "$GOUT" in
+    *"unverified=1"*) ok "the HC census COUNTS the unverified row — the escape hatch is never the quiet one" ;;
+    *) bad "an unverified row was not counted by the census: $GOUT" ;;
+esac
+case "$GOUT" in
+    *HEADLINE-UNVERIFIED*3.7*) ok "the unverified row is NAMED at every landing, not merely tallied" ;;
+    *) bad "the unverified row was not named: $GOUT" ;;
+esac
+
+# --- n10. A CLOSED ROW IS EXEMPT, AND COUNTED -------------------------------
+set -- $(mk_pair hl_closed); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "$(hl_row '' '' "$OID" CLOSED)"
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"land\"'
+[ "$GRC" -eq 0 ] && ok "a CLOSED row needs no headline warrant — finished work cannot go stale" \
+                 || bad "a CLOSED row was asked for a headline warrant (rc=$GRC): $GOUT"
+case "$GOUT" in
+    *"rows=0"*terminal=1*) ok "the census counts the exempt row rather than losing it" ;;
+    *) bad "a terminal row was not counted by the HC census: $GOUT" ;;
+esac
+
+# --- n11/n12. THE NORMALIZATION BOUNDARY, BOTH DIRECTIONS -------------------
+# n11 alone would pass over a normalizer that threw the whole row away, so n12
+# is its positive probe and they are written as one pair on purpose.
+hl_edit_case() {
+    # hl_edit_case <name> <edited-prose-suffix> <expect-rc> <what>
+    set -- $(mk_pair "$1") "$2" "$3" "$4"
+    local rec="$1" work="$2" suffix="$3" want="$4" what="$5"
+    declare_headlines "$rec" "3"
+    local oid dig; oid="$(oid_of "$work" lib/thing.js)"
+    write_record "$rec" "$(hl_row '' '' "$oid")"
+    dig="$(digest_of "$rec" 3.7)"
+    write_record "$rec" "$(hl_row '' "$(hl_field "$dig" "$HL_EVID")" "$oid")"
+    commit_record "$rec" adopt
+    # The edited row, carrying the SAME warrant.
+    write_record "$rec" "| 3.7 | ${suffix} | $(hl_field "$dig" "$HL_EVID")**State:** \`OPEN\` — \`work/lib/thing.js\`@\`${oid}\` |"
+    git -C "$rec" add -A >/dev/null 2>&1
+    run_guard "$rec" 'git commit -m \"land\"'
+    if [ "$want" = "0" ]; then
+        [ "$GRC" -eq 0 ] && ok "$what" || bad "$what — refused (rc=$GRC): $GOUT"
+    else
+        [ "$GRC" -ne 0 ] && ok "$what" || bad "$what — allowed (rc=$GRC)"
+    fi
+}
+hl_edit_case hl_reformat \
+    '***The shipper writes nothing to disk on a cold start.***' 0 \
+    "re-emphasizing a phrase costs no re-read — formatting is not content"
+hl_edit_case hl_reworded \
+    '**The shipper writes nothing to disk on a WARM start.**' 1 \
+    "changing one word of the headline DOES cost a re-read — the positive probe for the case above"
+
+# --- n13. RE-STAMPING IS NOT RE-READING -------------------------------------
+# The property the whole check is named for. The WORK moves, CHECK 1 refuses,
+# the lander pastes CHECK 1's new pin — and is refused AGAIN, because pasting
+# an object id is not reading a sentence. Both halves asserted.
+set -- $(mk_pair hl_restamp); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "$(hl_row '' '' "$OID")"
+DIG="$(digest_of "$REC" 3.7)"
+write_record "$REC" "$(hl_row '' "$(hl_field "$DIG" "$HL_EVID")" "$OID")"
+commit_record "$REC" adopt
+printf 'the shipped thing, changed\n' > "$WORK/lib/thing.js"
+git -C "$WORK" add -A >/dev/null 2>&1; git -C "$WORK" commit -qm "the work moved" >/dev/null 2>&1
+NEWOID="$(oid_of "$WORK" lib/thing.js)"
+run_guard "$REC" 'git commit -m \"land\"'
+if [ "$GRC" -ne 0 ] && case "$GOUT" in *ROW-STALE*|*"no longer describe"*) true ;; *) false ;; esac; then
+    ok "CHECK 1 still refuses when the work moves — the pin check is untouched"
+else
+    bad "CHECK 1 stopped refusing a moved pin (rc=$GRC): $GOUT"
+fi
+write_record "$REC" "$(hl_row '' "$(hl_field "$DIG" "$HL_EVID")" "$NEWOID")"
+git -C "$REC" add -A >/dev/null 2>&1
+run_guard "$REC" 'git commit -m \"land\"'
+if [ "$GRC" -ne 0 ] && case "$GOUT" in *HEADLINE-STALE*) true ;; *) false ;; esac; then
+    ok "pasting the new pin is refused AGAIN — re-stamping is not re-reading"
+else
+    bad "a bare re-stamp cleared the whole refusal (rc=$GRC): $GOUT"
+fi
+
+# --- n14/n15. THE TWO WAYS THE DECLARATION CAN BE WRONG ----------------------
+set -- $(mk_pair hl_strays); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3 9"
+write_record "$REC" '| 3.1 | a row | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"land\"'
+if [ "$GRC" -ne 0 ] && case "$GOUT" in *"not row sections"*|*"can only be asked of a section"*) true ;; *) false ;; esac; then
+    ok "a headline section that is not a row section is BROKEN, never half-adopted"
+else
+    bad "a stray headline section was accepted (rc=$GRC): $GOUT"
+fi
+
+HLKEY_N=0
+for HLKEY in 'ROW_HEADLINE_SECTIONS="3"' 'ROW_HEADLINE_REQUIRED="1"'; do
+    HLKEY_N=$((HLKEY_N + 1))
+    set -- $(mk_pair "hl_peerkey$HLKEY_N"); REC="$1"; WORK="$2"
+    write_record "$REC" '| 3.1 | a row | **State:** `CLOSED` |'
+    commit_record "$REC"
+    printf '%s\n' "$HLKEY" >> "$WORK/.row-currency"
+    git -C "$WORK" add -A >/dev/null 2>&1
+    run_guard "$WORK" 'git commit -m \"work\"'
+    if [ "$GRC" -ne 0 ] && case "$GOUT" in *BROKEN*) true ;; *) false ;; esac; then
+        ok "a PEER declaring ${HLKEY%%=*} is BROKEN — row settings live with the rows"
+    else
+        bad "a peer's stray ${HLKEY%%=*} was ignored (rc=$GRC): $GOUT"
+    fi
+done
+
+# ===========================================================================
+# (o) THE VERIFIER — scripts/row-headline-verify.sh
+# ===========================================================================
+VERIFY="$ENGINE_ROOT/scripts/row-headline-verify.sh"
+[ -x "$VERIFY" ] || bad "fixture: $VERIFY is missing or not executable"
+run_verify() { VOUT="$("$BASH_BIN" "$VERIFY" "$@" 2>&1)"; VRC=$?; return 0; }
+
+# o1/o2. A command that still prints what the row says, and one that does not.
+set -- $(mk_pair hl_verify); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" \
+  "| 3.1 | **The file still says what it said.** | **Headline:** \`000000000000\` — \`grep -c shipped lib/thing.js\` → \`1\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.2 | **Nothing in the file mentions the shipper.** | **Headline:** \`000000000000\` — \`grep -c shipped lib/thing.js\` → \`0\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |"
+commit_record "$REC"
+run_verify "$REC"
+case "$VOUT" in
+    *"MATCH       3.1"*) ok "the verifier re-runs a row's command and confirms what it recorded" ;;
+    *) bad "the verifier did not confirm a still-true row: $VOUT" ;;
+esac
+if [ "$VRC" -eq 1 ] && case "$VOUT" in *"MISMATCH    3.2"*) true ;; *) false ;; esac; then
+    ok "a row whose command no longer prints what it recorded is a MISMATCH, exit 1"
+else
+    bad "the verifier missed a headline that has gone false (rc=$VRC): $VOUT"
+fi
+
+# o3/o4. THE TWO REFUSALS, asserted by the side effect they would have had.
+# Neither command speaks if it escapes: spd-say is not installed here and is
+# given a flag it would reject anyway. The marker is the proof of non-execution
+# — a REFUSED line printed over a command that ran would be the worst possible
+# outcome and the only one worth testing for.
+set -- $(mk_pair hl_refuse); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" \
+  "| 3.1 | **The voice path is silent.** | **Headline:** \`000000000000\` — \`spd-say --no-such-flag hi; touch spoke.marker\` → \`x\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.2 | **The branch is unpublished.** | **Headline:** \`000000000000\` — \`git push --dry-run; touch pushed.marker\` → \`x\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |"
+commit_record "$REC"
+run_verify "$REC"
+if [ ! -e "$WORK/spoke.marker" ] && case "$VOUT" in *"REFUSED     3.1"*) true ;; *) false ;; esac; then
+    ok "a command that could make this machine speak is refused WITHOUT being run"
+else
+    bad "a sound-capable command was run or not refused: $VOUT"
+fi
+if [ ! -e "$WORK/pushed.marker" ] && case "$VOUT" in *"REFUSED     3.2"*) true ;; *) false ;; esac; then
+    ok "a command that publishes is refused WITHOUT being run — a verifier cannot mutate its subject"
+else
+    bad "a mutating command was run or not refused: $VOUT"
+fi
+[ "$VRC" -ne 0 ] && ok "a refused row makes the verifier non-zero — declining to check is not passing" \
+                 || bad "the verifier exited 0 having checked nothing (rc=$VRC)"
+
+# o5. --list runs nothing at all.
+run_verify "$REC" --list
+[ ! -e "$WORK/spoke.marker" ] && ok "--list executes nothing" \
+                             || bad "--list executed a command"
+
+# o6. NOT ADOPTED is exit 2, never a green tick over zero rows.
+set -- $(mk_pair hl_noadopt); REC="$1"; WORK="$2"
+write_record "$REC" '| 3.1 | a row | **State:** `CLOSED` |'
+commit_record "$REC"
+run_verify "$REC"
+if [ "$VRC" -eq 2 ] && case "$VOUT" in *"NOT ADOPTED"*) true ;; *) false ;; esac; then
+    ok "the verifier refuses a record that never declared CHECK 3, rather than reporting it clean"
+else
+    bad "the verifier reported on an unadopted record (rc=$VRC): $VOUT"
+fi
 
 # ---------------------------------------------------------------------------
 # (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads
