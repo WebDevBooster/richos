@@ -2650,4 +2650,34 @@ mod tests {
         assert_eq!(summary, "Kept going without making room", "the words survive redaction; the frame does not");
     }
 
+
+    #[test]
+    fn the_compaction_payload_the_webview_receives_is_printed_here_in_full() {
+        // The JS suite `app/ui/tests/compaction-notice.js` drives the renderer with this
+        // payload. Printing it from the crate is what stops the two copies drifting: run
+        // `cargo test -p richos-core --lib the_compaction_payload -- --nocapture` and the
+        // suite's fixture is the output.
+        for phase in ["started", "success", "failed"] {
+            let item = compaction_item(phase, false).redacted();
+            let json = serde_json::to_value(&item).unwrap();
+            println!("{phase}: {json}");
+            assert_eq!(json["kind"], "activity");
+            assert_eq!(json["visibility"], "ceo");
+            assert_eq!(json["activityType"], "other");
+            assert_eq!(json["state"], if phase == "started" { "running" } else { "completed" });
+            assert_eq!(
+                json["summary"],
+                match phase {
+                    "started" => "Making room to keep going",
+                    "success" => "Made room to keep going",
+                    _ => "Kept going without making room",
+                }
+            );
+            assert!(
+                json.get("detail").map_or(true, |d| d.is_null()),
+                "the CEO's copy carries no raw frame"
+            );
+        }
+    }
+
 }
