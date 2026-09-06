@@ -1,0 +1,40 @@
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "", "--no-session-persistence", "--session-id", "0fee2d41-f0e1-44e6-97df-d3b1ea6f4a08", "--permission-prompt-tool", "stdio"]
+[drive] cwd  = /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/cb1/cwd
+[drive] autocompact_pct_override = 2
+
+===== TURN 1 (done at t=2314ms) =====
+PROMPT: Here is a batch of inventory notes. Read them and reply with the single word ok.
+
+0002: ballast transom windlass bollard spigot cordage thimble tallow quoin spi ...[49264 chars total]
+REPLY:
+ok
+[subtype=success stop_reason=end_turn compactions=0]
+
+===== TURN 2 (done at t=5177ms) =====
+PROMPT: Here is a batch of inventory notes. Read them and reply with the single word ok.
+
+0002: windlass windlass lantern cordage cordage furrow capstan gasket grommet  ...[49269 chars total]
+REPLY:
+ok
+[subtype=success stop_reason=end_turn compactions=0]
+[drive] t=48805ms COMPACT_BOUNDARY {"trigger": "auto", "pre_tokens": 71895, "post_tokens": 14640, "cumulative_dropped_tokens": 57255, "duration_ms": 43611}
+
+===== TURN 3 (done at t=52075ms) =====
+PROMPT: Here is a batch of inventory notes. Read them and reply with the single word ok.
+
+0002: pumice transom purlin ballast furrow cleat mullion quoin cistern transom ...[49289 chars total]
+REPLY:
+ok
+[subtype=success stop_reason=end_turn compactions=1]
+[drive] t=90231ms COMPACT_BOUNDARY {"trigger": "auto", "pre_tokens": 38930, "post_tokens": 2718, "cumulative_dropped_tokens": 93467, "duration_ms": 38138}
+
+===== TURN 4 (done at t=91830ms) =====
+PROMPT: Reply with the single word: ok
+REPLY:
+ok
+[subtype=success stop_reason=end_turn compactions=2]
+
+[drive] ===== GAP ANALYSIS AROUND EVERY compact_boundary =====
+{"boundary_atMs": 48805, "frame_duration_ms": 43611, "prev_event": {"atMs": 48805, "kind": "frame", "type": "system", "subtype": "status", "event": null, "note": null}, "gap_before_ms": 0, "next_event": {"atMs": 48806, "kind": "frame", "type": "user", "subtype": null, "event": null, "note": null}, "gap_after_ms": 1, "gap_before_minus_duration_ms": -43611}
+{"boundary_atMs": 90231, "frame_duration_ms": 38138, "prev_event": {"atMs": 90231, "kind": "frame", "type": "system", "subtype": "status", "event": null, "note": null}, "gap_before_ms": 0, "next_event": {"atMs": 90231, "kind": "frame", "type": "user", "subtype": null, "event": null, "note": null}, "gap_after_ms": 0, "gap_before_minus_duration_ms": -38138}
+[drive] frames=62 compactions=2 wall=92117ms
