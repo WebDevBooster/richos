@@ -9,8 +9,11 @@
 >
 > **The kit is a STANDALONE PRODUCT** — a drop-in starter-kit other people copy into their own
 > repositories (`README.md`: *"Copy it into your repo, point it at your project"*). It is not one
-> of the CEO's working folders, and its last commit is 2026-08-06, so it is a frozen release
-> rather than live work. **Its hooks are not stale forks of the engine's; they are the thing being
+> of the CEO's working folders. **CORRECTED AGAIN 2026-09-06 by `mark-opus-mrf1`, re-verified by
+> Rich: the line that used to sit here called it "a frozen release rather than live work" because its
+> last commit was 2026-08-06. That is no longer true — `git -C ~/ab/claude-orchestration-kit log -1`
+> is `abfa492`, dated 2026-09-06, landing seven adopter-facing defect fixes. It is LIVE PRODUCT WORK,
+> which makes the ruling below stronger, not weaker.** **Its hooks are not stale forks of the engine's; they are the thing being
 > shipped.** On an adopter's machine the RichOS engine plugin does not exist at all, so deleting
 > the kit's copies would not relocate protection — it would remove it, from a product, for
 > everyone who ever adopts it.
@@ -20,7 +23,8 @@
 > deleted; an agent had already been dispatched to do it and was stopped.
 >
 > **What survives is the same measurement pointed the other way.** The drift is real — the kit
-> ships an isolation guard at 37% of the engine's current size — and that is a *product-quality*
+> ships an isolation guard at 39% of the engine's current size (`wc -l`: **422** against the engine's
+> **1090** — the 404 figure quoted further down this document is stale) — and that is a *product-quality*
 > finding about the kit: whoever adopts it gets protections far behind what this project relies
 > on. The answer to that is to bring the kit's hooks FORWARD, never to remove them, and it is a
 > separate decision about a separate product.
