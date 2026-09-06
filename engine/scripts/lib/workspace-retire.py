@@ -285,7 +285,13 @@ EXIT_FAILED = 4
 EXIT_UNREGISTERED = 5   # legacy route only: a directory that is not a registered worktree
 
 WS_ID_RE = re.compile(r"^ws-[0-9a-f]{16}$")
-QUARANTINE_RE = re.compile(r"\.richos-retired-ws-[0-9a-f]{16}-\d{8}T\d{6}Z$")
+# The stamp carries microseconds (the fraction is optional in the pattern so
+# names minted before it are still this module's). With a whole-second stamp,
+# two retirements of one workspace ID inside one second minted the same
+# quarantine name AND the same preservation directory — the second archive
+# overwrote the first retirement's recovery copy before its rename failed on
+# the occupied name. Found on 2026-09-06 by removing a `sleep 1` from a row.
+QUARANTINE_RE = re.compile(r"\.richos-retired-ws-[0-9a-f]{16}-\d{8}T\d{6}(\.\d{6})?Z$")
 # The dot-directory, beside the workspace, that holds its quarantine. A dot-name
 # so that the `*/` globs of the reaper's residue scan and of
 # hooks/detect-nonnative-worktree.sh (which rm -rf's what it does not
@@ -361,7 +367,11 @@ def now_iso():
 
 
 def _stamp():
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    """UTC, to the microsecond. Names a quarantine and a preservation
+    directory; two of either for one workspace must never share a name, and
+    retirements of one ID are serialized by the workspace lock, so
+    microseconds are enough to keep them apart."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
 
 
 def _parse_iso(s):
@@ -1028,9 +1038,14 @@ def preserve(ws, target, dest_dir):
     out = {"status": "failed", "archive": "", "manifest": "", "entries": 0,
            "bytes": 0, "reason": ""}
     try:
-        os.makedirs(dest_dir, exist_ok=True)
+        # NEVER into a directory that already exists: an archive is somebody's
+        # recovery copy, and `exist_ok=True` here once let a second retirement
+        # of the same ID, in the same second, write over the first's.
+        os.makedirs(dest_dir, exist_ok=False)
     except OSError as e:
-        out["reason"] = "could not create the preservation directory %s: %s" % (dest_dir, e)
+        out["reason"] = ("could not create the preservation directory %s (%s). An existing "
+                         "directory is never written into: it may hold another retirement's "
+                         "recovery copy." % (dest_dir, e))
         return out
 
     facts = _git_facts(target.path, ws["repo"])
@@ -1707,6 +1722,14 @@ def _transact(op, ws, target, fsid, mod, live_mod, lock_entity, owner_assert="",
         # --- the INTENT is on record before the move (finding 3).
         qbase = "%s.richos-retired-%s-%s" % (target.base, ws_id, _stamp())
         qplanned = target.quarantine_path(qbase)
+        if os.path.lexists(qplanned):
+            # rename(2) onto an EMPTY existing directory silently replaces it,
+            # and onto a non-empty one fails late. Neither is this operation's
+            # to do: a name already taken is somebody's quarantine.
+            return rec_of(OUTCOME_REFUSED, "quarantine-name-taken",
+                          "%s already exists. A quarantine name is minted once; an occupied one is "
+                          "another retirement's, and nothing is renamed over it. The workspace is "
+                          "untouched at %s." % (qplanned, ws["path"]), extra)
         intent = dict(base)
         intent.update({"outcome": OUTCOME_IN_PROGRESS,
                        "stage": "remove-intent" if is_remove else "quarantine-intent",

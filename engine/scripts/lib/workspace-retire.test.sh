@@ -2012,6 +2012,41 @@ else
     bad "PRIOR the reoccupied-path rule did not hold — raw: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-600)"
 fi
 
+# --- TWICE. The same workspace ID retired twice, back to back, with NO sleep
+# between. Found by the mutation loop: with a whole-second stamp the second
+# retirement minted the same quarantine name AND the same preservation
+# directory as the first, overwrote the first's archive, and then failed on
+# the occupied name. Both must succeed, into distinct names, and the first
+# recovery copy must be byte-identical afterward.
+new_fixture
+rc=0
+OUT1="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "first retirement succeeds" || rc=1
+J1="$(printf '%s\n' "$OUT1" | python3 -c 'import sys; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
+ARCHIVE1="$(jf "$J1" preservation.archive)"
+Q1="$(jf "$J1" quarantine.path)"
+ARCHIVE1_SHA="$(shasum -a 256 "$ARCHIVE1" | cut -d' ' -f1)"
+git -C "$OWNER_REPO" worktree add -q -b alpha-twice "$CONTAINER/alpha"
+printf 'second occupant\n' >"$CONTAINER/alpha/second.txt"
+L record registered --teammate zach-twice --agent-id 5b5b5b5b5c5c5c5c --session-id sess-t \
+    --repo "$OWNER_REPO" --worktree "$CONTAINER/alpha" --branch alpha-twice --class hand-rolled
+L record terminated --agent-id 5b5b5b5b5c5c5c5c --worktree "$CONTAINER/alpha" \
+    --reason "test fixture: witnessed termination" --witness test
+OUT2="$(H --repo "$OWNER_REPO" --owner 5b5b5b5b5c5c5c5c --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "second retirement of the same ID, in the same breath, succeeds" || rc=1
+J2="$(printf '%s\n' "$OUT2" | python3 -c 'import sys; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
+assert_eq "quarantined" "$(jf "$J2" outcome)" "quarantined" || rc=1
+assert_ne "$Q1" "$(jf "$J2" quarantine.path)" "into a DIFFERENT quarantine name" || rc=1
+assert_ne "$ARCHIVE1" "$(jf "$J2" preservation.archive)" "with a DIFFERENT archive path" || rc=1
+assert_eq "$ARCHIVE1_SHA" "$(shasum -a 256 "$ARCHIVE1" | cut -d' ' -f1)" "and the FIRST archive is byte-identical to before — the recovery copy was not written over" || rc=1
+assert_dir "$Q1" "the first quarantine still exists" || rc=1
+assert_eq "second occupant" "$(cat "$(jf "$J2" quarantine.path)/second.txt" 2>/dev/null)" "the second quarantine holds the second occupant" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "TWICE the same workspace ID retired twice with no pause mints two distinct quarantine names and two distinct archives, and the first recovery copy is byte-identical afterward"
+else
+    bad "TWICE two retirements of one ID collided on a name or an archive — raw: $(printf '%s' "$OUT2" | tr '\n' ' ' | cut -c1-500)"
+fi
+
 echo "--- RECHECK 2026-09-06: the reviewer's own script, verbatim ---"
 
 RECHECK_PY="$SCRIPT_DIR/workspace-retire.recheck-2026-09-06.py"
