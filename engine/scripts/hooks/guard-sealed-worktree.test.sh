@@ -25,8 +25,9 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/guard-sealed-worktree.sh"
 TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
-RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-export RICHOS_ENTITY_ROOT
+# The governed entity is declared below, after the disposable repo exists.
+# Pointing this at the engine itself sources its production wait=5 and silently
+# overwrites the 0/1/4-second values each test deliberately selects.
 unset CLAUDE_PROJECT_DIR
 
 PASS=0
@@ -47,6 +48,13 @@ ENTITY="$SANDBOX/entity"
 mkdir -p "$ENTITY/.claude/worktrees"
 git -C "$ENTITY" init -q -b main
 printf 'seed\n' >"$ENTITY/seed.txt"; git -C "$ENTITY" add -A; git -C "$ENTITY" commit -q -m seed
+
+# Keep the real engine configuration except for the fixture's configurable
+# wait budget. Production still owns its fixed default; this adopted entity
+# preserves the per-case environment values for actual hook subprocesses.
+sed 's/^SEAL_WAIT_SECONDS=.*/: "${SEAL_WAIT_SECONDS:=0}"/' \
+    "$SCRIPT_DIR/../../orchestration.config" >"$ENTITY/orchestration.config"
+export RICHOS_ENTITY_ROOT="$ENTITY"
 
 seal_agent() { # <agent-id> <teammate>
     git -C "$ENTITY" worktree add -q -b "worktree-agent-$1" "$ENTITY/.claude/worktrees/agent-$1"
@@ -87,7 +95,8 @@ run "$(payload Bash "$SEALED_AID")"
 UNSEALED_AID="a00000000000uns1"
 for tool in Write Edit MultiEdit NotebookEdit Bash Agent SendMessage mcp__github__create_issue SomeUnknownTool; do
     run "$(payload "$tool" "$UNSEALED_AID")"
-    if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (worktree manifest not sealed)'; then
+    if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (worktree manifest not sealed)' \
+       && printf '%s' "$OUT" | grep -E >/dev/null '^[[:space:]]*0s for both'; then
         ok "G04  unsealed worker: $tool -> REFUSED (exit 2, 'not sealed')"
     else
         bad "G04  unsealed worker: $tool rc=$RC: ${OUT:0:120}"
@@ -134,9 +143,16 @@ fi
 T0="$(date +%s)"
 OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | SEAL_WAIT_SECONDS=1 "$HOOK" 2>&1)"; RC=$?
 ELAPSED=$(( $(date +%s) - T0 ))
-# The bound is what matters, not the exact second: under a loaded machine the
-# guard's own python and git startups add seconds, so the ceiling is generous.
-[ "$RC" -eq 2 ] && [ "$ELAPSED" -le 8 ] && ok "G11  the wait is bounded by SEAL_WAIT_SECONDS (refused after ${ELAPSED}s)" || bad "G11  bounded wait rc=$RC elapsed=$ELAPSED"
+# Verify the effective configured budget as well as the elapsed bound. The old
+# test said one second while the engine config overwrote it with five; its
+# generous ceiling alone could never detect that. Keep startup headroom without
+# accepting a clobbered budget or an immediate refusal that skipped waiting.
+if [ "$RC" -eq 2 ] && [ "$ELAPSED" -ge 1 ] && [ "$ELAPSED" -le 8 ] \
+   && printf '%s' "$OUT" | grep -E >/dev/null '^[[:space:]]*1s for both'; then
+    ok "G11  the one-second configured wait is honored and bounded (refused after ${ELAPSED}s)"
+else
+    bad "G11  bounded wait rc=$RC elapsed=$ELAPSED: ${OUT:0:200}"
+fi
 
 # G12 read-only agent types are exempt, plain and plugin-namespaced
 run "$(payload Bash "a00000000000exp1" Explore)"
