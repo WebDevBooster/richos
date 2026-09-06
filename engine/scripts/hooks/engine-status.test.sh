@@ -471,6 +471,22 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # one of them already carried the guards except this set. So the registration
 # was thorough and this inventory was the single gap — which is precisely the
 # shape this case exists to catch, and why it says never to silence it.
+# 56 -> 57 on 2026-09-06: notice-unlanded-branches.sh on Stop. A session ended
+# reporting "Everything is clean and pushed" while six FINISHED branches sat
+# outside main, one of them the fix for the CEO's own complaint that the app
+# steals keyboard focus. Both checks that session ran were green and both were
+# CORRECT -- the working tree was clean and main did match origin/main -- and
+# neither of those two facts can see an unlanded branch. This hook names them
+# at the turn end. The derivation above was used rather than guessed at:
+# `grep -rln notice-unstarted-rows engine/` named twenty-one files; of those,
+# the ones that are INVENTORIES rather than prose about that particular hook
+# are hooks/hooks.json, .claude/settings.local.json, this set, and the probe's
+# Layer R list in contract-integrity-probe.sh. The first three carry it. THE
+# FOURTH DOES NOT, deliberately and with the cost stated: that file was owned
+# by another engineer at the moment this landed, so `notice-unlanded-branches`
+# still has to be added to R_ROOTED_HOOKS. Nothing goes red without it -- that
+# list is typed, not derived -- which is exactly why it is written down here
+# instead of left to be noticed.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -511,6 +527,7 @@ notice-inflight-acks.sh
 notice-inflight-sends.sh
 notice-mechanical-findings.sh
 notice-unasked-deferral.sh
+notice-unlanded-branches.sh
 notice-unstarted-rows.sh
 notice-waiver-repetition.sh
 reader-teammate-hint.sh
