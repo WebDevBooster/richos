@@ -31,10 +31,16 @@
 // event produces.
 //
 // TIME IS BOUGHT WITH A CLOCK, NOT WITH A WAIT. `Date.now` is overridden inside the page to
-// return a controllable offset, so the 25-second quiet threshold is reached in milliseconds.
+// return a controllable offset, so the 35-second quiet threshold is reached in milliseconds.
 // Everything downstream of it — the elapsed label, the silence count, `durationRow` — reads
 // that same clock, which is exactly the property §6.2 asks for ("recompute from timestamps",
-// never accumulate). A suite that slept 25 seconds per case would be a suite nobody runs.
+// never accumulate). A suite that slept 35 seconds per case would be a suite nobody runs.
+//
+// THE THRESHOLD MOVED, 25000 -> 35000, on 2026-09-06 (`main.js`, "RAISED 25000 -> 35000").
+// The native wire has two 30-second heartbeats — `tool_progress` at 30.002s and
+// `system/status: "compacting"` at 30.000s — and at 25000ms a healthy turn spent 5 seconds
+// of every 30 in the attention tone. Three instants below moved with it, and nothing else
+// about this suite changed.
 //
 // PROVEN TO BE ABLE TO FAIL, on the check most likely to rot into a rubber stamp. With
 // light `--live-mark` temporarily set to `#b8a06a`, the contrast check reported
@@ -242,14 +248,18 @@ async function main() {
     await tick(page);
     b = await band(page);
     assertEqual(b.time, "30s", "elapsed at +30s");
-    assertEqual(b.detail, "Nothing new for 30s", "past 25s the band names the silence");
-    assertEqual(b.tone, "quiet", "and changes tone");
+    assertEqual(
+      b.detail,
+      "Nothing has come back yet",
+      "30s is INSIDE the wire's own 30.002s heartbeat cadence, so the band must not call it quiet"
+    );
+    assertEqual(b.tone, "working", "and must not raise the attention tone on a turn a heartbeat is about to reach");
 
     await advance(page, 30000);
     await tick(page);
     b = await band(page);
     assertEqual(b.time, "1m 0s", "elapsed at +60s");
-    assertEqual(b.detail, "Nothing new for 1m 0s", "the count keeps going, and keeps being true");
+    assertEqual(b.detail, "Nothing new for 1m 0s", "past 35s the band names the silence, and keeps being true");
 
     // THE ONE THING IT IS FOR: the four instants say four different things, and every one of
     // them is checked for invented progress.
@@ -441,7 +451,8 @@ async function main() {
       const results = [];
       for (const want of ["working", "quiet"]) {
         if (want === "quiet") {
-          await advance(page, 30000);
+          // Past QUIET_AFTER_MS, which is 35000 since 2026-09-06.
+          await advance(page, 40000);
           await tick(page);
         }
         const b = await band(page);
@@ -514,7 +525,8 @@ async function main() {
     assertEqual(b.role, "status", "the band carries role=status");
     assertEqual(b.ariaLive, "off", "…with aria-live OFF, or a clock rewriting itself every second would be narrated");
 
-    await advance(page, 30000);
+    // Past QUIET_AFTER_MS, which is 35000 since 2026-09-06.
+    await advance(page, 40000);
     await tick(page);
     const first = await page.evaluate(() => (document.getElementById("live-region") || {}).textContent || "");
     assert(/Nothing new for/.test(first), "the quiet state is worth saying once; got " + JSON.stringify(first));

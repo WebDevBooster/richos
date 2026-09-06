@@ -1757,8 +1757,23 @@ function syncComposerMode() {
 // done. When the app does not know what is happening it says how long it has been waiting,
 // which is true.
 //
-// WHY 25 SECONDS, AND WHERE THE NUMBER COMES FROM
-// ==============================================
+// THE LONGEST SILENCE HAS A NAME NOW, AND IT IS STILL INPUT 3
+// ==========================================================
+// A second cause of the report was measured on 2026-09-06: the child pauses mid-turn to
+// compact its own context, for 38.1 to 62.0 seconds (16 boundaries), and the calm surface was
+// told nothing at all — every `system` frame fell to `Visibility::Technical`. It is now an
+// ordinary CEO activity row, authored in Rust and relayed here VERBATIM like every other one:
+// *"Making room to keep going"* while it runs, *"Made room to keep going"* when it ends
+// (`timeline.rs` `semantic_summary`, `docs/verification/compaction-notice-2026-09-06/`).
+//
+// Nothing in this file knows what a compaction is, and that is the point — the sentence
+// arrives on `rich://activity-upserted` with a state and an instant, exactly as "Read the Q3
+// board pack" does, so the rule above still holds without an exception written into it. It
+// is named from the frame that ANNOUNCES it (`system/status: "compacting"`, 13ms into the
+// turn) and never from the length of a silence.
+//
+// WHY THIS MANY SECONDS, AND WHERE THE NUMBER COMES FROM
+// ======================================================
 // `QUIET_AFTER_MS` is where the band stops describing the last thing it saw and starts
 // naming the silence. Derived from the five committed real `claude-agent-acp` runs in
 // `docs/verification/acp-emission-probe-2026-08-28/run{1..5}.raw.jsonl`, which carry an
@@ -1769,15 +1784,41 @@ function syncComposerMode() {
 //     over 5s: 4     over 10s: 1     over 20s: 1
 //
 // A HEALTHY turn has therefore gone 20.7s with nothing observable arriving, and a threshold
-// under that would call working quiet. 25000ms clears the largest gap ever measured here.
-// It is a PRESENTATION threshold only: "Nothing new for 41s" is true at every value this
-// constant could take, so no number here can make the band say something false — only
-// something differently emphasized.
+// under that would call working quiet. It is a PRESENTATION threshold only: "Nothing new for
+// 41s" is true at every value this constant could take, so no number here can make the band
+// say something false — only something differently emphasized.
 //
 // Re-derive: `node docs/verification/waiting-state-2026-09-06/gaps.js`.
+//
+// RAISED 25000 -> 35000 ON 2026-09-06, AND THE SAMPLE ABOVE IS WHY IT HAD TO BE
+// ============================================================================
+// Those five runs are ACP-adapter runs of ordinary turns. They contain no compaction and no
+// long tool call, so they could not see the one thing that decides this number: **the native
+// wire has a 30-SECOND HEARTBEAT, and it has two of them.**
+//
+//   * `tool_progress`, while a tool call runs. Re-derived from the committed timings rather
+//     than read off a comment (`docs/verification/native-claude-tool-status-2026-08-31/raw/`,
+//     `*.timings.tsv`): run13 fires at 35.443s and 65.445s -> 30.002s; run16 at 32.962s and
+//     62.963s -> 30.001s.
+//   * `system/status: "compacting"`, while the child compacts its own context. Measured
+//     2026-09-06 (`docs/verification/compaction-notice-2026-09-06/`): turn 3 at 5190ms and
+//     35190ms, turn 4 at 52086ms and 82086ms — 30000ms exactly, twice.
+//
+// Both reach this band as accepted signals, so at 25000ms a perfectly healthy compaction or
+// long tool call spent 5 seconds of every 30 in the ATTENTION tone saying "Nothing new for
+// 25s", then snapped back when the heartbeat landed — an alarm twice a minute for work that
+// was going fine, which is the same class of lie as a spinner that keeps spinning.
+//
+//     max known heartbeat interval 30002ms  ->  35000ms clears it by 4998ms (1.17x).
+//     The previous pair was 20741ms -> 25000ms (4259ms, 1.21x), so the margin is the one
+//     this band was already built with.
+//
+// WHAT IT COSTS, stated rather than buried: a genuinely hung turn is named 10 seconds later
+// than before. It is named — the count is the same count and it never stops being true — and
+// the elapsed clock beside the headline was ticking the whole time.
 // ---------------------------------------------------------------------------------------
 
-const QUIET_AFTER_MS = 25000;
+const QUIET_AFTER_MS = 35000;
 
 /// One record for the live turn of the thread ON SCREEN. Cleared at the turn's terminal
 /// status, so nothing here outlives the turn it describes.
