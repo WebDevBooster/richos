@@ -25,6 +25,7 @@ use richos_core::feedback::{
     FeedbackStore, Occurrences, PromptOutcome, Rating, ReportDecision, DISCLOSURE_HEADING,
     PROMPT_OPTIONS, PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
 };
+use richos_core::home_field;
 use richos_core::journal::{MachineryJournal, RawRetention};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::loro::{SharedSliceProvenance, SliceProvenance};
@@ -343,6 +344,21 @@ struct AppState {
     /// when the process started. That is the whole point — the answer must not cost a
     /// relaunch, exactly as `choose_entity`'s answer does not.
     memory: Mutex<MemoryStatus>,
+    /// THE RESOLVED CORPUS, for the read that must not take the spine's lock
+    /// (`home_field_data`). The SAME `LoroInstall` `wire_company_memory` built the reader and
+    /// the writer from — never a second `LoroInstall::locate`, for the reason `memory.rs`
+    /// gives at length: two resolutions of one question is how the read path came to resolve
+    /// the CEO's corpus while the write path resolved nothing at all.
+    ///
+    /// Behind its own mutex and NOT the spine's, for the fifth time in this struct and the
+    /// same reason: `send_message` holds the spine lock for a whole turn, and the home screen
+    /// is drawn while Rich may be mid-turn. It MOVES for the reason `correction` and `memory`
+    /// move — `provision_memory` wires a corpus that did not exist when the process started,
+    /// and the picture must not cost a relaunch either.
+    ///
+    /// `None` on every install with no corpus, which is an ordinary state and not an error:
+    /// the home screen then keeps drawing the demonstration, with its banner up.
+    loro_install: Mutex<Option<richos_core::loro::LoroInstall>>,
     /// The same `Arc` the spine holds. Kept here so provisioning can re-run
     /// `wire_company_memory` with the provenance sink the correction desk reads from — a
     /// second `SliceProvenance` would mean the desk could not propose against a slice the
@@ -1285,6 +1301,9 @@ fn main() {
             // writer that the SAME `LoroInstall` produced, so the two cannot disagree.
             let wired = memory::wire_company_memory(&mut spine, &loro_provenance, &registry);
             let memory_status = wired.status;
+            // AND THE RESOLUTION, kept whole. `home_field_data` compiles the home screen's
+            // picture out of this and must not lock the spine to reach it.
+            let loro_install = wired.install;
 
             // Attach the compute lease. A boot with no Claude auth, no `claude` binary, or a
             // binary that rejects our flags does NOT silently degrade: no lease is attached
@@ -1639,6 +1658,7 @@ fn main() {
                 feedback,
                 launch: Mutex::new(launch_store),
                 memory: Mutex::new(memory_status),
+                loro_install: Mutex::new(loro_install),
                 loro_provenance,
                 // KEPT, not re-derived. `provision_memory` opens the correction desk's log
                 // beside the ledger, and it must be the SAME directory this boot used —
@@ -1844,7 +1864,10 @@ fn main() {
             setup_status,
             run_setup,
             // --- what did not load out of the ledger (2026-09-05) — appended, never reordered ---
-            history_health
+            history_health,
+            // --- the home screen's picture, out of his own corpus (2026-09-06) — appended,
+            //     never reordered ---
+            home_field_data
         ])
         .build(tauri::generate_context!())
         .expect("error while building RichOS")
@@ -2745,6 +2768,14 @@ fn provision_memory(
     let registry_now = state.registry.lock().unwrap().clone();
     let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance, &registry_now);
     let mut status = wired.status;
+
+    // AND THE HOME SCREEN'S PICTURE, IN THE SAME SESSION. Property 4 of this command is
+    // "it re-wires BOTH HALVES without a relaunch"; `home_field_data` reads a third thing out
+    // of the same resolution, and a cell left at `None` here would mean a customer who has
+    // just answered "set my memory up" keeps looking at the demonstration until he quits and
+    // reopens — which is precisely the defect the correction desk had until 2026-09-01, one
+    // surface over.
+    *state.loro_install.lock().unwrap() = wired.install;
 
     // THE WRITE HALF, INTO THE RUNNING APP. The outer lock is taken here and inside the
     // same statement as the spine lock, which is safe because nothing else in this file ever
@@ -5292,4 +5323,105 @@ fn registered_entity(state: &State<AppState>, entity_id: &str) -> Result<EntityI
         return Err(unknown_company_message(id.as_str()));
     }
     Ok(id)
+}
+
+// ---------------------------------------------------------------------------------------
+// THE HOME SCREEN'S PICTURE, OUT OF HIS OWN CORPUS (`richos_core::home_field`).
+//
+// `app/ui/home.js`'s banner block named this command before it existed, and named what it
+// must not do just as precisely. Both halves are kept here because both are load-bearing.
+// ---------------------------------------------------------------------------------------
+
+/// **COMPILE THE CUSTOMER'S OWN MEMORY INTO THE FIELD'S STRUCTURE, OR SAY THAT THERE IS NONE.**
+///
+/// # What it answers
+///
+/// `{ "available": true, "field": { meta, nodes, links, sources, ... } }` when a corpus
+/// resolved and the compiler produced something, and
+/// `{ "available": false, "reason": "<one sentence>" }` in every other case. It is not
+/// `Result`, and that is deliberate: **no corpus is not an error.** It is the ordinary state
+/// of a fresh install, the home screen keeps drawing the demonstration, and a rejected
+/// promise would put a failure in the console for a launch in which nothing failed.
+///
+/// # WHAT IT DELIBERATELY DOES NOT DECIDE
+///
+/// Whether the picture it returns should replace the demonstration. It reports
+/// `meta.counts.records` beside `meta.counts.objects` and stops. The CEO's instruction for
+/// this work is *"The demo is definitely needed, initially, for the user"*, and the design of
+/// a handover is `richos-hq/design/mockups/rounds/round-11.4`, which is unruled. The
+/// preference lives in exactly one place — `home.js`'s `HOME_FIELD_MIN_OBJECTS` — and its
+/// default keeps the demonstration.
+///
+/// # AND IT IS NOT GATED ON `memory_status`
+///
+/// `home.js` says why, and it is the whole reason this command exists rather than a boolean:
+/// *"A provisioned corpus is not the same fact as a drawn picture, and a banner that vanished
+/// the moment a customer created a folder would be claiming his data was on screen while
+/// 7,500 synthetic objects were still on it."* So this compiles, and answers with what it
+/// compiled. A corpus that resolves and then produces nothing is `available: false`.
+///
+/// # It does not take the spine's lock
+///
+/// `send_message` holds that mutex for the whole of a turn. The corpus is reached through
+/// `AppState::loro_install` — the SAME `LoroInstall` `wire_company_memory` built the reader
+/// and the writer from, carried rather than resolved a second time — so the home screen draws
+/// while Rich is mid-turn, exactly as the correction desk and the stop control do.
+///
+/// `(async)` because it spawns one `node` per company: 6 compiles, 2.795 s wall clock,
+/// measured against the CEO's own corpus on 2026-09-06. That must never run on the IPC
+/// thread, and it is never on the boot path either — `home.js` calls it from an idle
+/// callback with the demonstration already on the screen.
+#[tauri::command(async)]
+fn home_field_data(state: State<AppState>) -> serde_json::Value {
+    fn no(reason: impl Into<String>) -> serde_json::Value {
+        serde_json::json!({ "available": false, "reason": reason.into() })
+    }
+
+    // The clone releases the lock immediately, the same shape `desk()` uses: a compile that
+    // takes three seconds must not hold a lock `provision_memory` needs.
+    let Some(install) = state.loro_install.lock().unwrap().clone() else {
+        let status = state.memory.lock().unwrap().clone();
+        return no(match status.state.as_str() {
+            "none" => "no corpus is configured on this machine".to_string(),
+            "no-compiler" => "a corpus is configured and the memory compiler is not installed".to_string(),
+            "" => "company memory was never wired on this launch".to_string(),
+            other => format!("company memory is {other}"),
+        });
+    };
+    let registry = state.registry.lock().unwrap().clone();
+
+    let census = match home_field::probe_census(install.tools(), install.root()) {
+        Ok(c) => c,
+        // POSITIVE SIGNAL ONLY, and this is where it bites. A census that could not be read
+        // is NOT an empty corpus — the two are different facts, and drawing the second from
+        // the first would put a near-empty picture of nothing in front of him and call it his
+        // memory. `CorpusLanes::probe` makes the same refusal one seam over.
+        Err(e) => {
+            eprintln!("[richos] home field: could not read the corpus census ({e}) — the home screen keeps the demonstration");
+            return no(format!("the corpus could not be read: {e}"));
+        }
+    };
+
+    let topics = home_field::field_topics(&census, &registry);
+    let items = match home_field::collect_items(install.tools(), install.root(), &topics) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[richos] home field: no topic compiled ({e}) — the home screen keeps the demonstration");
+            return no(format!("the corpus could not be compiled: {e}"));
+        }
+    };
+
+    let field = home_field::build_field(&census, &items, &registry);
+    eprintln!(
+        "[richos] home field: {} object(s) of {} record(s) at {}, {} link(s), {} source(s), \
+         {} question(s) asked. Whether that replaces the demonstration is home.js's \
+         HOME_FIELD_MIN_OBJECTS, not this line.",
+        field["meta"]["counts"]["objects"],
+        field["meta"]["counts"]["records"],
+        install.root().path().display(),
+        field["meta"]["counts"]["links"],
+        field["meta"]["counts"]["sources"],
+        topics.len(),
+    );
+    serde_json::json!({ "available": true, "field": field })
 }

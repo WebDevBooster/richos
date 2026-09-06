@@ -75,6 +75,17 @@ pub struct WiredMemory {
     /// The WRITE half. `None` exactly when there is no corpus or no compiler — never
     /// because a second resolution disagreed with the first.
     pub writer: Option<CliLoroWriter>,
+    /// THE RESOLUTION ITSELF, carried out for the same reason `writer` is.
+    ///
+    /// The home screen has to compile the corpus into a picture
+    /// (`richos_core::home_field`), and it must do so WITHOUT the spine's mutex —
+    /// `send_message` holds that lock for the whole of a turn, and a home screen that froze
+    /// until Rich finished talking is a home screen nobody goes back to. That leaves two
+    /// ways to reach the corpus from a command: resolve it again, or carry the one
+    /// resolution this function already made. A second `LoroInstall::locate` is exactly the
+    /// second-answer-to-an-answered-question this file's own header calls out, so it is this
+    /// one. `None` in every state but `ready`.
+    pub install: Option<LoroInstall>,
 }
 
 /// TIER C — COMPANY MEMORY (continuity §2.1 #8 / §4, open-items 3.5).
@@ -118,6 +129,7 @@ pub fn wire_company_memory(
                     ..Default::default()
                 },
                 writer: None,
+                install: None,
             };
         }
         Err(e) => {
@@ -125,6 +137,7 @@ pub fn wire_company_memory(
             return WiredMemory {
                 status: MemoryStatus { state: "unusable".into(), detail: Some(e.to_string()), ..Default::default() },
                 writer: None,
+                install: None,
             };
         }
     };
@@ -147,6 +160,7 @@ pub fn wire_company_memory(
         return WiredMemory {
             status: MemoryStatus { state: "none".into(), tried, ..Default::default() },
             writer: None,
+            install: None,
         };
     };
 
@@ -177,6 +191,8 @@ pub fn wire_company_memory(
                     ..Default::default()
                 },
                 writer,
+                // A compiler that refused its lane map cannot compile the home field either.
+                install: None,
             };
         }
     };
@@ -295,5 +311,5 @@ pub fn wire_company_memory(
     compiler.set_provenance_sink(std::sync::Arc::clone(loro_provenance));
     spine.set_loro_context_compiler(Box::new(compiler));
     spine.set_loro_provenance(std::sync::Arc::clone(loro_provenance));
-    WiredMemory { status, writer }
+    WiredMemory { status, writer, install: Some(install) }
 }

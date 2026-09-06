@@ -988,15 +988,17 @@ async function main() {
   });
 
   await run.check("THE CONDITION, BOTH WAYS: the banner goes when the data is the customer's", async () => {
-    // WHAT THIS CAN AND CANNOT DRIVE, said plainly.
+    // WHAT THIS CHECKS, AND WHAT THE ONE BELOW IT CHECKS INSTEAD.
     //
-    // Nothing in the product can produce a customer's own loro in the shape the field reads —
-    // there is no `home_field_data` command, and `home/field-data.js` is the only dataset that
-    // exists. So the real-data side is exercised the only honest way there is: by handing the
-    // condition the input a real compile would produce, `meta.synthetic === false`, on the very
-    // object `home/field-engine.js:99` reads, and driving the same `refreshNote()` the field's
-    // own settle calls. What is NOT covered by this, and is stated in the handoff rather than
-    // implied away: that a real compiler, when one exists, actually stamps that field.
+    // This one is about the CONDITION and nothing else: hand it `meta.synthetic === false` on
+    // the very object `home/field-engine.js:103` reads, drive the same `refreshNote()` the
+    // field's own settle calls, and prove the banner follows the dataset in both directions
+    // and through every uncertainty. It needs no compiler and no corpus, which is why it can
+    // also assert the negative controls a real dataset would never produce.
+    //
+    // That a REAL compile actually stamps that field used to be uncovered and stated in the
+    // handoff instead. It is covered now, three checks below —
+    // "WITH A CORPUS ABOVE THE THRESHOLD" drives `home_field_data` end to end.
     const before = await page.evaluate(() => {
       const b = document.getElementById("home-live").getBoundingClientRect();
       return {
@@ -1058,6 +1060,304 @@ async function main() {
       `synthetic=true -> banner up, --home-note-inset ${before.inset}, aside at y=${before.liveTop}\n          ` +
       `synthetic=false -> banner display:none, inset 0px, aside back at y=${real.liveTop} (the approved composition)\n          ` +
       `omitted -> up ("unknown"); no meta at all -> up ("unknown"). Only an explicit false takes it down.`
+    );
+  });
+
+
+  // -------------------------------------------------------------------------------------
+  // HIS OWN LORO, AND WHEN IT REPLACES THE DEMONSTRATION (`home_field_data`, 2026-09-06)
+  //
+  // The seam this file's previous check said did not exist. Two halves, tested apart because
+  // they fail apart: WHICH DATASET GETS LOADED is `home.js`'s one comparison against
+  // `HOME_FIELD_MIN_OBJECTS`, and WHAT THE SCREEN SAYS ABOUT IT is still derived from the
+  // dataset that ended up loaded — so a bug in the first can put the wrong picture up and
+  // still cannot make the banner lie.
+  // -------------------------------------------------------------------------------------
+
+  await run.check("THE ARC IS DERIVED NOW, and over the round's own data it is the round's own list", async () => {
+    // `field-prep.js` used to map a HARDCODED list of twelve domain ids straight into
+    // `domains[...]`, which is `undefined` for every id a real corpus has — his domains are
+    // company lanes. The list is derived from the dataset now, and the whole risk of that
+    // change is that it reorders the composition the CEO approved. It does not, and this is
+    // arithmetic rather than a look at the screen: over the round's dataset the derived order
+    // is `ARC_ORDER` element for element, so every strand is allotted to the same domain it
+    // was before.
+    //
+    // Both identifiers are top-level declarations in `home/field-prep.js`, which is a classic
+    // script, so they are reachable by name in the page. Read from the source rather than
+    // copied into this file — a test carrying its own copy of a list passes after a drift.
+    const r = await page.evaluate(() => {
+      const domains = window.MATURE_LORO.domains;
+      const index = new Map();
+      domains.forEach((d, i) => index.set(d.id, i));
+      return { arc: ARC_ORDER.slice(), derived: arcOrderOf(domains, index), ids: domains.map((d) => d.id) };
+    });
+    assertEqual(r.derived, r.arc, "the derived arc is not the round's own order over the round's own data");
+    assertEqual(r.derived.length, r.ids.length, "the derived arc does not cover every domain the dataset has");
+    // And the other direction: every id in the dataset reaches the arc exactly once, so no
+    // domain can be silently dropped out of the allotment.
+    assertEqual(r.derived.slice().sort(), r.ids.slice().sort(), "a domain is in the dataset and not in the arc, or the reverse");
+    return `12 domains, derived order === ARC_ORDER: ${r.derived.join(" ")}`;
+  });
+
+  await run.check("THE DEFAULT IS THE DEMONSTRATION, and nothing had to ask for it", async () => {
+    // CEO, 2026-09-06: *"The demo is definitely needed, initially, for the user."* This is the
+    // shipped first-run experience and the whole of this check is that it survived the seam
+    // being built. Nothing below opts out of anything: it is the page as it opened.
+    const r = await page.evaluate(async () => {
+      const offer = await window.RichHome.askForCustomerField();
+      return {
+        drew: offer,
+        state: window.RichHome.state.fieldOffer,
+        N: window.__loro.N,
+        dataSource: window.RichHome.state.dataSource,
+        noteShown: window.RichHome.state.noteShown,
+        metaSynthetic: window.MATURE_LORO.meta.synthetic,
+      };
+    });
+    assertEqual(r.drew, null, "the backend's answer was taken on a machine that reported no corpus");
+    assertEqual(r.state.state, "unavailable", "the offer was not recorded as unavailable");
+    assertEqual(r.state.taken, false, "an unavailable offer was marked as taken");
+    // ...and the picture that is up is the round's, unchanged.
+    assertEqual(r.N, 7500, "the demonstration is not what is on the screen");
+    assertEqual(r.metaSynthetic, true, "the dataset on the page is not the synthetic one");
+    assertEqual(r.dataSource, "synthetic", "the banner's condition drifted off the dataset");
+    assertEqual(r.noteShown, true, "the banner came down over the demonstration");
+    return (
+      `no corpus -> ${JSON.stringify(r.state.reason)}; the picture is the round's 7,500 objects, ` +
+      `banner up, dataSource "${r.dataSource}"`
+    );
+  });
+
+  await run.check("THE THRESHOLD IS ONE COMPARISON, and a sparse corpus does not take the screen", async () => {
+    // THE FAILURE THIS PREVENTS, in the brief's own words: "a five-record real corpus drawn as
+    // a near-empty field is worse than the demo and is the exact failure the demo prevents."
+    //
+    // The boundary is asserted at the number itself and at one below it, and the number is
+    // read OUT OF `home.js` rather than typed here — a test carrying its own copy of a
+    // constant passes forever after somebody moves one of them.
+    const r = await page.evaluate(async () => {
+      const min = window.RichHome.HOME_FIELD_MIN_OBJECTS;
+      const out = { min };
+      const ask = async (objects, records) => {
+        window.__RICHOS_MOCK__.homeFieldSet(objects === null ? null : { objects, records });
+        const field = await window.RichHome.askForCustomerField();
+        return { taken: !!field, offer: { ...window.RichHome.state.fieldOffer } };
+      };
+      out.under = await ask(min - 1, 99999);
+      out.at = await ask(min, 99999);
+      out.over = await ask(min + 500, 99999);
+      out.tiny = await ask(5, 5);
+      out.none = await ask(null);
+      window.__RICHOS_MOCK__.homeFieldSet(null);
+      return out;
+    });
+
+    assertEqual(r.under.taken, false, `${r.min - 1} objects took the screen at a threshold of ${r.min}`);
+    assertEqual(r.under.offer.state, "offered", "an offer under the threshold was not recorded as an offer");
+    assertEqual(r.under.offer.taken, false, "state disagrees with what was drawn");
+    assertEqual(r.at.taken, true, `${r.min} objects did not reach a threshold of ${r.min}`);
+    assertEqual(r.at.offer.taken, true, "state disagrees with what was drawn");
+    assertEqual(r.over.taken, true, "a corpus above the threshold did not take the screen");
+    assertEqual(r.tiny.taken, false, "a five-record corpus took the screen");
+    assertEqual(r.none.taken, false, "no corpus took the screen");
+    // The counts are carried through so a caller can judge density — the reason the command
+    // reports two numbers rather than one.
+    assertEqual(r.over.offer.records, 99999, "the corpus's own record count was not carried through");
+    assertEqual(r.over.offer.threshold, r.min, "the offer does not name the number it was judged against");
+    return (
+      `threshold ${r.min} (read from home.js): ${r.min - 1} -> demo, ${r.min} -> his, ` +
+      `${r.min + 500} -> his, 5 -> demo, none -> demo; ` +
+      `an offer carries objects+records+threshold (${r.over.offer.objects}/${r.over.offer.records}/${r.over.offer.threshold})`
+    );
+  });
+
+  await run.check("WITH A CORPUS ABOVE THE THRESHOLD: his loro draws, and the banner takes itself down", async () => {
+    // The end-to-end, on a FRESH page, because `field-data.js` assigns `window.MATURE_LORO` on
+    // load and the two datasets can never both be on one page. This is the launch a customer
+    // gets once the CEO has ruled on round-11.4 and the threshold reflects it.
+    const p5 = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    p5.on("pageerror", (e) => errors.push(String(e)));
+    p5.on("console", (m) => {
+      if (m.type() === "error") errors.push("console: " + m.text());
+    });
+
+    // A corpus comfortably over the floor, in place BEFORE THE PAGE'S OWN SCRIPTS RUN —
+    // which is the only moment it can matter, since the choice picks the script list.
+    //
+    // THIS USED TO BE A `homeFieldSet()` AFTER LOAD, AND IT WAS A RACE THIS CHECK WON ONLY ON
+    // AN IDLE MACHINE. `home.js:1453` starts the field from `requestIdleCallback(startField,
+    // { timeout: 1200 })`, and that callback asks `home_field_data` on its own. MEASURED here,
+    // five consecutive launches: the page asks at 358.0, 349.0, 348.0, 352.0 and 347.0ms from
+    // navigation, while this suite gets its first turn at 98.0, 86.0, 87.0, 89.0 and 85.0ms —
+    // a mean margin of 261.8ms, spent by two `evaluate` round trips. Lose it and
+    // `askForCustomerField()` reads `homeField === null`, the offer is recorded `unavailable`,
+    // the demonstration's 7,500 objects are drawn, and this check fails on its FIRST assertion
+    // with "the picture is not drawn from his corpus — expected 4000, actual 7500".
+    //
+    // That is exactly what a full `run.js` sweep produced while `node home.js` alone stayed
+    // green: nothing leaked between suites, the machine was simply busier by the time this
+    // suite ran. Reproduced deterministically on an idle machine with the knob below at 400ms,
+    // which is inside the measured margin; `home.js`'s own note records the harness's next
+    // instruction landing ~2,000ms late on a GitHub `macos-latest` runner.
+    //
+    // `__RICHOS_MOCK_PRESET__` is mock.js's pre-boot switch and an init script runs before any
+    // of the page's own scripts, so there is no longer a moment at which the page can ask and
+    // get the wrong answer — first, last or alone.
+    const OBJECTS = 4000;
+    await p5.addInitScript((n) => {
+      window.__RICHOS_MOCK_PRESET__ = Object.assign({}, window.__RICHOS_MOCK_PRESET__, {
+        homeField: { objects: n, records: 9000 },
+      });
+    }, OBJECTS);
+    await p5.goto(APP);
+    await p5.waitForFunction("typeof window.RichHome === 'object'");
+    await p5.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    // THE SLOW RUNNER, ON DEMAND, AND POINTED AT THE RACE THAT WAS HERE — the same
+    // `RICHOS_SPLASH_LAG_MS` knob the cold-launch check carries, because it reproduces the
+    // same condition and one condition should not need two switches. At 400ms this check was
+    // red before this change and is green after it; at 0 it costs nothing.
+    if (LAG_MS > 0) await p5.waitForTimeout(LAG_MS);
+    // The field has almost certainly started itself by now, on the launch a customer gets.
+    // This is the floor under that, and it is a no-op once `fieldStarted` is set.
+    await p5.evaluate(() => window.RichHome.startField());
+    await p5.waitForFunction("window.RichHome.state.field === 'live'", { timeout: 60000 });
+    await p5.waitForFunction("window.__loro && !window.__loro.blooming", { timeout: 90000 });
+    await p5.waitForTimeout(300);
+
+    const r = await p5.evaluate(() => {
+      const box = document.getElementById("home-note");
+      const live = document.getElementById("home-live").getBoundingClientRect();
+      return {
+        N: window.__loro.N,
+        L: window.__loro.L,
+        S: window.__loro.S,
+        visible: window.__loro.snapshot().visible,
+        // The dataset that is actually on the page — the object field-engine.js:103 reads.
+        metaName: window.MATURE_LORO.meta.name,
+        metaSynthetic: window.MATURE_LORO.meta.synthetic,
+        corpusRoot: window.MATURE_LORO.meta.corpusRoot,
+        records: window.MATURE_LORO.meta.counts.records,
+        dataSource: window.RichHome.state.dataSource,
+        dataIsCustomers: window.RichHome.state.dataIsCustomers,
+        noteShown: window.RichHome.state.noteShown,
+        offer: { ...window.RichHome.state.fieldOffer },
+        noteHidden: box.hidden,
+        noteDisplay: getComputedStyle(box).display,
+        inset: getComputedStyle(document.getElementById("home")).getPropertyValue("--home-note-inset").trim(),
+        liveTop: Math.round(live.top),
+        // The signals HUD, which is where a 0/0 would have printed the word NaN.
+        hud: Array.from(document.querySelectorAll("#home-signals .v[data-k]")).map((el) => el.dataset.k + "=" + el.textContent),
+        // The demonstration's 4.9 MB must not be on this page at all.
+        dataScript: Array.from(document.querySelectorAll("script[src]")).map((s) => s.getAttribute("src")).filter((s) => /field-data/.test(s)).length,
+      };
+    });
+
+    // 1. HIS PICTURE IS WHAT IS DRAWN.
+    assertEqual(r.N, OBJECTS, "the picture is not drawn from his corpus");
+    assert(r.L > 0 && r.S > 0, `his corpus drew no links or no sources (L=${r.L}, S=${r.S})`);
+    assert(r.visible > 0, "his corpus drew nothing on the screen");
+    assertEqual(r.dataScript, 0, "the demonstration's 4.9 MB dataset was loaded alongside his");
+    assertEqual(r.metaSynthetic, false, "the dataset on the page does not say it is his");
+    assert(!!r.corpusRoot, "the dataset does not name the corpus it came from");
+
+    // 2. AND THE SCREEN SAYS SO — derived from that dataset, not from the offer.
+    assertEqual(r.dataSource, "customer", "the banner's condition was not derived from the dataset");
+    assert(r.dataIsCustomers, "the screen does not believe this picture is his");
+    assert(r.noteHidden, "the banner is still up over the customer's own picture");
+    assertEqual(r.noteDisplay, "none", "the banner is hidden but still taking space");
+    assertEqual(r.noteShown, false, "state and DOM disagree about the banner");
+    assertEqual(r.inset, "0px", "the reservation the banner needed was not released");
+    assertEqual(r.offer.taken, true, "the offer was drawn but not recorded as taken");
+
+    // 3. NOTHING READS `NaN`. loro knows of no tasks and no minutes, so the HUD's division is
+    //    0/0 — which would have put the literal word NaN under "of your attention saved".
+    const nan = r.hud.filter((s) => /NaN|undefined/.test(s));
+    assertEqual(nan, [], "the HUD rendered a non-number: " + JSON.stringify(nan));
+
+    // 5. AND IT CLEARS THE CONTRAST FLOOR OVER ITS OWN BACKGROUND.
+    //
+    //    THIS IS NOT COVERED BY THE MEASUREMENT TWO CHECKS BELOW, and the reason is the
+    //    method. That one samples THE PIXEL THAT MINIMIZES CONTRAST WITH THE INK inside each
+    //    line box — so it measures the nebula that is actually behind the glyphs, and the
+    //    nebula is the dataset. A different corpus is a different background: different
+    //    density, different domain colors, different lights. The ink and the CSS are
+    //    identical here, which is exactly why the ink is not what has to be re-measured.
+    //
+    //    Every row is dark-mode only, and that is not an omission: §15's one permanent
+    //    exception is that the home screen is always dark, and the check below this one
+    //    proves the clamp holds over a CEO who has chosen light. No exemption is claimed for
+    //    anything on this list.
+    //    ONE THING HAS TO BE PUT BACK TO REST FIRST, and it is not a dataset fact.
+    //    `#home-enter` takes focus on a fresh load — `document.activeElement.id` is
+    //    `home-enter` and it matches `:focus-visible`, measured on a bare launch of both
+    //    datasets — so `home.css:922` puts a `0 0 0 2px rgba(194, 163, 92, 0.75)` ring around
+    //    it and `:910` makes its 0.7-alpha border opaque. An `edge` measurement then samples
+    //    the border against ITS OWN RING and reports 1.61:1: the same "measured against
+    //    itself" artifact the check below already steps past the breathing dot to avoid, one
+    //    indicator further out. Blurring measures the resting state, which is the state that
+    //    check measures, so the two are comparable.
+    //
+    //    AND THE FOCUSED STATE IS NOT LEFT UNANSWERED, because "the measurement was wrong"
+    //    is not the same sentence as "the pixels are fine". The ring composites to
+    //    rgb(148, 127, 78) over the composition's rgb(13, 19, 34); relative luminances
+    //    0.2202 and 0.006118, so (0.2202 + 0.05) / (0.006118 + 0.05) = **4.81:1** against the
+    //    ground it is drawn on — clear of the 3:1 a non-text indicator owes. Computed, not
+    //    eyeballed, and it is a pre-existing state this branch neither introduced nor changed
+    //    (geometry and every color are identical over both datasets).
+    await installMeter(p5);
+    // Blurred, and then WAITED OUT — `:focus-visible` stops matching on the blur, but
+    // `border-color` and the glow are transitioned, so `getComputedStyle` keeps returning the
+    // animated value for as long as the transition runs and a screenshot taken inside that
+    // window still has the ring in it. Read at the wrong moment this reported the ink as the
+    // opaque `rgb(194, 163, 92)` with the door's own ring behind it, 1.78:1, over a page whose
+    // door was already unfocused. The condition below is the resting border itself
+    // (`home.css:892`, `1px solid rgba(194, 163, 92, 0.7)`), so it waits for the fact rather
+    // than for a duration — and it is asserted, because a wait that silently stopped working
+    // would put this row back to measuring gold on gold while staying green.
+    await p5.evaluate(() => document.activeElement && document.activeElement.blur());
+    await p5.waitForFunction(
+      // `0\.70` and not `0\.7`: the resting value is `rgba(194, 163, 92, 0.706)` and the
+      // transition passes through 0.79 on the way to it, which `0\.7` would accept — a wait
+      // that stops one frame early is a measurement of a state nobody sees.
+      () => /^rgba\(194, 163, 92, 0\.70/.test(getComputedStyle(document.getElementById("home-enter")).borderTopColor),
+      { timeout: 5000 }
+    );
+    const rested = await p5.evaluate(() => {
+      const d = document.getElementById("home-enter");
+      return { focused: d.matches(":focus-visible"), hovered: d.matches(":hover"), border: getComputedStyle(d).borderTopColor };
+    });
+    assert(!rested.focused && !rested.hovered, "the door is not at rest, so its edge would be measured against its own ring");
+    const rows = await measure(p5, [
+      { name: "the mark, letterforms", sel: "#home-brand .p-ink", needs: 3, kind: "svg" },
+      { name: "owner line", sel: "#home-owner", needs: 4.5 },
+      { name: "sub line", sel: "#home-brand-line", needs: 4.5 },
+      // The HUD number, which over a customer's loro is where a zero renders.
+      { name: "signal number", sel: "#home-signals .sig .n .v", needs: 3 },
+      { name: "signal label", sel: "#home-signals .sig .l", needs: 4.5 },
+      { name: "Working now", sel: "#home-live .cap", needs: 4.5 },
+      { name: "the door's label", sel: "#home-enter .home-enter-label", needs: 4.5 },
+      { name: "the door's edge", sel: "#home-enter", needs: 3, kind: "edge", padX: 24 },
+      { name: '"Enter" under the door', sel: "#home-door-cap", needs: 4.5 },
+      { name: "a numbered button", sel: '.home-chip[data-entity="northwind"] .home-chip-rest', needs: 4.5 },
+      { name: "a numbered button's edge", sel: '.home-chip[data-entity="northwind"]', needs: 3, kind: "edge" },
+    ]);
+    const bad = failures(rows);
+    assertEqual(bad.length, 0, "over his own loro these are under the floor:\n" + reportRatios(bad));
+    const worst = Math.min.apply(null, rows.map((x) => x.ratio));
+
+    // 4. AND IT DREW CLEAN.
+    assertEqual(errors, [], "his corpus put errors in the console");
+    await p5.close();
+    return (
+      `${r.N} objects, ${r.L} links, ${r.S} sources, ${r.visible} on screen, from "${r.metaName}" ` +
+      `at ${r.corpusRoot} (${r.records} records in the corpus)\n          ` +
+      `synthetic=false -> dataSource "${r.dataSource}", banner display:none, --home-note-inset ${r.inset}, aside at y=${r.liveTop}\n          ` +
+      `field-data.js not loaded at all; HUD reads ${r.hud.join(", ")}\n          ` +
+      `door at rest (${rested.border}); ` +
+      `contrast over HIS background (dark, §15's permanent exception; no exemptions claimed): ` +
+      `${reportRatios(rows)}\n          worst on the screen: ${worst}:1`
     );
   });
 

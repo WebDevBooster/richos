@@ -233,6 +233,7 @@ fi
 _LEDGER_PY="$SCRIPT_DIR/../lib/worktree-ledger.py"
 _TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
 _AL_PY="$SCRIPT_DIR/../lib/agent-liveness.py"
+_RETIRE_PY="$SCRIPT_DIR/../lib/workspace-retire.py"
 BIND_PROBLEMS=()
 if [ "$is_readonly" -eq 0 ]; then
   if [ ! -f "$_TX_PY" ]; then
@@ -440,16 +441,58 @@ REGISTERED_WT="$(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | s
 MAIN_CO="$(printf '%s\n' "$REGISTERED_WT" | head -1)"
 
 PRESERVED_RESIDUE=()
+EXPLAINED_RESIDUE=()
 ZOMBIE_PROCS=()
 
-# (c) ZOMBIE RESIDUE DIRECTORIES — present on disk under
-# <main>/.claude/worktrees/ but ABSENT from the git registry. Absence does
-# not establish ownership or termination. Report these paths and preserve
-# every byte; a detector never authorizes directory removal.
+# (c) UNREGISTERED DIRECTORIES under <main>/.claude/worktrees/ — present on
+# disk, ABSENT from the git registry.
+#
+# ABSENCE IS NOT OWNERSHIP, AND IT NEVER WAS. Until a6c076c this loop reasoned
+# "unregistered == unowned == safe to auto-reap" and ran `rm -rf` on whatever
+# came out of a glob. That is the SAME inference that authorized the
+# 2026-09-05 deletion, reached independently in a second file: every clause is
+# equally true of a directory nobody has any information about. The deletion is
+# gone, and it stays gone — docs/workspace-retirement-safety.md is explicit
+# that restoring automatic erasure needs an enforced access boundary, not
+# another policy check that a policy check can be talked past.
+#
+# BUT A REPORT IS NOT A RULE EITHER. Preserving everything and telling the
+# operator "ownership is unknown" about every entry is the same glob wearing
+# calmer language: it hands back a retirement quarantine and a genuine mystery
+# in one undifferentiated list, and a list that cries wolf is a list somebody
+# stops reading. So the retirement journal is CONSULTED, and the two are named
+# apart:
+#
+#   EXPLAINED   — the journal holds a record for this exact path. This is the
+#                 recreated-original-path case: the workspace was retired, and
+#                 something put a directory back at its old address. The
+#                 operator is told WHAT it is and where the archive is, rather
+#                 than being sent to investigate from nothing.
+#   PRESERVED   — the journal says nothing about it. Genuinely unestablished.
+#
+# NEITHER IS REMOVABLE, and that is the finding rather than a limitation of the
+# implementation: the journal can say "this path was retired at T", and it can
+# never say "nobody owns this now". Nothing this detector can read establishes
+# a directory as ownerless, so the removable list is empty by construction and
+# no code path exists to act on one.
 if [ -n "$MAIN_CO" ] && [ -d "$MAIN_CO/.claude/worktrees" ]; then
   for d in "$MAIN_CO/.claude/worktrees"/*/; do
     [ -d "$d" ] || continue
     dir="$( cd "${d%/}" 2>/dev/null && pwd -P )" || continue
+    dbase="$(basename "$dir")"
+    # BELT AND BRACES, EXPLICITLY, AND SECOND. The quarantine container is
+    # QUARANTINE_DIRNAME=".richos-retired" and every quarantine inside it is
+    # named "<base>.richos-retired-ws-<id>-<stamp>Z" (workspace-retire.py).
+    # Both are dot-prefixed, so bash's default globbing already never matched
+    # them here — which is precisely why this is written down: the quarantine's
+    # safety was resting on the absence of `shopt -s dotglob` in this file, an
+    # invisible dependency that one unrelated line could remove without anyone
+    # connecting the two. The PRIMARY defense is that nothing is deleted at
+    # all; this is the second layer, and a name test is never allowed to be the
+    # first.
+    case "$dbase" in
+      .*|*.richos-retired-*) continue ;;
+    esac
     if printf '%s\n' "$REGISTERED_WT" | grep -qxF "$dir"; then
       continue
     fi
@@ -457,7 +500,71 @@ if [ -n "$MAIN_CO" ] && [ -d "$MAIN_CO/.claude/worktrees" ]; then
          | sed -n 's|^worktree ||p' | grep -qxF "$dir"; then
       continue
     fi
-    PRESERVED_RESIDUE+=("$dir")
+    # Ask the journal. It answers about this exact path or it answers nothing;
+    # an unreadable, absent or unparseable journal yields no explanation, which
+    # lands the entry in PRESERVED — the conservative side, where an entry
+    # nobody can account for belongs.
+    _WHY=""
+    if [ -f "$_RETIRE_PY" ]; then
+      _WHY="$(DIR="$dir" RETIRE_PY="$_RETIRE_PY" python3 - <<'PY' 2>/dev/null || true
+import importlib.util, os, sys
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod
+
+try:
+    wr = load("wr", os.environ["RETIRE_PY"])
+except Exception:
+    sys.exit(0)
+
+target = os.environ["DIR"]
+
+def same(a, b):
+    if not a or not b:
+        return False
+    a = a.rstrip("/"); b = b.rstrip("/")
+    if a == b:
+        return True
+    try:
+        return os.path.realpath(a) == os.path.realpath(b)
+    except Exception:
+        return False
+
+hits = []
+try:
+    for r in wr.read_records():
+        ws = r.get("workspace") or {}
+        q = r.get("quarantine") or {}
+        if same(ws.get("path"), target) or same(q.get("path"), target):
+            hits.append(r)
+except Exception:
+    sys.exit(0)
+
+if not hits:
+    sys.exit(0)
+last = hits[-1]
+ws = last.get("workspace") or {}
+q = last.get("quarantine") or {}
+bits = ["the retirement journal holds %d record(s) for this exact path" % len(hits)]
+bits.append("most recent: outcome '%s'%s at %s"
+            % (last.get("outcome") or "?",
+               (" (%s)" % last.get("reason_code")) if last.get("reason_code") else "",
+               last.get("ts") or "?"))
+if ws.get("id"):
+    bits.append("workspace %s" % ws["id"])
+if q.get("path"):
+    bits.append("its preserved copy is at %s" % q["path"])
+print("; ".join(bits))
+PY
+)"
+    fi
+    if [ -n "$_WHY" ]; then
+      EXPLAINED_RESIDUE+=("$dir -- $_WHY")
+    else
+      PRESERVED_RESIDUE+=("$dir")
+    fi
   done
 fi
 
@@ -511,16 +618,33 @@ if [ "${#WARN[@]}" -gt 0 ]; then
   } >&2
 fi
 
-if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
+if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
   {
     echo "============================================================"
     echo "  ZOMBIE WORKTREE RESIDUE — orphaned dir/process detected"
     echo "============================================================"
     echo ""
+    if [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ]; then
+      echo "EXPLAINED unregistered director(ies): the retirement journal accounts"
+      echo "for this exact path, so a directory is here at an address that was"
+      echo "already retired — something recreated it. Still preserved, still not"
+      echo "removed; it is named apart so it does not consume the attention the"
+      echo "unexplained entries below need:"
+      for r in "${EXPLAINED_RESIDUE[@]}"; do
+        echo "  - explained $r"
+      done
+      echo ""
+      echo "  Recover the retired copy with:"
+      echo "    python3 <engine>/scripts/lib/workspace-retire.py list"
+      echo "    python3 <engine>/scripts/lib/workspace-retire.py restore <ws-id> <dest>"
+      echo ""
+    fi
     if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ]; then
       echo "PRESERVED unregistered worktree directories: ownership is unknown."
-      echo "No directory was removed. Investigate the owner and recovery state"
-      echo "before making any lifecycle decision:"
+      echo "The retirement journal does not account for these, and nothing this"
+      echo "detector can read establishes a directory as ownerless. No directory"
+      echo "was removed. Investigate the owner and recovery state before making"
+      echo "any lifecycle decision:"
       for r in "${PRESERVED_RESIDUE[@]}"; do
         echo "  - preserved $r"
       done
@@ -567,7 +691,7 @@ if [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
   } >&2
 fi
 
-if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
+if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
   exit 2
 fi
 

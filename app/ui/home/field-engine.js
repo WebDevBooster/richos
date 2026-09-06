@@ -686,7 +686,18 @@ const fmt = (n) => n.toLocaleString('en-US');
 const USER = window.RICHOS_USER || { name: 'you' };
 const activeSpecialists = loro.specialists.filter(sp => sp.active);
 const landed = { sources: 0, memories: 0 };
-const hoursSaved = (tasksNoCeo) => Math.round(B.ceoMinutesSaved / 60 * tasksNoCeo / B.tasksHandledWithoutCeo);
+// APP: 0/0 IS `NaN`, AND `fmt(NaN)` PUTS THE WORD "NaN" IN THE HUD.
+//
+// The round's dataset states `ceoMinutesSaved` and `tasksHandledWithoutCeo`, so this was always
+// a division of two real numbers. A customer's loro states NEITHER — it holds no tasks and no
+// minutes — so `home_field.rs` sends 0 for both and says so in `meta.absent`, and the line
+// "of your attention saved" would read `NaN h`. Zero saved hours is what a corpus that knows of
+// no tasks knows; `NaN` is a defect wearing a number's clothes.
+//
+// IDENTICAL OVER THE ROUND'S DATA: `tasksHandledWithoutCeo` is 1,596 there (read out of
+// `home/field-data.js`, not remembered), so the guard is truthy and the expression evaluated is
+// the one that was approved, character for character.
+const hoursSaved = (tasksNoCeo) => (B.tasksHandledWithoutCeo ? Math.round(B.ceoMinutesSaved / 60 * tasksNoCeo / B.tasksHandledWithoutCeo) : 0);
 function signalsNow() {
   return { specialists: B.specialistsManaged, active: B.specialistsActiveNow, tasks: B.tasksHandledWithoutCeo, sources: B.sourcesUnderstood + landed.sources,
     decisions: B.decisionsRemembered, lessons: B.lessonsAccumulated, hours: hoursSaved(B.tasksHandledWithoutCeo), memories: N + landed.memories, months: B.monthsWorkingTogether };

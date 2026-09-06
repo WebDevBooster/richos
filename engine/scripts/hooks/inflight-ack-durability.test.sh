@@ -168,6 +168,40 @@ WT_GONE="$SANDBOX/wt/zach-opus-gone1"
 WT_NOACK="$SANDBOX/wt/zach-opus-noack1"
 WT_LOST="$SANDBOX/wt/zach-opus-lost1"
 
+# --- THE OWNERSHIP RECORDS A REAL REMOVAL REQUIRES -------------------------
+# The remover destroys nothing without BINDING and EVIDENCE: an ownership
+# record tying that owner to that exact path, plus a positive, witnessed
+# termination. Until 2026-09-05 it accepted the absence of both -- no record
+# names this path, no lock is held anywhere for this owner, therefore the owner
+# is dead, therefore delete -- and that reasoning is true of an owner string
+# naming nobody at all. It deleted the parent of every workspace on the machine.
+#
+# This suite's subject is what survives a REAL removal, and it insists on the
+# engine's own remover rather than an `rm` in a scratch directory. So it now has
+# to supply what a real removal requires, exactly as create-teammate-worktree.sh
+# does at creation and the reaper does when it witnesses a termination. Nothing
+# below relaxes the remover or reaches around it: it is the caller doing the job
+# a caller is supposed to do, and if these rows were absent the removal would
+# correctly refuse.
+#
+# lost1 is deliberately NOT registered. Case 8 needs it to stay registered with
+# git and presumed live; it is never removed, so it never needs the record.
+LEDGER_PY="$ENGINE_ROOT/scripts/lib/worktree-ledger.py"
+[ -f "$LEDGER_PY" ] || cannot_run "scripts/lib/worktree-ledger.py is missing, so no ownership record can be written and the sanctioned remover would correctly refuse every removal below."
+SEED_SESSION="deadbeef-1111-4000-8000-000000000000"
+ledger_record() { # <event> <agent-id> <worktree> [extra args...]
+    local event="$1" aid="$2" wt="$3"; shift 3
+    python3 "$LEDGER_PY" --ledger "$RICHOS_WORKTREE_LEDGER" record "$event" \
+        --agent-id "$aid" --worktree "$wt" "$@" >/dev/null 2>&1
+}
+ledger_record registered agone1-000000000000 "$WT_GONE" \
+    --teammate zach-opus-gone1 --session-id "$SEED_SESSION" \
+    --repo "$REPO" --branch wt-zach-opus-gone1 --class hand-rolled
+ledger_record registered anoack1-000000000000 "$WT_NOACK" \
+    --teammate zach-opus-noack1 --session-id "$SEED_SESSION" \
+    --repo "$REPO" --branch wt-zach-opus-noack1 --class hand-rolled
+[ -s "$RICHOS_WORKTREE_LEDGER" ] || cannot_run "the sandboxed ownership ledger at $RICHOS_WORKTREE_LEDGER is empty after seeding, so every removal below would refuse with owner-unbound and nothing after it could be tested."
+
 # main moves under all three — the whole failure, reproduced.
 echo "two" >> "$REPO/src/a.txt"
 git -C "$REPO" add -A
@@ -247,6 +281,14 @@ esac
 # ==========================================================================
 # 3. THE REAL REMOVAL — the engine's own remover, not an rm in a scratch dir
 # ==========================================================================
+# gone1 has finished, and that is a thing this suite KNOWS rather than infers
+# from a missing lock. In production the reaper writes this row when it observes
+# the isolation worktree registered-and-unlocked; here the suite writes it,
+# because the suite is what decided this teammate is done.
+ledger_record terminated agone1-000000000000 "$WT_GONE" \
+    --teammate zach-opus-gone1 \
+    --reason "the teammate finished and its termination was witnessed by the suite" \
+    --witness inflight-ack-durability.test.sh
 ROUT="$(bash "$REMOVER" --owner agone1-000000000000 --repo "$REPO" \
         --branch wt-zach-opus-gone1 --force --entity-repo "$REPO" "$WT_GONE" 2>&1)"
 RRC=$?
@@ -351,6 +393,10 @@ fi
 # A store that answered "acked" for everybody once their worktree was gone
 # would be worse than the bug. noack1 is now removed the same real way gone1
 # was; it must appear NOWHERE in the acks report for this tip.
+ledger_record terminated anoack1-000000000000 "$WT_NOACK" \
+    --teammate zach-opus-noack1 \
+    --reason "the teammate finished without acking and its termination was witnessed by the suite" \
+    --witness inflight-ack-durability.test.sh
 bash "$REMOVER" --owner anoack1-000000000000 --repo "$REPO" \
     --branch wt-zach-opus-noack1 --force --entity-repo "$REPO" "$WT_NOACK" >/dev/null 2>&1
 NRC=$?
