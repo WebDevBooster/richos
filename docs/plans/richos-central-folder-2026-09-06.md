@@ -26,6 +26,8 @@ I was given.
 | V4 | `--append-system-prompt-file` binds | `claude -p --setting-sources '' --append-system-prompt-file ./doctrine.md 'What is the codeword? One word.'` | `BLUEHERON` |
 | V5 | …and fails loudly when the file is absent | same, `--append-system-prompt-file ./no-such-file.md` | `EXIT=1`, `STDOUT BYTES=0`, `Error: Append system prompt file not found: …` |
 | V6 | 13 of 13 hook scripts the kit carries have drifted from the plugin's | `shasum -a 256` of each pair, `engine/scripts/hooks/*` vs `~/ab/claude-orchestration-kit/scripts/hooks/*` | **13 DRIFTED, 0 SAME** |
+| V7 | `--agents` delivers a company-scoped team under `--setting-sources ''` | `claude -p --setting-sources '' --agents '{"harbor-auditor": {…}}' 'List the subagent_type values available to your Task tool…'` | `claude, Explore, general-purpose, harbor-auditor, Plan, statusline-setup` |
+| V8 | The five ECS adapters are safe to double-fire | `grep -n "dedup\|idempot\|already\|seen" femcboost/scripts/hooks/ecs-hook.sh` | `:28  # Every store write is idempotent (turn, fingerprint and scope keys)` |
 
 **Two corrections to the numbers I was briefed with.** The brief said four folders carry hooks —
 femcboost 5, `claude-orchestration-kit` 11, prospects 1, deeply 1. Measured, with
@@ -292,7 +294,29 @@ drifted this far is worse than no guard, because it looks like protection.** Tha
 failure mode as the whole "rules follow the folder" arrangement, in miniature, and it is why this
 migration is a deletion rather than a move.
 
-### 3.3 What moves where
+### 3.3 This migration has already been run once, successfully, and it left a method
+
+I did not have to invent the classification step. `deeply` did exactly this, and its one surviving
+hook explains why it survived — `head -25 /Users/alex/ab/deeply/scripts/hooks/deeply-design-brief-gate.sh`:
+
+> *"deeply used to carry 26 hand-ported copies of the RichOS engine's mechanical layer. Those copies
+> are gone: the engine is now loaded BY REFERENCE as a Claude Code plugin … Before deleting them,
+> every one of the 26 was diffed against the engine's canonical version and classified. Exactly TWO
+> checks turned out to be things deeply had and the engine did not, and both are PRODUCT LAW rather
+> than orchestration mechanics — they encode deeply's own design rules, they name deeply's own wiki
+> pages, and they should never appear in a vendor-neutral engine."*
+
+That is the method, and it is the right one: **diff every folder hook against the canonical, and
+keep only what is product law.** 26 hooks in, 1 hook out, 25 deletions. It also supplies the
+distinction this document needs and had not named — *orchestration mechanics* is the person layer;
+*product law* is the company layer. `deeply-design-brief-gate.sh` is a company-layer guard that
+already exists, already works, and is currently delivered by the wrong channel.
+
+So `deeply` is not a folder to migrate. It is the worked example, one channel short: its guard is
+correctly classified and incorrectly delivered, and §3.4's table moves the delivery without
+touching the classification.
+
+### 3.4 What moves where
 
 | Guard | Layer | Destination | Delivery |
 |---|---|---|---|
@@ -308,7 +332,7 @@ The deletion in row 1 is a change to a different repository (`claude-orchestrati
 mine to make on this branch. It is named here because it is a **precondition** for anything else:
 while those 13 stale forks are live, a session in that folder gets the 404-line isolation guard.
 
-### 3.4 What becomes of the user-scope plugin registration
+### 3.5 What becomes of the user-scope plugin registration
 
 **It stays, and it becomes the definition of the person layer.** One property of it should change,
 and it is a real decision rather than a tidy.
@@ -338,7 +362,7 @@ string. Conflating them is how a customer ends up running a developer's branch.
 | **Person** | nothing | the mechanical guards — isolation, secret scanning, dialect, model ceiling, handoff logging | the engine plugin at user scope, `${CLAUDE_PLUGIN_ROOT}`-relative | **built and live** — §3.1 |
 | **Company** | per conversation | who this company is, what it makes, who it serves, its house rules, its vocabulary | **the priming turn**, re-issued on every thread switch | **channel exists, content does not** — §4.1 |
 | **Company** | per worker spawn | this company's own guards, its `env`, its permission posture | **`--settings` JSON** at spawn, which survives `--setting-sources ''` | **proven, unwired** — §4.2 |
-| **Company** | per company | the team this company draws workers from | agent definitions under `companies/<id>/team/`, passed with `--agents` | `unverified:` — §4.3 |
+| **Company** | per company | the team this company draws workers from | `--agents <json>` at spawn, composed from `companies/<id>/team/` | **proven, unwired** — §4.3 |
 | **Folder** | — | an address, and nothing else | `resolve_root`, lexical, fails closed | **built and correct** — §2.1 |
 
 ### 4.1 The company doctrine channel, and the proof it is per-company
@@ -416,17 +440,32 @@ workspace — the same resolution that already decides the thread's entity. Guar
 *company* imposes them, never because the *folder* declares them, and a folder that declares hooks
 RichOS did not compose is simply not read.
 
-### 4.3 The one part of the company layer I could not settle
+### 4.3 Per-company teams — the third channel, also measured
 
-`unverified:` whether per-company **teams** can be delivered the same way. Agent definitions reach a
-session through `.claude/agents/` (project scope, which we are switching off) or through a plugin's
-`agents` array — the engine plugin ships four that way. A `--agents` flag appears in the help text
-in the same list as `--append-system-prompt-file` and `--settings`. I did not test it. What would
-settle it: one run of
-`claude -p --setting-sources '' --agents <path-or-json> 'list the subagent types available to you'`,
-checking whether a company-scoped definition is offered. If it works, `companies/<id>/team/` is a
-directory and nothing more. If it does not, per-company teams need a plugin per company, which is a
-heavier answer and should be designed only once the question is actually asked.
+This was the part I expected to leave open, and it turned out to be one command. Agent definitions
+normally reach a session through `.claude/agents/` (project scope, which we are switching off) or a
+plugin's `agents` array (the engine plugin ships four that way, install-wide — which is the person
+layer, not the company layer). The question was whether a company's own team can be injected at
+spawn instead. It can (**V7**):
+
+```
+claude -p --setting-sources '' \
+  --agents '{"harbor-auditor": {"description": "Audits Harbor Analytics ledgers", …}}' \
+  'List the subagent_type values available to your Task tool…'
+-> claude, Explore, general-purpose, harbor-auditor, Plan, statusline-setup
+```
+
+The company-scoped definition is offered; the built-ins are still there; no settings source was
+read. So **`companies/<id>/team/` is a directory of definitions and nothing more**, composed into
+one `--agents` JSON object at spawn by the same `resolve_root` that picked the company. That
+answers his question directly: *different companies with their own set of workers* is a per-spawn
+argument, not an architecture.
+
+One boundary worth stating now rather than discovering later. The engine plugin's four meta-roles
+(`clark`, `dean`, `frank`, `reed`) are deliberately install-wide — its own manifest calls them
+*"the four meta-roles every operator needs regardless of what they build."* They are the person
+layer. A company adds to that set; it does not replace it. If a company ever needs to *remove* one,
+that is a new requirement and not something to design for speculatively.
 
 ---
 
@@ -476,12 +515,16 @@ Each step is safe to stop after. That is the property being bought.
 
 Step 3's deliberate double-firing is the one design choice here I would defend hardest. A hook that
 fires twice is a nuisance; a window in which it fires zero times is the thing we are migrating
-*away* from. Six of these hooks are idempotent notices and adapters, so double-firing costs a
-duplicate log line — which is why the overlap is affordable, and it should be checked per hook
-before step 3 rather than assumed for all six.
+*away* from.
 
 Steps 7, 8 and 9 are independent of 1–6 and of each other. Step 7 is in another repository. That
 independence is deliberate: §6.
+
+**Step 3's overlap is now measured rather than assumed.** All six hooks are safe to double-fire
+(V8): the five ECS adapters state their own idempotence at `ecs-hook.sh:28` — *"Every store write is
+idempotent (turn, fingerprint and scope keys)"* — and `deeply-design-brief-gate.sh` is a
+`PreToolUse[Agent]` gate, so firing it twice refuses twice and does nothing else. The overlap window
+therefore costs a duplicate log line and no correctness.
 
 ### 5.3 The two things that must not happen
 
@@ -508,7 +551,8 @@ in the left column requires no change to `app/**` and no new app capability.**
 | Split `identity.config` into `me/identity.config` + the six `company.md` files (§2.3) | The flip of `--setting-sources` to `''` |
 | Symlink `registry/entities.json` into `app_config_dir` (§2.4) — reads through today | A real pointer file plus the boot check that makes a missing target an error (§1.3) |
 | Delete the 13 stale forks in `claude-orchestration-kit` (different repo, no app involvement) | The first-run interview step and the `UnknownRoot` "is this a new company?" question |
-| Point the shipped marketplace at the installed engine rather than a checkout (§3.4) — a config change | Per-company teams, if `--agents` turns out to work (§4.3) |
+| Write the six `companies/<id>/team/` definition sets (§4.3) | Composing them into `--agents` at spawn |
+| Point the shipped marketplace at the installed engine rather than a checkout (§3.5) — a config change | The `UnknownRoot` "is this a new company?" question, and the companies screen behind it |
 
 The left column is most of the content and none of the risk. It is also the column that unblocks the
 other threads: a `company.md` that exists and is read by nothing is still the artifact everyone else
@@ -561,16 +605,24 @@ objection wins on the facts and I will have earned it.
 
 ## 8. Open questions, collected
 
-Four, in the order they would block something.
+Two remain. Two others were open when I drafted this and I settled them rather than shipping them
+as questions, because both cost one command:
 
-1. **`~/myrichos` or `~/ab/myrichos`?** His call, one line to change (V-basis, "one thing I did not
-   settle"). Blocks step 1 of §5.2 and nothing else.
-2. **Does `--agents` deliver a company-scoped team under `--setting-sources ''`?** One command
-   settles it (§4.3). Blocks per-company teams; blocks nothing else in this document.
-3. **Is each of the six company hooks idempotent under double-firing?** Six `head` reads settle it.
-   Blocks step 3 of §5.2, which is where the overlap happens.
-4. **Does `worktree.baseRef` matter to a managed worker?** Read `run_host.rs` and the managed
+- ~~Does `--agents` deliver a company-scoped team under `--setting-sources ''`?~~ **Yes** — V7, §4.3.
+- ~~Are the six company hooks safe to double-fire at step 3?~~ **Yes** — V8. The five ECS adapters
+  are explicitly idempotent (*"Every store write is idempotent (turn, fingerprint and scope keys)"*,
+  `ecs-hook.sh:28`) and `deeply-design-brief-gate.sh` is a `PreToolUse[Agent]` gate, whose
+  double-firing is a repeated refusal rather than a repeated effect.
+
+The two that are left:
+
+1. **`~/myrichos` or `~/ab/myrichos`?** His call, one line to change. Blocks step 1 of §5.2 and
+   nothing else. It is a naming preference, not a technical decision — which is why I have not
+   picked it for him.
+2. **Does `worktree.baseRef` matter to a managed worker?** Read `run_host.rs` and the managed
    worker's actual workspace handling. Blocks step 5, and is the one place I would want a second
-   pair of eyes before the flip.
+   pair of eyes before the flip — not because I think it breaks, but because step 5 is the step
+   whose precondition is an observation rather than an argument, and I have not made the
+   observation.
 
-None of the four blocks the left column of §6.
+Neither blocks the left column of §6, which is nine of the document's items and none of its risk.
