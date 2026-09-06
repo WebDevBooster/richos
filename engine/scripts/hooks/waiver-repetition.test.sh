@@ -214,6 +214,43 @@ write_repeated_class() {
     add 2026-09-01 beta  "the recipient is a live background teammate spawned minutes ago with native isolation:worktree and absent from the session roster by design; every write still lands in its own existing isolated worktree"
     add 2026-08-30 gamma "recipient is a currently-running background agent holding native isolation:worktree - background agents are absent from the session roster, and every write lands in its own existing isolated worktree as before"
 }
+
+# ---------------------------------------------------------------------------
+# THE SAME CLASS, DATED AGAINST THE REAL CLOCK — for the run_hook cases only.
+#
+# run_py is told what day it is (--today "$TODAY"), so absolute fixture dates
+# mean the same thing in it forever. THE WRAPPER CANNOT BE TOLD: it invokes the
+# analyzer with no --today, deliberately, because in production the day is the
+# day. So every run_hook case is evaluated against datetime.date.today(), and
+# an absolutely-dated fixture is worth less every morning.
+#
+# It expires on a date that can be named. ACTIVE_DAYS is 14, measured from the
+# NEWEST entry of a class, and the newest above is 2026-09-02 — so this fixture
+# stops being a repeated class on 2026-09-17, and cases 15 and 15b go red that
+# morning with nobody having changed anything. Measured on the shipped analyzer
+# rather than reasoned about:
+#
+#   --today 2026-09-16  ->  "fixture-hatch-guard.sh (3x one reason, 3 subjects over 3 days)"
+#   --today 2026-09-17  ->  no notice at all
+#
+# That is the identical defect the sandboxed config dir above fixes, one input
+# over: the wrapper path inherits the operator's machine, and the machine is
+# both its team directories AND its clock. Fixing half of it would have left a
+# dated bomb behind a green suite.
+#
+# The relative offsets are 0/1/2 days rather than the original 0/1/3, so the
+# class stays inside ACTIVE_DAYS on any day, and >= 2 distinct days keeps the
+# independence test (is_repeated) satisfied exactly as the absolute fixture did.
+# ---------------------------------------------------------------------------
+days_ago() { # <n> -> YYYY-MM-DD, n days before the REAL today
+    python3 -c 'import datetime,sys; print(datetime.date.today() - datetime.timedelta(days=int(sys.argv[1])))' "$1"
+}
+write_repeated_class_now() {
+    write_ledger
+    add "$(days_ago 0)" alpha "recipient is the currently-running teammate spawned this session with native isolation:worktree; background agents never appear in the session roster, so every write still lands in its own existing isolated worktree"
+    add "$(days_ago 1)" beta  "the recipient is a live background teammate spawned minutes ago with native isolation:worktree and absent from the session roster by design; every write still lands in its own existing isolated worktree"
+    add "$(days_ago 2)" gamma "recipient is a currently-running background agent holding native isolation:worktree - background agents are absent from the session roster, and every write lands in its own existing isolated worktree as before"
+}
 write_repeated_class
 if [ "$(sort -u "$LEDGER" | wc -l | tr -d ' ')" -eq 3 ]; then
     ok "4a. the fixture is three DISTINCT strings — exact-text grouping would see nothing"
@@ -432,7 +469,10 @@ else
     bad "14. the state key is stable while the situation is, and moves when it doubles" "K1=$K1 K2=$K2 K3=$K3"
 fi
 
-write_repeated_class
+# From here to the end of 15d the driver is run_hook, which cannot be told what
+# day it is — so the fixture is dated against the real clock. See
+# write_repeated_class_now.
+write_repeated_class_now
 
 # ===========================================================================
 # 15 — THE HOOK, END TO END. It says the sentence on the one channel measured
@@ -459,7 +499,7 @@ fi
 
 # 15c — and when the hatches go quiet, the operator is told the story ended.
 write_ledger
-add 2026-09-02 alpha "a single considered waiver, and nothing else"
+add "$(days_ago 0)" alpha "a single considered waiver, and nothing else"
 OUT="$(run_hook waivtst1)"; RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "clear again"; then
     ok "15c. a recovery is announced, so silence means no-change and not hope"
