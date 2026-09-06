@@ -993,6 +993,11 @@ async function openThread(threadId, opts) {
   if (stale()) return;
   if (mainView !== "conversation") return; // loadTimeline fell into the unbound state
   restoreThreadViewState(threadId);
+  // WHERE ONBOARDING STANDS FOR THIS THREAD'S COMPANY. Re-derived on every thread open
+  // rather than once at boot, because a thread's company is immutable and moving between
+  // threads can move between companies — a notice left over from the last one would be a
+  // claim about a company it was not derived for.
+  await renderFirstRunNotice();
   // Returning to a thread whose turn is still streaming picks its live state back up (§2:
   // "return to a running thread without losing its live state") — `loadTimeline` already
   // called `reviveLiveTurns()`, so the duration row resumes ticking from the real
@@ -3523,6 +3528,10 @@ async function chooseCompany(entityId) {
   await refreshNavigation();
   const activeId = next && next.active ? next.active.thread_id : null;
   if (activeId && threadRow(activeId)) await openThread(activeId);
+  // `openThread` renders it when there was a thread to open. When there was not — which is
+  // every launch that resolved no thread — this is the only call that reaches it, and a
+  // company he just chose is exactly the company the notice is about.
+  await renderFirstRunNotice();
   syncComposerMode();
   inputEl.focus();
 }
@@ -3564,6 +3573,9 @@ async function addCompany() {
   await refreshNavigation();
   const activeId = next && next.active ? next.active.thread_id : null;
   if (activeId && threadRow(activeId)) await openThread(activeId);
+  // The first company a first-run user adds is the one this notice exists for, and it is
+  // added AFTER boot — so the boot-time read found no binding and said nothing.
+  await renderFirstRunNotice();
   syncComposerMode();
   inputEl.focus();
 }
@@ -3907,6 +3919,172 @@ async function renderHistoryNotice() {
   el("history-notice-detail").textContent = health.detail;
   box.hidden = false;
 }
+
+// ---------------------------------------------------------------------------------------
+// THE FIRST-RUN NOTICE — the visible half of the onboarding offer
+// (`onboarding.rs`, `main.rs::onboarding_view`, `docs/plans/richos-first-run-notice-2026-09-06.md`)
+//
+// THE GAP THIS CLOSES, in the words of the engineer who left it: "The first-run sheet is not
+// built. Rich makes the offer in conversation; a CEO who does not read the first reply never
+// sees it." Measured (`docs/verification/onboarding-honesty-2026-09-06/`, cell D1), the offer
+// arrives inside a REPLY — so it requires him to type something first, and to read what comes
+// back. A person who opens RichOS and looks at the screen is told nothing, and what he is
+// looking at is an empty conversation.
+//
+// WHY IT IS NOT A FOURTH FIRST-RUN DIALOG. The design call and its reasoning are in the plan
+// above; the short version is that a modal has only two exits, and the third exit — "leave it
+// there, I will decide later" — is the honest answer at the one moment he has seen nothing.
+//
+// IT NEVER CONTRADICTS RICH, because it is not a second opinion. Both this and the priming
+// block are derived from `Spine::onboarding_state`, which is derived from the two facts on
+// disk. And the two controls each move that state BEFORE Rich's first turn: Start sends the
+// acceptance as an ordinary message, so his first turn is the yes; "Not now" records the
+// declination, so the next prime carries `DECLINED_BLOCK` and he is not offered again.
+// ---------------------------------------------------------------------------------------
+
+/// What is on screen right now, so a press can be answered without asking the backend twice.
+/// `null` until the first read. This is NOT a record of whether the notice was shown — it does
+/// not survive the launch, nothing reads it to decide anything, and `onboarding.rs`'s module
+/// doc bans the durable version of that idea by name.
+let firstRunState = null;
+
+const FIRST_RUN_HEADLINE = "I don't know anything about your business yet.";
+
+/// THE OFFER, in the register the rest of the app uses: what is missing, what it would take,
+/// and what it buys. Every clause is here for a reason and none of them is decoration.
+///
+///   * "There's nothing on file" — a fact about this install, not a failure of his.
+///   * "about twenty minutes" — the same words `OFFER_BLOCK` gives Rich, so the screen and
+///     the conversation quote one number.
+///   * "write your answers down, so I use them from then on" — the whole and only promise.
+///     It deliberately says NOTHING about the home screen: what is there is a worked example,
+///     his own corpus compiles to zero on a new install, and any copy implying "answer these
+///     and watch your company appear" is a lie the product cannot cover.
+///   * "You can stop partway, and 'not sure yet' is a real answer" — said before he can
+///     wonder. Alone, nobody is there to tell him deferral is honest, and an unanswered
+///     question otherwise reads as a failure to answer.
+///
+/// IT SURVIVES BEING SPOKEN. "I" is Rich throughout and "you" is the CEO throughout; the
+/// pronouns never trade places, which is the one thing that breaks when copy written for a
+/// screen is read aloud.
+const FIRST_RUN_BODY =
+  "There's nothing on file about what this company does, who it's for, or how you want to " +
+  "work. I can ask you about it — about twenty minutes — and write your answers down, so I " +
+  "use them from then on. You can stop partway, and \"not sure yet\" is a real answer to any " +
+  "of it.";
+
+/// WHAT THE SECOND BUTTON DOES, stated beside the button rather than crammed into its label.
+/// The write is durable and it stops Rich offering, which "Not now" cannot carry in two
+/// syllables and stay speakable. Both halves are here because either alone is misleading:
+/// the first without the second reads as a permanent door closing, and the second without the
+/// first reads as a button that does nothing.
+const FIRST_RUN_CONSEQUENCE =
+  '"Not now" means I\'ll stop offering. You can start it any time by asking.';
+
+/// THE RECEIPT, and it is deliberately not a celebration. He pressed a button that wrote
+/// something down; a panel that simply vanished would leave him no way to know whether it
+/// did. It names the way back in the same breath, and it is gone at the next launch — the
+/// state is `declined` by then, so nothing renders.
+const FIRST_RUN_DECLINED_RECEIPT =
+  "Left with you. Ask me any time and we'll go through it.";
+
+/// THE ACCEPTANCE, sent as an ordinary message on the ordinary path.
+///
+/// It goes through `send()` — the same function the composer uses — so the turn in the record
+/// is a message the CEO sent, because he did send it: he pressed a button that says exactly
+/// this. Nothing here talks to the interview directly. `OFFER_BLOCK` already tells Rich what
+/// to do when the answer is yes, and a second, private route into the same skill would be a
+/// second thing to keep in step with it.
+const FIRST_RUN_ACCEPT_MESSAGE = "Let's do the twenty minutes of questions about my business.";
+
+/// Read where onboarding stands and paint it — or paint nothing, which is the answer in three
+/// of the five states.
+///
+/// `described` and `no-central-folder` render nothing, for different reasons that are worth
+/// keeping apart. `described` is the finished state. `no-central-folder` is "nothing has
+/// looked" — there is nowhere for his answers to go yet, and offering to write down twenty
+/// minutes of answers that have no home is the one thing this notice must never do. The
+/// memory question earlier in the first-run chain is the surface that owns that condition.
+async function renderFirstRunNotice() {
+  const box = el("first-run");
+  if (!box) return;
+  const view = await invokeQuiet("onboarding_view");
+  firstRunState = view || null;
+  const state = view && view.state;
+  if (state !== "not-yet" && state !== "unusable") {
+    box.hidden = true;
+    return;
+  }
+  box.dataset.state = state;
+  el("first-run-error").hidden = true;
+  if (state === "unusable") {
+    // THE ONE STATE THAT NEEDS A PERSON, and the only one that draws no button — there is
+    // nothing here he could press that would fix it, and a control for a thing no control can
+    // do teaches him the controls are decorative. BOTH sentences are composed in Rust and
+    // rendered as they stand: "I could not read your notes" and "you have no notes" are
+    // different statements and this surface is never in a position to substitute one for the
+    // other.
+    el("first-run-headline").textContent = view.headline || "";
+    el("first-run-body").textContent = view.message || "";
+    el("first-run-consequence").hidden = true;
+    el("first-run-actions").hidden = true;
+  } else {
+    el("first-run-headline").textContent = FIRST_RUN_HEADLINE;
+    el("first-run-body").textContent = FIRST_RUN_BODY;
+    el("first-run-consequence").textContent = FIRST_RUN_CONSEQUENCE;
+    el("first-run-consequence").hidden = false;
+    el("first-run-actions").hidden = false;
+  }
+  box.hidden = false;
+}
+
+/// HE ACCEPTS. The notice closes because the conversation now carries the question, and a
+/// panel offering what is already happening is clutter.
+async function startFirstRunInterview() {
+  el("first-run").hidden = true;
+  inputEl.value = FIRST_RUN_ACCEPT_MESSAGE;
+  autoGrow();
+  await send();
+}
+
+/// HE SAYS NOT NOW. The write happens FIRST and the panel only changes if it succeeded.
+///
+/// A refusal keeps the notice open and says so. Closing it on a failed write would put him
+/// back in the offered-forever state behind a screen that told him he had settled it, which
+/// is the shape of failure this whole line of work exists to remove — reporting success over
+/// work that did not happen.
+async function declineFirstRunInterview() {
+  const later = el("first-run-later");
+  const err = el("first-run-error");
+  later.disabled = true;
+  try {
+    firstRunState = await Bridge.invoke("decline_onboarding");
+  } catch (e) {
+    err.textContent = String(e);
+    err.hidden = false;
+    later.disabled = false;
+    return;
+  }
+  later.disabled = false;
+  err.hidden = true;
+  // The panel becomes a receipt, and the receipt is not a panel — `data-state` is what drops
+  // the border, the fill and the semibold headline, because a quiet acknowledgement wearing a
+  // panel's chrome reads as a fresh announcement.
+  el("first-run").dataset.state = "declined";
+  el("first-run-headline").textContent = FIRST_RUN_DECLINED_RECEIPT;
+  el("first-run-body").textContent = "";
+  el("first-run-consequence").hidden = true;
+  el("first-run-actions").hidden = true;
+}
+
+el("first-run-start").addEventListener("click", startFirstRunInterview);
+el("first-run-later").addEventListener("click", declineFirstRunInterview);
+
+/// RE-READ WHERE ONBOARDING STANDS. Same contract as `__RICHOS_HISTORY_NOTICE__`: no
+/// arguments, no invented state, calls the same command the boot path calls and paints
+/// whatever comes back — so a suite can never put a notice on screen the backend did not
+/// produce.
+window.__RICHOS_FIRST_RUN__ = () => renderFirstRunNotice();
 
 /// Ask, or say what is wrong, or do nothing at all. Returns true when a dialog opened, so
 /// `init` can hold the company question back rather than stacking it.
@@ -5731,6 +5909,12 @@ async function init() {
   // the sentence explaining why part of it is missing is on screen with the part that
   // survived, rather than arriving after he has already read what is there.
   await renderHistoryNotice();
+  // WHERE ONBOARDING STANDS, read at the same moment and for the same reason: it is a
+  // statement about the conversation below it, so it is on screen with what it is about
+  // rather than arriving after he has already read what is there. It paints nothing until a
+  // company is bound, which on a true first run is after the picker is answered — and
+  // `chooseCompany`/`addCompany` call it again there.
+  await renderFirstRunNotice();
   // WHICH COMPANY THIS COPY OF RICH IS FOR, read before the branch below, because the
   // branch below is where a launch that resolved none used to fall into the wrong arm.
   await refreshEntityChoice();

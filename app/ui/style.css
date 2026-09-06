@@ -658,6 +658,166 @@ button {
   color: var(--ink);
 }
 
+/* THE FIRST-RUN NOTICE — the visible half of the onboarding offer, at the head of the
+   conversation it is about (`onboarding.rs`, `main.rs::onboarding_view`, and the design
+   call in `docs/plans/richos-first-run-notice-2026-09-06.md`).
+
+   IT DELIBERATELY DOES NOT LOOK LIKE `.history-notice` DOES. That panel is bordered in
+   `--attention` because something went wrong and he may need to act. Nothing has gone wrong
+   here: a new install not knowing his business is the correct state of a new install, and
+   painting it in the app's one "needs you" color would be false urgency — the product
+   asking for a hand it does not need. The border is `--line-control`, the token this file
+   reserves for indicator-grade edges, and the accent appears exactly once, on the control
+   that starts the thing.
+
+   EVERY RATIO BELOW WAS COMPUTED, NOT EYEBALLED (CLAUDE.md §"Contrast — WCAG AA, ALWAYS,
+   BOTH THEMES"), by compositing each token against the surface it is actually painted on.
+   The panel is `--surface-raised` over `--paper`, so both are checked where a token touches
+   both. Floors: 4.5:1 normal text, 3:1 large text and non-text indicators.
+
+     headline      --ink on panel                        dark 13.02:1  light 17.02:1
+     body          --ink on panel                        dark 13.02:1  light 17.02:1
+     consequence   --ink-soft on panel                   dark  6.09:1  light  6.24:1
+     receipt       --ink-soft on panel                   dark  6.09:1  light  6.24:1
+     unusable head --attention on panel                  dark  7.05:1  light  6.19:1
+     unusable body --ink on panel                        dark 13.02:1  light 17.02:1
+     error line    --danger on panel                     dark  6.30:1  light  7.65:1
+     Start label   --on-gold on --accent                 dark  7.68:1  light  4.72:1
+     Start fill    --accent vs the panel behind it       dark  6.87:1  light  3.60:1
+     Not now label --ink on panel                        dark 13.02:1  light 17.02:1
+     Not now edge  --line-control vs panel               dark  4.09:1  light  3.82:1
+     Not now hover --accent-text on panel                dark  6.87:1  light  6.26:1
+     panel border  --line-control vs panel / vs paper    dark  4.09:1 / 4.57:1
+                                                         light 3.82:1 / 3.35:1
+     focus ring    --accent vs panel / vs paper          dark  6.87:1 / 7.68:1
+                                                         light 3.60:1 / 3.15:1
+
+   NOTHING HERE IS EXEMPT AND NOTHING HERE CLAIMS TO BE. Every line is text the CEO is meant
+   to read — including the consequence line, which is the only place the effect of the second
+   button is stated, and which would be exactly the kind of thing an exemption gets claimed
+   for. 1rem = 16px at the default scale, the floor for text meant to be easily read
+   (ceo-decisions §15); the headline is 1.0625rem and still takes the 4.5:1 normal-text tier,
+   because 17px is under the 18.66px-bold large-text threshold and rounding a tier down is
+   how a "large text" pass gets claimed for text that is not large. */
+/* IT SITS IN THE CONVERSATION'S OWN COLUMN, and that is not a detail. `#conversation`'s
+   children are full-bleed by default and `#messages` is not: it is `--reading-width` wide,
+   centered, with 28px gutters. A panel that ignored that ran the full width of the pane while
+   every sentence below it started 80px further in — which reads as browser chrome bolted on
+   above the product rather than as the first thing in the conversation, and it was visible
+   the moment this was first put on screen. `calc(--reading-width - 56px)` is exactly the
+   column `#messages` lays its text in, so the panel's edges land on the same two verticals as
+   Rich's own words. */
+.first-run {
+  max-width: calc(var(--reading-width) - 56px);
+  margin: 28px auto 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line-control);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+.first-run-headline {
+  margin: 0 0 10px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* THE UNUSABLE STATE IS THE ONE THAT NEEDS A PERSON, so it is the only one that changes
+   hue — and it changes the headline and the border together, never the border alone. A
+   state carried by one hue is a state that does not exist for anyone who cannot separate
+   two hues, which is the same reason `--danger` and `--success` were pulled out of a
+   theme-blind block further up this file. */
+.first-run[data-state="unusable"] {
+  border-color: var(--attention);
+}
+
+.first-run[data-state="unusable"] .first-run-headline {
+  color: var(--attention);
+}
+
+/* THE RECEIPT IS NOT A PANEL. He pressed "Not now", so the panel's job is over; what is left
+   is one line confirming that something was written down and naming the way back. Keeping the
+   border, the fill and the 17px semibold headline for that line made a quiet acknowledgement
+   look like a fresh announcement — seen on screen and fixed here rather than shipped. The
+   chrome goes, the padding goes with it so the line sits on the same vertical as Rich's own
+   words, and the type drops to the body tier.
+
+   `--ink-soft` now sits on `--paper` rather than on the panel, so it is computed again against
+   what it is actually painted on: dark 6.47:1, light 5.86:1, both over the 4.5:1 floor. It is
+   16px, the floor for text meant to be easily read; it is a receipt for an action he took and
+   claims no exemption. */
+.first-run[data-state="declined"] {
+  border-color: transparent;
+  background: none;
+  padding: 0;
+}
+
+.first-run[data-state="declined"] .first-run-headline {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.first-run-body {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.first-run-consequence {
+  margin: 10px 0 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.first-run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* THE SECOND CONTROL. Not `.desk-btn`: that class draws its edge in `--line`, which this
+   file defines as a DIVIDER, and a divider is decoration where this outline is the only
+   thing on screen saying "this is a button". `--line-control` is the token reserved for
+   exactly that, and it is the same choice `.composer-blocked-btn` already made for the same
+   reason. The label is `--ink` rather than `--ink-soft`: "Not now" is one of two answers to
+   the question above it, not a lesser one, and graying out the honest answer is a way of
+   leaning on him. */
+.first-run-btn {
+  background: none;
+  border: 1px solid var(--line-control);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.first-run-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+#first-run-start:focus-visible,
+.first-run-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.first-run-error {
+  margin: 12px 0 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
 /* The flat `.turn` chat-bubble rendering that used to live here is GONE. It modelled the
    conversation as alternating user/assistant strings, which §12 explicitly forbids
    ("Do not model the conversation as alternating `user` and `assistant` strings. Use typed

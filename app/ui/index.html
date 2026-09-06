@@ -348,6 +348,57 @@
             <p id="history-notice-headline" class="history-notice-headline"></p>
             <p id="history-notice-detail" class="history-notice-detail"></p>
           </section>
+          <!-- THE FIRST-RUN NOTICE — the VISIBLE half of the onboarding offer.
+               (`main.rs::onboarding_view`, `onboarding.rs`, `docs/plans/richos-first-run-notice-2026-09-06.md`)
+
+               THE GAP IT CLOSES, in the words of the engineer who left it: "The first-run
+               sheet is not built. Rich makes the offer in conversation; a CEO who does not
+               read the first reply never sees it." The offer reaches him ONLY inside a reply,
+               and only after he types something first. A person who opens RichOS, looks at
+               the screen and types nothing is told nothing — and what he is looking at is
+               this pane, empty.
+
+               WHY IT IS HERE AND NOT A FOURTH FIRST-RUN DIALOG. The three dialogs before the
+               home screen ask for things RichOS cannot work without — a binary, a memory
+               folder, a company. The interview is not in that class, and putting it in that
+               queue would teach him it is. Worse, a modal has only two exits, so a dismissal
+               that is not recorded nags forever and one that is recorded is a refusal he
+               never really made; this has a third exit a modal cannot have, which is to leave
+               it there and decide later. It also sits in the pane the interview will actually
+               fill, so pressing Start puts a real first turn in it rather than handing off
+               across a seam.
+
+               IT IS THE EMPTY STATE TOO, and that is not a bonus. After the first-run chain
+               the conversation is an unbroken field with a composer at the bottom — verified
+               on the shipping shell under WebKit, 2026-09-06 — which reads as a fault rather
+               than as a beginning.
+
+               ONE FACT, NOT A FLAG. What it shows is derived from `Spine::onboarding_state`,
+               which is derived from the same two facts on disk the priming block is derived
+               from, so this notice and what Rich is primed with cannot disagree. Nothing
+               anywhere records that it was SHOWN. -->
+          <section id="first-run" class="first-run" role="status" hidden>
+            <p id="first-run-headline" class="first-run-headline"></p>
+            <p id="first-run-body" class="first-run-body"></p>
+            <!-- WHAT THE SECOND BUTTON DOES, IN WORDS, BESIDE THE BUTTON. "Not now" is two
+                 syllables and the thing it writes is durable: Rich stops offering. A label
+                 cannot carry that and stay speakable, so the consequence is stated here
+                 instead of being crammed into it or left to be discovered. It is text meant
+                 to be read — it is the only place the effect of a control is stated — so it
+                 takes the 16px floor and the 4.5:1 floor and claims no exemption. -->
+            <p id="first-run-consequence" class="first-run-consequence"></p>
+            <div id="first-run-actions" class="first-run-actions" hidden>
+              <button id="first-run-start" class="desk-btn desk-btn--confirm" type="button">
+                Start the questions
+              </button>
+              <button id="first-run-later" class="first-run-btn" type="button">Not now</button>
+            </div>
+            <!-- A REFUSED WRITE IS SAID, NEVER SWALLOWED. If `decline_onboarding` cannot
+                 record the answer, the notice stays open and says so: closing it would leave
+                 him in the asked-forever state behind a screen that told him he had settled
+                 it, which is this project's own named failure mode. -->
+            <p id="first-run-error" class="first-run-error" role="alert" hidden></p>
+          </section>
           <!-- WHY THERE IS NO MACHINERY, when there is none. Four states, three sentences,
                all of them written in Rust (`src-tauri/src/machinery_view.rs`) and rendered
                verbatim here — "no machinery was recorded for this conversation" and "I
