@@ -670,6 +670,79 @@ else
     bad "the merge refusal does not name itself: $GOUT"
 fi
 
+# JSON escaping can exceed the OS environment limit while the decoded command
+# still fits execve. Feed real payload files so the fixture cannot share that bug.
+set -- $(mk_pair jsontransport); REC="$1"; WORK="$2"
+OLD="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "| 3.1 | still open | **State:** \`OPEN\` — \`work/lib/thing.js\`@\`$OLD\` |"
+commit_record "$REC"
+transport_payload() {
+    python3 - "$WORK" "$1" "${2:-ordinary}" > "$SCRATCH/transport.json" <<'PY_TRANSPORT'
+import json, sys
+pad = '\n' * int(sys.argv[2])
+command = ("git commit -m '" + pad + "Item 3.1 engineering half.'"
+           if sys.argv[3] == 'claim' else pad + 'git commit -m test')
+payload = json.dumps({'tool_name': 'Bash', 'cwd': sys.argv[1],
+                      'tool_input': {'command': command}})
+assert len(command.encode()) < 131072
+if pad:
+    assert len(payload.encode()) > 131072
+print(payload)
+PY_TRANSPORT
+}
+for PAD in 0 70000; do
+    transport_payload "$PAD"
+    GOUT="$("$BASH_BIN" "$GUARD" < "$SCRATCH/transport.json" 2>&1)"; GRC=$?
+    if [ "$GRC" -eq 0 ] && grep -F 'PREMISE CENSUS' <<< "$GOUT" >/dev/null; then
+        ok "valid JSON transport clean command preserves measured pass (padding=$PAD)"
+    else
+        bad "valid JSON clean command was skipped or refused (padding=$PAD rc=$GRC): $GOUT"
+    fi
+done
+transport_payload 70000 claim
+GOUT="$("$BASH_BIN" "$GUARD" < "$SCRATCH/transport.json" 2>&1)"; GRC=$?
+if [ "$GRC" -eq 2 ] && grep -F 'CLAIM-UNANSWERED' <<< "$GOUT" >/dev/null; then
+    ok "large escaped commit message retains its actual row claim"
+else
+    bad "large escaped commit message lost its claim (rc=$GRC): $GOUT"
+fi
+printf 'changed implementation\n' > "$WORK/lib/thing.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+for PAD in 0 70000; do
+    transport_payload "$PAD"
+    GOUT="$("$BASH_BIN" "$GUARD" < "$SCRATCH/transport.json" 2>&1)"; GRC=$?
+    if [ "$GRC" -eq 2 ] && grep -F 'ROW-STALE' <<< "$GOUT" >/dev/null; then
+        ok "valid JSON transport stale command preserves refusal (padding=$PAD)"
+    else
+        bad "valid JSON stale command escaped refusal (padding=$PAD rc=$GRC): $GOUT"
+    fi
+done
+# A failed classifier process must not be reported as an unrelated command.
+PYTHON_REAL="$(command -v python3)"
+mkdir -p "$SCRATCH/classifier-failure"
+cat > "$SCRATCH/classifier-failure/python3" <<'PYTHON_FAILURE'
+#!/usr/bin/env bash
+case "${2:-}" in *'heredocs = {}'*) exit 73 ;; esac
+exec "$TRANSPORT_REAL_PYTHON" "$@"
+PYTHON_FAILURE
+chmod +x "$SCRATCH/classifier-failure/python3"
+transport_payload 0
+GOUT="$(PATH="$SCRATCH/classifier-failure:$PATH" TRANSPORT_REAL_PYTHON="$PYTHON_REAL" "$BASH_BIN" "$GUARD" < "$SCRATCH/transport.json" 2>&1)"; GRC=$?
+if [ "$GRC" -eq 2 ] && grep -F 'command classifier could not run' <<< "$GOUT" >/dev/null; then
+    ok "classifier execution failure refuses instead of silently standing down"
+else
+    bad "classifier execution failure did not refuse (rc=$GRC): $GOUT"
+fi
+
+# The shared JSON utility preserves large text byte-for-byte as well.
+JSON_TEXT="$(python3 -c 'import sys; sys.stdout.write("x" * 150000 + "\n\\\"tail")')"
+JSON_ENCODED="$(source "$ENGINE_ROOT/scripts/lib/row-currency.sh"; rc_json_string "$JSON_TEXT")"; JSON_RC=$?
+if [ "$JSON_RC" -eq 0 ] && python3 -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin) == "x" * 150000 + "\n\\\"tail" else 1)' <<< "$JSON_ENCODED"; then
+    ok "shared JSON serialization preserves text larger than an environment entry"
+else
+    bad "shared JSON serialization lost large text (rc=$JSON_RC)"
+fi
+
 # Large real predicate output must not turn either a refusal or a clean result
 # into SIGPIPE. Closed rows emit notes without hundreds of extra Git lookups.
 set -- $(mk_pair largeverdict); REC="$1"; WORK="$2"

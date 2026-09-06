@@ -539,7 +539,7 @@ rc_pending_tree() {
 # rc_json_string <text>
 # ---------------------------------------------------------------------------
 rc_json_string() {
-    RC_JSON_IN="${1-}" python3 -c 'import json,os,sys; sys.stdout.write(json.dumps(os.environ.get("RC_JSON_IN","")))'
+    printf '%s' "${1-}" | python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read()))'
 }
 
 # ---------------------------------------------------------------------------

@@ -188,7 +188,7 @@ def out(*fields):
     raise SystemExit
 
 try:
-    d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
+    d = json.load(sys.stdin)
 except Exception:
     out("PASS")
 if not isinstance(d, dict) or d.get("tool_name") != "Bash":
@@ -440,7 +440,12 @@ for seg in segments:
 out("PASS")
 PYEOF
 
-CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_RC_CLASSIFIER" 2>/dev/null || printf 'PASS')"
+# A valid escaped payload can exceed the OS environment-entry limit even
+# when its decoded shell command fits. An execution failure is not a PASS.
+CLASS="$(python3 -c "$_RC_CLASSIFIER" <<< "$INPUT" 2>/dev/null)" || {
+    echo "ERROR: guard-row-currency-commits.sh: command classifier could not run; refusing." >&2
+    exit 2
+}
 KIND="$(printf '%s' "$CLASS" | cut -f1)"
 [ "$KIND" = "ACT" ] || exit 0
 
@@ -558,8 +563,11 @@ git -C "$RC_RECORD_REPO" show "HEAD~1:$RC_RECORD_REL" > "$B2" 2>/dev/null || rm 
 MSGF="-"
 if [ -n "$MSG_JSON" ]; then
     MSGF="$WORK/message.txt"
-    RC_MSG_JSON="$MSG_JSON" python3 -c 'import json,os,sys
-sys.stdout.write(json.loads(os.environ["RC_MSG_JSON"]))' > "$MSGF" 2>/dev/null || MSGF="-"
+    python3 -c 'import json,sys
+sys.stdout.write(json.load(sys.stdin))' <<< "$MSG_JSON" > "$MSGF" 2>/dev/null || {
+        echo "ERROR: guard-row-currency-commits.sh: commit message could not be decoded; refusing." >&2
+        exit 2
+    }
 fi
 
 JOB="$WORK/job.json"

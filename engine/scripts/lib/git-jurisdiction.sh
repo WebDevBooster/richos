@@ -123,10 +123,12 @@
 #
 #       prints ONE line:   <how><TAB><anchor>
 #
-#         how    -C | git-dir | cd | cwd | unresolved-cd | unparsed | no-python
+#         how    -C | git-dir | cd | cwd | unresolved-cd | unparsed
 #         anchor an absolute path, or empty when nothing could be resolved at
 #                all (the caller falls back to $PWD, as it always did)
 #
+# Returns 2 without an anchor if the resolver cannot execute. Callers must
+# refuse rather than treating that failure as permission to use another repo.
 # Safe to source repeatedly. Never changes the caller's cwd. Never touches git.
 
 if [ -n "${_GIT_JURISDICTION_SH_SOURCED:-}" ]; then
@@ -327,7 +329,7 @@ def walk(toks, cwd):
 
 def main():
     try:
-        d = json.loads(os.environ.get("GJ_PAYLOAD") or "{}")
+        d = json.load(sys.stdin)
     except Exception:
         d = {}
     if not isinstance(d, dict):
@@ -374,13 +376,16 @@ PYEOF
 # richos_git_anchor <payload-json> [verbs]
 # ---------------------------------------------------------------------------
 richos_git_anchor() {
-    local payload="${1:-}" verbs="${2:-}"
+    local payload="${1:-}" verbs="${2:-}" result
     if ! command -v python3 >/dev/null 2>&1; then
-        # Every caller of this already refuses without python3 (fail-closed),
-        # so this line exists to be honest about WHY rather than to be relied on.
-        printf 'no-python\t\n'
-        return 0
+        echo "ERROR: Git jurisdiction resolver could not run: python3 is missing; refusing." >&2
+        return 2
     fi
-    GJ_PAYLOAD="$payload" GJ_VERBS="$verbs" python3 -c "$_GJ_RESOLVER" 2>/dev/null \
-        || printf 'no-python\t\n'
+    # JSON escaping can exceed execve's environment-entry limit while the
+    # decoded command still fits. Stdin carries the full payload without it.
+    result="$(GJ_VERBS="$verbs" python3 -c "$_GJ_RESOLVER" <<< "$payload" 2>/dev/null)" || {
+        echo "ERROR: Git jurisdiction resolver could not run; refusing without a target." >&2
+        return 2
+    }
+    printf '%s\n' "$result"
 }

@@ -85,6 +85,36 @@ how_of() {    # <command> <cwd> [verbs] -> prints how
 
 echo "=== git-jurisdiction.test.sh ==="
 
+# The JSON can be larger than one execve environment entry even when its
+# decoded shell command is small enough to execute.
+LARGE_PAYLOAD="$(python3 - <<'PY_LARGE_JSON'
+import json
+command = '\n' * 70000 + 'cd /tmp/actual-target && git commit -m test'
+payload = json.dumps({'tool_name': 'Bash', 'cwd': '/tmp/seat',
+                      'tool_input': {'command': command}})
+assert len(command) < 131072 < len(payload)
+print(payload)
+PY_LARGE_JSON
+)"
+LARGE_RESULT="$(richos_git_anchor "$LARGE_PAYLOAD" commit)"; LARGE_RC=$?
+if [ "$LARGE_RC" -eq 0 ] && [ "$LARGE_RESULT" = $'cd\t/tmp/actual-target' ]; then
+    ok "large escaped JSON preserves the actual Git target"
+else
+    bad "large escaped JSON lost its Git target (rc=$LARGE_RC): $LARGE_RESULT"
+fi
+# The same transport may not silently choose cwd after its Python process fails.
+mkdir -p "$SCRATCH/resolver-failure"
+printf '#!/usr/bin/env bash\nprintf \"cwd\\t/tmp/wrong\\n\"\nexit 73\n' > "$SCRATCH/resolver-failure/python3"
+chmod +x "$SCRATCH/resolver-failure/python3"
+ERROR_RESULT="$(PATH="$SCRATCH/resolver-failure:$PATH" richos_git_anchor "$LARGE_PAYLOAD" commit 2> "$SCRATCH/resolver-error")"; ERROR_RC=$?
+if [ "$ERROR_RC" -eq 2 ] && [ -z "$ERROR_RESULT" ] &&
+   grep -F 'Git jurisdiction resolver could not run' "$SCRATCH/resolver-error" >/dev/null; then
+    ok "resolver execution failure returns a blocking error without a guessed target"
+else
+    bad "resolver execution failure invented a target or passed (rc=$ERROR_RC): $ERROR_RESULT"
+fi
+
+
 # ---------------------------------------------------------------------------
 echo "--- (a) the resolution"
 # ---------------------------------------------------------------------------
