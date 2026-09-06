@@ -224,6 +224,26 @@ declare_rules() {
     '^\[richos\] company registry: [0-9]+ compan(y|ies) from /.+$' \
     'the company list this install owns, read and trusted (entity.rs::load, 8dde942/ea91fa2)'
 
+  # THE CENTRAL FOLDER, held as a PROOF rather than as a fact about a setting, because the
+  # `(present)` half is `root.is_dir()` — the boot checking the world, not reporting a path it
+  # was handed. `richos-central-folder-2026-09-06.md` §1.3 is the reason it may not be routine:
+  # this machine already carries four `corpus.*` symlinks pointing at a directory that is not
+  # there, and the rule that stops the fifth is that a pointer is checked at boot and a missing
+  # target is a failure rather than a fallback. The `NOT THERE` form is refused below.
+  resolved 'central folder' \
+    '^\[richos\] central folder: /.+ \(present\)$' \
+    'the folder the company layer is read from (company.rs, 2026-09-06)'
+
+  # WHETHER THIS LAUNCH WILL ASK HIM ABOUT HIS BUSINESS. The onboarding audit's whole finding
+  # is that the trigger for the interview lived in a file nothing created, and that nothing
+  # said so — so the boot now states what it will do, and the ONLY form that counts as
+  # resolved is the one where his own words actually reached the priming turn. Every other
+  # sentence `onboarding::describe` can produce is refused below, one at a time, because each
+  # is a distinct claim a widened rule could swallow separately.
+  resolved 'onboarding' \
+    '^\[richos\] onboarding [a-z0-9-]+: described — the company layer is in the priming turn$' \
+    'what he told RichOS about this company, reaching the model (onboarding.rs, 2026-09-06)'
+
   # A CLAIM ABOUT THE MACHINE, HELD TO. `setup_view::detect` looks for Claude Code and for
   # the engine and this sentence asserts it found both — it is the boot checking the world
   # and reporting a verdict, not reporting a setting. Held as a proof, B3 (engine pointer
@@ -325,6 +345,54 @@ declare_rules() {
     '[richos] company registry: 0 compan(ies), /m/entities.json (unreadable)' \
     'A registry that exists and was refused. The count of 0 is not a measurement of his
        companies — it is the absence of any measurement, and it must not read as one.'
+
+  # --- the central folder and the interview: every form except the two that worked --------
+  #
+  # These are the sentences a machine prints when the CEO is not going to be asked about his
+  # business, or has been asked and the answer did not land. Each is a legitimate state of
+  # SOME install and none is a legitimate state of a COMPLETE one, which is the standard this
+  # whole file holds to. They are listed one at a time rather than as a family for the reason
+  # the registry sentences above are: a future widened rule swallows them one at a time.
+
+  refused 'central folder missing' \
+    '[richos] central folder: /m/myrichos (NOT THERE — no company has anything on file)' \
+    'The folder resolved and is not there, so every company reads as un-described and the
+       interview is offered for all of them. That is the correct behavior and it is not a
+       complete machine. Accounting for it would let the onboarding proof below be satisfied
+       by an install where nothing was ever written.'
+
+  refused 'central folder no home' \
+    '[richos] central folder: no home directory — no company layer this launch' \
+    'No `$HOME` means the company layer cannot be read at all this launch. Distinct from the
+       line above on purpose: one is a folder that is missing and one is a machine that
+       cannot say where to look.'
+
+  refused 'onboarding due' \
+    '[richos] onboarding northwind: nothing on file and no declination — Rich will offer the interview' \
+    'The ordinary and correct state of a FIRST run, and the state this work exists to make
+       visible. It is refused here because a machine this check calls complete has been
+       described; if this line appears on one, a company file has gone missing.'
+
+  refused 'onboarding declined' \
+    '[richos] onboarding northwind: offered and declined at 1757000000000 — Rich will not offer again' \
+    'A real answer, durably recorded, and not a fault. Refused for the same reason as the
+       line above: a declination can only exist for a company with nothing on file, so it
+       cannot occur on a complete machine.'
+
+  refused 'onboarding unusable' \
+    '[richos] onboarding northwind: UNUSABLE — /m/myrichos/companies/northwind/company.md is 9001 bytes, over the 8192-byte budget — NOT sent, and not truncated' \
+    'His notes exist and did not reach the model. This is the one onboarding state that needs
+       somebody to act, and it must never be classified as an ordinary fact.'
+
+  refused 'onboarding not looked' \
+    '[richos] onboarding northwind: no central folder configured — nothing has looked, and he will not be asked' \
+    'Nothing looked, which is not the same as nothing being there. Kept apart from the two
+       above so that a rule written for a missing folder cannot come to cover a missing file.'
+
+  refused 'onboarding no company' \
+    '[richos] onboarding: no company resolved, so nothing to ask about yet — the question comes after he says which company this is' \
+    'Correct behavior with no company chosen, and it travels with the `no company resolved`
+       sentences that are already refused above. A complete machine has resolved one.'
 
   # --- the one-time no-orphan migration --------------------------------------------------
   #
@@ -565,13 +633,22 @@ trap cleanup EXIT INT TERM
 # `docs/verification/activation-2026-09-06/accessory-child-boot.log`, first line. It is the
 # ACCESSORY form because that is the form every boot in this suite produces — the app is a
 # child of this script, and a harness has to hold the process it boots.
+#
+# The `central folder:` and `onboarding …:` lines arrived later the same day and are captured
+# at `docs/verification/onboarding-honesty-2026-09-06/raw/C2-boot-described-femcboost.log`,
+# where the real binary printed them in this order. The `NOT THERE` and `will offer the
+# interview` forms both refused below were captured on the same binary in
+# `raw/C3-boot-first-run-no-central-folder.log`, so the refused declarations are transcripts
+# too rather than sentences somebody imagined the boot might say.
 healthy_log() {
   cat <<'LOG'
 [richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: /m/Applications/RichOS.app/Contents/Info.plist carries no readable CFBundleIdentifier; a program is holding this process (parent pid 60123), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
 [richos] launch: fresh (start 1, 1 window(s))
 [richos] company registry: 1 company from /m/Library/Application Support/com.richos.app/entities.json
 [richos] company registry: 1 compan(ies), /m/Library/Application Support/com.richos.app/entities.json (file)
+[richos] central folder: /m/myrichos (present)
 [richos] company: northwind (via the saved choice)
+[richos] onboarding northwind: described — the company layer is in the priming turn
 [richos] loro Tier C: compiling from /m/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
 [richos] loro correction desk: writing to /m/corpus via /m/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
 [richos] engine directory: /m/.claude/richos-engine (via engine install pointer)

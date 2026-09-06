@@ -1206,11 +1206,45 @@ fn main() {
             );
             spine.set_entity_registry(registry.clone());
 
+            // THE CENTRAL FOLDER AND THE ONBOARDING RECORD — the two halves of `onboarding.rs`.
+            //
+            // This is the caller the onboarding document says does not exist. Its whole finding
+            // is that `engine/CLAUDE.md.template:25` carries a correct instruction in a file
+            // nothing renders, and that `provision-claude-md.sh` has a test suite and no caller;
+            // a company layer wired to nothing would be the third instance of the same defect in
+            // the same evening.
+            //
+            // The central root is REPORTED, never created. `~/myrichos` and everything under it
+            // belong to the central-folder work, and an app that helpfully created its own
+            // source could never report the source missing — which is exactly how this machine
+            // ended up with four `corpus.*` symlinks pointing at a directory that is not there
+            // (`richos-central-folder-2026-09-06.md` §1.3).
+            match richos_core::company::install_central_root() {
+                Some(root) => {
+                    eprintln!(
+                        "[richos] central folder: {} ({})",
+                        root.display(),
+                        if root.is_dir() { "present" } else { "NOT THERE — no company has anything on file" }
+                    );
+                    spine.set_central_root(root);
+                }
+                None => eprintln!("[richos] central folder: no home directory — no company layer this launch"),
+            }
+            spine.set_onboarding_record(richos_core::onboarding::record_path(&data_dir));
+
             let boot = boot_entity(&registry, &config);
             match &boot.entity {
                 Some(entity) => {
                     eprintln!("[richos] company: {entity} (via {})", boot.source.map(|s| s.describe()).unwrap_or("resolution"));
-                    spine.ensure_active_thread_in(entity).expect("ensure thread");
+                    let binding = spine.ensure_active_thread_in(entity).expect("ensure thread");
+                    // WHAT THIS LAUNCH WILL ACTUALLY DO ABOUT ONBOARDING, said out loud.
+                    //
+                    // Every state prints, including the good one, for the reason the lease line
+                    // above it prints its success: before that line a working boot was silent
+                    // and a reader had to infer it from a failure line not appearing. A CEO who
+                    // will never be asked about his business is the single failure this work
+                    // exists to remove, and a boot that says nothing about it cannot be checked.
+                    eprintln!("[richos] {}", spine.describe_onboarding(&binding));
                 }
                 // THE OPERATOR'S HALF of the same condition. `ENTITY_UNRESOLVED_MESSAGE`
                 // is written for the CEO and deliberately names no environment variable;
@@ -1245,6 +1279,22 @@ fn main() {
                      launching from that entity's repository root.",
                     registry.entities().iter().map(|e| e.id.to_string()).collect::<Vec<_>>().join(", ")
                 ),
+            }
+            // ONBOARDING'S OTHER HALF, and it was found by running this rather than by
+            // reading it: with no company resolved, the line inside the arm above never
+            // prints, so a boot said nothing at all about onboarding — which is the exact
+            // silence this work exists to remove, reproduced by the work removing it.
+            //
+            // It is not an error. There is nothing to interview about until he has said
+            // which company this is, and the company sheet asks that before this could
+            // matter (`richos-central-folder-2026-09-06.md` §2.2: the picker writes the row,
+            // the interview writes the row's contents). The boot says so rather than
+            // leaving a reader to work out why a line is missing.
+            if boot.entity.is_none() {
+                eprintln!(
+                    "[richos] onboarding: no company resolved, so nothing to ask about yet — \
+                     the question comes after he says which company this is"
+                );
             }
 
             // The MACHINERY journal + its live sink (techy-mode design §2.1). Its own

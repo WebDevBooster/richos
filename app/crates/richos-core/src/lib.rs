@@ -63,6 +63,7 @@
 
 pub mod belief;
 pub mod cognition;
+pub mod company;
 pub mod correction;
 pub mod config;
 pub mod doctrine;
@@ -77,6 +78,7 @@ pub mod loro;
 pub mod live;
 pub mod machinery;
 pub mod native;
+pub mod onboarding;
 pub mod provision;
 pub mod reachability;
 pub mod reprime;

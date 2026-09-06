@@ -1,0 +1,15 @@
+[richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: /Users/alex/ab/richos-wt/echo-opus-ob1/app/src-tauri/target/debug/richos-tauri is not inside a .app bundle; a program is holding this process (parent pid 78457), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
+[richos] launch: crash-restart (start -, 1 window(s))
+[richos] company registry: 6 companies from /Users/alex/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 6 compan(ies), /Users/alex/Library/Application Support/com.richos.app/entities.json (file)
+[richos] central folder: /Users/alex/myrichos (present)
+[richos] entity not resolved from /Users/alex/ab/richos-wt/echo-opus-ob1/docs/verification/onboarding-honesty-2026-09-06: unknown root /Users/alex/ab/richos-wt/echo-opus-ob1/docs/verification/onboarding-honesty-2026-09-06: no registered entity owns this path — refusing to guess
+[richos] no company resolved — RichOS will ask in the window and remember the answer.
+[richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects, richos, gpt-exporter, webinar-booster) still overrides, as does launching from that entity's repository root.
+[richos] loro Tier C: compiling from /Users/alex/Library/Application Support/RichOS/loro-root (via the loro-root pointer in Application Support), node /opt/homebrew/bin/node
+[richos] loro correction desk: writing to /Users/alex/Library/Application Support/RichOS/loro-root via /Users/alex/Library/Application Support/RichOS/loro-root/loro/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] engine directory: /Users/alex/ab/richos-wt/echo-opus-ob1/engine (via repo layout above the executable)
+[richos] compute lease attached over /Users/alex/.local/bin/claude
+[richos] first-run setup: nothing missing.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved

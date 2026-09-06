@@ -1,0 +1,18 @@
+[richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: /Users/alex/ab/richos-wt/echo-opus-ob1/app/src-tauri/target/debug/richos-tauri is not inside a .app bundle; this boot writes to /Users/alex/Library/Application Support/com.richos.app, and an install writes to /private/tmp/claude-501/-Users-alex-ab-femcboost/b8526f54-0b4a-44b9-bf92-aee6a35961dc/scratchpad/fakehome/Library/Application Support/com.richos.app; a program is holding this process (parent pid 40611), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
+[richos] launch: crash-restart (start -, 1 window(s))
+[richos] company registry: 6 companies from /Users/alex/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 6 compan(ies), /Users/alex/Library/Application Support/com.richos.app/entities.json (file)
+[richos] central folder: /private/tmp/claude-501/-Users-alex-ab-femcboost/b8526f54-0b4a-44b9-bf92-aee6a35961dc/scratchpad/fakehome/myrichos (NOT THERE — no company has anything on file)
+[richos] company: femcboost (via RICHOS_ENTITY)
+[richos] onboarding femcboost: nothing on file and no declination — Rich will offer the interview
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/b8526f54-0b4a-44b9-bf92-aee6a35961dc/scratchpad/fakehome/Library/Application Support/RichOS/corpus — not present
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/b8526f54-0b4a-44b9-bf92-aee6a35961dc/scratchpad/fakehome/Library/Application Support/RichOS/loro-root — not present
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/b8526f54-0b4a-44b9-bf92-aee6a35961dc/scratchpad/fakehome/RichOS/corpus — not present
+[richos] loro Tier C: RichOS will offer to set one up in the window, and will not pick a location on its own.
+[richos] engine directory: /Users/alex/ab/richos-wt/echo-opus-ob1/engine (via repo layout above the executable)
+[richos] compute lease attached over claude
+[richos] first-run setup: nothing missing.
+[richos] loro correction desk: CLOSED — no corpus resolved (candidates listed above). Confirming a correction will refuse and say so rather than appearing to write.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved

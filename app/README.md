@@ -244,7 +244,42 @@ app/
                               loudness is ours: `preflight` refuses before the spawn, and the
                               reader thread reads `system/init.plugins` for the case only the
                               wire can see. Ships ONE skill, American English
-                              (docs/verification/inner-doctrine-skills-2026-09-06/)
+                              (docs/verification/inner-doctrine-skills-2026-09-06/). Now
+                              ships TWO: American English, and the bootstrap interview —
+                              which is NOT the engine's copy of that skill, because that one
+                              fills a CLAUDE.md the child never reads, spawns a Dean this
+                              session cannot resolve, and runs scripts a customer has no
+                              repository for
+    src/company.rs            THE COMPANY LAYER — what the CEO said about the company a
+                              thread belongs to, read from
+                              `~/myrichos/companies/<id>/company.md` at prime time and
+                              appended to the scoped assertion. The priming turn re-fires on
+                              every thread change and thread -> entity is one-to-one, so it
+                              is ALREADY scoped to the company boundary; what was missing was
+                              content. It creates nothing under that folder — a reader that
+                              made its own source could never report the source missing.
+                              Over budget (8192 bytes) is a REFUSAL, never a truncation:
+                              half a house rule is a wrong house rule and it would be wrong
+                              silently. Six states, because "the folder is not there", "the
+                              file is not there", "it is empty" and "it could not be read"
+                              call for four different fixes
+    src/onboarding.rs         WHETHER THE CEO GETS ASKED ABOUT HIS BUSINESS, and the refusal
+                              that keeps the answer honest. The interview's trigger used to
+                              live in `engine/CLAUDE.md.template:25` — a correct instruction
+                              in a file nothing renders — so this ISSUES the offer from the
+                              priming turn rather than making a skill available and hoping.
+                              It is derived from a file on disk, never from a "seen it" flag,
+                              and it RETIRES ITSELF the moment that file has substance. The
+                              record it keeps holds ONE field, a declination, and a test
+                              exists whose only job is to refuse a second one. The offer and
+                              the interview both say plainly that nobody has been hired:
+                              measured, an attempt fails loudly rather than silently
+                              (`Agent type 'dean' not found`), but two cells are a behavior
+                              and the structure is that neither text reaches for staffing at
+                              all (docs/verification/onboarding-honesty-2026-09-06/)
+    examples/onboarding_probe.rs what THIS install will do about onboarding, one line per
+                              company, plus `--block <entity>` for the exact bytes the
+                              priming turn would carry
     tests/doctrine_sentinel.rs 1 LIVE test, #[ignore] by default, and a RELEASE GATE rather
                               than a one-off: does the standing instruction RichOS renders
                               (src/doctrine.rs) actually reach the model? Two cells against
@@ -345,6 +380,15 @@ app/
                               wire and the reload agreeing field by field, phase honestly
                               `unknown`, the states that are never emitted, and the
                               cross-entity fence on every payload
+    tests/company_layer_tests.rs 7 tests driving a REAL spine and asserting on what the
+                              lease was actually primed with, never on the renderer: what the
+                              CEO said about a company reaches the priming turn, another
+                              company's file never does, an over-budget file arrives as
+                              NOTHING rather than as half of itself (a HEAD-MARKER and a
+                              TAIL-MARKER make a truncation show up as truncation), and
+                              learning where the central folder is re-primes a lease that was
+                              already running. The two negative controls come first because
+                              they are what make the positives mean anything
     tests/loro_reprime_tests.rs 10 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
                               CEO layer and nothing else
@@ -818,7 +862,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 938 tests + 5 doc-tests; 934 direct, 4 child-only
+cargo test -p richos-core                       # 977 tests + 5 doc-tests; 973 direct, 4 child-only
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE OF THE THREE NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
