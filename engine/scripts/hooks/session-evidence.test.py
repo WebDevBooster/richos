@@ -82,7 +82,7 @@ class SessionEvidence(unittest.TestCase):
     def test_historical_noise_is_retired_but_real_unheld_file_remains(self):
         script = (HOOKS / 'notice-ceo-inputs-unheld.sh').read_text()
         # Execute the actual embedded reader over the same historical ledger shape.
-        code = script.split("UNRESOLVED=\"$(LEDGER=\"$LEDGER\" python3 -c '\n", 1)[1].split("\n' 2>/dev/null)", 1)[0]
+        code = script.split("LEDGER=\"$LEDGER\" python3 -c '\n", 1)[1].split("\n' 2>/dev/null)", 1)[0]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             artifact = path / 'tmp/claude-501/project/session/tasks/id.output'
@@ -92,10 +92,27 @@ class SessionEvidence(unittest.TestCase):
             real.write_text('real document')
             ledger = path / 'ledger.jsonl'
             ledger.write_text(json.dumps({'reported': ['/', tmp, str(artifact), str(real)]}) + '\n')
-            run = subprocess.run(['python3', '-c', code], env=dict(os.environ, LEDGER=str(ledger)), capture_output=True, text=True)
+            run = subprocess.run(['python3', '-c', code], env=dict(os.environ, LEDGER=str(ledger), INGRESS_ANALYZER=str(HOOKS / 'commit-ceo-inputs.py')), capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertEqual(run.stdout.count('UNHELD\t'), 1, run.stdout)
             self.assertIn(str(real), run.stdout)
+
+    def test_system_resources_and_claude_state_are_not_handover_documents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            doc = root / "spec.md"
+            doc.write_text("authored document")
+            link = root / "document-link"
+            link.symlink_to(doc)
+            directory_link = root / "directory-link"
+            directory_link.symlink_to(root, target_is_directory=True)
+            self.assertTrue(ingress.is_handover_file(str(doc)))
+            self.assertTrue(ingress.is_handover_file(str(link)))
+            self.assertFalse(ingress.is_handover_file(str(directory_link)))
+            for resource in ('/dev/null', '/usr/bin/say', '/var',
+                             str(Path.home()/'.claude/settings.json'),
+                             str(Path.home()/'.claude/state/inflight-acks.jsonl')):
+                self.assertFalse(ingress.is_handover_file(resource), resource)
 
     def test_manifest_does_not_call_unverified_bash_output_ok(self):
         result = {'content': 'a failing test was hidden by a pipeline', 'is_error': False}

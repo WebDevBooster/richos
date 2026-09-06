@@ -31,9 +31,10 @@ individual commands/checks were not verified. Structured tool errors remain
 ERROR. This prevents a successful shell wrapper being labeled as successful
 inner work.
 
-Input handovers include files, not directories. The ingress ignores directories
-and automatic task-notification/system-reminder envelopes. Its follow-up reader
-also rechecks historical directory and Claude task-output entries, so they stop
+Input handovers include authored files. The ingress excludes directories, devices,
+OS executables, Claude settings/state and automatic task-notification/system-reminder
+envelopes. A shared file predicate is used by ingress and historical rechecking. Its follow-up reader
+also rechecks historical system-resource and Claude task-output entries, so they stop
 creating notices without editing the original ledger. Real untracked documents,
 symlinks and refusals continue through their existing safety checks.
 
@@ -54,3 +55,7 @@ Verification:
 The six focused negative controls in `session-evidence.mutation.sh` restore each
 failure in an isolated copy. Each corresponding regression must fail. The source
 worktree and live engine are never mutated by that runner.
+
+Read-only replay against the incident ledger removed all 68 false handover entries
+without editing that ledger. The positive controls still retain a real untracked
+document and pass file symlinks to the existing refusal gates.
