@@ -120,6 +120,67 @@ let navPrefs = null; // durable rail prefs (nav.rs): width, collapsed sets, pins
 /// itself did not answer, which is the browser preview and is treated as "not asking".
 let entityChoice = null;
 
+// ---------------------------------------------------------------------------------------
+// WHO IS ALLOWED TO DECIDE WHICH THREAD IS ON SCREEN
+// ---------------------------------------------------------------------------------------
+//
+// THE RAIL IS PRESSABLE BEFORE `init()` HAS FINISHED, AND THAT IS CORRECT. `refreshNavigation()`
+// paints real `.nav-thread` buttons wired to real handlers, and from that instant pressing one
+// does exactly what it says. What was NOT correct is what came after: `init()` made five more
+// bridge calls and then opened the thread the LAST session had ended on, over the top of the
+// one the CEO had just asked for, with no error and no sign that anything had been refused.
+//
+// MEASURED 2026-09-06 on this file at `041eee8`, WebKit, mock bridge, one uniform latency per
+// bridge call. `init()` reaches the rail on its 7th call and its landing branch 5 calls later;
+// a press is overwritten when its own two-call chain (`switch_thread`, `active_context`) cannot
+// land before that branch — i.e. between 3 and 5 call-times after the row appears:
+//
+//     lag    predicted wrong window     measured wrong (click N ms after the row exists)
+//     120ms  [3x120, 5x120) = 360-600   350, 400, 450, 500, 550     (ok at 300 and 600)
+//     400ms  [3x400, 5x400) = 1200-2000 1200, 1600                  (ok at 800 and 2000)
+//
+// At 120 ms — an ordinary machine, not a pathological one — pressing "hiring" landed the CEO on
+// "general": Harbor Analytics, "Running", zero turns, under a rail row he never pressed.
+//
+// THE FIX IS NOT A SHORTER WINDOW, IT IS NO WINDOW. Two counters, both taken synchronously, so
+// no interleaving of the awaits can produce a different answer:
+//
+//   * `handNavigations` — a thread the CEO ASKED for. `init()`'s landing branch is a RESTORE of
+//     where the last session ended, and a restore is lower authority than a live instruction:
+//     if he has chosen, the restore does not run at all, so nothing is opened over his choice
+//     and no `switch_thread` for the old thread is issued behind it either.
+//   * `navTicket` — every `openThread` takes one before its first `await` and abandons itself
+//     after every `await` if a newer one has started. This is what stops "whichever chain
+//     finishes last wins", which is the same defect between two presses as it is between a
+//     press and the boot.
+//
+// WHY HONOR THE PRESS RATHER THAN DISARM THE ROW UNTIL BOOT ENDS. A row that is painted, named,
+// and carrying a handler which works is not a placeholder — disarming it would be a control that
+// looks pressable and is not, which is the same family of defect one level along, and it would
+// cost the CEO the fastest path into his own work on every launch. §21's rule is the argument
+// as well: a REMEMBERED selection must never overwrite a CHOSEN one.
+let navTicket = 0; // every openThread takes one, synchronously, before its first await
+let handNavigations = 0; // how many threads the CEO has asked for himself this launch
+
+/// The backend's activation, ISSUED IN THE ORDER IT WAS ASKED FOR.
+///
+/// Two `switch_thread` invokes in flight at once can be applied by the Rust side in either
+/// order, and the loser is what the next launch restores — so a race here does not end when the
+/// window is repainted, it is remembered. Chaining them costs the second press one round trip
+/// and buys an ordering that does not depend on how long either takes.
+let switchChain = Promise.resolve();
+function switchThreadInOrder(threadId) {
+  const next = switchChain.then(
+    () => Bridge.invoke("switch_thread", { threadId }),
+    () => Bridge.invoke("switch_thread", { threadId })
+  );
+  switchChain = next.then(
+    () => {},
+    () => {}
+  );
+  return next;
+}
+
 let mainView = "conversation"; // "conversation" | "entity" | "unbound"
 let viewEntityId = null; // the entity whose overview / new-thread screen is showing
 let draftEntityId = null; // §3.3: a draft thread bound to this entity, with NO record yet
@@ -848,10 +909,26 @@ function restoreThreadViewState(threadId) {
 
 // ---- opening a thread ------------------------------------------------------------------
 
-async function openThread(threadId) {
+/// `opts.restore` marks the ONE caller that is not the CEO asking: `init()`'s "put him back
+/// where he was". See the block over `navTicket` — it yields to a press, and every other caller
+/// counts as a press.
+async function openThread(threadId, opts) {
+  opts = opts || {};
   const row = threadRow(threadId);
   if (!row) return;
+  // THE RESTORE NEVER OVERWRITES A CHOICE, and it is checked here as well as at the call site
+  // so that a future second caller of the restore path inherits the rule rather than having to
+  // remember it.
+  if (opts.restore && handNavigations > 0) return;
+  // Counted BEFORE the "already there" return below: pressing the row you are on is still a
+  // statement of where you want to be, and the restore has nothing to add to it.
+  if (!opts.restore) handNavigations++;
   if (threadId === activeThreadId && mainView === "conversation") return;
+
+  // Taken before the first await. `stale()` is true from the instant a newer openThread has run
+  // its own synchronous head, so an older chain resuming later paints nothing.
+  const ticket = ++navTicket;
+  const stale = () => ticket !== navTicket;
 
   stashThreadViewState();
   clearLiveMark(threadId);
@@ -881,14 +958,20 @@ async function openThread(threadId) {
   }
 
   try {
-    await Bridge.invoke("switch_thread", { threadId });
+    await switchThreadInOrder(threadId);
   } catch (e) {
+    if (stale()) return;
     showUnboundView(row, String(e));
     renderRail();
     return;
   }
+  // A NEWER PRESS HAS TAKEN THE SCREEN. Everything below paints, so this chain stops here
+  // rather than painting an older thread over a newer one — and the newer chain's own
+  // `switch_thread` is queued behind ours, so the backend ends on the newer one too.
+  if (stale()) return;
 
   await refreshActiveContext();
+  if (stale()) return;
   window.RichRuns.show(threadId);
   showConversationView();
   inputEl.placeholder = "Talk to Rich…";
@@ -905,7 +988,9 @@ async function openThread(threadId) {
   // THIS thread's techy answer, read before the load that depends on it. A per-thread
   // override is per thread, so it is never carried over from the one being left.
   await refreshTechy(threadId);
+  if (stale()) return;
   await loadTimeline();
+  if (stale()) return;
   if (mainView !== "conversation") return; // loadTimeline fell into the unbound state
   restoreThreadViewState(threadId);
   // Returning to a thread whose turn is still streaming picks its live state back up (§2:
@@ -5373,9 +5458,20 @@ async function init() {
   if (setupAsked) memoryQuestionDeferred = true;
   const memoryAsked = !setupAsked && maybeAskAboutMemory();
 
-  const active = activeContext ? activeContext.thread_id : await invokeQuiet("active_thread");
+  // HAS HE ALREADY CHOSEN? Read synchronously, right here — see the block over `navTicket` for
+  // the measurement this comes from.
+  //
+  // The first and third arms below are decisions about WHERE TO LAND, and a decision about
+  // where to land is void once he has landed somewhere himself. The second arm is not: "which
+  // company is this copy of RichOS for" is a question about what happens when he TYPES, and it
+  // has to be asked whatever is on screen — skipping it would hand him an armed composer over
+  // a company he never chose, which is the §21 leak that gate exists for. So it still runs, and
+  // it is the same question he would have been asked had he pressed the row a second later.
+  const chose = handNavigations > 0;
+  const active = chose ? null : activeContext ? activeContext.thread_id : await invokeQuiet("active_thread");
   if (active && threadRow(active)) {
-    await openThread(active);
+    // `restore: true` — see `openThread`. It carries the same rule a second time, on purpose.
+    await openThread(active, { restore: true });
   } else if (entityChoice && !entityChoice.chosen) {
     // NO COMPANY IS SET — the state every double-clicked launch is in until he answers
     // once. Block the composer, render the control, and ask. `startNewThreadFlow()` below
@@ -5388,9 +5484,13 @@ async function init() {
     // a time.
     if (setupAsked || memoryAsked) companyQuestionDeferred = true;
     else requireCompanyChoice();
-  } else if (navTree.groups.length) {
+  } else if (!chose && navTree.groups.length) {
     // No active context — the launch could not resolve an entity (the shell fails closed
     // rather than guessing one), or every thread on disk is unbound.
+    //
+    // `!chose`: this arm's whole premise is "there is nothing on screen, so ask". Once he has
+    // opened a thread himself the premise is false, and a picker over his own conversation is
+    // the same override as the wrong thread was.
     //
     // Opening the first entity's overview here was WRONG and is deliberately not what
     // happens: that overview arms the composer for that entity, so the CEO's first

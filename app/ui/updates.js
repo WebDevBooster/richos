@@ -94,7 +94,28 @@ window.RichUpdates = (function () {
   var host = null; // the container `settings-button.js` hands us, or null before first paint
   var nodes = null; // refs into that container
   var view = null; // the last UpdateView we were given
+
+  // AN ACT IS IN FLIGHT — a check, an install, a restart. NOT a read.
+  //
+  // This flag disarms the row's controls, and until 2026-09-06 the menu's own re-read of
+  // `update_state` raised it too. That is the whole of finding 1 in
+  // `esc-20260906T085912Z-4005a6b5`: `update_state` is a pure read (`updates.rs:767` —
+  // `refresh_work_verdict` then `snapshot`), it changes nothing and it commits the CEO to
+  // nothing, and disarming the one control he is walking toward for the length of a round
+  // trip is a cost with no purchase. Pressing Install against a view one round trip old is
+  // refused by `updates.rs` itself if the machine has since become busy — the affordance was
+  // never the only guard, and it is not the right one to spend here.
   var busy = false;
+
+  /// Every `call` takes one, synchronously. An answer whose ticket is no longer the current
+  /// one is DROPPED rather than applied, so a read that was in flight when the CEO pressed
+  /// Install cannot repaint the row from the view it left with. Same shape as `main.js`'s
+  /// `navTicket`, and for the same reason: two answers in flight is not a race to be shortened.
+  var callTicket = 0;
+
+  /// The CEO pressed the cue and his hand has not landed on the control yet. Discharged by
+  /// `handToTheControl`, which runs at the end of every paint — never by a timer.
+  var focusWanted = false;
 
   // ---- formatting ------------------------------------------------------------------------
 
@@ -431,6 +452,9 @@ window.RichUpdates = (function () {
     marker(v);
     cue(v);
     waitingCue(v);
+    // LAST, because it reads what everything above just decided: whether there is a control,
+    // whether it is offered, and whether pressing it would do anything.
+    handToTheControl();
   }
 
   /// The mark on the settings button. It exists for exactly two states, something to install
@@ -606,20 +630,67 @@ window.RichUpdates = (function () {
 
   /// Press the cue: open the menu the row lives in, and put the hand on the row's control.
   ///
-  /// The focus is DEFERRED by design. `RichSettings.open()` calls our own `onOpen()`, which
-  /// re-reads `update_state` and marks the surface busy while it is in flight — so for the
-  /// length of that read the row's button is disabled and cannot take focus. One turn of the
-  /// task queue later the answer has landed and the button is live. A synchronous focus here
-  /// would silently do nothing.
+  /// THE FOCUS USED TO BE DEFERRED WITH `setTimeout(..., 0)`, on a stated reasoning that was
+  /// the defect: *"One turn of the task queue later the answer has landed and the button is
+  /// live."* It has not. `RichSettings.open()` calls `onOpen()`, which re-read `update_state`
+  /// and marked the surface busy for the length of a bridge ROUND TRIP, and `focus()` on a
+  /// disabled button does nothing at all, silently.
+  ///
+  /// MEASURED 2026-09-06 on `041eee8` in WebKit, one uniform latency per bridge call, pressing
+  /// the cue and sampling at the instant the product's own timer fired and again a second later:
+  ///
+  ///     lag     focus at t+0    install.disabled at t+0    focus once everything settled
+  ///     0ms     update-install  false                      update-install
+  ///     10ms    (body)          false                      (body)
+  ///     120ms   (body)          true                       (body)
+  ///     400ms   (body)          true                       (body)
+  ///
+  /// A Tauri IPC call is never below 10 ms, so §26's "one keystroke from the act" held in the
+  /// in-page fixture and nowhere else — and the hand never arrived LATE either, it never
+  /// arrived at all.
+  ///
+  /// TWO CHANGES, NEITHER OF THEM A SHORTER WINDOW. The re-read no longer disarms the control
+  /// (see `busy` above), so there is nothing to wait out; and the focus is bound to the control
+  /// BECOMING USABLE rather than to a turn of the task queue, so it is correct whether that is
+  /// this instant or a slow round trip away.
   function openTheRow() {
     var s = window.RichSettings;
     if (!s || !s.openMenu) return;
+    focusWanted = true;
     s.openMenu();
-    setTimeout(function () {
-      var go = document.getElementById("update-install");
-      if (!go || go.hidden) go = document.getElementById("update-relaunch");
-      if (go && !go.hidden) go.focus();
-    }, 0);
+    // The common path ends here: the row is painted from the view the cue itself was drawn
+    // from, the control is live, and the hand lands with no round trip in between.
+    handToTheControl();
+  }
+
+  /// Put the hand on the control the cue leads to — the moment that is a true thing to do.
+  ///
+  /// Called at the end of every `paint()`, so it fires on the paint that makes the control
+  /// usable rather than on a timer that hopes one already has. It discharges exactly once, and
+  /// it discharges either way: a press that turns out to have nothing to land on gives the
+  /// focus up rather than holding it and yanking the CEO's hand somewhere minutes later.
+  function handToTheControl() {
+    if (!focusWanted) return;
+    // The cue's promise is about the menu it opens. If that menu is not open any more, the
+    // promise is void — he closed it, or something else did.
+    var menu = document.getElementById("set-menu");
+    if (!menu || menu.hidden) {
+      focusWanted = false;
+      return;
+    }
+    // The row is not built yet, so this is not the paint that answers. `paint()` returns early
+    // in that state, which is why this cannot be reached from one.
+    if (!nodes) return;
+    var go = document.getElementById("update-install");
+    if (!go || go.hidden || go.disabled) go = document.getElementById("update-relaunch");
+    if (go && !go.hidden && !go.disabled) {
+      focusWanted = false;
+      go.focus();
+      return;
+    }
+    // Nothing to press, and nothing in flight that could produce something to press: the row
+    // is painted and it is offering no act. Give the intent up rather than carrying it.
+    if (!busy) focusWanted = false;
   }
 
   // ---- the waiting cue -------------------------------------------------------------------
@@ -737,16 +808,28 @@ window.RichUpdates = (function () {
     paint();
   }
 
-  async function call(cmd) {
+  /// `opts.read` marks a command that CHANGES NOTHING — `update_state`, and nothing else. It
+  /// does not disarm the row, because there is nothing for the CEO to be protected from while
+  /// it is in flight. See the block over `busy`.
+  async function call(cmd, opts) {
+    opts = opts || {};
     var b = window.RichBridge;
     if (!b) return null;
-    busy = true;
-    paint();
+    var ticket = ++callTicket;
+    if (!opts.read) {
+      busy = true;
+      paint();
+    }
     try {
       var out = await b.invoke(cmd);
+      // A NEWER CALL OWNS THE ROW. An `update_state` that was in flight when the CEO pressed
+      // Install would otherwise land afterwards and repaint the row from the view it left
+      // with — the install undone on screen while it is happening underneath.
+      if (ticket !== callTicket) return out;
       apply(out);
       return out;
     } catch (e) {
+      if (ticket !== callTicket) return null;
       // A command that throws is itself a failure state, reported as one rather than leaving
       // the row frozen on "Checking…".
       apply({
@@ -769,8 +852,14 @@ window.RichUpdates = (function () {
       });
       return null;
     } finally {
-      busy = false;
-      paint();
+      // An ACT's completion always repaints — it owns `busy` and has just given it up. A READ
+      // that has been overtaken does not: the newer call is the one painting now.
+      if (!opts.read) {
+        busy = false;
+        paint();
+      } else if (ticket === callTicket) {
+        paint();
+      }
     }
   }
 
@@ -784,9 +873,10 @@ window.RichUpdates = (function () {
       paint();
     },
     /// The menu was opened: re-read, because the automatic launch check may have completed
-    /// while it was closed.
+    /// while it was closed. A READ — it must not disarm the control the CEO opened the menu to
+    /// press. See the block over `busy`.
     onOpen: function () {
-      if (window.RichBridge) call("update_state");
+      if (window.RichBridge) call("update_state", { read: true });
     },
     /// The current view, for the browser suites.
     state: function () {
@@ -814,7 +904,9 @@ window.RichUpdates = (function () {
         }
       });
     }
-    call("update_state");
+    // The first read, at start-up. A READ for the same reason the menu's is: the launch check
+    // is the shell's business, not something the CEO is waiting on with his hand out.
+    call("update_state", { read: true });
   }
 
   if (document.readyState === "loading") {
