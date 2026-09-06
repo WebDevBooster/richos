@@ -1,0 +1,96 @@
+{
+  "env": {
+    "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION": "2000"
+  },
+  "worktree": {
+    "baseRef": "head"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git commit:*)",
+      "Bash(git fsck:*)",
+      "Bash(git replace:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git symbolic-ref:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git worktree list:*)",
+      "Bash(git worktree prune:*)",
+      "Bash(git branch:*)",
+      "Bash(git merge-base:*)",
+      "Bash(brew install:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"MEMORY VERIFICATION REQUIRED: Before trusting any memory file, verify it against the current state of the codebase. Read MEMORY.md, then spot-check memories that are relevant to the current task. If any memory contradicts what you find in the code, update or delete the stale memory immediately. Do NOT act on unverified memories.\"}}'",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "@MYRICHOS@/companies/femcboost/guards/ecs-session-start.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "@MYRICHOS@/companies/femcboost/guards/ecs-user-prompt-submit.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "@MYRICHOS@/companies/femcboost/guards/ecs-stop.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "@MYRICHOS@/companies/femcboost/guards/ecs-teammate-idle.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "@MYRICHOS@/companies/femcboost/guards/ecs-task-completed.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
