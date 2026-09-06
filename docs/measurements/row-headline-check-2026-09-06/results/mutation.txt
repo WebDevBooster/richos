@@ -1,0 +1,18 @@
+=== the row-currency landing guard: every property, proven load-bearing by removing it ===
+  PASS  naive-segment-split — removing it turns "multi-line message not refused" red
+  PASS  refuses-to-refuse — removing it turns "created-work case not refused" red
+  PASS  heredoc-payload-is-a-command — removing it turns "a documented command was treated as a commit" red
+  PASS  shell-heredoc-blanked-too — removing it turns "shell-fed heredoc not refused" red
+  PASS  headline-never-compared — removing it turns "a correction under an unchanged headline was allowed" red
+  PASS  headline-digests-itself — removing it turns "a current headline warrant was refused" red
+  PASS  headline-normalizes-everything — removing it turns "changing one word of the headline DOES cost a re-read" red
+  PASS  headline-normalizes-nothing — removing it turns "re-emphasizing a phrase costs no re-read" red
+  PASS  headline-evidence-optional — removing it turns "a headline warrant with neither a command nor an unverified declaration is refused" red
+  PASS  headline-bare-unverified — removing it turns "an unverified declaration with no real reason is refused" red
+  PASS  headline-terminal-not-exempt — removing it turns "a terminal row was not counted by the HC census" red
+  PASS  headline-default-blocks — removing it turns "the default made a warrantless row a refusal" red
+  PASS  headline-required-toothless — removing it turns "ROW_HEADLINE_REQUIRED=1 did not refuse a warrantless row" red
+  PASS  verifier-runs-sound — removing it turns "a sound-capable command was run or not refused" red
+  PASS  verifier-runs-mutations — removing it turns "a mutating command was run or not refused" red
+
+=== mutation: all 15 properties proven load-bearing ===

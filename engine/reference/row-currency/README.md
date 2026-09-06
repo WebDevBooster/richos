@@ -2,7 +2,13 @@
 
 The engine ships a lint (`scripts/row-currency-lint.sh`), a landing guard
 (`scripts/hooks/guard-row-currency-commits.sh`), a predicate
-(`scripts/lib/row-currency.{sh,py}`) and a 47-case suite for all of it.
+(`scripts/lib/row-currency.{sh,py}`), an on-demand verifier
+(`scripts/row-headline-verify.sh`) and one suite for all of it —
+`scripts/hooks/row-currency.test.sh`, **116 cases** plus a 15-mutant harness
+(`./engine/scripts/hooks/row-currency.test.sh` → `116/116 cases passed`,
+measured 2026-09-06 rather than remembered; the number this line carried before
+that was `47` and had been wrong for some time, which is the defect the whole
+page below is about).
 
 **Every one of them is inert until a repository carries a `.row-currency`
 declaration.** This folder exists so that cannot ship as machinery a customer
@@ -134,6 +140,56 @@ scripts/row-currency-lint.sh /path/to/your/repo --explain --message "closes item
 ```
 
 It will tell you, by item id, exactly which rows are not yet warranted.
+
+## The second half: the row's own first sentence
+
+**A pin proves the file has not moved. It cannot prove the sentence about the
+file is still true.** On 2026-09-06 all 35 rows of the record this was built for
+were re-derived against the code and **16 were overtaken — eleven of them with a
+MATCHING pin.** Every warrant on the page was green while eleven headlines were
+false, because rows here are written finding-first: a bold present-tense
+headline, with corrections appended underneath. A row can be entirely current in
+its body and still hand a false first sentence to anybody who quotes it.
+
+So a governed row may also carry a headline warrant:
+
+```
+**Headline:** `4f2a9c1e83bd` — `./scripts/some-suite.sh` → `37 passed, 0 failed`
+**Headline:** `4f2a9c1e83bd` — unverified "one uninterrupted run of the suite, read at its final counts line"
+```
+
+Two settings and no third: the command that settles the headline with the
+output it produced, or the word `unverified` and what would settle it. The hex
+is a digest of **the rest of the row** — prose, corrections, the `State:`
+warrant and its pins — so appending a correction under a headline, or
+re-stamping a pin above it, refuses the next landing until a person has looked
+at that first sentence again. **Re-stamping is not re-reading.**
+
+Switch it on with `ROW_HEADLINE_SECTIONS` in your declaration. It is off until
+you do, and every verdict carries an `HC sections=-` census line saying so
+rather than passing in silence.
+
+**Adoption costs nothing on the day it happens.** `ROW_HEADLINE_REQUIRED`
+defaults to `0`: a row *with* a warrant is held to it from the first character,
+and a row *without* one is counted and named at every landing. Measured on the
+real record: declaring the sections produced **zero refusals and 26 rows
+named**. Set `ROW_HEADLINE_REQUIRED="1"` when the page is ready for teeth.
+
+Re-running what the rows record is a separate, on-demand tool, and deliberately
+never a hook — one of the commands in that record takes 2,168 seconds, and a
+record file is a document rather than a trusted script:
+
+```bash
+scripts/row-headline-verify.sh /path/to/your/repo
+scripts/row-headline-verify.sh /path/to/your/repo --list
+```
+
+It prints every command before running it and refuses two classes outright,
+without running them: anything that could make the machine produce sound, and
+anything that writes, publishes or destroys.
+
+The cost of all of it, measured over 124 real commits before it shipped, is in
+`docs/measurements/row-headline-check-2026-09-06/`.
 
 ## Where it fires, and where it deliberately does not
 

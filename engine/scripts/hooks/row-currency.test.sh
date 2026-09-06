@@ -1250,10 +1250,13 @@ hl_malformed_case() {
 }
 hl_malformed_case hl_baddigest '`nope` — `true` → `x`' HEADLINE-MALFORMED \
     "a headline warrant that does not open with the row's digest is refused"
+# The two case names below deliberately carry NO backtick: the mutation harness
+# passes the expected-case text through a double-quoted shell word, and a
+# backticked case name would be executed rather than matched.
 hl_malformed_case hl_noevidence '`000000000000` — the shipper looks fine to me' HEADLINE-NO-EVIDENCE \
-    "a headline warrant with neither a command nor \`unverified\` is refused — those are the only two settings"
+    "a headline warrant with neither a command nor an unverified declaration is refused — those are the only two settings"
 hl_malformed_case hl_thinreason '`000000000000` — unverified "dunno"' HEADLINE-UNVERIFIED-NO-REASON \
-    "\`unverified\` with no real reason is refused — a bare marker exempts nothing"
+    "an unverified declaration with no real reason is refused — a bare marker exempts nothing"
 
 # --- n8. `unverified` WITH A REASON: allowed, AND COUNTED, AND NAMED --------
 set -- $(mk_pair hl_unverified); REC="$1"; WORK="$2"
