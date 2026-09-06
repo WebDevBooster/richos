@@ -43,11 +43,22 @@ THE THREE FACTS, AND WHERE EACH ONE COMES FROM
    FORGETTING, which is what happened twice on 2026-08-30. Fabrication is a
    different act and this guard does not pretend to stop it.
 
-3. WHO HEARD IT — an artifact in the teammate's OWN worktree, written by the
-   teammate. A reply the lead may never receive proves nothing to the lead; a
-   file the lead can stat proves it, and it proves it after the session that
-   sent the message is gone. See ack_status() for exactly which parts of that
-   artifact a machine checks and which part it cannot.
+3. WHO HEARD IT — an append-only row in ~/.claude/state/inflight-acks.jsonl,
+   written by the teammate. A reply the lead may never receive proves nothing
+   to the lead; a record the lead can read proves it, and it proves it after
+   the session that sent the message is gone.
+
+   IT LIVED IN THE TEAMMATE'S WORKTREE UNTIL 2026-09-05, AND THAT IS WHERE IT
+   DIED. Both governed repositories gitignore `.claude/*`; the harness
+   auto-cleans an isolation worktree that is UNCHANGED at completion; and a
+   gitignored write does not make a tree changed. So an agent whose only writes
+   were acks had its worktree, and every ack in it, deleted the moment it
+   finished — and an ack that was written, confirmed and then deleted reads at
+   the 30-minute timeout exactly like an ack that was never written. The
+   worktree file is still written and still read, because every ack already on
+   disk is one; it is now the readable mirror and the ledger is the record. See
+   ack_status() for exactly which parts a machine checks and which part it
+   cannot, and orphan_ledger_acks() for the case the whole change is about.
 
 AND, UNDERNEATH ALL THREE, WHO A TEAMMATE IS — scripts/lib/teammate-identity.py,
 imported rather than re-derived. Facts 2 and 3 are joined by NAME, and until
@@ -515,6 +526,68 @@ def parse_ack(path):
     return fields, raw
 
 
+def _check_ack_fields(fields, tip, wt, paths_present=()):
+    """THE machine-checkable part of an ack, wherever the ack came from.
+
+    Factored out of _ack_record so the durable ledger row and the worktree file
+    are held to ONE definition of a valid ack. Two spellings of "valid" is how
+    a mechanism ends up green on one side and red on the other for the same
+    fact.
+
+    Returns (problems, notes). A PROBLEM invalidates the ack. A NOTE records
+    something a machine could not re-check and says why — never a silent pass,
+    because a check that cannot run and reports nothing is indistinguishable
+    from a check that ran and found nothing, which is the exact class this row
+    belongs to."""
+    problems = []
+    notes = []
+    got_sha = (fields.get("sha") or "").lower()
+    if got_sha != tip:
+        problems.append(
+            "sha: is %r, must be the full 40-char tip %r"
+            % (got_sha or "<missing>", tip))
+    impact = fields.get("impact") or ""
+    if impact not in ACK_IMPACTS:
+        problems.append(
+            "impact: is %r, must be one of %s"
+            % (impact or "<missing>", "/".join(ACK_IMPACTS)))
+    detail = fields.get("detail") or ""
+    if len(detail) < ACK_MIN_DETAIL:
+        problems.append(
+            "detail: %d chars, needs >= %d in the teammate's own words"
+            % (len(detail), ACK_MIN_DETAIL))
+    paths_field = fields.get("paths") or ""
+    if not paths_field:
+        problems.append("paths: missing — list affected paths, or the word 'none'")
+    elif paths_field.strip() != "none":
+        moved = set(wt.get("moved_paths", []))
+        present_at_write = set(paths_present or ())
+        wt_here = os.path.isdir(wt["path"])
+        for p in paths_field.split():
+            if p in moved:
+                continue
+            if wt_here and os.path.exists(os.path.join(wt["path"], p)):
+                continue
+            if p in present_at_write:
+                # THE ONE CHECK THAT CANNOT BE REDONE. `paths` is deliberately
+                # the field that can only be filled by looking at the
+                # teammate's own workspace — so once that workspace is gone,
+                # nobody can re-verify it, ever. The writer checked it at the
+                # only moment it was checkable and recorded the result; this
+                # says so out loud rather than passing quietly or failing an
+                # ack for the crime of having been written by an agent that
+                # subsequently finished.
+                notes.append(
+                    "paths: %r was verified present in %s at ack time; that "
+                    "worktree is gone now, so this reader could not re-check it"
+                    % (p, wt["path"]))
+                continue
+            problems.append(
+                "paths: %r is neither in the moved changeset nor present in "
+                "this worktree — it cannot have been read off either" % p)
+    return problems, notes
+
+
 def _ack_record(path, tip, wt):
     """One ack file, checked, and attributed to a teammate.
 
@@ -528,35 +601,9 @@ def _ack_record(path, tip, wt):
     produces."""
     fields, _raw = parse_ack(path)
     fields = fields or {}
-    problems = []
-    got_sha = fields.get("sha", "").lower()
-    if got_sha != tip:
-        problems.append(
-            "sha: is %r, must be the full 40-char tip %r"
-            % (got_sha or "<missing>", tip))
-    impact = fields.get("impact", "")
-    if impact not in ACK_IMPACTS:
-        problems.append(
-            "impact: is %r, must be one of %s"
-            % (impact or "<missing>", "/".join(ACK_IMPACTS)))
+    problems, notes = _check_ack_fields(
+        fields, tip, wt, (fields.get("paths_present") or "").split())
     detail = fields.get("detail", "")
-    if len(detail) < ACK_MIN_DETAIL:
-        problems.append(
-            "detail: %d chars, needs >= %d in the teammate's own words"
-            % (len(detail), ACK_MIN_DETAIL))
-    paths_field = fields.get("paths", "")
-    if not paths_field:
-        problems.append("paths: missing — list affected paths, or the word 'none'")
-    elif paths_field.strip() != "none":
-        moved = set(wt.get("moved_paths", []))
-        for p in paths_field.split():
-            if p in moved:
-                continue
-            if os.path.exists(os.path.join(wt["path"], p)):
-                continue
-            problems.append(
-                "paths: %r is neither in the moved changeset nor present in "
-                "this worktree — it cannot have been read off either" % p)
 
     teammate = fields.get("teammate", "")
     claimed_wt = fields.get("worktree", "")
@@ -574,17 +621,216 @@ def _ack_record(path, tip, wt):
         age = int(time.time() - os.path.getmtime(path))
     except Exception:
         pass
-    return {"path": path, "teammate": teammate, "worktree": claimed_wt,
-            "problems": problems, "verified": not problems, "detail": detail,
+    return {"path": path, "source": "worktree-artifact",
+            "teammate": teammate, "worktree": claimed_wt,
+            "problems": problems, "notes": notes,
+            "verified": not problems, "detail": detail,
             "own": own, "age_sec": age}
 
 
-def ack_status(wt, tip, notices_ts, worker_updates, timeout_min):
+# --------------------------------------------------------------------------
+# THE DURABLE ACK LEDGER — row 3.19
+# --------------------------------------------------------------------------
+# THE ARTIFACT ABOVE LIVES IN A DISPOSABLE TREE, AND THE TREE IS DISPOSED OF.
+#
+# The harness auto-cleans a native isolation worktree that is UNCHANGED at
+# completion, and a gitignored write does not make a tree changed. Both
+# repositories this engine governs ignore `.claude/*` — femcboost since it
+# adopted the engine, and richos since c19cd83 on 2026-09-02, which UNTRACKED
+# all 31 acks that had been committed there because they carry the operator's
+# absolute home paths, teammate names and session ids and that repository is
+# the open-source launch target. So an agent whose only writes were acks has
+# its worktree, and every ack in it, deleted the moment it finishes.
+#
+# That is not a theory. echo-opus-529 reported three acks by path on
+# 2026-09-05 — 361590f, 363b0f8, c92488d — and named, in its own handoff, the
+# ignore rule that doomed them. All three are absent from the whole of
+# /Users/alex/ab today. zach-opus-not1 hit the other half of it: after its
+# worktree was cleaned, inflight-ack.sh REFUSED its next ack outright with
+# "worktree does not exist", so it could no longer answer at all.
+#
+# An ack that was written, confirmed and then deleted reads exactly like an ack
+# that was never written. That is this project's recurring failure class —
+# nothing distinguishes "worked" from "never ran" — and the fix is the one the
+# rest of this engine already uses for facts that must outlive the thing that
+# produced them: an append-only ledger outside every repository, every worktree
+# and every session, beside ~/.claude/state/worktree-ledger.jsonl and
+# ~/.claude/state/escalations.jsonl.
+#
+# WHY NOT UN-IGNORE THE DIRECTORY INSTEAD (row 3.19's option 2): it fixes one
+# repository and leaves the mechanism repository-dependent, which IS the
+# defect; and it is refuted by a commit LATER than the row, because putting
+# those files back under version control re-publishes the operator's home paths
+# into the v1 launch target. WHY NOT HAVE A HOOK WRITE IT (option 3): the
+# question is WHERE the evidence lives, not WHO writes it. A hook writing into
+# the same disposable tree would evaporate identically.
+
+ACK_LEDGER_EVENT = "InflightAck"
+
+
+def ack_ledger_path():
+    """The ONE ack ledger. Overridable for tests and for a non-standard home.
+
+    Same shape and the same override discipline as escalations.ledger_path(),
+    deliberately: a second spelling of "where durable state lives" is how two
+    halves of one mechanism end up reading different files."""
+    p = os.environ.get("RICHOS_INFLIGHT_ACK_LEDGER")
+    if p:
+        return os.path.abspath(os.path.expanduser(p))
+    return os.path.join(os.path.expanduser("~"), ".claude", "state",
+                        "inflight-acks.jsonl")
+
+
+def read_ack_ledger(path=None):
+    """(rows, malformed_count, error) — every InflightAck row, in file order.
+
+    UNREADABLE IS NOT EMPTY, and MISSING IS NOT UNREADABLE. A reader that
+    returned [] for a ledger it could not open would report "nobody acked" over
+    a broken disk, which is the false-green this row exists to remove. The
+    error is carried out and rendered rather than swallowed."""
+    path = path or ack_ledger_path()
+    if not os.path.exists(path):
+        return [], 0, ""
+    rows, bad = [], 0
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    bad += 1
+                    continue
+                if isinstance(d, dict) and d.get("event") == ACK_LEDGER_EVENT:
+                    rows.append(d)
+    except Exception as exc:
+        return None, bad, "%s: %s" % (path, exc)
+    return rows, bad, ""
+
+
+def ack_ledger_rows_for_tip(rows, tip, repo_root):
+    """Rows that could possibly be about THIS land of THIS repository.
+
+    The sha is matched on the full 40 characters — a short sha is not checkable
+    against a tip, which is why the writer refuses one. The repository is
+    matched when the row records one; a row that records none is kept, because
+    it can still only be credited by a teammate/worktree match below, and that
+    match is exact."""
+    tip = (tip or "").lower()
+    out = []
+    for r in rows or ():
+        if (r.get("sha") or "").lower() != tip:
+            continue
+        rrepo = r.get("repo") or ""
+        if rrepo and repo_root and norm(rrepo) != norm(repo_root):
+            continue
+        out.append(r)
+    return out
+
+
+def _ledger_row_is_own(row, wt):
+    """Does this ledger row belong to THIS worktree's teammate?
+
+    ATTRIBUTION IS POSITIVE HERE, the opposite of _ack_record's fail-safe, and
+    the difference is deliberate. An ack FILE is found inside one worktree, so
+    its location is already evidence and the only question is whether a merge
+    carried somebody else's in. A LEDGER ROW sits in a machine-wide file next
+    to every other teammate's, so location proves nothing: crediting one
+    without a positive match would let any teammate's ack discharge everybody
+    else's debt, which is the "a store that says acked for everybody" failure —
+    worse than the bug it replaces."""
+    addresses = set()
+    for a in (wt.get("addresses") or ()):
+        if a:
+            addresses.add(a.lower())
+    addresses.add(os.path.basename(wt["path"].rstrip("/")).lower())
+    teammate = (row.get("teammate") or "").strip().lower()
+    if teammate and teammate in addresses:
+        return True
+    claimed = row.get("worktree") or ""
+    if claimed and norm(claimed) == norm(wt["path"]):
+        return True
+    return False
+
+
+def _age_of_iso(ts):
+    if not ts:
+        return None
+    try:
+        sent = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+        return int(time.time() - (sent - time.timezone))
+    except Exception:
+        return None
+
+
+def _ledger_record(row, tip, wt):
+    """One ledger row, checked by the same rules as the file it mirrors."""
+    fields = {
+        "sha": (row.get("sha") or "").lower(),
+        "impact": row.get("impact") or "",
+        "detail": row.get("detail") or "",
+        "paths": row.get("paths") or "",
+        "teammate": row.get("teammate") or "",
+        "worktree": row.get("worktree") or "",
+    }
+    present = row.get("paths_present") or []
+    problems, notes = _check_ack_fields(fields, tip, wt, present)
+    return {"path": "%s (row %s)" % (ack_ledger_path(), row.get("timestamp", "")),
+            "source": "durable-ledger",
+            "teammate": fields["teammate"], "worktree": fields["worktree"],
+            "problems": problems, "notes": notes,
+            "verified": not problems, "detail": fields["detail"],
+            "own": _ledger_row_is_own(row, wt),
+            "age_sec": _age_of_iso(row.get("timestamp", "")),
+            "row": row}
+
+
+def orphan_ledger_acks(rows, tip, repo_root, worktrees):
+    """Acks whose teammate has NO registered worktree left.
+
+    THIS IS THE WHOLE POINT OF THE ROW. When the harness removes a worktree it
+    also deregisters it, so the teammate stops appearing in `git worktree list`
+    entirely and drops out of every per-worktree loop below. Before this
+    existed, an ack in that state did not read as invalid — it did not read AT
+    ALL, and the difference between "this teammate complied" and "this teammate
+    never existed" was nothing at all. They are listed separately rather than
+    folded in, because a teammate that has finished is not owed a chase, and
+    saying which is which is the point."""
+    out = []
+    for r in ack_ledger_rows_for_tip(rows, tip, repo_root):
+        if any(_ledger_row_is_own(r, wt) for wt in worktrees):
+            continue
+        out.append({
+            "teammate": r.get("teammate") or "",
+            "worktree": r.get("worktree") or "",
+            "worktree_present": bool(r.get("worktree")) and os.path.isdir(r["worktree"]),
+            "branch": r.get("branch") or "",
+            "impact": r.get("impact") or "",
+            "detail": r.get("detail") or "",
+            "paths": r.get("paths") or "",
+            "timestamp": r.get("timestamp") or "",
+        })
+    return out
+
+
+def ack_status(wt, tip, notices_ts, worker_updates, timeout_min, ledger_rows=()):
     """Did this teammate prove it holds the new fact?
 
-    TWO CHANNELS, AND THEY PROVE DIFFERENT AMOUNTS.
+    THREE CHANNELS, AND THEY PROVE DIFFERENT AMOUNTS.
 
-    PRIMARY — the artifact at <worktree>/.claude/inflight-acks/<tip12>.ack,
+    DURABLE — a row in ~/.claude/state/inflight-acks.jsonl, written by the same
+    command that writes the artifact, in a file that is outside every
+    repository, every worktree and every session. It is listed first because it
+    is the only one of the three that is still there after the teammate's
+    worktree has been removed, which — as row 3.19 records — is the normal end
+    of a teammate's life rather than an edge case. It carries the identical
+    fields and is held to the identical checks; the only thing it cannot do is
+    re-check `paths` against a workspace that no longer exists, and where that
+    bites it SAYS SO instead of passing quietly.
+
+    PRIMARY-BY-HISTORY — the artifact at <worktree>/.claude/inflight-acks/<tip12>.ack,
     written by the teammate (scripts/inflight-ack.sh writes it). Independent of
     the mailbox in both directions, survives the session, and the lead verifies
     it with stat + read. Machine-checkable:
@@ -617,14 +863,28 @@ def ack_status(wt, tip, notices_ts, worker_updates, timeout_min):
     tip = (tip or "").lower()
     short = tip[:12]
     paths = ack_paths(wt["path"], tip)
-    out = {"state": "none", "verified": False, "problems": [], "detail": "",
+    out = {"state": "none", "verified": False, "problems": [], "notes": [],
+           "detail": "",
            "path": ack_path(wt["path"], tip, wt.get("resolved_name") or ""),
-           "records": [], "channel": "", "age_sec": None, "overdue": False}
+           "records": [], "channel": "", "age_sec": None, "overdue": False,
+           "sources": []}
 
-    if paths:
-        out["state"] = "artifact"
-        out["channel"] = "artifact"
-        records = [_ack_record(p, tip, wt) for p in paths]
+    records = [_ack_record(p, tip, wt) for p in paths]
+    # THE DURABLE HALF. Only rows this teammate positively owns — see
+    # _ledger_row_is_own for why attribution here is positive rather than
+    # fail-safe. A ledger row is added even when an artifact is present: the
+    # two are written together, and a case where one survives and the other
+    # does not is exactly the thing worth being able to see.
+    records += [_ledger_record(r, tip, wt)
+                for r in ledger_rows if _ledger_row_is_own(r, wt)]
+
+    if records:
+        srcs = sorted({r.get("source", "") for r in records})
+        out["sources"] = srcs
+        out["state"] = ("ledger" if srcs == ["durable-ledger"]
+                        else "artifact" if srcs == ["worktree-artifact"]
+                        else "artifact+ledger")
+        out["channel"] = " + ".join(srcs)
         out["records"] = records
         own = [r for r in records if r["own"]]
         chosen = own or []
@@ -632,6 +892,7 @@ def ack_status(wt, tip, notices_ts, worker_updates, timeout_min):
             best = ([r for r in chosen if r["verified"]] or chosen)[0]
             out["path"] = best["path"]
             out["problems"] = best["problems"]
+            out["notes"] = best.get("notes", [])
             out["verified"] = best["verified"]
             out["detail"] = best["detail"]
             out["age_sec"] = best["age_sec"]
@@ -705,10 +966,23 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
                if r.get("event") == "WorkerUpdated"] if teams_dir else []
     index = identity_index(teams_dir, transcript_path, session_id)
 
+    # THE DURABLE ACK LEDGER, read ONCE for the whole assessment. Outside every
+    # repository, worktree and session, so it is the only ack source that is
+    # still readable after a teammate's worktree has been removed — which is
+    # how every teammate ends. An unreadable ledger is carried out as an ERROR
+    # and rendered; it is never allowed to look like "nobody acked".
+    _ledger_rows, _ledger_bad, _ledger_err = read_ack_ledger()
+    ledger_tip_rows = ack_ledger_rows_for_tip(_ledger_rows or [], tip, root)
+
     result = {
         "repo": os.path.abspath(repo),
         "main_checkout": root,
         "tip": tip,
+        "ack_ledger": ack_ledger_path(),
+        "ack_ledger_error": _ledger_err,
+        "ack_ledger_malformed": _ledger_bad,
+        "ack_ledger_rows_for_tip": len(ledger_tip_rows),
+        "orphan_acks": [],
         "teams_dir": teams_dir,
         "teams_dir_source": teams_dir_source,
         "notice_ledger": notice_ledger_path(teams_dir),
@@ -815,6 +1089,15 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
 
         if not wt["live"]:
             wt["verdict"] = "NOT-LIVE"
+            # A FINISHED TEAMMATE IS NOT OWED A CHASE, BUT ITS ANSWER STILL
+            # COUNTS. Before the durable ledger this branch left `ack` at the
+            # "n/a" default, so the moment a teammate stopped running — or its
+            # directory was removed under it — every ack it had ever written
+            # stopped being readable through this predicate. Nothing here goes
+            # into `blocking` or `unacked`; the verdict is unchanged. The ack
+            # is simply no longer thrown away.
+            wt["ack"] = ack_status(wt, tip, "", updates, timeout_min,
+                                   ledger_tip_rows)
         elif wt["landed"]:
             wt["verdict"] = "CLEAN-LANDED"
         elif not wt["behind"] or not wt["moved_shas"]:
@@ -825,19 +1108,29 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
             wt["verdict"] = "OWED-NO-NOTICE"
             result["blocking"].append(wt["path"])
         else:
-            ack = ack_status(wt, tip, wt["notice"].get("timestamp", ""), updates, timeout_min)
+            ack = ack_status(wt, tip, wt["notice"].get("timestamp", ""), updates,
+                             timeout_min, ledger_tip_rows)
             wt["ack"] = ack
             if ack["verified"]:
                 wt["verdict"] = "NOTIFIED-ACKED"
-            elif ack["state"] == "artifact":
+            elif ack["state"] in ("artifact", "ledger", "artifact+ledger"):
                 wt["verdict"] = "NOTIFIED-ACK-INVALID"
                 result["unacked"].append(wt["path"])
             else:
                 wt["verdict"] = "NOTIFIED-NO-ACK"
                 result["unacked"].append(wt["path"])
         wt.setdefault("ack", {"state": "n/a", "verified": False, "problems": [],
-                              "detail": "", "path": "", "records": [],
-                              "channel": "", "age_sec": None, "overdue": False})
+                              "notes": [], "detail": "", "path": "",
+                              "records": [], "channel": "", "sources": [],
+                              "age_sec": None, "overdue": False})
+
+    # ACKS WITH NO WORKTREE LEFT AT ALL. `git worktree list` stops naming a
+    # worktree the moment it is removed, so its teammate never enters the loop
+    # above and — before the ledger — its ack did not read as invalid, it did
+    # not read at all. This is row 3.19's exact observed failure: echo-opus-529
+    # wrote three acks and finished, and the evidence went with the directory.
+    result["orphan_acks"] = orphan_ledger_acks(
+        _ledger_rows or [], tip, root, result["worktrees"])
     return result
 
 
@@ -851,6 +1144,19 @@ def render_text(res):
     a("  tip            : %s" % res["tip"])
     a("  ack timeout    : %s min" % res["ack_timeout_min"])
     a("  notice ledger  : %s" % (res["notice_ledger"] or "<no team dir resolved>"))
+    a("  ack ledger     : %s (%d row(s) for this tip)"
+      % (res.get("ack_ledger", ""), res.get("ack_ledger_rows_for_tip", 0)))
+    # AN UNREADABLE LEDGER IS NOT AN EMPTY ONE. Said on screen, because the
+    # whole point of this ledger is that it distinguishes "nobody acked" from
+    # "the evidence is gone", and a reader that swallowed its own read error
+    # would put those two back together again.
+    if res.get("ack_ledger_error"):
+        a("      ** THE ACK LEDGER COULD NOT BE READ: %s" % res["ack_ledger_error"])
+        a("         Every ack below is therefore reported from the worktree files")
+        a("         ALONE, which is the state row 3.19 exists to fix. Fix the ledger.")
+    if res.get("ack_ledger_malformed"):
+        a("      ** %d malformed line(s) in the ack ledger were SKIPPED — not counted as acks."
+          % res["ack_ledger_malformed"])
     a("  resolved by    : %s" % res.get("teams_dir_source", ""))
     a("  identity from  : %s"
       % ("; ".join(res.get("identity_sources_found") or [])
@@ -887,8 +1193,10 @@ def render_text(res):
         if wt.get("waiver"):
             a("      WAIVED     : %s" % wt["waiver"].get("reason", ""))
         ack = wt.get("ack") or {}
-        if ack.get("state") == "artifact":
-            a("      ack        : %s  %s" % (ack["path"], "VERIFIED" if ack["verified"] else "INVALID"))
+        if ack.get("state") in ("artifact", "ledger", "artifact+ledger"):
+            a("      ack        : %s  %s  [%s]"
+              % (ack["path"], "VERIFIED" if ack["verified"] else "INVALID",
+                 ack.get("channel", "")))
             # EVERY record, not just the one that decided. Two teammates
             # acknowledging one land is the normal case, and a reader that
             # printed one of them would hide the very collision row g6 is about.
@@ -896,12 +1204,18 @@ def render_text(res):
             if len(recs) > 1:
                 a("      records    : %d for this tip in this worktree" % len(recs))
                 for r in recs:
-                    a("        %-9s %s  %s"
+                    a("        %-9s %-16s %s  %s"
                       % ("(this)" if r.get("own") else "(another)",
+                         r.get("source", ""),
                          os.path.basename(r["path"]),
                          "verified" if r.get("verified") else "INVALID"))
             for p in ack.get("problems", []):
                 a("        - %s" % p)
+            # A CHECK THAT COULD NOT RUN NAMES ITSELF. It never reads as a
+            # silent pass, because a silent pass is the failure class this
+            # whole row belongs to.
+            for n in ack.get("notes", []):
+                a("        ~ COULD NOT RE-CHECK: %s" % n)
             if ack.get("detail"):
                 a("        detail (HUMAN JUDGMENT REQUIRED — no machine here reads it for correctness):")
                 a("          %s" % ack["detail"])
@@ -911,9 +1225,29 @@ def render_text(res):
             age = ack.get("age_sec")
             a("      ack        : NONE%s" % (" — %d min since the notice%s"
               % (age // 60, " (OVERDUE)" if ack.get("overdue") else "") if age is not None else ""))
+    # ACKS THAT OUTLIVED THEIR WORKTREE. Printed as their own section because
+    # they answer a question no per-worktree line can: this teammate complied,
+    # and then it finished and its workspace was removed. Silence here used to
+    # be indistinguishable from a teammate that never acked at all.
+    orphans = res.get("orphan_acks") or []
+    if orphans:
+        a("")
+        a("  ACKED, WORKTREE GONE — %d record(s) from the durable ledger" % len(orphans))
+        a("  These teammates answered for this tip and no longer have a registered")
+        a("  worktree. They are NOT owed a chase. Before the ledger this section was")
+        a("  empty for the same reason it is not empty now: the evidence was deleted")
+        a("  with the directory, and nothing said so.")
+        for o in orphans:
+            a("    %s  (%s)" % (o["teammate"] or "<unnamed>", o["timestamp"]))
+            a("        worktree : %s%s"
+              % (o["worktree"] or "<none recorded>",
+                 "" if o["worktree_present"] else "   [GONE]"))
+            a("        impact   : %s   paths: %s" % (o["impact"], o["paths"]))
+            a("        detail (HUMAN JUDGMENT REQUIRED):")
+            a("          %s" % o["detail"])
     a("")
-    a("  live worktrees: %d   blocking: %d   notified-but-unacked: %d"
-      % (res["live_count"], len(res["blocking"]), len(res["unacked"])))
+    a("  live worktrees: %d   blocking: %d   notified-but-unacked: %d   acked-worktree-gone: %d"
+      % (res["live_count"], len(res["blocking"]), len(res["unacked"]), len(orphans)))
     return "\n".join(out)
 
 

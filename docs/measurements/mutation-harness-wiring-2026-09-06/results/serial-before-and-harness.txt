@@ -1,0 +1,9 @@
+ceo-asks suite_rc=0 suite_secs=8 mut_rc=0 mut_secs=98
+ceo-ruled suite_rc=0 suite_secs=5 mut_rc=0 mut_secs=39
+ceo-todos suite_rc=0 suite_secs=36 mut_rc=0 mut_secs=422
+unasked-deferral suite_rc=0 suite_secs=5 mut_rc=0 mut_secs=107
+unstarted-rows suite_rc=0 suite_secs=7 mut_rc=0 mut_secs=298
+waiver-repetition suite_rc=0 suite_secs=2 mut_rc=0 mut_secs=39
+turn-manifest suite_rc=0 suite_secs=6 mut_rc=0 mut_secs=39
+root-contract suite_rc=0 suite_secs=54 mut_rc=0 mut_secs=535
+SERIALDONE

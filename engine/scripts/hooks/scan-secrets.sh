@@ -136,6 +136,22 @@ else
     root_failure_banner "scripts/hooks/scan-secrets.sh" >&2
     exit 2
 fi
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# On a payload it cannot read, this guard takes the SAME silent exit 0 that a
+# well-formed payload for a DIFFERENT tool takes: the tool-name extraction ends
+# in `|| true`, so "this call is not mine" and "I could not tell whose call this
+# is" are one exit. That is why 17 of 25 PreToolUse guards were measured passing
+# a call in complete silence on 2026-09-05. This separates the two. NO VERDICT
+# CHANGES — the exit is the one already taken — only the silence does. The
+# measurement, the channel and the argument: scripts/lib/unevaluated-notice.sh.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "scan-secrets.sh" "$INPUT" \
+        "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
+        "whether the new content puts a live credential on disk"
+fi
 
 # The thresholds must come from the repository that governs the FILE, not from
 # wherever the session sits — an allowlist written for one repository has no
@@ -178,7 +194,7 @@ FILE_PATH="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys
 # length and entropy floor were loaded from the SEAT's orchestration.config and
 # are about to be applied to a file in a different repository, whose own
 # thresholds may be nothing like them. That is worth saying out loud once.
-richos_assert_jurisdiction "scripts/hooks/scan-secrets.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+richos_assert_jurisdiction "scripts/hooks/scan-secrets.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" "proceeds" || true
 
 # Re-resolve the thresholds against the repository that actually governs this
 # file. No governing root is NOT a reason to stop scanning — it is a reason to

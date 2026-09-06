@@ -122,9 +122,22 @@ fi
 # never wins is a bad trade.
 #
 # It does still read stdin further down, for the session id — but only under
-# its original condition (no --session was supplied), which is what kept the
-# hazard unreachable before the root work touched it. Root resolution happens
+# its original condition (no --session was supplied). Root resolution happens
 # first and needs nothing from stdin.
+#
+# CORRECTION, 2026-09-05 — that condition was described here as "what kept the
+# hazard unreachable". It did not. The no---session case is EXACTLY the real
+# SessionStart firing, and any script invoking this hook with an inherited,
+# never-closed stdin reaches it too. Measured on unmodified main: run with an
+# open, never-closed stdin and no --session, this hook never returned; the same
+# run with stdin closed finished in under a second. The suite did not catch it
+# because its only hang case passes `--session`, which is the one invocation
+# that cannot reach the read — a test passing for the wrong reason.
+#
+# The read below is therefore BOUNDED, not merely conditional. A SessionStart
+# hook that blocks holds the WHOLE session for as long as it blocks: measured
+# against the shipped binary (claude 2.1.261), 602 seconds, with no rescue
+# timeout on that path.
 
 ROOT_FAILURE=""
 if resolve_entity_root ""; then
@@ -146,11 +159,22 @@ if [ -z "$SESSION_ID" ] && [ -n "${CLAUDE_SESSION_ID:-}" ]; then
 fi
 if [ -z "$SESSION_ID" ] && [ ! -t 0 ]; then
     # SessionStart payload on stdin: {"session_id":"...","hook_event_name":...}
-    # Reached ONLY when no --session was supplied, i.e. a real SessionStart
-    # firing, where the harness writes the payload and closes. A CLI run with
-    # --session never gets here, which is what keeps an inherited, never-closed
-    # stdin from hanging the hook.
-    STDIN_JSON="$(cat 2>/dev/null || true)"
+    #
+    # BOUNDED READ, NEVER `cat`. Three details are load-bearing, and all three
+    # were measured on bash 3.2.57 — what `/usr/bin/env bash` resolves to on
+    # macOS — rather than assumed from the manual:
+    #   * `-d ''` reads to EOF instead of to the first newline, so the whole
+    #     JSON payload arrives. It also returns NONZERO on a complete read
+    #     (the NUL delimiter is never found), so the VALUE is judged below,
+    #     never `$?`.
+    #   * on timeout, bash 3.2 leaves the variable UNMODIFIED rather than
+    #     clearing it, so it is initialized to empty first.
+    #   * the real firing closes stdin in 3-6ms (measured against the shipped
+    #     binary), so the ceiling costs nothing and 2s is ~400x the margin.
+    # An empty STDIN_JSON degrades to a timestamped snapshot, which the code
+    # below already handles — the hook loses precision, never the session.
+    STDIN_JSON=""
+    IFS= read -r -t "${RICHOS_HOOK_STDIN_TIMEOUT:-2}" -d '' STDIN_JSON || true
     if [ -n "$STDIN_JSON" ] && command -v python3 >/dev/null 2>&1; then
         SESSION_ID="$(printf '%s' "$STDIN_JSON" | python3 -c '
 import json, sys

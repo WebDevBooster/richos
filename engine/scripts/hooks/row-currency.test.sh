@@ -311,6 +311,75 @@ else
     bad "no PASTE line in the refusal: $GOUT"
 fi
 
+# 1b. THE SAME REFUSAL, IN THE HOUSE STYLE — a MULTI-LINE commit message.
+#
+# Every case above and below passes a one-line message, and for four days that
+# was the only shape this suite ever handed the guard. The shipped command
+# splitter cut inside quotes, so a message with a blank line in it — which is
+# how every commit message in this project is written — was torn in half, both
+# halves failed to shlex, and NO `git commit` was recognized in the call at all.
+# The guard exited 0 having looked at nothing.
+#
+# Measured over every transcript on this machine since the guard shipped:
+# 189 of 592 commit/merge calls at a governed main checkout (31.9%) were never
+# recognized, and 29 commits reached richos-hq's main carrying a stale row.
+# Found by a sibling guard's author, not by this suite — which is why the case
+# is here and why it uses the shape the corpus actually contains.
+set -- $(mk_pair multiline); REC="$1"; WORK="$2"
+write_record "$REC" '| 3.1 | the flywheel is unbuilt at both ends | **State:** `OPEN` — `work/lib/new.js`@`-` |'
+commit_record "$REC"
+printf 'the work that just landed\n' > "$WORK/lib/new.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"feat: the loop turns\n\nA second paragraph, and a blank line above it: the house style.\n\nThe splitter that cut inside quotes never saw this commit at all.\"'
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'ROW-STALE'; then
+    ok "a MULTI-LINE commit message is still recognized as a commit and refused"
+else
+    bad "multi-line message not refused (rc=$GRC) — the splitter cut inside the quotes: $GOUT"
+fi
+
+# 1c. AND THE SAME AGAIN WITH A SEPARATOR INSIDE THE MESSAGE. `;`, `&&` and `|`
+# are ordinary punctuation in English prose and are what the old splitter cut
+# on, so a message that contains one must not disappear either.
+run_guard "$WORK" 'git commit -m \"feat: it turns; and it keeps turning && nothing else\"'
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'ROW-STALE'; then
+    ok "a message containing ; and && is still one commit, and is still refused"
+else
+    bad "message-with-separators not refused (rc=$GRC): $GOUT"
+fi
+
+# 1d. THE OTHER HALF OF THE SAME SUBJECT: a heredoc that WRITES a document
+# containing the words `git commit` is not a commit. The walker shlexes that
+# line out of the body happily, and this guard then runs the row predicate and
+# can REFUSE the write. Measured: 12 calls in the transcript corpus recognized
+# only because of a heredoc body, 2 at a governed main checkout. Describing a
+# command is not issuing one.
+run_guard "$WORK" 'cat > runbook.md <<EOF\nTo land the work run:\ngit commit -m \"the subject\"\nEOF'
+if [ "$GRC" -eq 0 ]; then
+    ok "a heredoc that WRITES the words 'git commit' into a document is not a commit"
+else
+    bad "a documented command was treated as a commit (rc=$GRC): $GOUT"
+fi
+
+# 1e. ...and the exception that keeps the recall. `bash <<EOF` really does
+# execute its body, so a heredoc fed to a SHELL is still read in full. Without
+# this the previous case would be a way to launder a landing past the guard.
+run_guard "$WORK" 'bash <<EOF\ngit commit -m \"feat: the loop turns\"\nEOF'
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'ROW-STALE'; then
+    ok "a heredoc fed to a SHELL is still a command, and is still refused"
+else
+    bad "shell-fed heredoc not refused (rc=$GRC) — the body really does execute: $GOUT"
+fi
+
+# 1f. ...and `git commit -F -` still reads its message out of the heredoc it was
+# handed. The blanking is applied to the text the walker segments, never to the
+# message map, and this is the case that proves the two did not get confused.
+run_guard "$WORK" 'git commit -F - <<MSG\nfeat: the loop turns\n\nopen-items 3.1 is done\nMSG'
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'ROW-STALE'; then
+    ok "git commit -F - still reads its message from the heredoc body"
+else
+    bad "commit -F - was not recognized (rc=$GRC): $GOUT"
+fi
+
 # 2. work MODIFIED under a row stamped at the old id  (2026-08-29 item 3.7)
 set -- $(mk_pair modified); REC="$1"; WORK="$2"
 OLD="$(oid_of "$WORK" lib/thing.js)"
@@ -999,6 +1068,17 @@ for lib in scripts/lib/row-currency.sh scripts/lib/row-currency.py scripts/lib/d
         && ok "$lib is sidecar-hashed by install.sh (the guard delegates its whole decision to it)" \
         || bad "$lib NOT hashed by install.sh"
 done
+
+# ---------------------------------------------------------------------------
+# THE MUTATION HARNESS — a green suite is evidence of nothing until somebody
+# has watched it go red for the right reason. Skipped inside a mutation sandbox
+# so a mutant cannot run mutants.
+# ---------------------------------------------------------------------------
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -x "$SCRIPT_DIR/guard-row-currency-commits.mutation.sh" ]; then
+    echo ""
+    echo "=== running the mutation harness ==="
+    "$SCRIPT_DIR/guard-row-currency-commits.mutation.sh" || FAIL=$((FAIL + 1))
+fi
 
 echo ""
 TOTAL=$((PASS + FAIL))

@@ -336,6 +336,18 @@
              through #live-region below, one at a time, from main.js's `announce()`. -->
         <div id="conversation" role="log" aria-live="off" tabindex="0">
           <div id="scroll-sentinel-top"></div>
+          <!-- WHAT DID NOT LOAD, SAID OUT LOUD AND SAID FIRST.
+               `history_health` (richos-core `Ledger::history_health`) is non-empty only when
+               the replay found a record on disk it could not read — one written by a newer
+               RichOS, or a damaged one. It sits at the TOP of the conversation because it is
+               a statement about the messages below it.
+               Hidden and empty in every other case, which is every case today. That is the
+               point rather than an omission: a reassuring line over a check that found
+               nothing to say is the same failure as a green over something that never ran. -->
+          <section id="history-notice" class="history-notice" role="status" hidden>
+            <p id="history-notice-headline" class="history-notice-headline"></p>
+            <p id="history-notice-detail" class="history-notice-detail"></p>
+          </section>
           <!-- WHY THERE IS NO MACHINERY, when there is none. Four states, three sentences,
                all of them written in Rust (`src-tauri/src/machinery_view.rs`) and rendered
                verbatim here — "no machinery was recorded for this conversation" and "I

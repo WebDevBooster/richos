@@ -17,6 +17,7 @@ pub struct RunView {
     pub(crate) turn_timeout_seconds: u64,
     pub(crate) state: RunState,
     pub(crate) tasks: Vec<TaskView>,
+    pub(crate) instruction_changes: Vec<String>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -53,6 +54,11 @@ pub(crate) fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
         } else {
             snapshot.plan.display_goal().into()
         },
+        instruction_changes: snapshot.decision_receipts.iter().filter_map(|receipt| {
+            let encoded = receipt.strip_prefix("panel:")?;
+            let (_, _, action): (String, String, richos_core::run::DecisionAction) = serde_json::from_str(encoded).ok()?;
+            match action { richos_core::run::DecisionAction::ChangeScope { text } => Some(text), _ => None }
+        }).collect(),
         autonomous: snapshot.plan.autonomous(),
         preparing: false,
         workspace: snapshot.plan.workspace.display().to_string(),

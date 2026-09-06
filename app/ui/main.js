@@ -1625,6 +1625,14 @@ function syncComposerMode() {
 /// underneath the renderer through it.
 window.__RICHOS_TIMELINE__ = () => timelineModel;
 
+/// RE-READ WHAT DID NOT LOAD. The notice is rendered once, at boot, because that is when a
+/// ledger is replayed — there is no second load for it to react to. So a harness driving
+/// the not-clean states needs a way to ask for the render again after it has set them, and
+/// this is it. It takes no arguments and invents no state: it calls the same command the
+/// boot path calls and renders whatever comes back, so a suite can never paint a notice the
+/// backend did not produce.
+window.__RICHOS_HISTORY_NOTICE__ = () => renderHistoryNotice();
+
 composerEl.addEventListener("submit", (e) => {
   e.preventDefault();
   send();
@@ -2274,10 +2282,27 @@ Bridge.listen("rich://turn-completed", () => {
   Bridge.invoke("voice_speak_end").catch(() => {});
   Bridge.invoke("voice_turn_ended").catch(() => {});
 });
-Bridge.listen("rich://turn-error", () => {
+// A TURN THAT DIED SAYS SO OUT LOUD (open-items row 3.30, answer 1).
+//
+// WAS: `voice_speak_end` + `voice_turn_ended`, the same pair `turn-completed` uses above.
+// `speak_end` FLUSHES the sentence chunker's tail, and on a turn that died mid-sentence the
+// tail is half a sentence that will never be completed — so Rich spoke half a sentence,
+// trailed off, and said nothing else. In voice mode the CEO is listening rather than
+// reading, and trailing off is exactly what a person does while thinking, so he waits for
+// the rest of an answer that is not coming. That is the row's own words: "the CEO is
+// speaking to a system that has stopped listening and does not know it."
+//
+// `voice_turn_cut_off` drops the fragment, SPEAKS the cut-off notice, and ends the turn —
+// all three, in that order (`richos_voice::controller::CutOffDesk`). It replaces BOTH calls
+// rather than joining them: `turn_ended` is inside it, because a caller who could forget the
+// second half is a caller who will.
+//
+// `payload.reason` is relayed as it stands. For an upstream failure it is the sentence
+// `richos-core`'s `upstream.rs` authored; for anything else it is whatever the backend said.
+// Nothing here parses it — one classifier owns that decision and it is not this file.
+Bridge.listen("rich://turn-error", ({ payload }) => {
   if (!voiceMode) return;
-  Bridge.invoke("voice_speak_end").catch(() => {});
-  Bridge.invoke("voice_turn_ended").catch(() => {});
+  Bridge.invoke("voice_turn_cut_off", { reason: (payload && payload.reason) || null }).catch(() => {});
 });
 
 // ---------------------------------------------------------------------------------------
@@ -3128,6 +3153,37 @@ const MEMORY_NO_READER =
 async function refreshMemory() {
   memoryState = await invokeQuiet("memory_status");
   return memoryState;
+}
+
+/// WHAT DID NOT LOAD, AND WHY — the read half of `Ledger::history_health`.
+///
+/// A record written by a NEWER RichOS is one an older build cannot name, and the three
+/// published builds (v1.0.0-v1.0.2) are still downloadable with no rollback in the
+/// updater. The reader survives such a record now instead of failing the whole history on
+/// it, and this is the half that makes surviving it honest: the app says how many records
+/// it could not read and why, in the CEO's own words, at the top of the conversation the
+/// statement is about.
+///
+/// EVERY STRING RENDERED HERE IS COMPOSED IN RUST (`Ledger::history_health`). Nothing is
+/// assembled from a count on this side, for the same reason `machinery_view.rs` owns its
+/// four sentences: "I could not read some of this" and "there was nothing to read" are
+/// different statements and a renderer must never be in a position to substitute one for
+/// the other.
+///
+/// `skipped === 0` hides it entirely. There is no reassuring "history loaded cleanly"
+/// state and there should not be — a green tick over a check that found nothing to say is
+/// the failure mode this whole change exists to avoid, not a smaller version of success.
+async function renderHistoryNotice() {
+  const box = el("history-notice");
+  if (!box) return;
+  const health = await invokeQuiet("history_health");
+  if (!health || !health.skipped) {
+    box.hidden = true;
+    return;
+  }
+  el("history-notice-headline").textContent = health.headline;
+  el("history-notice-detail").textContent = health.detail;
+  box.hidden = false;
 }
 
 /// Ask, or say what is wrong, or do nothing at all. Returns true when a dialog opened, so
@@ -4949,6 +5005,10 @@ async function init() {
   setRailOpen(isWide() ? true : !navPrefs.sidebar_collapsed);
 
   await refreshNavigation();
+  // WHETHER ANY OF HIS HISTORY DID NOT LOAD. Read before the conversation is opened, so
+  // the sentence explaining why part of it is missing is on screen with the part that
+  // survived, rather than arriving after he has already read what is there.
+  await renderHistoryNotice();
   // WHICH COMPANY THIS COPY OF RICH IS FOR, read before the branch below, because the
   // branch below is where a launch that resolved none used to fall into the wrong arm.
   await refreshEntityChoice();

@@ -44,6 +44,118 @@ what made six splash checks red at once. This delays the harness's first instruc
 every launch by that many milliseconds, so a fast machine measures what a slow one measures.
 Zero, and no delay at all, unless it is set.
 
+**`home.js` reads the same variable, deliberately** — `RICHOS_SPLASH_LAG_MS=2000 node home.js`
+— because it is the same condition and one condition should not need two switches. It is what
+reproduced run 33933067025's `the loading state was already dismissed before the field was
+live`: the check sampled the surface once, from outside, at whatever moment the harness got its
+turn, and on a runner that moment was after the picture had finished. Three failures out of
+three with the lag in, on a launch whose order was correct throughout. The check now records
+the order in the page and asserts THAT, so the harness's turn cannot reach it.
+
+```
+RICHOS_FRAME_BUDGET_MS=30 node scale.js
+```
+
+The reverse direction, and the same lesson from the other side. `scale.js` asserted 60fps over a
+10,000-item thread and was red on every public run — 17ms here, 23ms median and 68ms p95 on a
+`macos-latest` runner with three vCPUs and no GPU. That number is about the machine, so it is no
+longer a gate anywhere in CI: it is measured and printed every run, and this turns it back into a
+gate on hardware where the answer means something. What holds the promise in CI instead is a
+count that reads the same on any machine (the drag does zero DOM writes and zero model reads) and
+a ratio that divides the machine out of both halves (1,000 turns against 120, same motion).
+
+```
+RICHOS_SPLASH_BUDGET_MS=16.7 node splash.js
+RICHOS_SLIDE_ABS_PX=1        node home.js
+```
+
+Two more of the same shape, added 2026-09-05 for the two checks that were still red after the
+pair above. Both are OFF by default, both numbers are measured and PRINTED on every run either
+way, and both name in their own suite what is no longer gated.
+
+`splash.js` check 13 asserted that the curtain costs the launch under one frame — 16.7ms — and
+was red on every public run. It had already been given a measured noise floor and that was not
+enough: on run 33957510095 the floor came out at 18.5ms and the warm arm's difference at 54.5ms.
+The gate is now COUNTS, which read the same on any machine: 0 Tauri commands, 0 fetches, 0 XHRs,
+0 subresources, 30 DOM nodes and all 30 of them inside `#splash`, nothing `main.js` can await,
+and — per frame, over the whole ceremony — at most one layout read and never one after a write.
+Check 13b measures the milliseconds, prints both arms beside that run's own noise floor, and this
+variable turns them back into a gate on hardware with GPU compositing.
+
+`home.js`'s entity-row slide asserted that the company name's VIEWPORT position never moves
+backwards. It is the sum of two separately-clocked transitions — the track's `transform`, which
+WebKit runs on the compositor, and the pill's `width`, which is layout — inside a CENTERED row,
+so they subtract; measured here they start one frame apart and the viewport position goes
+backwards on 20 runs out of 20, worst step 6.85px. The slide is now read IN THE PILL, where it is
+one animation and monotonic at zero tolerance, and the two halves are additionally required to be
+one declaration (same duration, same delay, same curve). This variable puts the old viewport
+assertion back at its old ±1px.
+
+```
+RICHOS_SPLASH_SHUTTER_LAG_MS=400 node splash.js
+```
+
+Added 2026-09-05, and it is a SECOND lag knob because the first one cannot reach the check that
+needed it — which is worth stating plainly, since the obvious move was to reuse it.
+
+`lag()` is applied immediately after `goto`. The next thing `settledShot` does is wait for
+`state.barStopped`, which the bar does not report until 3,950 ms into the curtain. So 2,000 ms
+of `RICHOS_SPLASH_LAG_MS` lands the harness at ~2,050 ms and is then absorbed WHOLE by the wait
+behind it: run it and check 5 is not stressed by one millisecond. That knob is right for checks
+8, 12b, 12c and 22, which sample at FIXED INSTANTS; it is structurally incapable of stressing a
+check that waits for a state to arrive.
+
+What a slow runner costs check 5 is spent AFTER the bar stops — the round trip, the settle, and
+the full-viewport screenshot of a composition of gradients and filters, which is the expensive
+one. This delays exactly that span, between the bar landing and the shutter opening, which is
+the span the window is measured across. At `400` it reproduces the failure on this machine; at
+`3000` it demonstrates that the fixed shutter no longer has a deadline at all.
+
+**The window it is about, derived and then measured.** The shutter opens at `holdMs + FLARE_MS`
+and the curtain is removed at `holdMs + CEILING_GRACE_MS + FADE_MS + 40`:
+
+```
+(holdMs + 1000 + 180 + 40) - (holdMs + 950) = 270 ms
+```
+
+`holdMs` cancels, so a screen that asks for five seconds hands the camera the same 270 ms a
+three-second one does — measured 271 ms at `seconds: 3` and 265 ms at `seconds: 5`, and the
+removal instant measured at 4,221 ms against 4,220 derived. That is why check 5 disarms the
+ceiling for its two launches (`NO_CEILING`) rather than asking for a longer screen, and why
+widening `CEILING_GRACE_MS` in the product was refused: it would change what a launch does on
+the CEO's machine in order to suit a screenshot. Check 10b asserts the disarm stays an opt-in —
+two call sites, read off the suite's own source — and checks 10 and 12c still watch a real
+failsafe fire.
+
+**It drives BOTH shutters, and that is why there is no third variable.** `matShot` — the mat
+photograph checks 15 and 18 are built on — waits for a state too (`atCurtain(page, 2200)`, on
+the page's own clock), so `RICHOS_SPLASH_LAG_MS` is absorbed whole by that wait below 2,200 ms
+and stops being a lag above it. This is applied at the same seam in both: between the wait that
+precedes the picture and the picture.
+
+`matShot`'s guard was the same DOM-presence test check 5 was green over, with margin instead of
+none. Measured: its shutter opens at 2,304-2,336 ms and its `seconds: 5` ceiling is armed for
+6,000 ms, so the margin is 3,664-3,696 ms — distant, not unreachable, because `matShot` does not
+disarm anything. `splash--yielding` lands at 6,001-6,024 ms over four launches and the node
+leaves 220-223 ms later, against 220 derived from `FADE_MS + 40`. Inside those 220 ms the node
+is present and the curtain is gone, which is exactly what `up` cannot see:
+
+```
+RICHOS_SPLASH_SHUTTER_LAG_MS=3720 node splash.js
+```
+
+Before the fix that was **green**: check 18 filed `material-round-11-v1.png` with 62,346 distinct
+colors against the mat's 2,951, and check 15 reported 99%/100% where it reports 64%/77% — the
+"material reaches the mat" comparison run over two photographs of the home screen. After it, both
+go red naming the instant, and the guard refuses before publishing, so no wrong picture is filed.
+At `0` and `3000` both are green and the filed pair is the same picture — 2,951 / 9,922 distinct
+colors against 2,951 / 9,923 — so it is invariant across the whole margin, and past it the check
+refuses rather than files.
+
+The guard is the CLASS, never computed opacity, and there is a second reason for that beyond the
+one on `curtainNow`: opacity does not order the damage. A shutter reading 0.41 came out with
+87,336 distinct colors and one reading 0.32 with 11,039.
+
 The other knob is not a variable: `home.js`'s WebGL check PLANTS the failure it is about
 (`getShaderParameter` refusing COMPILE_STATUS), because this machine's WebGL works and a
 check that passes for want of the defect is not a check. Do the same for anything else the
@@ -62,9 +174,80 @@ WebKit's own compositor, pixel-verified. Two of the nine are deliberately not wh
 for; the filenames and the suite's SCREENSHOT INVENTORY say which and why. `shots-5b/` is
 the same arrangement for the correction desk: twelve states, written by `corrections.js`,
 with `shots-5b/README.md` naming what each one is evidence of. `shots-5/` is the same again
-for the feedback channel — nine states, written by `feedback.js`, with its own README. Both directories are
-overwritten on every run and neither is byte-stable; read the suite's exit code, not a
-`git diff` over a PNG.
+for the feedback channel — nine states, written by `feedback.js`, with its own README.
+
+### A COMMITTED SHOT IS WRITTEN ONLY WHEN THE PICTURE CHANGED
+
+This used to say those directories were "overwritten on every run and not byte-stable; read the
+suite's exit code, not a `git diff` over a PNG". That was true, and it was the wrong thing to
+settle for. Measured 2026-09-05 against `5e00651`: one `node run.js` left **96 of the 96
+committed PNGs modified**, with byte deltas from -12 to +679,604 — so `git status` was dirty
+after every run, `git checkout -- app/ui/tests/` became a habit (four times in one day, each one
+a chance to throw away a real change), and a genuine visual regression would have arrived as one
+more modified PNG in a list of ninety-six.
+
+`lib/harness.js` now decodes both sides with `lib/png.js` and writes a shot **only when a
+decoded sample actually differs**. When one does change, the run says so in a line naming the
+pixel count and the worst channel delta, so the diff arrives explained rather than as a binary
+blob. Any doubt writes: an unreadable or unfamiliar PNG compares as different, because a
+redundant write costs a line in `git status` and a wrongly-skipped one costs a regression nobody
+sees.
+
+Three sources of run-to-run churn were removed with it, and each is measured in the comment that
+fixed it:
+
+* **the opening curtain** — `leaveHome` now clears it and waits for it to be gone, so a suite no
+  longer photographs the app either side of a three-second fade (`shots-7-2/` differed by 84% and
+  94% of its pixels between two runs);
+* **looping animations** — pinned to phase 0 for the length of the capture (the `WORKING` pulse
+  dot alone accounted for three files);
+* **unfinished transitions** — waited out through `Animation.finished` rather than through a
+  `waitForTimeout` somebody guessed (the settings panel photographed at 99-point-something
+  percent of its fade), and the splash bar is photographed once it reports it has landed rather
+  than at an arbitrary point in its run.
+
+**Eight files still change, and they are named rather than excused.** Measured over four
+consecutive full runs from a clean tree on 2026-09-05: 88 of the 96 were byte-identical after
+every one of them, and these eight were not. Five of the eight are one cause and three are
+another, and only four of the eight change on every run.
+
+**The live field.** `home/field-engine.js` integrates 7,500 objects on springs and flies packets
+along 12,817 links, all of it off `performance.now()`, so two runs photograph it at different
+moments in its own life. Its randomness is already seeded (`mulberry32(6401)`); the wall clock is
+the only thing about it that is not reproducible. A test-side frame clock — `performance.now()`
+replaced by a counter that advances one 60Hz step per animation frame — was built and measured
+to take two loads paused at the same frame from 44,039 differing samples down to 293, and it is
+NOT installed here: the surfaces that would need it also race the curtain's 4,000ms ceiling, and
+unpicking that is a larger change than this one. It is written down rather than half-done.
+
+**Gradient dither.** The three splash files differ by no more than 2 of 255, scattered, with no
+element having moved — the compositor's own dithering of the same gradient, which is not
+something a suite can wait for. Two of the three do not change on every run.
+
+The "how often" column is four consecutive full runs, and it is there because "sometimes" is a
+fact about a flake that rounding to "always" would misdescribe.
+
+| Still not byte-stable | How often | Measured, run to run | Why |
+|---|---|---|---|
+| `shots-home/home-named.png` | 4 of 4 | 12.9%–21.2% of pixels, delta up to 248 | the live field, running |
+| `shots-home/home-returned.png` | 4 of 4 | 14.9%–24.4%, delta up to 250 | the live field, running |
+| `shots-home/home-anonymized.png` | 4 of 4 | 6.5%–18.2%, delta up to 250 | the live field, running |
+| `shots-splash/material-round-11-v1.png` | 4 of 4 | 0.10%–0.26%, delta 2 | dither in the composite's shipping half (the study half settles: 326 samples) |
+| `shots-splash/splash-01-round-11-v1.png` | 3 of 4 | 20.7% of pixels, delta **1** | dither across the ground, nothing moved |
+| `shots-10-1/10-1-start-screen-always-dark.png` | 3 of 4 | 0.29%–0.32%, delta up to 127 | the curtain is held up on purpose and the same live field shows through it |
+| `shots-contrast/opening-screen.png` | 3 of 4 | 1 pixel to 0.29%, delta up to 90 | same, through a nearly opaque curtain |
+| `shots-splash/material-round-11-v2.png` | 2 of 4 | 0.27%–0.37%, delta 2 | as `-v1` |
+
+Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is signal.
+
+**`splash-01-round-11-v1.png`'s row is a canary, and it earned that on 2026-09-05.** Its
+signature is 20.7% of pixels at worst channel delta **1** — dither, nothing moved. For a day it
+was drifting 905,792 of 1,024,000 pixels (88.46%) at delta **63**, and nothing failed, because
+check 5's guard asked only whether `#splash` was still in the DOM. It was: the ceiling had fired,
+the fade had finished, and the node had 40 ms left before removal, so the suite filed a
+photograph of the home screen through a curtain at opacity 0 and called it green. A shot whose
+recorded delta is 1 and whose measured delta is 63 is not the same picture, and this table is
+where that shows. Read the numbers in the `shot changed:` lines, not just the file names.
 
 ## What is here
 
@@ -85,8 +268,8 @@ overwritten on every run and neither is byte-stable; read the suite's exit code,
 | `restart-scope.js` | What happens BETWEEN threads, and what survives a restart. A working thread stays visibly active while another is selected and its timer resumes rather than restarts; drafts and scroll positions belong to one thread and never cross an entity; a turn streaming elsewhere renders nothing here, across entities and inside one; the fence is on every live handler, with the inventory derived from the shipped object and cross-checked against `timeline.js` on disk; duplicates render once; missed events recover from the snapshot; an in-flight turn survives a restart as unknown; a mid-turn crash draws the CEO's prompt once. |
 | `corrections.js` | THE CORRECTION DESK (§7 "ask, never infer"), both families, through the real shell — RICH-TODOs row 5b. Confirm reaching the Rust desk and nothing written before it; the preview asserted byte-identical to the writer's own `--dry-run` output; a plain decline suppressing nothing and staying re-askable; a permanent decline landing on a visible list that lifts; an absent desk stating its reason instead of rendering an empty list, with the present-and-empty case as its positive probe; four refusals relayed verbatim to the screen rather than a console; the fourteen registered commands joined to `main.js` and `mock.js` on disk. Writes `shots-5b/`. Every check run RED once — `docs/verification/correction-desk-2026-08-30/mutation-runs.txt`. |
 | `feedback.js` | THE FEEDBACK CHANNEL (`feedback.rs`), through the real shell — RICH-TODOs row 5. The rail control that never counts up at him and the absence of any trigger, asserted structurally; the question and four keys byte-identical to the Rust constants; the offer raised on 1 and 2 and on nothing else; a dismissal recorded and a closed panel recorded as nothing; the whole vocabulary on screen with ZERO free-text fields; the preview compared byte for byte against what `render_disclosure` really produces, the same terms in reverse rendering the same bytes, and the whole report visible without a nested scroller; an approval that records the terms and no prose; an approval for ALTERED text refused with its positive control beside it; four unrecognized keys refused rather than taken as dismissals; the store-would-not-open, read-refused and genuinely-empty states as three different facts; 40 answers in one column. Writes `shots-5/`. Every check run RED once — `docs/verification/feedback-channel-2026-08-30/mutation-runs.txt`. |
-| `scale.js` | THE TWO PROMISED NUMBERS in §25 "Accessibility and performance" — RICH-TODOs virtualization row. 10,000 items through the real renderer in real WebKit: one new activity row costs 24ms (2ms of it JS) against a 257ms baseline, 999 of 1000 turn sections are asserted IDENTICAL BY REFERENCE, and the reused DOM is compared byte for byte against a from-scratch render. Plus the scroll frame budget with a scroll-container probe, the projection budget set BELOW the baseline it catches, the steering predicate against the brute-force scan it replaced, `turnRecord`'s order invariant across every mutation site, NO PAGINATION asserted structurally (every turn mounted, no page control), and a join to the Rust test that owns the OTHER 10,000 (the entity index, `app/src-tauri/src/main.rs`). Numbers: `docs/verification/timeline-scale-2026-08-30/`. Every check run RED once — `mutation-runs.txt` there, including the four that did not go red the first time. |
-| `splash.js` | THE OPENING SCREEN and its off switch, through the real shell. The variation library asserted to be DATA — the file is stripped of its one assignment and handed to `JSON.parse`, so it cannot contain code — and the renderer asserted to hold no colour literal, so a new variation can only ever be a new entry. Every shipped entry forced and drawn in full; twelve real launches producing distinct compositions with zero immediate repeats; the palette study's chips, hexes and corner labels asserted ABSENT by element inventory; the whole curtain click-through with a centre click reaching the app beneath; the ceremony cut but the mark pinned rather than left as unlit steel; three unusable-library shapes each producing a normal launch and no half-drawn frame; a launch that never reports ready still clearing on its own ceiling; the switch found behind the gear, turned off, and still off after a relaunch, joined to `config.rs`'s durable default and the three registered commands; and the launch cost measured cold and warm, with and without, against a one-frame bar. Then, for the eleven MATERIAL versions RICH-TODOs row 9 added: a material layer's whole vocabulary read off `splash.js` rather than typed here, with an entry carrying a key outside it DROPPED from the pool; each entry's mat photographed as it ships and again with its material stack emptied and nothing else touched, and required to differ over a quarter of the mat AND to differ from v0's mat by as much, because a suede that renders as a flat navy rectangle is v0 with a different name; every number in the relief filter WebKit built joined back to the number in the library it came from, plus the merge order, which is the one thing in it that is not data; the settle asserted to pin the mark's relief rather than flatten it; and eleven side-by-side files, the mat as the SHIPPING renderer draws it beside the mat the study each entry NAMES draws. Writes `shots-splash/`. Every check run RED once — `docs/verification/opening-screen-2026-08-30/mutation-runs.txt` for the first thirteen, `material-reduction.txt` beside it for the five that came with the material (and for the one version, v18, that is deliberately NOT in the library). |
+| `scale.js` | THE TWO PROMISED NUMBERS in §25 "Accessibility and performance" — RICH-TODOs virtualization row. 10,000 items through the real renderer in real WebKit: one new activity row costs 24ms (2ms of it JS) against a 257ms baseline, 999 of 1000 turn sections are asserted IDENTICAL BY REFERENCE, and the reused DOM is compared byte for byte against a from-scratch render. Plus the drag over the whole 518,189px history asserted to do NO work — zero DOM mutations AND zero reads of the model, both instruments carrying a positive probe, because turn reuse makes a re-render-on-scroll regression invisible to a DOM counter alone — and the same motion at 1,000 turns against 120 costing no more per frame, matched on one viewport of fresh content per frame so neither arm re-reads warm tiles. The absolute 60fps number is measured and printed on every run and gated only by `RICHOS_FRAME_BUDGET_MS`, because on a GPU-less runner it measures the runner. Plus the scroll-container probe, the projection budget set BELOW the baseline it catches, the steering predicate against the brute-force scan it replaced, `turnRecord`'s order invariant across every mutation site, NO PAGINATION asserted structurally (every turn mounted, no page control), and a join to the Rust test that owns the OTHER 10,000 (the entity index, `app/src-tauri/src/main.rs`). Numbers: `docs/verification/timeline-scale-2026-08-30/`. Every check run RED once — `mutation-runs.txt` there, including the four that did not go red the first time. |
+| `splash.js` | THE OPENING SCREEN and its off switch, through the real shell. The variation library asserted to be DATA — the file is stripped of its one assignment and handed to `JSON.parse`, so it cannot contain code — and the renderer asserted to hold no colour literal, so a new variation can only ever be a new entry. Every shipped entry forced and drawn in full; twelve real launches producing distinct compositions with zero immediate repeats; the palette study's chips, hexes and corner labels asserted ABSENT by element inventory; the whole curtain click-through with a centre click reaching the app beneath; the ceremony cut but the mark pinned rather than left as unlit steel; three unusable-library shapes each producing a normal launch and no half-drawn frame; a launch that never reports ready still clearing on its own ceiling, and — because the two photographed launches DISARM that ceiling so the shutter is not racing a 270 ms window — a check that the disarm is an opt-in and stays one, proving the failsafe fires without it, that the window it leaves does not widen when the screen asks for five seconds instead of three, that the curtain is still up two seconds past the instant the identical launch removed it, and that the opt-in has exactly the two call sites this file's own source says it has; the switch found behind the gear, turned off, and still off after a relaunch, joined to `config.rs`'s durable default and the three registered commands; and the launch cost held in COUNTS rather than in milliseconds — 0 Tauri commands, 0 fetches, 0 XHRs, 0 subresources, 30 DOM nodes with all 30 of them inside `#splash` and none in the shell, nothing `main.js` can await, and at most one layout read per frame and never one after a write — each counter carrying a positive probe in the same run, with the millisecond figure measured cold and warm every run beside that run's own noise floor and gated only by `RICHOS_SPLASH_BUDGET_MS`. Then, for the eleven MATERIAL versions RICH-TODOs row 9 added: a material layer's whole vocabulary read off `splash.js` rather than typed here, with an entry carrying a key outside it DROPPED from the pool; each entry's mat photographed as it ships and again with its material stack emptied and nothing else touched, and required to differ over a quarter of the mat AND to differ from v0's mat by as much, because a suede that renders as a flat navy rectangle is v0 with a different name; every number in the relief filter WebKit built joined back to the number in the library it came from, plus the merge order, which is the one thing in it that is not data; the settle asserted to pin the mark's relief rather than flatten it; and eleven side-by-side files, the mat as the SHIPPING renderer draws it beside the mat the study each entry NAMES draws. Writes `shots-splash/`. Every check run RED once — `docs/verification/opening-screen-2026-08-30/mutation-runs.txt` for the first thirteen, `material-reduction.txt` beside it for the five that came with the material (and for the one version, v18, that is deliberately NOT in the library). |
 | `appearance.js` | THE TWO LIGHTINGS, THE TYPE KNOB AND WHOSE RAIL THIS IS — CEO rulings §14/§15 and his correction to round 10.1. Dark is the default UNDER A LIGHT OS (a build resolving `system` by default would look right on his machine and hand his ruling to a setting he never made); the choice is durable and config.rs wins any disagreement with the pre-paint mirror; the opening screen is always dark with the CEO's own preference left untouched, carries the settings button anyway, carries NO theme switch, and neither opening the menu nor pressing Bust a bug lifts its curtain — because a bug report must start from the screen the bug is on; the button is hit-tested ON TOP on six surfaces; the menu is theme -> Text size -> Techy Mode -> Bust a bug, in §15's order; ⌘+/-/0 calls preventDefault and moves the SAME persisted number the Text size row does, both directions observed, as does the Techy row against the rail's own preference; every font-size in the shipped CSS is rem off a scaled root and four sampled nodes move by exactly 1.1x together; `zoomHotkeysEnabled: false` is claimed in tauri.conf.json rather than inherited; the wordmark replaced 'My Company' and re-inks per theme; and the rail footer shows his initials and name, or — when there is no name — an EMPTY circle and 'Set your name', never an invented name and never '??'. Also the GUARD-RAIL on the splash off switch: it survived the menu rebuild, is present behind BOTH the gear and the settings button, moves as one state in both directions, and the local mirror splash.js reads on the next launch agrees with it. Writes `shots-10-1/` (six surfaces x both themes, plus the always-dark start screen). Every check run RED once — the mutations are listed at the foot of the suite. |
 | `techy.js` | TECHY MODE, the renderer and the toggle (`machinery.rs`, `journal.rs`, `machinery_view.rs`) — open-items row 3.1 Phase 2. The turn's real tool calls with the merged command rather than the wire's placeholder title and the status each actually returned; `outcome not recorded` never folded into `done`; no rollup in technical mode, where three commands are three facts; the untyped vendor kind and the auto-approved permission present here and absent from the calm view; the shortcut pinning ONE conversation and the Settings switch reaching all the unpinned ones; a pin handed back to the default, which is what keeps §7.1 open; the calm view asserted BYTE-IDENTICAL across a round trip; the honest empty state for a thread from before the routing commit, and — separately, because they are different sentences — a store the OS refuses; the raw pane's three answers; no control of any kind; and no row for `agent_thought_chunk` or `fs/*`, which provably never arrive. Joined to the live Rust payload through `fixtures/machinery-payload.json`. Writes `shots-3-1/`. Every check run RED once — the mutations are listed at the foot of the suite. |
 | `retention.js` | THE RAW-RETENTION WINDOW AS A SETTING (`journal.rs`'s `RawRetention`, `config.rs`'s `RetentionChoice`) — techy-mode design §7.2, open-items 1.4. §7.2 is the CEO's question and nothing in the suite answers it; what it proves is that every answer he could give now costs a click rather than a developer. The control found behind the same gear as the technical-view toggle, with three settable choices; those three joined to `RetentionChoice::parse` and to the harness's own window table, both read off disk, so a radio the backend would refuse fails here instead of silently doing nothing; the labels joined to the NUMBERS they stand in for (`RAW_RETENTION_DAYS`, `THREE_MONTHS_DAYS`), which live in a different file from the words; a tightened window announcing what it removed and which half of the record went, because `evict_raw` is an `unlink` and nothing else in the product would ever mention it; the loosened window claiming no removal and no restoration; both axes and the store's current cost in one sentence, so "keep everything" is an informed choice; no `localStorage` mirror for a setting that DELETES, with the store winning over the last click on every open; a hand-edited window reported as itself with no radio rounded on; and a refused choice leaving the surface on the store's answer. Writes `shots-7-2/`. The survival counts at four windows are Rust's half and are in `crates/richos-core/src/journal.rs`. Every check run RED once — the mutations are listed at the foot of the suite. |
@@ -94,9 +277,11 @@ overwritten on every run and neither is byte-stable; read the suite's exit code,
 | `updates.js` | THE UPDATE SURFACE (`src-tauri/src/updates.rs`, `ui/updates.js`) — RICH-TODOs row 12, which said there was no updater of any kind. What a browser CAN prove, with what it cannot said first: it cannot apply an update, and that is proven where it happens, by `app/scripts/updater-e2e.sh` building 0.1.0 and 0.1.1 and making one become the other on this machine. Here: the row lives in the UNIVERSAL settings menu and is reachable from every screen; all nine states `updates.rs` declares render a sentence, with the inventory read out of the Rust rather than typed, and an UNRECOGNIZED state reporting itself as unrecognized instead of falling back to "up to date"; "never checked" and "checked and current" are different sentences; the shipped `.invalid` endpoint reports a DECISION NOT MADE rather than a failure, and a non-default endpoint is disclosed on screen; a REFUSED SIGNATURE is not offered a retry while all six other failure kinds are; the vendor's own error text verbatim behind a disclosure; no percentage and no `aria-valuenow` without a `Content-Length`; the mark on the settings button for exactly two of the nine states, arriving with the menu shut; Install and Restart asserted on the COMMANDS ISSUED rather than on a button looking pressed; and the row surviving a `forceDark` menu rebuild. Then THE CUE (CEO ruling §26's placement paragraph, 2026-09-04 — *"the user can't be bothered to hunt for some update button somewhere"*): a waiting update raises exactly one small element in the chrome that is on every screen, with NOTHING opened to see it and the version named in it; the eight states that are not waiting on him raise NO element — asserted by count, by driving the state back after the element has once existed, and by the settings wrapper measuring exactly its own button when there is nothing to say, which is the assertion a hidden placeholder cannot pass; the settings button's right edge proven not to move when the cue arrives; and the cue leading to the row it announces — the same sentence, focus landing on the row's own control, `update_install` issued by THAT control and by nothing the cue did itself. Contrast for this surface is deliberately NOT here — it is `contrast.js`'s three `updates-*` surfaces, which walk the cue's label in both themes. Writes `shots-updates/`. Every check run RED once — the mutations, the two that reddened more than their own check, and the one that exposed a hole in this suite's own helper, are listed at the foot of the suite. |
 | `setup.js` | FIRST-RUN SETUP at the surface — Option D (`crates/richos-core/src/setup.rs`, `src-tauri/src/setup_view.rs`). The launch blocker `ceo-decisions.md` §19 states in its own words: *today RichOS runs on his Mac and would not run on anyone else's*, because a customer needs Claude Code AND the engine directory and the engine ships in no payload. What this suite holds: a customer's Mac ASKS, and asks this before the memory question and before the company question — with both held-back questions proven to be asked rather than dropped; NO terminal, no path, no tilde, no shell variable and no version number anywhere on the sheet, computed from the rendered text rather than intended, and ZERO text fields, because his part is one press; the BYO-Anthropic caveat present and ABOVE the button, compared by document position, because row 3.14's second condition is that D must not be sold as zero-touch; each missing piece named AND explained, with the title agreeing with the count; a build that cannot install an engine EXPLAINING and naming the party instead of drawing a button that would certainly fail; a failure rendered verbatim with the sheet still usable and the button relabelled to say what pressing it does now; PROGRESS driven by the backend's events rather than by the return value, asserted through a MutationObserver over the whole run, because a sheet that only rendered the answer would sit silent for the minutes Anthropic's installer takes; a machine that has everything neither asked nor skipped-without-checking; the button un-pressable twice; and — structurally, over the shipped source — exactly one `run_setup` call site. Contrast for this surface is `contrast.js`'s two `setup-*` surfaces. Every check run RED once — the mutations are listed at the foot of the suite. |
 | `memory.js` | FIRST-RUN PROVISIONING at the surface (`provision.rs`, `src-tauri/src/memory.rs`) — the gap the installed bundle was measurably in on 2026-09-01, when its company memory reached it only because an engineer typed a symlink by hand. A fresh install ASKS, and asks this before the company question, one dialog at a time — with the held-back question proven to be asked rather than dropped; the location is SHOWN and the string sent to `provision_memory` is compared byte for byte against the string on screen, driven from a location the surface could not have guessed so a hard-coded path fails instead of agreeing; ZERO text fields in the dialog, because his part is a choice and never a path he types; one press producing exactly one command; a refusal from the backend rendered as it stands with the control still live, because `provision`'s messages each name the thing to do; a corpus the install cannot read naming the party and drawing NO button for a thing no button could do; an install that is already set up neither interrupted nor provisioned; and — structurally, over the shipped source — exactly one `provision_memory` call site, passing the offered location, with no corpus path literal anywhere in `main.js`. Contrast for this surface is `contrast.js`'s two `memory-*` surfaces. Every check run RED once — the mutations are listed at the foot of the suite. |
-| `home.js` | THE HOME SCREEN — `round-11.1/v1` "Constellation" ported into the app, the switch out of it, and the way back (CEO, 2026-09-01: it "must be shown in the app after the splash screen", with "some way for the user to switch" and "a click on the logo (in the upper left corner) brings the user back"). Through the real shell: it is the surface the app lands on, over an inert `#app`, at a z-index under the curtain and under the settings button; §15's permanent always-dark exception held as a FORCE flag with the CEO's own light-mode preference intact underneath it, and the settings menu on it carrying Bust a bug and no theme switch; the picture asserted to be the round's own numbers — 7,500 objects, 12,817 links, 4,800 sources, and v5's `nodeScale` and `clickZoom` — so a tuning pass on a signed-off design fails here; the company row proven to be the REGISTRY's six in registry order with `richos` as ONE button despite two roots, "All companies" as a pressed default rather than an absence, wrapping into rows inside a 500px cap that cannot reach either text column, ABSENT below two visible companies with the composition back at the round's own pixel, and a one-character label rendering as a 46px pill rather than a cramped lozenge; a label proven to be a MASK — every entity id unchanged through an anonymizing pass and back; the settings panel listing every company including the hidden ones, writing through to the row live, and measured in BOTH themes; the switch stopping the frame loop (frames stop and are still stopped 1.5s later) and the logo resuming it without a rebuild; and CONTRAST measured FROM THE PIXELS, because almost every line of this surface sits over a `<canvas>` that `contrast.js`'s DOM walk states it cannot read — glyph line boxes, border rings with the rounded corners excluded, indicator halos stepped past, and the element's own opacity folded into its ink. 16 elements, worst 4.23:1. Writes `shots-home/`, six of which are committed. |
+| `home.js` | THE HOME SCREEN — `round-11.1/v1` "Constellation" ported into the app, the switch out of it, and the way back (CEO, 2026-09-01: it "must be shown in the app after the splash screen", with "some way for the user to switch" and "a click on the logo (in the upper left corner) brings the user back"). Through the real shell: it is the surface the app lands on, over an inert `#app`, at a z-index under the curtain and under the settings button; §15's permanent always-dark exception held as a FORCE flag with the CEO's own light-mode preference intact underneath it, and the settings menu on it carrying Bust a bug and no theme switch; the picture asserted to be the round's own numbers — 7,500 objects, 12,817 links, 4,800 sources, and v5's `nodeScale` and `clickZoom` — so a tuning pass on a signed-off design fails here; the company row proven to be the REGISTRY's six in registry order with `richos` as ONE button despite two roots, "All companies" as a pressed default rather than an absence, wrapping into rows inside a 500px cap that cannot reach either text column, ABSENT below two visible companies with the composition back at the round's own pixel, and a one-character label rendering as a 46px pill rather than a cramped lozenge; the reveal read IN THE PILL it happens in, monotonic at zero tolerance, with the pill's `width` and the track's `transform` required to be ONE declaration (the viewport figure is measured and printed, and gated only by `RICHOS_SLIDE_ABS_PX`, because two separately-clocked transitions inside a centered row subtract); a label proven to be a MASK — every entity id unchanged through an anonymizing pass and back; the settings panel listing every company including the hidden ones, writing through to the row live, and measured in BOTH themes; the switch stopping the frame loop (frames stop and are still stopped 1.5s later) and the logo resuming it without a rebuild; and CONTRAST measured FROM THE PIXELS, because almost every line of this surface sits over a `<canvas>` that `contrast.js`'s DOM walk states it cannot read — glyph line boxes, border rings with the rounded corners excluded, indicator halos stepped past, and the element's own opacity folded into its ink. 16 elements, worst 4.23:1. Writes `shots-home/`, six of which are committed. |
 | `markdown.js` | §5.4 MARKDOWN IN RICH'S ANSWERS, which this surface never rendered — on the published v1.0.1 the first answer a customer ever received read `**1. Tell me about Lakeside Advisory.**` on screen, literal asterisks and all, because the engine emits Markdown and `renderRichMessage` set `textContent`. The subset `timeline.js` now builds and nothing beyond it: bold, italic, code spans, ordered and unordered lists, headings, paragraph breaks. Three things proven: the subset renders as real elements with the markers gone; an unmatched marker degrades to its own characters and NEVER eats the tail of a message (six malformed inputs, each asserted character-for-character); and model output never becomes markup — `<img src=x onerror=alert(1)>` and a `<script>` tag driven through the real renderer with the characters asserted ON SCREEN, the elements asserted absent, the angle brackets asserted escaped in the DOM's own serialization, and the same repeated INSIDE a bold span, a code span and a heading. There is no escaping step to forget because there is no HTML-string sink at all, which is checked over the stripped source. Both write sites are covered and asserted to produce byte-identical markup, so an answer cannot change shape at the moment it completes. Contrast is checked here rather than deferred: every Markdown node is asserted to inherit `.tl-prose`'s `--ink` — no new color is introduced — at the §17.2 18px scale, with a code span distinguished by `--mono` alone. |
-| `docs-claims.js` | The only suite that opens no browser. It joins the claims in `app/README.md`, `app/STREAMING.md` and this file to the tree they describe: per-file and per-crate test counts against `#[test]`, this table against the inventory `run.js` discovers, and every `rich://` name against the constants the Rust source declares. Nothing in it is typed — both sides of every join are read off disk. |
+| `outage.js` | THE FAILURE CARD WHEN THE MODEL API IS WHAT FAILED (`crates/richos-core/src/upstream.rs`) — open-items row 3.30, measured on 2026-09-03 when `529 Overloaded` killed four running agents mid-task. Until this suite the card said two fixed sentences for every failure, and the second of them — *Everything I'd already written above is saved* — is true about the text and false about the whole: the session's working context is gone, and those five agents died having written nothing at all. Here: a `529` REPLACES both generic sentences with the backend's own three (what happened, what is on disk and what is not, what was spent trying), with the generic note asserted GONE rather than merely outnumbered; the retry control still present, enabled and carrying the same verb; the attempts line absent on the first failure and present on the second, because *nothing spent yet* and *nothing was spent* are different statements; and a `429` rendering a DIFFERENT sentence from a `529`, which is the whole of the row's fifth answer. Two negative controls: a failure with no outage still gets the generic card unchanged, and a completed turn grows no card at all. Nothing here types a product sentence — every one is scraped out of the Rust at run time by `lib/state-strings.js`, so reworded copy moves this suite with it instead of leaving it green over words the product no longer says. Contrast is computed from the pixels WebKit actually painted, in BOTH themes, with the 4.5:1/3:1 floor chosen from the MEASURED font size: 12.06:1 and 5.52:1 dark, 18.07:1 and 5.35:1 light, every line 16px. |
+| `docs-claims.js` | Opens no browser. It joins the claims in `app/README.md`, `app/STREAMING.md` and this file to the tree they describe: per-file and per-crate test counts against `#[test]`, this table against the inventory `run.js` discovers, and every `rich://` name against the constants the Rust source declares. Nothing in it is typed — both sides of every join are read off disk. |
+| `vouch-template.js` | Opens no browser. THE MESSAGE THE PULL-REQUEST GATE SENDS A STRANGER, against the file that claims to record it. The live text is a heredoc in `.github/workflows/vouch-pr.yml`; `docs/verification/pr-trust-gate-2026-09-05/raw/close-comment-rendered.md` is a photograph of it, and on 2026-09-05 the CEO rewrote the message by editing the photograph — which changes nothing a contributor ever sees. Nothing checked that the two agreed, in either direction. Here: the block scalar is dedented as the runner dedents it, proven by handing the step to a real `bash` with a real `RUNNER_TEMP` and reading back the file the shell wrote, and proven again against a real YAML parser, with the naive read asserted to DIFFER so the ten-space trap is shown rather than assumed; the message is rendered through vouch's OWN `template render` at the commit the workflow pins — fetched as a source tarball whose sha256 the evidence records, never re-implemented, because a lookalike `format pattern` is a check that stays green while the job errors — and compared with the recorded block byte for byte, trailing spaces included, because twelve of its line breaks ARE trailing spaces; the brace invariant is asserted SEPARATELY, since both files could carry the same stray `{` and agree perfectly while the render errors and the gate closes nothing; the pinned commit is joined across the workflow and both raw records, so moving the pin without re-rendering fails here rather than in front of a stranger; and the walkthrough's quoted "correct result" opener is joined to the real one — it was already stale when this suite was written, still quoting the pre-rewrite wording. Nothing is typed: placeholder names come from vouch's own `gh-check-pr`, sample values and digests from the evidence's own prose. Needs `nu` and, on the first run, network; neither is allowed to become a skip. Every check run RED once — the mutations are listed at the foot of the suite. |
 
 ## Four rules, each one a thing an earlier slice got wrong
 **This table is checked, not maintained by memory.** `docs-claims.js` fails if a suite

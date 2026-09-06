@@ -237,6 +237,15 @@ DEMO_FILES+=(
     # this sample repo has no reader for. Layer MT fails loudly when it is
     # absent, which is how a sample engine missing it stops passing Beat 7.
     "scripts/lib/model-tiers.sh"
+    # The named-person deny-list loader. guard-named-persons-commands.sh and
+    # guard-named-persons-writes.sh both REFUSE TO START without it, and both
+    # landed on 2026-09-05 with the scrub work while this list stood still —
+    # the third time in two days that the standing failure mode this block was
+    # written for has fired, and the second time it killed the whole demo
+    # during setup. The loader reads ~/.richos-privacy/named-persons, outside
+    # every repository by construction, so the sample repo carrying it exposes
+    # nothing: with no list present the guards start and admit everything.
+    "scripts/lib/named-persons.sh"
     # The model resolver — which model does this spawn boot on? On this list for
     # the HARD reason and the strongest version of it: guard-worktree-
     # isolation.sh REFUSES TO START without it (its truthful-name and
@@ -358,6 +367,16 @@ DEMO_FILES+=(
     # reports "WATCH IS OFF" into a channel the demo has no reader for, and
     # exits 0 on every turn.
     "scripts/hooks/notice-waiver-repetition.py"
+    # The escalation predicate, both halves, for the waiver analyzer's reason
+    # exactly: notice-escalations.sh (Stop) and session-start-escalations.sh
+    # (SessionStart) decide nothing themselves and hand the whole verdict to
+    # scripts/lib/escalations.py. Without it a sample repo starts both hooks
+    # perfectly, announces "ESCALATION WATCH IS OFF" where the demo has no
+    # reader, and exits 0 — showing a buyer a channel that reports "on" over a
+    # ledger nothing is reading, which is the exact defect the channel exists
+    # to remove.
+    "scripts/lib/escalations.sh"
+    "scripts/lib/escalations.py"
     # The mechanical-findings sweep, both halves, for the reason the waiver
     # analyzer above is here: notice-mechanical-findings.sh starts without
     # them and says "MECHANICAL SWEEP IS OFF" where the demo has no reader.

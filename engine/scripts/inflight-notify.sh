@@ -147,6 +147,16 @@ res = inflight.assess(os.environ["IF_ARGS_REPO"], os.environ["IF_ARGS_TIP"] or N
                       os.environ.get("IF_ARGS_SID", ""),
                       os.environ.get("IF_ARGS_TRANSCRIPT", ""))
 print("acks for tip %s" % res["tip"])
+print("  durable ledger : %s (%d row(s) for this tip)"
+      % (res.get("ack_ledger", ""), res.get("ack_ledger_rows_for_tip", 0)))
+if res.get("ack_ledger_error"):
+    # UNREADABLE IS NOT EMPTY. If this line is on the screen, every "no ack"
+    # below is unproven rather than false.
+    print("  ** THE DURABLE LEDGER COULD NOT BE READ: %s" % res["ack_ledger_error"])
+    print("     Anything reported as unacked below is UNKNOWN, not absent.")
+if res.get("ack_ledger_malformed"):
+    print("  ** %d malformed ledger line(s) SKIPPED — not counted as acks."
+          % res["ack_ledger_malformed"])
 any_ack = False
 for wt in res["worktrees"]:
     ack = wt.get("ack") or {}
@@ -154,27 +164,50 @@ for wt in res["worktrees"]:
         continue
     any_ack = True
     print("")
-    print("  %s" % wt["path"])
+    print("  %s%s" % (wt["path"], "" if wt.get("present") else "   [DIRECTORY GONE]"))
     print("    channel  : %s" % ack.get("channel", ""))
     print("    verified : %s" % ("YES" if ack.get("verified") else "NO"))
     # EVERY record for this tip, with whose it is. Two teammates acknowledging
     # one land is the normal case; printing only the deciding record would hide
     # the collision this key was changed to survive.
     for r in (ack.get("records") or []):
-        print("    record   : %s  %s  %s"
-              % (os.path.basename(r["path"]),
+        print("    record   : [%s] %s  %s  %s"
+              % (r.get("source", ""),
+                 os.path.basename(r["path"]),
                  ("this teammate" if r.get("own") else "ANOTHER teammate: %s"
                   % (r.get("teammate") or r.get("worktree") or "unnamed")),
                  "verified" if r.get("verified") else "INVALID"))
     for p in ack.get("problems", []):
         print("      - %s" % p)
+    # A CHECK THAT COULD NOT RUN NAMES ITSELF RATHER THAN PASSING QUIETLY.
+    for n in ack.get("notes", []):
+        print("      ~ COULD NOT RE-CHECK: %s" % n)
     if ack.get("detail"):
         print("    detail   : %s" % ack["detail"])
         print("    ^^ HUMAN JUDGMENT REQUIRED. Everything above this line was checked by")
         print("       a machine. Whether that sentence is CORRECT was not, and cannot be:")
         print("       a string match is not comprehension. Read it yourself.")
+
+# ACKED AND THEN GONE. A teammate that answered and finished has no registered
+# worktree left, so it appears in no loop above. Its answer is still an answer,
+# and this section is the difference between reading that and reading nothing.
+orphans = res.get("orphan_acks") or []
+if orphans:
+    any_ack = True
+    print("")
+    print("  ACKED, WORKTREE GONE — %d durable record(s), no registered worktree left" % len(orphans))
+    for o in orphans:
+        print("")
+        print("    %s  (%s)" % (o["teammate"] or "<unnamed>", o["timestamp"]))
+        print("      worktree : %s%s"
+              % (o["worktree"] or "<none recorded>",
+                 "" if o["worktree_present"] else "   [GONE]"))
+        print("      impact   : %s   paths: %s" % (o["impact"], o["paths"]))
+        print("      detail   : %s" % o["detail"])
+        print("      ^^ HUMAN JUDGMENT REQUIRED, same as above.")
+
 if not any_ack:
-    print("  no ack artifacts and no witnessed replies for this tip.")
+    print("  no ack artifacts, no durable ledger rows, and no witnessed replies for this tip.")
 '
         exit 0 ;;
 

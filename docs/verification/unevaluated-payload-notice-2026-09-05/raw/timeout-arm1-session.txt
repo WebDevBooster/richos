@@ -1,0 +1,3 @@
+wall-clock of the headless session: 10.26s
+session output: Ran it — output was `PROBE_OK`. Stopping here.
+rc=0

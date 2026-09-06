@@ -440,7 +440,39 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # has been in place for a while; every file that names it is a file that has to
 # name yours. That answer is computed from the tree at the moment you ask,
 # which is the only kind of answer that cannot rot.
+#
+# 52 -> 54 on 2026-09-05: the escalation channel's two halves —
+# notice-escalations.sh on Stop and session-start-escalations.sh on
+# SessionStart. Two teammates wrote a correct `BLOCKED.md` on 2026-09-02 and a
+# worktree cleanup found them on 2026-09-04, because a file on a teammate's
+# branch is read only by whoever merges that branch. The escalation now goes to
+# a ledger outside every repository and these two are what make it ARRIVE: the
+# turn-end half for the session it was raised in, the session-start half for
+# every session after — which is the one the incident turned on, because the
+# session that could have surfaced them ended. The derivation above was used
+# rather than guessed at: `grep -rln notice-waiver-repetition engine/` and
+# `grep -rln session-start-ceo-ask engine/` named both surfaces, this set,
+# Layer R and BR2.
+#
+# 54 -> 56 on 2026-09-05: the named-person deny-list's two halves —
+# guard-named-persons-commands.sh on PreToolUse[Bash] and
+# guard-named-persons-writes.sh on PreToolUse[Write|Edit|MultiEdit]. They
+# landed with the scrub work after a contractor's name reached a public
+# repository, and the list they read lives at ~/.richos-privacy/named-persons,
+# outside every repository by construction — the loader refuses a path inside
+# a git work tree. FIFTEENTH firing, and this one is worth reading because
+# the tripwire was the SECOND consumer to catch the same omission rather than
+# the first. demo.sh died in setup the same day for the identical reason —
+# scripts/lib/named-persons.sh missing from its DEMO_FILES, so both guards
+# refused to start and the sample company could not be assembled. That is a
+# public repository's first-run script, broken for everyone who tried it.
+# The derivation above was used rather than guessed at:
+# `grep -rln guard-named-persons-writes engine/` named eleven files, and every
+# one of them already carried the guards except this set. So the registration
+# was thorough and this inventory was the single gap — which is precisely the
+# shape this case exists to catch, and why it says never to silence it.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
 engine-status.sh
 guard-agent-state-claims.sh
@@ -451,6 +483,8 @@ guard-ceo-todos-commits.sh
 guard-completeness-commits.sh
 guard-definition-drift.sh
 guard-dialect.sh
+guard-named-persons-commands.sh
+guard-named-persons-writes.sh
 guard-idle-land.sh
 guard-inflight-notify.sh
 guard-interactive-prompt.sh
@@ -468,8 +502,10 @@ guard-workflow-ban.sh
 guard-worktree-isolation.sh
 guard-worktree-removal.sh
 notice-ceo-asks.sh
+notice-ceo-inputs-unheld.sh
 notice-ceo-ruled-prose.sh
 notice-ceo-unasked.sh
+notice-escalations.sh
 notice-hook-staleness.sh
 notice-inflight-acks.sh
 notice-inflight-sends.sh
@@ -481,6 +517,7 @@ reader-teammate-hint.sh
 record-subagent-start.sh
 scan-secrets.sh
 session-start-ceo-ask.sh
+session-start-escalations.sh
 session-start-reap-worktrees.sh
 snapshot-agent-definitions.sh
 snapshot-enforcing-hooks.sh

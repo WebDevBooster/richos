@@ -63,16 +63,44 @@ const ITEMS = TURNS * PER_TURN;
 // number would hide which half moved.
 const BUDGET_STRUCT_JS_MS = 20; // measured  2ms | baseline ~60ms of the 257
 const BUDGET_STRUCT_MS = 90; // measured 22ms | baseline 257ms
-const BUDGET_FRAME_P95_MS = 30; // measured 17ms  | baseline 18ms (this was never the defect)
-// THE SAME PROMISE WITHOUT A MACHINE IN IT: 10,000 items must not cost more PER FRAME than a
-// short thread does, dragged the same distance in the same browser at the same moment. The
-// ratio measures 1.0 here at every history length from 10 turns to 1,000, quiet and loaded;
-// 1.6 is headroom for a noisy sample and nowhere near the shape of the defect this guards,
-// which put 257ms of structural work on the frame rather than 20.
-const BUDGET_FRAME_RATIO = 1.6;
-// The control arm's history. Short enough that a per-frame cost proportional to history
-// length would show, long enough to overflow the viewport many times over.
-const CONTROL_TURNS = 40;
+// THE FRAME-RATE NUMBER IS OFF THE GATE, AND THIS IS WHERE IT WENT. It is not deleted, it
+// is not loosened, and it is not asserted on a machine whose speed nobody controls:
+//
+//     RICHOS_FRAME_BUDGET_MS=30 node scale.js
+//
+// turns it back into a gate, and it is measured and PRINTED on every run either way. What it
+// answers is "is this machine quick enough to hold 60fps over a 10,000-item thread", which is
+// a question about the machine — 17ms here (vsync), 23ms p50 / 68ms p95 on a GitHub
+// `macos-latest` runner (run 33933067025), which has three vCPUs and no GPU. Run it on the
+// hardware the CEO actually uses, or on a machine with GPU compositing, and it means what it
+// says; run it on a shared virtualized runner and it measures the runner.
+//
+// WHAT REPLACED IT AS THE GATE is two things that do not move with the machine: the drag over
+// the whole history writes NOTHING to the DOM (check 6), and the SAME motion costs no more per
+// frame at 10,000 items than at a short thread (check 7). Zero is zero on any machine, and a
+// ratio divides the machine out of both halves.
+const FRAME_BUDGET_MS = Number(process.env.RICHOS_FRAME_BUDGET_MS || 0);
+// THE SHAPE, WITHOUT A MACHINE IN IT: 10,000 items must not cost more PER FRAME than a short
+// thread does, in the SAME motion, at the same moment, in the same browser. A per-frame cost
+// proportional to history length — which is the defect, and is what 257ms of structural work
+// on the frame looked like — would read 8.3x here, because that is the ratio of the two arms'
+// histories (1,000 turns against CONTROL_TURNS). Measured on this machine, median frame at
+// 1,000 turns against the control: 1.00x at 1280x900 quiet, 1.00x under a load average of 34
+// on ten cores, and 2.35x at 2560x1600 under that same load — a viewport 4.5x the area, which
+// is the harshest per-frame rasterization cost this machine can be made to produce and is
+// harsher than the runner's own (the runner's median frame was 23ms; that arm's was 40ms).
+// 5 is a shade over twice the worst figure measured and still 1.7x under the defect it guards.
+const BUDGET_FRAME_RATIO = 5;
+// The control arm's history, and the number is derived rather than picked. The motion below
+// steps ONE VIEWPORT per frame for 60 frames — 900px x 60 = 54,000px of travel — so the
+// control must be at least that tall or it wraps and re-reads screenfuls it has already
+// rasterized. At the fixture's measured 518.19px per turn (518,189px / 1,000 turns), 54,000px
+// is 104.2 turns; 120 measures 62,223px, which clears the travel plus a whole viewport with
+// room over. THE 40 THAT WAS HERE COULD NOT: 40 turns is 20,773px, 23 viewports, so at the big
+// arm's own 8,636px step it wrapped twenty times in 60 frames and spent two frames in three on
+// tiles it had already rasterized. That is what it was really measuring when it read 20ms
+// against the big arm's 68ms on the runner, and it is why the ratio arm did not save the check.
+const CONTROL_TURNS = 120;
 const BUDGET_FIRST_PAINT_MS = 900; // measured 265ms | baseline 278ms
 // Set BELOW the baseline on purpose. 34ms is what the tree measured before this work
 // (apply 15 + turnsOf 19); a budget of 60 would have passed on the very code it exists to
@@ -117,6 +145,85 @@ async function seed(page, snapshot) {
     return { applyMs, turnsOfMs, turns: model.turnOrder.length, items: model.items.size };
   }, snapshot);
 }
+
+/// ONE MOTION, USED BY BOTH ARMS AND BY THE STRUCTURAL DRAG — so "the same motion" is a fact
+/// about the code rather than a claim in a comment. Runs inside the page.
+///
+/// `px` is the step; omitted, it is whatever covers the WHOLE history in `frames` steps.
+/// `wraps` counts the times the position ran off the top and restarted, because an arm that
+/// wraps is re-reading screenfuls it has already rasterized and is no longer comparable to one
+/// that does not. `mutations` counts every DOM record the timeline produces during the drag —
+/// scrolling a fully-mounted timeline must produce none.
+const SCROLL_SRC = async (o) => {
+  const conv = document.getElementById("conversation");
+  const messages = document.getElementById("messages");
+  conv.scrollTop = conv.scrollHeight;
+  await new Promise((res) => requestAnimationFrame(res));
+  let mutations = 0;
+  const mo = new MutationObserver((recs) => {
+    mutations += recs.length;
+  });
+  mo.observe(messages, { childList: true, subtree: true, attributes: true, characterData: true });
+  // THE OTHER HALF OF "WORK PER FRAME", and the DOM counter above cannot see it: a renderer
+  // that re-projects and re-renders on every scroll frame writes NOTHING when turn reuse is
+  // working, so a zero mutation count is compatible with the whole thread being rebuilt in JS
+  // sixty times. Measured: adding `container.parentNode.addEventListener("scroll", () =>
+  // render(...))` to timeline.js leaves mutations at 0 and the frame interval at vsync (17ms,
+  // because 4ms of JS fits inside a 16.7ms frame), and this counter goes from 0 to 180,180.
+  //
+  // Nothing can render this timeline without READING THE MODEL, so the model is what is
+  // counted. Three accessors over the shipped object, restored the moment the drag ends.
+  const model = window.__model;
+  const KEYS = ["turnOrder", "items", "turns"];
+  const backing = {};
+  let modelReads = 0;
+  for (const k of KEYS) {
+    backing[k] = model[k];
+    Object.defineProperty(model, k, {
+      configurable: true,
+      get() { modelReads++; return backing[k]; },
+      set(v) { backing[k] = v; },
+    });
+  }
+  const frames = [];
+  const n = o.frames;
+  const step = o.px || Math.max(1, Math.floor(conv.scrollHeight / n));
+  let pos = conv.scrollHeight;
+  let wraps = 0;
+  let prev = performance.now();
+  for (let i = 0; i < n; i++) {
+    pos -= step;
+    if (pos < 0) {
+      pos = conv.scrollHeight;
+      wraps++;
+    }
+    conv.scrollTop = pos;
+    await new Promise((res) => requestAnimationFrame(res));
+    const now = performance.now();
+    frames.push(now - prev);
+    prev = now;
+  }
+  mo.disconnect();
+  for (const k of KEYS) {
+    delete model[k];
+    model[k] = backing[k];
+  }
+  const moved = conv.scrollHeight - conv.scrollTop;
+  frames.sort((a, b) => a - b);
+  return {
+    p50: frames[Math.floor(n / 2)],
+    p95: frames[Math.floor(n * 0.95)],
+    max: frames[n - 1],
+    px: conv.scrollHeight,
+    step,
+    wraps,
+    mutations,
+    modelReads,
+    traveled: moved,
+    overflowY: getComputedStyle(conv).overflowY,
+    viewport: conv.clientHeight,
+  };
+};
 
 async function main() {
   const pw = loadPlaywright();
@@ -270,101 +377,160 @@ async function main() {
     return `${r.before.length} chars -> ${r.onScreen.length} on screen, tail present after a full render`;
   });
 
-  await run.check(`scrolling the whole ${ITEMS}-item history stays at frame rate`, async () => {
-    // THE CLAIM THE DOCUMENTS ACTUALLY MADE. Deliberately harsher than a real flick: the
-    // viewport is dragged through the ENTIRE history in 60 steps, so content is revealed the
-    // whole way. 17ms is this engine's vsync floor.
+  await run.check(`dragging the whole ${ITEMS}-item history does NO work — nothing read, nothing written`, async () => {
+    // THE WORK PER FRAME, COUNTED RATHER THAN TIMED — and the gate this check now is.
     //
-    // AND UNTIL 2026-09-04 IT HAD NO CONTROL ARM, which is the whole reason it went red on
-    // the first public `ui-suite-ci` runner at p95 92ms against a 30ms budget while measuring
-    // 17-20ms here. An absolute frame budget answers "is this machine fast?" — and the
-    // question the row actually asks is whether TEN THOUSAND ITEMS cost more per frame than
-    // a few hundred. Measured here across 10, 50, 200 and 1,000 turns, idle and scrolling,
-    // quiet and under a load average of 26 on ten cores, every single p95 was 17-20ms: the
-    // frame interval is vsync-bound and flat in the history length. So the number this check
-    // was asserting was never about the timeline at all.
+    // Deliberately harsher than a real flick: the viewport is dragged through the ENTIRE
+    // history in 60 steps, so content is revealed the whole way. What must be true of that
+    // drag is that the timeline does no work during it: no re-projection, no re-render, no
+    // node swapped, no attribute rewritten, no text node touched. NO PAGINATION means every
+    // turn is already mounted (check 10), so a scroll is WebKit moving a layer and nothing
+    // else — and a future "optimization" that virtualizes by rebuilding on scroll, or a
+    // scroll handler that re-renders, would show up here as a non-zero count on ANY machine.
     //
-    // THE CONTROL ARM IS THE SAME MOTION OVER A SHORT HISTORY, in the same browser, at the
-    // same viewport, taking the same SIZE OF STEP in pixels — which matters, because a step
-    // of one viewport-and-a-bit repaints a whole fresh screen every frame and a sub-viewport
-    // step does not. Same work per frame, different amount of DOM behind it. That ratio is
-    // the promise; the absolute budget stays as the gate on a machine quick enough to
-    // resolve it.
+    // TWO INSTRUMENTS, BECAUSE ONE OF THEM IS BLIND ON ITS OWN. A MutationObserver over the
+    // container counts what the drag WRITES; a set of accessors over the shipped model counts
+    // what it READS. The second exists because turn reuse makes the first miss the regression
+    // it is aimed at: a renderer wired to re-render on every scroll frame rebuilds nothing,
+    // writes nothing, and is invisible to a DOM counter — measured, not supposed, and the
+    // mutation run is transcribed at the foot of this file.
     //
-    // IT CAN STILL FAIL. Reuse breaking would put per-frame cost back on the history length
-    // and the ratio would go with it — the baseline this branch replaced was 257ms
-    // structural, not 20. And the three structural checks above (node identity, byte-identical
-    // reuse, the projection's fast path) carry the property that produces the timing, exactly
-    // as this file's header says they must.
-    const SCROLL = async (steps) => {
-      const conv = document.getElementById("conversation");
-      conv.scrollTop = conv.scrollHeight;
-      await new Promise((res) => requestAnimationFrame(res));
-      const frames = [];
-      // A fixed pixel step, handed in, so both arms repaint the same amount per frame.
-      const step = steps.px || Math.max(1, Math.floor(conv.scrollHeight / 60));
-      let pos = conv.scrollHeight;
-      let prev = performance.now();
-      for (let i = 0; i < 60; i++) {
-        pos -= step;
-        if (pos < 0) pos = conv.scrollHeight; // a short history wraps rather than stalling
-        conv.scrollTop = pos;
-        await new Promise((res) => requestAnimationFrame(res));
-        const now = performance.now();
-        frames.push(now - prev);
-        prev = now;
+    // ZERO IS ZERO EVERYWHERE. That is the whole reason this and not a millisecond: the frame
+    // budget that used to live here answered "is this runner fast?", which is not the question
+    // §25 asks. The timing half is check 7, as a RATIO, and the absolute number is printed
+    // below and gated only when a machine worth measuring is asked for.
+    const r = await page.evaluate(SCROLL_SRC, { frames: 60 });
+
+    // THE POSITIVE PROBE FOR BOTH COUNTERS. A count of zero from an observer that never
+    // attached is the same number as a count of zero from a timeline that did no work, and
+    // this repository has shipped a scanner that reported CLEAN over an empty corpus. So the
+    // SAME two instruments, over the same container and the same model, are made to count:
+    // one activity row upserted and rendered has to move both off zero.
+    const probe = await page.evaluate(({ payload }) => {
+      const messages = document.getElementById("messages");
+      const model = window.__model;
+      let seen = 0;
+      let reads = 0;
+      const mo = new MutationObserver((recs) => { seen += recs.length; });
+      mo.observe(messages, { childList: true, subtree: true, attributes: true, characterData: true });
+      const KEYS = ["turnOrder", "items", "turns"];
+      const backing = {};
+      for (const k of KEYS) {
+        backing[k] = model[k];
+        Object.defineProperty(model, k, {
+          configurable: true,
+          get() { reads++; return backing[k]; },
+          set(v) { backing[k] = v; },
+        });
       }
-      frames.sort((a, b) => a - b);
-      return {
-        p50: frames[30], p95: frames[57], max: frames[59], px: conv.scrollHeight,
-        step,
-        travelled: conv.scrollHeight - conv.scrollTop,
-        overflowY: getComputedStyle(conv).overflowY,
-        viewport: conv.clientHeight,
-      };
-    };
+      window.RichTimeline.onActivityUpserted(model, payload);
+      window.RichTimeline.render(model, messages, window.__opts);
+      for (const k of KEYS) { delete model[k]; model[k] = backing[k]; }
+      return new Promise((res) => setTimeout(() => { mo.disconnect(); res({ seen, reads }); }, 0));
+    }, { payload: oneMoreActivity(lastTurnId, 777) });
 
-    // THREE PASSES A SIDE, MEDIAN OF THE p95s. One 60-frame sample is one sample: measured
-    // here it comes out 18, 18 and 22ms for the same code on the same machine, and a ratio
-    // built from one of each is a ratio built from two coin flips. Three passes cost about a
-    // second and take the flake out of the comparison without loosening what it asserts.
-    const PASSES = 3;
-    const mid = (rs) => rs.slice().sort((a, b) => a.p95 - b.p95)[Math.floor(rs.length / 2)];
-    const big = [];
-    for (let i = 0; i < PASSES; i++) big.push(await page.evaluate(SCROLL, {}));
-    const r = mid(big);
-
-    // The control: a short thread, its own page, the SAME step in pixels.
-    const small = await openFixture(browser, { width: 1280, height: 900 });
-    await seed(small, makeSnapshot(CONTROL_TURNS, PER_TURN));
-    const ctrl = [];
-    for (let i = 0; i < PASSES; i++) ctrl.push(await small.evaluate(SCROLL, { px: r.step }));
-    const c = mid(ctrl);
-    await small.close();
-    // THE POSITIVE PROBE, and a mutation run earned it: `scrollTop` can be SET on a
-    // container with `overflow-y: hidden`, so a timing-only check passes perfectly on a
+    // THE OTHER POSITIVE PROBE, and a mutation run earned it: `scrollTop` can be SET on a
+    // container with `overflow-y: hidden`, so a check that never looks passes perfectly on a
     // timeline the CEO cannot scroll at all. §15 is a section about a SCROLL CONTAINER;
-    // assert that it is one before timing anything in it.
+    // assert that it is one before asserting anything about scrolling it.
     assert(
       r.overflowY === "auto" || r.overflowY === "scroll",
       `#conversation is not a scroll container — overflow-y is ${r.overflowY}`
     );
     assert(r.px > r.viewport * 10, `the history must overflow the viewport — ${r.px}px in ${r.viewport}px`);
-    assert(r.travelled > 100000, `the scroll must actually travel — it moved ${r.travelled}px`);
-    // The control has to be a real control: the same motion, and a genuinely smaller thread.
-    assert(c.step === r.step, `the two arms did not take the same step (${r.step}px vs ${c.step}px)`);
-    assert(c.px * 4 < r.px, `the control is not a short history — ${c.px}px against ${r.px}px`);
-
-    const ratio = r.p95 / Math.max(c.p95, 0.001);
-    const said =
-      `p50 ${r.p50.toFixed(0)}ms, p95 ${r.p95.toFixed(0)}ms, max ${r.max.toFixed(0)}ms over ${r.px}px of history · ` +
-      `the same motion over ${CONTROL_TURNS} turns on this machine: p95 ${c.p95.toFixed(0)}ms — ` +
-      `${ITEMS} items cost ${ratio.toFixed(2)}x a short thread per frame (budget ${BUDGET_FRAME_P95_MS}ms or ${BUDGET_FRAME_RATIO}x, whichever it meets)`;
-    assert(
-      r.p95 <= BUDGET_FRAME_P95_MS || ratio <= BUDGET_FRAME_RATIO,
-      `scroll frames at ${ITEMS} items: ${said}`
+    assert(r.traveled > 100000, `the scroll must actually travel — it moved ${r.traveled}px`);
+    assert(r.wraps === 0, `the drag must cover fresh history every frame — it wrapped ${r.wraps} times`);
+    assert(probe.seen > 0, "the MutationObserver counted nothing when the DOM was rewritten under it — a zero above would prove nothing");
+    assert(probe.reads > 0, "the model-read counter counted nothing when the model was rendered under it — a zero above would prove nothing");
+    assertEqual(r.mutations, 0, `the timeline rewrote its own DOM while the CEO was only scrolling`);
+    assertEqual(r.modelReads, 0, `the renderer read the model while the CEO was only scrolling — the thread is being re-projected per frame`);
+    return (
+      `${r.px}px of history dragged in 60 steps of ${r.step}px, ${r.traveled}px traveled, ` +
+      `0 DOM mutations and 0 model reads (the same two instruments counted ${probe.seen} and ${probe.reads} ` +
+      `when one row was rendered under them) · frames on THIS machine, reported not asserted: ` +
+      `p50 ${r.p50.toFixed(0)}ms, p95 ${r.p95.toFixed(0)}ms, max ${r.max.toFixed(0)}ms`
     );
-    return said;
+  });
+
+  await run.check(`${ITEMS} items cost no more PER FRAME than a short thread, in the same motion`, async () => {
+    // THE PROMISE §25 ACTUALLY MAKES, with the machine divided out of both halves.
+    //
+    // AN ABSOLUTE FRAME BUDGET LIVED HERE AND WAS RED ON EVERY PUBLIC RUN. It read 17-20ms on
+    // the machine it was written on and 68ms (p95) on a GitHub `macos-latest` runner — three
+    // vCPUs, no GPU, software rasterization — which is a fact about the runner. It had a ratio
+    // arm as a second chance and the ratio went red too, at 3.40x, and THAT is the part worth
+    // writing down, because the ratio was not measuring what it said either:
+    //
+    //   THE OLD CONTROL WAS 40 TURNS AT THE BIG ARM'S OWN STEP. The big arm covers 518,173px
+    //   in 60 steps, so its step is 8,636px — 9.6 viewports. A 40-turn history is 20,773px,
+    //   two and a bit steps, so the control WRAPPED twenty times and spent most of its frames
+    //   re-rasterizing three screenfuls it had already drawn. Warm tiles against cold tiles is
+    //   not "the same motion over a shorter thread"; on a machine fast enough for both arms to
+    //   sit on vsync the difference is invisible (both read 17ms here), and on a runner where
+    //   rasterization is the bottleneck it IS the ratio.
+    //
+    // SO THE ARMS ARE MATCHED ON THE THING THAT COSTS: one viewport of FRESH content per
+    // frame, 60 frames, no wrap, in both. Same pixels rasterized per frame, same content
+    // complexity, same browser, same viewport; the only difference left is how much timeline
+    // is mounted behind it — 1,000 turns against ${CONTROL_TURNS}. Interleaved pass by pass so
+    // a machine that gets busy halfway gets busy for both arms, and compared on the MEDIAN
+    // frame rather than the p95: over 60 samples the p95 is the fourth-worst frame, which on a
+    // shared virtual machine is a scheduling statistic and not a property of the timeline.
+    //
+    // IT CAN STILL FAIL, and by a mile. A per-frame cost proportional to history length reads
+    // 8.3x here — that is the ratio of the two histories — against a budget of 5.
+    const step = await page.evaluate(() => document.getElementById("conversation").clientHeight);
+    const small = await openFixture(browser, { width: 1280, height: 900 });
+    await seed(small, makeSnapshot(CONTROL_TURNS, PER_TURN));
+
+    // THREE PASSES A SIDE, INTERLEAVED, MEDIAN OF THE MEDIANS. One 60-frame sample is one
+    // sample; a ratio built from one of each is a ratio built from two coin flips.
+    const PASSES = 3;
+    const big = [];
+    const ctrl = [];
+    for (let i = 0; i < PASSES; i++) {
+      big.push(await page.evaluate(SCROLL_SRC, { frames: 60, px: step }));
+      ctrl.push(await small.evaluate(SCROLL_SRC, { frames: 60, px: step }));
+    }
+    await small.close();
+    const mid = (rs) => rs.slice().sort((a, b) => a.p50 - b.p50)[Math.floor(rs.length / 2)];
+    const r = mid(big);
+    const c = mid(ctrl);
+
+    // The control has to BE a control: the same motion, neither arm wrapping, and a genuinely
+    // shorter thread behind it.
+    assert(c.step === r.step, `the two arms did not take the same step (${r.step}px vs ${c.step}px)`);
+    assert(r.wraps === 0 && c.wraps === 0, `an arm wrapped and re-read warm tiles — big ${r.wraps}, control ${c.wraps}`);
+    assert(c.px * 4 < r.px, `the control is not a short history — ${c.px}px against ${r.px}px`);
+    assert(
+      r.mutations === 0 && c.mutations === 0 && r.modelReads === 0 && c.modelReads === 0,
+      "the timeline did work mid-scroll — check 6 owns that failure and names which instrument saw it"
+    );
+
+    const ratio = r.p50 / Math.max(c.p50, 0.001);
+    const proportional = TURNS / CONTROL_TURNS;
+    const said =
+      `median frame ${r.p50.toFixed(0)}ms over ${r.px}px of history against ${c.p50.toFixed(0)}ms over ` +
+      `${CONTROL_TURNS} turns (${c.px}px), same ${r.step}px step, ${PASSES} interleaved passes a side — ` +
+      `${ITEMS} items cost ${ratio.toFixed(2)}x a short thread per frame ` +
+      `(budget ${BUDGET_FRAME_RATIO}x; a cost proportional to history would read ${proportional.toFixed(1)}x)`;
+    assert(ratio <= BUDGET_FRAME_RATIO, `per-frame cost is scaling with history length: ${said}`);
+
+    // THE ABSOLUTE NUMBER, KEPT AND NAMED. It is a measurement of the machine, so it is
+    // printed on every run and gates only when someone asks it to, on hardware where the
+    // answer means something — the CEO's own Mac, or any machine with GPU compositing.
+    const abs =
+      `p50 ${r.p50.toFixed(0)}ms, p95 ${r.p95.toFixed(0)}ms, max ${r.max.toFixed(0)}ms on THIS machine` +
+      (FRAME_BUDGET_MS > 0
+        ? ` (gated at ${FRAME_BUDGET_MS}ms by RICHOS_FRAME_BUDGET_MS)`
+        : " — not gated here; `RICHOS_FRAME_BUDGET_MS=30 node scale.js` on real hardware gates it");
+    if (FRAME_BUDGET_MS > 0) {
+      assert(
+        r.p95 <= FRAME_BUDGET_MS,
+        `scroll frames at ${ITEMS} items: ${abs}`
+      );
+    }
+    return said + `\n          ${abs}`;
   });
 
   await run.check("opening the thread paints, and the projection is not quadratic", async () => {
@@ -613,3 +779,38 @@ async function main() {
 }
 
 main().then((f) => process.exit(f ? 1 : 0));
+
+// ---------------------------------------------------------------------------------------
+// THE MUTATION RUNS BEHIND CHECKS 6 AND 7, 2026-09-05
+// ---------------------------------------------------------------------------------------
+//
+// Both checks replace an absolute frame budget that was RED on every public `ui-suite-ci`
+// run. A check that goes green by asserting less is worse than the red one it replaced, so
+// each of these was run RED by breaking the thing it guards, on this machine, at 1280x900.
+//
+//  1. RE-RENDER ON SCROLL, REUSE INTACT — `timeline.js`'s `render()` given
+//     `container.parentNode.addEventListener("scroll", () => render(model, container, opts))`.
+//     This is the regression the row is about and it is INVISIBLE to every instrument this
+//     check had before today: DOM mutations 0 (turn reuse rewrites nothing), median frame
+//     17ms (4ms of JS fits inside a 16.7ms frame), ratio 1.00x. The model-read counter went
+//     from 0 to 180,180 and check 6 went red. That run is why the counter exists.
+//
+//  2. FULL REBUILD ON SCROLL — the same listener plus `renderCache.delete(container)`, so
+//     every frame rebuilds all 1,000 turns. Check 6 red on the DOM counter (60,060
+//     mutations). Check 7 red on the ratio, measured with check 6's guard lifted so the
+//     number could be read: median frame 363ms against the control's 40ms = 9.07x, against
+//     a 5x budget and an 8.3x proportional-cost expectation. Checks 2 and 3 went red too,
+//     which is correct — they own reuse.
+//
+//  3. THE CONTROL PUT BACK TO 40 TURNS — check 7 red on `an arm wrapped and re-read warm
+//     tiles — big 0, control 2`. That guard is the whole reason this pair is not the old
+//     check with a bigger number in it.
+//
+// WHAT IS NOT COVERED, SAID PLAINLY. Check 7's ratio is the weaker half and it is the only
+// thing left holding the browser's OWN per-frame cost — a CSS or DOM-shape change that makes
+// WebKit's work proportional to document height rather than to the viewport (a lost
+// containment, a filter, a sticky child, a shadow over the whole column). Nothing in JS
+// reads or writes on that path, so check 6 cannot see it, and a 5x budget will only catch it
+// once it is gross. The absolute 60fps claim is no longer gated anywhere in CI; it is
+// measured and printed on every run, and `RICHOS_FRAME_BUDGET_MS=30 node scale.js` on
+// hardware with GPU compositing is what turns it back into a gate.

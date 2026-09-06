@@ -18,6 +18,59 @@
 //!      did not issue, and a read re-checks every stored turn against its thread's home
 //!      so a corrupt, forged or badly-migrated log cannot leak across the boundary.
 //!
+//! ## Every other reader of a customer's file, and what it does with a record it cannot read
+//!
+//! Surveyed 2026-09-05, when [`Ledger::replay`] stopped aborting on one unreadable record.
+//! The point of writing it down is that "the ledger is fixed" is not the same claim as
+//! "the app is fixed", and the next person to hit this class of bug should not have to
+//! re-derive the map.
+//!
+//! **The `?` was unique to this file.** `ledger.rs`'s per-record parse was the ONLY place
+//! in `app/` where a single unreadable line in a customer's file aborted the whole read.
+//! Nothing in `src-tauri/` and nothing in `richos-voice` has the shape at all.
+//!
+//! The JUDGMENT this module reached about that record — from a newer build, damaged, or
+//! undecidable — now lives in [`crate::skip`] and has a second caller, `steering.rs`. It
+//! was extracted rather than copied so the two stores cannot drift apart about what damage
+//! looks like; the reasoning is in that module's doc.
+//!
+//! **Every sibling is already tolerant — and every one of them is SILENT about it.** Each
+//! of these drops an unparseable record with `else { continue }` or `.ok()`, says nothing,
+//! and returns a shorter list that is indistinguishable from a genuinely shorter file.
+//!
+//! Re-surveyed 2026-09-05 with the two questions that decide whether silence is a defect:
+//! **what is actually lost**, and **would anyone ever find out**. Silence is CORRECT where
+//! the record is derived from something durable that is still on disk — losing it costs a
+//! re-read, not a fact. It is a DEFECT where the record is the only copy of something a
+//! person did.
+//!
+//! | reader | file it reads | what one dropped record costs | would anyone notice |
+//! |---|---|---|---|
+//! | `steering.rs:304` | the intake log — **the CEO's own typed words, before they become turns** | a steering message or a stop that never becomes a turn: he typed it, watched it accepted, and it never reached Rich | **no — and it was the one place that mattered. FIXED here: classified, counted, reported, never fatal** |
+//! | `correction.rs:466` | the loro correction desk | one proposal or one answered decision; a confirmed write can silently revert to pending, or a pending one vanish before he ever sees it | no. Worth the second look now that the intake log is done |
+//! | `staging.rs:300` | the spoken-correction staging desk | one candidate question he was going to be asked | no — but §7 forbids a write without a human answer, so a lost candidate under-asks rather than acting alone. Fails safe |
+//! | `journal.rs:412`, `:474` | the per-thread machinery journal | one technical-mode row. `ThreadMachinery::Unreadable` covers a dead SHARD, not a dead LINE | not really — technical view only, and the ledger still holds the conversation |
+//! | `journal.rs:668` | the raw-retention journal | one payload; the record above it still renders, with `payload: None` | no, and the shape degrades honestly |
+//! | `heard.rs:715` | the dictation log | one dictation-review entry. The turn it produced is already in the ledger | no. This is a review aid over durable data |
+//! | `feedback.rs:270` | the feedback log | one past feedback entry in his history list. Nothing sends | no, and nothing downstream depends on it |
+//! | `worker_events.rs:267`, `worker_status.rs:286` | the engine's event logs (not the customer's files) | one row of a read-only inspector over a log this app does not own | no, and it must stay tolerant — a foreign format is expected to grow |
+//! | `config.rs:488` | `config.json` (whole file) | every preference at once. Already handles the one field that DELETES by keeping `raw_retention: FOREVER` on a corrupt file | he would see his preferences reset. Loud by accident, correct by design |
+//! | `src-tauri/src/nav.rs:108` | `navigation.json` (whole file) | sidebar and inspector widths | he would see the panels move. Pure view state |
+//!
+//! **A second, quieter defect runs through five of them**, and it is worse than the one
+//! they were surveyed for: `lines().map_while(Result::ok)` ends the ITERATOR at the first
+//! non-UTF-8 line, so ONE bad byte discards every record after it rather than its own.
+//! `steering.rs` is fixed (`read_until`); `journal.rs:407/469/667`, `staging.rs:293` and
+//! `correction.rs:459` still have it. It costs least where it matters least, so it is
+//! recorded here rather than fixed on sight.
+//!
+//! Two readers do it properly, and they are the precedent this module's
+//! [`Ledger::history_health`] follows: `entity.rs:681` fails the whole registry CLOSED
+//! and reports why through `RegistryLoad::notes`, and `launch.rs:389` keeps the file
+//! untouched and carries an `unreadable_reason`. `launch.rs` also carries the
+//! `schema_version` that would settle [`SkipKind::Ambiguous`] here if a ledger record
+//! carried one.
+//!
 //! ## Threads written before entity binding existed
 //!
 //! They replay as [`ThreadEntity::Unbound`] and FAIL CLOSED on every scoped read and
@@ -262,6 +315,22 @@ pub enum Event {
     },
     TurnCompleted { turn_id: String, stop_reason: String, at: u64 },
     TurnInterrupted { turn_id: String, reason: String, at: u64 },
+    /// **The turn died to the UPSTREAM MODEL API** — `529 Overloaded`, `429` quota, a
+    /// `5xx`. `open-items.md` row 3.30, measured 2026-09-03.
+    ///
+    /// **A SEPARATE event from `TurnInterrupted`, for the same reason `TurnStopped` is
+    /// one.** `TurnInterrupted` carries a `reason` STRING, which is a convention: a broken
+    /// pipe, a full disk, a rotation and an Anthropic outage all arrive on it and are told
+    /// apart only by parsing English that nothing guarantees. Whether the failure was
+    /// upstream decides what the CEO is told — whether waiting is a plan, and whether
+    /// asking again costs him quota for nothing — so it is a fact the log states rather
+    /// than a fact a later reader infers.
+    ///
+    /// It is written IN ADDITION to `TurnInterrupted`, never instead of it: the turn's
+    /// state, `ended_at` and durable partial reply all come from that event and none of
+    /// that changes. This one only attaches the classification and the sentences the CEO
+    /// was actually shown.
+    UpstreamFailure { turn_id: String, record: crate::upstream::UpstreamRecord, at: u64 },
     /// The CEO stopped this turn (UX §9.3 step 1-2). A SEPARATE event from
     /// `TurnInterrupted` on purpose: replaying the log must be able to tell a stop from a
     /// crash forever, and a `reason` string on the old event would have been a convention
@@ -404,6 +473,13 @@ pub struct Turn {
     /// field, and nothing renders it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intake_id: Option<u64>,
+    /// Set when this turn died to the UPSTREAM MODEL API (row 3.30). Carries the
+    /// classification AND the sentences the CEO was shown at the time, so reopening the
+    /// thread months later shows him what he was actually told rather than what this
+    /// build would say today. `None` for every other outcome, including every ordinary
+    /// interruption — absence here is a positive statement that the failure was local.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_failure: Option<crate::upstream::UpstreamRecord>,
 }
 
 impl Turn {
@@ -479,6 +555,76 @@ pub struct ScopeViolation {
     pub detail: String,
 }
 
+/// EVERY `event` tag this build knows how to fold.
+///
+/// It is the only thing that can tell a record written by a NEWER RichOS apart from a
+/// damaged one, so it has to stay exactly in step with [`Event`]. That is not left to
+/// care: `ledger_forward_compat_tests.rs` maps every variant through an EXHAUSTIVE match,
+/// so adding a variant to `Event` without adding its name here does not compile.
+pub const KNOWN_EVENT_TAGS: &[&str] = &[
+    "ThreadCreated",
+    "ThreadEntityBound",
+    "PromptReceived",
+    "TurnStarted",
+    "AssistantDelta",
+    "TurnCompleted",
+    "TurnInterrupted",
+    "UpstreamFailure",
+    "TurnStopped",
+    "ActionRecorded",
+    "ActionUpdated",
+    "SessionRotated",
+    "ProactiveMessage",
+    "HandoffSummaryUpdated",
+    "TurnSuperseded",
+];
+
+/// The vocabulary for a record this build could not read — SHARED with `steering.rs`'s
+/// intake log, and re-exported here so `ledger::SkipKind` keeps naming the same type it
+/// always has. Definitions live in [`crate::skip`]; the reasoning for the split is in that
+/// module's doc.
+pub use crate::skip::{SkipKind, SkippedRecord};
+
+/// How the ledger's own records are told apart from a newer build's and from damage.
+///
+/// `event` is the tag key every ledger record carries; the noun is what goes in the one
+/// sentence that has to name the file, and "carries no writer version" is the fact that
+/// makes `Ambiguous` unresolvable here (see [`Ledger::history_health`]).
+const LEDGER_SKIP: crate::skip::SkipDialect = crate::skip::SkipDialect {
+    tag_key: "event",
+    record_noun: "a ledger record",
+    known_tags: KNOWN_EVENT_TAGS,
+};
+
+/// What the app can honestly say about a history it has just loaded.
+///
+/// Serializable on purpose: this is the state the window renders. `headline` and `detail`
+/// are empty strings when nothing was skipped, which is the ordinary case and the signal
+/// to render nothing at all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HistoryHealth {
+    /// Non-empty lines found in the file.
+    pub records_read: usize,
+    /// Records folded into the projection.
+    pub records_applied: usize,
+    pub skipped: usize,
+    pub from_future: usize,
+    pub damaged: usize,
+    pub ambiguous: usize,
+    /// One short sentence. Empty when nothing was skipped.
+    pub headline: String,
+    /// The honest explanation, in plain American English, with no stack trace in it.
+    /// Empty when nothing was skipped.
+    pub detail: String,
+}
+
+impl HistoryHealth {
+    /// Every record on disk is in the projection.
+    pub fn is_clean(&self) -> bool {
+        self.skipped == 0
+    }
+}
+
 pub struct Ledger {
     path: PathBuf,
     file: File,
@@ -489,6 +635,12 @@ pub struct Ledger {
     handoff_summaries: std::collections::HashMap<String, String>,
     /// Every turn whose entity stamp contradicted its thread's home, found on replay.
     scope_violations: Vec<ScopeViolation>,
+    /// Every record on disk that this build could not fold. Empty is the normal state.
+    skipped: Vec<SkippedRecord>,
+    /// Non-empty lines seen on replay, and how many of them were applied. Counted rather
+    /// than derived, so "71 of 74" is a measurement and not an inference.
+    records_read: usize,
+    records_applied: usize,
     /// The next active-context binding revision to hand out (ECS §3.4 fencing token).
     ///
     /// Monotonic in-process. On open it resumes at one past the highest revision EVER
@@ -516,6 +668,9 @@ impl Ledger {
             actions: Vec::new(),
             handoff_summaries: std::collections::HashMap::new(),
             scope_violations: Vec::new(),
+            skipped: Vec::new(),
+            records_read: 0,
+            records_applied: 0,
             next_revision: 1,
         };
         ledger.replay()?;
@@ -526,18 +681,145 @@ impl Ledger {
         Ok(ledger)
     }
 
+    /// Fold the whole log, and **survive any single record it cannot read.**
+    ///
+    /// # Why this is not `serde_json::from_str(line)?`
+    ///
+    /// It was, until 2026-09-05, and `?` on a per-record parse means ONE unreadable line
+    /// aborts the entire replay. The failure is total, not partial: not "that message is
+    /// missing" but "your conversation history does not load". At the app's only real call
+    /// site — `src-tauri/src/main.rs`, `Ledger::open(&ledger_path).expect("open ledger")` —
+    /// it is not even a blank history, it is a panic inside the Tauri setup hook, so the
+    /// window never opens.
+    ///
+    /// A record type added by a newer RichOS is, to an older binary, exactly that
+    /// unreadable line. v1.0.0, v1.0.1 and v1.0.2 are all still published and downloadable,
+    /// the updater has no rollback, and reverting code does not revert data — so the moment
+    /// a newer build writes a record type an older one cannot name, any customer who
+    /// reinstalls an older build has lost their history until they update again.
+    ///
+    /// # What it does instead
+    ///
+    /// Every line that parses is folded. Every line that does not is recorded in
+    /// [`Ledger::skipped_records`] with a REASON, counted, and printed — never silently
+    /// dropped. Nothing is deleted, nothing is rewritten; the bytes stay exactly where they
+    /// were, so a build new enough to understand them will read them.
+    ///
+    /// # What still fails
+    ///
+    /// A genuine IO error. If the disk cannot be read, that is not a damaged record and
+    /// must not be reported as one — it propagates, as it always did.
     fn replay(&mut self) -> Result<(), LedgerError> {
-        let reader = BufReader::new(File::open(&self.path)?);
-        for line in reader.lines() {
-            let line = line?;
-            let line = line.trim();
+        let mut reader = BufReader::new(File::open(&self.path)?);
+        let mut raw: Vec<u8> = Vec::new();
+        let mut line_no = 0usize;
+        loop {
+            raw.clear();
+            // `read_until`, not `lines()`, for one reason: `lines()` yields `Err` for a line
+            // that is not valid UTF-8, and the `?` on that error would abort the whole
+            // replay over one bad byte — the exact failure this function exists to stop. A
+            // real IO error still propagates from here; a bad byte is classified below.
+            let n = reader.read_until(b'\n', &mut raw)?;
+            if n == 0 {
+                break;
+            }
+            line_no += 1;
+            // `lines()` strips the terminator and any preceding CR, and the old code then
+            // called `.trim()`. Stripping the `\n` and calling the same `.trim()` gives a
+            // byte-identical slice — `trim` removes the CR and everything else `lines()`
+            // would have.
+            let body = raw.strip_suffix(b"\n").unwrap_or(&raw);
+            let text = match std::str::from_utf8(body) {
+                Ok(t) => t,
+                Err(_) => {
+                    // Not text at all. It cannot have a tag, so it cannot be from the
+                    // future; no version of RichOS has ever written a non-UTF-8 record.
+                    self.skipped.push(crate::skip::not_utf8(line_no, body.len()));
+                    self.records_read += 1;
+                    continue;
+                }
+            };
+            let line = text.trim();
             if line.is_empty() {
                 continue;
             }
-            let event: Event = serde_json::from_str(line)?;
-            self.apply(event);
+            self.records_read += 1;
+            match serde_json::from_str::<Event>(line) {
+                Ok(event) => {
+                    self.records_applied += 1;
+                    self.apply(event);
+                }
+                Err(_) => {
+                    let record = Self::classify_skip(line_no, line);
+                    // A record from a newer RichOS still carries a real fencing token, and
+                    // the counter has to stay ahead of every revision DURABLY recorded or a
+                    // restart re-issues one this file already used (ECS §3.4). Salvaged
+                    // only for `FromFuture`: a damaged line's number is not a fact.
+                    if record.kind == SkipKind::FromFuture {
+                        if let Some(r) = Self::salvage_revision(line) {
+                            self.observe_revision(r);
+                        }
+                    }
+                    self.skipped.push(record);
+                }
+            }
         }
+        self.report_skipped();
         Ok(())
+    }
+
+    /// Decide WHY a line did not parse. The judgment — and every sentence it composes —
+    /// lives in [`crate::skip::classify_line`], which `steering.rs` calls with its own
+    /// dialect so the two stores cannot drift apart about what damage looks like.
+    fn classify_skip(line_no: usize, line: &str) -> SkippedRecord {
+        crate::skip::classify_line(line_no, line, &LEDGER_SKIP)
+    }
+
+    /// Pull a `binding_revision` off a record this build could not fold. Only ever called
+    /// for a record from a newer RichOS, whose revision is a real durable fencing token.
+    fn salvage_revision(line: &str) -> Option<u64> {
+        crate::skip::salvage_u64(line, "binding_revision")
+    }
+
+    /// **Skipping is never silent.** One line per skipped record, capped, then a summary
+    /// line that is printed whenever anything at all was skipped.
+    ///
+    /// The cap exists because a badly damaged file could hold a hundred thousand
+    /// unreadable lines, and a hundred thousand log lines is its own kind of silence. The
+    /// COUNT is never capped — it is in the summary and in [`Ledger::history_health`].
+    fn report_skipped(&self) {
+        if self.skipped.is_empty() {
+            return;
+        }
+        const CAP: usize = 20;
+        for r in self.skipped.iter().take(CAP) {
+            eprintln!(
+                "[richos] LEDGER RECORD SKIPPED ({}): line {} ({} bytes) — {}",
+                r.kind.label(),
+                r.line,
+                r.bytes,
+                r.detail
+            );
+        }
+        if self.skipped.len() > CAP {
+            eprintln!(
+                "[richos] LEDGER: {} further skipped records not listed individually",
+                self.skipped.len() - CAP
+            );
+        }
+        let h = self.history_health();
+        eprintln!(
+            "[richos] LEDGER SUMMARY for {}: {} records read, {} applied, {} skipped \
+             ({} from a newer version, {} damaged, {} undetermined). Nothing was deleted \
+             or rewritten.",
+            self.path.display(),
+            h.records_read,
+            h.records_applied,
+            h.skipped,
+            h.from_future,
+            h.damaged,
+            h.ambiguous
+        );
     }
 
     /// Fold one event into the in-memory projection. Pure; no I/O.
@@ -599,6 +881,7 @@ impl Ledger {
                     superseded_by: None,
                     stop_requested_at: None,
                     intake_id,
+                    upstream_failure: None,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -629,6 +912,15 @@ impl Ledger {
                     t.state = TurnState::Interrupted;
                     t.stop_reason = Some(format!("interrupted: {reason}"));
                     t.ended_at = Some(at);
+                }
+            }
+            // ATTACHES ONLY. It sets no state, no `ended_at` and no `stop_reason` —
+            // `TurnInterrupted` owns all three and this event is written beside it, so a
+            // build that skipped this record entirely would still read the turn as
+            // interrupted at the same instant with the same partial reply.
+            Event::UpstreamFailure { turn_id, record, .. } => {
+                if let Some(t) = self.turn_mut(&turn_id) {
+                    t.upstream_failure = Some(record);
                 }
             }
             Event::TurnStopped { turn_id, requested_at, at } => {
@@ -690,6 +982,7 @@ impl Ledger {
                     superseded_by: None,
                     stop_requested_at: None,
                     intake_id: None,
+                    upstream_failure: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -738,9 +1031,15 @@ impl Ledger {
     }
 
     /// Keep the revision counter ahead of everything durably recorded.
+    ///
+    /// `saturating_add` rather than `+ 1` since 2026-09-05: this is now also fed from a
+    /// record this build could not fold, so the number arriving here can be anything a
+    /// damaged or forged line contains, up to `u64::MAX`. `seen + 1` on `u64::MAX` panics
+    /// in a debug build and wraps to 0 in a release one, and a fencing counter that wraps
+    /// to 0 is worse than one that stops moving.
     fn observe_revision(&mut self, seen: u64) {
         if seen >= self.next_revision {
-            self.next_revision = seen + 1;
+            self.next_revision = seen.saturating_add(1);
         }
     }
 
@@ -823,6 +1122,101 @@ impl Ledger {
     /// Every cross-entity/orphan turn rejected by [`Ledger::reconcile_scope`].
     pub fn scope_violations(&self) -> &[ScopeViolation] {
         &self.scope_violations
+    }
+
+    /// Every record on disk this build could not fold, with the reason for each.
+    ///
+    /// Empty is the normal state and the one every existing ledger produces today.
+    pub fn skipped_records(&self) -> &[SkippedRecord] {
+        &self.skipped
+    }
+
+    /// **What the app can honestly say about the history it just loaded**, in a form the
+    /// window can render.
+    ///
+    /// `headline`/`detail` are empty when nothing was skipped — that is the signal to show
+    /// nothing at all, not to show a reassuring green tick over a check that found nothing
+    /// to say.
+    ///
+    /// ## The one thing this cannot answer, and the smallest change that would
+    ///
+    /// `ambiguous` counts records whose TYPE this build knows and whose FIELDS do not fit.
+    /// A newer RichOS that added a required field to an existing record and a record whose
+    /// bytes were damaged in place produce byte-identical evidence, and this build refuses
+    /// to guess between them.
+    ///
+    /// The minimal fix is one field: a writer-schema number on every record — `launch.rs`
+    /// already does exactly this with `StoredLaunches::schema_version`. A reader could then
+    /// say `written_by > mine ⇒ from the future`, `<= mine ⇒ damaged`, with no ambiguity
+    /// left. Adding it is safe by construction: serde ignores unknown fields on a known
+    /// variant, which `ledger_forward_compat_tests.rs` pins, so a record carrying the new
+    /// field still replays cleanly on v1.0.0-v1.0.2. It is NOT done here, because starting
+    /// to write a new field is a change to what goes on customers' disks and this change is
+    /// deliberately read-only.
+    pub fn history_health(&self) -> HistoryHealth {
+        let count = |k: SkipKind| self.skipped.iter().filter(|r| r.kind == k).count();
+        let from_future = count(SkipKind::FromFuture);
+        let damaged = count(SkipKind::Damaged);
+        let ambiguous = count(SkipKind::Ambiguous);
+        let skipped = self.skipped.len();
+
+        let (headline, detail) = if skipped == 0 {
+            (String::new(), String::new())
+        } else {
+            let plural = |n: usize, one: &str, many: &str| if n == 1 { one.to_string() } else { many.to_string() };
+            let headline = if damaged > 0 || ambiguous > 0 {
+                format!(
+                    "{} of this conversation could not be read.",
+                    plural(damaged + ambiguous, "One record", "Some records")
+                )
+            } else {
+                "Part of this conversation was written by a newer version of RichOS."
+                    .to_string()
+            };
+            let mut parts: Vec<String> = Vec::new();
+            if from_future > 0 {
+                parts.push(format!(
+                    "{} {} written by a newer version of RichOS than the one you are running, \
+                     so this version does not know how to read {}. Updating will bring {} back.",
+                    from_future,
+                    plural(from_future, "record was", "records were"),
+                    plural(from_future, "it", "them"),
+                    plural(from_future, "it", "them"),
+                ));
+            }
+            if damaged > 0 {
+                parts.push(format!(
+                    "{} {} damaged and could not be read.",
+                    damaged,
+                    plural(damaged, "record is", "records are"),
+                ));
+            }
+            if ambiguous > 0 {
+                parts.push(format!(
+                    "{} {} not match any shape this version knows. That is either a newer \
+                     version of RichOS or damage, and this version cannot tell which.",
+                    ambiguous,
+                    plural(ambiguous, "record does", "records do"),
+                ));
+            }
+            parts.push(format!(
+                "Everything else loaded: {} of {} records. Nothing was deleted and nothing was \
+                 rewritten — every record is still exactly where it was on disk.",
+                self.records_applied, self.records_read,
+            ));
+            (headline, parts.join(" "))
+        };
+
+        HistoryHealth {
+            records_read: self.records_read,
+            records_applied: self.records_applied,
+            skipped,
+            from_future,
+            damaged,
+            ambiguous,
+            headline,
+            detail,
+        }
     }
 
     fn thread_ref(&self, thread_id: &str) -> Result<&Thread, LedgerError> {
@@ -1119,6 +1513,33 @@ impl Ledger {
     pub fn interrupt_turn(&mut self, turn_id: &str, reason: &str) -> Result<(), LedgerError> {
         self.append(
             Event::TurnInterrupted { turn_id: turn_id.to_string(), reason: reason.to_string(), at: now_millis() },
+            true,
+        )
+    }
+
+    /// Attach the UPSTREAM classification and the sentences the CEO was shown to a turn
+    /// that has already been interrupted (row 3.30).
+    ///
+    /// **Order matters and the caller owns it:** `interrupt_turn` FIRST, this second. The
+    /// interruption is what ended the turn and it must be durable before anything
+    /// describing it is; a crash between the two leaves a turn that is correctly
+    /// interrupted with no explanation attached, which is the safe direction. The reverse
+    /// order would leave an explanation for a turn the log still says is in flight.
+    ///
+    /// fsync'd like every other terminal write: this is the record of what the CEO was
+    /// told, and a statement about a failure that did not survive the failure is worth
+    /// nothing.
+    pub fn record_upstream_failure(
+        &mut self,
+        turn_id: &str,
+        record: &crate::upstream::UpstreamRecord,
+    ) -> Result<(), LedgerError> {
+        self.append(
+            Event::UpstreamFailure {
+                turn_id: turn_id.to_string(),
+                record: record.clone(),
+                at: now_millis(),
+            },
             true,
         )
     }
@@ -1516,6 +1937,7 @@ mod tests {
             superseded_by: None,
             stop_requested_at: None,
             intake_id: None,
+            upstream_failure: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);

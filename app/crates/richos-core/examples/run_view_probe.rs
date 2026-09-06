@@ -218,8 +218,35 @@ fn probe() -> serde_json::Value {
         "Fallback changed the journal"
     );
     assert!(!serde_json::to_string(&fourth).unwrap().contains("private"));
+    // Exercise an actual panel scope correction, not a hand-authored display field.
+    let panel_path = workspace.join("panel-correction.jsonl");
+    let mut pending = amended.clone();
+    pending.tasks[0].state = TaskState::NeedsDecision;
+    std::fs::write(
+        &panel_path,
+        format!("{}\n", serde_json::to_string(&pending).unwrap()),
+    )
+    .unwrap();
+    let mut controller = RunController::open(&panel_path).unwrap();
+    let decision = controller.snapshot().decision(0).unwrap();
+    let correction = "Deliver the summary only. Do not send it.";
+    controller
+        .respond_to_decision(
+            "deliver",
+            &decision.id,
+            richos_core::run::DecisionAction::ChangeScope {
+                text: correction.into(),
+            },
+        )
+        .unwrap();
+    let fifth = serde_json::to_value(projection::view("hiring", controller.snapshot())).unwrap();
+    assert_eq!(fifth["instructionChanges"], serde_json::json!([correction]));
+    assert!(controller.snapshot().plan.tasks[0]
+        .prompt
+        .contains(correction));
+    assert!(controller.snapshot().plan.tasks[0].checks[0].argv[1].contains(correction));
     std::fs::remove_dir_all(&workspace).unwrap();
-    serde_json::json!([first, second, third, fourth])
+    serde_json::json!([first, second, third, fourth, fifth])
 }
 fn main() {
     println!("{}", probe());

@@ -291,6 +291,15 @@ HOOK_FILES+=(
     # ship as a pair; hashing the guard while leaving its sanctioned helper
     # unverified would check the lock and ignore the key.
     "$REPO_ROOT/scripts/remove-agent-worktree.sh"
+    # The retirement operation the removal helper now routes to, and the same
+    # sentence one step further on: remove-agent-worktree.sh is hashed because
+    # it is the code that deletes worktrees, and since 2026-09-05 its
+    # --workspace mode DECIDES NOTHING ITSELF — it derives the repository, the
+    # path and the owner from the ownership ledger through this file, and
+    # refuses on anything it cannot derive. A tampered copy would leave the
+    # helper wired, hashed, executable and taking its whole answer from
+    # something nobody verifies. Check the lock, ignore the key.
+    "$REPO_ROOT/scripts/lib/workspace-retire.py"
     # Not a hook, and hashed anyway. Every guard's bootstrap refuses to start
     # without scripts/lib/resolve-roots.sh, and every guard's answer to "which
     # repository am I protecting?" comes out of it. An unhashed resolver would
@@ -321,6 +330,17 @@ HOOK_FILES+=(
     # on this list.
     "$REPO_ROOT/scripts/lib/publication-boundary.sh"
     "$REPO_ROOT/scripts/lib/publication-boundary.py"
+    # The named-person predicate, in both its halves. Same argument once more,
+    # and this pair guards a different class of harm: TWO registered guards
+    # (guard-named-persons-writes.sh, guard-named-persons-commands.sh) and the
+    # release chokepoint delegate their entire decision to these two files, and
+    # the thing they refuse is a private individual's NAME reaching a public
+    # repository. A tampered copy would leave both guards wired, hashed,
+    # executable and matching nothing — and a deny-list that matches nothing is
+    # indistinguishable from a clean tree at every place anybody looks. Check
+    # the lock, ignore the key.
+    "$REPO_ROOT/scripts/lib/named-persons.sh"
+    "$REPO_ROOT/scripts/lib/named-persons.py"
     # The declaration RESOLVER. Not a hook, and the newest instance of the same
     # sentence: it is the only code that answers "does this repository declare
     # X, and which file is it?", and THREE contracts take that answer whole —
@@ -383,6 +403,15 @@ HOOK_FILES+=(
     # exactly what a healthy engine also looks like. Checking the lock and
     # ignoring the key, one more time.
     "$REPO_ROOT/scripts/lib/stop-hook-notice.sh"
+    # Its PreToolUse counterpart, and the argument is the same one turned
+    # inside out a second time. Twenty-seven guards delegate to this file the
+    # single sentence that distinguishes "I looked at this call and it is fine"
+    # from "I never read this call at all". A tampered or reverted copy puts
+    # every one of them back to exit 0 in silence — and the symptom of that is
+    # a guard that looks exactly like a healthy one, which is the whole reason
+    # the 2026-09-05 payload survey had to be run to find it. Checking the lock
+    # and ignoring the key, once more.
+    "$REPO_ROOT/scripts/lib/unevaluated-notice.sh"
     # The LIVENESS RESOLVER, in both its halves, plus its operator CLI. Not
     # hooks, and hashed for remove-agent-worktree.sh's reason turned up one
     # notch: THREE callers now delegate the entire question "is this agent
@@ -457,6 +486,16 @@ HOOK_FILES+=(
     # than blocks: it decides nothing itself, so an unhashed copy is the file
     # that decides whether a repeatedly-waived guard is ever named.
     "$REPO_ROOT/scripts/hooks/notice-waiver-repetition.py"
+    # The ingress analyzer, and the argument is the strongest on this list
+    # because this one WRITES. commit-ceo-inputs.sh resolves roots, reads
+    # config and then hands the entire job to commit-ceo-inputs.py: which paths
+    # the CEO's message named, which gates run, and — when they all pass —
+    # `git hash-object`, `git commit-tree` and `git update-ref`. A trimmed copy
+    # could leave the hook wired, hashed, executable and capturing nothing,
+    # rebuilding the exact defect it was written for; a tampered one could
+    # commit past the credential and publication gates. Every other entry here
+    # protects a decision. This one also protects a write.
+    "$REPO_ROOT/scripts/hooks/commit-ceo-inputs.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

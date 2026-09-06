@@ -25,6 +25,12 @@
 //!   spine reaches the turn boundary -> drain into the LEDGER -> append Drained{through}
 //! ```
 //!
+//! **A record here is never dropped in silence.** It is the CEO's own typed words before
+//! anything at all has happened to them, so a record this build cannot read is counted,
+//! classified and reported ([`IntakeLog::health`]) rather than skipped past — and it is
+//! never fatal, because refusing to open the app is not an improvement over dropping one
+//! message. The judgment is the ledger's, shared rather than re-derived ([`crate::skip`]).
+//!
 //! **The intake log is not a second source of truth.** Nothing reads it for display and
 //! nothing renders from it. Every record has exactly two fates: it becomes a ledger event,
 //! or it is refused and marked drained. The ledger remains the only thing that says what
@@ -49,6 +55,7 @@
 //!   there is no pause here and `Turn::active_ms` stays exact.
 
 use crate::entity::EntityId;
+use crate::skip::{SkipDialect, SkipKind, SkippedRecord};
 use crate::util::now_millis;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
@@ -121,13 +128,70 @@ impl IntakeRecord {
     }
 }
 
+/// EVERY `record` tag this build knows how to replay.
+///
+/// It is the only thing that can tell a record written by a NEWER RichOS apart from a
+/// damaged one, so it has to stay exactly in step with [`IntakeRecord`]. That is not left
+/// to care: `intake_forward_compat_tests.rs` maps every variant through an EXHAUSTIVE
+/// match, so adding a variant here without adding its name does not compile.
+pub const KNOWN_INTAKE_TAGS: &[&str] = &["steer", "stop", "drained"];
+
+/// How the intake log's records are told apart from a newer build's and from damage.
+/// The judgment itself is [`crate::skip::classify_line`] — the same one the ledger uses,
+/// deliberately, so the two stores can never disagree about what damage looks like.
+const INTAKE_SKIP: SkipDialect = SkipDialect {
+    tag_key: "record",
+    record_noun: "an intake record",
+    known_tags: KNOWN_INTAKE_TAGS,
+};
+
+/// **What the app can honestly say about the intake log it has just replayed.**
+///
+/// The intake log is the ONE file that holds the CEO's own words before anything has
+/// happened to them: a steering message he typed while Rich was working, or a stop he
+/// pressed, fsync'd the instant he acted and not yet turned into a ledger turn. A record
+/// dropped here is not a degraded feature — it is something he said to RichOS that never
+/// arrives, and that nobody ever learns was lost.
+///
+/// So this exists for one reason: **so the drop cannot be silent.** It is deliberately NOT
+/// a reason to refuse to start. This is a read path on the CEO's own machine, and refusing
+/// to open the app is not an improvement over dropping one message.
+///
+/// `headline` and `detail` are empty strings when nothing was skipped, which is the
+/// ordinary case and the signal to say nothing at all. There is no reassuring "the intake
+/// log is fine" state, for the same reason `Ledger::history_health` has none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IntakeHealth {
+    /// Non-empty lines found in the file.
+    pub records_read: usize,
+    /// Records replayed into the pending set (or into the drain watermark).
+    pub records_applied: usize,
+    pub skipped: usize,
+    pub from_future: usize,
+    pub damaged: usize,
+    pub ambiguous: usize,
+    /// One short sentence. Empty when nothing was skipped.
+    pub headline: String,
+    /// The honest explanation, in plain American English, with no stack trace in it.
+    /// Empty when nothing was skipped.
+    pub detail: String,
+}
+
+impl IntakeHealth {
+    /// Every record on disk is accounted for. The normal state, and the state of every
+    /// intake log in existence today.
+    pub fn is_clean(&self) -> bool {
+        self.skipped == 0
+    }
+}
+
 /// The append-only intake file: the CEO's words and the CEO's stop, durable before
 /// anything acts on them.
 ///
 /// Same durability posture as the ledger (append + `sync_all`, one JSON object per line,
-/// a malformed line skipped rather than fatal) and deliberately NOT the same file: the
-/// ledger is evidence of what happened, and an intake record is a request that has not
-/// happened yet.
+/// a malformed line skipped-and-REPORTED rather than fatal) and deliberately NOT the same
+/// file: the ledger is evidence of what happened, and an intake record is a request that
+/// has not happened yet.
 pub struct IntakeLog {
     path: PathBuf,
     /// Records written and not yet drained, oldest first.
@@ -136,6 +200,13 @@ pub struct IntakeLog {
     /// Lines currently in the file, so a long-lived log can be compacted once it is fully
     /// drained rather than growing for the life of the install.
     lines: usize,
+    /// Every record on disk that this build could not replay, with the reason for each.
+    /// Empty is the normal state and the state of every intake log in existence today.
+    skipped: Vec<SkippedRecord>,
+    /// Non-empty lines seen on replay, and how many were folded. Counted rather than
+    /// derived, so "3 of 4" is a measurement and not an inference.
+    records_read: usize,
+    records_applied: usize,
 }
 
 /// Compact the file once it is fully drained and has grown past this many lines. Chosen so
@@ -146,6 +217,33 @@ const COMPACT_AFTER_LINES: usize = 256;
 impl IntakeLog {
     /// Open (creating if absent) and replay. Undrained records survive a crash and are
     /// returned by [`pending`](Self::pending) for the spine to reconcile at startup.
+    ///
+    /// # A dropped record here is the CEO's own words, so it is never dropped in silence
+    ///
+    /// Until 2026-09-05 this loop was `let Ok(rec) = .. else { continue }` with a comment
+    /// explaining that a torn LAST line was never acknowledged to anybody. That reasoning
+    /// is sound for the case it names and wrong for every other case: the same `continue`
+    /// fired for a record written by a newer RichOS, for a record damaged in the MIDDLE of
+    /// the file, and for a record shaped differently — and every one of them went with no
+    /// count, no log line and no trace. This file holds what he typed BEFORE it becomes a
+    /// turn, so that silence is a message he sent that never arrives and that nobody ever
+    /// learns was lost.
+    ///
+    /// Three things changed, and none of them makes the read fatal:
+    ///
+    ///   1. **Every skipped record is classified and counted** ([`crate::skip`] — the same
+    ///      judgment `Ledger::replay` uses). A torn final record and a record from a newer
+    ///      build are benign and are labeled as such; a record damaged mid-file is not.
+    ///   2. **The read no longer stops at a bad byte.** `lines().map_while(Result::ok)`
+    ///      ends the ITERATOR at the first non-UTF-8 line, so one bad byte silently
+    ///      discarded every record AFTER it, not just its own. `read_until` classifies that
+    ///      line and carries on.
+    ///   3. **A skipped record can no longer collide with a fresh one** — see the `next_id`
+    ///      derivation below.
+    ///
+    /// Nothing is deleted and nothing is rewritten. A record this build cannot read stays
+    /// exactly where it is, so a build new enough to understand it will read it — which is
+    /// also why [`compact`](Self::compact) refuses to run while anything was skipped.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, SteeringError> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
@@ -154,26 +252,230 @@ impl IntakeLog {
         let mut records: Vec<IntakeRecord> = Vec::new();
         let mut drained_through: u64 = 0;
         let mut lines = 0usize;
+        let mut skipped: Vec<SkippedRecord> = Vec::new();
+        let mut records_read = 0usize;
+        let mut records_applied = 0usize;
+        // The highest id seen on a record this build could NOT fold. It is not in
+        // `records`, so without it the counter can hand the same id out twice.
+        let mut salvaged_id: u64 = 0;
         if path.exists() {
             let file = std::fs::File::open(&path)?;
-            for line in BufReader::new(file).lines().map_while(Result::ok) {
-                let line = line.trim();
+            let mut reader = BufReader::new(file);
+            let mut raw: Vec<u8> = Vec::new();
+            let mut line_no = 0usize;
+            loop {
+                raw.clear();
+                // `read_until`, not `lines()`: `lines()` yields `Err` for a line that is
+                // not valid UTF-8 and `map_while(Result::ok)` STOPS THERE, so one bad byte
+                // used to take every request after it with it. A real IO error still
+                // propagates from here; a bad byte is classified below.
+                let n = reader.read_until(b'\n', &mut raw)?;
+                if n == 0 {
+                    break;
+                }
+                line_no += 1;
+                let body = raw.strip_suffix(b"\n").unwrap_or(&raw);
+                let text = match std::str::from_utf8(body) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        lines += 1;
+                        records_read += 1;
+                        skipped.push(crate::skip::not_utf8(line_no, body.len()));
+                        continue;
+                    }
+                };
+                let line = text.trim();
                 if line.is_empty() {
                     continue;
                 }
                 lines += 1;
-                // A torn last line (killed mid-write) is skipped, exactly as the ledger
-                // skips one: a half-written request was never acknowledged to anybody.
-                let Ok(rec) = serde_json::from_str::<IntakeRecord>(line) else { continue };
-                match rec {
-                    IntakeRecord::Drained { through } => drained_through = drained_through.max(through),
-                    other => records.push(other),
+                records_read += 1;
+                match serde_json::from_str::<IntakeRecord>(line) {
+                    Ok(rec) => {
+                        records_applied += 1;
+                        match rec {
+                            IntakeRecord::Drained { through } => {
+                                drained_through = drained_through.max(through)
+                            }
+                            other => records.push(other),
+                        }
+                    }
+                    Err(_) => {
+                        let record = crate::skip::classify_line(line_no, line, &INTAKE_SKIP);
+                        // SALVAGE THE ID, AND FROM ONE MORE KIND THAN THE LEDGER DOES.
+                        //
+                        // `Ledger::replay` salvages a fencing revision from `FromFuture`
+                        // only, on the rule that a damaged line's numbers are not facts.
+                        // That rule holds; the LINE is drawn differently here because the
+                        // stakes are not symmetric. An intake id is a de-duplication key —
+                        // `Spine::drain_intake` treats "the ledger already holds a turn for
+                        // this id" as proof the record was handled — so a COLLISION
+                        // discards a real message, while an inflated counter costs nothing
+                        // at all (ids are opaque and monotonic, and `u64` does not run
+                        // out). `Ambiguous` and `FromFuture` are both well-formed JSON
+                        // objects carrying a plain-identifier tag, which is structure this
+                        // build trusts; `Damaged` is not, and nothing is salvaged from it.
+                        if record.kind != SkipKind::Damaged {
+                            if let Some(id) = crate::skip::salvage_u64(line, "id") {
+                                salvaged_id = salvaged_id.max(id);
+                            }
+                            if let Some(through) = crate::skip::salvage_u64(line, "through") {
+                                salvaged_id = salvaged_id.max(through);
+                            }
+                        }
+                        skipped.push(record);
+                    }
                 }
             }
         }
-        let next_id = records.iter().map(|r| r.id()).max().unwrap_or(drained_through) + 1;
+        // THE HIGH-WATER MARK OF EVERY ID THIS FILE HAS EVER USED, taken from all three
+        // places one can appear. The old derivation was
+        // `max(parsed ids).unwrap_or(drained_through) + 1`, which DROPS `drained_through`
+        // the moment any record at all parses: a file holding `Steer{1}, Steer{2},
+        // Drained{2}` whose `Steer{2}` is unreadable re-issued id 2, and two records with
+        // one id make `Ledger::turn_for_intake` match the wrong turn and throw a real
+        // message away as already handled.
+        let highest = records
+            .iter()
+            .map(|r| r.id())
+            .max()
+            .unwrap_or(0)
+            .max(drained_through)
+            .max(salvaged_id);
+        let next_id = highest.saturating_add(1);
         records.retain(|r| r.id() > drained_through);
-        Ok(IntakeLog { path, pending: records, next_id, lines })
+        let log =
+            IntakeLog { path, pending: records, next_id, lines, skipped, records_read, records_applied };
+        log.report_skipped();
+        Ok(log)
+    }
+
+    /// **Skipping is never silent.** One line per skipped record, capped, then a summary
+    /// line printed whenever anything at all was skipped.
+    ///
+    /// The cap exists because a badly damaged file could hold a hundred thousand
+    /// unreadable lines, and a hundred thousand log lines is its own kind of silence. The
+    /// COUNT is never capped — it is in the summary and in [`IntakeLog::health`].
+    fn report_skipped(&self) {
+        if self.skipped.is_empty() {
+            return;
+        }
+        const CAP: usize = 20;
+        for r in self.skipped.iter().take(CAP) {
+            eprintln!(
+                "[richos] INTAKE RECORD SKIPPED ({}): line {} ({} bytes) — {}",
+                r.kind.label(),
+                r.line,
+                r.bytes,
+                r.detail
+            );
+        }
+        if self.skipped.len() > CAP {
+            eprintln!(
+                "[richos] INTAKE: {} further skipped records not listed individually",
+                self.skipped.len() - CAP
+            );
+        }
+        let h = self.health();
+        eprintln!(
+            "[richos] INTAKE SUMMARY for {}: {} records read, {} applied, {} skipped \
+             ({} from a newer version, {} damaged, {} undetermined). These are things the \
+             CEO asked for that Rich has not acted on yet. Nothing was deleted or rewritten.",
+            self.path.display(),
+            h.records_read,
+            h.records_applied,
+            h.skipped,
+            h.from_future,
+            h.damaged,
+            h.ambiguous
+        );
+    }
+
+    /// Every record on disk this build could not replay, with the reason for each.
+    pub fn skipped_records(&self) -> &[SkippedRecord] {
+        &self.skipped
+    }
+
+    /// **What the app can honestly say about the intake log it just replayed.**
+    ///
+    /// `headline`/`detail` are empty when nothing was skipped — the signal to say nothing
+    /// at all, not to say something reassuring about a check that found nothing to report.
+    ///
+    /// The sentences are composed HERE and deliberately not shared with
+    /// `Ledger::history_health`, because they are not the same statement: that one is about
+    /// messages that are on screen and did not load, and this one is about something the
+    /// CEO said that never reached Rich at all. Nothing should be in a position to
+    /// substitute one for the other.
+    pub fn health(&self) -> IntakeHealth {
+        let count = |k: SkipKind| self.skipped.iter().filter(|r| r.kind == k).count();
+        let from_future = count(SkipKind::FromFuture);
+        let damaged = count(SkipKind::Damaged);
+        let ambiguous = count(SkipKind::Ambiguous);
+        let skipped = self.skipped.len();
+
+        let (headline, detail) = if skipped == 0 {
+            (String::new(), String::new())
+        } else {
+            let plural =
+                |n: usize, one: &str, many: &str| if n == 1 { one.to_string() } else { many.to_string() };
+            let headline = if damaged > 0 || ambiguous > 0 {
+                plural(
+                    damaged + ambiguous,
+                    "Something you typed while Rich was working could not be read.",
+                    "Some things you typed while Rich was working could not be read.",
+                )
+            } else {
+                "Something you typed while Rich was working was written by a newer version of \
+                 RichOS."
+                    .to_string()
+            };
+            let mut parts: Vec<String> = Vec::new();
+            if from_future > 0 {
+                parts.push(format!(
+                    "{} {} written by a newer version of RichOS than the one you are running, \
+                     so this version does not know how to read {}. Updating will bring {} back.",
+                    from_future,
+                    plural(from_future, "request was", "requests were"),
+                    plural(from_future, "it", "them"),
+                    plural(from_future, "it", "them"),
+                ));
+            }
+            if damaged > 0 {
+                parts.push(format!(
+                    "{} {} damaged and could not be read. If you were waiting on Rich to act on \
+                     {}, {} never reached him — please ask again.",
+                    damaged,
+                    plural(damaged, "request is", "requests are"),
+                    plural(damaged, "it", "them"),
+                    plural(damaged, "it", "they"),
+                ));
+            }
+            if ambiguous > 0 {
+                parts.push(format!(
+                    "{} {} not match any shape this version knows. That is either a newer \
+                     version of RichOS or damage, and this version cannot tell which.",
+                    ambiguous,
+                    plural(ambiguous, "request does", "requests do"),
+                ));
+            }
+            parts.push(format!(
+                "Everything else was read: {} of {} requests. Nothing was deleted and nothing \
+                 was rewritten — every record is still exactly where it was on disk.",
+                self.records_applied, self.records_read,
+            ));
+            (headline, parts.join(" "))
+        };
+
+        IntakeHealth {
+            records_read: self.records_read,
+            records_applied: self.records_applied,
+            skipped,
+            from_future,
+            damaged,
+            ambiguous,
+            headline,
+            detail,
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -235,7 +537,14 @@ impl IntakeLog {
     pub fn mark_drained(&mut self, through: u64) -> Result<(), SteeringError> {
         self.write(&IntakeRecord::Drained { through })?;
         self.pending.retain(|r| r.id() > through);
-        if self.pending.is_empty() && self.lines >= COMPACT_AFTER_LINES {
+        // COMPACTION IS REFUSED WHILE ANYTHING WAS SKIPPED, and this is the difference
+        // between "an older build cannot read your steering message" and "an older build
+        // DELETED your steering message". `compact` replaces the whole file with a single
+        // marker; a record this build could not parse is not in `pending`, so without this
+        // clause a record written by a newer RichOS — the benign, recoverable case, the one
+        // an update is supposed to bring back — would be destroyed by the next compaction
+        // and would never come back at all. An uncompacted log costs some lines on disk.
+        if self.pending.is_empty() && self.skipped.is_empty() && self.lines >= COMPACT_AFTER_LINES {
             self.compact(through)?;
         }
         Ok(())
@@ -248,6 +557,7 @@ impl IntakeLog {
     /// into a window where it is empty and the requests are gone.
     fn compact(&mut self, through: u64) -> Result<(), SteeringError> {
         debug_assert!(self.pending.is_empty());
+        debug_assert!(self.skipped.is_empty(), "compaction would delete a record nothing could read");
         let tmp = self.path.with_extension("compacting");
         let mut line =
             serde_json::to_string(&IntakeRecord::Drained { through }).map_err(|e| SteeringError::Io(e.to_string()))?;
@@ -495,6 +805,26 @@ impl TurnControl {
     /// Undrained intake records, oldest first.
     pub fn pending_intake(&self) -> Vec<IntakeRecord> {
         self.inner.intake.lock().unwrap().as_ref().map(|l| l.pending().to_vec()).unwrap_or_default()
+    }
+
+    /// **What could not be read out of the intake log at boot**, in a form a caller can act
+    /// on and a surface can render.
+    ///
+    /// `None` for a [`detached`](Self::detached) control: there is no file, so there is no
+    /// answer — which is a different statement from "nothing was skipped" and is never
+    /// collapsed into it.
+    ///
+    /// The counts describe the LOAD, not the running session. They are taken at replay and
+    /// do not move as this session appends, which is exactly the question being asked: what
+    /// did the app fail to pick up from the last time it ran?
+    pub fn intake_health(&self) -> Option<IntakeHealth> {
+        self.inner.intake.lock().unwrap().as_ref().map(|l| l.health())
+    }
+
+    /// Every intake record on disk this build could not replay, with the reason for each.
+    /// Empty for a detached control, which has no file to read.
+    pub fn skipped_intake(&self) -> Vec<SkippedRecord> {
+        self.inner.intake.lock().unwrap().as_ref().map(|l| l.skipped_records().to_vec()).unwrap_or_default()
     }
 
     /// Mark everything up to `through` handled. Called only after the corresponding ledger

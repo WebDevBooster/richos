@@ -28,6 +28,13 @@
 
 set -uo pipefail
 
+# EXPORTED, not set per invocation, and that is deliberate. This harness runs
+# the suite it mutates -- sometimes the sandboxed copy, sometimes the one in
+# the real tree -- and that suite now invokes this harness at its end. Exported
+# once here, the flag reaches every child however many invocation sites this
+# file grows; set per-call, one missed site is an infinite regress.
+export RICHOS_MUTATION_INNER=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -85,7 +92,34 @@ mutant() {
         printf '          %s\n' "$why"
         FAIL=$((FAIL + 1)); return
     fi
-    if ! grep -q "FAIL  $want" "$dir/out.txt"; then
+    # THE CASE MATCH IS A LITERAL WITH A BOUNDARY, NOT A BARE REGEX, and that
+    # is a correction rather than a style. It used to be `grep -q "FAIL  $want"`,
+    # in which an unescaped `.` matches ANY character: `g.` matched `FAIL  g1.`,
+    # `p1.` matched `FAIL  p10.`, `C1.` matched `FAIL  C10.`. Demonstrated on
+    # 2026-09-06 rather than suspected -- case `g.` of turn-manifest.test.sh was
+    # deliberately weakened so it could not fail, and the harness still reported
+    # `removing it turns g. red`, having matched a sibling case. The mutant was
+    # genuinely killed every time; what was false was the claim about WHICH case
+    # killed it, and that claim is the entire second clause of this harness's
+    # contract. A wrong witness is exactly what root-contract's M1 turned out to
+    # be. Metacharacters are escaped and the token must end at a non-alphanumeric
+    # or end of line. The token is TRIMMED first, and that is not tidiness:
+    # ceo-asks writes its cases as "C3. " with a trailing space, so the
+    # boundary landed one character late and demanded a non-alphanumeric where
+    # the label's first word begins. Five mutants went red for that reason on
+    # the first run of this very change -- a red that looked exactly like a
+    # finding and was not one.
+    want_re="$(printf '%s' "$want" | sed 's/[[:space:]]*$//' | sed 's/[][\.*^$(){}?+|\/]/\\&/g')"
+    # NO TRAILING BOUNDARY, and that is a correction to this very change made an
+    # hour after it: the first version required the token to end at a
+    # non-alphanumeric, which assumed every suite writes `FAIL  z1. some words`.
+    # claim-roles' suite writes `FAIL  z1.landed-claim-about-a-dangling-commit`,
+    # so the boundary demanded a space where a slug begins and turned ALL TWENTY
+    # of its mutants into misfires -- twenty reds that looked exactly like
+    # findings. The boundary was never what fixed anything: ESCAPING is. With
+    # `.` taken literally, `z1.` cannot match `z1b.` and `C1.` cannot match
+    # `C10.`, because the character after the prefix is a digit and not a dot.
+    if ! grep -q "FAIL  ${want_re}" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at %s (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
         FAIL=$((FAIL + 1)); return
@@ -218,6 +252,22 @@ mutant no-stop-hook-active "7c " "$A" \
     '    if payload.get("stop_hook_active"):' \
     '    if False and payload.get("stop_hook_active"):' \
     "on a blocked turn's re-fire the text is unchanged; re-accusing piles a second notice onto a turn already in trouble."
+
+# --- 8. THE RECOVERY LINE MUST NOT CLAIM A CHECK THAT DID NOT HAPPEN -------
+# Exit code 4 is the whole fix for the one affirmatively false statement the
+# 2026-09-05 payload survey found. Collapsing it back into 0 restores the
+# defect exactly: the wrapper would again say "This turn's text was checked"
+# over a payload that carried no turn text.
+mutant no-unevaluated-code "8b " "$A" \
+    '        print("no-turn-text")
+        return 4' \
+    '        return 0' \
+    "0 means CHECKED-and-clean. Reusing it for NOT-CHECKED is what let the wrapper tell the operator his turn had been examined when nothing had read it."
+
+mutant unevaluated-borrows-clean-sentence "8c " "$H" \
+    '    4) notice_unevaluated "$(printf '"'"'%s'"'"' "$FINDING" | head -1 | tr -d '"'"'[:space:]'"'"')" ;;' \
+    '    4) notice_clean ;;' \
+    "routing the not-evaluated case through the clean sentence is the defect with the analyzer fixed and the wrapper still lying."
 
 echo ""
 echo "=== $PASS proven load-bearing, $FAIL not ==="

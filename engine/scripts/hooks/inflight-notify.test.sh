@@ -34,8 +34,28 @@ ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; FAIL=$((FAIL + 1)); }
 say() { [ "$VERBOSE" -eq 1 ] && printf '\n----- %s -----\n%s\n' "$1" "$2"; return 0; }
 
-SANDBOX="$(mktemp -d -t inflight-notify.XXXXXX)"
-trap 'rm -rf "$SANDBOX"' EXIT
+# IN2, and the sandbox path is deliberately reached THROUGH A SYMLINK.
+#
+# Case 5j proves that the notice predicate resolves paths with realpath rather
+# than abspath. That property is only load-bearing when the path it is given
+# actually passes through a symlink — and on 2026-09-05 `zach-opus-rd1` proved
+# with a four-arm controlled experiment that it was not being exercised: with a
+# REAL sandbox path the abspath-not-realpath mutant SURVIVES; with a symlinked
+# one it is killed at 5j; both unmutated controls are green on both shapes, so
+# the difference is the mutation and not the path.
+#
+# It passed on this Mac only because `/var/folders` happens to be reached
+# through `/private/var` — an accident of the host, not a property of the test.
+# On a Linux runner where the sandbox path is real, IN2 went green over a check
+# that could not fail. Forcing the symlink makes it load-bearing on EVERY host.
+#
+# Do not "simplify" this back to a bare mktemp, and do not try to arrange it via
+# TMPDIR: macOS `mktemp -d -t` ignores TMPDIR outright, which is how rd1's own
+# first reproduction came out invalid and was discarded.
+SANDBOX_REAL="$(mktemp -d -t inflight-notify.XXXXXX)"
+SANDBOX="${SANDBOX_REAL}.link"
+ln -s "$SANDBOX_REAL" "$SANDBOX"
+trap 'rm -f "$SANDBOX"; rm -rf "$SANDBOX_REAL"' EXIT
 
 REPO="$SANDBOX/repo"
 TEAMS="$SANDBOX/teams"
@@ -70,6 +90,20 @@ ACKER="$REPO/scripts/inflight-ack.sh"
 
 export RICHOS_ENTITY_ROOT="$REPO"
 export INFLIGHT_TEAMS_DIR="$TEAMS"
+# --- THE DURABLE ACK LEDGER, REDIRECTED INTO THE SANDBOX -------------------
+# An ack is now written to TWO places: the readable file in the worktree, and
+# an append-only row in ~/.claude/state/inflight-acks.jsonl, which is the one
+# that survives the worktree being removed (row 3.19). Without this redirect
+# every ACKER call below would append to the OPERATOR'S REAL LEDGER — a suite
+# that sandboxes one output while a second still follows the home directory.
+export RICHOS_INFLIGHT_ACK_LEDGER="$SANDBOX/state/inflight-acks.jsonl"
+mkdir -p "$SANDBOX/state"
+# An empty ledger, for the cases below that need to model a teammate which has
+# NOT acked. Deleting the ack file no longer achieves that on its own, and that
+# is the fix rather than a side effect: an ack that was written and then had its
+# file deleted is still an ack, which is the whole of row 3.19.
+NO_ACK_LEDGER="$SANDBOX/state/no-durable-acks.jsonl"
+: > "$NO_ACK_LEDGER"
 
 # --- a real repository, a real worktree -----------------------------------
 git -C "$REPO" init -q -b main
@@ -370,7 +404,12 @@ p, stale = sys.argv[1], sys.argv[2]
 src = open(p).read()
 open(p, "w").write(re.sub(r"^sha: .*$", "sha: " + stale, src, count=1, flags=re.M))
 STALEPY
-AOUT="$(bash "$RUNNER" acks --repo "$REPO" 2>&1)"
+# READ AGAINST AN EMPTY DURABLE LEDGER, deliberately: this case is about the
+# FILE reader rejecting a stale sha inside a correctly named file. The durable
+# row written at 5f is untouched and still valid — correctly, because corrupting
+# a copy of an ack does not un-ack it — so leaving it in the picture would make
+# this case assert the opposite of what it is named for.
+AOUT="$(RICHOS_INFLIGHT_ACK_LEDGER="$NO_ACK_LEDGER" bash "$RUNNER" acks --repo "$REPO" 2>&1)"
 say "5m stale sha inside a correctly named ack" "$AOUT"
 case "$AOUT" in
     *"verified : NO"*) ok "5m. the right FILENAME with a stale sha INSIDE is still invalid" ;;
@@ -485,7 +524,12 @@ open(p, "w").write("\n".join(json.dumps(r) for r in rows) + "\n")
 PY
 printf '%s\n' "$(cd "$REPO" && pwd -P)" > "$TEAM_DIR/inflight-repos.txt"
 rm -rf "$REPO/.claude/state/stop-hook-notices"
-NOUT="$(stop_payload | bash "$STOPHOOK" 2>/dev/null)"
+# THE DURABLE LEDGER IS EMPTIED FOR THIS SECTION TOO. `rm -rf` on the ack
+# directory above used to be sufficient to model "this teammate never acked";
+# since row 3.19 it is not, because the durable row outlives the file on
+# purpose. Both halves have to be absent to model a teammate that genuinely
+# never answered — which is what section 8 is about.
+NOUT="$(stop_payload | RICHOS_INFLIGHT_ACK_LEDGER="$NO_ACK_LEDGER" bash "$STOPHOOK" 2>/dev/null)"
 NRC=$?
 say "8 stop notice" "rc=$NRC out=$NOUT"
 [ "$NRC" -eq 0 ] && ok "8a. the Stop hook never blocks — it exits 0 on every path" \
@@ -500,7 +544,7 @@ if printf '%s' "$NOUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); sy
 else
     bad "8c. the notice names the action" "$NOUT"
 fi
-NOUT2="$(stop_payload | bash "$STOPHOOK" 2>/dev/null)"
+NOUT2="$(stop_payload | RICHOS_INFLIGHT_ACK_LEDGER="$NO_ACK_LEDGER" bash "$STOPHOOK" 2>/dev/null)"
 [ -z "$NOUT2" ] && ok "8d. the same unchanged condition says nothing again — a notice every turn gets muted" \
                || bad "8d. an unchanged condition is not re-announced" "$NOUT2"
 

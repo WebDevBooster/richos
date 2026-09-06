@@ -94,6 +94,65 @@ pub fn initialize(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+/// Unfinished durable work is independent of the conversation's live lease.
+/// The updater must include queued registration, retry waits and paused work.
+/// A read failure is unknown, never evidence that the app is idle.
+pub(crate) fn update_liveness(state: &AppState) -> richos_core::work_gate::Liveness {
+    use richos_core::work_gate::Liveness;
+    match state.managed_runs.active.try_lock() {
+        Ok(active) if active.is_none() => {},
+        Ok(_) => return Liveness::Busy,
+        Err(_) => return Liveness::Unknown,
+    }
+    let read = || -> Result<bool, Box<dyn std::error::Error>> {
+        // Cover the handoff gap before the next intake scan creates its request.
+        let baseline: std::collections::HashSet<String> = serde_json::from_slice(
+            &std::fs::read(state.data_dir.join("owned-work-baseline.json"))?
+        )?;
+        let spine = state.spine.try_lock().map_err(|_| std::io::Error::other("spine unavailable"))?;
+        for turn in spine.ledger().turns() {
+            if !baseline.contains(&turn.id) && !turn.quarantined
+                && matches!(turn.source, Source::Text | Source::Jam)
+                && matches!(turn.state, TurnState::Completed | TurnState::Interrupted)
+            {
+                let id = autonomy::turn_request_id(&turn.id).map_err(std::io::Error::other)?;
+                if !state.data_dir.join("requests").join(format!("{id}.json")).try_exists()? {
+                    return Ok(true);
+                }
+            }
+        }
+        drop(spine);
+        for entry in std::fs::read_dir(state.data_dir.join("requests"))? {
+            let path = entry?.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                let request: Request = serde_json::from_slice(&std::fs::read(path)?)?;
+                if !request.done { return Ok(true); }
+            }
+        }
+        for entry in std::fs::read_dir(state.data_dir.join("runs"))? {
+            let path = entry?.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+                let snapshot = richos_core::run::read_snapshot(&path)?;
+                if !matches!(snapshot.state(), RunState::Completed | RunState::Canceled) {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    };
+    match read() { Ok(true) => Liveness::Busy, Ok(false) => Liveness::Clear, Err(_) => Liveness::Unknown }
+}
+
+/// The updater's explanation of its durable-work reading.
+pub(crate) fn ceo_message(liveness: richos_core::work_gate::Liveness) -> Option<String> {
+    use richos_core::work_gate::Liveness;
+    match liveness {
+        Liveness::Busy => Some("Rich has unfinished assignments. The update will wait.".into()),
+        Liveness::Unknown => Some("Rich cannot confirm that all assignments have finished. The update will wait.".into()),
+        Liveness::Clear => None,
+    }
+}
+
 struct IntakeIndex {
     baseline: std::collections::HashSet<String>,
     cursor: usize,
@@ -714,6 +773,42 @@ pub fn selftest(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let result = (|| -> Result<serde_json::Value, String> {
             let state = app.state::<AppState>();
+            if mode == "update-owned" {
+                use richos_core::work_gate::Liveness;
+                let mut checks = 0;
+                let mut check = |ok: bool| { assert!(ok); checks += 1; };
+                check(!crate::updates::update_state(app.clone()).busy);
+                check(update_liveness(&state) == Liveness::Clear);
+                let workspace = state.data_dir.join("update-gate-fixture");
+                std::fs::create_dir(&workspace).map_err(|e| e.to_string())?;
+                let plan = autonomy::plan(&workspace, "Prepare a report", "Prepare a report", vec![autonomy::WorkItem {
+                    id: "deliver".into(), description: "Prepare a report".into(), depends_on: vec![], criteria: "The report is complete".into()
+                }])?;
+                let path = state.data_dir.join("runs").join("update-gate.jsonl");
+                let mut ctl = RunController::create(&path, plan).map_err(|e| e.to_string())?;
+                check(crate::updates::update_state(app.clone()).busy);
+                ctl.pause(true).map_err(|e| e.to_string())?;
+                check(crate::updates::update_state(app.clone()).busy);
+                ctl.cancel().map_err(|e| e.to_string())?;
+                check(update_liveness(&state) == Liveness::Clear);
+                let request = state.data_dir.join("requests").join("update-gate.json");
+                let mut value = serde_json::json!({"id":"gate", "thread":"gate", "workspace":workspace, "text":"Prepare a report", "conversation":"I will prepare it.", "done":false, "retry_at":u64::MAX, "error":""});
+                save(&request, &value)?;
+                check(crate::updates::update_state(app.clone()).busy);
+                value["done"] = true.into(); save(&request, &value)?;
+                check(update_liveness(&state) == Liveness::Clear);
+                *state.managed_runs.active.lock().unwrap() = Some(("gate".into(), path.clone(), Arc::new(AtomicBool::new(false))));
+                check(crate::updates::update_state(app.clone()).busy);
+                *state.managed_runs.active.lock().unwrap() = None;
+                std::fs::write(&request, b"damaged").map_err(|e| e.to_string())?;
+                check(update_liveness(&state) == Liveness::Unknown);
+                check(crate::updates::update_state(app.clone()).busy);
+                std::fs::remove_file(request).map_err(|e| e.to_string())?;
+                std::fs::remove_file(path).map_err(|e| e.to_string())?;
+                check(update_liveness(&state) == Liveness::Clear);
+                check(!crate::updates::update_state(app.clone()).busy);
+                return Ok(serde_json::json!({"updateOwned":true,"checks":checks}));
+            }
             if mode == "panel-decisions" {
                 use richos_core::run::{DecisionAction, TaskState};
                 let thread = crate::create_thread_in(app.state(), "fixture".into(), "Panel decisions".into())?;
@@ -758,9 +853,13 @@ pub fn selftest(app: tauri::AppHandle) {
                     let value = serde_json::to_value(result).unwrap();
                     match action {
                         DecisionAction::Continue if value["state"] != "ready" => return Err("Panel continue did not resume owned work".into()),
-                        DecisionAction::ChangeScope { .. } if !value["tasks"][0]["description"].as_str().unwrap().contains("Do not send it.") => return Err("Panel scope correction was lost".into()),
+                        DecisionAction::ChangeScope { .. } if !value["instructionChanges"].as_array().unwrap().iter().any(|v| v.as_str() == Some("Deliver the summary only. Do not send it.")) => return Err("Panel scope correction was lost".into()),
                         DecisionAction::End if value["state"] != "canceled" => return Err("Panel end did not cancel".into()),
                         _ => {}
+                    }
+                    if let DecisionAction::ChangeScope { text } = &action {
+                        let saved = richos_core::run::read_snapshot(&path).map_err(|e| e.to_string())?;
+                        assert!(saved.plan.tasks.iter().all(|t| t.prompt.contains(text) && t.checks.iter().all(|c| c.argv[1].contains(text))));
                     }
                     results.push(value);
                     crate::managed_runs::end_run(app.state(), thread.clone(), Some(snapshot.id))?;
@@ -1093,6 +1192,7 @@ pub fn selftest(app: tauri::AppHandle) {
                     app.state(),
                     "Handle this: produce deliverable.txt containing Finished.".into(),
                 )?;
+                assert!(crate::updates::update_state(app.clone()).busy, "Update must wait across the registration handoff gap");
                 discover(&state)?;
                 return Ok(
                     serde_json::json!({"phase":"accepted","thread":thread,"requestPersisted":std::fs::read_dir(state.data_dir.join("requests")).map_err(|e|e.to_string())?.count() > 0}),

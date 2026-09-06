@@ -73,6 +73,10 @@ function view(over) {
       endpoint: "https://updates.richos.invalid/{{target}}/{{arch}}/{{current_version}}",
       endpointIsPlaceholder: true,
       checkedAt: null,
+      busy: false,
+      busyReason: null,
+      unchecked: [],
+      readySince: null,
     },
     over
   );
@@ -158,6 +162,45 @@ async function readRow(page) {
         return n ? n.style.width : null;
       })(),
       mark: btn ? btn.getAttribute("data-update-mark") : null,
+      busy: row ? row.getAttribute("data-update-busy") : null,
+    };
+  });
+}
+
+/// THE WAITING CUE, read the way each of the two audiences meets it.
+///
+/// `count` is asked FIRST for the reason `readCue` asks it first: the property under test is
+/// EXISTENCE, and a helper that reported a hidden placeholder and a removed element the same
+/// way would make the two indistinguishable.
+///
+/// `tag`, `role` and `tabIndex` are here because "not an actionable thing" is a claim about
+/// the MARKUP and not about the styling. A `button` that happened to do nothing would still
+/// be announced as a button and still be offered to a voice user, and asserting on its
+/// appearance would never notice.
+async function readWaiting(page) {
+  return page.evaluate(() => {
+    const n = document.getElementById("update-waiting");
+    const count = document.querySelectorAll("#update-waiting, .update-waiting").length;
+    const cueCount = document.querySelectorAll("#update-cue, .update-cue").length;
+    if (!n) return { count, cueCount };
+    const note = document.getElementById("update-waiting-note");
+    const noteStyle = note ? getComputedStyle(note) : null;
+    return {
+      count,
+      cueCount,
+      tag: n.tagName.toLowerCase(),
+      role: n.getAttribute("role"),
+      tabIndex: n.tabIndex,
+      // The whole sentence, which is what a screen reader announces on focus whether or not
+      // the note is ever painted.
+      label: n.getAttribute("aria-label"),
+      open: n.getAttribute("data-open"),
+      noteText: note ? note.textContent.trim() : null,
+      noteShown: noteStyle ? noteStyle.display !== "none" : null,
+      noteFontPx: noteStyle ? Math.round(parseFloat(noteStyle.fontSize)) : null,
+      // `aria-hidden` on the note, so the identical sentence is not announced twice.
+      noteAriaHidden: note ? note.getAttribute("aria-hidden") : null,
+      focused: document.activeElement === n,
     };
   });
 }
@@ -663,6 +706,184 @@ async function main() {
     return "cue -> menu -> the row's own control -> update_install; the cue itself issues nothing";
   });
 
+  // ---- 15. BOTH DIRECTIONS, and it has to be both ---------------------------------------
+  //
+  // A suite in which everything defers passes for the wrong reason. This check drives the
+  // SAME update through the two states the ruling distinguishes and asserts the opposite
+  // outcome in each: idle installs immediately with nothing added, busy offers nothing at
+  // all. Either half alone would be green over a broken product.
+  await run.check("15. idle installs at once; working offers no control at all", async () => {
+    const page = await openApp(browser);
+    await settled(page);
+
+    // --- IDLE: the fix must not become a stall ---------------------------------------
+    await setState(
+      page,
+      view({ state: "available", availableVersion: "0.1.2", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x", checkedAt: Date.now() }),
+      [view({ state: "ready", availableVersion: "0.1.2", percent: 100, endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" })]
+    );
+    let cue = await readCue(page);
+    assertEqual(cue.count, 1, "idle: the actionable pill is there");
+    let waiting = await readWaiting(page);
+    assertEqual(waiting.count, 0, "idle: and the waiting cue is not");
+    await openMenu(page);
+    let row = await readRow(page);
+    assertEqual(row.install, "Download and install", "idle: the control is offered");
+    assertEqual(row.busy, null, "idle: nothing marks the row as blocked");
+    assertEqual(row.mark, "available", "idle: and the settings button carries its mark");
+    await page.click("#update-install");
+    await page.waitForTimeout(150);
+    let calls = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
+    assert(calls.indexOf("update_install") >= 0, "idle: the press reached the command with no delay of its own");
+    assertEqual((await readRow(page)).state, "ready", "idle: and the install landed");
+    await page.close();
+
+    // --- WORKING: the same update, and nothing to press ------------------------------
+    const p2 = await openApp(browser);
+    await settled(p2);
+    await setState(
+      p2,
+      view({
+        state: "available", availableVersion: "0.1.2", endpointIsPlaceholder: false,
+        endpoint: "https://u.example.com/x", checkedAt: Date.now(),
+        busy: true, busyReason: "Rich is working on your last message. 2 workers are still running.",
+      })
+    );
+    cue = await readCue(p2);
+    assertEqual(cue.count, 0, "working: the actionable pill is GONE — removed, not dimmed");
+    await openMenu(p2);
+    row = await readRow(p2);
+    assertEqual(row.install, null, "working: no Install control exists");
+    assertEqual(row.mark, null, "working: and the mark on the settings button is gone too");
+    assertEqual(row.busy, "true", "the row still knows, it just does not offer");
+    // HIDING THE ACTION IS NOT HIDING THE FACT. 26: an update nobody discovers is the same
+    // as no updater at all.
+    assertEqual(row.headline, "RichOS 0.1.2 is available.", "the FACT survives in full");
+    assert(row.sub.indexOf("Rich is working on your last message.") >= 0, "and it says WHAT is running: " + row.sub);
+    assert(row.sub.indexOf("2 workers are still running.") >= 0, "including the half the composer cannot show: " + row.sub);
+    assert(
+      row.sub.indexOf("nothing will be interrupted") >= 0,
+      "and it answers the question that made him distrust the button: " + row.sub
+    );
+    // MODE-PROOF: it must not promise an install that this product does not perform.
+    assertEqual(row.sub.indexOf("will install"), -1, "it never promises 26's mode 1, which does not exist: " + row.sub);
+    const before = await p2.evaluate(() => window.__RICHOS_MOCK__.updateCalls().length);
+    await p2.waitForTimeout(200);
+    const after = await p2.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
+    assertEqual(after.indexOf("update_install"), -1, "nothing installed itself: " + after.slice(before).join(","));
+    await shot(p2, SHOTS + "/updates-working-no-control");
+    await p2.close();
+    return "idle -> pill + control + mark + install issued; working -> none of the four, and the row still names the update and why it waits";
+  });
+
+  // ---- 16. the fact, with nothing to press, reachable without a pointer ------------------
+  //
+  // The CEO asked for "some other visual cue but not an actionable thing". The two ways that
+  // requirement fails silently are that it becomes a button anyway, and that its explanation
+  // lives only in a hover — which reaches a mouse and reaches nobody else.
+  await run.check("16. the waiting cue explains itself by keyboard, and is not a button", async () => {
+    const page = await openApp(browser);
+    await settled(page);
+    await setState(
+      page,
+      view({
+        state: "ready", availableVersion: "0.1.2", percent: 100, endpointIsPlaceholder: false,
+        endpoint: "https://u.example.com/x", checkedAt: Date.now(),
+        busy: true, busyReason: "1 worker is still running.",
+      })
+    );
+    let w = await readWaiting(page);
+    assertEqual(w.count, 1, "it is there while work runs");
+    assertEqual(w.cueCount, 0, "and the actionable pill is not — never both");
+
+    // NOT A BUTTON, IN THE MARKUP. A `button` that did nothing would still be announced as a
+    // button and still offered to every voice user.
+    assertEqual(w.tag, "span", "not a button element");
+    assertEqual(w.role, "note", "and it says so to a screen reader");
+    assertEqual(w.tabIndex, 0, "but it IS reachable by keyboard");
+
+    // THE WHOLE SENTENCE IS THE ACCESSIBLE NAME, so it is announced on focus even where the
+    // painted note is never seen at all.
+    assert(w.label.indexOf("RichOS 0.1.2") >= 0, "the name says WHICH version: " + w.label);
+    assert(w.label.indexOf("1 worker is still running.") >= 0, "and what is running: " + w.label);
+    assert(w.label.indexOf("nothing will be interrupted") >= 0, "and that nothing is at risk: " + w.label);
+    assertEqual(w.noteShown, false, "the note is closed until it is asked for");
+
+    // FOCUS OPENS IT — the requirement a hover-only tooltip fails.
+    await page.focus("#update-waiting");
+    await page.waitForTimeout(120);
+    w = await readWaiting(page);
+    assert(w.focused, "focus landed on it");
+    assertEqual(w.noteShown, true, "focus alone opened the explanation — no pointer needed");
+    assertEqual(w.noteText, w.label, "and the painted words ARE the announced words, one string");
+    assertEqual(w.noteAriaHidden, "true", "so it is not announced twice");
+    assertEqual(w.noteFontPx, 16, "16px — the floor for text meant to be easily read");
+    await shot(page, SHOTS + "/updates-waiting-cue-focused");
+
+    // ESCAPE CLOSES IT, the same key that dismisses everything else transient here.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(120);
+    assertEqual((await readWaiting(page)).noteShown, false, "Escape closes it");
+
+    // PRESSING IT DOES NOTHING, which is the whole point.
+    const before = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls().length);
+    await page.click("#update-waiting");
+    await page.waitForTimeout(150);
+    const after = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
+    assertEqual(after.length, before, "clicking it issues no command: " + after.slice(before).join(","));
+    await page.close();
+    return "span/role=note/tabindex=0; focus opens the note; name == note text; Escape closes; the click does nothing";
+  });
+
+  // ---- 17. it never claims to have waited for something it did not check -----------------
+  //
+  // The gate can see this session's turn and this session's workers. Where it cannot see
+  // something it says so, rather than letting the reassurance imply a check it never made.
+  // And an update the gate has hidden for days says how long — 26 rules that an update nobody
+  // discovers is worse than none, so a silent indefinite wait is the failure, not the fix.
+  await run.check("17. what it could not check is printed, and a long wait says how long", async () => {
+    const page = await openApp(browser);
+    await settled(page);
+    await setState(
+      page,
+      view({
+        state: "available", availableVersion: "0.1.2", endpointIsPlaceholder: false,
+        endpoint: "https://u.example.com/x", checkedAt: Date.now(),
+        busy: true, busyReason: "Rich is working on your last message.",
+        unchecked: ["RichOS is not connected to a session, so it cannot see any workers."],
+        readySince: Date.now() - 3 * 86400000 - 3600000,
+      })
+    );
+    await openMenu(page);
+    let row = await readRow(page);
+    assert(
+      row.sub.indexOf("cannot see any workers") >= 0,
+      "the gap is stated rather than papered over: " + row.sub
+    );
+    assert(row.sub.indexOf("It has been ready for 3 days.") >= 0, "and the wait is not silent: " + row.sub);
+    await shot(page, SHOTS + "/updates-unchecked-and-long-wait");
+    await page.close();
+
+    // UNDER A DAY, NOTHING. A duration line that always appears is a line nobody reads, and
+    // this one has to still mean something the day it matters.
+    const p2 = await openApp(browser);
+    await settled(p2);
+    await setState(
+      p2,
+      view({
+        state: "available", availableVersion: "0.1.2", endpointIsPlaceholder: false,
+        endpoint: "https://u.example.com/x", checkedAt: Date.now(),
+        busy: true, busyReason: "Rich is working on your last message.",
+        readySince: Date.now() - 3600000,
+      })
+    );
+    await openMenu(p2);
+    row = await readRow(p2);
+    assertEqual(row.sub.indexOf("It has been ready"), -1, "an hour old says nothing about its age: " + row.sub);
+    await p2.close();
+    return "unchecked clause printed verbatim; 3 days -> said; 1 hour -> silent";
+  });
+
   await browser.close();
   const failed = run.report();
   process.exit(failed ? 1 : 0);
@@ -727,6 +948,37 @@ async function main() {
 // geometry is measured on both branches now. A negative assertion that cannot fail is not a
 // check, and only running the mutation says which is which.
 //
+// THE WORK GATE (checks 15-17), run 2026-09-05, same rule: every mutation below was applied
+// to the SHIPPED source, the suite run, the file restored and compared by sha256 against its
+// backup. The reddened set is the one that was OBSERVED, not the one expected.
+//
+//   17  updates.js: dropped `|| !!v.busy` from `nodes.install.hidden` — the control        15
+//       he cannot safely press is offered again. THE defect the CEO found: "I suspect
+//       that the current thread would die if I were to press that update button"
+//   18  updates.js: `marker()`'s `v.busy ? "" :` short-circuited to false — the mark on     15
+//       the settings button survives, saying LOOK AT ME with nothing safe to look at
+//   19  updates.js: dropped `!v.busy` from `cue()`'s `want` — the actionable pill          15,16
+//       survives, so the chrome offers the press and the waiting cue sits beside it
+//   20  updates.js: `waitingCue` builds a `<button type="button">` instead of a            16
+//       `<span role="note">`. It LOOKS identical and it is announced as a control to
+//       every screen reader and offered to every voice user — "not an actionable
+//       thing" is a claim about the markup, which is why the check reads the tag
+//   21  updates.js: removed the `focus` listener, leaving the note hover-only — the        16
+//       exact failure the requirement names, invisible to a keyboard and to a tap
+//   22  updates.js: `gateClauses` stops appending `v.unchecked` — the reassurance          17
+//       silently starts implying a check the gate never made
+//   23  updates.js: `readyFor`'s threshold moved from `days < 1` to `days < 0`, so         17
+//       every update claims an age and the line stops meaning anything
+//   24  updates.js: the two reassurance sentences replaced with "RichOS will install       15
+//       it when your work is finished" — 26's mode 1 promised over a product that
+//       still needs a button press. It is the sentence the brief originally asked for
+//       and it is the one thing here that would have shipped a lie
+//
+// MUTATION 19 IS WORTH THE LINE IT TAKES. It reddened 16 as well as 15, unprompted, because
+// check 16 asserts `cueCount === 0` beside its own existence — the two cues are one rule with
+// two branches, and a mutation that breaks the rule breaks both branches. That is the
+// difference between two checks that agree and two checks that are the same check twice.
+//
 // AND THE POSITIVE PROBE FOR THE CONTRAST HALF, because a green walk over an element nobody
 // looked at is the same as no walk: `.update-cue-label`'s ink was repainted `#b09a6a` and
 // `contrast.js` was run. It failed `9.updates-available` by name, in BOTH themes — 1.13:1 on
@@ -734,6 +986,15 @@ async function main() {
 // shipped pair computes to is a measurement of this element and not of an assumption about
 // it. The backgrounds WebKit resolved (`#c2a35c` and `#9c7c34`) are the two tokens the
 // stylesheet's ledger says they are.
+//
+// The waiting cue got the same treatment on 2026-09-05: `contrast.js` grew an
+// `updates-waiting` surface (the only one that can paint an element which exists only while
+// `busy`, and it opens the note by FOCUS rather than hover so the pixels walked are the ones
+// a keyboard user meets), and `.update-waiting-note`'s ink was repainted `#7c8496`. It failed
+// `9.updates-waiting` by name in BOTH themes — 3.65:1 light, 4.1:1 dark, on a 16px node — so
+// the 12.06 / 18.07 the shipped pair computes to is a measurement of that element. The
+// grounds WebKit resolved (`rgb(253, 252, 248)` and `rgb(24, 36, 64)`) are `--surface` in
+// each theme, which is what `style.css`'s ledger says they are.
 // =========================================================================================
 
 main().catch((e) => {

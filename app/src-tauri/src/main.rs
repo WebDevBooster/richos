@@ -804,6 +804,34 @@ fn install_correction_desk(
             return None;
         }
     };
+
+    // WHAT HE ALREADY DECIDED AND THIS BUILD COULD NOT READ, ON THE BOOT LINE.
+    //
+    // The same shape as the ledger's pair above and the intake log's below, and for the
+    // same reason: `CorrectionDesk::replay` prints the operator's account (a line per
+    // skipped record plus a summary), and this is the CEO's, in the sentences a surface
+    // would render — so a boot log and a screen say the same thing rather than two versions
+    // of it.
+    //
+    // IT IS A THIRD STATEMENT, not a variant of either. The ledger's says part of the
+    // conversation on screen did not load. The intake log's says something he TYPED never
+    // reached Rich. This one says a decision he was asked to make, and the answer he gave,
+    // could not be read — and the live consequence is the one worth the extra pair of
+    // lines: without the hold `CorrectionDesk` now applies, a correction he CONFIRMED
+    // reverts to pending and is put in front of him a second time.
+    //
+    // NO NEW SURFACE IS BUILT HERE, by the same ruling that governs the intake log's line:
+    // one more sentence inside the notice that already exists, not a section of its own.
+    // `CorrectionDesk::desk_health`, `::unresolved` and `::held_records` are the seams a
+    // surface would read when there is a decision about what that surface should be.
+    {
+        let h = desk.lock().unwrap().desk_health();
+        if !h.is_clean() {
+            eprintln!("[richos] {}", h.headline);
+            eprintln!("[richos] {}", h.detail);
+        }
+    }
+
     spine.set_correction_desk(std::sync::Arc::clone(&desk));
     spine.set_proposal_observer(Box::new(TauriProposalEmitter { app: app.clone() }));
     if !spine.has_loro_context_compiler() {
@@ -895,6 +923,23 @@ fn main() {
             );
             let ledger_path = data_dir.join("conversation-ledger.jsonl");
             let ledger = Ledger::open(&ledger_path).expect("open ledger");
+
+            // WHAT DID NOT LOAD, ON THE BOOT LINE, BEFORE ANYTHING ELSE USES THE LEDGER.
+            //
+            // `Ledger::replay` prints a line per skipped record and a summary of its own
+            // (`report_skipped`) — that is the operator's account. This is the CEO's, in
+            // the words the window will render, so an operator reading a boot log and a CEO
+            // reading his own screen are told the SAME thing rather than two versions of it.
+            //
+            // The `expect` above is the reason this matters at all: until 2026-09-05 a
+            // single record this build could not parse came out of `Ledger::open` as `Err`
+            // and this line panicked inside the Tauri setup hook — the window never opened.
+            // The reader survives such a record now; this is what stops it doing so quietly.
+            let history_health = ledger.history_health();
+            if !history_health.is_clean() {
+                eprintln!("[richos] {}", history_health.headline);
+                eprintln!("[richos] {}", history_health.detail);
+            }
 
             let mut spine = Spine::new(ledger);
 
@@ -1272,6 +1317,36 @@ fn main() {
             spine.set_turn_control(control.clone());
             spine.enable_owned_work();
 
+            // WHAT HE ASKED FOR AND THIS BUILD COULD NOT READ, ON THE BOOT LINE.
+            //
+            // The same shape as the ledger's line above and for the same reason:
+            // `IntakeLog::open` prints the operator's account (one line per skipped record
+            // plus a summary), and this is the CEO's, in the sentences a surface would
+            // render — so a boot log and a screen say the same thing rather than two
+            // versions of it.
+            //
+            // IT IS A DIFFERENT STATEMENT FROM THE LEDGER'S, which is why it is a separate
+            // pair of lines rather than folded into `history_health`. The ledger's says part
+            // of the conversation on screen did not load. This one says something he TYPED
+            // while Rich was working never reached Rich at all — the intake log holds his
+            // words before they become turns, so a record lost here is a message that was
+            // never answered and never shown.
+            //
+            // NO NEW SURFACE IS BUILT HERE. There is no window notice for the intake log
+            // today; `TurnControl::intake_health()` is the seam one would read, and what
+            // the smallest honest surface is remains an open question rather than something
+            // invented in this change. Silent, however, it is no longer.
+            match control.intake_health() {
+                Some(h) if !h.is_clean() => {
+                    eprintln!("[richos] {}", h.headline);
+                    eprintln!("[richos] {}", h.detail);
+                }
+                // Clean, or detached — and those are different facts. A detached control has
+                // no file to read, which is not the same as a file with nothing wrong in it;
+                // the line above has already said why it is detached.
+                _ => {}
+            }
+
             // Apply any stop request that outlived the process. The window is one line
             // wide — request fsync'd, process dies, terminal event never written — and
             // without this the turn is `in_flight` forever and crash-replay would re-run
@@ -1484,15 +1559,29 @@ fn main() {
             // A harness that skipped the boot would be proving a different program.
             owned_work::initialize(&app.state::<AppState>()).map_err(std::io::Error::other)?;
             owned_work::start(app.handle().clone());
+            updates::init(app.handle());
             #[cfg(debug_assertions)]
             owned_work::selftest(app.handle().clone());
-            updates::init(app.handle());
             match updates::selftest_mode() {
                 Some(mode) => {
                     eprintln!("[richos] update selftest: {mode}");
                     updates::spawn_selftest(app.handle().clone(), mode);
                 }
                 None => updates::spawn_launch_check(app.handle().clone()),
+            }
+            // THE WORK GATE'S WATCHER (CEO, 2026-09-05). It is what makes the update control
+            // DISAPPEAR while RichOS is doing something and COME BACK when it stops — the
+            // only source that can see workers is a file another process writes, so it has
+            // to be read rather than waited for. Costs a single mutex read per tick in every
+            // state except the two where the CEO has something to act on; see
+            // `updates::spawn_work_watcher`.
+            //
+            // NOT armed under the selftest, deliberately: `updater-e2e.sh` runs headless with
+            // no spine and no lease, and a watcher emitting into a webview that does not
+            // exist would add a moving part to the one harness that proves the signature
+            // refusal.
+            if updates::selftest_mode().is_none() {
+                updates::spawn_work_watcher(app.handle().clone());
             }
 
             // ================================================================
@@ -1562,6 +1651,8 @@ fn main() {
             voice_turn_ended,
             voice_barge_in,
             voice_diagnostics,
+            // --- row 3.30 (2026-09-05) — appended, never reordered ---
+            voice_turn_cut_off,
             // --- spoken corrections (2026-08-30) — appended, never reordered ---
             spoken_corrections_available,
             spoken_pending_corrections,
@@ -1640,7 +1731,9 @@ fn main() {
             updates::update_relaunch,
             // --- first-run setup, Option D (2026-09-01) — appended, never reordered ---
             setup_status,
-            run_setup
+            run_setup,
+            // --- what did not load out of the ledger (2026-09-05) — appended, never reordered ---
+            history_health
         ])
         .build(tauri::generate_context!())
         .expect("error while building RichOS")
@@ -1975,6 +2068,36 @@ fn voice_turn_ended(app: AppHandle) {
     }
 }
 
+/// **`rich://turn-error` WHILE VOICE MODE IS ON — say it out loud** (`open-items.md` row
+/// 3.30, answer 1).
+///
+/// **This replaces `voice_speak_end` on the error path, and that is the whole fix.**
+/// `speak_end` FLUSHES the sentence chunker's tail. On a turn that died mid-sentence the
+/// tail is half a sentence that will never be completed, so the shipping behavior was: Rich
+/// speaks half a sentence aloud, trails off, and says nothing further. In voice mode the
+/// CEO's eyes are not on the screen — trailing off is exactly what a person does while
+/// thinking, so he waits for the rest of an answer that is not coming.
+///
+/// `reason` is the `reason` field of the `rich://turn-error` payload, which for an upstream
+/// failure is the sentence `richos-core`'s `upstream.rs` authored (`UpstreamFault::
+/// ceo_message` plus the loss statement). It is relayed VERBATIM and never parsed here:
+/// richos-voice knows nothing about ledgers or HTTP statuses, and one classifier owning that
+/// decision is why it stays right.
+///
+/// Nothing queued is silenced. Sentences Rich already completed are real answer and they
+/// finish; the notice follows them. See `richos_voice::controller::CutOffDesk`.
+#[tauri::command]
+fn voice_turn_cut_off(app: AppHandle, reason: Option<String>) {
+    if let Some(handle) = app.try_state::<VoiceHandle>() {
+        if let Ok(slot) = handle.controller.lock() {
+            if let Some(ctl) = slot.as_ref() {
+                let observer = TauriVoiceEmitter { app: app.clone() };
+                ctl.turn_cut_off(reason.as_deref(), &observer);
+            }
+        }
+    }
+}
+
 /// The UI's "tap to stop" — the CEO's instant interrupt while AEC is missing. Returns the
 /// seconds of queued speech dropped and the measured stop latency, so an interruption is
 /// reported in real units rather than as an adjective.
@@ -2222,6 +2345,25 @@ fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> Navigation
         active: active_binding_view(&spine),
         unbound_explanation: UNBOUND_THREAD_EXPLANATION.to_string(),
     }
+}
+
+/// **WHAT DID NOT LOAD OUT OF HIS HISTORY**, and why.
+///
+/// Empty `headline`/`detail` with `skipped: 0` is the ordinary answer and the signal for
+/// the window to render nothing at all. Non-empty means `Ledger::replay` found a record on
+/// disk it could not fold: one written by a newer RichOS, a damaged one, or one it cannot
+/// tell apart — three different states, counted separately, never merged into "some
+/// records failed".
+///
+/// The counts describe the LOAD, not the running session: they are taken at replay and do
+/// not move as this session appends. "20 of 21 records" is an answer about what came off
+/// disk when the app opened, which is the question being asked.
+///
+/// The sentences are composed in richos-core and rendered verbatim, so this shell never
+/// gets to phrase a claim about a customer's history.
+#[tauri::command]
+fn history_health(state: State<AppState>) -> richos_core::ledger::HistoryHealth {
+    state.spine.lock().unwrap().ledger().history_health()
 }
 
 /// The authoritative answer to "which entity and thread is the CEO actually talking to?".

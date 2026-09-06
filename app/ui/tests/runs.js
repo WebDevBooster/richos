@@ -160,7 +160,7 @@ async function main(){
    const path=require("path"),os=require("os"),cp=require("child_process");
    const cargo=process.env.CARGO || path.join(os.homedir(),".cargo","bin","cargo");
    const views=JSON.parse(cp.execFileSync(cargo,["run","--quiet","--manifest-path",path.resolve(__dirname,"../../Cargo.toml"),"-p","richos-core","--example","run_view_probe"],{encoding:"utf8",timeout:120000}));
-   assertEqual(views.length,4);
+   assertEqual(views.length,5);
    for(const view of views) {
      await A.drive(page);await page.evaluate(async snapshot=>{window.assignmentCurrent=snapshot;window.assignmentRows=[snapshot];await window.RichRuns.show("hiring");},view);
      await panel.locator("summary").first().click();const text=await panel.innerText();
@@ -169,6 +169,7 @@ async function main(){
      if(view.tasks[0].previous_instructions.length) {
        const previous=panel.locator(".run-previous-instructions");assert((await previous.innerText()).includes("Your request: Draft"));assert((await previous.innerText()).includes("Rich agreed: I'll"));assertEqual(await previous.locator("p").count(),2);
      }
+     if(view.instructionChanges.length)assertEqual(await panel.locator(".run-instruction-change").innerText(),"Your updated instructions: Deliver the summary only. Do not send it.");
      if(view.autonomous&&view.tasks[0].checks.length)assert(text.includes("What Rich agreed to deliver:"));
    }
  });

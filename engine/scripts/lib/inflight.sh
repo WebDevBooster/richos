@@ -79,6 +79,22 @@ inflight_resolve_teams_dir() {
     export INFLIGHT_TEAMS_DIR_SOURCE
 }
 
+# inflight_ack_ledger — the DURABLE ack ledger path the predicate would use.
+#
+# Outside every repository, worktree and session, beside the worktree ownership
+# ledger and the escalation ledger, because an ack has to outlive the worktree
+# it was written in and until 2026-09-05 it did not. Printed by consumers that
+# report a count, so a reader looking at an empty report can see WHICH file was
+# empty. Kept in lockstep with inflight.ack_ledger_path() — one spelling of
+# "where durable state lives", never two.
+inflight_ack_ledger() {
+    if [ -n "${RICHOS_INFLIGHT_ACK_LEDGER:-}" ]; then
+        printf '%s' "$RICHOS_INFLIGHT_ACK_LEDGER"
+        return 0
+    fi
+    printf '%s' "$HOME/.claude/state/inflight-acks.jsonl"
+}
+
 # inflight_timeout_min <entity-root> — the ack timeout in minutes.
 #
 # WHY 30 MINUTES, measured rather than picked (this session's own

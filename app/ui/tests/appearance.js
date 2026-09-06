@@ -41,6 +41,7 @@
 const fs = require("fs");
 const path = require("path");
 const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const SOURCES = require("./lib/ui-sources");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = "../shots-10-1";
@@ -348,19 +349,49 @@ async function main() {
     // So this half is structural: `.settings` must out-rank EVERY other z-index the app
     // ships, computed from the stylesheets rather than compared against a number typed
     // here. A new overlay that outranks it fails this check on the day it lands.
-    const css = [
-      fs.readFileSync(path.join(UI_DIR, "style.css"), "utf8"),
-      fs.readFileSync(path.join(UI_DIR, "splash.css"), "utf8"),
-    ].join("\n");
-    // The COMPONENT is `.settings` plus the toast its Bust a bug raises; both belong to it
-    // and the toast is deliberately the higher of the two, so neither is measured against
-    // the other. Everything else in the app is.
-    const zOf = (sel) => Number(css.match(new RegExp(sel + "\\s*\\{[^}]*z-index:\\s*(\\d+)"))[1]);
+    //
+    // "THE SHIPPED CSS" USED TO MEAN TWO FILES OUT OF THREE. This read `style.css` and
+    // `splash.css` while `index.html` links a third — the 53 KB `home.css` — under a comment
+    // claiming EVERY z-index the app ships. It is derived from `lib/ui-sources.js` now, and
+    // widening it turned this check RED on the first run: `home.css` declares 340 against
+    // `.settings`'s 300. That is the gate working, and what it found is below.
+    const css = SOURCES.styleSources()
+      .map((f) => fs.readFileSync(SOURCES.abs(f), "utf8"))
+      .join("\n");
+
+    // WHAT THE COMPONENT OWNS, AND WHY EACH ONE IS ALLOWED ABOVE THE BUTTON.
+    //
+    // §15's requirement is that the settings BUTTON is reachable from every screen. An
+    // element that the button's own menu OPENED is not burying it — it is what pressing it
+    // did — which is why `#bug-toast` was already excluded here. `.home-prefs` is the same
+    // shape and was invisible to this check until `home.css` was: `settings-button.js`'s
+    // `wireHome()` closes the menu and calls `home.open()`, and the dialog that opens is
+    // `aria-modal` with its own Done control.
+    //
+    // AN OWNERSHIP CLAIM IS CHECKED, NOT ASSERTED. Each entry below names the property that
+    // makes it owned, and the property is verified against the live DOM at the bottom of
+    // this check — otherwise this list is a mute button with a comment on it, and any
+    // future overlay that turned this check red could be silenced by being added to it.
+    const SETTINGS_OWNED = [
+      { sel: "#bug-toast", why: "the toast the menu's own Bust a bug raises", proof: "raised-by-the-menu" },
+      {
+        sel: "\\.home-prefs",
+        why: "the company-buttons dialog the menu's own Home screen row opens (aria-modal, with its own Done)",
+        proof: "aria-modal-opened-from-the-menu",
+      },
+    ];
+
+    const zOf = (sel) => {
+      const m = css.match(new RegExp(sel + "\\s*\\{[^}]*z-index:\\s*(\\d+)"));
+      assert(m, "no z-index found for " + sel + " in the shipped CSS — the selector moved or the rule is gone");
+      return Number(m[1]);
+    };
     const settingsZ = zOf("\\.settings");
-    const toastZ = zOf("#bug-toast");
+    const ownedZ = SETTINGS_OWNED.map((o) => ({ ...o, z: zOf(o.sel) }));
+    const ownedValues = new Set([settingsZ, ...ownedZ.map((o) => o.z)]);
     const others = [...css.matchAll(/z-index:\s*(\d+)/g)]
       .map((m) => Number(m[1]))
-      .filter((z) => z !== settingsZ && z !== toastZ);
+      .filter((z) => !ownedValues.has(z));
     const highest = Math.max(...others);
     assert(
       settingsZ > highest,
@@ -369,12 +400,54 @@ async function main() {
         "alone is 200, and a curtain painted over the settings button satisfies the letter of " +
         "'it is on every page' and none of its point."
     );
+    for (const o of ownedZ) {
+      assert(
+        o.z >= settingsZ,
+        o.sel + " (" + o.z + ") is below the settings component (" + settingsZ + "), so it is not " +
+          "something the menu paints over itself and does not belong on the owned list"
+      );
+    }
+
+    // THE PROOF THAT EACH OWNED OVERLAY REALLY IS THE MENU'S. Driven, in the real shell.
+    const owner = track(await openApp(browser));
+    await owner.click("#set-btn");
+    await owner.waitForSelector("#set-menu", { state: "visible" });
+    const ownership = await owner.evaluate(() => {
+      const menu = document.getElementById("set-menu");
+      return {
+        bugInMenu: !!(menu && menu.querySelector("#set-bug, .set-bug, [id*='bug']")),
+        homeRowInMenu: !!(menu && menu.querySelector("#set-home-open")),
+      };
+    });
     assert(
-      toastZ >= settingsZ,
-      "the Bust a bug toast (" + toastZ + ") is below the button that raises it (" + settingsZ + ")"
+      ownership.bugInMenu,
+      "#bug-toast is excused as 'the toast the menu raises' and the menu has no Bust a bug control in it"
     );
-    return report.length + " surfaces, the button hit-testable on every one (" + report.join(", ") +
-      "); and z-index " + settingsZ + " out-ranks every other z-index shipped (highest other: " + highest + ")";
+    assert(
+      ownership.homeRowInMenu,
+      "`.home-prefs` is excused as 'the dialog the menu's Home screen row opens' and the menu has no such row"
+    );
+    await owner.click("#set-home-open");
+    await owner.waitForSelector("#home-prefs:not([hidden])");
+    const modal = await owner.evaluate(() => {
+      const panel = document.querySelector(".home-prefs-panel");
+      return {
+        ariaModal: panel ? panel.getAttribute("aria-modal") : null,
+        role: panel ? panel.getAttribute("role") : null,
+        done: !!document.getElementById("home-prefs-done"),
+      };
+    });
+    await owner.close();
+    assertEqual(modal.role, "dialog", "`.home-prefs` is excused as a modal and is not a dialog");
+    assertEqual(modal.ariaModal, "true", "`.home-prefs` is excused as a modal and does not claim aria-modal");
+    assert(modal.done, "`.home-prefs` is excused as a modal the CEO opened and has no control to close it");
+    return (
+      report.length + " surfaces, the button hit-testable on every one (" + report.join(", ") +
+      "); z-index " + settingsZ + " out-ranks every other z-index in " +
+      SOURCES.styleSources().join(" + ") + " (highest other: " + highest + "), and the " +
+      ownedZ.length + " above it are the component's own, each proven so in the real shell: " +
+      ownedZ.map((o) => o.sel.replace(/\\/g, "") + " " + o.z + " — " + o.why).join("; ")
+    );
   });
 
   // ---- 8. the menu's contents, in §15's order ------------------------------------------
@@ -548,25 +621,113 @@ async function main() {
 
   // ---- 12-13. the type scale itself ------------------------------------------------------
 
-  await run.check("12  every font-size in the shipped CSS is rem, so one knob moves all of it", async () => {
-    // The knob multiplies the ROOT font size. A surviving `px` font-size is a node that
-    // silently refuses to scale, and it is invisible until someone with poor eyesight is
-    // looking at the one line that did not grow.
-    const px = [...STYLE_CSS.matchAll(/font-size:\s*([0-9.]+)px/g)].map((m) => m[0]);
-    assertEqual(
-      px.filter((d) => !/font-size:\s*14px/.test(d) && !/font-size:\s*12px/.test(d)),
-      [],
-      "px font-sizes in style.css outside the two glyph-box exemptions"
-    );
-    // The two that remain are fixed-size icon boxes with no text of their own, and the
-    // reference this component was ported from documents why they are authored in px.
-    const glyphBoxes = px.length;
-    assert(glyphBoxes <= 2, "only the ported component's two glyph boxes may be px: found " + glyphBoxes);
+  await run.check("12  every font-size in the SHIPPED CSS scales, or is declared with its reason", async () => {
+    // "THE SHIPPED CSS" MEANT ONE STYLESHEET OUT OF FOUR. This read `STYLE_CSS` — a single
+    // `fs.readFileSync` of `style.css` — under a title claiming every font-size the app
+    // ships. `index.html` links four: `style.css`, `home.css`, `splash.css` and
+    // `fonts/fonts.css`. The list is derived from `lib/ui-sources.js` now, and widening it
+    // turned this check RED on the first run, which is the gate working:
+    //
+    //     OLD (style.css)          2 px font-sizes, both declared    -> passed
+    //     NEW (the four shipped)  16 px font-sizes                   -> FAILED on 14 of them
+    //
+    // 13 of the 14 are `home.css` and 1 is `splash.css`. NEITHER IS A DEFECT IN THE SURFACE
+    // and both are recorded below rather than waved through, because a px font-size on the
+    // CEO's own landing screen is exactly the thing this check was written to notice.
+    //
+    // THE KNOB. `--app-font-scale` multiplies the ROOT font size, so a `rem` size follows it
+    // and a `px` size does not. A surviving px size is a node that silently refuses to
+    // scale, and it is invisible until someone with poor eyesight is looking at the one line
+    // that did not grow.
+    const decls = SOURCES.cssDeclarations("font-size");
+    assert(decls.length >= 150, "only " + decls.length + " font-size declarations found — that is not this tree");
     assert(
-      /font-size:\s*calc\(16px \* var\(--app-font-scale/.test(STYLE_CSS),
+      SOURCES.styleSources().length === 4,
+      "the shell links " + SOURCES.styleSources().length + " stylesheets, not the four this check was measured against"
+    );
+
+    const px = decls.filter((d) => /^[0-9.]+px$/.test(d.value));
+
+    /// THE DECLARATION, AND WHY IT IS NOT THE TYPED LIST AGAIN. It is per FILE, and it names
+    /// an EXACT COUNT and a FLOOR, both recomputed from the tree on every run. A px size
+    /// added to any of these files changes the count and fails; a file dropping to zero px
+    /// sizes fails as stale; a size authored below §15's floor fails whatever the count says.
+    /// So being on this list buys a reason being on the record, not silence.
+    const DECLARED = {
+      "style.css": {
+        count: 2,
+        why:
+          "two fixed glyph boxes with no text of their own — the reference this component was " +
+          "ported from documents why they are authored in px",
+      },
+      "home.css": {
+        count: 13,
+        why:
+          "the home screen is the port of `richos-hq/design/mockups/rounds/round-11.1/v1`, whose " +
+          "type sizes are the round's own and whose rounds are FROZEN (CLAUDE.md, 'Design Rounds " +
+          "Are FROZEN'). Re-authoring 13 sizes on the CEO's landing surface is a design decision " +
+          "and his to make, not a gate's. What this check holds instead is the §15 FLOOR, below, " +
+          "which the composition clears everywhere.",
+      },
+      "splash.css": {
+        count: 1,
+        why:
+          "`.splash-line`, and the declaration is DEAD: `splash.js` sets the size inline on every " +
+          "composition, so the CSS value never paints. Held equal to the shipped value below so " +
+          "the two cannot drift.",
+      },
+    };
+
+    const byFile = {};
+    for (const d of px) (byFile[d.file] = byFile[d.file] || []).push(d);
+
+    // Both directions, the same discipline `lib/ui-sources.js`'s ROLES table uses.
+    const undeclared = Object.keys(byFile).filter((f) => !DECLARED[f]);
+    assertEqual(undeclared, [], "px font-size(s) in a stylesheet with no declaration: " + undeclared.join(", "));
+    const stale = Object.keys(DECLARED).filter((f) => !byFile[f]);
+    assertEqual(stale, [], "a declaration names a file that no longer has px font-sizes: " + stale.join(", "));
+    for (const f of Object.keys(DECLARED)) {
+      assertEqual(
+        byFile[f].length,
+        DECLARED[f].count,
+        f + " has " + byFile[f].length + " px font-size(s), declared " + DECLARED[f].count +
+          ": " + byFile[f].map((d) => d.line + "=" + d.value).join(" ")
+      );
+      assert(DECLARED[f].why.length >= 40, f + ": a declaration needs a reason, not a marker");
+    }
+
+    // §15's FLOOR, ACROSS ALL FOUR — the thing the narrow version could not have checked and
+    // the reason widening it was worth a red run. "Nothing readable below 14px."
+    const belowFloor = px.filter((d) => parseFloat(d.value) < 14);
+    assertEqual(
+      belowFloor.map((d) => d.site + " = " + d.value),
+      [],
+      "§15: a font-size below the 14px floor in the shipped CSS"
+    );
+
+    // THE ONE DUPLICATE, CHECKED RATHER THAN ASSERTED. `splash.css`'s declaration is
+    // overridden by `splash.js`'s inline `LINE_SIZE` on every composition, so the two are
+    // free to disagree silently — and they DID, by 6px, with the stylesheet holding a value
+    // below the floor above. Held equal here so the next person to change one changes both.
+    const splashLine = px.filter((d) => d.file === "splash.css");
+    const inline = fs.readFileSync(SOURCES.abs("splash.js"), "utf8").match(/LINE_SIZE\s*=\s*"([0-9.]+px)"/);
+    assert(inline, "splash.js no longer names LINE_SIZE — this comparison has nothing to hold");
+    assertEqual(
+      splashLine.map((d) => d.value),
+      [inline[1]],
+      "splash.css's .splash-line disagrees with the size splash.js actually paints (" + inline[1] + ")"
+    );
+
+    assert(
+      SOURCES.cssDeclarations("font-size").some((d) => /^calc\(16px \* var\(--app-font-scale/.test(d.value)),
       "the root font size is not driven by --app-font-scale, so nothing scales"
     );
-    return px.length + " px font-size(s) left, both fixed glyph boxes; every other size is rem off a scaled root";
+
+    return (
+      decls.length + " font-size declaration(s) across " + SOURCES.styleSources().join(" + ") +
+      "; " + px.length + " in px, every one declared (style.css 2, home.css 13, splash.css 1), " +
+      "smallest " + Math.min(...px.map((d) => parseFloat(d.value))) + "px — at or above §15's floor"
+    );
   });
 
   await run.check("13  the whole interface scales, not a subset of it", async () => {
@@ -812,8 +973,24 @@ main().catch((e) => {
 //      surface that matters most. Check 7 gained a structural half — `.settings` must
 //      out-rank every z-index the app ships, computed from the stylesheets — and the
 //      mutation now fires. It also immediately found that `#bug-toast` is 301, which is
-//      correct and is why the component's own two layers are excluded from the comparison
+//      correct and is why the component's own layers are excluded from the comparison
 //      rather than from the rule.
+// 7b   NOT A MUTATION — THE SHIPPED SOURCE TURNED IT RED, 2026-09-05. The structural half
+//      above read `style.css` and `splash.css` under a comment saying "every z-index the app
+//      ships", while `index.html` links a THIRD stylesheet. Deriving the list from
+//      `lib/ui-sources.js` put `home.css` in front of it for the first time and the check
+//      failed on the spot: `.home-prefs` is `z-index: 340` against `.settings`'s 300.
+//      That is a false positive of the RULE rather than a defect in the surface, and the
+//      distinction is the whole of the fix. §15 requires the settings BUTTON to be
+//      reachable from every screen; `.home-prefs` is the modal dialog the menu's own Home
+//      screen row opens (`wireHome()` closes the menu, then calls `home.open()`), which is
+//      the same relationship `#bug-toast` already had. So it joins the owned list — and the
+//      ownership claim is now CHECKED rather than asserted, because a list that silences a
+//      red check is a mute button unless it costs something to be on it: the run drives the
+//      real menu and proves the Bust a bug control and the `#set-home-open` row are inside
+//      `#set-menu`, and that the dialog that row opens is `role=dialog`, `aria-modal=true`
+//      and carries its own Done. An unrelated overlay added to that list to quiet this check
+//      would fail those three assertions instead.
 //  8   settings-button.js `buildMenu`: append the Techy row before the font row -> check 8.
 //      §15 says Text size sits "directly under the theme switch", and it is one line to get
 //      wrong.
@@ -831,6 +1008,27 @@ main().catch((e) => {
 //  12b style.css `html`: `calc(16px * var(--app-font-scale, 1))` -> `16px` -> checks 9, 12,
 //      13. Every size is still rem and NONE of them moves — the failure that looks most
 //      like success.
+//  12c NOT A MUTATION — THE SHIPPED SOURCE TURNED IT RED. Check 12 read `STYLE_CSS`, one
+//      `readFileSync` of `style.css`, under a title claiming "every font-size in the shipped
+//      CSS". `index.html` links four stylesheets. Deriving the list from
+//      `lib/ui-sources.js` took it from 2 px font-sizes to 16, and one of the 14 it had
+//      never been able to see was BELOW §15's floor:
+//
+//          §15: a font-size below the 14px floor in the shipped CSS
+//          expected []
+//          actual   ["splash.css:189 = 12px"]
+//
+//      `.splash-line` — the only text the opening screen has. It was dead: `splash.js` sets
+//      the size inline from `LINE_SIZE` on every composition, so 18px is what paints and
+//      `tests/splash.js` check 6 correctly measured 18px on the rendered frame. The
+//      stylesheet had simply been wrong, and unreadably wrong, since the port, in a file no
+//      gate opened. Fixed at `splash.css:198`, and check 12 now holds the declaration EQUAL
+//      to `splash.js`'s `LINE_SIZE` so the two cannot drift apart again in silence.
+//  12d home.css `#home-signals .sig .n`: add a second `font-size: 13px` -> check 12. The
+//      count moves 13 -> 14 and the check names the file, the line and the value. Run
+//      2026-09-05: `home.css has 14 px font-size(s), declared 13`. This is the proof that
+//      the widened check can SEE the CEO's landing surface; the old one read `style.css` and
+//      would have stayed green through it.
 //  13  style.css `.tl-prose`: `1.125rem` -> `1rem` -> check 13. Rich's answers back below
 //      the CEO's stated 18px default.
 //  14a tauri.conf.json: `"zoomHotkeysEnabled": true` -> check 14.

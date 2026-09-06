@@ -1011,6 +1011,26 @@ const FIXTURES = {
     });
   },
 
+  /// THE §26 STATE ITSELF: an update is waiting and RichOS is working, so the control is
+  /// REMOVED rather than dimmed and the sentence has to carry the whole answer on its own.
+  async "updates-waiting-available"(browser) {
+    return openUpdates(browser, {
+      state: "available",
+      availableVersion: "0.1.2",
+      busy: true,
+      busyReason: "Two specialists are running.",
+    });
+  },
+
+  async "updates-waiting-ready"(browser) {
+    return openUpdates(browser, {
+      state: "ready",
+      availableVersion: "0.1.2",
+      busy: true,
+      busyReason: "Two specialists are running.",
+    });
+  },
+
   // -------------------------------------------------------------------------------------
   // THE HOME SCREEN'S COMPANY-BUTTONS PANEL — `home.js`, also outside the old source list.
   // Opened through the settings menu's own row, which is the only way the CEO reaches it.
@@ -1103,6 +1123,8 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "updates-unconfigured",
   "updates-ready",
   "updates-failed",
+  "updates-waiting-available",
+  "updates-waiting-ready",
   "home-prefs",
   "home-prefs-no-entities",
 ]);
@@ -1228,11 +1250,16 @@ async function main() {
         "changed or the derivation stopped reaching most of it — this number was 55."
     );
 
-    // A sentence actually shipped by this branch, invisible to the former list.
-    const SENTINEL = "RichOS has not checked for updates yet.";
-    assert(!before.has(SENTINEL), "The old list already sees this sentinel");
-    assert(inv.some(r => r.normal === SENTINEL && r.sites.some(s => s.startsWith("updates.js:"))), "The derived inventory cannot read updates.js");
-    assert(byString.has(SENTINEL), "The update state has no classification");
+    // AND THE ONE THAT MATTERS, BY NAME. CEO ruling §26 governs `updates.js`, its clause is
+    // that a waiting update must not be actionable, and this sentence is the state that
+    // stands where the control is not. It was invisible; it is classified now.
+    const SENTINEL = "I'll wait to restart until everything has finished — nothing will be interrupted.";
+    assert(!before.has(SENTINEL), "the sentinel was ALREADY visible to the old list — it proves nothing");
+    assert(
+      inv.some((r) => r.normal === SENTINEL),
+      "the §26 waiting sentence is not in the widened inventory — the derivation is not reading updates.js"
+    );
+    assert(byString.has(SENTINEL), "the §26 waiting sentence reached the inventory and nobody classified it");
 
     const byFile = {};
     for (const g of gained) {
@@ -1242,7 +1269,84 @@ async function main() {
     return (
       gained.length + " state(s) are visible to this rule that were not: " +
       Object.keys(byFile).sort().map((f) => f + " " + byFile[f]).join(", ") +
-      ". The unchecked-update sentence is now covered."
+      ". The §26 waiting sentence is one of them, and it is classified INFORMATIONAL " +
+      "because the control is REMOVED by ruling rather than merely missing."
+    );
+  });
+
+  await run.check("PART 0: what the derived manifest does NOT cover, counted rather than described", async () => {
+    // A DERIVED FILE LIST IS NOT DERIVED COVERAGE, and the difference is where the next
+    // blind spot will be. `lib/ui-sources.js` proves that every file the shell loads is
+    // READ. It says nothing about whether every string those files render is EXTRACTED, and
+    // an inventory that leaves that unstated invites exactly the reading that produced this
+    // session's eleven green-over-nothing findings: "the source list is derived, therefore
+    // the rule sees everything".
+    //
+    // So the boundary is a NUMBER here, recomputed every run, rather than a sentence in a
+    // header that stops being true.
+    //
+    // BOUNDARY 1 — THE PROSE FLOOR. `looksLikeProse` needs 12 characters and 3 words. That
+    // is what keeps identifiers, CSS values, GLSL and machinery out of an inventory of
+    // STATES, and it is the right shape for a sentence. It is the wrong shape for a LABEL:
+    // "Stop Rich", "Send", "Search", "Close corrections" are text the CEO reads and acts on,
+    // and every one is below the floor. Measured across the 12 shipped `ui` files today:
+    const belowFloor = [];
+    for (const name of SOURCES.stateSources()) {
+      const src = fs.readFileSync(SOURCES.abs(name), "utf8");
+      const lits = name.endsWith(".html") ? htmlVisibleStrings(src) : jsStringLiterals(src);
+      for (const l of lits) {
+        const n = normalize(l.text);
+        if (!n || !/[A-Za-z]/.test(n) || looksLikeProse(n)) continue;
+        const words = n.split(/\s+/).filter(Boolean);
+        // Label-SHAPED: short, capitalized, no code punctuation. Deliberately conservative —
+        // it undercounts rather than sweeping identifiers in, so the number below is a floor
+        // on the gap and never an inflation of it.
+        if (n.length >= 3 && words.length <= 2 && /^[A-Z]/.test(n) && !/[{}<>();=_.]/.test(n)) {
+          belowFloor.push(name + ":" + l.line + " " + JSON.stringify(n));
+        }
+      }
+    }
+    assert(
+      belowFloor.length > 0,
+      "0 label-shaped literals below the prose floor. Either the floor changed or this " +
+        "measurement broke — and a boundary check that measures nothing is the thing it exists " +
+        "to prevent."
+    );
+    assert(
+      inv.length > belowFloor.length * 0.5,
+      "the inventory (" + inv.length + ") is small beside the excluded set (" + belowFloor.length +
+        "), which would mean the prose floor is eating states rather than bounding them"
+    );
+
+    // BOUNDARY 2 — A STRING THIS PRODUCT COMPOSES AT RUNTIME IS UNREACHABLE BY ANY SOURCE
+    // SCRAPE, and no widening of the file list changes that. Template interpolation is the
+    // visible half of it; the invisible half is text that arrives as DATA over the bridge —
+    // a sentence composed in Rust, or by the model, and handed to the renderer. The
+    // renderer's source contains the slot, never the sentence. Counted so the shape is a
+    // number too:
+    const interpolated = SOURCES.uiMatches(/`[^`]*\$\{[^`]*`/).length;
+    assert(
+      interpolated > 0,
+      "0 interpolated template literals across the shipped UI — this product certainly has " +
+        "some, so this measurement is broken rather than the boundary being absent"
+    );
+
+    // BOUNDARY 3 — richos-core's `Display` impls are DELIBERATELY out of the Rust scrape
+    // (`lib/state-strings.js`'s RUST_ROOTS comment, blind spot B5). They are machinery, and
+    // although one can reach a local notice through `String(e)`, that surface is unbounded.
+    // Named here so "the Rust bridge scrape" is not read as "the Rust".
+    const rustSites = new Set(inv.filter((r) => /\.rs:/.test(r.sites[0])).map((r) => r.sites[0].split(":")[0]));
+    assert(rustSites.size > 0, "the Rust scrape contributed nothing to the inventory");
+
+    return (
+      inv.length + " state(s) in the inventory from " + SOURCES.stateSources().length +
+      " derived ui file(s) + " + rustSites.size + " Rust file(s). NOT COVERED, and none of it " +
+      "is fixable by widening the file list: " + belowFloor.length +
+      " label-shaped literal(s) below the 12-character/3-word prose floor (e.g. " +
+      belowFloor.slice(0, 3).map((s) => s.split(" ").slice(1).join(" ")).join(", ") +
+      "); " + interpolated + " interpolated template literal(s), whose sentences are composed at " +
+      "run time; and every string that arrives as DATA over the bridge — composed in Rust or " +
+      "by the model — which no source-text scrape of any width can see."
     );
   });
 
@@ -1682,6 +1786,54 @@ async function main() {
       return "as shipped: " + sample + "; with #update-relaunch removed: " + threw.split("\n")[0];
     }
   );
+
+  await run.check("§26: a waiting update offers NO actionable control, on the real surface", async () => {
+    // The CEO's ruling, as a check rather than as a comment: while work is running the
+    // update affordance is REMOVED, not dimmed. "A dimmed control still invites the press and
+    // then refuses it, which is the anxiety being removed rather than a milder version of
+    // it." A future edit that softened this to `disabled = true` would leave every other
+    // check in this suite green.
+    const out = [];
+    for (const name of ["updates-waiting-available", "updates-waiting-ready"]) {
+      const page = await FIXTURES[name](browser);
+      const seen = await page.evaluate(() => {
+        const look = (id) => {
+          const n = document.getElementById(id);
+          if (!n) return "absent";
+          if (n.hidden) return "hidden";
+          const r = n.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return "zero-area";
+          return n.disabled ? "DISABLED-BUT-PRESENT" : "PRESSABLE";
+        };
+        const note = document.getElementById("update-waiting");
+        return {
+          install: look("update-install"),
+          relaunch: look("update-relaunch"),
+          cue: look("update-cue"),
+          note: !!note,
+          noteRole: note ? note.getAttribute("role") : null,
+          noteName: note ? note.getAttribute("aria-label") || "" : "",
+        };
+      });
+      for (const which of ["install", "relaunch", "cue"]) {
+        assert(
+          seen[which] !== "PRESSABLE" && seen[which] !== "DISABLED-BUT-PRESENT",
+          "[" + name + "] #update-" + which + " is " + seen[which] + " while RichOS is working. " +
+            "§26: the affordance is removed, never offered and refused."
+        );
+      }
+      assert(seen.note, "[" + name + "] nothing stands where the control is not — the state is silent");
+      assertEqual(seen.noteRole, "note", "[" + name + "] the waiting cue is not a `role=note`");
+      assert(
+        /nothing will be interrupted/.test(seen.noteName),
+        "[" + name + "] the waiting cue's accessible name does not carry the sentence: " +
+          JSON.stringify(seen.noteName)
+      );
+      out.push(name + ": install " + seen.install + ", relaunch " + seen.relaunch + ", a role=note in their place");
+      await page.close();
+    }
+    return out.join("; ");
+  });
 
   await run.check("POSITIVE CONTROL: an unclassified new state IS flagged", async () => {
     // The drift comparator, run against a corpus with one extra string, so the part-1 check

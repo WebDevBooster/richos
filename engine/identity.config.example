@@ -46,6 +46,13 @@ PRODUCT_LOCALE=""          # the dialect + formats every user-facing string must
                            #  documents; never code identifiers or third-party API values."
 DEPLOY_TARGETS=""          # the tree-aware deploy table (which landed paths -> which script)
 QA_ROLES=""                # which teammate performs each of the four QA-pipeline steps
+PRIVATE_RECORD=""          # ONLY if this repository is PUBLISHED: the repo or page where
+                           # incident detail moved out of the public files lives, e.g.
+                           # "`meridian-hq/wiki/incidents.md` (private)". The documentation
+                           # doctrine keeps the rule and its reasoning public and moves
+                           # identifying detail to a private record, and a pointer with no
+                           # destination is how that reasoning dies. Leave blank while the
+                           # repository is private; that is the default and needs nothing.
 
 # --- Company memory (loro) ------------------------------------------------
 # Relative to the repo root that contains this engine. Leave as-is for the

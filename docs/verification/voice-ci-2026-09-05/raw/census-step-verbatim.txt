@@ -1,0 +1,54 @@
+# THE CENSUS STEP, RUN VERBATIM AS EXTRACTED FROM THE WORKFLOW.
+#
+# Not a retyped copy of it. The script below was pulled out of the `run:` block of
+# app-voice-ci.yml's 'How many of the suite's voices does this runner actually have'
+# step by an extractor, then executed from app/ with RUNNER_TEMP set — because a
+# transcript of a hand-copied approximation of a step proves nothing about the step.
+#
+# THE TWO NEGATIVE CONTROLS ARE THE POINT. A census that cannot fail is decoration,
+# and this repository has been bitten by checks that ran happily over an empty set.
+# So the step is mutated two ways and must go red both times:
+#
+#   1. the VOICES declaration moves out of the file the step reads. The step must
+#      refuse rather than report an empty intersection as a clean census.
+#   2. /usr/bin/say is not present. The step must refuse rather than let a suite that
+#      generates no audio report green.
+#
+# WHAT THIS DOES NOT SHOW. It ran on the CEO's Mac, which is the only machine this
+# suite has ever run on. The number it prints here (6 of 7 candidates, 177 voices
+# listed) is that machine's, and the whole reason the step exists is that nobody
+# knows a GitHub runner's. The first run of the workflow answers that.
+
+======== POSITIVE: the census as the runner will run it ========
+say -v '?' reports 177 voices on this runner.
+For comparison, the machine this suite has always run on reports 177.
+
+  PRESENT  Samantha
+  absent   Alex
+  PRESENT  Daniel
+  PRESENT  Karen
+  PRESENT  Fred
+  PRESENT  Moira
+  PRESENT  Tessa
+
+6 of the suite's candidates are installed here.
+The suite's own floor is 3 and THAT is the gate. If the step below goes red
+reading 'refusing to call this a cross-voice test', this is the number that
+explains it, and the fix is the candidate list in crates/richos-voice/tests/voiced_acceptance.rs — not this workflow.
+exit=0
+
+======== NEGATIVE 1: the VOICES declaration has moved ========
+say -v '?' reports 177 voices on this runner.
+For comparison, the machine this suite has always run on reports 177.
+
+FATAL: could not read VOICES out of crates/richos-voice/src/vad.rs.
+       The census would be over an empty set, and an empty inventory
+       reported as a pass is the exact failure this step exists to avoid.
+       The declaration moved or changed shape; fix this extraction.
+exit=1  (1 is the pass)
+
+======== NEGATIVE 2: /usr/bin/say is absent ========
+FATAL: /usr/bin/say-does-not-exist is not on this runner.
+       The acceptance suite's speech comes from it, so nothing below would
+       mean anything. A red step rather than a skip, on purpose.
+exit=1  (1 is the pass)

@@ -18,3 +18,13 @@ node_modules/
 # Screenshot evidence for ONE run. The tests are the artifact; these are the receipt, and a
 # receipt that lands in git turns every UI tweak into a binary diff.
 .shots/
+
+# Vouch's own source, at the commit `.github/workflows/vouch-pr.yml` pins, fetched by
+# `vouch-template.js` and verified against the sha256 the evidence records.
+#
+# NOT VENDORED, deliberately. It is 41 KB and committing it would make the check hermetic — but
+# this repository is published, and a third-party tree committed into it becomes a row in
+# `docs/legal/THIRD-PARTY-NOTICES.md` and one more thing to keep true. A fetch pinned by digest
+# is pinned exactly as hard as a committed copy: a tarball whose bytes are not the recorded ones
+# is deleted and the check fails, so this cache can never quietly become a different vouch.
+.vouch/

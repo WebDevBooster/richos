@@ -58,6 +58,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const SOURCES = require("./lib/ui-sources");
 
 // ---------------------------------------------------------------------------------------
 // Arguments
@@ -110,57 +111,20 @@ if (SUITES.length === 0) {
 /// a green run — `observed >= declared` still holds — but it lowers the floor to a height
 /// nothing trips over, which is the same as not having one. A suite that quietly stopped
 /// after its third check would have passed.
+///
+/// THE SCANNER ITSELF NOW LIVES IN `lib/ui-sources.js`, and this file is one of its two
+/// consumers rather than the only copy of it. It moved on 2026-09-05 because five checks
+/// elsewhere in this directory needed the SAME comment-stripping — an absence claim that
+/// reads a comment quoting the code it removed is a false positive, and `setup.js:497` had
+/// already hand-rolled a weaker line-based version of it for that exact reason. Two
+/// strippers with one job is how the outage card ended up with its own WCAG arithmetic.
+///
+/// The self-test below is unchanged and now proves the SHARED function, which is the point:
+/// the harder consumer's fixture is the one that keeps it honest.
 function declaredChecks(src) {
-  let out = "";
-  let i = 0;
-  const n = src.length;
-  // The last significant character, used only to decide whether a slash opens a regex (after
-  // an operator, keyword, `(` or `,`) or is a division (after a value).
-  let prevSig = "";
-  while (i < n) {
-    const c = src[i];
-
-    if (c === "/" && src[i + 1] === "/") {
-      while (i < n && src[i] !== "\n") i++;
-      continue;
-    }
-    if (c === "/" && src[i + 1] === "*") {
-      i += 2;
-      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) i++;
-      i += 2;
-      continue;
-    }
-    if (c === "/" && !/[A-Za-z0-9_$)\]]/.test(prevSig)) {
-      i++;
-      let inClass = false;
-      while (i < n) {
-        if (src[i] === "\\") { i += 2; continue; }
-        if (src[i] === "[") inClass = true;
-        else if (src[i] === "]") inClass = false;
-        else if (src[i] === "/" && !inClass) { i++; break; }
-        else if (src[i] === "\n") break;
-        i++;
-      }
-      while (i < n && /[a-z]/.test(src[i])) i++;
-      prevSig = "/";
-      continue;
-    }
-    if (c === '"' || c === "'" || c === "`") {
-      const quote = c;
-      i++;
-      while (i < n) {
-        if (src[i] === "\\") { i += 2; continue; }
-        if (src[i] === quote) { i++; break; }
-        i++;
-      }
-      prevSig = quote;
-      continue;
-    }
-
-    out += c;
-    if (!/\s/.test(c)) prevSig = c;
-    i++;
-  }
+  // `strings: false` — a `"run.check("` inside a literal is not a call. The other consumer
+  // needs literals KEPT, which is what the flag is for.
+  const out = SOURCES.stripJsComments(src, { strings: false });
   return (out.match(/\brun\.check\s*\(/g) || []).length;
 }
 

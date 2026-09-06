@@ -150,6 +150,7 @@ fn pending_view(state: &AppState, thread_id: &str) -> Option<RunView> {
         revision: 0,
         goal: goal.clone(),
         autonomous: true,
+        instruction_changes: vec![],
         preparing: true,
         workspace: workspace.display().to_string(),
         max_attempts: 0,

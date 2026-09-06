@@ -1,0 +1,58 @@
+ok   agent-state-claims.test.sh             === agent-state-claims tests: all 44 passed ===
+ok   by-reference.test.sh                   === by-reference.test.sh: all 49 passed ===
+ok   ceo-asks.test.sh                         46/46 cases passed
+ok   ceo-inputs.test.sh                     ceo-inputs.test.sh: 44 passed, 0 failed
+ok   ceo-ruled.test.sh                        41/41 cases passed
+ok   ceo-todos.test.sh                        102/102 cases passed
+ok   completeness-commits.test.sh           passed: 43
+ok   detect-nonnative-worktree.test.sh        PASS  banner-does-not-exit — removing it turns "B06" red
+FAIL engine-status.test.sh                  rc=1  engine-status: 15 passed, 1 FAILED
+ok   escalations.test.sh                      59 passed, 0 failed
+ok   guard-bash-main-writes.test.sh         === guard-bash-main-writes tests: all 36 passed ===
+ok   guard-definition-drift.test.sh         === guard-definition-drift tests: all 47 passed ===
+ok   guard-dialect.test.sh                    88/88 cases passed
+ok   guard-idle-land.test.sh                ✓ 59/59 passed
+ok   guard-interactive-prompt.test.sh       === guard-interactive-prompt tests: all 113 passed ===
+ok   guard-main-checkout-writes.test.sh     === guard-main-checkout-writes tests: all 19 passed ===
+ok   guard-model-ceiling.test.sh              PASS  fixture-default-is-honest — removing it turns "above t
+ok   guard-resume-isolation.test.sh           PASS  refusal-exits-zero — removing it turns "T02" red
+ok   guard-sealed-worktree.test.sh            PASS  exemption-before-terminal — removing it turns "G26" re
+ok   guard-stated-actions.test.sh           === summary: 45 passed, 0 failed ===
+ok   guard-unresolved-claims.test.sh        ✓ 65/65 passed
+ok   guard-vendoring-commits.test.sh          60/60 cases passed
+FAIL guard-worktree-isolation.test.sh       rc=1    PASS  refusal-does-not-refuse — removing it turns "Q04" red
+ok   guard-worktree-removal.test.sh         === guard-worktree-removal tests: all 83 passed ===
+ok   hook-staleness.test.sh                 hook-staleness: 28/28 cases pass
+ok   inflight-notify.test.sh                [32m✓ in-flight sweep: all 76 checks passed.[0m
+ok   install-reconciler-schedule.test.sh      PASS  any-label-accepted — removing it turns "S21" red
+ok   mechanical-findings.test.sh              44 passed, 0 failed
+ok   named-persons.test.sh                    83/83 cases passed
+ok   publication-boundary.test.sh             131/131 cases passed
+ok   reader-teammate-hint.test.sh           === reader-teammate-hint tests: all 13 passed ===
+ok   record-subagent-start.test.sh            PASS  library-missing-swallowed — removing it turns "S12" re
+ok   root-contract.test.sh                  === root-contract end-to-end: all 37 passed ===
+ok   row-currency.test.sh                     81/81 cases passed
+ok   scan-secrets.test.sh                   === scan-secrets tests: all 53 passed ===
+ok   session-start-reap-worktrees.test.sh     PASS  blocked-word-suppressed — removing it turns "W10b" red
+ok   stop-hook-visibility.test.sh           [32m✓ 35/35 stop-hook visibility checks passed (15 Stop hook(
+ok   task-completed-handoff.test.sh         ALL TASK-COMPLETED HOOK TESTS PASSED
+ok   teammate-idle-handoff.test.sh          === teammate-idle-handoff tests: all 9 passed ===
+ok   terminalize-agent-worktrees.test.sh      PASS  pending-for-nobody — removing it turns "R21e" red
+ok   turn-manifest.test.sh                  ✓ 41/41 turn-manifest checks passed.
+ok   unasked-deferral.test.sh               === 41 passed, 0 failed ===
+ok   unevaluated-notice.test.sh             === 32 passed, 0 failed ===
+ok   unevaluated-payload.test.sh            === 9 passed, 0 failed ===
+ok   unstarted-rows.test.sh                   38 passed, 0 failed
+ok   verify-agent-prompt.test.sh            === verify-agent-prompt tests: all 36 passed ===
+ok   waiver-repetition.test.sh                27 passed, 0 failed
+ok   worker-lifecycle.test.sh               ALL 36 WORKER-LIFECYCLE TESTS PASSED
+
+FAILED: engine-status.test.sh guard-worktree-isolation.test.sh
+=== contract-integrity.test.sh ===
+  FAIL  CL2.claim-gate-mutations-all-load-bearing  (expected exit=0 got=1)
+          FAIL  no-state-block — the mutation did not apply
+          FAIL  state-claim-needs-no-verb — the mutation did not apply
+=== summary ===
+passed: 164
+rc=1
+CI-RED

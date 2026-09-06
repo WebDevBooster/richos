@@ -26,9 +26,9 @@ with tempfile.TemporaryDirectory(prefix="richos-projection-mutations-") as tmp:
             sys.exit("Compilation failed. This is not a killed mutation.\n" + build.stdout)
         return subprocess.run([str(root / "target/debug/projection-review")], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
     baseline = run(source)
-    if baseline.returncode or len(json.loads(baseline.stdout)) != 4:
-        sys.exit("Baseline did not produce all four projections.\n" + baseline.stdout)
-    print("PASS baseline: real controller receipts and all four projections")
+    if baseline.returncode or len(json.loads(baseline.stdout)) != 5:
+        sys.exit("Baseline did not produce all five projections.\n" + baseline.stdout)
+    print("PASS baseline: real controller receipts and all five projections")
     mutations = [
         ("raw-task-description", "description: if snapshot.plan.autonomous() {", "description: if false {", "assertion `left == right` failed"),
         ("raw-verifier-receipt", "if snapshot.plan.autonomous() && human_contract(&t.prompt).is_some() {", "if false {", "Machine contract leaked:"),

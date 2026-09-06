@@ -99,6 +99,28 @@ else
 fi
 
 stop_notice_init "notice-ceo-ruled-prose.sh" "$ENTITY_ROOT" "$INPUT"
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# A turn that ends without this check having run must not look like a turn that
+# ran it and found nothing. The sentence comes from
+# scripts/lib/unevaluated-notice.sh so every hook says it the same way, and it
+# goes out through the same notice channel the stand-downs above use, which is
+# the one measured for the Stop event. NO VERDICT CHANGES — this hook already
+# ended the turn on exactly these payloads.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    if _UE_REASON="$(richos_payload_unreadable "$INPUT")"; then
+        # ONE LINE for the call itself, deliberately: stop-hook-visibility.test.sh
+        # proves its case 3a by sed-ing out every such call, and a multi-line
+        # continuation would leave the argument lines behind as orphaned commands.
+        _UE_MSG="$(unevaluated_sentence "notice-ceo-ruled-prose.sh" \
+            "whether this turn re-asked him something his own record has already ruled on" \
+            "$_UE_REASON" turn)"
+        stop_notice_abnormal "payload-unreadable:$_UE_REASON" "$_UE_MSG"
+        exit 0
+    fi
+fi
 
 _CR_LIB="$SCRIPT_DIR/../lib/ceo-ruled.sh"
 if [ ! -f "$_CR_LIB" ]; then

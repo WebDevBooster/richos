@@ -1,0 +1,377 @@
+[
+ {
+  "hook": "guard-unresolved-claims.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "=== claim check: PASSED, with observations (not blocking) ===\n  in-flight dispatch claim with no Agent call this turn:\n    I am not spawning that right now; it goes in with the next land.\n  (this signal measures 17% precision -- it is logged, never enforced)\n  ...and it named no agent identifier (10.3% precision -- also never enforced)\n  record: .claude/state/claim-checks.jsonl\n"
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "turn-manifest.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\": true, \"systemMessage\": \"TURN MANIFEST \\u2014 0 tool calls this turn. Nothing was executed.\\nAnything stated above rests on no tool result from this turn.\"}\n",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-hook-staleness.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"RichOS engine: CANNOT CHECK whether a landed guard is inert in this session.\\n  reason: no session-start baseline at .claude/state/enforcing-hooks-s0200000.snapshot \\u2014 snapshot-enforcing-hooks.sh was not live at the last session start. It is registered in the engine's hook table, which the host reads once per session, so it begins recording baselines only after the operator RESTARTS. Re-run scripts/hooks/install.sh, then restart this session; that is yours to do, no hook can do it.\\nThis is NOT a clean result \\u2014 it is the absence of one. Until it is fixed, a\\nguard landed into the engine's hooks/hooks.json mid-session will sit there\\nenforcing nothing and nothing will tell you.\\n(hook: scripts/hooks/notice-hook-staleness.sh)\"}\n",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-inflight-acks.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-mechanical-findings.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"MECHANICAL SWEEP: ROW(S) 3.21 3.24 describe a finding the sweep no longer produces \u2014 the defect is fixed, moved or gone; close the row in the same land as the fix (it is not re-stamped for you). Detail: scripts/mechanical-findings-lint.sh\"}\n",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"MECHANICAL SWEEP: ROW(S) 3.21 3.24 describe a finding the sweep no longer produces \u2014 the defect is fixed, moved or gone; close the row in the same land as the fix (it is not re-stamped for you). Detail: scripts/mechanical-findings-lint.sh\"}\n",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"MECHANICAL SWEEP: ROW(S) 3.21 3.24 describe a finding the sweep no longer produces \u2014 the defect is fixed, moved or gone; close the row in the same land as the fix (it is not re-stamped for you). Detail: scripts/mechanical-findings-lint.sh\"}\n",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"MECHANICAL SWEEP: ROW(S) 3.21 3.24 describe a finding the sweep no longer produces \u2014 the defect is fixed, moved or gone; close the row in the same land as the fix (it is not re-stamped for you). Detail: scripts/mechanical-findings-lint.sh\"}\n",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-unstarted-rows.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"UNSTARTED-ROW WATCH SWEPT NOTHING \u2014 the records did not parse: RICH-TODOs.md row ci1 disagrees with itself: its blocked-by cell says 'done \u2014 landed 486b217, CI run being watched' and its id is NOT struck through. The row claims to be finished in one place while being open in the other, and picking one silently is how a row gets swept as closed while it is open.. This is not an empty queue; it is an unread one. scripts/unstarted-rows-lint.sh has the detail.\"}\n",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"UNSTARTED-ROW WATCH SWEPT NOTHING \u2014 the records did not parse: RICH-TODOs.md row ci1 disagrees with itself: its blocked-by cell says 'done \u2014 landed 486b217, CI run being watched' and its id is NOT struck through. The row claims to be finished in one place while being open in the other, and picking one silently is how a row gets swept as closed while it is open.. This is not an empty queue; it is an unread one. scripts/unstarted-rows-lint.sh has the detail.\"}\n",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"UNSTARTED-ROW WATCH SWEPT NOTHING \u2014 the records did not parse: RICH-TODOs.md row ci1 disagrees with itself: its blocked-by cell says 'done \u2014 landed 486b217, CI run being watched' and its id is NOT struck through. The row claims to be finished in one place while being open in the other, and picking one silently is how a row gets swept as closed while it is open.. This is not an empty queue; it is an unread one. scripts/unstarted-rows-lint.sh has the detail.\"}\n",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"UNSTARTED-ROW WATCH SWEPT NOTHING \u2014 the records did not parse: RICH-TODOs.md row ci1 disagrees with itself: its blocked-by cell says 'done \u2014 landed 486b217, CI run being watched' and its id is NOT struck through. The row claims to be finished in one place while being open in the other, and picking one silently is how a row gets swept as closed while it is open.. This is not an empty queue; it is an unread one. scripts/unstarted-rows-lint.sh has the detail.\"}\n",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-ceo-unasked.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"HE HAS NOT BEEN ASKED \u2014 CEO TODO 1.3: The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes). 9 of his prepared items have not been put to him in this session. Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh\"}\n",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"HE HAS NOT BEEN ASKED \u2014 CEO TODO 1.3: The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes). 9 of his prepared items have not been put to him in this session. Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh\"}\n",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"HE HAS NOT BEEN ASKED \u2014 CEO TODO 1.3: The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes). 9 of his prepared items have not been put to him in this session. Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh\"}\n",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"HE HAS NOT BEEN ASKED \u2014 CEO TODO 1.3: The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes). 9 of his prepared items have not been put to him in this session. Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh\"}\n",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-unasked-deferral.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"YOU WERE NOT ASKED \u2014 THIS TURN DEFERS WORK: \\\"I am not spawning that right now\\\". A deferral you did not choose is a decision taken on your behalf: the reasoning is the orchestrator's, the consequence is yours. Deferring may well be right \u2014 but it is YOUR call, so it goes to you as a question or the work starts now. (hook: scripts/hooks/notice-unasked-deferral.sh)\"}\n",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-ceo-ruled-prose.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-waiver-repetition.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"REPEATED WAIVERS, NOT EXCEPTIONS \u2014 7 escape hatches were used over and over for the same reason instead of the guard being fixed: guard-resume-isolation.sh (88x one reason, 48 subjects over 12 days), guard-worktree-isolation.sh (42x one reason, 42 subjects over 2 days), guard-worktree-removal.sh (36x one reason, over 2 days) (+4 more). Each repeat is a false-positive class the guard STILL HAS. Detail: scripts/waiver-repetition-lint.sh\"}\n",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"REPEATED WAIVERS, NOT EXCEPTIONS \u2014 7 escape hatches were used over and over for the same reason instead of the guard being fixed: guard-resume-isolation.sh (88x one reason, 48 subjects over 12 days), guard-worktree-isolation.sh (42x one reason, 42 subjects over 2 days), guard-worktree-removal.sh (36x one reason, over 2 days) (+4 more). Each repeat is a false-positive class the guard STILL HAS. Detail: scripts/waiver-repetition-lint.sh\"}\n",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"REPEATED WAIVERS, NOT EXCEPTIONS \u2014 7 escape hatches were used over and over for the same reason instead of the guard being fixed: guard-resume-isolation.sh (88x one reason, 48 subjects over 12 days), guard-worktree-isolation.sh (42x one reason, 42 subjects over 2 days), guard-worktree-removal.sh (36x one reason, over 2 days) (+4 more). Each repeat is a false-positive class the guard STILL HAS. Detail: scripts/waiver-repetition-lint.sh\"}\n",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"REPEATED WAIVERS, NOT EXCEPTIONS \u2014 7 escape hatches were used over and over for the same reason instead of the guard being fixed: guard-resume-isolation.sh (88x one reason, 48 subjects over 12 days), guard-worktree-isolation.sh (42x one reason, 42 subjects over 2 days), guard-worktree-removal.sh (36x one reason, over 2 days) (+4 more). Each repeat is a false-positive class the guard STILL HAS. Detail: scripts/waiver-repetition-lint.sh\"}\n",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-escalations.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "guard-agent-state-claims.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "guard-idle-land.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "guard-stated-actions.sh",
+  "cases": {
+   "control": {
+    "rc": 2,
+    "out": "",
+    "err": "=== THE REPORT DOES NOT MATCH THE TURN \u2014 TURN BLOCKED ===\n\n  You wrote, as a plain statement of what happens:\n\n      \"Zach builds it tomorrow.\"\n\n  and this turn's tool calls contain no Agent call for zach and no message\n  to a teammate. What the turn actually called: nothing at all.\n\n  A sentence describing an act is not the act. Seven times on 2026-09-02\n  the report was written from the intention, and twice the CEO had to ask\n  where the teammate was. Either\n      make the Agent call now, in this turn, and then finish; or\n      write what is TRUE: the dispatch has not happened, and why, or the\n      choice it waits on, put to the CEO as a question.\n  The sentence in the report must describe what was done.\n\n  This gate stands down on the re-fire, so it can refuse a turn at most\n  once. Fix the reply and finish the turn. Do not weaken or unwire this hook.\n(hook: scripts/hooks/guard-stated-actions.sh)\n"
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ },
+ {
+  "hook": "notice-ceo-inputs-unheld.sh",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": ""
+   }
+  }
+ }
+]

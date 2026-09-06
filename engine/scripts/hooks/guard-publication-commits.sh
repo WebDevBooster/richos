@@ -172,6 +172,22 @@ if [ ! -f "$_PB_LIB" ]; then
 fi
 # shellcheck source=../lib/publication-boundary.sh
 . "$_PB_LIB"
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# On a payload it cannot read, this guard takes the SAME silent exit 0 that a
+# well-formed payload for a DIFFERENT tool takes: the tool-name extraction ends
+# in `|| true`, so "this call is not mine" and "I could not tell whose call this
+# is" are one exit. That is why 17 of 25 PreToolUse guards were measured passing
+# a call in complete silence on 2026-09-05. This separates the two. NO VERDICT
+# CHANGES — the exit is the one already taken — only the silence does. The
+# measurement, the channel and the argument: scripts/lib/unevaluated-notice.sh.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "guard-publication-commits.sh" "$INPUT" \
+        "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
+        "whether this commit crosses the publication boundary"
+fi
 
 # --- Is this a commit at all, and where? -----------------------------------
 # Classified in python, assigned via a quoted heredoc first for the same bash
@@ -390,7 +406,7 @@ PB_REPO="$(pb_repo_root "$PB_ANCHOR" 2>/dev/null || true)"
 # artifact's repository, and never obeyed — a guard that switched itself off on
 # a seat mismatch would have let through a merge that was correctly refused.
 if [ -n "${SEAT_ROOT}" ]; then
-    richos_assert_jurisdiction "scripts/hooks/guard-publication-commits.sh" "${SEAT_ROOT}" "$PB_REPO" "commit in" || true
+    richos_assert_jurisdiction "scripts/hooks/guard-publication-commits.sh" "${SEAT_ROOT}" "$PB_REPO" "commit in" "proceeds" || true
 fi
 
 PB_DECL_RC=0

@@ -207,19 +207,59 @@ richos_in_jurisdiction() {
 }
 
 # ---------------------------------------------------------------------------
-# richos_assert_jurisdiction <hook> <seat> <target> [what]
+# richos_assert_jurisdiction <hook> <seat> <target> [what] [disposition]
 # ---------------------------------------------------------------------------
 # THE CALL EVERY DIVERGING GUARD MAKES. Returns:
 #
 #   rc 0  in jurisdiction  -> the guard proceeds and enforces
-#   rc 1  out of jurisdiction -> the guard must NOT enforce, and the caller's
-#         `exit 0` is now an ANNOUNCED non-enforcement rather than a silent one
+#   rc 1  out of jurisdiction -> ANNOUNCED, so whatever the caller does next is
+#         no longer indistinguishable from a silent skip
 #
 # The announcement is the product. It names the hook, the seat, the artifact and
 # the repository the artifact actually belongs to, so the reader can see the two
 # repositories that failed to be the same one.
+#
+# ===========================================================================
+# THE FIFTH PARAMETER, AND THE DAY THAT PAID FOR IT
+# ===========================================================================
+# rc 1 does NOT mean the guard stood down. Ten call sites route through here and
+# NINE of them proceed to judge the artifact anyway, by the TARGET repository's
+# own declaration — because a guard that switched itself off on a seat mismatch
+# would wave through exactly the cross-repository operation it exists to catch,
+# which is stated at length in richos_governing_root below. Only
+# guard-main-checkout-writes.sh's first call really declines.
+#
+# The banner said "the guard did NOT judge it / THIS IS NOT A PASS" to all ten.
+# For nine of them that is FALSE, and on 2026-09-04 the falsehood cost a day: an
+# engineer read it, reported that guard-dialect.sh does not judge files in
+# cross-repository worktrees — meaning the American-English rule would have been
+# unenforced for most writes on this machine, 48 of 53 worktrees — and it was
+# relayed to the CEO as a finding. A second engineer replayed the exact
+# configuration and measured EXIT 2 WITH A FULL REFUSAL. The guard worked; the
+# message lied.
+#
+# A DIAGNOSTIC THAT MISREPORTS ITS OWN VERDICT IS WORSE THAN NO DIAGNOSTIC,
+# because it manufactures findings, and a manufactured finding costs an engineer
+# a day and a lead his credibility.
+#
+# So the caller says which of the two things happened:
+#
+#   declines  (default) the guard will NOT judge this artifact. Nothing about
+#                       it was checked. This is the wording that was always
+#                       right, for the one call site it was written for.
+#   proceeds            the guard judged it anyway, out of the target's own
+#                       declaration. What is worth saying then is not "nothing
+#                       was checked" but "the CONFIGURATION may be the seat's".
+#
+# THE DEFAULT IS `declines` ON PURPOSE. A caller that forgets the parameter then
+# under-claims — it says nothing was checked when something was — and an
+# under-claim prompts a check, while an over-claim ("this was judged") is a
+# false pass and is how a defense becomes a rumour. Case 4a of
+# seat-jurisdiction.test.sh refuses any call site that leaves it implicit, so
+# forgetting is caught rather than defaulted around.
 richos_assert_jurisdiction() {
     local hook="${1:-<unknown hook>}" seat="${2:-}" target="${3:-}" what="${4:-artifact}"
+    local disposition="${5:-declines}"
     local rc=0
     richos_in_jurisdiction "$seat" "$target" || rc=$?
     [ "$rc" = 0 ] && return 0
@@ -233,18 +273,36 @@ richos_assert_jurisdiction() {
         reason="it belongs to a different repository"
     fi
 
+    local headline
+    if [ "$disposition" = "proceeds" ]; then
+        headline="OUT OF JURISDICTION — JUDGED ANYWAY"
+    else
+        headline="OUT OF JURISDICTION — NOT ENFORCED"
+    fi
+
     if _sj_once "jurisdiction|$hook|${trepo:-none}|${seat:-none}"; then
         {
-            echo "=== RichOS engine: OUT OF JURISDICTION — NOT ENFORCED ==="
+            echo "=== RichOS engine: $headline ==="
             printf '  %-9s: %s\n' "hook" "$hook"
             printf '  %-9s: %s   (the repository this session governs)\n' "seat" "${seat:-<unresolved>}"
             printf '  %-9s: %s\n' "$what" "$target"
             printf '  %-9s: %s\n' "its repo" "${trepo:-<none>}"
             echo "  This guard is seated in one repository and was handed an artifact in"
-            echo "  another, so $reason and the guard did NOT judge it."
-            echo "  THIS IS NOT A PASS. Nothing about that artifact was checked."
-            echo "  To have it enforced, work from a session seated in its repository, or"
-            echo "  adopt the engine there (commit an orchestration.config at its root)."
+            if [ "$disposition" = "proceeds" ]; then
+                echo "  another, so $reason — and this guard JUDGED IT ANYWAY."
+                echo "  IT DID LOOK. It reads its contract out of the artifact's own"
+                echo "  repository, and standing down on a seat mismatch would wave through"
+                echo "  the cross-repository operation this mechanism exists to catch. So"
+                echo "  whatever verdict it reached is a real verdict."
+                echo "  WHAT TO CHECK IS THE CONFIGURATION: anything it took from the SEAT"
+                echo "  rather than from the repository above — thresholds, allowlists,"
+                echo "  exempt paths — may not be that repository's."
+            else
+                echo "  another, so $reason and the guard did NOT judge it."
+                echo "  THIS IS NOT A PASS. Nothing about that artifact was checked."
+                echo "  To have it enforced, work from a session seated in its repository, or"
+                echo "  adopt the engine there (commit an orchestration.config at its root)."
+            fi
             echo "  (said once per hook+repository per session)"
             echo "=========================================================="
         } >&2

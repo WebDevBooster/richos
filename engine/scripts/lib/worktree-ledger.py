@@ -986,6 +986,53 @@ def _cmd_names(args):
     return 0
 
 
+def _cmd_shells(args):
+    """Every NATIVE worktree path that is a SHELL rather than a workspace.
+
+    A cross-repository teammate is spawned with BOTH native isolation in the
+    session's repository AND a prepared worktree in the repository it actually
+    edits. The native one is never written to — its whole job is to be the
+    PLATFORM-OWNED LIVENESS WITNESS, because a hand-rolled worktree takes no
+    lock and `agent-liveness.sh` has nothing else to read.
+
+    So "never written to" is TRUE of a shell and "never used" is FALSE, and
+    the difference is the whole safety property: removing a shell whose agent
+    is still alive destroys the only evidence that it is alive. Callers use
+    this to LABEL, never to decide.
+
+    The join is: a `registered` row of class `native`, whose agent_id also has
+    a `registered` row of another class in a DIFFERENT repository.
+
+    WHAT THIS MISSES, stated rather than implied: a shell whose native
+    registration was never written (a spawn that predates
+    detect-nonnative-worktree.sh writing both members) does not appear here.
+    Absence from this list is not evidence that a worktree is a workspace.
+    """
+    records = read_all(args.ledger)
+    native = {}       # agent_id -> {worktree: repo}
+    elsewhere = {}    # agent_id -> set(repo)
+    for r in records:
+        if r.get("event") != "registered":
+            continue
+        aid = r.get("agent_id") or ""
+        wt = r.get("worktree") or ""
+        repo = r.get("repo") or ""
+        if not aid or not wt:
+            continue
+        if r.get("class") == "native":
+            native.setdefault(aid, {})[wt] = repo
+        elif repo:
+            elsewhere.setdefault(aid, set()).add(repo)
+    out = set()
+    for aid, paths in native.items():
+        for wt, repo in paths.items():
+            if any(other != repo for other in elsewhere.get(aid, set())):
+                out.add(wt)
+    for wt in sorted(out):
+        print(wt)
+    return 0
+
+
 def _cmd_branches(args):
     records = read_all(args.ledger)
     for b in registered_branches(records, args.repo):
@@ -1062,6 +1109,8 @@ def main(argv=None):
     p = sub.add_parser("branches")
     p.add_argument("--repo", required=True)
 
+    p = sub.add_parser("shells")
+
     p = sub.add_parser("paths")
 
     p = sub.add_parser("names")
@@ -1089,6 +1138,7 @@ def main(argv=None):
         "prepared": _cmd_prepared,
         "bound-members": _cmd_bound_members,
         "branches": _cmd_branches,
+        "shells": _cmd_shells,
         "names": _cmd_names,
         "paths": _cmd_paths,
         "session-status": _cmd_session_status,

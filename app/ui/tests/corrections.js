@@ -32,6 +32,7 @@ const path = require("path");
 const { leaveHome,
   loadPlaywright,
   shot,
+  publishShotFile,
   createRun,
   assert,
   assertEqual,
@@ -39,6 +40,7 @@ const { leaveHome,
   UI_DIR,
 } = require("./lib/harness");
 
+const SOURCES = require("./lib/ui-sources");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_RS = path.resolve(UI_DIR, "..", "src-tauri", "src", "main.rs");
 const SHOTS = path.join(__dirname, "shots-5b");
@@ -113,7 +115,7 @@ async function settledShot(page, name, dir) {
   const into = dir || SHOTS;
   fs.mkdirSync(into, { recursive: true });
   const s = await shot(page, name, { fullPage: false });
-  fs.copyFileSync(s.file, path.join(into, name + ".png"));
+  publishShotFile(s.file, path.join(into, name + ".png"));
   return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors)";
 }
 
@@ -560,7 +562,7 @@ async function main() {
     return "2 sentences, byte-identical across mock.js and main.rs";
   });
 
-  await run.check("13 all fourteen commands are reachable from the shipped UI layer", async () => {
+  await run.check("13 thirteen of the fourteen commands are called from the shipped UI, and the fourteenth is declared", async () => {
     // The row said six; there are fourteen, and the point of the row is that NONE of them
     // had a caller. The inventory is derived from `main.rs`'s own `invoke_handler` list and
     // from `main.js` on disk — neither side is typed here.
@@ -581,13 +583,61 @@ async function main() {
     const missingMock = registered.filter((c) => mockJs.indexOf('"' + c + '"') < 0);
     assertEqual(missingMock, [], "every command needs a mock, or the browser suites cannot drive it");
 
-    // main.js reaches twelve of them by name and two through the `DESKS` map's
-    // `unsuppress` entries, which are string values in that same map — so a name-based scan
-    // covers all fourteen and this asserts on the count rather than hand-waving it.
-    const missingUi = registered.filter((c) => mainJs.indexOf(c) < 0);
+    // THE SCAN IS THE WHOLE SHIPPED UI, WITH COMMENTS STRIPPED, AND BOTH HALVES OF THAT
+    // CHANGED THE ANSWER.
+    //
+    // It read `main.js` raw — one file of twelve, comments included — and reported all
+    // fourteen reachable. Thirteen are. The fourteenth,
+    // `loro_propose_correction`, is named nowhere in the executable source and appeared in
+    // the scan because of `main.js:3566`, a COMMENT that says the exact opposite of what the
+    // check concluded from it:
+    //
+    //     `loro_propose_correction` is mocked and reachable, and nothing on this surface
+    //     calls it — nothing SHOULD.
+    //
+    // So a check titled "all fourteen commands are reachable" was passing on a command that
+    // is DELIBERATELY not called, using as its evidence the sentence explaining why it is
+    // not called. `setup.js:497` had already written the hazard down — "the note above the
+    // (absent) listener quotes the line it replaced, so a naive grep matches the explanation
+    // and calls it the defect" — and this is the same hazard running the other way, where
+    // the explanation of an absence manufactures a presence.
+    //
+    // The honest number is 13 called and 1 declared uncalled, with its reason, reconciled
+    // both ways so neither side can rot.
+    const UNCALLED = {
+      loro_propose_correction:
+        "DELIBERATELY has no caller in app/ui/. `loro-structure.md` puts the pane's primary " +
+        "action at \"this is wrong\", *\"which opens a conversation, not a form\"*; proposals " +
+        "arrive on their own from `belief.rs` inside `Spine::submit_prompt` and reach this " +
+        "surface on `rich://loro-proposed`. A compose box here would be building the " +
+        "librarian instead of the desk. Stated at main.js:3566 and checked by check 14, " +
+        "which renders what the detector files.",
+    };
+    const called = new Set(
+      SOURCES.sourcesOfRole("ui").flatMap((f) => registered.filter((c) => f.code.indexOf(c) >= 0))
+    );
+    const missingUi = registered.filter((c) => !called.has(c) && !UNCALLED[c]);
     assertEqual(missingUi, [], "row 5b is only closed when app/ui/ actually names each one");
-    bump(3);
-    return registered.length + " commands: " + registered.join(", ");
+    // Both directions. A declared-uncalled command that acquires a caller has to lose its
+    // declaration, or the list becomes a place to park a command nobody looks at again.
+    const wronglyDeclared = Object.keys(UNCALLED).filter((c) => called.has(c));
+    assertEqual(
+      wronglyDeclared,
+      [],
+      "declared uncalled but now called from the shipped UI — remove the declaration: " + wronglyDeclared.join(", ")
+    );
+    const notRegistered = Object.keys(UNCALLED).filter((c) => registered.indexOf(c) < 0);
+    assertEqual(notRegistered, [], "a declaration names a command main.rs no longer registers: " + notRegistered.join(", "));
+    for (const c of Object.keys(UNCALLED)) {
+      assert(UNCALLED[c].length >= 60, c + ": a declaration needs a reason, not a marker");
+    }
+    bump(5);
+    return (
+      registered.length + " registered · " + called.size + " called from the " +
+      SOURCES.stateSources().length + " shipped UI file(s) · " + Object.keys(UNCALLED).length +
+      " declared uncalled with a reason (" + Object.keys(UNCALLED).join(", ") + "): " +
+      registered.join(", ")
+    );
   });
 
   // ---- 14. the trigger's own output, on the real desk -----------------------------------
@@ -800,6 +850,15 @@ main().catch((e) => {
 //  12  mock.js: change one word of `LORO_DESK_ABSENT`
 //        -> the preview rehearses a sentence the product does not say
 //  13  main.rs: remove `loro_show_record` from `generate_handler!`
+//  13b NOT A MUTATION — THE SHIPPED SOURCE TURNED IT RED. Scanning the whole shipped UI
+//      WITH COMMENTS STRIPPED, instead of `main.js` raw, dropped `loro_propose_correction`
+//      out of the "called" set: `row 5b is only closed when app/ui/ actually names each one
+//      — actual ["loro_propose_correction"]`. It has no caller in the executable source and
+//      never had one. What made the old check green was `main.js:3566`, a COMMENT reading
+//      "`loro_propose_correction` is mocked and reachable, and nothing on this surface calls
+//      it — nothing SHOULD." A check titled "all fourteen are reachable" was passing on the
+//      sentence that explains why the fourteenth is not. The honest number is 13 called and
+//      1 declared uncalled with its reason, reconciled in both directions.
 //        -> 13 registered, and the count assertion names it
 //  14  mock.js `seedLoroProposals`: push `Object.assign({}, p, {preview: LORO_PREVIEW})`
 //        -> the rendered bytes are a fixture's, not the detector's

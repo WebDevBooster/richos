@@ -1,0 +1,9 @@
+turn-manifest rc=0 secs=18 | ✓ 7/7 properties proven load-bearing.
+ceo-ruled rc=0 secs=41 |   9/9 properties proven load-bearing
+waiver-repetition rc=1 secs=2 |            FAIL  17. an unadopted repository gets no notice at all
+ceo-asks rc=0 secs=105 |   13/13 properties proven load-bearing
+unasked-deferral rc=0 secs=105 | === 23 proven load-bearing, 0 not ===
+unstarted-rows rc=0 secs=264 |   37 mutant(s) killed, 0 survived or misfired
+ceo-todos rc=0 secs=409 | [32m✓ 12/12 mutants killed — every property is load-bearing.[0m
+root-contract rc=0 secs=462 | === mutation harness: all 11 fixes proven load-bearing ===
+FINALDONE

@@ -34,6 +34,7 @@ const fs = require("fs");
 const path = require("path");
 const { leaveHome, loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
+const SOURCES = require("./lib/ui-sources");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_JS = fs.readFileSync(path.join(UI_DIR, "main.js"), "utf8");
 
@@ -307,8 +308,22 @@ async function main() {
     // Structural, because the property is about the SHIPPED SOURCE rather than about one
     // run: a second call site is a second place a default could creep back in, which is the
     // whole thing `wiki/loro-structure.md` §"No silent default" removed from the compiler.
-    const sites = MAIN_JS.match(/invoke\(\s*"provision_memory"/g) || [];
-    assertEqual(sites.length, 1, "one door, or a default has somewhere to hide");
+    //
+    // AND "THE SHIPPED SOURCE" MEANT `main.js` UNTIL 2026-09-05. It was a `readFileSync` of
+    // one file while the shell loads twelve, so the second call site this check exists to
+    // refuse could have been written into `updates.js` or `home.js` and this would still
+    // have printed "1 call site". `SOURCES.uiMatches` asks every file the manifest reaches
+    // and takes no file argument, which is the only version of this that cannot narrow.
+    const searched = SOURCES.stateSources();
+    assert(searched.length >= 12, "the shipped-UI list is " + searched.length + " file(s) — that is not this tree");
+    const sites = SOURCES.uiMatches(/invoke\(\s*"provision_memory"/);
+    assertEqual(
+      sites.length,
+      1,
+      "one door, or a default has somewhere to hide — found " + sites.length + " across " +
+        searched.length + " shipped UI file(s): " + sites.map((s) => s.site).join(", ")
+    );
+    assertEqual(sites[0].file, "main.js", "the one call site moved to " + sites[0].site);
     assert(
       /const consented = memoryState\.offered_location;/.test(MAIN_JS),
       "the location the window showed must be held in one variable, not re-read"
@@ -324,13 +339,21 @@ async function main() {
       /openMemorySetup\(readable \? MEMORY_DONE : MEMORY_NO_READER, consented,/.test(MAIN_JS),
       "the result screen must render the location he consented to, from the same variable"
     );
-    // And nothing in the surface composes a path of its own.
-    assert(
-      !/["'`][^"'`]*\/RichOS\/corpus/.test(MAIN_JS),
-      "main.js must not contain a corpus path — the location comes from the backend or not at all"
+    // And nothing in the surface composes a path of its own — ACROSS THE WHOLE SHIPPED UI,
+    // not just `main.js`. An absence claim scoped to one file of twelve is the weakest kind
+    // of green there is: it passes by not looking.
+    const paths = SOURCES.uiMatches(/["'`][^"'`]*\/RichOS\/corpus/);
+    assertEqual(
+      paths.map((p) => p.site),
+      [],
+      "a corpus path literal is in the shipped UI — the location comes from the backend or " +
+        "not at all: " + paths.map((p) => p.site).join(", ")
     );
     bump(5);
-    return "1 call site, passing `memoryState.offered_location`, and no path literal in the surface";
+    return (
+      "1 call site (" + sites[0].site + "), passing `memoryState.offered_location`, and no path " +
+      "literal anywhere in the " + searched.length + " shipped UI file(s)"
+    );
   });
 
   await run.check("NEGATIVE CONTROL: this suite asserted a non-zero number of things", async () => {
@@ -385,4 +408,13 @@ main().catch((e) => {
 //  6   main.js `maybeAskAboutMemory`: return true for every state
 //        -> an install that is already set up is interrupted on every launch
 //  7   main.js: add a second provision_memory call site
+//  7b  updates.js: `invoke("provision_memory", { location: "/Users/x/RichOS/corpus" })`
+//        -> `one door, or a default has somewhere to hide — found 2 across 12 shipped UI
+//           file(s): updates.js:832, main.js:3258`
+//  7c  updates.js: `const __fallbackCorpus = "/Users/x/RichOS/corpus";` alone
+//        -> `a corpus path literal is in the shipped UI ... ["updates.js:830"]`
+//        Both are the widening, not the rule: until 2026-09-05 this check read `main.js`
+//        and nothing else, so a second door or a path literal in any of the other eleven
+//        shipped files was invisible to a check whose whole subject is that there is only
+//        one of each.
 //        -> a second door for a default to come back through

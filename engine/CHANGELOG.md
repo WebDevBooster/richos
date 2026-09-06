@@ -10,7 +10,343 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The worktree inventory reported `reaped=11` for a run that removed
+  nothing** (`scripts/reap-stale-worktrees.sh`,
+  `scripts/reap-stale-worktrees.test.sh`,
+  `scripts/reap-stale-worktrees.mutation.sh`,
+  `scripts/lib/worktree-ledger.py`) — MINOR.
+
+  The CEO opened his IDE on 2026-09-04, found 17 `agent-*` directories under
+  `femcboost/.claude/worktrees/` and asked for "an automatic mechanism for
+  cleaning those things up". The mechanism was not missing. This session's own
+  start-up inventory ended `reaped=11 skipped=21 errors=0 residue=0` under a
+  `(DRY-RUN, nothing removed)` header — eleven removals in the past tense,
+  zero removals performed, and the parenthetical that said so sat where nobody
+  reads past a number.
+
+  **The answer taken, and it is the second of the two the row allowed:
+  DRY-RUN stays the default and the report stops lying.** Removal stopped
+  being this script's job on 2026-09-03 by CEO ruling — *"The system should
+  stop trying to discover whether the agent might return. It is forbidden to
+  return."* — after nine rounds of sweep-decided liveness failed in nine
+  shapes, the last by removing a live agent's worktree. Removal now belongs to
+  the worktree transaction and `reconcile-terminal-worktrees.py`, which works:
+  75 removed, measured 2026-09-05. Re-arming `--execute` at session start
+  would be a regression wearing a fix's clothes.
+
+  What that machine does not cover is a worktree NO transaction ever claimed,
+  and those are exactly the pile in his IDE. So:
+
+  - In DRY-RUN the summary reads `removed=0 would-remove=N`. `reaped=N`
+    appears only under `--execute`. Two counters, not one relabeled at print
+    time — one number cannot honestly answer both questions.
+  - `would-remove>0` is a **PENDING** verdict, never CLEAN, and the clause
+    names the single command that turns removal on, because "why is it
+    dry-run" deserves its answer at the point of use.
+  - The verdict now names **every** pending condition rather than the first it
+    meets. First-match-wins hid whichever sorted later, and the new one sorts
+    last.
+
+- **The reaper deleted worktrees on its own liveness answer, bypassing the
+  sanctioned remover** (`scripts/reap-stale-worktrees.sh`) — MINOR.
+
+  Under `--execute` it ran `git worktree remove` directly. That is a second
+  implementation of "is this agent dead" sitting beside
+  `scripts/lib/agent-liveness.sh`, which is how the first one silently becomes
+  the stale one — the exact defect `remove-agent-worktree.sh` documents in its
+  own header. Removal is now routed through that remover: the gates are a
+  FILTER, the remover is the AUTHORITY, and a refusal (its exit 3) is an ERROR
+  naming the disagreement rather than a routine skip. `--branch` is
+  deliberately not passed, so the loop keeps `git branch -d` (which refuses
+  unmerged commits) instead of the remover's `-D`.
+
+- **One directory, two repositories: the same worktree counted twice**
+  (`scripts/reap-stale-worktrees.sh`) — PATCH.
+
+  `/Users/alex/ab/richos-alex` is a copy of `richos`'s `.git` and registers
+  the same four worktree paths. Discovery found both, so `would-remove=11`
+  described SEVEN real directories, and under `--execute` the second
+  repository would have run `git worktree remove` on a path the first had
+  already deleted — a spurious error failing an otherwise clean run. The first
+  reap-eligible claimant now wins; later claimants are named
+  (`duplicate-registration`) and never acted on. Nine such rows on this
+  machine today.
+
 ### Added
+
+- **Unmerged work is NAMED in the report, not merely counted**
+  (`scripts/reap-stale-worktrees.sh`) — PATCH.
+
+  `SKIP agent-a44e6817bce90ed1c unmerged(+1)` was the entire report on a
+  worktree whose one commit is *"BLOCKED.md: the 'parked until' fixture
+  dispatched an Agent, so the arm-2 rule as specified reads it green"* — a
+  teammate's escalation, written exactly as the protocol of the day told it
+  to, committed on a branch nobody merged. A second one sits beside it. Both
+  are still there. The gate was always right — unmerged work is never swept —
+  and the report was useless, which is why nobody looked. Every `unmerged`
+  skip now carries up to three commit subjects.
+
+- **A cross-repository SHELL is labeled `native-shell`, and labeling is all it
+  is** (`scripts/reap-stale-worktrees.sh`, `scripts/lib/worktree-ledger.py`
+  `shells`) — PATCH.
+
+  The row that requested this work described a cross-repo spawn's native
+  worktree as "a worktree it will never use". That is false in the fatal
+  direction: it holds no files and one thing that matters — the
+  platform-owned LOCK that `agent-liveness.sh` reads. A hand-rolled tree takes
+  no lock at all, which is why `guard-worktree-isolation.sh` refuses a
+  cwd-only spawn for having "no platform-owned lifecycle witness". Remove a
+  shell whose agent is running and the only evidence that it is running is
+  gone. So `native-shell` is printed and counted (`shells=N`) and wired to
+  nothing that decides; a native worktree with no registration is reported as
+  plain `native` and the count of those is DECLARED in `blind:`, because
+  absence from the shell list is not evidence of anything.
+
+- **`scripts/reap-stale-worktrees.mutation.sh`** — PATCH. Four properties
+  proven load-bearing behind an unmutated control run, at a measured cost of
+  ~6.5 minutes for the suite plus its harness. The two properties deliberately
+  NOT mutated, and why, are named in that file's header rather than left to be
+  noticed.
+
+- **An ack is no longer destroyed by the cleanup that follows every teammate**
+  (`scripts/inflight-ack.sh`, `scripts/lib/inflight.{py,sh}`,
+  `scripts/inflight-notify.sh`, `reference/ack-protocol-seam.md`,
+  `scripts/hooks/inflight-ack-durability.test.sh`) — MINOR.
+
+  An ack was only a file inside the teammate's worktree. Both governed
+  repositories gitignore `.claude/*`; the harness auto-cleans an isolation
+  worktree that is UNCHANGED at completion; and a gitignored write does not
+  make a tree changed. So an agent whose only writes were acks had its
+  worktree, and every ack in it, deleted the moment it finished.
+
+  Observed rather than theorized. `echo-opus-529` wrote three acks on
+  2026-09-05, reported them by path, and named the ignore rule itself in its
+  own handoff; `361590f`, `363b0f8` and `c92488d` are absent from the whole of
+  the working tree today. `zach-opus-not1` hit the other end: after its
+  worktree was cleaned, `inflight-ack.sh` REFUSED its next ack with "worktree
+  does not exist", so it could not answer at all.
+
+  **Why it is not cosmetic:** the Stop-hook notice escalates a missing ack on a
+  measured 30-minute timeout, and an ack that was written, confirmed and then
+  deleted reads at that timeout exactly like an ack that was never written. The
+  operator is sent to chase a teammate that already complied.
+
+  **The row offered three options and costed none of them.** Un-ignoring the
+  directory in one repository was refuted by a commit LATER than the row —
+  `c19cd83`, 2026-09-02, untracked all 31 acks from `richos` precisely because
+  they carry the operator's absolute home paths, teammate names and session
+  ids and that repository is the open-source launch target. It also leaves the
+  mechanism repository-dependent, which IS the defect. Moving the write into a
+  hook answers WHO writes the evidence and not WHERE it lives, so it would
+  evaporate identically. What was actually wrong was the location, so the
+  location changed: an append-only row in `~/.claude/state/inflight-acks.jsonl`,
+  outside every repository, worktree and session, beside the two ledgers that
+  already exist for exactly this reason. The worktree file is still written and
+  still read — every ack already on disk is one — as the readable mirror.
+
+  Consequences that are the point rather than side effects: a teammate whose
+  worktree has ALREADY been removed can now ack (the refusal above is gone); an
+  ack that cannot be made durable exits non-zero and says so, instead of
+  leaving a file in a doomed tree; a worktree that is no longer live still has
+  its ack read rather than discarded; and acks whose teammate has no registered
+  worktree left are reported under ACKED, WORKTREE GONE instead of not being
+  reported at all. `RICHOS_INFLIGHT_ACK_LEDGER` overrides the path, same
+  spelling and same purpose as `RICHOS_ESCALATION_LEDGER`.
+
+  Proven against a REAL removal — the engine's own `remove-agent-worktree.sh`,
+  on a real linked worktree, which deregisters as well as deletes — and in both
+  directions, because a store that answers "acked" for everybody would be worse
+  than the bug. The suite carries its own positive probes: it re-runs the
+  survival assertion against an emptied ledger and requires it to go RED, and
+  it makes the Stop-hook nag fire before it asserts the nag's silence, so no
+  case can pass by never running.
+
+### Added
+
+- **An escalation a teammate raises cannot quietly fail to arrive**
+  (`scripts/escalate.sh`, `scripts/lib/escalations.{py,sh}`,
+  `scripts/hooks/notice-escalations.sh` on Stop,
+  `scripts/hooks/session-start-escalations.sh` on SessionStart,
+  `reference/escalation-protocol-seam.md` +
+  `scripts/install-escalation-protocol.sh`) — MINOR.
+
+  The in-flight sweep covers lead → teammate. This is the direction back, and
+  it had the same defect one layer worse. The protocol was: write `BLOCKED.md`
+  at the root of your worktree, commit it, send a one-line message. On
+  2026-09-02 two teammates did exactly that, correctly, recording that a
+  premise in each brief was contradicted by evidence. NEITHER WAS A STALL. They
+  were found on 2026-09-04 by a worktree cleanup, because somebody was counting
+  directories.
+
+  The mailbox is measured at ~50% loss, so a file was chosen as the durable
+  substrate instead — and it is durable in exactly the wrong direction. A file
+  on a teammate's branch is read only by whoever merges that branch, and the
+  teammate cannot see whether its branch was ever merged. The repository root
+  is separately closed at nine entries by permanent CEO ruling, so the same
+  write would be refused today with nowhere obvious to go.
+
+  So the escalation is now an append-only LEDGER ROW outside every repository,
+  worktree and session (`~/.claude/state/escalations.jsonl`, the substrate the
+  worktree ownership ledger already uses). `escalate.sh raise` is one call; the
+  worktree, branch, HEAD, teammate and repository are DERIVED from the
+  workspace, and the ledger row is written BEFORE the record file so a failed
+  file write cannot stop the escalation arriving. The record file goes under
+  `docs/verification/`, is never written into a repository with no `docs/`
+  directory (that would add a root entry), and nothing depends on it.
+
+  **Delivery is two hooks and no mailbox.** SessionStart puts the teammate's
+  own question, verbatim, into the lead's context — the whole escalation, never
+  a count, because a count is something to acknowledge and get past. Stop names
+  the condition in one line on the channel measured to reach the operator. An
+  unacknowledged escalation is re-announced from scratch by every NEW session
+  and gets LOUDER at 1h, 24h and 72h, so state-change de-duplication cannot
+  decay into the two-day silence it exists to prevent. It closes only on an
+  `ack` carrying a disposition of at least 30 characters; nothing is ever
+  deleted.
+
+  **`--state` is required** (`work-complete` / `proceeding` / `stopped`) and is
+  quoted in every notice, which says "none is a stall" whenever nothing
+  outstanding is stopped. Both originals were `work-complete` and said so
+  explicitly; a mechanism that read every escalation as a failure would teach
+  teammates not to raise them, and the channel would die of disuse rather than
+  of a bug.
+
+  Proof rather than assertion: `scripts/hooks/escalations.test.sh` (75 cases)
+  deletes the teammate's worktree with its branch never merged and shows the
+  escalation still arriving in full; carries a NEGATIVE CONTROL that rebuilds a
+  predicate reporting "clear" over a live escalation; and collapses
+  `AGE_BUCKETS` in the SHIPPED source so the escalation ages a full day in
+  silence — the 2026-09-02 incident, reproduced inside the suite the runner
+  discovers, rather than in a `*.mutation.sh` that eight of thirteen times gets
+  run by nobody. `docs/verification/escalation-delivery-2026-09-05/`
+  holds the live run: raised in a richos worktree, read by a femcboost-seated
+  session, with `git merge-base --is-ancestor` proving the branch was not
+  merged.
+- **The engine's first `UserPromptSubmit` hook: a file the CEO hands over
+  commits itself** (`scripts/hooks/commit-ceo-inputs.sh` +
+  `commit-ceo-inputs.py`, with `scripts/hooks/notice-ceo-inputs-unheld.sh` on
+  `Stop`) — MINOR.
+
+  The registration table read 55 hooks across nine events, and every one of
+  those events was something the ORCHESTRATOR does — what it spawns, writes,
+  commits, pushes, removes, claims and defers. **Nothing watched the INPUT.**
+  On 2026-09-05 a specification the CEO wrote drove verified changes to a
+  public repository while the file itself sat untracked on one hard drive. He
+  noticed; nothing else could have.
+
+  A path his message names — absolute, `~`-rooted, or inside a code span, and
+  **never a bare word** — that exists on disk and that git is not holding is
+  now **committed, unmodified, on the spot**, with a message saying it is his
+  input and where it came from.
+
+  **It commits rather than reminding, and the first version did not.** That
+  version found the file, told the orchestrator and explained that committing
+  is a judgment. His answer: *"'it does not commit for you': Then who commits
+  for me? Santa Claus?"* — and he is right, structurally rather than
+  rhetorically. His whole complaint was that a document went uncommitted
+  because the orchestrator forgot; a mechanism whose last link is the
+  orchestrator remembering is the same failure with a reminder attached. So
+  the judgment is made MECHANICAL, out of gates this engine already ships:
+  `scan-secrets.sh` and `guard-publication-writes.sh` are INVOKED, never
+  reimplemented, so a detector added to either is inherited with no edit here.
+
+  A credential, private material, a path at a repository ROOT, an encoding the
+  gates cannot read, a merge in progress, a detached HEAD, a live agent
+  worktree, or more paths than a hand-over plausibly carries all mean NOT
+  COMMITTED — stated out loud with the reason and where the file should live
+  instead. That is his own exception and it stays as narrow as he made it.
+
+  **It never blocks, and that is measured rather than chosen.** Claude Code
+  2.1.261's own hook table: on this event, `exit 2` blocks processing and
+  **erases the original prompt**. So the only exit code is 0, on every path,
+  and `suppressOriginalPrompt` is never emitted.
+
+  **His file is never modified and no byte of it is ever printed.** The commit
+  is built through plumbing from HEAD's tree plus one blob in a throwaway
+  index, so the working tree is never written and nobody else's staged work is
+  swept in; the branch moves by compare-and-swap, so a concurrent commit loses
+  the race loudly instead of being clobbered.
+
+  **The Stop partner is what makes a refusal impossible to miss.** A hook
+  fires once and cannot tell whether anyone acted, so refusals go to a ledger
+  (`.claude/state/ceo-inputs.jsonl`) that is re-read at every turn end and
+  keeps naming the file until git holds it, an ignore covers it, or it is
+  gone. It clears itself from the FACT, never from an acknowledgement, so it
+  cannot decay into a nag nobody reads.
+
+  Every way either hook can fail to do its job — stood down
+  (`CHECK_CEO_INPUTS=0` / `CHECK_CEO_INPUTS_UNHELD=0`), no `python3`, no
+  `git`, a missing analyzer, an unresolvable root, an unreadable payload, a
+  budget overrun — SAYS so. A clean run still writes its ledger line, so the
+  absence of a finding is distinguishable from the absence of a check.
+
+  43 cases, destructive in both directions, every silence paired with the
+  specimen firing in the same run.
+- **A named-person deny-list, held outside every repository, checked at write
+  time, at command time and at release** (`scripts/lib/named-persons.py`,
+  `scripts/lib/named-persons.sh`, `scripts/hooks/guard-named-persons-writes.sh`,
+  `scripts/hooks/guard-named-persons-commands.sh`, `scripts/named-persons.sh`,
+  `scripts/hooks/named-persons.test.sh`) — MINOR.
+
+  **A NAME IS NOT A SECRET AND NEVER TRIPS A SECRET SCANNER.** It carries no
+  vendor prefix and the entropy of a person's name is the entropy of ordinary
+  prose. It is not recorded speech either, so the publication-boundary guards
+  score it at zero. A third party's name reached a published repository through
+  a test fixture's source filename and passed every check there was, and the
+  person himself was the one who found it. The dated detail is in the operator's
+  private record, `wiki/publication-boundary-incidents.md`, for the reason that
+  page exists.
+
+  **The scrub is what shapes the design.** The commit that removed the name from
+  the file put the same name — and the company — in its own commit message, on
+  the repository's commit list, more visible than the line it deleted; it had to
+  be amended and force-pushed with branch protection lifted. So: **a scrub covers
+  four surfaces — file content, commit message, branch name, and PR/issue
+  title.** Three of the four were missed by the remedy for the first, and each is
+  now a chokepoint. Which of them a hook can actually SEE is stated in the
+  predicate's header rather than implied: an editor-composed commit message,
+  commits made by `merge`/`cherry-pick`/`rebase`/`am`, and a title typed into
+  github.com are named as out of reach, and the release check is the backstop for
+  everything typed rather than executed.
+
+  **The list is not in the repository, and cannot be.** A roster of a person's
+  clients, friends and family is worse to publish than any one name on it. It
+  lives at `~/.richos-privacy/named-persons` — operator scope, outside every
+  checkout, the shape `~/.richos-signing/` already set — and `load_list()`
+  REFUSES a list that resolves inside a git work tree, naming the repository. An
+  entry may be plaintext or `sha256:<token-count>:<hex>`, so a digest-only list
+  discloses a length and nothing else, and no block message ever prints the
+  matched name: only the first and last character of each token, which is
+  `scan-secrets.sh`'s redaction convention and is here for its reason.
+
+  **ABSENT is a third verdict, never a pass.** A missing list means nothing was
+  checked, and the two are the same only to a checker that lies. At write time it
+  is ANNOUNCED — loudly, by name, once per repository per session — and the write
+  proceeds, because a stranger who clones a public repository has no such roster
+  and a guard that bricks a fresh clone gets deleted. At RELEASE time it REFUSES,
+  because a release runs on the owner's machine. BROKEN — inside a repository,
+  unreadable, malformed, or empty — blocks everywhere.
+
+  **The match rule is narrow because the expensive failure is the false one.** A
+  `name:` entry must normalize to two or more tokens and matches only where they
+  appear adjacent; a bare given name cannot be entered at all and the loader says
+  why. Single tokens are opt-in per entry. Normalization folds case, accents,
+  camelCase and every separator, which is what makes a name buried in an
+  underscore-joined media filename the same match as the name in prose — the
+  shape the leak took. Initials, plurals and anything fuzzy are deliberately not
+  matched, and are listed as gaps rather than left to be discovered.
+
+  **Two bugs the suite found, both of the "matches nothing, looks clean" class.**
+  The command classifier used `grep -Eq` with `[^\n;|&]` to mean "within one
+  shell statement" — but in a POSIX bracket expression `\n` is a backslash and
+  the letter n, so the class excluded the letter n and every `git commit` whose
+  command string contained an n anywhere failed to match. It passed a hand test
+  against a path with no n in it. And seeding the list from the operator's
+  curated entity record put two names on it whose only appearances in the tree
+  were synthetic test fixtures — that file is an ASR vocabulary, not a roster, so
+  `--seed` now emits every proposal commented out.
 
 - **Declarations may be grouped in `.richos/`, and where one lives is now a
   single question with a single answer** (`scripts/lib/declaration-path.sh`,
@@ -455,6 +791,46 @@ version heading with Added / Changed / Fixed groupings.
   list carry the two new files.
 
 ### Fixed
+
+- **A test suite wrote a real-looking escalation into a live teammate's
+  worktree, and a reader could not tell it from a genuine one**
+  (`scripts/hooks/escalations.test.sh` cases 12, 14, 16 and the new case 17) —
+  PATCH. `escalate.sh raise` writes TWO things: a ledger row, and a markdown
+  record whose path comes from `--worktree`, which defaults to the current
+  directory. The suite redirected the LEDGER into its sandbox with
+  `RICHOS_ESCALATION_LEDGER`, and case 14's `raise` passed no `--worktree`, so
+  every run from a live checkout dropped a record named
+  `<date>-zach-opus-e1corrupt-a-good-row-beside-a-bad-one.md` into that
+  checkout's own `docs/verification/escalations/` — with an id, a `from:`, a
+  HEAD sha and a "close it with" command. One was found untracked in a working
+  engineer's worktree on 2026-09-05; he correctly refused to commit it and
+  spent part of a handoff explaining a file he had not written. The suite
+  reported `59 passed, 0 failed` on every one of those runs.
+
+  Case 14 was the only call that leaked a FILE. Two others were non-hermetic
+  in ways that were one edit away from leaking and are corrected with it: case
+  16 was protected by `--no-record` alone, and case 12 called the module
+  directly and so recorded the LIVE worktree, branch and HEAD in its ledger
+  row — a fixture wearing a real agent's identity, which is what made the
+  escaped file so convincing in the first place.
+
+  **The generic defect is a test that redirects ONE output to a sandbox while
+  a SECOND output still follows the working directory**, and it is invisible
+  in review because the redirect that IS there reads as care. So those three
+  calls are corrected AND the suite now carries a LEAK CANARY: it snapshots
+  the directory it was started in (plus the engine's own root, plus the
+  operator's real ledger) before case 1 and asserts at the end that nothing
+  appeared, naming any escaped path. A root it cannot read, or one too large
+  to witness honestly, FAILS the case rather than passing quietly.
+
+  The canary is proven in both directions inside its own sandbox, against the
+  real mechanism rather than a mock: with no `--worktree` it goes red and
+  names the record; with `--worktree` it is silent; and — the hole it fell
+  into while being written — a path-only comparison went GREEN on the second
+  consecutive leaking run, because the record filename is derived from date,
+  teammate and title, so run two overwrote run one's file and nothing was
+  new. Untracked entries therefore carry a content and mtime witness, and
+  case 17d is the regression test for it.
 
 - **A failed `git worktree repair` was recorded as a successful quarantine**
   (`scripts/lib/worktree-transactions.py` `quarantine`;

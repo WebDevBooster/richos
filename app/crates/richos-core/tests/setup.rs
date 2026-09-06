@@ -684,28 +684,104 @@ fn a_binary_that_is_not_anthropics_is_refused_after_the_installer_succeeds() {
 }
 
 /// **THE POSITIVE HALF, ON THE REAL BINARY.** If this machine has Anthropic's `claude`, the
-/// same function that guards an install verifies it and says `trusted`. Skipped, loudly,
-/// when the binary is absent — a negative-only signature test is one that passes because
-/// everything fails.
+/// same function that guards an install verifies it and says `trusted`. A negative-only
+/// signature test is one that passes because everything fails.
+///
+/// # It used to be a negative-only signature test on most machines, and it said so itself
+///
+/// Until 2026-09-05 this body opened with two early `return`s — no `$HOME`, and no
+/// `~/.local/bin/claude` — each preceded by an `eprintln!("SKIPPED: …")`. **A test that
+/// returns is reported `ok`, and cargo captures the stderr of a passing test and throws it
+/// away**, so the intent was legible in this file and nowhere in any log. It carried no
+/// `cfg`, `app-spine-ci.yml` runs `cargo test --locked -p richos-core` on `ubuntu-latest`,
+/// and no Linux runner has a `claude` — so this line has read `ok` on every CI run since
+/// that job landed, over a signature check that could not even have been attempted there.
+///
+/// # Two conditions, and only one of them is a machine's business
+///
+/// [`verify_claude_signature`] runs `/usr/bin/codesign`. That is macOS's, so **off macOS
+/// this test can never run, whatever is installed** — a compile-time fact about the target,
+/// which is what `#[cfg_attr(…, ignore)]` is for. libtest then prints `ignored, <reason>`
+/// and counts it in its own column: visibly not-run, in the log, on the runner that until
+/// today printed `ok`.
+///
+/// **On macOS the absence of `claude` is a finding, not a reason to skip**, and this test is
+/// a hard failure rather than a quiet pass. `richos-voice`'s `tts.rs` reached the same
+/// conclusion about `/usr/bin/say` on 2026-09-05, and the reason is the same one: the value
+/// of a green suite is that somebody checked, so a run that could not check must not be
+/// green. The message names what is missing and what to do about it — installing Claude Code
+/// is what `install_claude_code` above exists to do, and `$RICHOS_CLAUDE_BIN` points this at
+/// a binary anywhere.
+///
+/// # Why the condition is NOT a build-script `cfg`, unlike `richos-voice`
+///
+/// `crates/richos-voice/build.rs` turns `RICHOS_VOICE_LIVE_AUDIO` into `cfg(live_audio)`, and
+/// the obvious move here was to do the same for "does this machine have a `claude`". It was
+/// measured instead of assumed: emitting one extra `cargo::rustc-cfg` from
+/// `crates/richos-core/build.rs` changes the release library's bytes —
+/// `librichos_core.rlib` went `c3f2d079…` → `e8b810c7…` and back to `c3f2d079…` when the line
+/// was removed. That would make a crate that ships inside the signed `.app` compile
+/// differently depending on whether the BUILD machine happened to have Claude Code installed,
+/// which is a real cost against `docs/verification/reproducible-rust-builds-2026-09-04/` and
+/// against this crate's own `build.rs` header (*"Nothing else belongs in this file"*). A
+/// `target_os` cfg costs nothing: it is part of the build's identity already.
 #[test]
+#[cfg_attr(
+    not(target_os = "macos"),
+    ignore = "NOT CHECKABLE ON THIS TARGET: the Anthropic signature pin is read by \
+              /usr/bin/codesign, which is macOS's. This is a not-run, not a pass — run \
+              it on a Mac. --include-ignored reaches a panic here, never a green line."
+)]
 fn the_real_claude_binary_on_this_machine_satisfies_the_requirement() {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        eprintln!("SKIPPED: no HOME");
-        return;
+    // `#[ignore]` suppresses the RUN, not the BODY: `--include-ignored` on Linux would reach
+    // this line. Refuse in words rather than assert something meaningless about `codesign`.
+    assert!(
+        cfg!(target_os = "macos") && Path::new("/usr/bin/codesign").is_file(),
+        "the signature pin is a macOS designated-requirement check and /usr/bin/codesign \
+         is not runnable here, so nothing was verified. You reached this body with \
+         `--include-ignored` or `--ignored`; on a Mac it runs by default."
+    );
+
+    // THE PRODUCT'S OWN LOCATOR, not a second definition of where `claude` lives: the
+    // explicit `$RICHOS_CLAUDE_BIN`, then `~/.local/bin/claude`, then `$PATH` — so a binary
+    // this app WOULD drive is a binary this test checks, and an install somewhere unusual is
+    // not silently treated as no install at all.
+    let found = find_claude(&SetupPaths::from_process());
+    let at = match (found.present, &found.at) {
+        (true, Some(at)) => PathBuf::from(at),
+        _ => panic!(
+            "no `claude` on this machine, so THE SIGNATURE PIN WAS NOT CHECKED BY THIS \
+             RUN — and a check that did not happen must not report `ok`. Looked in: {}. \
+             Install Claude Code (`install_claude_code`, tested above, is what RichOS \
+             does for a customer) or set $RICHOS_CLAUDE_BIN to an existing binary.",
+            found.looked_in.join("; ")
+        ),
     };
-    let bin = home.join(".local/bin/claude");
-    if !bin.exists() {
-        eprintln!("SKIPPED: no {} on this machine — the negative case above still runs", bin.display());
-        return;
-    }
-    let verdict = verify_claude_signature(&bin);
+
+    let verdict = verify_claude_signature(&at);
     assert!(verdict.trusted, "the installed claude failed its own designated requirement: {verdict:?}");
+
     // The SYMLINK is resolved, so the verdict names the file that was checked. `stapler`
     // exits 0 on the unresolved symlink having validated nothing; this must not do that.
-    assert!(
-        verdict.checked.contains("versions/"),
-        "the symlink was not resolved before checking: {verdict:?}"
+    // Stated as the exact identity rather than a substring, so it holds for an install that
+    // is not laid out the way Anthropic's installer lays one out.
+    let canonical = std::fs::canonicalize(&at)
+        .unwrap_or_else(|e| panic!("{} could not be resolved: {e}", at.display()));
+    assert_eq!(
+        verdict.checked,
+        canonical.display().to_string(),
+        "the verdict does not name the file that was checked: {verdict:?}"
     );
+
+    // And for the standard install — the launcher Anthropic's installer writes and retargets
+    // on every self-update — the resolved path is the versioned one, which is the concrete
+    // form of the same property and the one that caught the unresolved-symlink bug.
+    if at.ends_with(".local/bin/claude") {
+        assert!(
+            verdict.checked.contains("versions/"),
+            "the symlink was not resolved before checking: {verdict:?}"
+        );
+    }
 }
 
 /// The designated requirement is the measured one, character for character. If somebody
@@ -782,23 +858,55 @@ fn the_digest_is_correct_across_the_buffer_boundary() {
 /// And it agrees with the tool everybody else uses. Not because `shasum` is trusted more —
 /// the point of a pure-Rust digest is that it is not a subprocess — but because a private
 /// definition of SHA-256 that nobody else shares would make the published digest useless.
+///
+/// **A MISSING TOOL USED TO RETURN, AND A TEST THAT RETURNS IS REPORTED `ok`.** Same defect as
+/// the signature test above, in the one place where the condition is not an opt-in at all:
+/// this test's whole content is a COMPARISON, so a run in which no comparison happened has
+/// nothing to report but a not-run. It now panics, in the words `richos-voice`'s `tts.rs`
+/// already uses about a missing `/usr/bin/say` (32cefd2, today).
+///
+/// It is deliberately NOT `#[ignore]`d and NOT `cfg`-gated on a target: it needs no hardware,
+/// no opt-in and no network, and it runs on `app-spine-ci.yml`'s `ubuntu-latest` runner today.
+/// Ignoring it there would remove real coverage to fix a report that is not wrong.
+///
+/// **Two names for the same tool, because `/usr/bin/shasum` is a macOS certainty and a Linux
+/// probability.** It is on macOS's sealed system volume; on Linux it comes with the full Perl
+/// package and coreutils' `sha256sum` is the one that is always there. This crate's own
+/// hooks already try exactly this pair in exactly this order — `engine/docs/ci-portability-
+/// notes.md:240` — so the panic below fires only if a machine has NEITHER, which is a finding
+/// about the machine rather than a test worth skipping. Both print the digest first, so the
+/// same `split_whitespace().next()` reads both.
 #[test]
 fn the_digest_agrees_with_shasum() {
     let root = scratch("shasum-agreement");
     let f = root.join("bytes");
     std::fs::write(&f, b"RichOS engine asset\n").unwrap();
 
-    let out = std::process::Command::new("/usr/bin/shasum").args(["-a", "256"]).arg(&f).output();
-    let Ok(out) = out else {
-        eprintln!("SKIPPED: /usr/bin/shasum is not on this machine");
-        return;
+    let candidates: [(&str, &[&str]); 2] =
+        [("/usr/bin/shasum", &["-a", "256"]), ("/usr/bin/sha256sum", &[])];
+    let mut theirs: Option<(&str, String)> = None;
+    for (bin, args) in candidates {
+        let Ok(out) = std::process::Command::new(bin).args(args).arg(&f).output() else { continue };
+        if !out.status.success() {
+            continue;
+        }
+        let digest = String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        theirs = Some((bin, digest));
+        break;
+    }
+    let Some((tool, theirs)) = theirs else {
+        panic!(
+            "the whole content of this test is agreement with the tool everybody else uses, \
+             and neither /usr/bin/shasum nor /usr/bin/sha256sum could be run here — refusing \
+             to report green over a comparison that did not happen"
+        )
     };
-    let theirs = String::from_utf8_lossy(&out.stdout)
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_string();
-    assert_eq!(sha256_file(&f).unwrap(), theirs);
+
+    assert_eq!(sha256_file(&f).unwrap(), theirs, "sha256_file disagrees with {tool}");
 }
 
 // ===========================================================================================

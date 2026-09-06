@@ -571,6 +571,59 @@ run_case "z7.the-same-sha-outside-a-state-claim-is-not-checked" 0 \
 run_case "z8.a-landing-word-with-no-sha-is-not-a-state-claim" 0 \
     "$(payload 'Everything is landed and pushed; the worktrees are cleaned up.')"
 
+# --- POLARITY: the gate blocked a TRUE statement, twice -------------------
+#
+# 2026-09-03: a reply said a commit was NOT on the remote, the repository
+# agreed exactly, and the gate read the word `pushed`, ignored the negation and
+# stopped the turn. 2026-09-05: the same shape again, on "committed on the
+# branch, not landed, main is still at <sha>" -- a sentence whose entire content
+# is that the commit had not landed.
+#
+# zp* and zq* ship as a PAIR, for the RO/RD reason. Teaching a gate to read
+# "not" is one edit away from teaching it to ignore everything, so every case
+# that must go quiet has a case beside it that must still refuse.
+run_case "zp1.REGRESSION-a-negated-push-claim-about-an-unpushed-commit-is-NOT-blocked" 0 \
+    "$(payload "Committed on the branch, not pushed — \`$UNPUSHED_SHA\`.")"
+if printf '%s' "$LAST_ERR" | grep -qF "You said this was PUSHED"; then
+    printf '  FAIL  zp1b.the-refusal-really-did-stand-down\n'; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  zp1b.the-refusal-really-did-stand-down\n'; PASS=$((PASS + 1))
+fi
+
+run_case "zp2.REGRESSION-committed-on-the-branch-not-landed-is-NOT-blocked" 0 \
+    "$(payload "Committed on the branch, not landed, main is untouched — \`$BRANCH_SHA\`.")"
+
+run_case "zp3.have-not-landed-it-yet-is-NOT-blocked" 0 \
+    "$(payload "The fix is committed at \`$BRANCH_SHA\`, but I haven't landed it yet.")"
+
+run_case "zp4.nothing-landed-is-NOT-blocked" 0 \
+    "$(payload "Nothing landed; main is untouched at \`$BRANCH_SHA\`.")"
+
+# THE OTHER HALF. A negation sitting nearby must not silence a claim it does
+# not govern -- that is how a polarity rule becomes an off switch.
+run_case "zq1.a-negation-in-a-DIFFERENT-clause-still-blocks" 2 \
+    "$(payload "No worktrees are left and no agents are running, and the work is landed on main at \`$BRANCH_SHA\`.")" \
+    "You said this LANDED"
+
+run_case "zq2.a-negation-AFTER-the-sentence-terminator-still-blocks" 2 \
+    "$(payload "The catastrophe is gone, and it was never the model.** Landed \`$BRANCH_SHA\`.")" \
+    "You said this LANDED"
+
+run_case "zq3.not-only-is-an-emphatic-POSITIVE-and-still-blocks" 2 \
+    "$(payload "It not only landed but was verified — \`$BRANCH_SHA\`.")" \
+    "You said this LANDED"
+
+run_case "zq4.an-ordinary-positive-landing-claim-still-blocks" 2 \
+    "$(payload "Landed on main — \`$BRANCH_SHA\`.")" \
+    "You said this LANDED"
+
+# A negated claim the repository CONTRADICTS is still worth saying, and it is
+# said as an observation. Understating what landed has never been the failure
+# this gate exists for, so it never blocks.
+run_case "zp5.a-negated-claim-the-repository-contradicts-is-REPORTED" 0 \
+    "$(payload "Committed but not pushed — \`$LIVE_SHA\`.")" \
+    "the repository says it HAS"
+
 # --- REPORTING: a value claimed gone, alive in a spelling not named --------
 # The third failure of 2026-09-01. It REPORTS and does not block, and the
 # reason is a number: the general grep fires on 95 of 109 real literals, and
@@ -614,6 +667,17 @@ else
     printf '  FAIL  x.observation-record-written\n'; FAIL=$((FAIL + 1))
 fi
 
+
+# --- THE MUTATION HARNESS -------------------------------------------------
+# A reading rule has two failure directions that look identical from outside:
+# it can stop understanding sentences, or it can understand every sentence as an
+# excuse. Green ticks distinguish neither until somebody has watched them go red
+# for each. Skipped inside a mutation sandbox so a mutant cannot run mutants.
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -x "$SCRIPT_DIR/guard-unresolved-claims.mutation.sh" ]; then
+    echo
+    echo "=== running the mutation harness ==="
+    "$SCRIPT_DIR/guard-unresolved-claims.mutation.sh" || FAIL=$((FAIL + 1))
+fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then

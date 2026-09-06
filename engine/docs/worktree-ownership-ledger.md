@@ -135,10 +135,28 @@ construction.
 ## The reaper's verdict — the line that cannot read as routine
 
 ```
-=== summary (MODE): reaped=N skipped=N errors=N residue=N orphan-processes=N branches-swept=N branches-skipped=N ===
-=== coverage (MODE): ... hand-rolled=N undecidable=N unresolved=N indeterminate=N ===
-=== verdict: CLEAN | PENDING — indeterminate=N ... | FAIL — unresolved=N ... ===
+=== summary (EXECUTE): reaped=N skipped=N errors=N residue=N orphan-processes=N branches-swept=N branches-skipped=N ===
+=== summary (DRY-RUN): removed=0 would-remove=N skipped=N errors=N residue=N ... ===
+=== coverage (MODE): ... native=N shells=N hand-rolled=N undecidable=N unresolved=N indeterminate=N ===
+=== verdict: CLEAN | PENDING — <every pending clause, joined> | FAIL — ... ===
 ```
+
+**The past tense belongs to `--execute` alone (2026-09-05).** The DRY-RUN
+summary said `reaped=N` for a run that removed nothing, under a header whose
+`(DRY-RUN, nothing removed)` sat where nobody reads past a number. A DRY-RUN
+now states its zero FIRST — `removed=0` — and then what it found. The two are
+separate counters, because one number cannot honestly answer both "how many
+did you remove" and "how many could be removed".
+
+**`would-remove>0` is PENDING, never CLEAN, and the clause names the command
+that turns removal on.** These worktrees passed every gate and no terminal
+transaction claims them, so `reconcile-terminal-worktrees.py` — the mechanism
+that actually removes things — will never come for them. They sit until an
+operator runs `scripts/reap-stale-worktrees.sh <root> --discover --execute` by
+hand. That is the population the CEO found in his IDE on 2026-09-04.
+
+**The verdict names EVERY pending condition, not the first one it meets.**
+First-match-wins hid whichever condition sorted later.
 
 `unresolved>0` is a **FAIL, exit 3**: a hand-rolled worktree with NO
 ownership record can never be judged by this tool; it is the "unbound

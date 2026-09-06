@@ -81,7 +81,7 @@ fake.chmod(0o700)
 env = dict(os.environ, RICHOS_TEST_DATA_DIR=str(data), RICHOS_ENTITY="fixture",
            RICHOS_ENGINE_DIR=str(workspace), RICHOS_CLAUDE_BIN=str(fake), RICHOS_FIXTURE_ROOT=str(root))
 if native: env.pop("RICHOS_CLAUDE_BIN", None)
-phases = ("panel-decisions",) if panel_only else (("native-handoff",) if native else ("enqueue", "resume", "recover-notice", "correct-live", "slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live", "panel-decisions"))
+phases = ("panel-decisions",) if panel_only else (("native-handoff",) if native else ("update-owned", "enqueue", "resume", "recover-notice", "correct-live", "slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live", "panel-decisions"))
 for phase in phases:
     if phase == "recover-notice":
         # Simulate the crash window after verified completion was committed to
@@ -103,6 +103,8 @@ for phase in phases:
         assert (workspace / "hello.txt").read_bytes() == b"Hello Rich"
         assert sum(m["role"] == "user" for m in report["messages"]) == 1
         assert any(m["turn_id"].startswith("finished-") for m in report["messages"])
+    elif phase == "update-owned":
+        assert report["updateOwned"] and report["checks"] == 12, report
     elif phase in ("slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live"):
         assert report["passed"], report
         calls = [json.loads(line) for line in (root / 'registration-calls.jsonl').read_text().splitlines()]

@@ -33,12 +33,20 @@
 # WHAT BLOCKS AND WHAT ONLY REPORTS
 #   Blocking: unresolved AGENT NAMES, unresolved COMMIT SHAs, a BARE-ROLE
 #     in-flight claim about a role never dispatched in this session, and a
-#     STATE CLAIM -- "landed", "merged", "on main", "pushed" -- whose commit is
-#     alive on a branch and is not where the sentence says it is.
+#     POSITIVE STATE CLAIM -- "landed", "merged", "on main", "pushed" -- whose
+#     commit is alive on a branch and is not where the sentence says it is.
+#     POSITIVE is load-bearing: a sentence that says a commit has NOT landed is
+#     making the opposite claim, and on 2026-09-03 and 2026-09-05 this gate
+#     blocked exactly that -- a true statement, by the guard whose job is
+#     catching false ones. Polarity is now read from the CLAUSE the state word
+#     sits in, before git is asked.
 #   Reporting: unresolved FILE PATHS, a prose in-flight-dispatch signal, that
 #     signal narrowed to messages naming no agent, a bare-role claim about
-#     a role that ran EARLIER and is not running now, and a VALUE claimed gone
-#     that survives in a spelling the claim did not name.
+#     a role that ran EARLIER and is not running now, a VALUE claimed gone
+#     that survives in a spelling the claim did not name, and a NEGATED state
+#     claim the repository contradicts (understating what landed has never been
+#     the failure this gate protects against) or one whose polarity could not
+#     be read at all.
 #   The full reasoning — monotonic vs shrinking ground truth, the grounding
 #   relaxation, and the measured numbers behind each choice — is in the module
 #   docstring of guard-unresolved-claims.py, which is the analysis half.
@@ -73,6 +81,16 @@
 #     value-absence, sharp   fires on 22 of 41 value citations once the absence
 #                            word stops being the only thing holding it back.
 #                            REPORT ONLY, and the reason is in the analyzer.
+#
+#   Re-measured 2026-09-05 over 960 state claims in 770 messages, for the
+#   POLARITY work (docs/verification/claim-polarity-2026-09-05/):
+#     positive               949 -- unchanged, still BLOCKS on a contradiction
+#     negated                 11 -- report-only; all 11 read by hand and every
+#                                   one is a genuine statement of absence
+#     unreadable               0
+#   The first draft of the rule looked for a negation anywhere in the SENTENCE
+#   and demoted 113 positive claims to report-only. It was the count, not the
+#   reasoning, that caught it.
 #
 # FAIL-OPEN, DELIBERATELY, AND ONLY HERE
 #   Every other blocking guard in this engine fails CLOSED. This one does not,
@@ -193,6 +211,28 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 : "${CHECK_UNRESOLVED_CLAIMS:=1}"
 
 stop_notice_init "guard-unresolved-claims.sh" "$ENTITY_ROOT" "$INPUT"
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# A turn that ends without this check having run must not look like a turn that
+# ran it and found nothing. The sentence comes from
+# scripts/lib/unevaluated-notice.sh so every hook says it the same way, and it
+# goes out through the same notice channel the stand-downs above use, which is
+# the one measured for the Stop event. NO VERDICT CHANGES — this hook already
+# ended the turn on exactly these payloads.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    if _UE_REASON="$(richos_payload_unreadable "$INPUT")"; then
+        # ONE LINE for the call itself, deliberately: stop-hook-visibility.test.sh
+        # proves its case 3a by sed-ing out every such call, and a multi-line
+        # continuation would leave the argument lines behind as orphaned commands.
+        _UE_MSG="$(unevaluated_sentence "guard-unresolved-claims.sh" \
+            "whether this turn ended over a claim it never resolved" \
+            "$_UE_REASON" turn)"
+        stop_notice_abnormal "payload-unreadable:$_UE_REASON" "$_UE_MSG"
+        exit 0
+    fi
+fi
 
 if [ "$CHECK_UNRESOLVED_CLAIMS" = "0" ]; then
     # Never a silent permission: an opt-out that cannot be seen is a defense

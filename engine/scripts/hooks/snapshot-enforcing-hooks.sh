@@ -158,13 +158,32 @@ if [ -n "${HOOK_STALENESS_ROOT:-}" ]; then
     RICHOS_ENTITY_ROOT="$HOOK_STALENESS_ROOT"
 fi
 
-# NOTE ON STDIN — read LATE and CONDITIONALLY, for the reason documented at
-# length in snapshot-agent-definitions.sh: this file is a SessionStart hook AND
-# a plain CLI tool, and in the CLI case stdin is an inherited pipe nobody
-# closes, so an unconditional `cat` hangs forever (`[ ! -t 0 ]` does not help —
-# an inherited pipe is not a TTY). Root resolution needs nothing from stdin, so
-# it happens first and the payload is only read further down, and only when no
-# --session was supplied.
+# NOTE ON STDIN — read LATE, CONDITIONALLY, and with a CEILING.
+#
+# This file is a SessionStart hook AND a plain CLI tool. Root resolution needs
+# nothing from stdin, so it happens first, and the payload is read further down
+# only when no --session was supplied.
+#
+# That condition was once believed to make an unbounded `cat` unreachable. It
+# does not, and this is the correction of 2026-09-05: the no---session case is
+# EXACTLY the real SessionStart firing, and any script invoking this hook with
+# an inherited, never-closed stdin reaches it too. Measured on unmodified main:
+# with an open, never-closed stdin this hook never returned, while the same run
+# with stdin closed finished in under a second. `[ ! -t 0 ]` never helped — an
+# inherited pipe is not a TTY, which is the whole reason the guard reads as if
+# it were sufficient.
+#
+# So the read is BOUNDED (`read -t`, below) rather than merely conditional. A
+# hook that needs no payload must not be stoppable by one, and a hook that does
+# need it must not be able to wait forever for it.
+#
+# WHY THE CEILING MATTERS MORE HERE THAN ANYWHERE ELSE: a SessionStart hook
+# that blocks holds the WHOLE session for as long as it blocks. Measured
+# against the shipped binary (claude 2.1.261, 2026-09-05): a SessionStart hook
+# blocking on an unclosed stdin held a headless session for 602 seconds, to the
+# exact moment the writer let go. There is no rescue timeout on that path. The
+# failure is also silent — with stdin already closed it exits 0 instantly,
+# which is why this class survives unnoticed in a test suite.
 
 emit_context() { # <summary>
     local summary="$1"
@@ -201,7 +220,22 @@ if [ -z "$SESSION_ID" ] && [ -n "${CLAUDE_SESSION_ID:-}" ]; then
     SESSION_ID="$CLAUDE_SESSION_ID"
 fi
 if [ -z "$SESSION_ID" ] && [ ! -t 0 ]; then
-    STDIN_JSON="$(cat 2>/dev/null || true)"
+    # BOUNDED READ, NEVER `cat`. Three details are load-bearing, and all three
+    # were measured on bash 3.2.57 — what `/usr/bin/env bash` resolves to on
+    # macOS — rather than assumed from the manual:
+    #   * `-d ''` reads to EOF instead of to the first newline, so the whole
+    #     JSON payload arrives. It also returns NONZERO on a complete read
+    #     (the NUL delimiter is never found), so the VALUE is judged below,
+    #     never `$?`.
+    #   * on timeout, bash 3.2 leaves the variable UNMODIFIED rather than
+    #     clearing it, so it is initialized to empty first.
+    #   * the real firing closes stdin in 3-6ms (measured against the shipped
+    #     binary), so the ceiling costs nothing and 2s is ~400x the margin.
+    # An empty STDIN_JSON degrades to a timestamped snapshot, which every
+    # branch below already handles — the hook loses precision, never the
+    # session.
+    STDIN_JSON=""
+    IFS= read -r -t "${RICHOS_HOOK_STDIN_TIMEOUT:-2}" -d '' STDIN_JSON || true
     if [ -n "$STDIN_JSON" ] && command -v python3 >/dev/null 2>&1; then
         SESSION_ID="$(printf '%s' "$STDIN_JSON" | python3 -c '
 import json, sys

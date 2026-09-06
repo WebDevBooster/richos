@@ -40,8 +40,45 @@ assert_has() {
 }
 
 # assert_lacks <name> <file> <needle>
+#
+# THE MISSING-FILE ARM IS THE POINT. `grep` on a file that does not exist exits 2, which is not
+# zero, so the naive form of this helper reported PASS for every "must not contain" case whenever
+# provisioning had failed outright — which is precisely what it did on both hosts for the whole
+# time this suite was red: three cases here, plus the byte-identical case below, said PASS over an
+# absent CLAUDE.md. A check that is green because the thing it inspects was never produced is this
+# project's own worst failure class, and a test suite is the last place it belongs.
 assert_lacks() {
+    [ -f "$2" ] || { no "$1" "the file does not exist, so 'lacks' proves nothing: $2"; return; }
     grep -qF -- "$3" "$2" && no "$1" "should NOT contain: $3" || ok "$1"
+}
+
+# sha_of <file> — the digest, or the empty string when the file is absent. NEVER compare two of
+# these directly: `shasum` on a missing file prints nothing, so "" = "" is how a no-clobber case
+# passes with no file to clobber. Use assert_same / assert_changed, which refuse an absent file.
+#
+# (The first attempt at this made the absent case return a per-call unique marker via a counter.
+# It did not work and the mutation run said so: `X="$(sha_of ...)"` runs the function in a COMMAND
+# SUBSTITUTION, which is a subshell, so the counter never incremented in this shell and both absent
+# reads returned the same marker. A guard that has to be right about subshell scoping to work is a
+# guard waiting to be wrong; refusing the absent file outright cannot be got wrong.)
+sha_of() { [ -f "$1" ] && shasum "$1" | awk '{print $1}'; }
+
+# assert_same <name> <file> <expected-sha>  — an ABSENT file never satisfies "did not change".
+assert_same() {
+    [ -f "$2" ] || { no "$1" "the file does not exist, so 'unchanged' proves nothing: $2"; return; }
+    [ "$(sha_of "$2")" = "$3" ] && ok "$1" || no "$1" 'the file changed'
+}
+
+# assert_changed <name> <file> <previous-sha> — an ABSENT file never satisfies "was rewritten".
+assert_changed() {
+    [ -f "$2" ] || { no "$1" "the file does not exist, so 'rewritten' proves nothing: $2"; return; }
+    [ "$(sha_of "$2")" != "$3" ] && ok "$1" || no "$1" 'nothing changed'
+}
+
+# assert_ran <name> <exit> — a "nothing changed" assertion only means something if the provisioner
+# RAN and DECIDED not to change it. A crashed provisioner leaves every file untouched too.
+assert_ran() {
+    [ "$2" -eq 0 ] && ok "$1" || no "$1" "the provisioner did not run to completion (exit $2), so an unchanged file proves nothing"
 }
 
 mkconfig() {  # mkconfig <path> <ceo-name>
@@ -100,11 +137,10 @@ assert_has 'provisioning: a configured locale reaches live doctrine verbatim, wh
 
 printf '\n== idempotency and no-clobber ==\n'
 
-BEFORE="$(shasum "$OUT" | awk '{print $1}')"
-OUT_MSG="$(run 2>&1)"
-AFTER="$(shasum "$OUT" | awk '{print $1}')"
-[ "$BEFORE" = "$AFTER" ] && ok 'provisioning: re-running with unchanged inputs leaves the file byte-identical' \
-    || no 'provisioning: re-running with unchanged inputs leaves the file byte-identical' 'file changed'
+BEFORE="$(sha_of "$OUT")"
+OUT_MSG="$(run 2>&1)"; RUN_RC=$?
+assert_ran 'provisioning: the unchanged re-run actually completed, so the comparison below means something' "$RUN_RC"
+assert_same 'provisioning: re-running with unchanged inputs leaves the file byte-identical' "$OUT" "$BEFORE"
 printf '%s' "$OUT_MSG" | grep -q 'up-to-date' && ok 'provisioning: an unchanged re-run reports up-to-date, not a rewrite' \
     || no 'provisioning: an unchanged re-run reports up-to-date, not a rewrite' "$OUT_MSG"
 
@@ -117,32 +153,35 @@ assert_has 'provisioning: a refresh carries the new CEO name' "$OUT" 'Robin Alva
 printf '\n== the CEO edited it ==\n'
 
 printf '\n<!-- the CEO added this line by hand -->\n' >>"$OUT"
-EDITED="$(shasum "$OUT" | awk '{print $1}')"
-OUT_MSG="$(run 2>&1)"
-[ "$(shasum "$OUT" | awk '{print $1}')" = "$EDITED" ] \
-    && ok 'provisioning: a CEO-edited CLAUDE.md is NEVER clobbered' \
-    || no 'provisioning: a CEO-edited CLAUDE.md is NEVER clobbered' 'the file was overwritten'
+EDITED="$(sha_of "$OUT")"
+OUT_MSG="$(run 2>&1)"; RUN_RC=$?
+assert_ran 'provisioning: the no-clobber run actually completed, so "untouched" is a decision and not a crash' "$RUN_RC"
+assert_same 'provisioning: a CEO-edited CLAUDE.md is NEVER clobbered' "$OUT" "$EDITED"
 printf '%s' "$OUT_MSG" | grep -q 'preserved' && ok 'provisioning: the edited case reports preserved, loudly' \
     || no 'provisioning: the edited case reports preserved, loudly' "$OUT_MSG"
 
-run --upgrade >/dev/null 2>&1
+run --upgrade >/dev/null 2>&1; RUN_RC=$?
+assert_ran 'provisioning: the --upgrade run actually completed' "$RUN_RC"
 [ -f "$OUT.new" ] && ok 'provisioning: --upgrade writes the new render BESIDE the edited file for hand-merge' \
     || no 'provisioning: --upgrade writes the new render BESIDE the edited file for hand-merge' 'no CLAUDE.md.new'
-[ "$(shasum "$OUT" | awk '{print $1}')" = "$EDITED" ] \
-    && ok 'provisioning: --upgrade still does not touch the edited file' \
-    || no 'provisioning: --upgrade still does not touch the edited file' 'the file was overwritten'
+assert_same 'provisioning: --upgrade still does not touch the edited file' "$OUT" "$EDITED"
 
-run --force >/dev/null 2>&1
-[ "$(shasum "$OUT" | awk '{print $1}')" != "$EDITED" ] \
-    && ok 'provisioning: --force overwrites an edited file ONLY when explicitly asked' \
-    || no 'provisioning: --force overwrites an edited file ONLY when explicitly asked' 'nothing changed'
+run --force >/dev/null 2>&1; RUN_RC=$?
+assert_ran 'provisioning: the --force run actually completed' "$RUN_RC"
+assert_changed 'provisioning: --force overwrites an edited file ONLY when explicitly asked' "$OUT" "$EDITED"
 
 HAND="$WORK/hand.md"
 printf '# my own CLAUDE.md\n' >"$HAND"
-"$PROV" --config "$CFG" --template "$TEMPLATE" --out "$HAND" >/dev/null 2>&1
-[ "$(cat "$HAND")" = '# my own CLAUDE.md' ] \
-    && ok 'provisioning: a hand-authored CLAUDE.md with no stamp is never overwritten' \
-    || no 'provisioning: a hand-authored CLAUDE.md with no stamp is never overwritten' 'it was replaced'
+"$PROV" --config "$CFG" --template "$TEMPLATE" --out "$HAND" >/dev/null 2>&1; RUN_RC=$?
+assert_ran 'provisioning: the hand-authored-file run actually completed' "$RUN_RC"
+if [ "$RUN_RC" -ne 0 ]; then
+    no 'provisioning: a hand-authored CLAUDE.md with no stamp is never overwritten' \
+       "the provisioner exited $RUN_RC, so an untouched file proves only that it crashed"
+elif [ "$(cat "$HAND")" = '# my own CLAUDE.md' ]; then
+    ok 'provisioning: a hand-authored CLAUDE.md with no stamp is never overwritten'
+else
+    no 'provisioning: a hand-authored CLAUDE.md with no stamp is never overwritten' 'it was replaced'
+fi
 
 printf '\n== --check and template drift ==\n'
 
@@ -158,6 +197,22 @@ DRIFT="$WORK/drifted.template.md"
 { cat "$TEMPLATE"; printf '\n<!-- TODO (adopter): describe your brand new unknown section here. -->\n'; } >"$DRIFT"
 assert_exit 'provisioning: an UNRECOGNIZED template block fails loud rather than leaking adopter instructions' 2 \
     "$PROV" --config "$CFG" --template "$DRIFT" --out "$WORK/drift-out.md"
+[ -f "$WORK/drift-out.md" ] && no 'provisioning: a template-drift refusal writes nothing' \
+    || ok 'provisioning: a template-drift refusal writes nothing'
+
+# EVERY orphan block is named, not just the first one hit. The failure this suite spent its red
+# period on was a SINGLE untaught block, and the refusal it produced named that one block and
+# stopped — so an adopter who adds three learns about them one run at a time, and a maintainer
+# reading a red suite sees one cause where there may be several.
+DRIFT2="$WORK/drifted-twice.template.md"
+{ cat "$TEMPLATE"
+  printf '\n<!-- TODO (adopter): a brand new unknown ALPHA section. -->\n'
+  printf '<!-- TODO (adopter): a brand new unknown BETA section. -->\n'; } >"$DRIFT2"
+DRIFT2_MSG="$("$PROV" --config "$CFG" --template "$DRIFT2" --out "$WORK/drift2-out.md" 2>&1)"
+printf '%s' "$DRIFT2_MSG" | grep -q 'ALPHA' \
+    && printf '%s' "$DRIFT2_MSG" | grep -q 'BETA' \
+    && ok 'provisioning: a refusal names EVERY unrecognized block, so the template is fixed in one pass' \
+    || no 'provisioning: a refusal names EVERY unrecognized block, so the template is fixed in one pass' "$DRIFT2_MSG"
 
 printf '\n== the identity seam other components read ==\n'
 

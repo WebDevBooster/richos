@@ -286,13 +286,24 @@ mod tests {
     }
 
     /// LIVE (macOS): the real synthesizer produces real audio, fast enough for gapless
-    /// pipelining. Ignored elsewhere. Asserts the real-time factor is well under 1.0 —
+    /// pipelining. Compiled only on macOS. Asserts the real-time factor is well under 1.0 —
     /// the precondition the whole pipelining design rests on.
+    ///
+    /// **NOT gated on `RICHOS_VOICE_LIVE_AUDIO`, and it should not be.** It opens no device
+    /// and plays nothing; it writes a file and measures it. It runs on every macOS machine
+    /// and on `app-voice-ci.yml`'s runner, which is why the four device-opening tests are the
+    /// only ones `build.rs` ignores.
+    ///
+    /// A missing `/usr/bin/say` used to `return` here, which reports `ok` — the same defect
+    /// the four carried, in the one place the condition is not an opt-in at all. `say` is part
+    /// of the sealed macOS system volume, `tts.rs` ships Rich's voice through it, and
+    /// `tests/voiced_acceptance.rs:157` and `:227` already `panic!` on its absence in these
+    /// words. Its absence is a finding about the machine, never a test worth skipping.
     #[test]
     #[cfg(target_os = "macos")]
     fn live_macos_synthesis_outruns_playback() {
         if !Path::new("/usr/bin/say").exists() {
-            return;
+            panic!("this test's speech comes from /usr/bin/say — refusing to report green without it");
         }
         let dir = std::env::temp_dir().join("richos-voice-tts-test");
         let synth = MacSay::new();

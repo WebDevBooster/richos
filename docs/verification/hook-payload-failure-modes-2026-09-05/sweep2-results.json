@@ -1,0 +1,1402 @@
+[
+ {
+  "event": "PreToolUse",
+  "hook": "guard-sealed-worktree.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Write barrier: REFUSED (the barrier cannot evaluate this call) ===\n  tool: <unknown>    agent: <unparsed>\n  reason: the hook payload is unparseable (Expecting value: line 1 column 1 (char 0)); a payload that cannot be proven the lead's is treated as a worker's\n\n  This call comes from a worker (or from a payload the barrier cannot prove\n  is the lead's), and the barrier could not read the worker's worktree state.\n  A potentially writing or unknown tool is refused rather than allowed on a\n  guess: nothing written from an unproven worker is owned by anyone.\n  Read-only tools (Read Glob Grep LS WebFetch WebSearch ListAgents TaskList TaskGet TodoRead ToolSearch) still pass.\n  FIX THE ENGINE: restore the named dependency (scripts/hooks/install.sh), then\n  spawn again. The spawn gate refuses new file-writing teammates meanwhile.\n  (review 2026-09-03 blocker 3; specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 4)\n(hook: scripts/hooks/guard-sealed-worktree.sh)\n",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Write barrier: REFUSED (the barrier cannot evaluate this call) ===\n  tool: <unknown>    agent: <unparsed>\n  reason: the hook payload is unparseable (Unterminated string starting at: line 1 column 258 (char 257)); a payload that cannot be proven the lead's is treated as a worker's\n\n  This call comes from a worker (or from a payload the barrier cannot prove\n  is the lead's), and the barrier could not read the worker's worktree state.\n  A potentially writing or unknown tool is refused rather than allowed on a\n  guess: nothing written from an unproven worker is owned by anyone.\n  Read-only tools (Read Glob Grep LS WebFetch WebSearch ListAgents TaskList TaskGet TodoRead ToolSearch) still pass.\n  FIX THE ENGINE: restore the named dependency (scripts/hooks/install.sh), then\n  spawn again. The spawn gate refuses new file-writing teammates meanwhile.\n  (review 2026-09-03 blocker 3; specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 4)\n(hook: scripts/hooks/guard-sealed-worktree.sh)\n",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Write barrier: REFUSED (the barrier cannot evaluate this call) ===\n  tool: <unknown>    agent: <unparsed>\n  reason: the hook payload is unparseable (Expecting value: line 1 column 1 (char 0)); a payload that cannot be proven the lead's is treated as a worker's\n\n  This call comes from a worker (or from a payload the barrier cannot prove\n  is the lead's), and the barrier could not read the worker's worktree state.\n  A potentially writing or unknown tool is refused rather than allowed on a\n  guess: nothing written from an unproven worker is owned by anyone.\n  Read-only tools (Read Glob Grep LS WebFetch WebSearch ListAgents TaskList TaskGet TodoRead ToolSearch) still pass.\n  FIX THE ENGINE: restore the named dependency (scripts/hooks/install.sh), then\n  spawn again. The spawn gate refuses new file-writing teammates meanwhile.\n  (review 2026-09-03 blocker 3; specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 4)\n(hook: scripts/hooks/guard-sealed-worktree.sh)\n",
+    "sec": 0.04,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-worktree-isolation.sh",
+  "matcher": "Agent",
+  "cases": {
+   "control": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Teammate-spawn guard: BLOCKED ===\n  Agent 'clark' can edit repo files, so it must satisfy the\n  teammate-spawn contract. It failed:\n    - missing native isolation \u2014 add  isolation: \"worktree\"  to run in an isolated worktree (got isolation='unset'); for cross-repository work ALSO add a 'cross-repo-worktree: <path>' prompt line naming a worktree registered by scripts/create-teammate-worktree.sh (a cwd-only spawn is refused); OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.\n  Re-issue the Agent call fixing the above.\n  (If this agent is genuinely READ-ONLY, add its type to READONLY_ALLOWLIST\n   in orchestration.config.)\n(hook: scripts/hooks/guard-worktree-isolation.sh)\n",
+    "sec": 0.22,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.1,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.1,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-definition-drift.sh",
+  "matcher": "Agent",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "=== Definition-drift guard: WARNING (allowed) ===\n  no session-start definition snapshot found for session 'fcsweep00-0000-0000-0000-000000000000' (expected .claude/state/agent-definitions-fcsweep0.snapshot). snapshot-agent-definitions.sh was probably not live at the last session start \u2014 hooks snapshot per session, so it activates from the NEXT one. Definition drift is NOT being checked for this spawn.\n(hook: scripts/hooks/guard-definition-drift.sh)\n",
+    "sec": 0.12,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "=== Definition-drift guard: WARNING (allowed) ===\n  could not parse the Agent spawn payload \u2014 agent-definition freshness NOT verified for this spawn.\n(hook: scripts/hooks/guard-definition-drift.sh)\n",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "=== Definition-drift guard: WARNING (allowed) ===\n  could not parse the Agent spawn payload \u2014 agent-definition freshness NOT verified for this spawn.\n(hook: scripts/hooks/guard-definition-drift.sh)\n",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "=== Definition-drift guard: WARNING (allowed) ===\n  could not parse the Agent spawn payload \u2014 agent-definition freshness NOT verified for this spawn.\n(hook: scripts/hooks/guard-definition-drift.sh)\n",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "reader-teammate-hint.sh",
+  "matcher": "Agent",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "verify-agent-prompt.sh",
+  "matcher": "Agent",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.18,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-ceo-ask-first.sh",
+  "matcher": "Agent",
+  "cases": {
+   "control": {
+    "rc": 2,
+    "out": "",
+    "err": "=== A PREPARED CEO DECISION HAS NOT BEEN PUT TO HIM THIS SESSION \u2014 REFUSING THIS DISPATCH ===\n  prepared items : 9\n  asked this session : 0\n\n  On 2026-08-31 a session prepared two decisions for the CEO, the next\n  session opened, he asked \"what's next\", and he got a backlog report\n  and a dispatched engineer. Every guard was green. Nobody had been\n  asked anything. Dispatching a teammate is the act that beat the ask,\n  so it is the act that is blocked.\n\n  ASK HIM THIS, with the AskUserQuestion tool:\n\n    1.3  The call-transcription default\n    The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes).\n\n  The gate reads the QUESTION TEXT, not an assertion \u2014 the question,\n  its options and their descriptions have to actually be about one of\n  his prepared items. A question that matches none of them is recorded\n  UNMATCHED and discharges nothing. ONE prepared item is the whole\n  requirement for this session; the rest are surfaced at every turn end.\n\n  The others still open this session:\n    1.4  Techy mode, four design questions\n    1.5  Capture-extension questions\n    1.8  Should the rules also apply when YOU edit this repository directly?\n    2.1  Verify the podcast reference transcript\n    2.2  macOS live system-audio tap\n    (+3 more \u2014 scripts/ceo-asks-status.sh)\n\n  IF HE HAS ALREADY SAID GET ON WITH IT, say so on the record \u2014 add a\n  line to this spawn prompt:\n\n    ceo-todos-deferred: <reason>\n\n  which permits this one dispatch and is logged to\n  .claude/state/ceo-todos-defers.log.\n(hook: scripts/hooks/guard-ceo-ask-first.sh)\n",
+    "sec": 0.28,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\"}\n",
+    "err": "CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\n",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\"}\n",
+    "err": "CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\n",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\"}\n",
+    "err": "CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\n",
+    "sec": 0.09,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-model-ceiling.sh",
+  "matcher": "Agent",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.12,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-main-checkout-writes.sh",
+  "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.1,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "scan-secrets.sh",
+  "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.15,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-publication-writes.sh",
+  "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-named-persons-writes.sh",
+  "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-dialect.sh",
+  "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.15,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-resume-isolation.sh",
+  "matcher": "SendMessage",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Resume-isolation guard: BLOCKED ===\n  - Could not parse the SendMessage payload to verify the recipient's\n    liveness. Failing closed. Re-issue a well-formed SendMessage; if this\n    is a deliberate, safe resume, add a 'resume-ack: <where writes land +\n    why safe>' line to the message body.\n(hook: scripts/hooks/guard-resume-isolation.sh)\n",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Resume-isolation guard: BLOCKED ===\n  - Could not parse the SendMessage payload to verify the recipient's\n    liveness. Failing closed. Re-issue a well-formed SendMessage; if this\n    is a deliberate, safe resume, add a 'resume-ack: <where writes land +\n    why safe>' line to the message body.\n(hook: scripts/hooks/guard-resume-isolation.sh)\n",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Resume-isolation guard: BLOCKED ===\n  - Could not parse the SendMessage payload to verify the recipient's\n    liveness. Failing closed. Re-issue a well-formed SendMessage; if this\n    is a deliberate, safe resume, add a 'resume-ack: <where writes land +\n    why safe>' line to the message body.\n(hook: scripts/hooks/guard-resume-isolation.sh)\n",
+    "sec": 0.07,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-ceo-ruled-ask.sh",
+  "matcher": "AskUserQuestion",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.18,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\"}\n",
+    "err": "CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\n",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\"}\n",
+    "err": "CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\n",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\"}\n",
+    "err": "CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\n",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-interactive-prompt.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-bash-main-writes.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-inflight-notify.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-worktree-removal.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-publication-commits.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-named-persons-commands.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-ceo-todos-commits.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-completeness-commits.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.02,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.02,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.02,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.02,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-row-currency-commits.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-vendoring-commits.sh",
+  "matcher": "Bash",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "PreToolUse",
+  "hook": "guard-workflow-ban.sh",
+  "matcher": "Workflow",
+  "cases": {
+   "control": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Workflow tool: BANNED \u2014 BLOCKED ===\n  The `Workflow` orchestration tool is banned in this repository.\n  It has failed in prior sessions and wasted an operator's time. This\n  block is unconditional: there is no escape line, no ack, and no\n  condition under which a Workflow call is permitted here.\n\n  Do this instead: orchestrate with individual `Agent` dispatches \u2014\n  one teammate per task, each spawned with isolation: \"worktree\".\n  Sequence them yourself; do not look for a workflow/plan-runner\n  substitute.\n\n  Do not unwire, weaken, shim, or condition this hook to get past it.\n  If this repository genuinely wants the tool, that is a deliberate,\n  reviewable decision: set BAN_WORKFLOW_TOOL=0 in orchestration.config.\n(hook: scripts/hooks/guard-workflow-ban.sh)\n",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Workflow tool: BANNED \u2014 BLOCKED ===\n  The `Workflow` orchestration tool is banned in this repository.\n  It has failed in prior sessions and wasted an operator's time. This\n  block is unconditional: there is no escape line, no ack, and no\n  condition under which a Workflow call is permitted here.\n\n  Do this instead: orchestrate with individual `Agent` dispatches \u2014\n  one teammate per task, each spawned with isolation: \"worktree\".\n  Sequence them yourself; do not look for a workflow/plan-runner\n  substitute.\n\n  Do not unwire, weaken, shim, or condition this hook to get past it.\n  If this repository genuinely wants the tool, that is a deliberate,\n  reviewable decision: set BAN_WORKFLOW_TOOL=0 in orchestration.config.\n(hook: scripts/hooks/guard-workflow-ban.sh)\n",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Workflow tool: BANNED \u2014 BLOCKED ===\n  The `Workflow` orchestration tool is banned in this repository.\n  It has failed in prior sessions and wasted an operator's time. This\n  block is unconditional: there is no escape line, no ack, and no\n  condition under which a Workflow call is permitted here.\n\n  Do this instead: orchestrate with individual `Agent` dispatches \u2014\n  one teammate per task, each spawned with isolation: \"worktree\".\n  Sequence them yourself; do not look for a workflow/plan-runner\n  substitute.\n\n  Do not unwire, weaken, shim, or condition this hook to get past it.\n  If this repository genuinely wants the tool, that is a deliberate,\n  reviewable decision: set BAN_WORKFLOW_TOOL=0 in orchestration.config.\n(hook: scripts/hooks/guard-workflow-ban.sh)\n",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Workflow tool: BANNED \u2014 BLOCKED ===\n  The `Workflow` orchestration tool is banned in this repository.\n  It has failed in prior sessions and wasted an operator's time. This\n  block is unconditional: there is no escape line, no ack, and no\n  condition under which a Workflow call is permitted here.\n\n  Do this instead: orchestrate with individual `Agent` dispatches \u2014\n  one teammate per task, each spawned with isolation: \"worktree\".\n  Sequence them yourself; do not look for a workflow/plan-runner\n  substitute.\n\n  Do not unwire, weaken, shim, or condition this hook to get past it.\n  If this repository genuinely wants the tool, that is a deliberate,\n  reviewable decision: set BAN_WORKFLOW_TOOL=0 in orchestration.config.\n(hook: scripts/hooks/guard-workflow-ban.sh)\n",
+    "sec": 0.04,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "guard-unresolved-claims.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "turn-manifest.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\": true, \"systemMessage\": \"TURN MANIFEST \\u2014 UNAVAILABLE: the Stop payload carried no prompt_id, so this turn's calls cannot be told apart from the rest of the session's.\\nNo calls are listed. This is a GAP IN THE RECORD, not a turn that ran nothing. (hook: scripts/hooks/turn-manifest.sh)\"}\n",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-hook-staleness.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"RichOS engine: CANNOT CHECK whether a landed guard is inert in this session.\\n  reason: no session-start baseline at .claude/state/enforcing-hooks-fcsweep0.snapshot \\u2014 snapshot-enforcing-hooks.sh was not live at the last session start. It is registered in the engine's hook table, which the host reads once per session, so it begins recording baselines only after the operator RESTARTS. Re-run scripts/hooks/install.sh, then restart this session; that is yours to do, no hook can do it.\\nThis is NOT a clean result \\u2014 it is the absence of one. Until it is fixed, a\\nguard landed into the engine's hooks/hooks.json mid-session will sit there\\nenforcing nothing and nothing will tell you.\\n(hook: scripts/hooks/notice-hook-staleness.sh)\"}\n",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"RichOS engine: CANNOT CHECK whether a landed guard is inert in this session.\\n  reason: the baseline was recorded against engine /Users/alex/ab/richos-wt/zach-opus-st1/engine but this hook is running from /Users/alex/ab/richos/engine \\u2014 two different engines, so any difference between them would be a difference of subject, not drift\\nThis is NOT a clean result \\u2014 it is the absence of one. Until it is fixed, a\\nguard landed into the engine's hooks/hooks.json mid-session will sit there\\nenforcing nothing and nothing will tell you.\\n(hook: scripts/hooks/notice-hook-staleness.sh)\"}\n",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-inflight-acks.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 2.53,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 2.01,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 2.1,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 2.01,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-mechanical-findings.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"MECHANICAL SWEEP: ROW(S) 3.21 3.24 describe a finding the sweep no longer produces \u2014 the defect is fixed, moved or gone; close the row in the same land as the fix (it is not re-stamped for you). Detail: scripts/mechanical-findings-lint.sh\"}\n",
+    "err": "",
+    "sec": 0.53,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"MECHANICAL SWEEP: ROW(S) 3.21 3.24 describe a finding the sweep no longer produces \u2014 the defect is fixed, moved or gone; close the row in the same land as the fix (it is not re-stamped for you). Detail: scripts/mechanical-findings-lint.sh\"}\n",
+    "err": "",
+    "sec": 0.49,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.5,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"MECHANICAL SWEEP: ROW(S) 3.21 3.24 describe a finding the sweep no longer produces \u2014 the defect is fixed, moved or gone; close the row in the same land as the fix (it is not re-stamped for you). Detail: scripts/mechanical-findings-lint.sh\"}\n",
+    "err": "",
+    "sec": 0.54,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-unstarted-rows.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"UNSTARTED-ROW WATCH SWEPT NOTHING \u2014 the records did not parse: RICH-TODOs.md row ci1 disagrees with itself: its blocked-by cell says 'done \u2014 landed 486b217, CI run being watched' and its id is NOT struck through. The row claims to be finished in one place while being open in the other, and picking one silently is how a row gets swept as closed while it is open.. This is not an empty queue; it is an unread one. scripts/unstarted-rows-lint.sh has the detail.\"}\n",
+    "err": "",
+    "sec": 0.27,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"UNSTARTED-ROW WATCH SWEPT NOTHING \u2014 the records did not parse: RICH-TODOs.md row ci1 disagrees with itself: its blocked-by cell says 'done \u2014 landed 486b217, CI run being watched' and its id is NOT struck through. The row claims to be finished in one place while being open in the other, and picking one silently is how a row gets swept as closed while it is open.. This is not an empty queue; it is an unread one. scripts/unstarted-rows-lint.sh has the detail.\"}\n",
+    "err": "",
+    "sec": 0.25,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.27,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"UNSTARTED-ROW WATCH SWEPT NOTHING \u2014 the records did not parse: RICH-TODOs.md row ci1 disagrees with itself: its blocked-by cell says 'done \u2014 landed 486b217, CI run being watched' and its id is NOT struck through. The row claims to be finished in one place while being open in the other, and picking one silently is how a row gets swept as closed while it is open.. This is not an empty queue; it is an unread one. scripts/unstarted-rows-lint.sh has the detail.\"}\n",
+    "err": "",
+    "sec": 0.27,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-ceo-unasked.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"HE HAS NOT BEEN ASKED \u2014 CEO TODO 1.3: The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes). 9 of his prepared items have not been put to him in this session. Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh\"}\n",
+    "err": "",
+    "sec": 0.26,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"HE HAS NOT BEEN ASKED \u2014 CEO TODO 1.3: The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes). 9 of his prepared items have not been put to him in this session. Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh\"}\n",
+    "err": "",
+    "sec": 0.22,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.26,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"HE HAS NOT BEEN ASKED \u2014 CEO TODO 1.3: The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes). 9 of his prepared items have not been put to him in this session. Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh\"}\n",
+    "err": "",
+    "sec": 0.25,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-unasked-deferral.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-ceo-ruled-prose.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-waiver-repetition.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"REPEATED WAIVERS, NOT EXCEPTIONS \u2014 6 escape hatches were used over and over for the same reason instead of the guard being fixed: guard-resume-isolation.sh (88x one reason, 48 subjects over 12 days), guard-worktree-isolation.sh (42x one reason, 42 subjects over 2 days), guard-worktree-removal.sh (36x one reason, over 2 days) (+3 more). Each repeat is a false-positive class the guard STILL HAS. Detail: scripts/waiver-repetition-lint.sh\"}\n",
+    "err": "",
+    "sec": 0.34,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"REPEATED WAIVERS, NOT EXCEPTIONS \u2014 6 escape hatches were used over and over for the same reason instead of the guard being fixed: guard-resume-isolation.sh (88x one reason, 48 subjects over 12 days), guard-worktree-isolation.sh (42x one reason, 42 subjects over 2 days), guard-worktree-removal.sh (36x one reason, over 2 days) (+3 more). Each repeat is a false-positive class the guard STILL HAS. Detail: scripts/waiver-repetition-lint.sh\"}\n",
+    "err": "",
+    "sec": 0.3,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.33,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"REPEATED WAIVERS, NOT EXCEPTIONS \u2014 6 escape hatches were used over and over for the same reason instead of the guard being fixed: guard-resume-isolation.sh (88x one reason, 48 subjects over 12 days), guard-worktree-isolation.sh (42x one reason, 42 subjects over 2 days), guard-worktree-removal.sh (36x one reason, over 2 days) (+3 more). Each repeat is a false-positive class the guard STILL HAS. Detail: scripts/waiver-repetition-lint.sh\"}\n",
+    "err": "",
+    "sec": 0.32,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-escalations.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.1,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.11,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.1,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "guard-agent-state-claims.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.12,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.11,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "guard-idle-land.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "guard-stated-actions.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.13,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.1,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "event": "Stop",
+  "hook": "notice-ceo-inputs-unheld.sh",
+  "matcher": "(all)",
+  "cases": {
+   "control": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ }
+]

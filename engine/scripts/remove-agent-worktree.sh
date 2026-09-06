@@ -8,19 +8,51 @@
 #   The orchestrator removed a RUNNING agent's hand-rolled worktree because it
 #   checked the WRONG artifact for liveness — the hand-rolled worktree (which
 #   carries NO agent lock) instead of the agent's isolation-worktree lock in
-#   the ENTITY's own repository. The agent was alive and had to be cancelled.
+#   the ENTITY's own repository. The agent was alive and had to be canceled.
 #   A doctrine note is not enough — removal must be gated by STRUCTURE.
 #
-# THE AUTHORITATIVE LIVENESS RULE (the crux — do not deviate):
-#   An agent is ALIVE iff its NATIVE isolation worktree, registered in the
-#   ENTITY's main checkout, is locked with a LIVE pid:
-#     git -C <entity-main> worktree list --porcelain
-#       -> a block whose `locked claude agent agent-<id> (pid <p> ...)` line
-#          names <agent-id> AND pid <p> is currently running.
-#   A stale lock (dead pid) = NOT alive. An UNLOCKED entity worktree = NOT
-#   alive. An ABSENT/unregistered entity worktree = NOT alive. Hand-rolled
-#   external-repo worktrees carry NO lock — they are NEVER the liveness source
-#   (checking one is the exact 2026-08-24 mistake).
+# THE AUTHORITATIVE RULE (the crux — do not deviate), as it stands after the
+# 2026-09-06 review:
+#   A workspace may be destroyed only when BOTH hold —
+#     BINDING   the asserted owner is tied to THIS exact path: an ownership
+#               record (scripts/lib/worktree-ledger.py) names it, or the path
+#               is that agent's own isolation worktree registered in the
+#               repository under the harness's directory name.
+#     EVIDENCE  the owner is NOT-ALIVE on POSITIVE evidence: a witnessed
+#               termination on record, an OBSERVED registered-and-unlocked (or
+#               stale-locked, dead pid) isolation worktree, or a host session
+#               provably over.
+#   An agent is ALIVE iff its native isolation worktree, registered in the
+#   entity's checkout, is locked with a LIVE pid — that part has not changed.
+#   What HAS changed: an ABSENT/unregistered isolation worktree is NOT "not
+#   alive" for this script's purposes. It is an absence, and absence says
+#   nothing about whether anyone stopped. Hand-rolled external-repo worktrees
+#   carry NO lock — they are NEVER the liveness source (checking one is the
+#   exact 2026-08-24 mistake).
+#
+# WHY THAT CHANGED (2026-09-05 / 2026-09-06). This script used to ask the lock
+# resolver "is agent-X locked here?" and proceed on NOT-ALIVE. The resolver
+# answers NOT-ALIVE for an owner that does not exist, because no such agent is
+# locked anywhere. On 2026-09-05 a caller's zsh loop failed to word-split, the
+# owner arrived as a string naming nobody, the path arrived as
+# /Users/alex/ab/richos-wt/ — the PARENT of every RichOS worktree on the
+# machine — and this script deleted it and reported success, twice. The first
+# repair (1b84a1c) stopped the recursive delete of an unregistered path but
+# left the decision rule in place; the independent review of 2026-09-06 then
+# reproduced the incident's own logic error through it: `--owner
+# never-registered` against a REGISTERED worktree whose real owner was
+# verified ALIVE removed it, exit 0.
+#   Diagnosis: richos-hq docs/verification/worktree-container-deletion-2026-09-05.md
+#   Review:    richos-hq docs/verification/worktree-removal-fix-review-2026-09-06/
+#
+# SO THIS SCRIPT DECIDES NOTHING. Both of its modes are thin routes into
+# scripts/lib/workspace-retire.py, which holds the ONE termination authority
+# (`termination_authority()`), the ONE workspace lock, the ONE preservation
+# routine and the ONE journal. It stays inside THIS script's name because
+# scripts/hooks/guard-worktree-removal.sh recognizes that name as its
+# sanctioned escape route — a new file name would be blocked by the guard, and
+# a guard whose escape route is not installed is a guard that only blocks.
+# The guard and this helper MOVE AS A PAIR and must never be split.
 #
 # WHICH REPOSITORY IS "THE ENTITY"? Resolved by the engine's two-root contract
 # (scripts/lib/resolve-roots.sh): $RICHOS_ENTITY_ROOT, else $CLAUDE_PROJECT_DIR,
@@ -28,56 +60,68 @@
 # usually not the repository being governed at all. Overridable with
 # --entity-repo for tests and for cross-entity operator work.
 #
-# WHAT THIS SCRIPT DOES:
-#   1. Verifies (authoritative entity-lock + live-pid check) that <agent-id> is
-#      NOT alive. If it IS alive -> REFUSE loudly, remove nothing. If liveness
-#      cannot be determined (git error) -> REFUSE (fail-closed — never remove a
-#      worktree we cannot prove is dead).
-#   2. Only then removes the worktree in the correct repo (git worktree remove;
-#      falls back to a plain directory removal if the path is not a registered
-#      worktree of that repo) and, if --branch was given, deletes the branch.
+# TWO MODES.
 #
-# The companion PreToolUse[Bash] guard, scripts/hooks/guard-worktree-removal.sh,
-# BLOCKS raw `git worktree remove` / `git worktree prune --expire` /
-# `git branch -D <worktree-*>` / `rm -r <worktree-path>` UNLESS the command
-# invokes THIS helper (its name is the marker the guard recognizes) or carries
-# an explicit `worktree-remove-ack:<reason>` override. So this helper is the
-# blessed path: it runs the removal internally as a subprocess, which the
-# PreToolUse hook never intercepts.
+#   RETIREMENT (preferred):
+#     remove-agent-worktree.sh --workspace <ws-id> [--owner <a>] [--repo <r>]
+#                              [<path>] [--dry-run] [--retention-days <n>]
 #
-# The guard and this helper MOVE AS A PAIR and must never be split: a guard
-# whose sanctioned escape route is not installed is a guard that only blocks.
+#   The caller names an IDENTITY and nothing else. Repository, path, branch and
+#   owner are DERIVED from the ownership ledger; --owner, --repo and a
+#   positional path become ASSERTIONS that must AGREE with the record, and can
+#   never widen the target. The workspace is preserved (committed, staged,
+#   dirty, untracked AND ignored), its tip made reachable from a backup ref,
+#   and its directory RENAMED to quarantine with a retention period. Nothing is
+#   deleted; branch deletion is a separate operation. There is no way to spell
+#   `/Users/alex/ab/richos-wt/` as a workspace ID, because no ownership record
+#   has ever named it. A structured JSON outcome goes to stdout.
 #
-# USAGE:
-#   <engine>/scripts/remove-agent-worktree.sh --owner <agent-id> <worktree-path> \
-#       [--branch <branch>] [--repo <repo-path>] [--force]
+#   LEGACY (the reaper's route, and operator work from a bare path):
+#     remove-agent-worktree.sh --owner <agent-id> <worktree-path> \
+#         [--branch <branch>] [--repo <repo-path>] [--force]
 #
-#   --owner <agent-id>   REQUIRED. The agent whose liveness is checked against
-#                        the ENTITY's worktree lock. Accepts "agent-<id>" or "<id>".
-#   <worktree-path>      REQUIRED. The worktree directory to remove (native or
-#                        hand-rolled).
-#   --branch <branch>    Optional. A branch to delete after removal (e.g.
-#                        worktree-agent-<id>).
-#   --repo <repo-path>   Optional. The git repo that OWNS <worktree-path>
-#                        (where `git worktree remove` runs). Defaults to the
-#                        entity main checkout. For a hand-rolled worktree of
-#                        another repository, pass that repository's path.
-#   --force              Pass --force to `git worktree remove` (needed for a
-#                        worktree with untracked/modified files — a native
-#                        isolation worktree always has untracked files, so the
-#                        orchestrator passes --force AFTER collecting artifacts).
+#   Routed to `workspace-retire.py remove`. It still REMOVES rather than
+#   quarantines — the reaper relies on the directory being gone and deletes the
+#   branch itself with `-d` — but it runs the same termination authority as
+#   retirement, takes the same workspace lock, PRESERVES (verified archive)
+#   before any `--force` removal, records its intent in the same journal before
+#   the removal and the completion after it, and copies the positive verdict to
+#   the ownership ledger. It refuses: an owner it cannot bind to the path
+#   (`owner-unbound`), an owner that is ALIVE or INDETERMINATE, a directory that
+#   is not a registered worktree of the repository (exit 5 — this used to be
+#   the recursive delete), a directory that CONTAINS other worktrees (exit 5),
+#   and a journal that will not take a record.
+#
+#   --owner <agent-id>   REQUIRED. Accepts "agent-<id>" or "<id>". Must be
+#                        BOUND to <worktree-path> (see the rule above).
+#   <worktree-path>      REQUIRED. The worktree directory to remove.
+#   --branch <branch>    Optional. A branch to delete after removal; its tip is
+#                        first made reachable from refs/richos/retired/<ws-id>/.
+#   --repo <repo-path>   Optional. The git repo that OWNS <worktree-path>.
+#                        Defaults to the entity main checkout.
+#   --force              Pass --force to `git worktree remove`. The tree is
+#                        preserved (verified archive under the retirement state
+#                        root) FIRST, because --force is what lets git destroy
+#                        dirty and untracked content.
 #
 # ENTITY OVERRIDE:
 #   --entity-repo <path>  (or env REMOVE_AGENT_ENTITY_REPO) overrides the repo
-#   whose worktree lock is treated as authoritative for liveness. Used by the
-#   test suite to point at a sandbox, and by an operator removing one entity's
-#   worktree from a session seated in another.
+#   whose isolation-worktree locks are authoritative for a HAND-ROLLED
+#   worktree's owner. A native worktree's lock is read from the repository that
+#   registers it, which is by construction the entity that spawned it.
 #
 # Exit codes:
-#   0  agent confirmed NOT alive; worktree (and optional branch) removed.
+#   0  removed (legacy) / quarantined, already-retired or a passing --dry-run
+#      (retirement).
 #   2  usage error.
-#   3  agent is ALIVE (or liveness indeterminate) — REFUSED, nothing removed.
-#   4  removal failed (e.g. dirty worktree without --force).
+#   3  REFUSED — nothing removed. Owner alive, indeterminate, unresolved or
+#      unbound; repository unreadable; identity changed; lock contended; and
+#      in retirement mode every refusal at all, always BEFORE any mutation.
+#   4  a step was attempted and FAILED (preservation, journal, lock, git
+#      worktree remove); the outcome's `stage` names which. Nothing is
+#      reported removed that is not on record as removed.
+#   5  legacy mode only: the target is a directory that is NOT a registered
+#      worktree of the repository, or one that CONTAINS other worktrees.
 
 set -euo pipefail
 
@@ -87,13 +131,34 @@ err() { printf '%s\n' "$*" >&2; }
 
 usage() {
     cat >&2 <<EOF
-usage: remove-agent-worktree.sh --owner <agent-id> <worktree-path> \\
+usage, RETIREMENT mode (preferred):
+  remove-agent-worktree.sh --workspace <ws-id> [--owner <a>] [--repo <r>] \\
+           [<path>] [--dry-run] [--retention-days <n>] [--entity-repo <path>]
+
+  The caller names an IDENTITY. Repository, path, branch and owner are DERIVED
+  from the ownership ledger; --owner, --repo and a positional path are
+  ASSERTIONS that must AGREE with the record. The workspace is preserved
+  (committed, staged, dirty, untracked AND ignored), its tip made reachable
+  from a backup ref, and its directory RENAMED to quarantine with a retention
+  period. NOTHING IS DELETED. A structured JSON outcome goes to stdout.
+
+  List identities:   python3 <engine>/scripts/lib/workspace-retire.py list
+  Delete a branch:   python3 <engine>/scripts/lib/workspace-retire.py retire-branch <ws-id>
+  Expire quarantine: python3 <engine>/scripts/lib/workspace-retire.py sweep --execute
+  Restore:           python3 <engine>/scripts/lib/workspace-retire.py restore <ws-id> <dest>
+  Dangling intents:  python3 <engine>/scripts/lib/workspace-retire.py reconcile
+
+usage, LEGACY mode (the reaper's route, and operator work from a bare path):
+  remove-agent-worktree.sh --owner <agent-id> <worktree-path> \\
            [--branch <branch>] [--repo <repo-path>] [--force] \\
            [--entity-repo <path>]
 
-The ONLY sanctioned way to remove an agent-associated worktree. Verifies the
-agent is NOT alive (authoritative ENTITY isolation-worktree lock + live-pid
-check) before removing anything.
+The ONLY sanctioned way to remove an agent-associated worktree. Removes only
+when the owner is BOUND to the path (an ownership record, or the agent's own
+isolation worktree) AND is NOT-ALIVE on POSITIVE evidence (witnessed
+termination, observed unlocked/stale-locked isolation worktree, or a host
+session provably over). Absence is refused. An unregistered directory is
+refused (it used to be recursively deleted — 2026-09-05).
 $HOOK_TAG
 EOF
 }
@@ -104,9 +169,17 @@ BRANCH=""
 REPO=""
 ENTITY_OVERRIDE="${REMOVE_AGENT_ENTITY_REPO:-}"
 FORCE=0
+WORKSPACE=""
+DRY_RUN=0
+RETENTION=""
+LOCK_WAIT=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --workspace)      WORKSPACE="${2:-}"; shift 2 ;;
+        --dry-run)        DRY_RUN=1; shift ;;
+        --retention-days) RETENTION="${2:-}"; shift 2 ;;
+        --lock-wait)      LOCK_WAIT="${2:-}"; shift 2 ;;
         --owner)          OWNER="${2:-}"; shift 2 ;;
         --branch)         BRANCH="${2:-}"; shift 2 ;;
         --repo)           REPO="${2:-}"; shift 2 ;;
@@ -124,8 +197,9 @@ done
 # Any trailing positionals after `--`.
 if [ -z "$WT_PATH" ] && [ "$#" -gt 0 ]; then WT_PATH="$1"; shift; fi
 
-if [ -z "$OWNER" ] || [ -z "$WT_PATH" ]; then
-    err "ERROR: --owner <agent-id> and <worktree-path> are both required."
+if [ -z "$WORKSPACE" ] && { [ -z "$OWNER" ] || [ -z "$WT_PATH" ]; }; then
+    err "ERROR: --owner <agent-id> and <worktree-path> are both required (legacy mode),"
+    err "       or --workspace <ws-id> (retirement mode)."
     usage
     exit 2
 fi
@@ -164,178 +238,86 @@ else
     fi
 fi
 
-# The repo that owns the worktree being removed (where `git worktree remove`
-# runs). Defaults to the entity main checkout (native worktree case).
-[ -n "$REPO" ] || REPO="$ENTITY_MAIN"
-
-# Normalize the owner id to "agent-<id>".
-case "$OWNER" in
-    agent-*) OWNER_ID="$OWNER" ;;
-    *)       OWNER_ID="agent-$OWNER" ;;
-esac
-
-# --- Authoritative liveness check against the ENTITY lock -----------------
-#
-# THE LOGIC IS NOT HERE ANY MORE, AND THAT IS THE POINT. This block used to
-# carry its own inline python parse of `git worktree list --porcelain`. It was
-# correct — it got the 2026-08-31 case right, refusing to remove `zach-opus-g1`
-# while the lead was telling the CEO that agent had completed. But it was the
-# ONLY correct implementation, and nothing else in the engine could ask it the
-# question, so the lead answered from the stale `ListAgents` roster instead.
-#
-# The resolver now lives in scripts/lib/agent-liveness.{py,sh} and this script
-# CONSUMES it, exactly as scripts/agent-liveness.sh and the Stop-time claim
-# guard do. One implementation, three callers. Two implementations of "alive"
-# is how one of them silently becomes the stale one, which is the whole shape
-# of the defect being fixed.
-#
-# The verdict arrives as one tab-separated line:
-#   ALIVE\t<pid>\t<path>              -> REFUSE
-#   NOT-ALIVE\t<reason>\t<path>       -> proceed, note the reason
-#   INDETERMINATE\t<reason>\t         -> REFUSE (fail closed; see below)
-#
-# INDETERMINATE IS NOT COLLAPSED. This caller is about to DELETE something, so
-# "I could not tell" must behave like "alive" here — while the claim guard,
-# which is about to SPEAK, treats the same answer as "say nothing". Folding the
-# third outcome into one of the other two in the library would take that choice
-# away from both.
-_AL_LIB="$SCRIPT_DIR/lib/agent-liveness.sh"
-if [ ! -f "$_AL_LIB" ]; then
+# --- The ONE library both modes route to --------------------------------------
+# This script does not fall back to deciding anything itself when the library
+# is missing. A helper that decides in the library's absence is a helper with a
+# second implementation, and a second implementation is how the first one
+# silently becomes the stale one — which is the whole shape of the defect the
+# 2026-09-05 incident and the 2026-09-06 review found here, twice.
+_WR_LIB="$SCRIPT_DIR/lib/workspace-retire.py"
+if [ ! -f "$_WR_LIB" ]; then
     {
-        echo "=== remove-agent-worktree: REFUSED — liveness resolver missing ==="
-        echo "  scripts/lib/agent-liveness.sh is absent at:"
-        echo "    $_AL_LIB"
-        echo "  This script does not decide liveness itself and will not guess."
+        echo "=== remove-agent-worktree: REFUSED — retirement library missing ==="
+        echo "  scripts/lib/workspace-retire.py is absent at:"
+        echo "    $_WR_LIB"
+        echo "  It holds the ONE termination authority, the ONE workspace lock, the ONE"
+        echo "  preservation routine and the ONE journal. Without it this script has"
+        echo "  nothing to decide with, and it does not decide from a caller's strings."
         echo "  Failing closed: nothing was removed."
         echo "$HOOK_TAG"
     } >&2
     exit 3
 fi
-# shellcheck source=lib/agent-liveness.sh
-. "$_AL_LIB"
 
-LIVENESS="$(agent_liveness_triple "$ENTITY_MAIN" "$OWNER_ID" || true)"
-
-LV_KIND="$(printf '%s' "$LIVENESS" | cut -f1)"
-
-refuse_alive() { # <pid> <path>
-    local pid="$1" path="$2"
-    {
-        echo "=== remove-agent-worktree: REFUSED — agent is ALIVE ==="
-        echo "  Agent '$OWNER_ID' is ALIVE: its isolation worktree in the entity"
-        echo "    $ENTITY_MAIN"
-        echo "  at"
-        echo "    $path"
-        echo "  is locked with a RUNNING pid ($pid)."
-        echo ""
-        echo "  Removing a live agent's worktree corrupts its workspace and forces"
-        echo "  a cancel (the 2026-08-24 incident). Nothing was removed."
-        echo ""
-        echo "  Liveness = the ENTITY's isolation-worktree lock with a LIVE pid —"
-        echo "  NEVER a hand-rolled external-repo worktree (it carries no lock)."
-        echo "  Wait for a positive termination signal (completion/kill notification,"
-        echo "  or the entity worktree becomes unlocked/absent), then re-run."
-        echo "$HOOK_TAG"
-    } >&2
-}
-
-case "$LV_KIND" in
-    ALIVE)
-        PID="$(printf '%s' "$LIVENESS" | cut -f2)"
-        LOCK_PATH="$(printf '%s' "$LIVENESS" | cut -f3)"
-        refuse_alive "$PID" "$LOCK_PATH"
-        exit 3
-        ;;
-    NOT-ALIVE)
-        err "note: $(printf '%s' "$LIVENESS" | cut -f2) — agent not alive, proceeding."
-        ;;
-    INDETERMINATE|*)
-        {
-            echo "=== remove-agent-worktree: REFUSED — liveness indeterminate ==="
-            echo "  Could not verify whether agent '$OWNER_ID' is alive:"
-            echo "    $(printf '%s' "$LIVENESS" | cut -f2)"
-            echo "  Failing closed — refusing to remove a worktree we cannot prove is"
-            echo "  dead. Fix the entity repo path (--entity-repo) or git state,"
-            echo "  then re-run."
-            echo "$HOOK_TAG"
-        } >&2
-        exit 3
-        ;;
-esac
-
-# --- Not alive: perform the removal ---------------------------------------
-if [ ! -d "$WT_PATH" ]; then
-    err "note: worktree path $WT_PATH does not exist on disk — nothing to remove (pruning + branch cleanup only)."
-fi
-
-REGISTERED=0
-if git -C "$REPO" worktree list --porcelain 2>/dev/null \
-        | grep -qxF "worktree $WT_PATH"; then
-    REGISTERED=1
-fi
-
-REMOVE_RC=0
-if [ "$REGISTERED" -eq 1 ]; then
-    # A dead agent's native worktree may still carry a stale lock; unlock so
-    # `git worktree remove` will proceed (harmless/no-op if not locked).
-    git -C "$REPO" worktree unlock "$WT_PATH" >/dev/null 2>&1 || true
+# ===========================================================================
+# RETIREMENT MODE — the operation the 2026-09-05 diagnosis specifies
+# ===========================================================================
+if [ -n "$WORKSPACE" ]; then
+    _WR_ARGS=(retire "$WORKSPACE" --entity-repo "$ENTITY_MAIN")
+    # --owner / --repo / <path> are ASSERTIONS here, never inputs. They can
+    # only fail to match what the record says; they can never widen the target.
+    #
+    # These are `if` statements and not `[ x ] && y` one-liners deliberately:
+    # under `set -e` an AND-list whose test fails IS the command's status, and
+    # the shell exits. A silent early exit in a removal helper is the exact
+    # shape of a step that never ran while its caller reported success.
+    if [ -n "$OWNER" ];     then _WR_ARGS+=(--owner "$OWNER"); fi
+    if [ -n "$REPO" ];      then _WR_ARGS+=(--repo "$REPO"); fi
+    if [ -n "$WT_PATH" ];   then _WR_ARGS+=(--path "$WT_PATH"); fi
+    if [ -n "$RETENTION" ]; then _WR_ARGS+=(--retention-days "$RETENTION"); fi
+    if [ -n "$LOCK_WAIT" ]; then _WR_ARGS+=(--lock-wait "$LOCK_WAIT"); fi
+    if [ "$DRY_RUN" -eq 1 ]; then _WR_ARGS+=(--dry-run); fi
+    if [ -n "$BRANCH" ]; then
+        err "note: --branch is ignored in retirement mode. Branch deletion is a SEPARATE"
+        err "      operation with its own retention and reachability checks:"
+        err "        python3 $_WR_LIB retire-branch $WORKSPACE"
+    fi
     if [ "$FORCE" -eq 1 ]; then
-        git -C "$REPO" worktree remove --force "$WT_PATH" || REMOVE_RC=$?
-    else
-        git -C "$REPO" worktree remove "$WT_PATH" || REMOVE_RC=$?
+        err "note: --force is ignored in retirement mode. Nothing is deleted, so there is"
+        err "      nothing for it to override — the workspace is preserved and RENAMED."
     fi
-    if [ "$REMOVE_RC" -ne 0 ]; then
-        {
-            echo "=== remove-agent-worktree: removal FAILED ==="
-            echo "  'git worktree remove' exited $REMOVE_RC for:"
-            echo "    $WT_PATH  (repo: $REPO)"
-            echo "  The worktree likely has untracked/modified files. Collect any"
-            echo "  artifacts first (scripts/collect-worktree-artifacts.sh), then"
-            echo "  re-run with --force."
-            echo "$HOOK_TAG"
-        } >&2
-        exit 4
-    fi
-    git -C "$REPO" worktree prune >/dev/null 2>&1 || true
-elif [ -d "$WT_PATH" ]; then
-    # Not a registered worktree of $REPO (e.g. a hand-rolled dir whose repo
-    # registration is gone) — remove the directory directly. Liveness is
-    # already confirmed dead above.
-    rm -rf "$WT_PATH"
-    git -C "$REPO" worktree prune >/dev/null 2>&1 || true
+    _WR_RC=0
+    python3 "$_WR_LIB" "${_WR_ARGS[@]}" || _WR_RC=$?
+    exit "$_WR_RC"
 fi
 
-# --- Optional branch deletion ---------------------------------------------
-if [ -n "$BRANCH" ]; then
-    if git -C "$REPO" show-ref --verify --quiet "refs/heads/$BRANCH"; then
-        git -C "$REPO" branch -D "$BRANCH" >/dev/null 2>&1 \
-            && err "note: deleted branch $BRANCH" \
-            || err "note: could not delete branch $BRANCH (already gone or checked out?)"
-    else
-        err "note: branch $BRANCH not found in $REPO — skipping branch delete."
-    fi
+# ===========================================================================
+# LEGACY MODE — a ROUTE into the same library, with no authority of its own
+# ===========================================================================
+# THE LOGIC IS NOT HERE ANY MORE, AND THAT IS THE POINT. Until 2026-09-06 this
+# block asked scripts/lib/agent-liveness.sh about the owner, proceeded on any
+# NOT-ALIVE, then checked whether the path was a registered worktree. Three
+# things were wrong with that in the same direction: NOT-ALIVE covered
+# "no such agent exists"; nothing established that the owner OWNED the path;
+# and a `--force` removal preserved nothing. All three now live in
+# `workspace-retire.py remove`, beside the retirement operation, so the two
+# cannot drift apart.
+#
+# The library prints a human-readable banner on stderr (the refusal banner
+# carries the verdict word — ALIVE, INDETERMINATE — where the verdict decided
+# it) and the structured JSON outcome on stdout, and its exit code is this
+# script's exit code, unchanged.
+[ -n "$REPO" ] || REPO="$ENTITY_MAIN"
+
+_WR_ARGS=(remove --entity-repo "$ENTITY_MAIN" --repo "$REPO" --owner "$OWNER" --path "$WT_PATH")
+if [ -n "$BRANCH" ];    then _WR_ARGS+=(--branch "$BRANCH"); fi
+if [ "$FORCE" -eq 1 ];  then _WR_ARGS+=(--force); fi
+if [ -n "$LOCK_WAIT" ]; then _WR_ARGS+=(--lock-wait "$LOCK_WAIT"); fi
+if [ "$DRY_RUN" -eq 1 ]; then _WR_ARGS[0]="authorize"; fi
+
+_WR_RC=0
+python3 "$_WR_LIB" "${_WR_ARGS[@]}" || _WR_RC=$?
+if [ "$_WR_RC" -ne 0 ]; then
+    err "$HOOK_TAG"
 fi
-
-# --- Ownership ledger: copy the witnessed termination before it is gone ------
-# This removal just destroyed the native worktree that was the only evidence a
-# hand-rolled tree in another repository ever had about its owner. The verdict
-# that authorized it is copied to scripts/lib/worktree-ledger.py so that tree
-# stays decidable — but ONLY when the verdict rested on an OBSERVATION (the
-# entity worktree registered and unlocked, or stale-locked by a dead pid). A
-# NOT-ALIVE that rested on the entity worktree being ABSENT is this helper's
-# rule for removal; it is not a termination signal, and writing it as one
-# would launder absence into positive evidence for every later sweep.
-LV_REASON="$(printf '%s' "$LIVENESS" | cut -f2)"
-case "$LV_REASON" in
-    *"absent/unregistered"*) : ;;
-    *)
-        if [ -f "$SCRIPT_DIR/lib/worktree-ledger.py" ]; then
-            python3 "$SCRIPT_DIR/lib/worktree-ledger.py" record terminated --once \
-                --agent-id "${OWNER_ID#agent-}" --worktree "$WT_PATH" \
-                --reason "$LV_REASON" --witness "remove-agent-worktree" >/dev/null 2>&1 || true
-        fi
-        ;;
-esac
-
-echo "✓ removed agent worktree: $WT_PATH${BRANCH:+ (branch $BRANCH)} — agent '$OWNER_ID' confirmed not alive. $HOOK_TAG"
-exit 0
+exit "$_WR_RC"

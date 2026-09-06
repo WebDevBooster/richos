@@ -76,6 +76,26 @@
 #      never inferred, so an adopter who does not publish is not held to it.
 #
 # ===========================================================================
+# ONE CHECK THAT IS DELIBERATELY NOT HERE — THE NAMED-PERSON DENY-LIST
+# ===========================================================================
+# `scripts/named-persons.sh --tree` refuses a tree carrying a private
+# individual's name, and it is NOT a step in this script. That is a design
+# decision, not an omission, and the reason is the whole shape of the
+# mechanism: the deny-list lives OUTSIDE every repository, on the operator's
+# machine, because a roster of somebody's clients, friends and family is worse
+# to publish than any single name on it. A CI runner is a fresh machine with no
+# such list, so the check there would report ABSENT — which it is correct to
+# treat as a REFUSAL — and every push would go red for a file no runner can
+# ever have.
+#
+# So the chokepoints for that contract are the two PreToolUse guards (which run
+# on the machine that has the list) and `app/scripts/make-release.sh` (which
+# runs on the machine that cuts the release, and refuses on a missing list).
+# Step 3 still runs `named-persons.test.sh` here, because that suite carries its
+# own synthetic fixture list and asserts against invented names — including the
+# case that a missing list is announced rather than silently passed.
+#
+# ===========================================================================
 # THE GIT-IDENTITY PRECONDITION — checked, never quietly supplied
 # ===========================================================================
 # Several suites build throwaway git repositories and commit into them. They

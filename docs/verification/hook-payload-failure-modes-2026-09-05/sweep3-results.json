@@ -1,0 +1,1087 @@
+[
+ {
+  "hook": "guard-worktree-isolation.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "file-writing spawn with no isolation",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Teammate-spawn guard: BLOCKED ===\n  Agent 'clark' can edit repo files, so it must satisfy the\n  teammate-spawn contract. It failed:\n    - missing native isolation \u2014 add  isolation: \"worktree\"  to run in an isolated worktree (got isolation='unset'); for cross-repository work ALSO add a 'cross-repo-worktree: <path>' prompt line naming a worktree registered by scripts/create-teammate-worktree.sh (a cwd-only spawn is refused); OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.\n  Re-issue the Agent call fixing the above.\n  (If this agent is genuinely READ-ONLY, add its type to READONLY_ALLOWLIST\n   in orchestration.config.)\n(hook: scripts/hooks/guard-worktree-isolation.sh)\n",
+    "sec": 0.1,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-model-ceiling.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "spawn above the declared model ceiling",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== MODEL COST CEILING \u2014 THIS SPAWN IS ABOVE IT ===\n  spawn      : sage-fable-zz9 of 'sage'\n  requested  : fable (tier 1) \u2014 from the explicit model override 'fable' on this spawn\n  the ceiling: opus (tier 2) \u2014 MODEL_CEILING in orchestration.config\n\n  THE CEILING, IN ONE LINE: the normal ceiling for CRITICAL work is\n  'opus'. The tier above it is for SUPER-CRITICAL work and extreme\n  ONE-OFF cases \u2014 it is the most capable seat AND roughly twice the price,\n  and it burns the subscription quota much faster. Capability and cost are\n  two different orders; MODEL_TIERS declares only the first one.\n\n  THE TEST \u2014 not 'is this important', but: IS THIS A ONE-OFF WHOSE OUTPUT\n  EVERYTHING DOWNSTREAM INHERITS? How far does a mistake propagate \u2014 one\n  failed task, or every task built on top of it?\n\n  THE FOUNDER'S OWN EXAMPLES, as calibration rather than a closed list:\n    - the worktree-lifecycle work and its fixes \u2014 a defect class that has\n      survived seven designs, where a wrong fix becomes permanent\n    - unique or super-premium front-end design\n    - creating a design system\n  'One-off' is load-bearing: the exception is granted once, per instance.\n  A respawned teammate does not keep the seat because its predecessor had it.\n\n  RECONSIDER (the usual answer): change the spawn to  model: \"opus\"\n  and rename the teammate 'sage-opus-zz9' \u2014 the <model> token must stay\n  truthful to the model the instance actually boots on, so the spawn guard\n  will refuse 'sage-fable-zz9' on 'opus'.\n\n  OR ACKNOWLEDGE, if the pick stands. Add ONE line to this spawn prompt:\n\n      model-ceiling-ack: <why this is a one-off whose output everything downstream inherits>\n\n  The founder greenlighting this tier in conversation IS a good reason \u2014\n  write that as the reason and the log preserves that he said it. Accepted\n  uses are appended to .claude/state/model-ceiling-acks.log, so a habit of\n  waiving is visible rather than invisible.\n(hook: scripts/hooks/guard-model-ceiling.sh)\n",
+    "sec": 0.11,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "verify-agent-prompt.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "prompt telling a subagent to spawn agents",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Agent prompt verification FAILED ===\n  - subagent-as-spawner: prompt appears to ask subagent 'mark' to spawn or dispatch agents. Only the orchestrator makes Agent tool calls \u2014 keep briefs to plain build instructions and don't narrate the orchestration around them.\n  - ack-contract-missing: this spawn gets a worktree (isolation='worktree'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract \u2014 either name the helper (scripts/inflight-ack.sh, reachable at ~/.claude/richos-engine/scripts/inflight-ack.sh) or spell out the ack file itself (<worktree>/.claude/inflight-acks/<sha12>.<teammate>.ack with its sha/impact/detail/paths/teammate keys) \u2014 because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.\n(hook: scripts/hooks/verify-agent-prompt.sh)\n",
+    "sec": 0.19,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-main-checkout-writes.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "write to protected source in the main checkout",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Main-checkout write BLOCKED ===\n  Refusing to write '/Users/alex/ab/femcboost/avelor/src/zz.js'.\n  This is the SHARED main checkout (/Users/alex/ab/femcboost). All source (protected trees:\n  avelor fitapp) must be edited in your own git worktree, never in the main\n  checkout \u2014 concurrent edits here corrupt other agents' work and block landing.\n  Re-issue the edit against your worktree path (\u2026/.claude/worktrees/<your-worktree>/\u2026).\n  (If you are the orchestrator: land source via git merge, or make source changes in a worktree.)\n(hook: scripts/hooks/guard-main-checkout-writes.sh)\n",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "scan-secrets.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "AWS-shaped credential in new content",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Secret scan BLOCKED ===\n  Refusing to write '/Users/alex/ab/femcboost/docs/zz.md' \u2014 the content looks like it\n  contains a live secret:\n    - AWS access key (redacted: AKIAQ\u2026redacted\u2026BLC)\n  If this is a genuine placeholder or test fixture, add the exact substring to\n  SECRET_SCAN_ALLOWLIST in orchestration.config (space-separated, never flagged\n  again). NEVER commit a real secret \u2014 use an environment variable or a secrets\n  manager instead.\n(hook: scripts/hooks/scan-secrets.sh)\n",
+    "sec": 0.12,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-dialect.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "non-American spelling in new content",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Dialect check BLOCKED ===\n  Refusing to write '/Users/alex/ab/femcboost/docs/zz.md' \u2014 this content introduces wording\n  that is not en-US (CEO ruling 2026-08-29: American English is the language\n  of every string a customer reads, and of the record):\n    - colour -> color\n        The colour of the analyser is fine.\n    - analyser -> analyzer\n        The colour of the analyser is fine.\n  FIX THE WORD. If the text is genuinely exempt \u2014 quoted external material, a\n  protocol value, a name you do not own \u2014 declare it where a reviewer will see it:\n    * put it in a code span or fenced block, or a > blockquote if it is a quotation;\n    * or add 'dialect-exempt: <reason>' to the line (a bare marker does nothing);\n    * or add the literal substring to DIALECT_SCAN_ALLOWLIST in orchestration.config.\n  IF THIS FILE IS SOMEBODY ELSE'S WORK, that is not an exemption to declare \u2014 it\n  is a fact to record. Add an entry with origin=third-party to the repository's\n  .vendored-material registry and this guard will leave the whole path alone,\n  including a verbatim re-vendoring from upstream. On 2026-08-30 this guard\n  rewrote 14 lines across two vendored skills for want of that entry, and then\n  refused the commit that tried to quote the difference back.\n  To turn this off for a repository whose product does not speak en-US,\n  blank DIALECT_TARGET in orchestration.config \u2014 never weaken the dictionary.\n(hook: scripts/hooks/guard-dialect.sh)\n",
+    "sec": 0.14,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-interactive-prompt.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "command that can wait on a human",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== guard-interactive-prompt: BLOCKED ===\n  This command can STOP AND WAIT FOR A HUMAN. Agents run without a\n  terminal, so waiting means one of two things: a window drawn on the\n  CEO's screen, or a process hung until somebody notices and kills it.\n  Both have happened. 2026-09-01, 02:01, PID 70803.\n\n  * security (security-import)\n      why: a MISSING passphrase is not an empty one. macOS escalates to SecurityAgent, which draws a window on the logged-in user's screen and blocks this process forever. Measured 2026-09-01 02:01, PID 70803.\n      FIX: add -P '<passphrase>' \u2014 use -P '' when the material has none\n\n  Apply the fix and re-run. There is no waiver line for this guard:\n  every refusal above names a change that keeps the command working.\n(hook: scripts/hooks/guard-interactive-prompt.sh)\n",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-bash-main-writes.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "shell write into protected source in the main checkout",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== guard-bash-main-writes: BLOCKED ===\n  This Bash command writes into the MAIN checkout's SOURCE tree\n  (protected trees: avelor fitapp) \u2014 reason: BLOCK abs:/Users/alex/ab/femcboost/avelor/src/zz.js.\n  Source is edited ONLY inside your own worktree:\n    /Users/alex/ab/femcboost/.claude/worktrees/<your-agent-id>/<tree>/...\n  Use ABSOLUTE paths under your worktree for every file operation; never\n  'cd /Users/alex/ab/femcboost' for writes. Main receives source only via git merge.\n(hook: scripts/hooks/guard-bash-main-writes.sh)\n",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-worktree-removal.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "removal of a live agent worktree",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Worktree-removal guard: BLOCKED ===\n  This Bash command is a worktree-destroying op (git worktree remove) issued\n  RAW \u2014 not through the sanctioned helper. Removing a LIVE agent's\n  worktree corrupts its workspace and forces a cancel (the\n  2026-08-24 incident).\n\n  Use the ONLY blessed removal path, which checks the AUTHORITATIVE\n  liveness signal before removing anything:\n    /Users/alex/ab/richos/engine/scripts/remove-agent-worktree.sh \\\n        --owner <agent-id> <worktree-path> [--branch <branch>] \\\n        [--repo <repo-path>] [--force]\n\n  Liveness = the ENTITY's isolation-worktree lock with a LIVE pid.\n  This session's entity is:\n    /Users/alex/ab/femcboost\n    git -C /Users/alex/ab/femcboost worktree list --porcelain\n      -> 'locked claude agent agent-<id> (pid <p> ...)' AND pid <p> running.\n  A stale lock (dead pid), an UNLOCKED worktree, or an ABSENT one = not\n  alive. NEVER judge liveness from a hand-rolled external-repo\n  worktree \u2014 it carries no lock (the exact 2026-08-24 mistake).\n\n  Deliberate one-off override (logged): add a\n    worktree-remove-ack: <why this removal is safe>\n  token to the command.\n(hook: scripts/hooks/guard-worktree-removal.sh)\n",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-inflight-notify.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "land while teammates are in flight",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-ceo-ask-first.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "dispatch before the CEO ask",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== A PREPARED CEO DECISION HAS NOT BEEN PUT TO HIM THIS SESSION \u2014 REFUSING THIS DISPATCH ===\n  prepared items : 9\n  asked this session : 0\n\n  On 2026-08-31 a session prepared two decisions for the CEO, the next\n  session opened, he asked \"what's next\", and he got a backlog report\n  and a dispatched engineer. Every guard was green. Nobody had been\n  asked anything. Dispatching a teammate is the act that beat the ask,\n  so it is the act that is blocked.\n\n  ASK HIM THIS, with the AskUserQuestion tool:\n\n    1.3  The call-transcription default\n    The call-transcription default? Answer = a ruling in `ceo-decisions.md` \u00a710 \u2014 switch the shipping default to `q5_0` now, or hold it until the word error rate from 2.1 exists. Open richos-hq/wiki/call-transcription-approach.md (15 minutes).\n\n  The gate reads the QUESTION TEXT, not an assertion \u2014 the question,\n  its options and their descriptions have to actually be about one of\n  his prepared items. A question that matches none of them is recorded\n  UNMATCHED and discharges nothing. ONE prepared item is the whole\n  requirement for this session; the rest are surfaced at every turn end.\n\n  The others still open this session:\n    1.4  Techy mode, four design questions\n    1.5  Capture-extension questions\n    1.8  Should the rules also apply when YOU edit this repository directly?\n    2.1  Verify the podcast reference transcript\n    2.2  macOS live system-audio tap\n    (+3 more \u2014 scripts/ceo-asks-status.sh)\n\n  IF HE HAS ALREADY SAID GET ON WITH IT, say so on the record \u2014 add a\n  line to this spawn prompt:\n\n    ceo-todos-deferred: <reason>\n\n  which permits this one dispatch and is logged to\n  .claude/state/ceo-todos-defers.log.\n(hook: scripts/hooks/guard-ceo-ask-first.sh)\n",
+    "sec": 0.21,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\"}\n",
+    "err": "CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\n",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\"}\n",
+    "err": "CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\n",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\"}\n",
+    "err": "CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated.\n",
+    "sec": 0.07,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-workflow-ban.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "any Workflow call",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Workflow tool: BANNED \u2014 BLOCKED ===\n  The `Workflow` orchestration tool is banned in this repository.\n  It has failed in prior sessions and wasted an operator's time. This\n  block is unconditional: there is no escape line, no ack, and no\n  condition under which a Workflow call is permitted here.\n\n  Do this instead: orchestrate with individual `Agent` dispatches \u2014\n  one teammate per task, each spawned with isolation: \"worktree\".\n  Sequence them yourself; do not look for a workflow/plan-runner\n  substitute.\n\n  Do not unwire, weaken, shim, or condition this hook to get past it.\n  If this repository genuinely wants the tool, that is a deliberate,\n  reviewable decision: set BAN_WORKFLOW_TOOL=0 in orchestration.config.\n(hook: scripts/hooks/guard-workflow-ban.sh)\n",
+    "sec": 0.03,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Workflow tool: BANNED \u2014 BLOCKED ===\n  The `Workflow` orchestration tool is banned in this repository.\n  It has failed in prior sessions and wasted an operator's time. This\n  block is unconditional: there is no escape line, no ack, and no\n  condition under which a Workflow call is permitted here.\n\n  Do this instead: orchestrate with individual `Agent` dispatches \u2014\n  one teammate per task, each spawned with isolation: \"worktree\".\n  Sequence them yourself; do not look for a workflow/plan-runner\n  substitute.\n\n  Do not unwire, weaken, shim, or condition this hook to get past it.\n  If this repository genuinely wants the tool, that is a deliberate,\n  reviewable decision: set BAN_WORKFLOW_TOOL=0 in orchestration.config.\n(hook: scripts/hooks/guard-workflow-ban.sh)\n",
+    "sec": 0.03,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Workflow tool: BANNED \u2014 BLOCKED ===\n  The `Workflow` orchestration tool is banned in this repository.\n  It has failed in prior sessions and wasted an operator's time. This\n  block is unconditional: there is no escape line, no ack, and no\n  condition under which a Workflow call is permitted here.\n\n  Do this instead: orchestrate with individual `Agent` dispatches \u2014\n  one teammate per task, each spawned with isolation: \"worktree\".\n  Sequence them yourself; do not look for a workflow/plan-runner\n  substitute.\n\n  Do not unwire, weaken, shim, or condition this hook to get past it.\n  If this repository genuinely wants the tool, that is a deliberate,\n  reviewable decision: set BAN_WORKFLOW_TOOL=0 in orchestration.config.\n(hook: scripts/hooks/guard-workflow-ban.sh)\n",
+    "sec": 0.03,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Workflow tool: BANNED \u2014 BLOCKED ===\n  The `Workflow` orchestration tool is banned in this repository.\n  It has failed in prior sessions and wasted an operator's time. This\n  block is unconditional: there is no escape line, no ack, and no\n  condition under which a Workflow call is permitted here.\n\n  Do this instead: orchestrate with individual `Agent` dispatches \u2014\n  one teammate per task, each spawned with isolation: \"worktree\".\n  Sequence them yourself; do not look for a workflow/plan-runner\n  substitute.\n\n  Do not unwire, weaken, shim, or condition this hook to get past it.\n  If this repository genuinely wants the tool, that is a deliberate,\n  reviewable decision: set BAN_WORKFLOW_TOOL=0 in orchestration.config.\n(hook: scripts/hooks/guard-workflow-ban.sh)\n",
+    "sec": 0.03,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-resume-isolation.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "resume of a completed teammate",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Resume-isolation guard: BLOCKED ===\n  SendMessage recipient 'zach-opus-st1' could not be confirmed as an ACTIVE\n  teammate (team config unreadable: no readable session team config for session 'v3sweep00-0000-0000-0000-000000000000'). Failing closed: a resume that can't be proven to\n  land in a live isolated workspace is denied.\n\n  Fix one of:\n    - If you meant a live teammate, re-send with its EXACT current name\n      or agentId (disambiguate \u2014 do not rely on a partial/prefix name).\n    - For a FILE-BEARING follow-up, spawn a FRESH teammate with the Agent\n      tool and isolation:\"worktree\" (a new <role>-<identifier> name).\n    - For a DELIBERATE safe resume (pure question, or a serialized\n      external-repo writer), add a live message line:\n        resume-ack: <where any writes will land + why this resume is safe>\n      (allowed + logged to .claude/state/resume-acks.log).\n\n  Authoritative liveness (scripts/lib/agent-liveness.py \u2014 the isolation-\n  worktree lock, NOT the roster): UNRESOLVED\n    nothing joins 'zach-opus-st1' to an agent worktree (identity sources: nothing resolved from: worker-events.jsonl WorkerCreated.worker_name; orchestrator transcript (Agent tool_use -> toolUseResult.agentId) [/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/failclosed/trans-violate.jsonl])\n    main checkout swept: /Users/alex/ab/femcboost\n(hook: scripts/hooks/guard-resume-isolation.sh)\n",
+    "sec": 0.14,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Resume-isolation guard: BLOCKED ===\n  - Could not parse the SendMessage payload to verify the recipient's\n    liveness. Failing closed. Re-issue a well-formed SendMessage; if this\n    is a deliberate, safe resume, add a 'resume-ack: <where writes land +\n    why safe>' line to the message body.\n(hook: scripts/hooks/guard-resume-isolation.sh)\n",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Resume-isolation guard: BLOCKED ===\n  - Could not parse the SendMessage payload to verify the recipient's\n    liveness. Failing closed. Re-issue a well-formed SendMessage; if this\n    is a deliberate, safe resume, add a 'resume-ack: <where writes land +\n    why safe>' line to the message body.\n(hook: scripts/hooks/guard-resume-isolation.sh)\n",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Resume-isolation guard: BLOCKED ===\n  - Could not parse the SendMessage payload to verify the recipient's\n    liveness. Failing closed. Re-issue a well-formed SendMessage; if this\n    is a deliberate, safe resume, add a 'resume-ack: <where writes land +\n    why safe>' line to the message body.\n(hook: scripts/hooks/guard-resume-isolation.sh)\n",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-publication-writes.sh",
+  "root": "/Users/alex/ab/richos",
+  "refuses": "private material into a publication-bound repository",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.74,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-named-persons-writes.sh",
+  "root": "/Users/alex/ab/richos",
+  "refuses": "a named person in new content",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-publication-commits.sh",
+  "root": "/Users/alex/ab/richos",
+  "refuses": "commit into a publication-bound repository",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.18,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.09,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-named-persons-commands.sh",
+  "root": "/Users/alex/ab/richos",
+  "refuses": "a named person in the commit message",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.11,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.04,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-ceo-todos-commits.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "commit that should have touched CEO TODOs",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-completeness-commits.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "incomplete publication commit",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.01,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.01,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-row-currency-commits.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "commit leaving a stale row",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "  ROW CURRENCY \u2014 PREMISE CENSUS: sections=1,2 items=9 evaluated=1 pinned=1 stamps=1 moved=0 unobservable=0 broken=0 skipped=0 unstated=8\n  ROW CURRENCY \u2014 NOTE: PREMISE-NOT-STATED\n         8 item(s) in the CEO sections state no `**Premise:**`, so nothing can tell whether the reason for asking has stopped being true: 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5. On 2026-09-02 an item in this state had been asking the CEO to decide something that had already resolved itself. Declare PREMISE_REQUIRED=1 in the CEO-TODOs declaration to make this a refusal.\n",
+    "sec": 0.4,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.06,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.05,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-vendoring-commits.sh",
+  "root": "/Users/alex/ab/richos",
+  "refuses": "vendoring with no provenance record",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "=== RichOS engine: OUT OF JURISDICTION \u2014 JUDGED ANYWAY ===\n  hook     : scripts/hooks/guard-vendoring-commits.sh\n  seat     : /Users/alex/ab/richos/engine   (the repository this session governs)\n  commit in: /Users/alex/ab/richos\n  its repo : /Users/alex/ab/richos\n  This guard is seated in one repository and was handed an artifact in\n  another, so it belongs to a different repository \u2014 and this guard JUDGED IT ANYWAY.\n  IT DID LOOK. It reads its contract out of the artifact's own\n  repository, and standing down on a seat mismatch would wave through\n  the cross-repository operation this mechanism exists to catch. So\n  whatever verdict it reached is a real verdict.\n  WHAT TO CHECK IS THE CONFIGURATION: anything it took from the SEAT\n  rather than from the repository above \u2014 thresholds, allowlists,\n  exempt paths \u2014 may not be that repository's.\n  (said once per hook+repository per session)\n==========================================================\n",
+    "sec": 0.37,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.12,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-sealed-worktree.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "unsealed worker write",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Write barrier: REFUSED (worktree manifest not sealed) ===\n  tool: Write    agent: anever0000000000\n  reason: neither the bound record nor the start record exists for agent anever0000000000\n\n  A worker may write only after its worktree set is BOUND to its agent id\n  (the lead's PostToolUse[Agent], detect-nonnative-worktree.sh) AND its start\n  is recorded (SubagentStart, record-subagent-start.sh). This call waited\n  5s for both and found the manifest unsealed. Read-only tools\n  (Read Glob Grep LS WebFetch WebSearch ListAgents TaskList TaskGet TodoRead ToolSearch) are allowed meanwhile; this one is not.\n\n  If this persists, the spawn was not bindable \u2014 the lead's context received\n  a WORKTREE BINDING FAILED banner saying why. Report it and stop \u2014\n  do not work around it. Nothing written from an unsealed worker is owned.\n  (specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 4)\n(hook: scripts/hooks/guard-sealed-worktree.sh)\n",
+    "sec": 5.28,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Write barrier: REFUSED (the barrier cannot evaluate this call) ===\n  tool: <unknown>    agent: <unparsed>\n  reason: the hook payload is unparseable (Expecting value: line 1 column 1 (char 0)); a payload that cannot be proven the lead's is treated as a worker's\n\n  This call comes from a worker (or from a payload the barrier cannot prove\n  is the lead's), and the barrier could not read the worker's worktree state.\n  A potentially writing or unknown tool is refused rather than allowed on a\n  guess: nothing written from an unproven worker is owned by anyone.\n  Read-only tools (Read Glob Grep LS WebFetch WebSearch ListAgents TaskList TaskGet TodoRead ToolSearch) still pass.\n  FIX THE ENGINE: restore the named dependency (scripts/hooks/install.sh), then\n  spawn again. The spawn gate refuses new file-writing teammates meanwhile.\n  (review 2026-09-03 blocker 3; specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 4)\n(hook: scripts/hooks/guard-sealed-worktree.sh)\n",
+    "sec": 0.08,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Write barrier: REFUSED (the barrier cannot evaluate this call) ===\n  tool: Write    agent: <unparsed>\n  reason: the hook payload is unparseable (Unterminated string starting at: line 1 column 443 (char 442)); a payload that cannot be proven the lead's is treated as a worker's\n\n  This call comes from a worker (or from a payload the barrier cannot prove\n  is the lead's), and the barrier could not read the worker's worktree state.\n  A potentially writing or unknown tool is refused rather than allowed on a\n  guess: nothing written from an unproven worker is owned by anyone.\n  Read-only tools (Read Glob Grep LS WebFetch WebSearch ListAgents TaskList TaskGet TodoRead ToolSearch) still pass.\n  FIX THE ENGINE: restore the named dependency (scripts/hooks/install.sh), then\n  spawn again. The spawn gate refuses new file-writing teammates meanwhile.\n  (review 2026-09-03 blocker 3; specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 4)\n(hook: scripts/hooks/guard-sealed-worktree.sh)\n",
+    "sec": 0.07,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 2,
+    "out": "",
+    "err": "=== Write barrier: REFUSED (the barrier cannot evaluate this call) ===\n  tool: <unknown>    agent: <unparsed>\n  reason: the hook payload is unparseable (Expecting value: line 1 column 1 (char 0)); a payload that cannot be proven the lead's is treated as a worker's\n\n  This call comes from a worker (or from a payload the barrier cannot prove\n  is the lead's), and the barrier could not read the worker's worktree state.\n  A potentially writing or unknown tool is refused rather than allowed on a\n  guess: nothing written from an unproven worker is owned by anyone.\n  Read-only tools (Read Glob Grep LS WebFetch WebSearch ListAgents TaskList TaskGet TodoRead ToolSearch) still pass.\n  FIX THE ENGINE: restore the named dependency (scripts/hooks/install.sh), then\n  spawn again. The spawn gate refuses new file-writing teammates meanwhile.\n  (review 2026-09-03 blocker 3; specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 4)\n(hook: scripts/hooks/guard-sealed-worktree.sh)\n",
+    "sec": 0.08,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-definition-drift.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "spawn against a drifted definition",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "=== Definition-drift guard: WARNING (allowed) ===\n  no session-start definition snapshot found for session 'v3sweep00-0000-0000-0000-000000000000' (expected .claude/state/agent-definitions-v3sweep0.snapshot). snapshot-agent-definitions.sh was probably not live at the last session start \u2014 hooks snapshot per session, so it activates from the NEXT one. Definition drift is NOT being checked for this spawn.\n(hook: scripts/hooks/guard-definition-drift.sh)\n",
+    "sec": 0.24,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "=== Definition-drift guard: WARNING (allowed) ===\n  could not parse the Agent spawn payload \u2014 agent-definition freshness NOT verified for this spawn.\n(hook: scripts/hooks/guard-definition-drift.sh)\n",
+    "sec": 0.16,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "=== Definition-drift guard: WARNING (allowed) ===\n  could not parse the Agent spawn payload \u2014 agent-definition freshness NOT verified for this spawn.\n(hook: scripts/hooks/guard-definition-drift.sh)\n",
+    "sec": 0.17,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "=== Definition-drift guard: WARNING (allowed) ===\n  could not parse the Agent spawn payload \u2014 agent-definition freshness NOT verified for this spawn.\n(hook: scripts/hooks/guard-definition-drift.sh)\n",
+    "sec": 0.19,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "reader-teammate-hint.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "read-everything task given to a non-reader",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.19,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.14,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.11,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.11,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-ceo-ruled-ask.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "asking something already ruled",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.41,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\"}\n",
+    "err": "CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\n",
+    "sec": 0.26,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\"}\n",
+    "err": "CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\n",
+    "sec": 0.29,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "{\"systemMessage\": \"CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\"}\n",
+    "err": "CEO-RULED GATE: could not parse this AskUserQuestion call, so it was not checked against the CEO's record. This ONE question is ungated.\n",
+    "sec": 0.21,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-stated-actions.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "a stated action with no matching tool call",
+  "cases": {
+   "violation": {
+    "rc": 2,
+    "out": "",
+    "err": "=== THE REPORT DOES NOT MATCH THE TURN \u2014 TURN BLOCKED ===\n\n  You wrote, as a plain statement of what happens:\n\n      \"Zach builds it tomorrow.\"\n\n  and this turn's tool calls contain no Agent call for zach and no message\n  to a teammate. What the turn actually called: nothing at all.\n\n  A sentence describing an act is not the act. Seven times on 2026-09-02\n  the report was written from the intention, and twice the CEO had to ask\n  where the teammate was. Either\n      make the Agent call now, in this turn, and then finish; or\n      write what is TRUE: the dispatch has not happened, and why, or the\n      choice it waits on, put to the CEO as a question.\n  The sentence in the report must describe what was done.\n\n  You wrote, as a plain statement of what happens:\n\n      \"Frank breaks it first\"\n\n  and this turn's tool calls contain no Agent call for frank and no message\n  to a teammate. What the turn actually called: nothing at all.\n\n  A sentence describing an act is not the act. Seven times on 2026-09-02\n  the report was written from the intention, and twice the CEO had to ask\n  where the teammate was. Either\n      make the Agent call now, in this turn, and then finish; or\n      write what is TRUE: the dispatch has not happened, and why, or the\n      choice it waits on, put to the CEO as a question.\n  The sentence in the report must describe what was done.\n\n  This gate stands down on the re-fire, so it can refuse a turn at most\n  once. Fix the reply and finish the turn. Do not weaken or unwire this hook.\n(hook: scripts/hooks/guard-stated-actions.sh)\n",
+    "sec": 0.29,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.16,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.21,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.18,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-unresolved-claims.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "an unresolved claim of a completed action",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.24,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.2,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.2,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.18,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-idle-land.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "going idle with an unlanded handoff",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.18,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.16,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.26,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.2,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "guard-agent-state-claims.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "an agent-state claim contradicted by the lock",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.2,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.15,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.22,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.19,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "notice-unasked-deferral.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "a deferral the CEO never agreed to",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"YOU WERE NOT ASKED \u2014 THIS TURN DEFERS WORK: \\\"I am not spawning that right now\\\". A deferral you did not choose is a decision taken on your behalf: the reasoning is the orchestrator's, the consequence is yours. Deferring may well be right \u2014 but it is YOUR call, so it goes to you as a question or the work starts now. (hook: scripts/hooks/notice-unasked-deferral.sh)\"}\n",
+    "err": "",
+    "sec": 0.24,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.12,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "{\"suppressOutput\":true,\"systemMessage\":\"DEFERRAL WATCH \u2014 RUNNING AGAIN. This turn's text was checked for work postponed without putting the choice to you. (hook: scripts/hooks/notice-unasked-deferral.sh)\"}\n",
+    "err": "",
+    "sec": 0.19,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.17,
+    "timeout": false
+   }
+  }
+ },
+ {
+  "hook": "turn-manifest.sh",
+  "root": "/Users/alex/ab/femcboost",
+  "refuses": "the turn manifest",
+  "cases": {
+   "violation": {
+    "rc": 0,
+    "out": "{\"suppressOutput\": true, \"systemMessage\": \"TURN MANIFEST \\u2014 0 tool calls this turn. Nothing was executed.\\nAnything stated above rests on no tool result from this turn.\"}\n",
+    "err": "",
+    "sec": 0.19,
+    "timeout": false
+   },
+   "empty": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.16,
+    "timeout": false
+   },
+   "truncated": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.18,
+    "timeout": false
+   },
+   "nonjson": {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "sec": 0.18,
+    "timeout": false
+   }
+  }
+ }
+]

@@ -10,9 +10,10 @@ contact_links:
     about: >-
       A vulnerability goes through a private route, never a public issue. The
       security policy has both routes and says what to expect back.
-  - name: Before you build something large
+  - name: Before you write code — pull requests need approval first
     url: https://github.com/WebDevBooster/richos/blob/main/.github/CONTRIBUTING.md
     about: >-
-      RichOS is an early source snapshot with one maintainer. The contribution
-      guide says what lands easily, what the AGPL means for you, and why asking
-      first is worth it.
+      Issues are open to everyone; pull requests are not. An unapproved pull
+      request is closed automatically within about a minute, and an issue is the
+      route to being approved. The contribution guide has the four steps, what
+      the AGPL means for you, and what lands easily.

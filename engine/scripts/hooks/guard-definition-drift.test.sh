@@ -257,6 +257,25 @@ run_case "g. non-Agent tool payload -> passthrough" 0 "$R" \
     '{"tool_name":"Bash","tool_input":{"command":"ls"},"session_id":"cafebabe-0000-4000-8000-000000000000"}'
 run_case "g2. unparseable payload -> allow (fail OPEN by design)" 0 "$R" 'not json at all'
 
+# g3/g4. FAIL OPEN IS FINE. FAIL OPEN IN SILENCE IS NOT — and until 2026-09-05
+# this warning went to stderr alone, which a PreToolUse hook exiting 0 renders
+# to nobody. The measurement is in
+# docs/verification/unevaluated-payload-notice-2026-09-05.md; g4 is the case that
+# was red before it. g5 is the control that keeps g3/g4 from being satisfied by a
+# guard that shouts on every spawn.
+run_case_msg "g3. an unparseable payload SAYS freshness was not verified (stderr)" \
+    "agent-definition freshness NOT verified" "$R" 'not json at all'
+G4OUT="$(printf '%s' 'not json at all' | DEFINITION_DRIFT_ROOT="$R" "$GUARD" 2>/dev/null)"
+if printf '%s' "$G4OUT" | grep -q '"systemMessage"' \
+   && printf '%s' "$G4OUT" | grep -q 'freshness NOT verified' \
+   && ! printf '%s' "$G4OUT" | grep -q 'permissionDecision'; then
+    ok "g4. and it reaches the OPERATOR as a systemMessage carrying no permissionDecision"
+else bad "g4. the warning reaches the operator channel" "(stdout was: $G4OUT)"; fi
+G5OUT="$(printf '%s' "$(spawn_payload dev 'ordinary work')" | DEFINITION_DRIFT_ROOT="$R" "$GUARD" 2>/dev/null)"
+if [ -z "$G5OUT" ]; then
+    ok "g5. CONTROL — an unchanged definition emits NOTHING on the operator channel"
+else bad "g5. an unchanged definition stays silent" "(stdout was: $G5OUT)"; fi
+
 # ---------------------------------------------------------------------------
 # (j) end-to-end: snapshot -> edit -> block -> revert -> allow
 # ---------------------------------------------------------------------------

@@ -133,6 +133,45 @@ Measured on its own predicate over the push-sentence subset of the same corpus:
 | reachable from a local branch only | 0 |
 | **fires** | **0** |
 
+## Polarity — added 2026-09-05, after the gate blocked two true statements
+
+Shapes 1 and 2 asked git one question — *you said landed, so is this an ancestor
+of main?* — and that is the right question only when the sentence **asserted**
+the landing. Twice the sentence asserted the opposite:
+
+- **2026-09-03** — a reply said a commit was **not** on the remote. The
+  repository agreed exactly. The gate read `pushed`, ignored the negation, and
+  stopped the turn.
+- **2026-09-05** — *"committed on the branch, not landed, main is still at
+  `<sha>`"*. Same shape, same refusal, and the sentence's entire content is that
+  the commit had not landed.
+
+**Polarity is now decided from the CLAUSE the state word sits in**, before git
+is asked, and a negation cue counts only when it sits **before** the state word
+in that clause. A sentence with no cue in the governing clause is treated
+exactly as it was before, so nothing gets quieter by accident.
+
+| Reading | Claims | Behavior |
+|---|---|---|
+| positive | 949 | unchanged — a contradiction still **BLOCKS** |
+| negated | 11 | **REPORT ONLY**, and only when the repository contradicts the absence |
+| unreadable | 0 | **REPORT ONLY** — a cue after the state word, scope undecidable |
+
+Measured over the same corpus method as the rest of this page, re-run
+2026-09-05: 960 state claims in 770 messages. **All 11 negated readings were
+adjudicated by hand and every one is a genuine statement of absence** — *"not
+pushed"*, *"nothing landed"*, *"haven't landed it yet"*, *"never be pushed"*,
+*"hadn't merged"*.
+
+**The first draft was wrong in the dangerous direction, and counting is what
+caught it.** It called polarity unreadable whenever a negation cue appeared
+anywhere in the sentence, which demoted **113** perfectly positive claims to
+report-only — every *"landed, no worktrees, no live agents"* status line in the
+corpus. A rule that quiet is indistinguishable from switching the gate off, and
+it read as entirely reasonable until it had a number beside it.
+
+Instrument: `docs/verification/claim-polarity-2026-09-05/measure-polarity.py`.
+
 ## Shape 3 — REMOVED / GONE / ZERO REFERENCES, in general: **NOT ENFORCEABLE**
 
 Take any removal sentence, take the literal it cites, grep for it.

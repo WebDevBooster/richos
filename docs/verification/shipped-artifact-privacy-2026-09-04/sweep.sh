@@ -147,7 +147,37 @@ sweep_set() {
   done
   row "CEO company names (files)" "${names:-none}"
 
-  row "personal names"  "$(hits "$list" -e 'Alex Booster' -e 'WebDevBooster' -e 'abbooster' | tr '\n' ' ')"
+  row "personal names (owner)"  "$(hits "$list" -e 'Alex Booster' -e 'WebDevBooster' -e 'abbooster' | tr '\n' ' ')"
+
+  # OTHER PEOPLE'S NAMES — the category this sweep did not have, and the reason a third
+  # party had to find his own name here himself. The row above looks for the OWNER's name
+  # and nobody else's; a client's, a friend's or a family member's name passed it, passed
+  # the secret scanner (a name is not a secret), and passed every other check in the
+  # repository.
+  #
+  # The list is NOT here and never will be: a roster of private individuals is worse to
+  # publish than any one name on it, so it lives outside every repository and the engine's
+  # predicate reads it. This row reports a REDACTED verdict for the same reason the guards
+  # do — a sweep record that spells out the name is a second copy of the leak.
+  #
+  # ABSENT IS PRINTED, NOT SKIPPED. An empty cell here must never be able to mean "we did
+  # not look", which is the failure the positive_control above exists to prevent for every
+  # other row.
+  local np_checker np_verdict
+  np_checker="$REPO/engine/scripts/named-persons.sh"
+  if [ ! -x "$np_checker" ]; then
+    np_verdict="NOT RUN — the checker is missing at engine/scripts/named-persons.sh"
+  else
+    np_verdict="$(tr '\n' '\0' < "$list" \
+      | python3 "$REPO/engine/scripts/lib/named-persons.py" --scan-file-list 2>/dev/null \
+      | tr '\t' ' ' | tr '\n' '; ')"
+    case "$np_verdict" in
+      CLEAN*)  np_verdict="none  (a real empty: the deny-list loaded and matched nothing)" ;;
+      ABSENT*) np_verdict="NOT CHECKED — no deny-list on this machine. Run engine/scripts/named-persons.sh --doctor" ;;
+      BROKEN*) np_verdict="NOT CHECKED — $np_verdict" ;;
+    esac
+  fi
+  row "personal names (deny-list)" "$np_verdict"
   row "email addresses" "$(hits "$list" -e '[A-Za-z0-9._%+-]\+@[A-Za-z0-9.-]\+\.[A-Za-z]\{2,\}' | tr '\n' ' ' | cut -c1-160)"
   row "ChatGPT project ids" "$(hits "$list" -e 'g-p-[0-9a-f]\{16,\}' | tr '\n' ' ')"
   row "hostnames (*.local)"  "$(hits "$list" -e '[A-Za-z0-9-]\+\.local\b' | tr '\n' ' ')"

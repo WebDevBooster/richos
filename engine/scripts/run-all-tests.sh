@@ -113,14 +113,71 @@
 # a full pass. This runner invokes every suite with no arguments, so what it
 # gets is still, always, the full pass.
 #
+# ===========================================================================
+# THE LEAK CANARY, PER SUITE — added 2026-09-05
+# ===========================================================================
+# A suite is supposed to write only inside its own sandbox. Two findings on one
+# day showed that "supposed to" was carrying the whole guarantee:
+#
+#   - escalations.test.sh wrote a fixture into whatever directory it was
+#     started from. It was found as an untracked file in a working engineer's
+#     worktree, reading exactly like a live escalation. He could not tell it
+#     from a real one. The suite reported 59 passed, 0 failed on every leaking
+#     run. The cause was one argument away from a fix already in the file.
+#   - two mutation harnesses mutated the SHIPPED guards in place — including
+#     guard-worktree-isolation.sh, the spawn gate — and restored them with
+#     `trap ... EXIT`, which does not survive `kill -9`. Both are invoked by
+#     contract-integrity.test.sh, which this runner runs.
+#
+# THE SECOND ONE IS WHY THIS LIVES HERE AND NOT ONLY IN EACH SUITE. If a
+# tracked engine file changes DURING this run, the suites that ran before the
+# change and the suites that ran after it tested DIFFERENT CODE, and the
+# fraction printed at the bottom is a green tick over an inventory that never
+# existed in one state. That is this engine's founding defect, one level out
+# again — so it is a failure here, not a warning.
+#
+# IT IS TAKEN PER SUITE, NOT PER RUN, and that is the whole usability of it: a
+# once-per-run check says "something in these 68 leaked" and leaves somebody a
+# bisection; per-suite NAMES THE CULPRIT. The cost is two `git status` calls
+# per suite, about 40 seconds across a 50-minute run.
+#
+# WHAT IT CANNOT SEE, so nobody reads more into a green run than is there:
+# gitignored paths (deliberate — build output and state dirs churning under
+# another agent must not turn this red), and anything outside the watched
+# checkouts. Global state OUTSIDE every repository — the `richos-engine`
+# pointer, user-scope settings — is a different problem with a different
+# answer: scripts/lib/global-state-witness.sh, which watches named paths rather
+# than trees. The two do not overlap and neither subsumes the other.
+#
+# ITS FALSE-POSITIVE VECTOR, MEASURED RATHER THAN GUESSED. 2026-09-05, 49
+# minutes of 10-second sampling with 68 agents live on the machine:
+#
+#   the shared main checkout   288 one-minute windows, 0 red
+#                              252 seven-minute windows, 0 red
+#   an engineer's OWN worktree  17% red at one minute, 50% at seven,
+#   while he was editing it     because he was saving files in it
+#
+# So the noise is self-inflicted and self-explaining — the report names the
+# file and the engineer recognizes his own save — and it is NOT the "another
+# agent broke my run" flakiness a runner-level canary was feared for. Agents
+# work in worktrees; only the lander writes to the shared checkout. It is also,
+# in that case, TRUE: a suite that ran before the save and one that ran after
+# it did test different code.
+#
+# WHAT THAT WINDOW DID NOT CONTAIN, said rather than glossed: a land. The last
+# merge to the observed checkout was six minutes before sampling began, so the
+# 0% figure is NOT evidence about a merge arriving mid-run. That property is
+# proven mechanically instead, in leak-canary.test.sh case 5a, which lands a
+# real merge commit under a live canary and requires silence.
+#
 # Usage:
 #   scripts/run-all-tests.sh            run everything, quiet on success
 #   scripts/run-all-tests.sh --verbose  stream every suite's full output
 #   scripts/run-all-tests.sh --list     print the discovered inventory, run none
 #
 # Exit codes:
-#   0  every discovered suite passed
-#   1  at least one suite failed (each is named, with its output)
+#   0  every discovered suite passed and none wrote outside its sandbox
+#   1  at least one suite failed, or leaked (each is named, with its output)
 #   2  no suites discovered, or the engine root is unreadable — refusing to
 #      report a green fraction over an inventory of nothing
 
@@ -179,8 +236,41 @@ printf '%s=== engine self-test: %s suite(s) discovered under %s ===%s\n' \
 
 PASSED=0
 FAILED_NAMES=()
+LEAKED_NAMES=()
 LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/engine-tests.XXXXXX")"
 trap 'rm -rf "$LOG_DIR"' EXIT
+
+# --- the canary's roots ----------------------------------------------------
+# A MISSING LIBRARY IS A REFUSAL, NOT A DEGRADATION. Sourcing a file that is
+# not there under `set -u` without `-e` prints an error and carries on, and the
+# run would then report a fraction with the canary silently absent — which is
+# the shape of every defect this runner's header is about.
+for lib in tree-witness leak-canary; do
+    if [ ! -f "$ENGINE_ROOT/scripts/lib/$lib.sh" ]; then
+        echo "ERROR: run-all-tests.sh: scripts/lib/$lib.sh is missing." >&2
+        echo "       The leak canary cannot run, and this runner will not report a green" >&2
+        echo "       fraction with its own sandbox check absent. Reinstall the engine." >&2
+        exit 2
+    fi
+done
+# shellcheck source=lib/tree-witness.sh
+. "$ENGINE_ROOT/scripts/lib/tree-witness.sh"
+# shellcheck source=lib/leak-canary.sh
+. "$ENGINE_ROOT/scripts/lib/leak-canary.sh"
+tw_pick_mtime "$LOG_DIR"
+lc_add_root "$PWD"          # where this runner was started: where the 2026-09-05 fixture landed
+lc_add_root "$ENGINE_ROOT"  # the engine's own checkout: where a mutated guard would show
+CANARY_ROOTS_N="$(lc_count)"
+if [ "$CANARY_ROOTS_N" -eq 0 ]; then
+    # Not a warning. A canary watching nothing passes every run forever, which
+    # is the shape this whole file exists to refuse.
+    echo "ERROR: run-all-tests.sh: the leak canary resolved NO watched root." >&2
+    echo "       It would report 'nothing leaked' on every run without looking at anything." >&2
+    exit 2
+fi
+printf '  leak canary: watching %s root(s); witness is contents%s\n' \
+    "$CANARY_ROOTS_N" \
+    "$(tw_mtime_available && printf ' and a proven sub-second mtime' || printf ' ALONE (no sub-second mtime format proved itself here)')"
 
 i=0
 for t in "${SUITES[@]}"; do
@@ -188,31 +278,66 @@ for t in "${SUITES[@]}"; do
     REL="${t#"$ENGINE_ROOT"/}"
     LOG="$LOG_DIR/$i.log"
     printf '  [%2s/%2s] %-58s ' "$i" "$TOTAL" "$REL"
+    # The baseline is re-taken before EVERY suite, so a leak is attributed to
+    # the suite that made it and residue from an earlier one is not charged
+    # twice. LC_HEALTHY is reset with it: a root that became unreadable is a
+    # failure for this suite, never a quiet pass.
+    CANARY_DIR="$LOG_DIR/canary.$i"
+    LC_HEALTHY=1
+    lc_baseline "$CANARY_DIR"
+    CANARY_BASE_HEALTHY="$LC_HEALTHY"
     # Each suite is self-contained and sandboxes its own state; none of them
     # takes arguments. Output is captured so a green run stays readable and a
     # red one can print EVERYTHING the failing suite said — a truncated failure
     # is a failure somebody has to reproduce by hand.
     bash "$t" >"$LOG" 2>&1
     RC=$?
-    if [ "$RC" -eq 0 ]; then
-        printf '%sPASS%s\n' "$C_GREEN" "$C_RESET"
-        PASSED=$((PASSED + 1))
-        [ "$VERBOSE" -eq 1 ] && sed 's/^/        /' "$LOG"
-    else
+    ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
+    if [ "$RC" -ne 0 ]; then
         printf '%sFAIL%s (rc=%s)\n' "$C_RED" "$C_RESET" "$RC"
         FAILED_NAMES+=("$REL (rc=$RC)")
         sed 's/^/        /' "$LOG"
+    elif [ "$CANARY_BASE_HEALTHY" -ne 1 ]; then
+        printf '%sFAIL%s (canary blind)\n' "$C_RED" "$C_RESET"
+        LEAKED_NAMES+=("$REL — the canary could not witness one of its roots, so it is NOT reporting a pass")
+    elif [ -n "$ESCAPED" ]; then
+        printf '%sFAIL%s (wrote outside its sandbox)\n' "$C_RED" "$C_RESET"
+        LEAKED_NAMES+=("$REL")
+        printf '%s\n' "$ESCAPED" | while IFS="$(printf '\t')" read -r croot centry; do
+            if lc_is_tracked_change "$centry"; then
+                printf '        TRACKED FILE CHANGED DURING THE RUN — every suite after this one tested different code:\n'
+            else
+                printf '        WROTE OUTSIDE ITS SANDBOX — residue a stranger will have to explain:\n'
+            fi
+            printf '          %s  (under %s)\n' "$centry" "$croot"
+        done
+    else
+        printf '%sPASS%s\n' "$C_GREEN" "$C_RESET"
+        PASSED=$((PASSED + 1))
+        [ "$VERBOSE" -eq 1 ] && sed 's/^/        /' "$LOG"
     fi
 done
 
 echo ""
-if [ "${#FAILED_NAMES[@]}" -eq 0 ]; then
-    printf '%s✓ %s/%s engine test suites passed.%s\n' "$C_GREEN" "$PASSED" "$TOTAL" "$C_RESET"
+if [ "${#FAILED_NAMES[@]}" -eq 0 ] && [ "${#LEAKED_NAMES[@]}" -eq 0 ]; then
+    printf '%s✓ %s/%s engine test suites passed, and none wrote outside its sandbox.%s\n' \
+        "$C_GREEN" "$PASSED" "$TOTAL" "$C_RESET"
     exit 0
 fi
-printf '%s✗ %s/%s engine test suites passed — %s FAILED:%s\n' \
-    "$C_RED" "$PASSED" "$TOTAL" "${#FAILED_NAMES[@]}" "$C_RESET" >&2
-for n in "${FAILED_NAMES[@]}"; do
-    printf '    - %s\n' "$n" >&2
-done
+printf '%s✗ %s/%s engine test suites passed.%s\n' "$C_RED" "$PASSED" "$TOTAL" "$C_RESET" >&2
+if [ "${#FAILED_NAMES[@]}" -gt 0 ]; then
+    printf '%s  %s FAILED:%s\n' "$C_RED" "${#FAILED_NAMES[@]}" "$C_RESET" >&2
+    for n in "${FAILED_NAMES[@]}"; do
+        printf '    - %s\n' "$n" >&2
+    done
+fi
+if [ "${#LEAKED_NAMES[@]}" -gt 0 ]; then
+    printf '%s  %s WROTE OUTSIDE ITS SANDBOX (green tests, but the run is not trustworthy):%s\n' \
+        "$C_RED" "${#LEAKED_NAMES[@]}" "$C_RESET" >&2
+    for n in "${LEAKED_NAMES[@]}"; do
+        printf '    - %s\n' "$n" >&2
+    done
+    printf '    If one of these is YOUR OWN edit made while the run was in flight, it is still\n' >&2
+    printf '    a true finding: the suites before it and the suites after it tested different code.\n' >&2
+fi
 exit 1

@@ -341,6 +341,7 @@ run_layer_R() {
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-dialect \
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
+    guard-named-persons-writes guard-named-persons-commands \
     guard-completeness-commits \
     guard-row-currency-commits \
     guard-vendoring-commits \
@@ -356,7 +357,9 @@ run_layer_R() {
     notice-unasked-deferral \
     guard-agent-state-claims \
     guard-idle-land notice-waiver-repetition \
-    guard-stated-actions"
+    guard-stated-actions \
+    notice-escalations session-start-escalations \
+    commit-ceo-inputs notice-ceo-inputs-unheld"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
@@ -947,6 +950,7 @@ session-start-reap-worktrees.sh|SessionStart
 snapshot-agent-definitions.sh|SessionStart
 snapshot-enforcing-hooks.sh|SessionStart
 session-start-ceo-ask.sh|SessionStart
+session-start-escalations.sh|SessionStart
 guard-sealed-worktree.sh|PreToolUse
 guard-worktree-isolation.sh|PreToolUse
 guard-definition-drift.sh|PreToolUse
@@ -957,6 +961,7 @@ guard-model-ceiling.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
+guard-named-persons-writes.sh|PreToolUse
 guard-dialect.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
@@ -964,6 +969,7 @@ guard-interactive-prompt.sh|PreToolUse
 guard-inflight-notify.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
 guard-publication-commits.sh|PreToolUse
+guard-named-persons-commands.sh|PreToolUse
 guard-ceo-todos-commits.sh|PreToolUse
 guard-completeness-commits.sh|PreToolUse
 guard-row-currency-commits.sh|PreToolUse
@@ -990,12 +996,15 @@ notice-mechanical-findings.sh|Stop
 guard-ceo-ruled-ask.sh|PreToolUse
 notice-ceo-ruled-prose.sh|Stop
 notice-waiver-repetition.sh|Stop
+notice-escalations.sh|Stop
 notice-unstarted-rows.sh|Stop
 notice-ceo-unasked.sh|Stop
 notice-unasked-deferral.sh|Stop
 guard-agent-state-claims.sh|Stop
 guard-idle-land.sh|Stop
-guard-stated-actions.sh|Stop"
+guard-stated-actions.sh|Stop
+commit-ceo-inputs.sh|UserPromptSubmit
+notice-ceo-inputs-unheld.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a
     # drift surface of exactly the kind this probe exists to remove: add a

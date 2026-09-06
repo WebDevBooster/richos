@@ -163,6 +163,7 @@
     history.addEventListener("toggle", () => { if (history.isConnected && historyOpen !== history.open) { historyOpen = history.open; if (historyOpen) { decisionOpen = false; pickerOpen = false; editor = null; } render(); } });
     const body = node("div", null, "run-history-body"); if (lastError) body.append(node("pre", lastError));
     if (current) {
+      for (const text of current.instructionChanges || []) body.append(node("p", `Your updated instructions: ${text}`, "run-instruction-change"));
       const single = current.tasks.length === 1, list = node(single ? "div" : "ol");
       const checks = current.tasks[0]?.checks || [];
       const sharedChecks = !current.autonomous && !single && checks.length > 0 && current.tasks.every(t => JSON.stringify(t.checks) === JSON.stringify(checks));

@@ -39,6 +39,7 @@ const path = require("path");
 const { leaveHome,
   loadPlaywright,
   shot,
+  publishShotFile,
   createRun,
   assert,
   assertEqual,
@@ -46,6 +47,7 @@ const { leaveHome,
   UI_DIR,
 } = require("./lib/harness");
 
+const SOURCES = require("./lib/ui-sources");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_RS = path.resolve(UI_DIR, "..", "src-tauri", "src", "main.rs");
 const SHOTS = path.join(__dirname, "shots-5");
@@ -151,7 +153,7 @@ async function settledShot(page, name) {
   await page.waitForTimeout(300);
   fs.mkdirSync(SHOTS, { recursive: true });
   const s = await shot(page, name, { fullPage: false });
-  fs.copyFileSync(s.file, path.join(SHOTS, name + ".png"));
+  publishShotFile(s.file, path.join(SHOTS, name + ".png"));
   return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors)";
 }
 
@@ -191,14 +193,23 @@ async function main() {
       await page.isHidden("#feedback-overlay"),
       "the panel is on screen without the CEO having asked for it"
     );
-    const mainJs = fs.readFileSync(path.join(UI_DIR, "main.js"), "utf8");
-    assert(
-      !/setTimeout\([^)]*openFeedback|setInterval\([^)]*openFeedback/.test(mainJs),
-      "something in main.js opens the feedback surface on a timer"
+    // ACROSS THE WHOLE SHIPPED UI, not `main.js` alone. This read one file of twelve until
+    // 2026-09-05, so a `setTimeout(openFeedback, …)` written into `updates.js` or
+    // `settings-button.js` would have left it green — and "nothing fires it" is the entire
+    // claim of this check.
+    const timers = SOURCES.uiMatches(/setTimeout\([^)]*openFeedback|setInterval\([^)]*openFeedback/);
+    assertEqual(
+      timers.map((t) => t.site),
+      [],
+      "something in the shipped UI opens the feedback surface on a timer: " +
+        timers.map((t) => t.site).join(", ")
     );
     bump(5);
     await page.close();
-    return "no badge, no timer, no trigger — it appears when he opens it";
+    return (
+      "no badge, no timer, no trigger across " + SOURCES.stateSources().length +
+      " shipped UI file(s) — it appears when he opens it"
+    );
   });
 
   // ---- 2. the wording is the backend's, not this layer's -------------------------------
@@ -800,13 +811,22 @@ async function main() {
       [],
       "every command needs a mock, or the browser suites cannot drive it"
     );
+    // ACROSS THE SHIPPED UI, for the reason `corrections.js` check 13 states: a narrow scan
+    // fails in the safe direction here, but the title claims "the shipped UI layer" and a
+    // check that can go red over a correct product is one somebody widens by deleting.
+    const called = new Set(
+      SOURCES.sourcesOfRole("ui").flatMap((f) => registered.filter((c) => f.code.indexOf('"' + c + '"') >= 0))
+    );
     assertEqual(
-      registered.filter((c) => mainJs.indexOf('"' + c + '"') < 0),
+      registered.filter((c) => !called.has(c)),
       [],
       "row 5 is only closed when app/ui/ actually calls each one"
     );
     bump(4);
-    return registered.length + " commands: " + registered.join(", ");
+    return (
+      registered.length + " commands, every one called from the " + SOURCES.stateSources().length +
+      " shipped UI file(s): " + registered.join(", ")
+    );
   });
 
   await run.check("NEGATIVE CONTROL: this suite asserted a non-zero number of things", async () => {
@@ -842,6 +862,12 @@ main().catch((e) => {
 // ---------------------------------------------------------------------------------------
 //
 //  1   index.html: add a `<span class="rail-count">` inside #nav-feedback
+//  1b  updates.js: `setTimeout(openFeedback, 60000)`
+//        -> `something in the shipped UI opens the feedback surface on a timer:
+//           updates.js:833`
+//        The timer clause read `main.js` alone until 2026-09-05 while the claim in the
+//        check is "nothing fires it" — a claim about the product, tested against one file
+//        of twelve.
 //        -> the control promises something is waiting, and nothing on it ever is
 //  2   main.js `renderFeedback`: question.textContent = "How are we doing?"
 //        -> the surface paraphrases PROMPT_QUESTION, which is the paraphrase the module

@@ -9,7 +9,11 @@
 //!
 //! [`AudioSource::Device`] is the real microphone. [`AudioSource::Wav`] plays a WAV file
 //! through the identical path **on a real 16 ms clock**, then continues delivering silence
-//! forever so the endpointer's hangover fires exactly as it would with a live mic.
+//! forever so the endpointer's hangover fires exactly as it would with a live mic. That
+//! clock is a floor on the period rather than a promise of it — a loaded host stretches it
+//! and the source never bursts to catch up, so how many frames arrive in a given wall
+//! second is a fact about the machine. `start_wav` says why, and it is the reason nothing
+//! in this file's tests asserts over elapsed time.
 //!
 //! The WAV source exists because it is the only way to exercise the loop on a machine with
 //! no microphone, and it is named honestly for that: it is a real capture path fed real
@@ -269,6 +273,18 @@ fn start_wav(
     let join = std::thread::spawn(move || {
         // A real 16.000 ms cadence: every frame-count debounce downstream behaves exactly as
         // it would against a live device.
+        //
+        // IT IS A FLOOR ON THE PERIOD, NOT A GUARANTEE OF IT, and that is deliberate. When a
+        // sleep overshoots — a loaded host, a virtualized runner — the `else` branch below
+        // does `next = now` and DROPS the debt instead of emitting a catch-up burst. Bursting
+        // would hand the VAD a run of frames with no time between them and quietly falsify
+        // every frame-count debounce downstream, which is the one thing this source exists to
+        // keep honest. Running slow is the safe direction, and the whole file still arrives.
+        //
+        // The consequence is that frames-per-wall-second is a property of the HOST. A test
+        // must therefore assert over frames delivered and never over elapsed time; CI proved
+        // that on 2026-09-05 (run 33971844103, 17 frames where this Mac gives 44). See
+        // `an_injected_wav_delivers_exact_frames_then_keeps_the_mic_open_on_silence`.
         let period = std::time::Duration::from_nanos(
             (VAD_FRAME_SAMPLES as u64 * 1_000_000_000) / SAMPLE_RATE as u64,
         );
@@ -380,13 +396,89 @@ mod tests {
 
     /// INVARIANT: an injected WAV is delivered as exact frames and then the "mic" stays open
     /// on silence — so the endpointer's hangover fires exactly as it would live.
+    ///
+    /// ## This test used to be a race against `sleep`, and CI proved it on its first run
+    ///
+    /// `app-voice-ci.yml` was the first job ever to run this crate anywhere but the Mac it
+    /// was written on, and on its very first execution — run `33971844103`, `macos-26-arm64`
+    /// — this one test of 172 went red with `too few frames delivered: 17`. It had never
+    /// failed here.
+    ///
+    /// **The cause was established rather than assumed, and two other explanations were
+    /// excluded.** The old body started the source, slept **700 ms of wall clock**, dropped
+    /// the capture and asserted `got.len() > 30`.
+    ///
+    ///   * `start_wav` paces itself on a real clock: one frame per
+    ///     `VAD_FRAME_SAMPLES × 1e9 ÷ SAMPLE_RATE` = `256 × 1_000_000_000 ÷ 16_000` =
+    ///     `16_000_000` ns = **16.000 ms exactly**. So 700 ms is `700 ÷ 16 = 43.75` frames at
+    ///     nominal cadence, and `> 30` demanded the host hold **68.6 % of nominal** —
+    ///     an assertion about the machine's scheduler, not about this crate.
+    ///   * The loop **never catches up**: on an overshoot it does `next = now` and drops the
+    ///     debt rather than emitting a burst. Delivered frames therefore equal loop
+    ///     iterations, and each iteration costs at least one real `thread::sleep`, whose
+    ///     true duration on a contended or virtualized host is several times the 16 ms asked
+    ///     for. The runner's log shows the full 700 ms elapsed (result line 14:27:36.4610,
+    ///     minus 0.700 s) and 17 frames — **41 ms per iteration**.
+    ///   * NOT AN EARLY EXIT, and that is structural, not a guess: `while
+    ///     !stop_thread.load(..)` is the loop's only condition and its body contains no
+    ///     `break` and no `return`, so nothing but `Capture::drop` can end it. The runner
+    ///     also printed the `INJECTED INPUT` line with `0.500 s`, so the file read, resampled
+    ///     and started correctly there.
+    ///   * NOT REAL-TIME PACING BEING WRONG, either — the pacing is the point of the source
+    ///     (every frame-count debounce downstream then behaves as it would live), and it was
+    ///     the *assertion* that was measuring the host. Reproduced on this Mac by starving
+    ///     the test binary's own process: 44 frames per 700 ms idle, 23 at 400 hog threads,
+    ///     16 at 900 — and `loud` reached exactly 31 at every load, just later. The whole
+    ///     file always arrives.
+    ///
+    /// ## So nothing below is timed. It waits for counts.
+    ///
+    /// Every assertion is over frames the callback has actually delivered. The only `sleep`
+    /// left is a 2 ms polling interval, and its value cannot change any outcome — halving or
+    /// doubling it changes when this test notices, never what it concludes.
+    ///
+    /// `DEADLINE` is a **failure** bound and never a pass condition. Reaching it means the
+    /// source stopped delivering, which is the defect; a slow machine takes longer and still
+    /// arrives. It is sized against measurement, not taste — this test needs
+    /// `31 + 12 = 43` frames:
+    ///
+    /// ```text
+    ///   idle, this Mac      16.0 ms/frame  →  43 frames in  0.69 s   (87× margin)
+    ///   the CI runner       41   ms/frame  →  43 frames in  1.76 s   (34× margin)
+    ///   900 hog threads    140   ms/frame  →  43 frames in  6.02 s   (10× margin)
+    ///   3000 hog threads   373   ms/frame  →  43 frames in 16.0  s   (3.7× margin)
+    /// ```
+    ///
+    /// The last row is 300× CPU oversubscription on a 10-core machine — far past anything a
+    /// runner does — and this test was run green under it. Raising `DEADLINE` costs nothing
+    /// but how fast a genuine regression is reported; lowering it would start measuring the
+    /// host again, which is the whole defect being removed.
+    ///
+    /// The scratch directory keys on `process::id()` alone. Checked, and it does not bite:
+    /// this is the only test in this binary using the `richos-voice-test-` name, the other
+    /// scratch paths in the crate are `richos-voice-{tts,barge,loop,silent-channel}-test`,
+    /// and no other binary shares this process.
     #[test]
     fn an_injected_wav_delivers_exact_frames_then_keeps_the_mic_open_on_silence() {
+        // THE FRAME MATH, RE-DERIVED HERE RATHER THAN QUOTED. 8000 samples ÷ 16 000 Hz =
+        // 0.500 s. 8000 ÷ 256 = 31 whole frames with 8000 − (31 × 256) = 8000 − 7936 = 64
+        // samples left over — and those 64 (4.000 ms) are NEVER DELIVERED, because the
+        // source only emits a frame while `pos + VAD_FRAME_SAMPLES <= at16.len()`. The old
+        // `(28..=33)` range hid that; 31 is exact and the remainder is named.
+        const TONE_SAMPLES: usize = 8000;
+        const TONE_FRAMES: usize = TONE_SAMPLES / VAD_FRAME_SAMPLES; // 31
+        const UNDELIVERED_TAIL: usize = TONE_SAMPLES % VAD_FRAME_SAMPLES; // 64 samples
+        /// Frames of silence demanded AFTER the file is exhausted. This is the mic staying
+        /// open, and no early exit can satisfy it.
+        const TRAILING_SILENCE_FRAMES: usize = 12;
+        const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+        assert_eq!(TONE_FRAMES, 31);
+        assert_eq!(UNDELIVERED_TAIL, 64);
+
         let dir = std::env::temp_dir().join(format!("richos-voice-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("inject.wav");
-        // 0.5 s of tone at 16 kHz = 8000 samples = 31.25 frames.
-        let tone: Vec<f32> = (0..8000)
+        let tone: Vec<f32> = (0..TONE_SAMPLES)
             .map(|i| (2.0 * std::f32::consts::PI * 300.0 * i as f32 / 16_000.0).sin() * 0.4)
             .collect();
         wav::write_pcm16_mono(&path, &tone, SAMPLE_RATE).unwrap();
@@ -399,16 +491,79 @@ mod tests {
         })
         .expect("injected source starts");
         assert_eq!(cap.input_rate, SAMPLE_RATE);
-        // 0.7 s of wall clock covers the 0.5 s file plus 0.2 s of trailing silence.
-        std::thread::sleep(std::time::Duration::from_millis(700));
-        drop(cap);
 
+        /// Wait for something to HAVE HAPPENED, never for a duration to have passed.
+        /// Returns what had been delivered at the moment the condition held.
+        fn wait_until(
+            frames: &Arc<std::sync::Mutex<Vec<(usize, bool)>>>,
+            deadline: std::time::Duration,
+            what: &str,
+            mut done: impl FnMut(&[(usize, bool)]) -> bool,
+        ) -> Vec<(usize, bool)> {
+            let started = std::time::Instant::now();
+            loop {
+                let got = frames.lock().unwrap().clone();
+                if done(&got) {
+                    return got;
+                }
+                assert!(
+                    started.elapsed() < deadline,
+                    "the injected source never {what}: {} frames in {:.1} s, {} of them loud. \
+                     This deadline is a failure bound, not a budget — the source delivers on a \
+                     real clock, so a slow machine takes LONGER and still arrives. Reaching it \
+                     means the source stopped delivering, which is the defect this waits for.",
+                    got.len(),
+                    started.elapsed().as_secs_f32(),
+                    got.iter().filter(|(_, l)| *l).count()
+                );
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        }
+
+        // PHASE 1 — the whole file arrives. However long that takes.
+        let at_file_end = wait_until(&frames, DEADLINE, "finished delivering the file", |got| {
+            got.iter().filter(|(_, l)| *l).count() >= TONE_FRAMES
+        });
+
+        // PHASE 2 — AND THEN IT KEEPS GOING. This is the property in the test's name, and it
+        // is asserted as "more frames arrived after the file was exhausted", which a source
+        // that exits at the end of the file cannot satisfy at any speed.
+        let n_at_file_end = at_file_end.len();
+        wait_until(&frames, DEADLINE, "kept the mic open after the file ran out", |got| {
+            got.len() >= n_at_file_end + TRAILING_SILENCE_FRAMES
+        });
+
+        // Dropping joins the source thread, so no callback can run past this line and the
+        // snapshot below is final rather than a moving target.
+        drop(cap);
         let got = frames.lock().unwrap().clone();
-        assert!(got.len() > 30, "too few frames delivered: {}", got.len());
-        assert!(got.iter().all(|(n, _)| *n == VAD_FRAME_SAMPLES));
+
+        // Whatever the machine's speed, every frame is exactly one VAD frame.
+        assert!(
+            got.iter().all(|(n, _)| *n == VAD_FRAME_SAMPLES),
+            "a short frame reached the VAD: {:?}",
+            got.iter().map(|(n, _)| *n).filter(|n| *n != VAD_FRAME_SAMPLES).collect::<Vec<_>>()
+        );
+
+        // Exactly 31 tone frames, and they are the first 31 — the file is delivered in order
+        // and in full, with its 64-sample remainder dropped rather than padded.
         let loud = got.iter().filter(|(_, l)| *l).count();
-        assert!((28..=33).contains(&loud), "expected ~31 tone frames, got {loud}");
-        assert!(got.iter().skip(loud + 1).any(|(_, l)| !*l), "mic did not stay open after the file");
+        assert_eq!(loud, TONE_FRAMES, "the file is {TONE_FRAMES} whole frames; got {loud} loud");
+        assert!(
+            got[..TONE_FRAMES].iter().all(|(_, l)| *l),
+            "the file's own frames did not all arrive as tone: {:?}",
+            &got[..TONE_FRAMES]
+        );
+
+        // …and everything after them is silence the source is still producing.
+        let tail = &got[TONE_FRAMES..];
+        assert!(tail.iter().all(|(_, l)| !*l), "tone leaked past the end of the file");
+        assert!(
+            tail.len() >= TRAILING_SILENCE_FRAMES,
+            "mic did not stay open after the file: {} trailing frames",
+            tail.len()
+        );
+
         std::fs::remove_dir_all(&dir).ok();
     }
 }

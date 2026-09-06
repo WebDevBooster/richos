@@ -1250,14 +1250,20 @@
           // order" true when the transcript is expanded: prose rows never move, activity
           // rows appear between them.
           stream: items.filter((i) => RENDERED_STREAM_KINDS.indexOf(i.kind) >= 0),
-          // NOT DROPPED SILENTLY — see RENDERED_STREAM_KINDS. `user_message` and
-          // `work_duration` are excluded because they have their OWN render slots above;
-          // what lands here is genuinely undrawn.
+          // The turn died to the model API (richos-core `upstream.rs`, open-items row
+          // 3.30). Its own slot, like `user`, because it is drawn INSIDE the failure card
+          // rather than in the stream — the card is where a reader already looks when a
+          // turn ends badly, and a second place to look is a second thing to miss.
+          outage: items.find((i) => i.kind === "upstream_outage") || null,
+          // NOT DROPPED SILENTLY — see RENDERED_STREAM_KINDS. `user_message`,
+          // `work_duration` and `upstream_outage` are excluded because they have their OWN
+          // render slots above; what lands here is genuinely undrawn.
           unrendered: items.filter(
             (i) =>
               RENDERED_STREAM_KINDS.indexOf(i.kind) < 0 &&
               i.kind !== "user_message" &&
-              i.kind !== "work_duration"
+              i.kind !== "work_duration" &&
+              i.kind !== "upstream_outage"
           ),
         };
       });
@@ -2049,17 +2055,50 @@
   /// CEO-facing signal is the duration row's own state, so this card is driven by that and
   /// not by a `SystemError` item (which is `Technical` and correctly never arrives here).
   ///
-  /// The reason is NOT shown. `cognition io: broken pipe` is implementation machinery; §21
-  /// asks for "a short Rich-voiced explanation", and this is the sentence the shipping
-  /// build already uses for `rich://turn-error`.
+  /// THE RAW REASON IS STILL NOT SHOWN. `cognition io: broken pipe` is implementation
+  /// machinery; §21 asks for "a short Rich-voiced explanation", and the two sentences below
+  /// are what the shipping build says for an ordinary `rich://turn-error`.
+  ///
+  /// ## THE UPSTREAM CASE, AND WHY IT IS NOT THE SAME CARD (open-items row 3.30)
+  ///
+  /// When the turn died because the model API failed, `turn.outage` carries an
+  /// `upstream_outage` item and its three sentences REPLACE the two generic ones. That is
+  /// not a widening of "show the reason" — every sentence on that item was AUTHORED in
+  /// `crates/richos-core/src/upstream.rs`'s `ceo_message` functions, written to the ledger
+  /// at the moment of the failure, and is relayed here verbatim. This renderer composes
+  /// nothing, edits nothing and interpolates nothing; it is the backend-authored relay
+  /// `tests/lib/state-strings.js` documents as blind spot B2 and scrapes for the affordance
+  /// registry.
+  ///
+  /// **The generic note is REPLACED rather than kept, and that is the point.** It reads
+  /// *"Everything I'd already written above is saved"* — true about the text, and a claim
+  /// about the whole that is false: the session's working context is gone, and on
+  /// 2026-09-03 five agents died having written nothing at all. The outage item's
+  /// `lossMessage` is built from counts read off the ledger, so it says what is on disk AND
+  /// what is not.
+  ///
+  /// **The button stays, and its label does not change.** Asking again is still the one
+  /// thing the CEO can do, whichever way the turn died; a second verb for one action is a
+  /// second thing to learn.
   function renderFailureCard(turn, opts) {
     const card = elem("aside", "tl-intervention");
     card.setAttribute("role", "note");
-    card.appendChild(elem("p", "tl-intervention-body",
-      "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up."));
-    const note = elem("p", "tl-intervention-note",
-      "Everything I'd already written above is saved.");
-    card.appendChild(note);
+    const outage = turn.outage;
+    if (outage && outage.ceoMessage) {
+      // What happened. Authored by `UpstreamFault::ceo_message`.
+      card.appendChild(elem("p", "tl-intervention-body", outage.ceoMessage));
+      // What is on disk and what is not. Authored by `TurnLoss::ceo_message`.
+      if (outage.lossMessage) card.appendChild(elem("p", "tl-intervention-note", outage.lossMessage));
+      // What was spent trying. Authored by `RetryBudget::ceo_message`. ABSENT on the first
+      // failure, which is a different statement from "nothing was spent" — so the line is
+      // absent too rather than reading "0 attempts".
+      if (outage.retryMessage) card.appendChild(elem("p", "tl-intervention-note", outage.retryMessage));
+    } else {
+      card.appendChild(elem("p", "tl-intervention-body",
+        "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up."));
+      card.appendChild(elem("p", "tl-intervention-note",
+        "Everything I'd already written above is saved."));
+    }
     const retry = elem("button", "tl-intervention-action", "Pick it back up");
     retry.type = "button";
     retry.id = "retry:" + turn.turnId;
@@ -2267,6 +2306,11 @@
     } else {
       parts.push("u0");
     }
+    // The outage row is drawn INSIDE the failure card and is not in `turn.stream`, so it
+    // needs its own term here. Without it, a turn whose failure card is already on screen
+    // would keep the cached node when the outage item arrives, and the authored sentences
+    // would never appear — the same class of bug the raw-pane term below exists for.
+    parts.push(turn.outage ? "o" + tokenOf(model.items.get(turn.outage.id)) : "o0");
     for (const item of turn.stream) {
       // The open/closed state of a raw pane is NOT a property of the item object, so it
       // cannot ride in on `tokenOf`. Without this the CEO clicks a chevron, the turn's

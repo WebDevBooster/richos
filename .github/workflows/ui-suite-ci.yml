@@ -81,6 +81,45 @@ name: ui-suite-ci
 # SHA somebody can name — the same sentence app-spine-ci.yml and windows-companion-ci.yml each
 # carry, for the same reason.
 #
+# HOW LONG IT TAKES, MEASURED, AND WHAT A MATRIX WOULD COST — 2026-09-05. NOTHING BELOW IS
+# CHANGED BY THIS PARAGRAPH; it is the arithmetic, written down where the decision would be
+# made, so that whoever makes it is not estimating.
+#
+# Run 33933067025: job 21m00s, of which `npm test` is 20m34s and the other 26s is the whole
+# rest of the job (checkout 7.2s, `node --version` 0.6s, `npm ci` 12.4s — WebKit came out of
+# the runner image's cache — the WebKit probe 1.4s, setup and cleanup the remainder). The
+# suites run strictly serially, each launching its own WebKit. Per-suite times, taken from the
+# timestamp at which `run.js` flushes each suite's buffered output:
+#
+#   contrast 201s · splash 162s · appearance 142s · affordances 138s · realbytes 98s ·
+#   feedback 77s · corrections 64s · restart-scope 56s · techy 50s · updates 44s · home 41s ·
+#   setup 35s · retention 23s · memory 22s · scale 20s · inspector 18s · memory-strategy 15s ·
+#   steering 14s · live-workers 5s · workers 5s · markdown 5s · docs-claims 0.2s
+#
+# The longest single suite is `contrast.js` at 3m21s, and that is the floor: no matrix makes
+# this job finish faster than its longest suite plus the 26s of setup, so ~3m47s is the wall
+# nothing gets under without splitting a suite. Sharding the list longest-first onto N runners:
+#
+#   N=2  wall 10m45s   billed 21.5 runner-minutes   (serial: 21m00s / 21.0)
+#   N=3  wall  7m19s   billed 22.0
+#   N=4  wall  5m37s   billed 22.5
+#   N=6  wall  3m54s   billed 23.4
+#   N=8  wall  3m47s   billed 30.3   <- past the point of it, contrast.js alone is the shard
+#
+# So the trade is real and it is small: N=4 turns 21 minutes of waiting into under 6 for about
+# 7% more billed runner time, because the 26s of per-job setup is the only thing duplicated and
+# macOS minutes are billed at 10x either way. N=6 is the last N that buys anything.
+#
+# WHAT IT WOULD COST IN CORRECTNESS, WHICH IS THE PART THAT IS NOT ARITHMETIC. `run.js`'s
+# evidence gate — every discovered suite ran, none skipped, every suite's observed count against the
+# count its own source declares — is a whole-run fact today. Split across N jobs it becomes N
+# partial facts plus a job that has to add them up, and the sentence at the top of this file
+# ("HOW THIS CANNOT REPORT A GREEN RUN IT DID NOT EARN") is only true again once that adding-up
+# job exists and is itself required. A matrix that reports six greens and no total is a weaker
+# gate than one serial red. That work is deliberately NOT in the branch that made this job
+# green: a change that fixes the suites and a change that makes them fast have to be separately
+# revertible.
+#
 # RUN FROM A CLONE ON 2026-09-04, AND IT FOUND A FLAKE BEFORE A RUNNER DID. Every step below
 # was run verbatim inside a real `git clone` of `fc56c20`, in a directory holding nothing but
 # that clone and under a throwaway `$HOME` — so `npm ci` fetched WebKit into an empty cache
@@ -112,12 +151,20 @@ on:
       # wider than app/ui because docs-claims.js joins app/README.md and app/STREAMING.md to
       # the Rust tree they describe, and scale.js and steering.js read constants out of
       # app/src-tauri/src. A miss here costs a run that should have happened, so it errs wide.
+      #
+      # THE LAST TWO ARE NOT app/ AT ALL, and that is deliberate. `vouch-template.js` joins the
+      # message the pull-request trust gate sends a stranger — a heredoc inside
+      # `vouch-pr.yml` — to the evidence file that claims to record it. A filter that stopped at
+      # `app/` would leave the one suite that watches those two files unrun on every commit that
+      # touches either of them, which is the whole defect it was written to end.
       - "app/ui/**"
       - "app/README.md"
       - "app/STREAMING.md"
       - "app/crates/**"
       - "app/src-tauri/src/**"
       - ".github/workflows/ui-suite-ci.yml"
+      - ".github/workflows/vouch-pr.yml"
+      - "docs/verification/pr-trust-gate-2026-09-05/**"
   pull_request:
     paths:
       - "app/ui/**"
@@ -126,6 +173,8 @@ on:
       - "app/crates/**"
       - "app/src-tauri/src/**"
       - ".github/workflows/ui-suite-ci.yml"
+      - ".github/workflows/vouch-pr.yml"
+      - "docs/verification/pr-trust-gate-2026-09-05/**"
   # So the gate can be demanded on a SHA without touching the tree — the first green run has
   # to be attributable to a commit somebody names.
   workflow_dispatch:
@@ -165,6 +214,29 @@ jobs:
       # harness spent its first six runs pointed at another repository's node_modules.
       - name: Install
         run: npm ci
+
+      # NUSHELL, for `vouch-template.js` and for nothing else in this directory.
+      #
+      # That suite renders the pull-request gate's message through vouch's OWN `template
+      # render`, which is a Nushell script, and refuses to fake it — a re-implementation of
+      # `format pattern` that diverged would be a check staying green while the real job
+      # errored. So the interpreter is a hard dependency of the run, and a missing one is a red
+      # check naming this line rather than a skip.
+      #
+      # DELIBERATELY UNPINNED, which is the opposite of every other rule in this directory. The
+      # gate itself is a composite action whose first step installs Nushell through
+      # `hustcer/setup-nu` at `version: "*"`, so in production the code is pinned and the
+      # interpreter is whatever shipped that morning. Pinning it here would make this check
+      # greener than the thing it checks, and the time bomb `vouch-pr.yml`'s header names — a
+      # deprecated builtin due for removal — is exactly the kind of break that should surface
+      # here first. `brew` rather than a third-party action for the same reason
+      # app-spine-ci.yml has no rustup step: one less thing in the supply chain.
+      #
+      # `HOMEBREW_NO_AUTO_UPDATE=1` because a full `brew update` costs more than the install.
+      - name: Nushell, for the one suite that needs a real interpreter
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install nushell
+          nu --version
 
       # A bootstrap failure and a product failure must not look alike in the log. This opens
       # WebKit and prints its version before any suite runs, so "the browser never installed"

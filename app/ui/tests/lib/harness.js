@@ -33,6 +33,7 @@
 
 const path = require("path");
 const fs = require("fs");
+const png = require("./png");
 
 const UI_DIR = path.resolve(__dirname, "..", "..");
 const SHOT_DIR = path.resolve(__dirname, "..", ".shots");
@@ -147,12 +148,195 @@ async function openFixture(browser, viewport) {
 /// display returns 1. A real UI returns dozens to hundreds.
 const SHOT_MIN_DISTINCT = 8;
 
+// ---------------------------------------------------------------------------------------
+// PUBLISHING A SHOT — the one place a PNG is written
+// ---------------------------------------------------------------------------------------
+//
+// THE PROBLEM THIS SOLVES, MEASURED. On 2026-09-05, against `5e00651`, one `node run.js` left
+// 96 of the 96 committed PNGs under `../shots-*/` modified, with byte deltas from -12 to
+// +679,604. Seventy of them held a picture that differed in THIRTY-THREE pixels out of 1.33
+// million — the antialiased left edge of the wordmark — and a handful held a genuinely
+// different screen. `git status` was therefore dirty after every run; `git checkout --
+// app/ui/tests/` became a habit; and a real visual regression would have arrived as one more
+// modified PNG in a list of ninety-six, which is camouflage, not evidence.
+//
+// The rule is now: A SHOT IS WRITTEN ONLY WHEN THE PICTURE CHANGED. Not when the file bytes
+// changed — two PNGs can hold the same picture and differ, and `git diff` cannot tell that
+// from a regression. Both sides are decoded (`./png.js`) and every sample compared.
+//
+// AND THE DOUBT ALWAYS WRITES. If either side cannot be decoded, or is a PNG shape that
+// decoder will not guess at, `samePicture` is false and the file is written. One redundant
+// write costs a line in `git status`; a wrongly-skipped write costs a regression nobody sees.
+//
+// When a committed shot IS rewritten, the change is announced with the pixel count that made
+// it necessary — so the diff arrives already explained, rather than as a binary blob.
+function publishShot(buf, file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let existing = null;
+  try {
+    existing = fs.readFileSync(file);
+  } catch (_e) {
+    /* no previous shot — first write */
+  }
+  if (existing && png.samePicture(existing, buf)) {
+    return { file, written: false, bytes: existing.length };
+  }
+  if (existing && !file.startsWith(SHOT_DIR + path.sep)) {
+    // A COMMITTED shot changed. `.shots/` is per-run scratch and gitignored; saying anything
+    // about it every run would be the noise this whole change exists to remove.
+    console.log(
+      "  shot changed: " +
+        path.relative(path.resolve(__dirname, ".."), file) +
+        " — " +
+        png.describeDifference(existing, buf)
+    );
+  }
+  fs.writeFileSync(file, buf);
+  return { file, written: true, bytes: buf.length };
+}
+
+/// The same rule for a shot that already exists as a file — the `.shots/` scratch copy a suite
+/// took first and now wants to keep. Replaces `fs.copyFileSync`, which always writes.
+function publishShotFile(src, dest) {
+  return publishShot(fs.readFileSync(src), dest);
+}
+
+// ---------------------------------------------------------------------------------------
+// A LOOP CANNOT BE WAITED OUT
+// ---------------------------------------------------------------------------------------
+//
+// A suite that photographs a fade waits for it — `corrections.js` waits 300ms for the overlay,
+// `home.js` waits for the chip slide to land. That works because a transition ENDS. An
+// `iteration-count: infinite` animation never does, so a shot of one is a photograph of an
+// arbitrary phase and the file differs every run for no reason anybody can read.
+//
+// Measured 2026-09-05, two consecutive runs at `5e00651`: `shots-contrast/inspector.png` and
+// `technical-view.png` differed in exactly 25 pixels each, in a 5x5 box — the pulse dot inside
+// the `WORKING` pill. `shots-26/ms-02-working-for-18s.png`, 42 pixels in a 10x10 box, same dot.
+// Three files of churn from one CSS keyframe.
+//
+// So looping animations are pinned to phase 0 for the length of the capture and released
+// immediately after. FINITE ones are left exactly as they are — a suite that waited for a fade
+// gets the fade it waited for, and one that deliberately catches a rise mid-flight still does.
+// The pin is scoped to the screenshot because `steering.js` and `workers.js` read the computed
+// opacity of animated elements, and a harness that quietly left the page frozen would be
+// answering their questions about a state the product never sits in.
+async function pinLoops(page) {
+  const pinned = await page
+    .evaluate(() => {
+      window.__richosPinnedLoops = [];
+      for (const a of document.getAnimations()) {
+        const timing = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+        if (!timing || timing.iterations !== Infinity) continue;
+        try {
+          a.pause();
+          a.currentTime = 0;
+          window.__richosPinnedLoops.push(a);
+        } catch (_e) {
+          /* an animation that refuses to be pinned is left running and reported by the count */
+        }
+      }
+      return window.__richosPinnedLoops.length;
+    })
+    .catch(() => 0);
+  if (pinned) {
+    // Two frames: one for the style change to be taken up, one for it to be painted.
+    await page
+      .evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+      .catch(() => {});
+  }
+  return pinned;
+}
+
+/// Wait for every FINITE animation and transition on the page to finish, so the shutter opens
+/// on a settled surface rather than partway through one.
+///
+/// Every suite in this directory was already doing this by hand and by guess —
+/// `corrections.js` sleeps 300ms for a 160ms overlay fade, `updates.js` sleeps 150ms after
+/// opening the menu, `retention.js` sleeps 120ms after the popover. A sleep is a bet that the
+/// machine is not busy, and the bet loses quietly: measured 2026-09-05, two runs of
+/// `updates.js` produced `updates-mark-on-the-button.png` differing in 1,085 pixels and
+/// `updates-cue-opened-the-row.png` in 3,525, all of them inside the settings panel and none by
+/// more than 3 of 255 — the panel photographed at 99-point-something percent of its fade rather
+/// than at the end of it.
+///
+/// `Animation.finished` is the end state itself, so this waits on the thing rather than on a
+/// number somebody chose. Bounded, because an animation can be paused or infinite and a
+/// screenshot helper must not be able to hang a suite; the bound is generous and never silent
+/// about what it gave up on — anything still running is either infinite (and `pinLoops` takes
+/// it next) or a real stall the shot will show.
+async function awaitSettled(page, timeoutMs) {
+  const budget = timeoutMs || 2000;
+  await page
+    .evaluate(
+      (ms) =>
+        new Promise((resolve) => {
+          const finite = document.getAnimations().filter((a) => {
+            const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+            return t && t.iterations !== Infinity && a.playState === "running";
+          });
+          if (!finite.length) return resolve(0);
+          const done = Promise.all(finite.map((a) => a.finished.catch(() => {})));
+          const cap = new Promise((r) => setTimeout(r, ms));
+          Promise.race([done, cap]).then(() => resolve(finite.length));
+        }),
+      budget
+    )
+    .catch(() => 0);
+}
+
+async function releaseLoops(page) {
+  await page
+    .evaluate(() => {
+      for (const a of window.__richosPinnedLoops || []) {
+        try {
+          a.play();
+        } catch (_e) {
+          /* nothing to restore */
+        }
+      }
+      window.__richosPinnedLoops = null;
+    })
+    .catch(() => {});
+}
+
+/// One capture, settled. Everything that opens a shutter in this directory goes through here:
+/// the finite animations are waited out, the looping ones are pinned, the frame is taken, and
+/// the page is handed back exactly as it was.
+///
+/// `opts.onShutter` runs at the INSTANT of capture, before anything slow. `splash.js` has to
+/// prove its photograph is of the curtain and not of the screen behind it, and it was proving
+/// that after a decode and a file comparison had finished — a second or more later, on a
+/// surface whose ceiling is one second past its hold. That is a claim about a different moment.
+async function captureSettled(page, opts) {
+  opts = opts || {};
+  // `opts.settleMs` shortens the wait for a caller that has ALREADY proved the surface is
+  // settled some other way and is working against a clock. `splash.js` is the one: it waits for
+  // the curtain's own bar to report it has landed, and then has exactly the one second of
+  // ceiling grace to take the picture in.
+  await awaitSettled(page, opts.settleMs);
+  await pinLoops(page);
+  try {
+    const buf = await page.screenshot(opts.screenshot || {});
+    if (opts.onShutter) await opts.onShutter();
+    return buf;
+  } finally {
+    await releaseLoops(page);
+  }
+}
+
 async function shot(page, name, opts) {
   opts = opts || {};
   fs.mkdirSync(SHOT_DIR, { recursive: true });
   const file = path.join(SHOT_DIR, name + ".png");
-  const buf = await page.screenshot({ path: file, fullPage: opts.fullPage !== false });
-  const bytes = fs.statSync(file).size;
+  // Captured to a BUFFER and published, never straight to `path`: `page.screenshot({ path })`
+  // writes every time it is called, which is the habit this replaces.
+  const buf = await captureSettled(page, {
+    screenshot: { fullPage: opts.fullPage !== false },
+    settleMs: opts.settleMs,
+    onShutter: opts.onShutter,
+  });
+  const bytes = publishShot(buf, file).bytes;
 
   const stats = await page.evaluate(async (b64) => {
     const img = new Image();
@@ -190,6 +374,22 @@ async function shot(page, name, opts) {
         `Evidence of NOTHING (${file}).`
     );
   }
+
+  // THE TWO DECODERS ARE JOINED HERE, on every shot. `publishShot` decides whether to write a
+  // file by reading it with `./png.js`; the check above reads the SAME bytes with WebKit's own
+  // decoder. If the two ever disagree about what image this is, the skip-when-unchanged rule
+  // is being applied to a picture nobody has seen — so they are compared rather than each
+  // trusted alone. Dimensions, because that is what both sides report about the whole image
+  // without either one having to sample it the other's way.
+  const local = png.decode(buf);
+  if (local.width !== stats.width || local.height !== stats.height) {
+    throw new Error(
+      `${name}.png decodes as ${local.width}x${local.height} in lib/png.js and ` +
+        `${stats.width}x${stats.height} in WebKit — the two decoders disagree, so no ` +
+        `screenshot comparison in this directory can be trusted.`
+    );
+  }
+
   return Object.assign({ file, bytes }, stats);
 }
 
@@ -326,7 +526,56 @@ function assertEqual(actual, expected, msg) {
 /// It also restores the theme: the home screen holds §15's always-dark clamp while it is up,
 /// and `hide()` drops it, so a suite that asserts on light mode sees the CEO's own preference
 /// rather than the clamp.
+/// THE CURTAIN IS THE OTHER LAUNCH SURFACE, and it has to go the same way.
+///
+/// `splash.js` holds the opening screen for THREE SECONDS (`SPLASH_SECONDS`) and then fades it
+/// over 180ms. It is `pointer-events: none`, so it is invisible to a hit test and to
+/// `waitForSelector` — a suite that never mentions it drives the app perfectly well UNDERNEATH
+/// it, and photographs it.
+///
+/// THAT IS NOT A COSMETIC PROBLEM, and it is the second half of what row r4 was about. Measured
+/// 2026-09-05 across two consecutive runs on one machine at `5e00651`:
+/// `shots-7-2/7-2-01-the-window-is-a-setting.png` differed in 83.8% of its pixels and
+/// `7-2-03-a-window-that-is-on-no-menu.png` in 94.4% — not encoder noise, not antialiasing:
+/// one run photographed the whole opening screen sitting over the settings panel and the next
+/// did not. `retention.js` reaches its first shot either side of the three-second mark
+/// depending on how busy the machine is, so the committed evidence flipped between two
+/// completely different pictures, and a `git diff` could not tell that from a regression.
+///
+/// `appearance.js`, `contrast.js` and `updates.js` had each already written their own wait for
+/// this, one line at a time, and the other twelve app-driving suites had not. So it moves here,
+/// where the surface is left rather than where somebody remembered.
+///
+/// A SUITE THAT HOLDS THE CURTAIN ON PURPOSE IS NOT OVERRIDDEN. `appearance.js` and
+/// `contrast.js` neuter `yieldNow` before splash.js installs itself, precisely so the
+/// composition can be photographed as it ships. That is detected — the yield leaves
+/// `state.reason` null — and this returns immediately rather than waiting out a timeout for a
+/// curtain that was asked to stay.
+async function leaveSplash(page) {
+  const outcome = await page
+    .evaluate(() => {
+      const s = window.RichSplash;
+      if (!s || !s.state) return "absent";
+      // It declined to draw (switched off, or not a fresh start), or it has already gone.
+      if (!s.state.shown) return "not-drawn";
+      if (s.state.reason) return "already-yielding";
+      // A reason of our own, never "app-ready": that one WAITS OUT the remainder of the hold
+      // by design, which is the three seconds this is here to stop paying.
+      s.yieldNow("acceptance-suite");
+      return s.state.reason ? "yielded" : "held";
+    })
+    .catch(() => "absent");
+  if (outcome === "absent" || outcome === "not-drawn" || outcome === "held") return outcome;
+  // The end state, not a timer: `removeSelf` takes the node out 220ms after the yield.
+  await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 });
+  return outcome;
+}
+
 async function leaveHome(page) {
+  // The curtain first: it is ABOVE the home screen, and `RichHome.hide()` deliberately keeps
+  // §15's always-dark clamp raised while it is still up (`home.js`'s `splashStillUp`). Clearing
+  // it first is what lets one call leave a CEO on light mode actually on light mode.
+  await leaveSplash(page);
   const present = await page
     .waitForFunction("typeof window.RichHome === 'object'", { timeout: 5000 })
     .then(() => true)
@@ -347,8 +596,12 @@ module.exports = {
   loadPlaywright,
   openFixture,
   leaveHome,
+  leaveSplash,
   skipSuite,
   shot,
+  captureSettled,
+  publishShot,
+  publishShotFile,
   createRun,
   assert,
   assertEqual,

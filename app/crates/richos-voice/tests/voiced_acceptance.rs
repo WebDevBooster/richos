@@ -19,14 +19,21 @@
 //! It is macOS-only and it says so rather than skipping quietly: `say` is where the speech
 //! comes from, and a green run of a suite that generated no audio would be worthless.
 
+use richos_voice::tts;
 use richos_voice::vad::{rms, SAMPLE_RATE};
 use richos_voice::voiced::{VoiceEvidence, PITCH_MOVEMENT_PERCENT, VOICED_RUN_WINDOWS};
 use richos_voice::wav;
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// The voices tried. Whichever of them this Mac has installed are used; the suite requires
-/// at least three so a machine with one voice cannot quietly become a one-sample test.
+/// The voices *tried*. `installed()` intersects this with what `say -v '?'` actually
+/// reports, and the suite requires at least three survivors so a machine with one voice
+/// cannot quietly become a one-sample test.
+///
+/// It is a candidate list, not a claim: `Alex` is a classic macOS voice that this machine
+/// does not have (measured 2026-09-05 — 177 voices listed, `Alex` not among them), and it
+/// stays here because a Mac that does have it should test it.
 const VOICES: &[&str] = &["Samantha", "Alex", "Daniel", "Karen", "Fred", "Moira", "Tessa"];
 
 /// Whole CEO turns, including the one-word decisions `stt.rs` keeps its noise list narrow to
@@ -39,8 +46,9 @@ const LINES: &[&str] = &[
     "What is on my calendar this afternoon?",
 ];
 
+/// One directory per process, so two concurrent runs of this binary cannot meet in it.
 fn scratch() -> std::path::PathBuf {
-    let d = std::env::temp_dir().join("richos-voice-voiced-acceptance");
+    let d = std::env::temp_dir().join(format!("richos-voice-voiced-acceptance-{}", std::process::id()));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -83,29 +91,59 @@ fn framed(speech: Vec<f32>, room_dbfs: f32, seed: u64) -> Vec<f32> {
 
 /// One real utterance from `say`, 16 kHz mono f32 — the pipeline's own rate, so nothing is
 /// resampled between the synthesizer and the gate.
-fn say(voice: &str, text: &str) -> Option<Vec<f32>> {
+///
+/// **Every output path is unique, and that is load-bearing.** The tests in this binary run
+/// in parallel and synthesize the same lines. A path keyed on the voice and the text length
+/// collided across them, and the loser read a file the winner had already unlinked — or lost
+/// to `say` itself, which refuses a path another `say` holds (`Opening output file failed:
+/// -54`). Measured on this machine 2026-09-05, ten consecutive runs enumerated 2, 4, 4, 4, 6,
+/// 6, 6, 5, 6 and 5 voices; serialized, the same code returned 7 every time.
+///
+/// **It panics rather than returning `None`.** Every caller now passes a voice `say -v '?'`
+/// reports as installed, so a failure here is a real defect, not a missing voice — and the
+/// old `None` was silently swallowed by a `continue`, which is how runs measured 18, 20, 25,
+/// 30 and 35 utterances and called all of them green.
+fn say(voice: &str, text: &str) -> Vec<f32> {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let dir = scratch();
-    let wav_path = dir.join(format!("{voice}-{}.wav", text.len()));
+    let wav_path = dir.join(format!("{}.wav", SEQ.fetch_add(1, Ordering::Relaxed)));
     let out = Command::new("/usr/bin/say")
         .args(["-v", voice, "-o"])
         .arg(&wav_path)
         .arg("--data-format=LEI16@16000")
         .arg(text)
         .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let bytes = std::fs::read(&wav_path).ok()?;
+        .unwrap_or_else(|e| panic!("could not run /usr/bin/say for {voice:?}: {e}"));
+    assert!(
+        out.status.success(),
+        "`say -v {voice}` failed ({:?}) on a voice `say -v '?'` reports as installed: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    let bytes = std::fs::read(&wav_path).unwrap_or_else(|e| {
+        panic!("`say -v {voice}` reported success but {} is unreadable: {e}", wav_path.display())
+    });
     let _ = std::fs::remove_file(&wav_path);
-    let pcm = wav::read_pcm16(&bytes).ok()?;
+    let pcm = wav::read_pcm16(&bytes)
+        .unwrap_or_else(|e| panic!("`say -v {voice}` wrote {} bytes that are not a WAV: {e}", bytes.len()));
     let (mono, rate) = pcm.into_mono();
     assert_eq!(rate, SAMPLE_RATE, "say ignored the requested rate");
-    Some(mono)
+    mono
 }
 
+/// The candidates this Mac actually has, from `say -v '?'` — the same enumeration `tts.rs`
+/// uses to choose Rich's own voice, so the test and the product agree on what a voice is.
+///
+/// **Asking `say` to synthesize is NOT an installation check, and that was the bug.** `say`
+/// accepts an unknown voice silently: measured here, `say -v Bogusvoice12345` exits 0 with an
+/// empty stderr and writes bytes byte-identical to `say -v Samantha` (19476 bytes, sha256
+/// 82dc2769df00cf56…), as does `say -v Alex` on a machine with no Alex. So a filter asking
+/// "did `say -v X` succeed?" could never exclude a missing voice. What it excluded instead
+/// was whichever voices lost a race for a shared output path — which is why it answered
+/// anything from 0 to 7 on one machine while `say -v '?'` sat unchanged at 177.
 fn installed() -> Vec<&'static str> {
-    VOICES.iter().copied().filter(|v| say(v, "Yes.").is_some()).collect()
+    let have = tts::installed_voices();
+    VOICES.iter().copied().filter(|v| have.iter().any(|h| h == v)).collect()
 }
 
 /// **ACCEPTANCE: every installed voice, every utterance length, gets through.**
@@ -129,10 +167,7 @@ fn real_speech_from_every_installed_voice_is_admitted() {
     let mut checked = 0usize;
     for voice in &voices {
         for line in LINES {
-            let speech = match say(voice, line) {
-                Some(s) => s,
-                None => continue,
-            };
+            let speech = say(voice, line);
             let audio = framed(at_dbfs(speech, -26.0), -55.0, 7 + checked as u64);
             let e = VoiceEvidence::measure(&audio);
             assert!(
@@ -148,6 +183,15 @@ fn real_speech_from_every_installed_voice_is_admitted() {
             checked += 1;
         }
     }
+    // Exact, not a floor: every installed voice said every line, or the run above panicked.
+    // A `>=` here is what let a run that lost 5 of 35 utterances to a race still report green.
+    assert_eq!(
+        checked,
+        voices.len() * LINES.len(),
+        "{checked} utterances were measured but {} voices x {} lines were due",
+        voices.len(),
+        LINES.len()
+    );
     assert!(checked >= 15, "only {checked} utterances were measured — too few to mean anything");
     println!("admitted {checked} real utterances across {} voices", voices.len());
 }
@@ -190,11 +234,10 @@ fn the_margin_between_real_speech_and_room_tone_is_reported_and_still_wide() {
     let mut worst_speech_pitch = f32::MAX;
     for (i, voice) in voices.iter().enumerate() {
         for line in LINES {
-            if let Some(speech) = say(voice, line) {
-                let e = VoiceEvidence::measure(&framed(at_dbfs(speech, -26.0), -55.0, 3 + i as u64));
-                worst_speech_run = worst_speech_run.min(e.longest_run);
-                worst_speech_pitch = worst_speech_pitch.min(e.pitch_movement_percent);
-            }
+            let speech = say(voice, line);
+            let e = VoiceEvidence::measure(&framed(at_dbfs(speech, -26.0), -55.0, 3 + i as u64));
+            worst_speech_run = worst_speech_run.min(e.longest_run);
+            worst_speech_pitch = worst_speech_pitch.min(e.pitch_movement_percent);
         }
     }
 

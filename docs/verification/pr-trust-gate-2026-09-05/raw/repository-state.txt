@@ -1,0 +1,52 @@
+The live state of WebDevBooster/richos on 2026-09-05, read from the API rather
+than from any document. Everything the contributing guide now asserts about
+releases and workflows is checked against this.
+
+$ gh api repos/WebDevBooster/richos --jq '{visibility,private,default_branch,has_issues}'
+{"default_branch":"main","has_issues":true,"private":false,"visibility":"public"}
+
+  Public, and issues are ON. The gate closes pull requests; nothing about the
+  issue tracker changes.
+
+$ gh api repos/WebDevBooster/richos/actions/workflows --jq '.workflows[] | "\(.state)\t\(.path)"'
+active	.github/workflows/app-spine-ci.yml
+disabled_manually	.github/workflows/engine-self-verify.yml
+disabled_manually	.github/workflows/packaging-ci.yml
+active	.github/workflows/ui-suite-ci.yml
+active	.github/workflows/windows-companion-ci.yml
+active	dynamic/dependabot/dependabot-updates
+
+  Three of five are active, plus Dependabot. `.github/CONTRIBUTING.md` said
+  "the continuous-integration workflows were disabled before publication" and
+  `.github/PULL_REQUEST_TEMPLATE.md` said "The workflows are currently
+  disabled"; both are corrected against this output.
+
+  `vouch-pr.yml` does not appear because it has not reached `main` yet. It will
+  appear as `active` the moment it does -- a workflow added to the default
+  branch is enabled by default, which is also how it becomes possible to test.
+
+$ gh release list --repo WebDevBooster/richos
+RichOS 1.0.2	Latest	v1.0.2	2026-09-04T17:08:11Z
+RichOS 1.0.1		v1.0.1	2026-09-04T16:00:11Z
+RichOS 1.0.0		v1.0.0	2026-09-04T14:19:08Z
+
+  Three published releases. The contributing guide said "There are no releases
+  and no tags" and told bug reporters to cite a commit SHA because "there are
+  no releases to name". Both corrected.
+
+$ gh api repos/WebDevBooster/richos/actions/permissions
+{"enabled":true,"allowed_actions":"all","sha_pinning_required":false}
+
+  SHA pinning is not ENFORCED by repository policy, so the pin on the vouch
+  action is a convention this tree keeps rather than a rule GitHub applies.
+  Turning the policy on is the maintainer's call and is discussed in
+  `.github/workflows/README.md`; nothing in the tree has to change first.
+
+$ curl -sIL -o /dev/null -w '%{http_code}' <url>
+200  https://github.com/WebDevBooster/richos/blob/main/.github/CONTRIBUTING.md
+200  https://github.com/WebDevBooster/richos/issues/new/choose
+404  https://github.com/WebDevBooster/richos/blob/main/CONTRIBUTING.md
+
+  The last line is the reason this workflow does not use vouch's default
+  message: that default points a closed-out contributor at the root
+  CONTRIBUTING.md, which does not exist here.

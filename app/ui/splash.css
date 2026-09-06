@@ -186,7 +186,16 @@
  * the rule, and needs no new geometry. */
 .splash-line {
   margin-top: 16px;
-  font-size: 12px;
+  /* 18px, WHICH IS WHAT THE SURFACE ACTUALLY PAINTS. It said 12px until 2026-09-05, and had
+     since the port. `splash.js` sets `font-size` INLINE from `LINE_SIZE` on every
+     composition, so the CSS value never reached a pixel and the two were free to disagree —
+     which they did, by 6px, with the stylesheet holding a number below §15's 14px floor for
+     the only text this screen has. Nobody would have found it by looking: `tests/splash.js`
+     check 6 reads the COMPUTED size and correctly saw 18px, and `appearance.js` check 12
+     read `style.css` alone and never opened this file.
+     `appearance.js` check 12 now holds this declaration equal to `splash.js`'s `LINE_SIZE`,
+     so the next change to either one fails until both move. */
+  font-size: 18px;
   letter-spacing: 0.15em;
   color: var(--splash-tagline);
   white-space: nowrap;

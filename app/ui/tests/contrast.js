@@ -33,16 +33,23 @@
 // WHAT THIS GATE COVERS AND WHAT IT CANNOT — the honest boundary, asserted rather than
 // promised:
 //
-//   COVERS   the thirteen driven surfaces below (shell, an open thread, the correction desk, the
-//            feedback desk, search, the inspector, the technical view, the unbound-thread
-//            pane, the assertiveness popover, THE UPDATE ROW IN THREE STATES, and the
-//            opening screen with its curtain held up), both themes, text and the bounded
+//   COVERS   the driven surfaces below — twenty-four of them as this is written, and the
+//            number is printed by every run rather than quoted here, because a count in a
+//            comment is the thing that goes stale first. This header said "thirteen" over a
+//            list of twenty-one until 2026-09-05. Both themes, text, and the bounded
 //            non-text-indicator subset check 3 defines. The three `updates-*` surfaces are
 //            also the first drivers to reach the UNIVERSAL settings menu at all — the
 //            `settings` surface drives the RAIL's preferences popover, which is a different
 //            menu — and their first run found a shipped 1.24:1 indicator in it. The opening screen is WALKED and its one HTML line comes back
 //            UNPROVABLE — see `knownUnresolvable` in contrast-debt.json. That is a stated
 //            blind spot with a name on it, which is not the same thing as coverage.
+//   COVERS   and this is check 10c's doing rather than anyone's diligence: `entity-view`,
+//            `thread-menu` and `techy-nothing-recorded`. All three are panels the shipped
+//            shell declares, all three carry text the CEO reads, all three are reachable in
+//            a browser with nothing stubbed, and no driver opened any of them. 10c derives
+//            the panel inventory from the shell and refuses an unwalked panel that nobody
+//            wrote down; on the day it landed it named ten, and seven of those are honest
+//            gaps now recorded in `contrast-debt.json`'s `unwalkedPanels` with their reasons.
 //   CANNOT   `<canvas>` — no computed style to read. The shipping shell contains none, and
 //            check 14 asserts that, so the day one lands the assertion is what tells you.
 //            The round-7 and round-8.1 material studies ARE canvas-heavy and NOTHING here
@@ -71,13 +78,27 @@
 
 const fs = require("fs");
 const path = require("path");
-const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const C = require("./lib/contrast");
+const SOURCES = require("./lib/ui-sources");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = path.join(__dirname, "shots-contrast");
 const DEBT_FILE = path.join(__dirname, "contrast-debt.json");
-const SOURCES = require("./lib/ui-sources");
+// THE TWO SOURCE LISTS ARE DERIVED, AND BOTH WERE SHORT.
+//
+// `CSS_FILES` was `style.css` + `splash.css` against three linked stylesheets — the 53 KB
+// `home.css` was missing, so check 10's count of second-theme rules was taken over two
+// thirds of the shipped CSS. `SOURCE_FILES` was four files against twelve, so check 12's
+// exemption inventory — the mechanism that makes an undeclared exemption a failure — could
+// not have seen a `data-contrast-exempt` written into `home.js`, `updates.js`,
+// `settings-button.js`, `splash-library.js`, `theme-boot.js` or the three `home/field-*.js`
+// modules. An exemption is a claim that some text is skippable; a gate that cannot read the
+// file the claim is written in is not counting the claims.
+//
+// `lib/ui-sources.js` derives both from `index.html` and the closure over it, and refuses to
+// return a manifest that does not reconcile with the tree in both directions. Adding a
+// stylesheet or a script to the shell adds it to both lists here.
 const CSS_FILES = SOURCES.styleSources().map(SOURCES.abs);
 const SOURCE_FILES = SOURCES.stateSources().map(SOURCES.abs);
 
@@ -108,6 +129,24 @@ const SURFACES = [
     name: "shell",
     what: "the shell as it opens: rail, scope line, first turn, composer",
     drive: async () => {},
+  },
+  {
+    // THE ONE STRING THE STYLESHEET ITSELF PUTS ON SCREEN, and until 2026-09-05 nothing in
+    // this directory could see it. `style.css:3787` is `.setbtn::after { content: "Settings" }`
+    // — the tooltip on the settings button §15 requires on every screen, including the
+    // opening screen where it is the only control there is. The walk collects
+    // `nodeType === 3` children and a pseudo-element is not a node, so it was rendered text
+    // that no contrast check had ever measured; and it is `opacity: 0` until hover, so even
+    // the widened walk reports it HIDDEN on every other surface. This driver is what turns
+    // "named as hidden" into "measured".
+    name: "settings-tooltip",
+    what: "the settings button's tooltip — the one string the stylesheet itself renders",
+    drive: async (p) => {
+      await p.hover(".setbtn");
+      // `transition: opacity 0.15s ease 0.2s` — a 200ms delay before a 150ms fade. Waiting
+      // 500ms is the frame math, not a guess: 200 + 150 = 350ms to full opacity.
+      await p.waitForTimeout(500);
+    },
   },
   {
     name: "thread",
@@ -346,6 +385,111 @@ const SURFACES = [
       await p.waitForTimeout(400);
     },
   },
+  // THE WAITING CUE, which is the one place on this surface where a NON-TEXT indicator has to
+  // carry the meaning on its own: while RichOS is working the actionable pill is removed and
+  // this outlined circle stands in its place. Its glyph, its border and its focus ring each
+  // owe 3:1, and the note it opens owes 4.5:1 at 16px. None of that is walked by the three
+  // surfaces above, because none of them can paint an element that only exists while `busy`.
+  //
+  // THE NOTE IS OPENED BY FOCUS rather than by hover, deliberately: `page.focus` is the route
+  // a keyboard user takes, so the pixels walked here are the pixels that audience meets. A
+  // walk over a note that was never painted would report a clean surface and prove nothing.
+  {
+    name: "updates-waiting",
+    what: "the non-actionable waiting cue and its open explanation, with the update control gone",
+    drive: async (p) => {
+      await p.evaluate(() =>
+        window.__RICHOS_MOCK__.updateSet({
+          state: "available", currentVersion: "0.1.0", availableVersion: "0.1.1",
+          notes: null, pubDate: null, downloadedBytes: 0, totalBytes: null, percent: null,
+          failure: null, endpoint: "https://updates.example.com/darwin/aarch64/0.1.0",
+          endpointIsPlaceholder: false, checkedAt: Date.now() - 120000,
+          busy: true,
+          busyReason: "Rich is working on your last message. 2 workers are still running.",
+          unchecked: [],
+          readySince: Date.now() - 2 * 86400000,
+        })
+      );
+      await p.waitForSelector("#update-waiting");
+      await p.focus("#update-waiting");
+      await p.waitForSelector("#update-waiting-note", { state: "visible" });
+      await p.waitForTimeout(400);
+    },
+  },
+  // ---- THE THREE CHECK 10c FOUND ON THE DAY IT WAS WRITTEN --------------------------------
+  //
+  // The panel probe named ten panels in the shipped shell that no driver opened. Seven are
+  // honest gaps and are declared as such in `contrast-debt.json`'s `unwalkedPanels`. These
+  // three were not gaps — they were surfaces with real text on them, reachable in a browser
+  // with nothing stubbed, that nobody had written a driver for. Every one of them is text
+  // the CEO reads, and until this commit this file said nothing about any of it.
+  {
+    name: "entity-view",
+    what: "§3.5's company overview: its facts, its attention list and its thread list",
+    drive: async (p) => {
+      await p.click(".nav-group-label");
+      await p.waitForSelector("#entity-view:not([hidden])");
+      await p.waitForTimeout(400);
+    },
+  },
+  {
+    name: "thread-menu",
+    what: "the thread's own actions menu — rename, pin, archive (§3.1)",
+    drive: async (p) => {
+      // Through the row's own `⋯` button, which is the affordance the CEO presses. The menu
+      // is built on open, so it does not exist to be measured until this click happens —
+      // which is exactly why nothing walked it.
+      await p.hover('.nav-thread[data-thread-id="acme"]');
+      await p.click('.nav-thread[data-thread-id="acme"] + .nav-thread-more');
+      await p.waitForSelector("#thread-menu:not([hidden])");
+      await p.waitForTimeout(300);
+    },
+  },
+  {
+    name: "techy-nothing-recorded",
+    what: "techy mode on a conversation with no machinery — the sentence that is not 'I can't read it'",
+    drive: async (p) => {
+      // `partner` is the seeded thread with an empty machinery store. The whole point of
+      // `#techy-state` is that "nothing was recorded" and "I can't read it" are DIFFERENT
+      // statements, so the surface that says the first one has to be legible.
+      await p.click('.nav-thread[data-thread-id="partner"]');
+      await p.waitForSelector(".tl-turn");
+      await p.keyboard.press("Meta+Shift+T");
+      await p.waitForSelector('#techy-state[data-state="nothing_recorded"]');
+      await p.waitForTimeout(300);
+    },
+  },
+  {
+    name: "history-notice",
+    what: "the notice that says part of his history did not load, at the top of the conversation",
+    drive: async (p) => {
+      // NOT CLEAN, ON PURPOSE. The default fixture is a clean load, so this surface has to
+      // ask for the state it is measuring — the panel can never be shown to pass by a
+      // fixture that was already painting it. Both halves are driven at once: the calm
+      // "from a newer version" sentence and the loud damaged one share the panel, so the
+      // worst-case foreground on the worst-case background is what gets walked.
+      await p.evaluate(async () => {
+        window.__RICHOS_MOCK__.historySet({
+          records_read: 214,
+          records_applied: 211,
+          skipped: 3,
+          from_future: 2,
+          damaged: 1,
+          ambiguous: 0,
+          headline: "One record of this conversation could not be read.",
+          detail:
+            "2 records were written by a newer version of RichOS than the one you are " +
+            "running, so this version does not know how to read them. Updating will bring " +
+            "them back. 1 record is damaged and could not be read. Everything else loaded: " +
+            "211 of 214 records. Nothing was deleted and nothing was rewritten — every " +
+            "record is still exactly where it was on disk.",
+        });
+        await window.__RICHOS_HISTORY_NOTICE__();
+      });
+      await p.waitForSelector("#history-notice:not([hidden])");
+      await p.waitForTimeout(400);
+    },
+  },
   {
     name: "opening-screen",
     // THE HARDEST SURFACE, WALKED ANYWAY. It would have been easy to leave the opening
@@ -488,6 +632,71 @@ async function walk(page, surface, theme) {
   return page.evaluate((o) => window.__contrastProbe(o), { surface, theme });
 }
 
+// ---------------------------------------------------------------------------------------
+// THE PANEL INVENTORY — derived from the shell, so a NEW panel cannot be born unwalked
+// ---------------------------------------------------------------------------------------
+//
+// Check 10b already refuses a driver list that got SHORTER. Nothing refused one that got
+// STALE — a panel added to `index.html` with no driver written for it is invisible to every
+// check in this file, and the file would report the same confident totals over a shell with
+// one more surface in it than it walks. That is the same defect as a typed source list,
+// wearing a driver list's clothes.
+//
+// WHAT COUNTS AS A PANEL, derived by shape rather than named: a CONTAINER element
+// (`div`/`section`/`aside`/`dialog`/`form`/`nav`) with an `id`, that is `hidden` when the
+// shell first paints or carries `role="dialog"`, and that is not itself inside another such
+// element. Hidden-at-load is the signal: it is a state the app can enter and is not in, which
+// is exactly what a driver exists to reach. A hidden child of a hidden panel is part of that
+// panel, not a panel of its own, which is what the ancestor walk removes.
+const PANEL_TAGS = ["DIV", "SECTION", "ASIDE", "DIALOG", "FORM", "NAV"];
+
+const PANEL_PROBE = (tags) => {
+  const out = [];
+  const isPanel = (e) =>
+    tags.indexOf(e.tagName) >= 0 && !!e.id && (e.hasAttribute("hidden") || e.getAttribute("role") === "dialog");
+  for (const e of document.querySelectorAll("[id]")) {
+    if (!isPanel(e)) continue;
+    let anc = e.parentElement;
+    let nested = false;
+    while (anc) {
+      if (isPanel(anc)) { nested = true; break; }
+      anc = anc.parentElement;
+    }
+    if (!nested) out.push(e.id);
+  }
+  return out.sort();
+};
+
+/// The inventory, read off a shell that has just loaded and been driven nowhere.
+async function declaredPanels(browser) {
+  const page = await openApp(browser, "dark", false);
+  const ids = await page.evaluate(PANEL_PROBE, PANEL_TAGS);
+  await page.close();
+  return ids;
+}
+
+/// Which of those panels are actually ON SCREEN right now — present, not `hidden`, and with
+/// area. A driver that OPENED a panel and one that merely left it in the document are
+/// different things, and only the first is coverage.
+///
+/// The ids are handed in rather than re-derived here, because opening a panel is exactly
+/// what removes the `hidden` attribute the inventory is derived from — a shape test run
+/// against a driven page would stop recognizing the very panel the driver just opened.
+async function panelsOnScreen(page, ids) {
+  return page.evaluate((wanted) => {
+    const out = [];
+    for (const id of wanted) {
+      const e = document.getElementById(id);
+      if (!e || e.hidden) continue;
+      const r = e.getBoundingClientRect();
+      const s = getComputedStyle(e);
+      if (r.width <= 0 || r.height <= 0 || s.visibility === "hidden" || s.display === "none") continue;
+      out.push(id);
+    }
+    return out;
+  }, ids);
+}
+
 /// One line per failure, in the shape a person can act on without opening a debugger: the
 /// ratio it got, the floor it needed, the two colours, the size, and where it is.
 function describe(sig, f) {
@@ -518,6 +727,12 @@ async function main() {
     canvas: 0,
     canvasInHome: 0,
     svgText: 0,
+    /// Which of the shell's DECLARED panels any walk actually put on screen — see check 10c.
+    panelsReached: new Map(),
+    /// Text the STYLESHEETS render (`::before`/`::after`), collected across every walk — see
+    /// check 16. `measured` and `hidden` are keyed by the TEXT so the join against
+    /// `lib/ui-sources.js`'s source-side derivation is on the string, not on a selector.
+    generated: { considered: 0, checked: 0, measured: new Map(), hidden: new Map(), unprovable: [] },
     totals: { considered: 0, checked: 0, passed: 0, failedNodes: 0, invisible: 0, obscured: 0, ancestor: 0, veiled: 0, indicators: 0, indicatorsChecked: 0 },
   };
 
@@ -793,6 +1008,9 @@ async function main() {
 
   // ---- 9. the shipping shell, surface by surface, both themes ------------------------------
 
+  // Derived once, off a shell driven nowhere, and used by both the walk loop and check 10c.
+  const PANELS = await declaredPanels(browser);
+
   const perSurface = {};
   for (const surface of SURFACES) {
     await run.check("9." + surface.name + "  " + surface.what, async () => {
@@ -805,6 +1023,15 @@ async function main() {
       for (const theme of THEMES) {
         const page = await openApp(browser, theme, surface.holdSplash, surface.preset);
         await surface.drive(page);
+        // WHICH DECLARED PANELS THIS DRIVER PUT ON SCREEN, recorded before the walk so that
+        // check 10c can answer a question no other check here asks: not "was every named
+        // surface walked?" (10b, which only catches the list getting SHORTER) but "is there a
+        // panel in the shipped shell that no driver reaches at all?" — the list getting
+        // stale by the product growing past it.
+        for (const id of await panelsOnScreen(page, PANELS)) {
+          if (!seen.panelsReached.has(id)) seen.panelsReached.set(id, []);
+          seen.panelsReached.get(id).push(surface.name + "/" + theme);
+        }
         const out = await walk(page, surface.name, theme);
         if (surface.name.startsWith("assignment-")) {
           const required = surface.name === "assignment-decision" ? "run-question" : surface.name === "assignment-picker" ? "run-choices" : surface.name === "assignment-scope" ? "textarea" : surface.name === "assignment-history" ? "run-checks" : "run-status";
@@ -813,7 +1040,7 @@ async function main() {
         }
         if (theme === "light") {
           const s = await shot(page, "contrast-" + surface.name, { fullPage: false });
-          fs.copyFileSync(s.file, path.join(SHOTS, surface.name + ".png"));
+          publishShotFile(s.file, path.join(SHOTS, surface.name + ".png"));
         }
         await page.close();
         perSurface[surface.name + "/" + theme] = out;
@@ -852,6 +1079,24 @@ async function main() {
         }
         // Nodes measured somewhere, for check 11's cross-surface proof.
         for (const p of out.measuredPaths || []) seen.measured.add(p);
+
+        // Text the stylesheets render, for check 16. Keyed by the string, because that is
+        // what `lib/ui-sources.js` derives from the CSS and what the join has to hold.
+        const g = out.generated || { considered: 0, checked: 0, measured: [], hidden: {}, unprovable: {} };
+        seen.generated.considered += g.considered;
+        seen.generated.checked += g.checked;
+        for (const m of g.measured || []) {
+          if (!seen.generated.measured.has(m.text)) seen.generated.measured.set(m.text, []);
+          seen.generated.measured.get(m.text).push(Object.assign({ where: surface.name + "/" + theme }, m));
+        }
+        for (const k of Object.keys(g.hidden || {})) {
+          const h = g.hidden[k];
+          if (!seen.generated.hidden.has(h.text)) seen.generated.hidden.set(h.text, []);
+          seen.generated.hidden.get(h.text).push(surface.name + "/" + theme + " " + h.path + " (" + h.why + ")");
+        }
+        for (const k of Object.keys(g.unprovable || {})) {
+          seen.generated.unprovable.push(surface.name + "/" + theme + ": " + k + " — " + g.unprovable[k].why);
+        }
       }
       // THE FLOOR, borrowed wholesale from run.js's `observed >= declared`. A driver whose
       // selector stops matching would otherwise put the app into a thinner state and report
@@ -934,7 +1179,7 @@ async function main() {
           "different grounds (" + grounds.dark + " vs " + grounds.light + ") — something IS " +
           "responding to the theme and this note is now wrong"
       );
-      return "0 second-theme rules in style.css + splash.css. THE APP SHIPS ONE THEME.";
+      return "0 second-theme rules in " + SOURCES.styleSources().join(" + ") + ". THE APP SHIPS ONE THEME.";
     }
     assert(
       grounds.light !== grounds.dark,
@@ -1019,6 +1264,84 @@ async function main() {
     );
   });
 
+  // ---- 10c. no panel in the shell is unwalked without being written down --------------------
+
+  await run.check("10c  every panel the shell declares is walked, or is declared unwalked with a reason", async () => {
+    // 10b catches a driver list that got SHORTER. This catches one that went STALE, which is
+    // the failure that actually happened elsewhere in this directory today: a hand-maintained
+    // inventory that was right when it was written and that the product grew past. The
+    // driver list is the last hand-maintained list in this file and it cannot be derived —
+    // a driver is a function that knows how to open a thing — so what is derived instead is
+    // the QUESTION it has to answer: here are the panels the shell declares; which of them
+    // did nothing reach?
+    //
+    // A declared gap is fine and there are seven of them. An UNDECLARED gap is a surface the
+    // CEO can open that this gate says nothing about while printing a total that sounds
+    // complete.
+    assert(
+      PANELS.length >= 15,
+      "the panel probe found " + PANELS.length + " panels in the shell — that is not this " +
+        "shell, and a short inventory would make this check pass by having nothing to ask about"
+    );
+
+    const declaredUnwalked = new Map((debt.unwalkedPanels || []).map((p) => [p.id, p.why]));
+    const reached = [...seen.panelsReached.keys()].sort();
+    const unreached = PANELS.filter((id) => !seen.panelsReached.has(id));
+
+    assertEqual(
+      unreached.filter((id) => !declaredUnwalked.has(id)),
+      [],
+      "these panel(s) are in the shipped shell and NO surface driver opens them, so nothing " +
+        "in this file has measured a pixel of them. Either add a driver to SURFACES, or add " +
+        "them to contrast-debt.json's `unwalkedPanels` with the reason — but they are NOT " +
+        "covered, and the entry is what says so where a reviewer reads it."
+    );
+
+    // ...and the declaration cannot go stale in the other direction either.
+    const nowWalked = [...declaredUnwalked.keys()].filter((id) => seen.panelsReached.has(id));
+    assertEqual(
+      nowWalked,
+      [],
+      "contrast-debt.json declares these panels unwalked and a driver now reaches them. " +
+        "Delete the entries — a standing admission of a gap that has been closed teaches " +
+        "whoever reads this list to skim it."
+    );
+    const gone = [...declaredUnwalked.keys()].filter((id) => PANELS.indexOf(id) < 0);
+    assertEqual(
+      gone,
+      [],
+      "contrast-debt.json declares a panel unwalked that the shell no longer has: " + gone.join(", ")
+    );
+
+    for (const [id, why] of declaredUnwalked) {
+      assert(
+        typeof why === "string" && why.length >= 20,
+        id + " is declared unwalked with no real reason. A gap that is written down is a " +
+          "bounded gap; a gap written down as \"\" is the same gap with a tick beside it."
+      );
+    }
+
+    // POSITIVE CONTROL, on the comparator this check is: drop one declaration and it must
+    // name exactly that panel. Without this the check is only ever OBSERVED passing, and a
+    // comparator built out of one set — the failure 10b's own comment records — passes by
+    // construction. Run against a copy; the real declaration is untouched.
+    const oneShort = new Map(declaredUnwalked);
+    const victim = unreached[0];
+    assert(victim, "there is nothing declared unwalked, so this control cannot run — say so rather than skipping it");
+    oneShort.delete(victim);
+    assertEqual(
+      PANELS.filter((id) => !seen.panelsReached.has(id) && !oneShort.has(id)),
+      [victim],
+      "the comparator did not notice a panel that is neither walked nor declared"
+    );
+
+    return (
+      reached.length + " of " + PANELS.length + " declared panel(s) opened by a driver and " +
+      "walked in both themes; " + unreached.length + " declared unwalked with a reason:\n          " +
+      unreached.map((id) => "#" + id + " — " + declaredUnwalked.get(id)).join("\n          ")
+    );
+  });
+
   // ---- 11. the obscured bucket is not a hiding place ---------------------------------------
 
   await run.check("11  nothing disappears into `obscured` without being measured somewhere else", async () => {
@@ -1035,6 +1358,107 @@ async function main() {
         "means the gate says nothing about them at all:\n      " + orphans.join("\n      ")
     );
     return seen.obscured.size + " node path(s) obscured behind a modal on some surface, every one of them measured on another";
+  });
+
+  // ---- 11b. text the STYLESHEET renders, joined source-side to walk-side --------------------
+
+  await run.check("11b  every string the stylesheets themselves render is measured, both themes", async () => {
+    // WHAT THIS CLOSES. `lib/contrast.js`'s walk collected `nodeType === 3` children, and a
+    // pseudo-element is not a node — so text produced by a `content:` declaration was
+    // outside every check in this file, was not on the library header's "WHAT IT DOES NOT
+    // SEE" list, and therefore did not exist as a known gap either. `style.css:3787` renders
+    // one: `.setbtn::after { content: "Settings" }`, the tooltip on the settings button §15
+    // puts on every screen. It had never been measured by anything.
+    //
+    // TWO SIDES, DERIVED SEPARATELY, JOINED HERE. `lib/ui-sources.js`'s
+    // `cssContentStrings()` reads the SHIPPED STYLESHEETS — all four, from the manifest — and
+    // returns every non-empty authored `content` string with its file:line. The walk reports
+    // what the BROWSER produced. Neither side can be short without the other noticing:
+    //
+    //   a string in the CSS that no walk ever saw    -> FAILS, naming file:line
+    //   a string a walk saw that is in no stylesheet -> FAILS, naming the selector
+    //
+    // The second direction is not decoration. It is what would catch a `content` written by
+    // a stylesheet the manifest does not reach — the exact defect this whole session is
+    // about, one level down.
+    const authored = SOURCES.cssContentStrings();
+    assert(
+      authored.length >= 1,
+      "0 authored `content` strings found across " + SOURCES.styleSources().join(" + ") +
+        ". This check is a join, and a join over an empty set passes for free — which is the " +
+        "failure this repository has found eleven times today. Either the derivation broke or " +
+        "the stylesheets moved."
+    );
+    assert(
+      seen.generated.considered > 0,
+      "the walk found 0 generated-content nodes across " + Object.keys(perSurface).length +
+        " walks while the CSS declares " + authored.length + ". The in-page pass is not running."
+    );
+
+    // SOURCE -> SCREEN. Measured, or at worst seen-and-named.
+    const unseen = authored.filter(
+      (a) => !seen.generated.measured.has(a.text) && !seen.generated.hidden.has(a.text)
+    );
+    assertEqual(
+      unseen.map((a) => a.site + " = " + JSON.stringify(a.text)),
+      [],
+      "authored `content` string(s) that NO walk in this suite ever encountered"
+    );
+
+    // SCREEN -> SOURCE. Anything the browser rendered has to come from a stylesheet the
+    // manifest reaches.
+    const authoredText = new Set(authored.map((a) => a.text));
+    const foreign = [...seen.generated.measured.keys(), ...seen.generated.hidden.keys()].filter(
+      (t) => !authoredText.has(t)
+    );
+    assertEqual(
+      foreign.map((t) => JSON.stringify(t)),
+      [],
+      "generated text on screen that is in none of the shipped stylesheets — a `content` " +
+        "declaration is reaching the app from a file lib/ui-sources.js does not reach"
+    );
+
+    // AND UNPROVABLE IS A FAILURE, never a skip — the rule the rest of this file runs on.
+    assertEqual(
+      seen.generated.unprovable,
+      [],
+      "generated text that is on screen and could not be resolved"
+    );
+
+    // MEASURED IN BOTH THEMES, at the same floors as any other text. `hidden` alone is not
+    // enough for anything: a string that is `opacity: 0` on every surface has been named,
+    // not checked, and this is the assertion that says so out loud.
+    const lines = [];
+    for (const a of authored) {
+      const rows = seen.generated.measured.get(a.text) || [];
+      const themes = new Set(rows.map((r) => r.where.split("/")[1]));
+      assert(
+        themes.has("light") && themes.has("dark"),
+        a.site + " = " + JSON.stringify(a.text) + " was measured in " +
+          (rows.length ? [...themes].join(" + ") : "no theme") +
+          ". It is rendered text and the floor is both themes; the surfaces that report it " +
+          "hidden are: " + (seen.generated.hidden.get(a.text) || ["(none)"]).slice(0, 2).join(", ")
+      );
+      for (const r of rows) {
+        assert(
+          r.ratio >= r.threshold,
+          a.site + " " + r.where + " " + r.path + ": " + r.ratio + ":1 against a floor of " + r.threshold + ":1"
+        );
+      }
+      const worst = rows.reduce((w, r) => (w === null || r.ratio < w.ratio ? r : w), null);
+      lines.push(
+        a.site + " " + JSON.stringify(a.text) + " — worst " + worst.ratio + ":1 (floor " +
+          worst.threshold + ":1) " + worst.fg + " on " + worst.bg + " at " + worst.fontSize + "px on " +
+          worst.where + ", via " + worst.via
+      );
+    }
+
+    return (
+      authored.length + " authored `content` string(s) across " + SOURCES.styleSources().join(" + ") +
+      "; " + seen.generated.considered + " generated node(s) considered and " + seen.generated.checked +
+      " measured across " + Object.keys(perSurface).length + " walks, 0 unprovable:\n          " +
+      lines.join("\n          ")
+    );
   });
 
   // ---- 12. the exemption inventory, so creep is a number ------------------------------------
@@ -1260,6 +1684,18 @@ main().catch((e) => {
 //           fiction". This is the mutation that matters most for check 10: the branch that
 //           reports today's single-theme reality is easy, and the one that catches a dark
 //           mode nobody is actually testing is the one worth proving
+// 10c  NOT A MUTATION — IT RAN RED ON THE SHIPPED SOURCE, first time, which is a stronger
+//      result than a mutation and is why it exists. The panel probe named TEN panels in
+//      `index.html` that no driver opened, and three of them were not gaps at all:
+//      `#entity-view` (§3.5's company overview), `#thread-menu` (rename/pin/archive) and
+//      `#techy-state`'s nothing-recorded arm. Each carries text the CEO reads, each is
+//      reachable in a browser with nothing stubbed, and this file had said nothing about any
+//      of them. Drivers were written; all three walk clean in both themes (110, 98 and 116
+//      nodes measured, 0 new, 0 worsened). The remaining seven are in `unwalkedPanels` with
+//      their reasons. The comparator is ALSO proven able to fail inside the check itself:
+//      one declaration is dropped from a COPY of the ledger and the check asserts the
+//      comparator names exactly that panel — 10b's own comment records what happens when a
+//      comparator is built out of the single set it is checking.
 //  11  index.html: a painted, click-through curtain (`pointer-events: none`,
 //      `rgba(0,0,0,0.6)`, z-index 300) left over the whole app
 //        -> every node on every surface is filed obscured and measured nowhere, and check 11
@@ -1270,6 +1706,33 @@ main().catch((e) => {
 //      sits in only runs over elements painted ABOVE the node, and a desk card inside the
 //      panel has none, so the mutated line was never reached. It proves nothing about check
 //      11 and is not counted as a run.
+//  11b NOT A MUTATION FIRST — THE SHIPPED SOURCE WAS ALREADY UNMEASURED. `lib/contrast.js`
+//      collected `nodeType === 3` children, and a pseudo-element is not a node, so
+//      `style.css:3787`'s `.setbtn::after { content: "Settings" }` — the tooltip on the
+//      settings button §15 puts on EVERY screen — was rendered text that no check in this
+//      directory had ever measured, and it was not on the library header's "WHAT IT DOES
+//      NOT SEE" list either, so it was not even a known gap. Measured now, on its own
+//      `settings-tooltip` surface, in both themes:
+//
+//          dark   #979faf on #182440  5.78:1  at 16px, floor 4.5:1
+//          light  #595e66 on #fdfcf8  6.38:1  at 16px, floor 4.5:1
+//
+//      Independently re-derived by hand before the run rather than read off it:
+//      `--ink-soft` dark is `rgba(223,228,238,0.64)` over `--surface: var(--card) = #182440`,
+//      which composites to rgb(151.4,158.9,175.4) and gives 5.78; light is
+//      `rgba(12,19,34,0.68)` over `#fdfcf8`, composites to rgb(89.1,93.6,102.5), 6.38. Both
+//      agree with WebKit to the second decimal. The surface is CLEAN — and nothing could
+//      have told you that before today.
+//  11b(i)  DRIVER MUTATION — `p.hover(".setbtn")` -> `p.hover("#composer-input")` -> check
+//      11b. `style.css:3787 = "Settings" was measured in no theme ... the surfaces that
+//      report it hidden are: shell/light button#set-btn::after (cumulative opacity 0)`.
+//      This is the one that matters: it proves `hidden` is NAMED rather than skipped, so a
+//      driver that stops reaching the hover state fails instead of quietly measuring less.
+//  11b(ii) SOURCE MUTATION — a `content: "Draft — do not ship"` on a selector nothing
+//      matches, appended to `style.css` -> check 11b: `authored content string(s) that NO
+//      walk in this suite ever encountered — actual ["style.css:4619 = \"Draft — do not
+//      ship\""]`. The other direction of the join, and the one that would catch authored
+//      text arriving in a stylesheet no gate opens.
 //  12  index.html: `data-contrast-exempt="x"` on `#rail-company`
 //        -> rejected by file and by reason for having nothing to say
 //  12b index.html: `data-contrast-exempt="chrome, nobody reads the company name"` against

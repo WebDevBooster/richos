@@ -300,6 +300,92 @@ else
 fi
 
 # ===========================================================================
+# 4. THE BANNER TELLS THE TRUTH ABOUT WHAT THE GUARD DID
+# ===========================================================================
+# rc 1 from richos_assert_jurisdiction does NOT mean the guard stood down. Ten
+# call sites route through it and NINE proceed to judge the artifact anyway, out
+# of the target repository's own declaration. The banner said "the guard did NOT
+# judge it / THIS IS NOT A PASS" to all ten, and on 2026-09-04 an engineer read
+# it, reported that guard-dialect.sh does not judge files in cross-repository
+# worktrees, and that reached the CEO as a finding. A second engineer replayed
+# the configuration and measured exit 2 with a full refusal. The guard worked;
+# the message lied, and it cost a day.
+echo
+echo "4. the banner: a guard that judged must not be reported as having declined"
+
+# --- 4a STRUCTURAL: every call site says which of the two happened. The
+# default is the conservative wording, so a forgotten parameter under-claims
+# rather than manufacturing a pass -- but an under-claim is still a wrong
+# sentence, and this is the check that stops one being added.
+MISSING=""
+SITES=0
+while IFS= read -r hit; do
+    f="${hit%%:*}"
+    line="${hit#*:}"
+    case "$line" in
+        *richos_assert_jurisdiction*) : ;;
+        *) continue ;;
+    esac
+    SITES=$((SITES + 1))
+    # The disposition may sit on the call line or on its continuation, so the
+    # two lines following the match are read with it.
+    ctx="$(grep -A2 -F "$line" "$f" 2>/dev/null | head -3)"
+    case "$ctx" in
+        *'"proceeds"'*|*'"declines"'*) : ;;
+        *) MISSING="$MISSING $(basename "$f")" ;;
+    esac
+done <<EOF
+$(grep -rn 'richos_assert_jurisdiction "' "$HOOKS_DIR" --include='*.sh' 2>/dev/null | grep -v '\.test\.sh:' | grep -v '\.mutation\.sh:' | sed 's/^\([^:]*\):[0-9]*:/\1:/')
+EOF
+
+if [ "$SITES" -eq 0 ]; then
+    bad "4a  NEGATIVE CONTROL" "the scan found ZERO call sites — the check below would be vacuous"
+elif [ -z "$MISSING" ]; then
+    ok "4a  all $SITES call sites declare a disposition, so none of them can be described wrongly"
+else
+    bad "4a  implicit disposition" "these call sites leave it to the default, so the banner may describe them wrongly:$MISSING"
+fi
+
+# --- 4b/4c BEHAVIORAL, against the two real wordings.
+sj_banner() { # <disposition> -> OUT
+    (
+        unset RICHOS_ENTITY_ROOT CLAUDE_PLUGIN_ROOT
+        export TMPDIR="$SANDBOX/notices-$1"
+        mkdir -p "$TMPDIR"
+        # shellcheck source=./seat-jurisdiction.sh
+        . "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh"
+        richos_assert_jurisdiction "scripts/hooks/probe.sh" "$ADOPTED" "$STRANGER/src/f.txt" "file" "$1"
+    ) 2>&1
+}
+
+OUT="$(sj_banner proceeds)"
+if printf '%s' "$OUT" | grep -q 'JUDGED ANYWAY' \
+   && ! printf '%s' "$OUT" | grep -q 'THIS IS NOT A PASS' \
+   && ! printf '%s' "$OUT" | grep -q 'did NOT judge it'; then
+    ok "4b  a guard that PROCEEDS is reported as having judged it, not as having declined"
+else
+    bad "4b  proceeds wording" "the banner still says the guard did not judge it: $OUT"
+fi
+
+OUT="$(sj_banner declines)"
+if printf '%s' "$OUT" | grep -q 'THIS IS NOT A PASS' \
+   && printf '%s' "$OUT" | grep -q 'did NOT judge it'; then
+    ok "4c  a guard that DECLINES still gets the wording that was always right"
+else
+    bad "4c  declines wording" "the stand-down wording was lost: $OUT"
+fi
+
+# --- 4d the default is the CONSERVATIVE one. An over-claim ("this was judged")
+# is a false pass; an under-claim prompts a check. Getting this backwards is the
+# one way this parameter could make things worse than the hardcoded banner.
+OUT="$(sj_banner "")"
+if printf '%s' "$OUT" | grep -q 'THIS IS NOT A PASS'; then
+    ok "4d  the DEFAULT is the conservative wording, so a forgotten parameter under-claims"
+else
+    bad "4d  default disposition" "an omitted disposition claims the artifact was judged: $OUT"
+fi
+
+# ===========================================================================
 # 3. NEGATIVE CONTROLS — prove each half can fail
 # ===========================================================================
 echo

@@ -1,0 +1,9 @@
+ceo-asks rc=0 secs=123 harness_ran=1
+ceo-ruled rc=0 secs=46 harness_ran=1
+ceo-todos rc=0 secs=490 harness_ran=1
+unasked-deferral rc=0 secs=135 harness_ran=1
+unstarted-rows rc=0 secs=334 harness_ran=1
+waiver-repetition rc=0 secs=44 harness_ran=1
+turn-manifest rc=0 secs=21 harness_ran=1
+root-contract rc=0 secs=568 harness_ran=1
+AFTERDONE

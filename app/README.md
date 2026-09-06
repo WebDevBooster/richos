@@ -134,6 +134,26 @@ app/
                               docs/verification/first-run-setup-2026-09-02/
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
+    src/upstream.rs          UPSTREAM MODEL-API FAILURE, first-class (open-items row 3.30).
+                              `529` overload and `429` quota classified apart, from the
+                              vendor's own structural tokens rather than its English; the
+                              BOUNDED, VISIBLE retry budget; the what-survived statement; and
+                              a size-dependent fake upstream, because the 2026-09-03 outage
+                              failed the expensive requests and passed a one-command probe
+    src/reachability.rs      CAN CLAUDE BE REACHED **AT THE SIZE THE WORK IS**? On
+                              2026-09-03 a three-character probe finished while every large
+                              brief died on 529, so a `Reachable` verdict CANNOT be
+                              constructed by a probe below the measured floor — a cheap
+                              success is `Unproven`, which is a statement about the probe.
+                              The floor is the LARGEST recent request, never the median,
+                              and an unmeasured install sends nothing at all
+    src/work_gate.rs         IS RICHOS DOING ANYTHING RIGHT NOW — the decision the updater
+                              never asked (RICH-TODOs row u1). Three readings in, one verdict
+                              plus the sentence that explains it out. Holds no handles and
+                              makes no syscalls, so the shell takes the readings and this
+                              decides; unknown blocks exactly as busy does, and the one
+                              exception (no lease, so no workers to see) is reported in words
+                              rather than assumed away
     src/feedback.rs          the in-app feedback channel, LOCAL HALF ONLY: the 1/2/3/0 rating
                               prompt, its one-file store, and the VERSIONED CLOSED VOCABULARY a
                               report is assembled from — FeedbackPayload has no String field at
@@ -150,6 +170,41 @@ app/
     examples/worker_status_demo.rs   what the drill-down reads, against real event logs
     examples/loro_reprime_demo.rs / loro_correction_demo.rs  the Tier-C read and write loops
     examples/watermark_roundtrip.rs  the rotation trigger, reading the agent's own usage
+    examples/ledger_projection_digest.rs a content-free digest of the projection a ledger
+                              file replays into. Run it with two builds against the same
+                              file and diff: identical output is what a claim that a reader
+                              change left every existing history alone is made of
+    tests/ledger_forward_compat_tests.rs 20 tests holding one line — NOTHING ALREADY
+                              READABLE MAY BECOME LESS READABLE. Two committed fixtures
+                              carrying every record shape the shipped builds wrote, pinned
+                              against goldens captured BEFORE the tolerant reader existed;
+                              then the destructive half — a record from a newer RichOS, a
+                              torn write, a bad byte, a tag no build could have written —
+                              and the anti-vacuous test that an unmodified ledger skips
+                              NOTHING
+    tests/intake_forward_compat_tests.rs 19 tests holding the SAME line over the intake
+                              log — the file that holds what the CEO TYPED before it becomes
+                              a turn. A record from a newer build, a torn write, a bad byte
+                              placed FIRST (the reader used to stop there and lose every
+                              request below it), a tag no build could have written; the id
+                              can never be re-issued; compaction can never delete a record
+                              nothing could read; a planted secret reaches no report; and
+                              the anti-vacuous test that an untouched log skips NOTHING and
+                              says NOTHING
+    tests/correction_forward_compat_tests.rs 27 tests holding the SAME line over the
+                              CORRECTION DESK — the file that holds what he was ASKED and
+                              what he ANSWERED. The desk is an event log, so losing the
+                              LATER record loses the ANSWER: a correction he confirmed
+                              reverts to `AwaitingCeo` and is put in front of him a second
+                              time. A record from a newer build, a torn write, a bad byte
+                              (the reader used to stop there and lose every answer below
+                              it), a tag no build could have written; a proposal whose
+                              answer might be missing is held back rather than asked again,
+                              and one whose answer DID load never is; a permanent decline
+                              survives either of its two records being unreadable; the id
+                              can never be re-issued; a planted secret reaches no report;
+                              and the anti-vacuous test that an untouched desk holds NOTHING
+                              back and a real proposal still reaches the writer
     tests/entity_binding_tests.rs 10 entity-scope tests: the cross-entity leak NEGATIVE
                               CONTROL (proven failing with the guard removed), immutability,
                               the fail-closed unbound legacy thread + its one-way explicit
@@ -293,13 +348,46 @@ app/
                               be, an archive with the wrong shape or the wrong version, a
                               panic mid-install, and a failed reinstall that must leave the
                               engine he already had. The digest is checked BEFORE `tar` is
-                              ever handed the bytes, and the positive half of the signature
-                              pin runs against the real `claude` on this machine (the
-                              negative half needs nothing)
+                              ever handed the bytes. The positive half of the signature pin
+                              runs against the real `claude` ON A MAC and FAILS if there is
+                              none — until 2026-09-05 it returned early instead, which is
+                              reported `ok`, so it had asserted nothing on every ubuntu CI
+                              run since that job landed. Off macOS it is now
+                              `ignored, NOT CHECKABLE ON THIS TARGET: …`, because the pin is
+                              read by `/usr/bin/codesign`. The negative half needs nothing
     tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
                               every case, so "reads nothing" cannot pass by finding nothing)
+    tests/upstream_classification_tests.rs 14 tests pinned to CAPTURED BYTES — the five
+                              `API Error: 529` lines from 2026-09-03, four of them carrying
+                              the incident's own request ids, at
+                              docs/verification/upstream-failure-2026-09-05/. It proves `429`
+                              and `529` never present the same way, that classification reads
+                              the vendor's structure and not its English, that retry stops at
+                              two attempts and says what it spent, and — the finding itself —
+                              that the injected upstream passes a 3-character probe while
+                              failing a 120,000-character one
+    tests/upstream_turn_tests.rs 12 tests driving the REAL spine against an injected
+                              upstream: the `529` that arrives as an ASSISTANT MESSAGE (the
+                              shape that would otherwise complete a turn whose answer is a
+                              vendor diagnostic in Rich's voice), the loss statement built
+                              from ledger counts, its survival across a cold reopen, and the
+                              two positive controls without which the rest is theater — an
+                              ordinary broken pipe is NOT dressed up as an outage, and a
+                              healthy turn produces nothing at all
+    tests/reachability_tests.rs 8 tests over the size-dependent fault the incident
+                              actually had. The first one IS the finding: one degraded
+                              upstream answers a 3-character probe and refuses a
+                              120,000-character one in the same test, and RichOS reports
+                              `Unproven` for the first rather than a green tick. Positive
+                              controls on both sides — a healthy API at realistic size IS
+                              `Reachable`, and the floor's boundary is inclusive
+    examples/reachability_probe.rs the operator's half: the same rules against the REAL
+                              `claude`, with the floor read off a real ledger. It prints
+                              what it would send and REFUSES to send it without `--spend`,
+                              because the request is billed to whoever is signed in. Exit 0
+                              proved / 1 classified failure / 3 NOT PROVEN
     examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
                               end to end against the real adapter (the run is kept at
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
@@ -344,10 +432,13 @@ app/
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
     tests/watermark_cadence_tests.rs 8 tests that recompute the rotation cadence from the
                               RAW 2026-08-28 capture on every run, both directions
+    tests/work_gate_cost.rs   what it costs to ask "is RichOS doing anything" — timed over
+                              3,000 worker rows with 1,500 liveness syscalls, because the
+                              ruling the gate serves is about not getting in the way
   src-tauri/                 the Tauri shell — DETACHED nested workspace (empty [workspace])
     src/main.rs              window + Tauri command bridge to the spine
     src/nav.rs               durable rail VIEW state: width, pin, rename, archive (not evidence)
-    src/updates.rs           THE UPDATE PATH (RICH-TODOs row 12): check, download with
+    src/updates.rs           THE UPDATE PATH (RICH-TODOs rows 12 and u1): check, download with
                               throttled progress, VERIFY, install, relaunch; a nine-state
                               view emitted as `rich://update`; and the failure classifier
                               whose signature arm must never widen. The webview is granted
@@ -635,12 +726,25 @@ Two limits, stated rather than discovered later:
 ## Build & test
 
 ```sh
-# 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 742 tests + 5 doc-tests; 740 direct, 2 child-only
+# 1. The spine — fast, no native deps, no network:
+cargo test -p richos-core                       # 864 tests + 5 doc-tests; 862 direct, 2 child-only
+#     ONE OF THEM NEEDS A `claude` ON A MAC, and that is deliberate as of 2026-09-05.
+#     `the_real_claude_binary_on_this_machine_satisfies_the_requirement` is the POSITIVE half
+#     of the Anthropic signature pin; it used to `return` when the binary was absent, and a
+#     test that returns is reported `ok`. It now FAILS instead, naming every path it searched
+#     — `$RICHOS_CLAUDE_BIN` points it at a binary anywhere. Off macOS it reports
+#     `ignored, NOT CHECKABLE ON THIS TARGET: …` (the pin is read by `/usr/bin/codesign`),
+#     which is what `app-spine-ci.yml`'s ubuntu runner now prints in place of a green line.
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 191 tests
-RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # + the audible live tests
+cargo test -p richos-voice                      # 196 tests
+#     …of which 192 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
+#     reason. Those four open a real output device and one is audible for about a second, so
+#     they are opt-in. Until 2026-09-05 they opted out with an early `return` — and a test
+#     that returns is reported `ok`, so they were four green lines asserting nothing on every
+#     machine but the CEO's and on every CI run. `crates/richos-voice/build.rs` turns the
+#     variable below into `cfg(live_audio)` so the default run says `ignored` instead.
+RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 196 run, incl. the audible ones
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 
 # 2. The desktop shell (from app/src-tauri/):

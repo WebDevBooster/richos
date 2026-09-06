@@ -1,6 +1,6 @@
 {
-  "//": "THE DEBT LEDGER, AND IT IS NOW EMPTY. It recorded what the shipping app was already failing on 2026-08-30 \u2014 456 nodes over 53 colour pairings, measured against a floor that never moves \u2014 so that a red run meant \"someone made this worse today\" rather than \"this repository has old debt\". Every one of those 53 is fixed as of the theme/type/contrast pass on 2026-08-31, and check 13 reported all 53 as no longer reachable, so they are deleted rather than left to rot into a list nobody reads. `cap: 0` is the consequence and the point: the ledger can shrink and never grow, and there is no longer any debt for a new failure to hide behind. Adding an entry here is now a deliberate, visible act. The threshold (4.5 / 3.0) is untouched and has never moved.",
-  "generated": "2026-08-31 \u2014 re-baselined when the app reached zero contrast failures in both themes. Amended the same day for RICH-TODOs row 12: three `updates-*` surfaces were ADDED, and they are the first drivers ever to walk the UNIVERSAL settings menu (the `settings` surface drives the RAIL's preferences popover, which is a different menu). Their first run found a SHIPPED failure nothing had covered \u2014 `.set-switch`, the Techy Mode toggle, whose off-state border was 1.24:1 dark / 1.50:1 light against a 3:1 floor, its fill being 1.18:1 / 1.17:1 and therefore invisible. It was FIXED (`--line` -> `--line-control`, 3.79:1 / 4.06:1) rather than entered here as debt, so `cap` is still 0 and this ledger is still empty. No existing floor moved.",
+  "//": "THE DEBT LEDGER, AND IT IS NOW EMPTY. It recorded what the shipping app was already failing on 2026-08-30 — 456 nodes over 53 colour pairings, measured against a floor that never moves — so that a red run meant \"someone made this worse today\" rather than \"this repository has old debt\". Every one of those 53 is fixed as of the theme/type/contrast pass on 2026-08-31, and check 13 reported all 53 as no longer reachable, so they are deleted rather than left to rot into a list nobody reads. `cap: 0` is the consequence and the point: the ledger can shrink and never grow, and there is no longer any debt for a new failure to hide behind. Adding an entry here is now a deliberate, visible act. The threshold (4.5 / 3.0) is untouched and has never moved.",
+  "generated": "2026-08-31 — re-baselined when the app reached zero contrast failures in both themes. Amended the same day for RICH-TODOs row 12: three `updates-*` surfaces were ADDED, and they are the first drivers ever to walk the UNIVERSAL settings menu (the `settings` surface drives the RAIL's preferences popover, which is a different menu). Their first run found a SHIPPED failure nothing had covered — `.set-switch`, the Techy Mode toggle, whose off-state border was 1.24:1 dark / 1.50:1 light against a 3:1 floor, its fill being 1.18:1 / 1.17:1 and therefore invisible. It was FIXED (`--line` -> `--line-control`, 3.79:1 / 4.06:1) rather than entered here as debt, so `cap` is still 0 and this ledger is still empty. No existing floor moved.",
   "cap": 0,
   "exemptionCap": 0,
   "knownUnresolvable": [
@@ -12,8 +12,43 @@
       "surface": "opening-screen"
     }
   ],
+  "unwalkedPanels": [
+    {
+      "id": "home",
+      "why": "The home screen, and it is COVERED SOMEWHERE ELSE rather than uncovered: round-11.1/v1 \"Constellation\" is a WebGL canvas composition, so a computed-style walk can read nothing painted on it. tests/home.js measures it FROM THE PIXELS instead — 16 elements, worst 4.23:1, on the rendered frame — which check 14 already names. Two DOM checkers over one canvas would be one checker rotting."
+    },
+    {
+      "id": "voice-panel",
+      "why": "The voice panel mid-listen. Reaching it needs a live audio device: main.js hides the talk button entirely when voice_readiness refuses, and the panel only paints once start_voice_capture has a real stream. A browser fixture that forced it open would be measuring markup the product does not paint on a machine with no microphone."
+    },
+    {
+      "id": "slideover",
+      "why": "The drill-down slideover, and drill_down is not implemented behind it — no seeded thread in mock.js produces a drill target, so nothing in a browser can open it. Named in this file's header as a gap since it was written; this entry is the same claim in a form the suite can hold to."
+    },
+    {
+      "id": "slideover-backdrop",
+      "why": "The slideover's own backdrop. It cannot be on screen without the slideover above it, so it shares that entry's reason exactly."
+    },
+    {
+      "id": "drill-chip-zone",
+      "why": "The drill-down's chip strip, which is the affordance that OPENS the slideover. Same unreachability and same reason: no seeded conversation carries a drill target."
+    },
+    {
+      "id": "rail-scrim",
+      "why": "The rail's scrim on a narrow window — a translucent sheet with no text in it and no boundary of its own, so it is neither a text node nor a non-text INDICATOR under check 3's definition. What matters about a scrim is what can still be read THROUGH it, and check 8 measures exactly that on every run: a 12% sheet takes 4.54:1 down to 4.25:1 and the 4.25 is what gets reported, not the stylesheet's 4.54."
+    },
+    {
+      "id": "inspector-scrim",
+      "why": "The worker inspector's scrim, on the same footing as the rail's. The inspector ITSELF is walked (surface `inspector`, 146 nodes measured) — it is only the sheet beside it that carries nothing to measure."
+    }
+  ],
   "surfaceFloors": {
     "shell": {
+      "checked": 78,
+      "considered": 228
+    },
+    "settings-tooltip": {
+      "//": "The shell with the settings button hovered, so the node floor is the shell's own (78/228 — this surface measures 90 of 408 today, exactly as `shell` does). The floor that actually belongs to THIS surface is not a node count: it is check 11b, which requires `style.css`'s `.setbtn::after` content string to be MEASURED in both themes rather than reported hidden, and fails if this driver stops reaching the hover state.",
       "checked": 78,
       "considered": 228
     },
@@ -46,9 +81,14 @@
       "considered": 236
     },
     "settings": {
-      "//": "74 -> 72 on 2026-09-01, when the app stopped borrowing the platform's typeface and started shipping its own. Inter's metrics are not SF Pro's, so the rail's thread rows sit at slightly different heights, and ONE MORE nav-thread-title now falls underneath the assertiveness popover. Diffed node by node rather than assumed: `considered` is 132 per theme before and after, `invisible` is 77 before and after, and the single lost path is li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title, which moves from measured into `obscured` (its recorded example goes from \"Partner book review\" to \"Q4 hiring\"). Nothing stopped rendering, which is the failure this floor exists to catch (see mutation 9b in contrast.js: `.nav-thread-title { display: none }`). Check 11 still passes, which is the proof that matters here \u2014 every obscured node is measured on some other surface, so no contrast coverage was lost, only relocated.",
+      "//": "74 -> 72 on 2026-09-01, when the app stopped borrowing the platform's typeface and started shipping its own. Inter's metrics are not SF Pro's, so the rail's thread rows sit at slightly different heights, and ONE MORE nav-thread-title now falls underneath the assertiveness popover. Diffed node by node rather than assumed: `considered` is 132 per theme before and after, `invisible` is 77 before and after, and the single lost path is li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title, which moves from measured into `obscured` (its recorded example goes from \"Partner book review\" to \"Q4 hiring\"). Nothing stopped rendering, which is the failure this floor exists to catch (see mutation 9b in contrast.js: `.nav-thread-title { display: none }`). Check 11 still passes, which is the proof that matters here — every obscured node is measured on some other surface, so no contrast coverage was lost, only relocated.",
       "checked": 72,
       "considered": 252
+    },
+    "history-notice": {
+      "//": "Added 2026-09-05 with the tolerant ledger reader. The shell walk is 90 of 408; this is 94 of 412, and the delta is exactly the notice: two paragraphs, both themes, both MEASURED rather than filed invisible or obscured. Computed before the walk ran and unchanged by it: headline --attention on --surface-raised is 7.05:1 dark and 6.19:1 light, detail --ink on --surface-raised is 13.02:1 dark and 17.02:1 light, and the --attention border (a non-text indicator, floor 3:1) is 7.05:1 / 7.88:1 dark and 6.19:1 / 5.42:1 light against the panel and the ground behind it. Nothing here is exempt; the sentence explaining why part of his history is missing is the last text in this app anyone should have to squint at.",
+      "checked": 94,
+      "considered": 412
     },
     "opening-screen": {
       "checked": 0,
@@ -65,6 +105,10 @@
     "updates-failed": {
       "checked": 108,
       "considered": 248
+    },
+    "updates-waiting": {
+      "checked": 92,
+      "considered": 412
     },
     "company-picker": {
       "checked": 20,
@@ -117,6 +161,18 @@
     "assignment-scope": {
       "checked": 122,
       "considered": 450
+    },
+    "entity-view": {
+      "checked": 110,
+      "considered": 436
+    },
+    "thread-menu": {
+      "checked": 98,
+      "considered": 414
+    },
+    "techy-nothing-recorded": {
+      "checked": 116,
+      "considered": 430
     }
   },
   "signatures": {}
