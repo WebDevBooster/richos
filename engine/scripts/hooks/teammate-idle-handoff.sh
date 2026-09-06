@@ -24,6 +24,8 @@
 
 set -o pipefail
 
+# Keep event JSON out of argv/environment: Linux imposes per-string exec limits.
+# Descriptor 3 carries the data while stdin carries the inline Python source.
 PAYLOAD="$(cat)"
 
 # Cheap, best-effort dirty-count for the teammate's cwd. Computed in bash
@@ -46,12 +48,12 @@ fi
 # Best-effort; this hook's exit code is unchanged whatever happens here.
 _LEDGER_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/worktree-ledger.py"
 if [ -f "$_LEDGER_PY" ] && command -v python3 >/dev/null 2>&1; then
-  PAYLOAD="$PAYLOAD" LEDGER_PY="$_LEDGER_PY" SIGNAL="TeammateIdle" python3 - <<'PY' 2>/dev/null || true
+  LEDGER_PY="$_LEDGER_PY" SIGNAL="TeammateIdle" python3 - 3<<< "$PAYLOAD" <<'PY' 2>/dev/null || true
 import importlib.util, json, os
 spec = importlib.util.spec_from_file_location("wl", os.environ["LEDGER_PY"])
 wl = importlib.util.module_from_spec(spec); spec.loader.exec_module(wl)
 try:
-    d = json.loads(os.environ.get("PAYLOAD") or "{}")
+    d = json.load(os.fdopen(3))
 except Exception:
     d = {}
 if not isinstance(d, dict) or d.get("hook_event_name") not in ("", None, os.environ["SIGNAL"]):
@@ -77,7 +79,7 @@ if agent_id or cwd or rec["teammate"] or rec["task_id"]:
 PY
 fi
 
-UNCOMMITTED="$UNCOMMITTED" python3 - "$PAYLOAD" <<'PY'
+UNCOMMITTED="$UNCOMMITTED" python3 - 3<<< "$PAYLOAD" <<'PY'
 import json
 import os
 import sys
@@ -87,7 +89,7 @@ def finish():
     sys.exit(0)
 
 try:
-    payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else {}
+    payload = json.load(os.fdopen(3))
 except Exception:
     finish()
 

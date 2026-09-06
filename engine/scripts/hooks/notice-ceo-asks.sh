@@ -132,11 +132,11 @@ fi
 # One record per question, so a multi-question call is not collapsed into a
 # single ask. Each is emitted as: <question index><TAB><assembled text with
 # newlines as \001>, which keeps the whole thing on one line for `read`.
-QLIST="$(CA_PAYLOAD="$INPUT" python3 -c '
+QLIST="$(python3 3<<< "$INPUT" -c '
 import json, os, sys
 
 try:
-    d = json.loads(os.environ.get("CA_PAYLOAD") or "{}")
+    d = json.load(os.fdopen(3))
 except Exception:
     sys.exit(0)
 if not isinstance(d, dict):
@@ -191,18 +191,18 @@ if [ -z "$QLIST" ]; then
     exit 0
 fi
 
-SESSION_ID="$(CA_PAYLOAD="$INPUT" python3 -c '
+SESSION_ID="$(python3 3<<< "$INPUT" -c '
 import json, os
 try:
-    d = json.loads(os.environ.get("CA_PAYLOAD") or "{}")
+    d = json.load(os.fdopen(3))
     print(str(d.get("session_id", "") or ""))
 except Exception:
     print("")
 ' 2>/dev/null || true)"
-AGENT_ID="$(CA_PAYLOAD="$INPUT" python3 -c '
+AGENT_ID="$(python3 3<<< "$INPUT" -c '
 import json, os
 try:
-    d = json.loads(os.environ.get("CA_PAYLOAD") or "{}")
+    d = json.load(os.fdopen(3))
     print(str(d.get("agent_id", "") or ""))
 except Exception:
     print("")

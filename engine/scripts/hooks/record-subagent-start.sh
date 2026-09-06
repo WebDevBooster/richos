@@ -35,6 +35,8 @@
 
 set -o pipefail
 
+# Keep event JSON out of argv/environment: Linux imposes per-string exec limits.
+# Descriptor 3 carries the data while stdin carries the inline Python source.
 PAYLOAD="$(cat)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
@@ -48,11 +50,11 @@ if [ ! -f "$TX_PY" ]; then
     exit 0
 fi
 
-PAYLOAD="$PAYLOAD" TX_PY="$TX_PY" python3 - <<'PY' 2>&1 >/dev/null | sed 's/^/NOTICE: record-subagent-start.sh: /' >&2
+TX_PY="$TX_PY" python3 - 3<<< "$PAYLOAD" <<'PY' 2>&1 >/dev/null | sed 's/^/NOTICE: record-subagent-start.sh: /' >&2
 import importlib.util, json, os, sys
 
 try:
-    d = json.loads(os.environ.get("PAYLOAD") or "{}")
+    d = json.load(os.fdopen(3))
 except Exception:
     d = {}
 if not isinstance(d, dict) or d.get("hook_event_name") not in ("", None, "SubagentStart"):

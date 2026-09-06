@@ -154,10 +154,10 @@ case "$RRC" in
 esac
 
 # --- The paragraphs of this turn that ASK something -------------------------
-QUESTIONS="$(CR_PAYLOAD="$INPUT" python3 -c '
+QUESTIONS="$(python3 3<<< "$INPUT" -c '
 import json, os, re, sys
 try:
-    d = json.loads(os.environ.get("CR_PAYLOAD") or "{}")
+    d = json.load(os.fdopen(3))
 except Exception:
     sys.exit(0)
 if not isinstance(d, dict) or d.get("stop_hook_active"):

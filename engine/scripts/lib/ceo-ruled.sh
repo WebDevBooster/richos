@@ -346,10 +346,10 @@ sys.stdout.write(json.dumps(job))
 # the tool renames `questions`, a gate that quietly checked nothing would
 # rebuild the defect it exists to prevent.
 cr_questions_of() {
-    CR_PAYLOAD="${1:-}" python3 -c '
+    python3 3<<< "${1:-}" -c '
 import json, os, sys
 try:
-    d = json.loads(os.environ.get("CR_PAYLOAD") or "{}")
+    d = json.load(os.fdopen(3))
 except Exception:
     sys.exit(0)
 if not isinstance(d, dict):
