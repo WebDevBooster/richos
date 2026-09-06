@@ -573,7 +573,9 @@ RESULT="$(rc_run "$JOB")" || {
     exit 2
 }
 
-VERDICT="$(printf '%s' "$RESULT" | head -1 | cut -f1)"
+# Consume the complete verdict stream: notes can exceed the pipe buffer.
+# An early reader exit would turn an intentional pass/refusal into SIGPIPE.
+VERDICT="$(printf '%s' "$RESULT" | sed -n '1p' | cut -f1)"
 BODY="$(printf '%s\n' "$RESULT" | tail -n +2)"
 
 case "$VERDICT" in
@@ -591,10 +593,10 @@ case "$VERDICT" in
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="SKIP" {printf "  ROW CURRENCY — NOT CHECKED: item %s, %s\n         %s\n", $2, $3, $4}' >&2
     exit 0 ;;
   BROKEN)
-    rc_broken_banner "guard-row-currency-commits.sh" "$(printf '%s' "$RESULT" | head -1 | cut -f2-)" >&2
+    rc_broken_banner "guard-row-currency-commits.sh" "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2-)" >&2
     exit 2 ;;
   VIOLATIONS)
-    N="$(printf '%s' "$RESULT" | head -1 | cut -f2)"
+    N="$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2)"
     rc_refusal "guard-row-currency-commits.sh" \
         "$N row(s) of this record no longer describe the work — REFUSING THIS $(printf '%s' "$ACTION" | tr '[:lower:]' '[:upper:]')" \
         "$BODY" "$RC_RECORD_REPO/$RC_RECORD_REL" >&2

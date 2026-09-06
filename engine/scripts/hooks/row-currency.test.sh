@@ -670,6 +670,100 @@ else
     bad "the merge refusal does not name itself: $GOUT"
 fi
 
+# Large real predicate output must not turn either a refusal or a clean result
+# into SIGPIPE. Closed rows emit notes without hundreds of extra Git lookups.
+set -- $(mk_pair largeverdict); REC="$1"; WORK="$2"
+OLD="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "| 3.1 | still open | **State:** \`OPEN\` — \`work/lib/thing.js\`@\`$OLD\` |"
+python3 - "$REC/wiki/open-items.md" <<'PY_LARGE'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+notes = ''.join('| 3.%d | historical item | **State:** `CLOSED` |\n' % n
+                for n in range(2, 1026))
+p.write_text(p.read_text().replace('\n## Deliberately', '\n' + notes + '\n## Deliberately'))
+PY_LARGE
+commit_record "$REC"
+git -C "$WORK" checkout -qb feature >/dev/null 2>&1
+printf 'the implementation changed\n' > "$WORK/lib/thing.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+git -C "$WORK" commit -qm 'change the implementation' >/dev/null 2>&1
+run_lint "$REC"
+if [ "$LRC" -eq 1 ] && grep -F 'ROW-STALE' <<< "$LOUT" >/dev/null &&
+   grep -F '3.1025 is' <<< "$LOUT" >/dev/null && [ "${#LOUT}" -gt 65536 ]; then
+    ok "large CLI violation output preserves the refusal and final diagnostic"
+else
+    bad "large CLI violation output was truncated or misclassified (rc=$LRC, bytes=${#LOUT}): $LOUT"
+fi
+git -C "$WORK" checkout -q master >/dev/null 2>&1 || git -C "$WORK" checkout -q main >/dev/null 2>&1
+run_guard "$WORK" 'git merge --no-ff feature'
+if [ "$GRC" -eq 2 ] && grep -F 'ROW-STALE' <<< "$GOUT" >/dev/null &&
+   grep -F 'REFUSING THIS MERGE' <<< "$GOUT" >/dev/null &&
+   grep -F '3.1025 is' <<< "$GOUT" >/dev/null && [ "${#GOUT}" -gt 65536 ]; then
+    ok "large merge verdict preserves its intentional refusal and final diagnostic"
+else
+    bad "large merge verdict was truncated or misclassified (rc=$GRC, bytes=${#GOUT}): $GOUT"
+fi
+python3 - "$REC/wiki/open-items.md" <<'PY_LARGE'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace('`OPEN`', '`CLOSED`'))
+PY_LARGE
+commit_record "$REC"
+run_lint "$REC"
+if [ "$LRC" -eq 0 ] && grep -F 'PREMISE CENSUS' <<< "$LOUT" >/dev/null &&
+   grep -F '3.1025 is' <<< "$LOUT" >/dev/null && [ "${#LOUT}" -gt 65536 ]; then
+    ok "large clean CLI output preserves the census and final diagnostic"
+else
+    bad "large clean CLI output was truncated or refused (rc=$LRC, bytes=${#LOUT}): $LOUT"
+fi
+run_guard "$WORK" 'git commit -m \\\"record is current\\\"'
+if [ "$GRC" -eq 0 ] && grep -F 'PREMISE CENSUS' <<< "$GOUT" >/dev/null &&
+   grep -F '3.1025 is' <<< "$GOUT" >/dev/null && [ "${#GOUT}" -gt 65536 ]; then
+    ok "large clean guard output preserves the census and final diagnostic"
+else
+    bad "large clean guard output was truncated or refused (rc=$GRC, bytes=${#GOUT}): $GOUT"
+fi
+
+# A conflicted merge still has a measurable tree. Keep consuming merge-tree's
+# stdout after its first-line tree id even when the conflict list is large.
+set -- $(mk_pair largeconflict); REC="$1"; WORK="$2"
+python3 - "$WORK" <<'PY_CONFLICT'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1]) / 'conflicts'
+root.mkdir()
+for i in range(256):
+    (root / ('file-%03d-' % i + 'x' * 120 + '.txt')).write_text('base\n')
+PY_CONFLICT
+git -C "$WORK" add -A >/dev/null 2>&1
+git -C "$WORK" commit -qm 'conflict base' >/dev/null 2>&1
+git -C "$WORK" branch other >/dev/null 2>&1
+python3 - "$WORK/conflicts" <<'PY_CONFLICT'
+import pathlib, sys
+for p in pathlib.Path(sys.argv[1]).iterdir():
+    p.write_text('ours\n')
+PY_CONFLICT
+git -C "$WORK" commit -qam 'ours' >/dev/null 2>&1
+git -C "$WORK" checkout -q other >/dev/null 2>&1
+python3 - "$WORK/conflicts" <<'PY_CONFLICT'
+import pathlib, sys
+for p in pathlib.Path(sys.argv[1]).iterdir():
+    p.write_text('theirs\n')
+PY_CONFLICT
+git -C "$WORK" commit -qam 'theirs' >/dev/null 2>&1
+git -C "$WORK" checkout -q master >/dev/null 2>&1 || git -C "$WORK" checkout -q main >/dev/null 2>&1
+git -C "$WORK" merge-tree --write-tree HEAD other > "$SCRATCH/merge-conflicts.out" 2>/dev/null
+MERGE_RC=$?
+EXPECTED_TREE="$(sed -n '1p' "$SCRATCH/merge-conflicts.out")"
+ACTUAL_TREE="$("$BASH_BIN" -c 'set -eo pipefail; source "$1"; rc_pending_tree "$2" merge other || exit 1' _ "$ENGINE_ROOT/scripts/lib/row-currency.sh" "$WORK")"
+TREE_RC=$?
+if [ "$MERGE_RC" -eq 1 ] && [ "$(wc -c < "$SCRATCH/merge-conflicts.out")" -gt 65536 ] &&
+   [ "$TREE_RC" -eq 0 ] && [ "$ACTUAL_TREE" = "$EXPECTED_TREE" ] &&
+   git -C "$WORK" cat-file -e "$ACTUAL_TREE^{tree}" 2>/dev/null; then
+    ok "a large real conflict listing retains the measured merge tree"
+else
+    bad "large conflicted merge lost its tree (merge rc=$MERGE_RC, tree rc=$TREE_RC)"
+fi
+
 # ---------------------------------------------------------------------------
 # (i) NO OVERRIDE — there is no escape token, deliberately
 # ---------------------------------------------------------------------------

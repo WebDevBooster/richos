@@ -122,7 +122,9 @@ rc_build_job "$JOB" "$RECORD" "$B1" "$B2" "$MSGF" "by hand" "commit" "-" || {
 
 RESULT="$(rc_run "$JOB")" || { echo "ERROR: row-currency-lint.sh: the predicate could not run" >&2; exit 2; }
 
-VERDICT="$(printf '%s' "$RESULT" | head -1 | cut -f1)"
+# Consume the complete verdict stream: notes can exceed the pipe buffer.
+# An early reader exit would turn an intentional pass/refusal into SIGPIPE.
+VERDICT="$(printf '%s' "$RESULT" | sed -n '1p' | cut -f1)"
 BODY="$(printf '%s\n' "$RESULT" | tail -n +2)"
 
 if [ -n "$EXPLAIN" ]; then
@@ -138,15 +140,15 @@ case "$VERDICT" in
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  NOTE   %s\n         %s\n", $2, $3}'
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="SKIP" {printf "  SKIP   item %s — %s\n         %s\n", $2, $3, $4}'
     printf '✓ row currency: %s governed row(s) still describe the work they point at (%s not checkable).\n' \
-        "$(printf '%s' "$RESULT" | head -1 | cut -f2)" \
-        "$(printf '%s' "$RESULT" | head -1 | cut -f3)"
+        "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2)" \
+        "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f3)"
     exit 0 ;;
   BROKEN)
-    rc_broken_banner "row-currency-lint.sh" "$(printf '%s' "$RESULT" | head -1 | cut -f2-)" >&2
+    rc_broken_banner "row-currency-lint.sh" "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2-)" >&2
     exit 2 ;;
   VIOLATIONS)
     rc_refusal "row-currency-lint.sh" \
-        "$(printf '%s' "$RESULT" | head -1 | cut -f2) row(s) of this record no longer describe the work" \
+        "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2) row(s) of this record no longer describe the work" \
         "$BODY" "$RECORD" >&2
     exit 1 ;;
   *)

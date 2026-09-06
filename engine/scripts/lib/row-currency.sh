@@ -507,7 +507,8 @@ rc_pending_tree() {
         # `merge-tree --write-tree` prints the merged tree even when the merge
         # conflicts (the conflicts follow on stderr/stdout), so a conflicted
         # land is still measured rather than skipped.
-        tree="$(git -C "$root" merge-tree --write-tree HEAD "$ref" 2>/dev/null | head -1)"
+        # Drain conflict diagnostics too; an early exit can SIGPIPE Git.
+        tree="$(git -C "$root" merge-tree --write-tree HEAD "$ref" 2>/dev/null | sed -n '1p')"
         case "$tree" in
             [0-9a-f]*) printf '%s\n' "$tree"; return 0 ;;
         esac

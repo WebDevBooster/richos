@@ -165,7 +165,7 @@ mutant headline-terminal-not-exempt "a terminal row was not counted by the HC ce
 mutant headline-default-blocks "the default made a warrantless row a refusal" "$P" \
     '            if headline_required:' \
     '            if True:' \
-    "the DEFAULT would block: with ROW_HEADLINE_REQUIRED unset, declaring ROW_HEADLINE_SECTIONS would then refuse the next landing and every landing after it, including the ones the mechanical sweep writes, and the declaration would be deleted within the day. Measured on the real record at richos-hq `4f2c0a804f30`, the shipped default does the opposite: exit 0, 27 rows named, nothing refused, and a fresh sweep append still exit 0. This mutant is what makes declaring the jurisdiction key safe — it is not a reason to avoid declaring it."
+    "the DEFAULT would block: with ROW_HEADLINE_REQUIRED unset, declaring ROW_HEADLINE_SECTIONS would then refuse the next landing and every landing after it, including the ones the mechanical sweep writes, and the declaration would be deleted within the day. Measured on the real record at richos-hq \`4f2c0a804f30\`, the shipped default does the opposite: exit 0, 27 rows named, nothing refused, and a fresh sweep append still exit 0. This mutant is what makes declaring the jurisdiction key safe — it is not a reason to avoid declaring it."
 
 mutant headline-required-toothless "ROW_HEADLINE_REQUIRED=1 did not refuse a warrantless row" "$P" \
     '            if headline_required:' \
