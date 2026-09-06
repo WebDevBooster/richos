@@ -157,9 +157,9 @@ SESSION IDENTITY = pid + start time, never pid alone
 The lock line the harness writes names the host session's pid, and
 agent-liveness.py measured that it is the same for every agent of the session.
 A pid can be reused after the process dies, so a bare `kill -0` is not
-identity. The ledger records `ps -o lstart=` for the pid at registration and
-compares the same field later: same pid + same start = the same process;
-anything else = that process is gone.
+identity. New records use a versioned start-time token from ps under C locale
+and UTC. Untagged historical strings carry no timezone or locale, so a running
+pid with one of those records is UNKNOWN, never proof of reuse or termination.
 """
 
 import argparse
@@ -253,8 +253,20 @@ def _ws(s):
     return " ".join((s or "").split())
 
 
+PROCESS_START_PREFIX = "ps-lstart-utc-v1:"
+
+
+def _process_env():
+    # launchd, terminal shells and CI must observe the same identity bytes.
+    return {**os.environ, "LC_ALL": "C", "LANG": "C", "TZ": "UTC0"}
+
+
 def pid_start(pid):
-    """`ps -o lstart=` for a pid, whitespace-normalized, or "" if unreadable."""
+    """Versioned UTC/C ps start token, or empty if unreadable.
+
+    The prefix prevents untagged legacy local-time strings from being mistaken
+    for canonical evidence of PID reuse. Their formatting context was not saved.
+    """
     try:
         pid = int(pid)
     except Exception:
@@ -263,12 +275,12 @@ def pid_start(pid):
         return ""
     try:
         res = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)],
-                             capture_output=True, text=True, timeout=5)
+                             capture_output=True, text=True, timeout=5, env=_process_env())
     except Exception:
         return ""
-    if res.returncode != 0:
+    if res.returncode != 0 or not _ws(res.stdout):
         return ""
-    return _ws(res.stdout)
+    return PROCESS_START_PREFIX + _ws(res.stdout)
 
 
 def _pid_running(pid):
@@ -289,7 +301,7 @@ def process_status(pid, recorded_start):
     alive    the pid runs AND (no start was recorded OR the start matches)
     gone     no process has this pid
     reused   a process has this pid but with a different start time
-    unknown  the pid is missing/unprobeable
+    unknown  the pid is missing/unprobeable or its recorded identity is legacy
     """
     if pid in (None, "", 0):
         return "unknown"
@@ -309,15 +321,17 @@ def process_status(pid, recorded_start):
         return "unknown"
     if not rec:
         return "alive"
+    if not rec.startswith(PROCESS_START_PREFIX):
+        return "unknown"
     return "alive" if cur == rec else "reused"
 
 
 def _parse_lstart(text):
-    """`ps -o lstart=` text -> epoch seconds, or None."""
+    """C-locale, UTC `ps -o lstart=` text -> epoch seconds, or None."""
     t = _ws(text)
     for fmt in ("%a %d %b %H:%M:%S %Y", "%a %b %d %H:%M:%S %Y"):
         try:
-            return datetime.strptime(t, fmt).timestamp()
+            return datetime.strptime(t, fmt).replace(tzinfo=timezone.utc).timestamp()
         except Exception:
             continue
     return None
@@ -341,7 +355,7 @@ def claude_processes():
         return out
     try:
         res = subprocess.run(["ps", "-axo", "pid=,lstart=,comm="],
-                             capture_output=True, text=True, timeout=10)
+                             capture_output=True, text=True, timeout=10, env=_process_env())
     except Exception:
         return None
     if res.returncode != 0:
@@ -749,6 +763,11 @@ def _judge_registration(reg, entity, records, mod, write, ledger):
                                "while its session pid %s is still running; "
                                "decidable once that session ends (absence is not a termination "
                                "signal)" % (aid or "?", name, pid))
+
+    if pid not in (None, "", 0):
+        # A recorded but ambiguous identity cannot be replaced by a weaker
+        # process-name scan. In particular, legacy timestamps cannot prove death.
+        return INDETERMINATE, "recorded session process identity is unknown; retain its worktree"
 
     # 4. no pid on record — the session may still be PROVABLY over, by
     #    exhaustion of the process table against the harness's own registry

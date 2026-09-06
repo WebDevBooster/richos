@@ -731,7 +731,14 @@ for holder in own foreign unsigned; do
     R --agent "$SID/$A28" >/dev/null 2>&1
     printf 'late after verification\n' >"$Q28/late.txt"
     R --agent "$SID/$A28" >/dev/null 2>&1
-    if [ "$(cat "$Q28/late.txt")" = 'late after verification' ] && [ "$(states "$A28")" = "verified " ] && git -C "$ENTITY" worktree list --porcelain | grep -q '^locked'; then
+    # Read to EOF: grep -q can close the pipe after a match and give Git
+    # SIGPIPE/141 under pipefail on Linux. Check THIS member's lock, not any
+    # other lock in the repository, and preserve real Git failures.
+    if [ "$(cat "$Q28/late.txt")" = 'late after verification' ] && [ "$(states "$A28")" = "verified " ] && git -C "$ENTITY" worktree list --porcelain | awk -v target="$Q28" '
+        /^worktree / { current = substr($0, 10) }
+        /^locked( |$)/ && current == target { found = 1 }
+        END { exit !found }
+    '; then
         ok "C48  $holder lock, quarantine and late write survive repeated reconciliation"
     else
         bad "C48  $holder quarantine or lock lost"

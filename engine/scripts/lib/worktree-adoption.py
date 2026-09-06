@@ -341,21 +341,33 @@ def owner_evidence(records, path):
     seen = set()
     for r in _rows_for_path(records, path):
         sid = r.get("session_id") or ""
-        if not sid or sid in seen:
+        if not sid:
             continue
-        seen.add(sid)
         pid, start = (r.get("session_pid"), r.get("pid_start") or "")
         if not pid:
             pid, start = ident.get(sid, (None, ""))
         if not pid:
             corroboration.append("session %s recorded no pid" % sid[:8])
             continue
+        # A resumed session can retain its ID while moving to another process.
+        # Deduplicating by session ID would let an old dead PID hide its live
+        # successor and authorize T2 quarantine. Consider every incarnation.
+        identity = (sid, str(pid), start)
+        if identity in seen:
+            continue
+        seen.add(identity)
         statuses.append((sid, pid, start, wl.process_status(pid, start)))
     alive = [s for s in statuses if s[3] == "alive"]
     if alive:
         sid, pid, _start, _st = alive[0]
         return None, ("session %s is STILL RUNNING as pid %s and the record binds it to %s — a live "
                       "owner refuses the claim whatever else is on record" % (sid[:8], pid, path))
+
+    uncertain = [s for s in statuses if s[3] == "unknown"]
+    if uncertain:
+        sid, pid, _start, _st = uncertain[0]
+        return None, ("session %s pid %s has UNKNOWN process identity; retain its worktree "
+                      "until owner termination is established" % (sid[:8], pid))
 
     # T1 — the transaction store marks the agent id terminal.
     for aid in aids:

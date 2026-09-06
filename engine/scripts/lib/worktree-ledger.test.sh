@@ -137,7 +137,7 @@ fi
 #    not this process's start time: that process is gone and its number was
 #    handed to someone else. A bare kill -0 would call this ALIVE.
 L record registered --teammate zach-opus-reused --agent-id reuse01 --session-id sess-x \
-    --session-pid "$$" --pid-start "Mon 1 Jan 00:00:00 1990" --repo "$ENTITY" \
+    --session-pid "$$" --pid-start "ps-lstart-utc-v1:Mon Jan 1 00:00:00 1990" --repo "$ENTITY" \
     --worktree "$SANDBOX/wt/zach-opus-reused" --class native >/dev/null
 V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-reused" --name zach-opus-reused --format triple --no-write)"
 if printf '%s' "$V" | grep -q '^NOT-ALIVE.*is reused'; then
