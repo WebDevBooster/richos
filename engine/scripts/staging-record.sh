@@ -39,13 +39,15 @@
 # The consumer is a shell hook on a PreToolUse path. `grep` + `sed` reads this
 # with no interpreter and no parse failure mode; a JSON record would make the
 # guard's verdict depend on python3 being present, and the guard already has to
-# fail open when it is not. Four fields, one per line, and unknown fields are
+# fail open when it is not. Each tree has its own record at <record>.trees/<tree>. Deploying one tree
+# cannot advance another tree. The unscoped file remains readable for legacy
+# single-tree writers. Four fields, one per line, and unknown fields are
 # ignored by the reader so a future one costs nothing.
 #
 # Usage:
 #   staging-record.sh --sha <commit> [--tree <name>] [--outcome <word>]
 #                     [--root <entity root>] [--record <path>]
-#   staging-record.sh --show [--root <entity root>]
+#   staging-record.sh --show [--tree <name>] [--root <entity root>]
 #
 # Exit codes: 0 written (or shown); 2 bad usage / unusable arguments.
 
@@ -103,13 +105,33 @@ case "$RECORD" in
     *)  RECORD="$ROOT/$RECORD" ;;
 esac
 
+# Tree names are relative product directories, encoded for a flat sidecar name.
+# Reject traversal and control characters before using a name as a path.
+if [ -n "$TREE" ]; then
+    printf '%s' "$TREE" | grep -qE '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' \
+        || die "--tree must name a relative product directory without traversal."
+    case "/$TREE/" in */../*|*/./*) die "--tree cannot contain traversal segments." ;; esac
+    RECORD="$RECORD.trees/$(printf '%s' "$TREE" | sed 's|/|%2F|g')"
+fi
+
 if [ "$SHOW" = "1" ]; then
-    if [ -f "$RECORD" ]; then
-        printf 'record: %s\n' "$RECORD"
-        cat "$RECORD"
-    else
-        printf 'record: %s (does not exist — staging content is UNKNOWN)\n' "$RECORD"
+    SHOWN=0
+    for path in "$RECORD"; do
+        if [ -f "$path" ]; then
+            printf 'record: %s\n' "$path"
+            cat "$path"
+            SHOWN=1
+        fi
+    done
+    if [ -z "$TREE" ]; then
+        for path in "$RECORD.trees/"*; do
+            [ -f "$path" ] || continue
+            printf 'record: %s\n' "$path"
+            cat "$path"
+            SHOWN=1
+        done
     fi
+    [ "$SHOWN" = 1 ] || printf 'record: %s (does not exist — staging content is UNKNOWN)\n' "$RECORD"
     exit 0
 fi
 

@@ -44,7 +44,7 @@ mutant refusal-does-not-block "2a" "$G" \
 # behind" and "staging is behind ON SOMETHING THAT SHIPPED" become one
 # question, and a week of docs landings refuses every product dispatch.
 mutant amendment-ignored "3b" "$G" \
-    'UNDEPLOYED="$(git -C "$MAIN_ROOT" rev-list --count "${DEPLOYED}..${MAIN_TIP}" -- $STAGING_TREES 2>/dev/null || printf '"'"'ERR'"'"')"' \
+    'UNDEPLOYED="$(git -C "$MAIN_ROOT" rev-list --count "${DEPLOYED}..${MAIN_TIP}" -- "$CHECK_TREE" 2>/dev/null || printf '"'"'ERR'"'"')"' \
     'UNDEPLOYED="$(git -C "$MAIN_ROOT" rev-list --count "${DEPLOYED}..${MAIN_TIP}" 2>/dev/null || printf '"'"'ERR'"'"')"' \
     "a land touching only docs/, scripts/, .claude/ or skills/ would be counted as deploy debt, so a staging 35 commits behind on documentation would refuse the next product dispatch. The founder's 2026-09-02 ruling is that nothing shipped and nothing is at risk there. This is the mutant that turns the guard into one that gets waived and then deleted."
 
@@ -59,12 +59,12 @@ mutant no-debt-not-silent "3b" "$G" \
 # working record, a brief quoting that row, this very file. Prose is not a
 # dispatch, and a path alone is not a reason to refuse one.
 mutant scope-half-dropped "4b" "$G" \
-    'printf '"'"'%s'"'"' "$PROMPT" | grep -qiE "$STAGING_TRIGGER_RE" || return 1' \
+    'grep -qiE "$STAGING_TRIGGER_RE" <<<"$PROMPT" || return 1' \
     'true' \
     "any dispatch merely MENTIONING a product path would be refused — reading the code, summarizing a directory, quoting a row of the record — and the guard would become a nuisance on exactly the tasks that are safe, which is how a guard gets routed around instead of used."
 
 mutant scope-path-dropped "4a" "$G" \
-    'printf '"'"'%s'"'"' "$PROMPT" | grep -qE "$SCOPE_RE" || return 1' \
+    'grep -qE "$SCOPE_RE" <<<"$PROMPT" || return 1' \
     'true' \
     "every dispatch carrying any work verb would be refused while product debt existed, including the ones that have nothing to do with the product, so one undeployed commit would wedge the whole session."
 
@@ -110,5 +110,25 @@ mutant recorder-accepts-anything "7c" "$R" \
     "grep -qE '^[0-9a-f]{7,40}\$'" \
     "grep -qE '^.*\$'" \
     "any string would be written into the record as the deployed commit, and the guard would then report that commit as missing from the repository forever — a permanent 'cannot decide' minted by a typo."
+
+mutant deployment-tree-scope-ignored "10h" "$G" \
+    'if [ "$recorded_tree" != "$CHECK_TREE" ] && { [ -n "$recorded_tree" ] || [ "$TREE_COUNT" -ne 1 ]; }; then' \
+    'if false; then' \
+    "a legacy deployment of one product would certify every product at the same commit, erasing another product's outstanding deployment debt."
+
+mutant recorder-collapses-product-records "10f" "$R" \
+    'RECORD="$RECORD.trees/$(printf '"'"'%s'"'"' "$TREE" | sed '"'"'s|/|%2F|g'"'"')"' \
+    'true' \
+    "independent deployment records would overwrite one another, so both products could never retain verified deployment state simultaneously."
+
+mutant large-prompt-scope-pipefail "12a" "$G" \
+    'grep -qE "$SCOPE_RE" <<<"$PROMPT" || return 1' \
+    'printf '"'"'%s'"'"' "$PROMPT" | grep -qE "$SCOPE_RE" || return 1' \
+    "a matching long prompt would close the producer pipe early and be mistaken for an out-of-scope dispatch, bypassing the refusal."
+
+mutant large-prompt-tree-selection-pipefail "12c" "$G" \
+    'if grep -qE "$TREE_RE" <<<"$PROMPT"; then' \
+    'if printf '"'"'%s'"'"' "$PROMPT" | grep -qE "$TREE_RE"; then' \
+    "a long prompt could lose its selected product and inherit unrelated stale deployment debt."
 
 mutation_end

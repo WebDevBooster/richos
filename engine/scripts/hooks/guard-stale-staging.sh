@@ -93,6 +93,11 @@
 #         tree=avelor
 #         at=2026-09-06T10:11:12Z
 #
+# New records are stored separately at <record>.trees/<tree> (nested tree
+# slashes are encoded as %2F). A legacy record with tree= names only that tree;
+# an unscoped legacy record is usable only with one declared product tree.
+# Deploying one product never certifies another product.
+#
 # Minted by scripts/staging-record.sh, which the deploy script calls once its
 # own freshness gate has passed — never before, so a record can never claim a
 # deploy that did not finish. `outcome=` anything but `success` is read as NO
@@ -314,12 +319,12 @@ fi
 # row of the working record, a brief quoting that row — and prose is not a
 # dispatch. The path half is built from the DECLARATION so an adopter's trees
 # are the adopter's.
-SCOPE_ALT="$(printf '%s' "$STAGING_TREES" | tr -s '[:space:]' '|' | sed 's/^|//; s/|$//')"
+SCOPE_ALT="$(python3 -c 'import re,sys; print("|".join(re.escape(t) for t in sys.argv[1].split()))' "$STAGING_TREES")"
 SCOPE_RE="(^|[^A-Za-z0-9_.-])(${SCOPE_ALT})/"
 
 in_scope() {
-    printf '%s' "$PROMPT" | grep -qE "$SCOPE_RE" || return 1
-    printf '%s' "$PROMPT" | grep -qiE "$STAGING_TRIGGER_RE" || return 1
+    grep -qE "$SCOPE_RE" <<<"$PROMPT" || return 1
+    grep -qiE "$STAGING_TRIGGER_RE" <<<"$PROMPT" || return 1
     return 0
 }
 
@@ -354,11 +359,16 @@ read_record() {
         RECORD_PROBLEM="no staging deploy record exists at ${RECORD_PATH}"
         return 1
     fi
-    local sha outcome
+    local sha outcome recorded_tree
     sha="$(grep -E '^[[:space:]]*sha[[:space:]]*=' "$RECORD_PATH" 2>/dev/null | head -1 \
            | sed -E 's/^[[:space:]]*sha[[:space:]]*=[[:space:]]*//; s/[[:space:]]*$//' || true)"
     outcome="$(grep -E '^[[:space:]]*outcome[[:space:]]*=' "$RECORD_PATH" 2>/dev/null | head -1 \
            | sed -E 's/^[[:space:]]*outcome[[:space:]]*=[[:space:]]*//; s/[[:space:]]*$//' || true)"
+    recorded_tree="$(sed -n 's/^[[:space:]]*tree[[:space:]]*=[[:space:]]*//p' "$RECORD_PATH" | sed -n '1p')"
+    if [ "$recorded_tree" != "$CHECK_TREE" ] && { [ -n "$recorded_tree" ] || [ "$TREE_COUNT" -ne 1 ]; }; then
+        RECORD_PROBLEM="the record at ${RECORD_PATH} does not identify a deployment of ${CHECK_TREE}"
+        return 1
+    fi
     if ! printf '%s' "$sha" | grep -qE '^[0-9a-f]{7,40}$'; then
         RECORD_PROBLEM="the record at ${RECORD_PATH} carries no readable 'sha=' line, so what staging is running cannot be read from it"
         return 1
@@ -376,13 +386,106 @@ read_record() {
     return 0
 }
 
-read_record || true
+if ! command -v git >/dev/null 2>&1; then
+    in_scope || exit 0
+    announce_off "STALE-STAGING GUARD IS OFF: git is not on PATH, so the commits between the deploy record (${DEPLOYED}) and main could not be listed. This dispatch is UNCHECKED."
+    exit 0
+fi
 
-if [ -z "$DEPLOYED" ]; then
+MAIN_TIP="$(git -C "$MAIN_ROOT" rev-parse --verify --quiet "$STAGING_MAIN_REF" 2>/dev/null || true)"
+if [ -z "$MAIN_TIP" ]; then
+    in_scope || exit 0
+    announce_off "STALE-STAGING GUARD IS OFF: '${STAGING_MAIN_REF}' does not resolve in ${MAIN_ROOT}, so there is nothing to compare the deploy record against. This dispatch is UNCHECKED. (STAGING_MAIN_REF in ${CONFIG} names the branch that lands.)"
+    exit 0
+fi
+
+# Evaluate each named product against its own deployment. Unknown evidence is
+# retained while checking the other products, so it cannot hide known stale work.
+RECORD_BASE="$RECORD_PATH"
+TREE_COUNT="$(printf '%s\n' "$STAGING_TREES" | awk '{ n += NF } END { print n }')"
+UNKNOWN_RECORD=""
+UNDEPLOYED=0
+NAMED_TREES=""
+for tree in $STAGING_TREES; do
+    TREE_RE="$(python3 -c 'import re,sys; print("(^|[^A-Za-z0-9_.-])" + re.escape(sys.argv[1]) + "/")' "$tree")"
+    if grep -qE "$TREE_RE" <<<"$PROMPT"; then NAMED_TREES="$NAMED_TREES $tree"; fi
+done
+# With no named tree, leave jurisdiction to in_scope rather than treating an
+# unevaluated scope as evidence that staging is current.
+for CHECK_TREE in ${NAMED_TREES:-$STAGING_TREES}; do
+    # Do not require a legacy product's deployment for a dispatch about another
+    # product. The outer scope test still requires the work/QA half as well.
+    DEPLOYED=""
+    RECORD_PROBLEM=""
+    RECORD_PATH="$RECORD_BASE.trees/$(printf '%s' "$CHECK_TREE" | sed 's|/|%2F|g')"
+    [ -f "$RECORD_PATH" ] || RECORD_PATH="$RECORD_BASE"
+    read_record || true
+    if [ -z "$DEPLOYED" ]; then
+        UNKNOWN_RECORD="${UNKNOWN_RECORD}${UNKNOWN_RECORD:+; }${RECORD_PROBLEM}"
+        continue
+    fi
+    if ! git -C "$MAIN_ROOT" cat-file -e "${DEPLOYED}^{commit}" 2>/dev/null; then
+        UNKNOWN_RECORD="the deploy record names commit ${DEPLOYED}, which does not exist in ${MAIN_ROOT}"
+        continue
+    fi
+    if ! git -C "$MAIN_ROOT" merge-base --is-ancestor "$DEPLOYED" "$MAIN_TIP" 2>/dev/null; then
+        UNKNOWN_RECORD="the ${CHECK_TREE} deployment ${DEPLOYED} is not an ancestor of ${STAGING_MAIN_REF}; it cannot certify the landed product"
+        continue
+    fi
+    UNDEPLOYED="$(git -C "$MAIN_ROOT" rev-list --count "${DEPLOYED}..${MAIN_TIP}" -- "$CHECK_TREE" 2>/dev/null || printf 'ERR')"
+    if [ "$UNDEPLOYED" = "ERR" ]; then
+        UNKNOWN_RECORD="could not list commits between ${DEPLOYED} and ${STAGING_MAIN_REF} in ${MAIN_ROOT}"
+        UNDEPLOYED=0
+        continue
+    fi
+    if [ "$UNDEPLOYED" -gt 0 ]; then
+        # The first stale product is enough to refuse this dispatch. Keep its
+        # exact identity and pathspec for the diagnostic and acknowledgement.
+        STAGING_TREES="$CHECK_TREE"
+        UNKNOWN_RECORD=""
+        break
+    fi
+done
+
+acknowledged() {
+    # --- Acknowledged? ---------------------------------------------------------
+    ACK_MARKER="stale-staging-ack"
+    ACK_REASON="$(printf '%s' "$PROMPT" \
+        | grep -E "^[[:space:]]*${ACK_MARKER}:[[:space:]]*[^[:space:]]" \
+        | sed -n '1p' \
+        | sed -E "s/^[[:space:]]*${ACK_MARKER}:[[:space:]]*//" || true)"
+
+    # The length floors are the staffing gate's, deliberately: one engine, one idea
+    # of what a reason looks like. A bare marker exempts nothing.
+    ACK_WHY=""
+    if [ -z "$ACK_REASON" ]; then
+        ACK_WHY="no 'stale-staging-ack: <reason>' line is present in the prompt."
+    elif [ "${#ACK_REASON}" -lt 30 ]; then
+        ACK_WHY="the reason given is ${#ACK_REASON} character(s) long; a real justification needs at least 30. A bare or token marker exempts nothing."
+    fi
+
+    if [ -z "$ACK_WHY" ]; then
+        LOG_DIR="$ENTITY_ROOT/.claude/state"
+        mkdir -p "$LOG_DIR" 2>/dev/null || true
+        {
+            printf '%s\tsession=%s\tagent=%s\tname=%s\tdeployed=%s\tmain=%s\tundeployed=%s\t%s: %s\n' \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                "${SESSION_ID:-<unset>}" "${SUBAGENT_TYPE:-<unset>}" "${NAME:-<unset>}" \
+                "$DEPLOYED" "$(printf '%s' "$MAIN_TIP" | cut -c1-12)" "$UNDEPLOYED" \
+                "$ACK_MARKER" "$ACK_REASON"
+        } >>"$LOG_DIR/stale-staging-acks.log" 2>/dev/null || true
+        return 0
+    fi
+    return 1
+
+}
+
+if [ -n "$UNKNOWN_RECORD" ]; then
     # NO USABLE RECORD. Only speak if this dispatch would have been in scope —
     # a repository mid-adoption must not be nagged on every unrelated spawn.
     in_scope || exit 0
-    WHY="${RECORD_PROBLEM:-no staging deploy record exists at ${RECORD_PATH}}"
+    if acknowledged; then exit 0; fi
+    WHY="$UNKNOWN_RECORD"
     if [ "$STAGING_RECORD_REQUIRED" = "1" ]; then
         {
             echo "=== STALE STAGING — WHAT STAGING CARRIES IS UNKNOWN, AND THIS DISPATCH IS PRODUCT WORK ==="
@@ -405,37 +508,6 @@ if [ -z "$DEPLOYED" ]; then
     exit 0
 fi
 
-if ! command -v git >/dev/null 2>&1; then
-    in_scope || exit 0
-    announce_off "STALE-STAGING GUARD IS OFF: git is not on PATH, so the commits between the deploy record (${DEPLOYED}) and main could not be listed. This dispatch is UNCHECKED."
-    exit 0
-fi
-
-MAIN_TIP="$(git -C "$MAIN_ROOT" rev-parse --verify --quiet "$STAGING_MAIN_REF" 2>/dev/null || true)"
-if [ -z "$MAIN_TIP" ]; then
-    in_scope || exit 0
-    announce_off "STALE-STAGING GUARD IS OFF: '${STAGING_MAIN_REF}' does not resolve in ${MAIN_ROOT}, so there is nothing to compare the deploy record against. This dispatch is UNCHECKED. (STAGING_MAIN_REF in ${CONFIG} names the branch that lands.)"
-    exit 0
-fi
-
-if ! git -C "$MAIN_ROOT" cat-file -e "${DEPLOYED}^{commit}" 2>/dev/null; then
-    in_scope || exit 0
-    announce_off "STALE-STAGING GUARD CANNOT DECIDE: the deploy record names commit ${DEPLOYED}, which does not exist in ${MAIN_ROOT}. A record pointing at nothing is not a record. Re-run the deploy so it writes a current one."
-    exit 0
-fi
-
-# THE ONE QUESTION THAT MATTERS. Not "is staging behind" — "is staging behind
-# ON SOMETHING THAT SHIPPED". A pathspec-restricted rev-list is the whole of
-# the 2026-09-02 amendment, and it is why a docs-only land is silent here.
-# shellcheck disable=SC2086
-UNDEPLOYED="$(git -C "$MAIN_ROOT" rev-list --count "${DEPLOYED}..${MAIN_TIP}" -- $STAGING_TREES 2>/dev/null || printf 'ERR')"
-
-if [ "$UNDEPLOYED" = "ERR" ]; then
-    in_scope || exit 0
-    announce_off "STALE-STAGING GUARD IS OFF: could not list commits between ${DEPLOYED} and ${STAGING_MAIN_REF} in ${MAIN_ROOT}. This dispatch is UNCHECKED."
-    exit 0
-fi
-
 # NO PRODUCT DEBT -> SILENT, ALWAYS, however far behind staging is otherwise.
 # This is the amendment: nothing shipped, nothing is at risk, and a guard that
 # spoke here would be waived within the day.
@@ -444,34 +516,7 @@ fi
 # There IS product debt. Is this dispatch the moment the rule cares about?
 in_scope || exit 0
 
-# --- Acknowledged? ---------------------------------------------------------
-ACK_MARKER="stale-staging-ack"
-ACK_REASON="$(printf '%s' "$PROMPT" \
-    | grep -E "^[[:space:]]*${ACK_MARKER}:[[:space:]]*[^[:space:]]" \
-    | head -1 \
-    | sed -E "s/^[[:space:]]*${ACK_MARKER}:[[:space:]]*//" || true)"
-
-# The length floors are the staffing gate's, deliberately: one engine, one idea
-# of what a reason looks like. A bare marker exempts nothing.
-ACK_WHY=""
-if [ -z "$ACK_REASON" ]; then
-    ACK_WHY="no 'stale-staging-ack: <reason>' line is present in the prompt."
-elif [ "${#ACK_REASON}" -lt 30 ]; then
-    ACK_WHY="the reason given is ${#ACK_REASON} character(s) long; a real justification needs at least 30. A bare or token marker exempts nothing."
-fi
-
-if [ -z "$ACK_WHY" ]; then
-    LOG_DIR="$ENTITY_ROOT/.claude/state"
-    mkdir -p "$LOG_DIR" 2>/dev/null || true
-    {
-        printf '%s\tsession=%s\tagent=%s\tname=%s\tdeployed=%s\tmain=%s\tundeployed=%s\t%s: %s\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "${SESSION_ID:-<unset>}" "${SUBAGENT_TYPE:-<unset>}" "${NAME:-<unset>}" \
-            "$DEPLOYED" "$(printf '%s' "$MAIN_TIP" | cut -c1-12)" "$UNDEPLOYED" \
-            "$ACK_MARKER" "$ACK_REASON"
-    } >>"$LOG_DIR/stale-staging-acks.log" 2>/dev/null || true
-    exit 0
-fi
+if acknowledged; then exit 0; fi
 
 # --- REFUSE — and CARRY the rule, do not point at it ------------------------
 COMMITS="$(git -C "$MAIN_ROOT" log --oneline --no-decorate -5 "${DEPLOYED}..${MAIN_TIP}" -- $STAGING_TREES 2>/dev/null || true)"

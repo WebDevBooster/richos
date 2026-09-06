@@ -65,6 +65,7 @@ write_record() {   # <sha> [outcome]
     mkdir -p "$ENTITY/.claude/state"
     {
         printf 'sha=%s\n' "$1"
+        printf 'tree=avelor\n'
         printf 'outcome=%s\n' "${2:-success}"
     } >"$ENTITY/.claude/state/staging-deployed"
 }
@@ -329,7 +330,7 @@ if bash "$RECORDER" --root "$ENTITY" --outcome success >/dev/null 2>&1; then
 else
     ok "7d  the recorder refuses to write a record with no commit"
 fi
-if bash "$RECORDER" --root "$ENTITY" --show 2>/dev/null | grep -q 'sha='; then
+if bash "$RECORDER" --root "$ENTITY" --tree avelor --show 2>/dev/null | grep -q 'sha='; then
     ok "7e  --show prints what staging carries, for a human who wants to check"
 else
     bad "7e  --show did not print the record"
@@ -369,6 +370,110 @@ if grep -q 'unevaluated_or_continue' "$HOOK"; then
 else
     bad "8d  the guard does not distinguish an unevaluated payload from a foreign one"
 fi
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== 10. INDEPENDENT PRODUCT DEPLOYMENTS AND LEGACY COMPATIBILITY ==="
+# A mixed land followed by one deployment must not certify both products.
+FITAPP_PROMPT='Run QA against fitapp/ staging and report a verdict.'
+BOTH_PROMPT='Run QA against avelor/ and fitapp/ staging and report a verdict.'
+write_config 'STAGING_RECORD_REQUIRED="1"'
+BASE10="$(git -C "$ENTITY" rev-parse HEAD)"
+bash "$RECORDER" --root "$ENTITY" --sha "$BASE10" --tree avelor --outcome success >/dev/null
+bash "$RECORDER" --root "$ENTITY" --sha "$BASE10" --tree fitapp --outcome success >/dev/null
+commit_file avelor/src/app.js "v4" "avelor: next deployed change"
+commit_file fitapp/legacy.js "v2" "fitapp: still waiting for deployment"
+TIP10="$(git -C "$ENTITY" rev-parse HEAD)"
+bash "$RECORDER" --root "$ENTITY" --sha "$TIP10" --tree avelor --outcome success >/dev/null
+case_rc "10a  deploying avelor does not erase fitapp deployment debt" 2 "$FITAPP_PROMPT"
+case_silent "10b  avelor-only QA is allowed when its own deployment is current" "$QA_PROMPT"
+case_rc "10c  a mixed-product dispatch checks both deployments" 2 "$BOTH_PROMPT"
+bash "$RECORDER" --root "$ENTITY" --sha "$TIP10" --tree fitapp --outcome failure >/dev/null
+case_rc "10d  a failed fitapp deploy cannot certify fitapp as current" 2 "$FITAPP_PROMPT"
+case_silent "10e  a failed fitapp deploy does not invalidate avelor evidence" "$QA_PROMPT"
+bash "$RECORDER" --root "$ENTITY" --sha "$TIP10" --tree fitapp --outcome success >/dev/null
+case_silent "10f  both products are allowed after both deployments succeed" "$BOTH_PROMPT"
+if bash "$RECORDER" --root "$ENTITY" --show | grep -q 'tree=fitapp'; then
+    ok "10n  unscoped --show lists independently recorded products"
+else
+    bad "10n  unscoped --show hides the product deployment records"
+fi
+# A deploy from an unlanded descendant would give rev-list deployed..main=0.
+git -C "$ENTITY" switch -q -c staging-unlanded
+commit_file avelor/src/app.js "unlanded staging contents" "unlanded product proposal"
+AHEAD10="$(git -C "$ENTITY" rev-parse HEAD)"
+git -C "$ENTITY" switch -q main
+bash "$RECORDER" --root "$ENTITY" --sha "$AHEAD10" --tree avelor --outcome success >/dev/null
+case_rc "10o  an unlanded deployment cannot certify the main revision as current" 2 "$QA_PROMPT"
+
+rm -rf "$ENTITY/.claude/state/staging-deployed.trees"
+write_record "$TIP10"
+case_silent "10g  a scoped legacy record still certifies its named product" "$QA_PROMPT"
+case_rc "10h  a scoped legacy record cannot certify another product" 2 "$FITAPP_PROMPT"
+printf 'sha=%s\noutcome=success\n' "$TIP10" >"$ENTITY/.claude/state/staging-deployed"
+case_rc "10i  an unscoped legacy record is unknown with two declared products" 2 "$QA_PROMPT"
+write_config 'STAGING_TREES="avelor"' 'STAGING_RECORD_REQUIRED="1"'
+case_silent "10j  an unscoped legacy record remains usable for one declared product" "$QA_PROMPT"
+write_config 'STAGING_RECORD_REQUIRED="1"'
+rm -f "$ENTITY/.claude/state/staging-deployed"
+case_silent "10k  an explicit source-only acknowledgement also works when deployment is unknown" "$QA_PROMPT
+stale-staging-ack: this is a source-only audit and makes no claim about the running staging build"
+case_rc "10l  unknown-deployment acknowledgement does not carry to the next dispatch" 2 "$QA_PROMPT"
+if bash "$RECORDER" --root "$ENTITY" --sha "$TIP10" --tree '../outside' >/dev/null 2>&1; then
+    bad "10m  recorder accepted a tree containing path traversal"
+else
+    ok "10m  tree names cannot escape the deployment record directory"
+fi
+
+echo "=== 11. PRODUCT NAMES ARE LITERAL PATHS WITH THE SAME SCOPE BOUNDARY ==="
+write_config 'STAGING_TREES="app myapp app.v1"' 'STAGING_RECORD_REQUIRED="1"'
+commit_file app/src.js "v1" "app base"
+commit_file myapp/src.js "v1" "myapp base"
+commit_file app.v1/src.js "v1" "app.v1 base"
+BASE11="$(git -C "$ENTITY" rev-parse HEAD)"
+for tree in app myapp app.v1; do
+    bash "$RECORDER" --root "$ENTITY" --sha "$BASE11" --tree "$tree" --outcome success >/dev/null
+done
+commit_file app/src.js "v2" "app is stale"
+commit_file app.v1/src.js "v2" "app.v1 is stale"
+TIP11="$(git -C "$ENTITY" rev-parse HEAD)"
+bash "$RECORDER" --root "$ENTITY" --sha "$TIP11" --tree myapp --outcome success >/dev/null
+case_silent "11a  current myapp does not inherit unrelated app deployment debt" 'Run QA against myapp/src.js staging.'
+case_silent "11b  a dot in a product name does not match another directory" 'Run QA against appXv1/src.js staging.'
+case_rc "11c  a literal dotted product path still checks its own debt" 2 'Run QA against app.v1/src.js staging.'
+
+echo "=== 12. LARGE PROMPTS CANNOT TURN A MATCH INTO A PIPEFAIL FALSE NEGATIVE ==="
+for long_kind in plain ack current; do
+    LONG_INPUT="$(python3 - "$long_kind" <<'LONG_PROMPT_JSON'
+import json, sys
+tree = "myapp" if sys.argv[1] == "current" else "app"
+prompt = "Run QA against " + tree + "/src.js staging.\n" + ("background context\n" * 70000)
+if sys.argv[1] == "ack":
+    prompt += "stale-staging-ack: this dispatch reads source only and makes no claim about the live staging build\n"
+print(json.dumps({"tool_name": "Agent", "tool_input": {"prompt": prompt,
+    "name": "ray-sonnet-long", "subagent_type": "ray", "isolation": "worktree"},
+    "session_id": "ss000000-0000-4000-8000-000000000000", "tool_use_id": "toolu_long"}))
+LONG_PROMPT_JSON
+)"
+    run "$LONG_INPUT"
+    if [ "$long_kind" = plain ]; then
+        if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'PRODUCT COMMITS'; then
+            ok "12a  a matching 1MB prompt is refused when staging is stale"
+        else
+            bad "12a  a large prompt bypassed the stale-staging refusal" "rc=$RC"
+        fi
+    elif [ "$long_kind" = current ]; then
+        if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+            ok "12c  a long myapp-only prompt does not inherit another product's debt"
+        else
+            bad "12c  a large prompt lost its literal product selection" "rc=$RC"
+        fi
+    elif [ "$RC" -eq 0 ] && grep -q 'name=ray-sonnet-long' "$ENTITY/.claude/state/stale-staging-acks.log"; then
+        ok "12b  acknowledgement after 1MB of context remains usable and logged"
+    else
+        bad "12b  a large prompt lost the explicit acknowledgement" "rc=$RC"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 echo ""
