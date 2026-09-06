@@ -199,7 +199,7 @@ RC=$?
 case "$RICHOS_ROOT_STATUS" in
     governed)
         emit_context \
-            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/${GUARD_EXPECTED} guards present (denominator derived from the engine's hooks/hooks.json registration; the status announcer itself is not counted among the guards). Enforcement is ON for this repository.${GUARD_NOTE}" \
+            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/${GUARD_EXPECTED} guards present (denominator derived from the engine's hooks/hooks.json registration; the status announcer itself is not counted among the guards). Enforcement is ON for this repository.${GUARD_NOTE} Before each new Agent call, prepare its task-specific JSON with python3 '${ENGINE_ROOT}/scripts/prepare-agent-spawn.py' --file <input.json>. This supplies native isolation and the required durable inflight acknowledgement contract, including for readers in worktrees. Cross-repository work ALSO requires '${ENGINE_ROOT}/scripts/create-teammate-worktree.sh' <repo> <teammate-name> and a cross-repo-worktree: <registered-path> prompt line. Keep isolation:worktree; a cwd-only spawn is refused. These are engine paths, not scripts inside the governed repository. The helper grants no guard exemptions; review its JSON before dispatch." \
             "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE for ${RICHOS_ENTITY_ROOT_RESOLVED} (${GUARD_COUNT}/${GUARD_EXPECTED} guards, engine at ${ENGINE_ROOT}, root via ${RICHOS_ROOT_SOURCE}).${GUARD_NOTE}"
         ;;
     engine-self)

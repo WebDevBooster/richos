@@ -487,6 +487,8 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # still has to be added to R_ROOTED_HOOKS. Nothing goes red without it -- that
 # list is typed, not derived -- which is exactly why it is written down here
 # instead of left to be noticed.
+# shell-evidence.sh was registered on 2026-09-06 to preserve Bash pipeline and
+# sequence failures; acknowledge it here as well as in the derived probe inventory.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -533,6 +535,7 @@ notice-waiver-repetition.sh
 reader-teammate-hint.sh
 record-subagent-start.sh
 scan-secrets.sh
+shell-evidence.sh
 session-start-ceo-ask.sh
 session-start-escalations.sh
 session-start-reap-worktrees.sh

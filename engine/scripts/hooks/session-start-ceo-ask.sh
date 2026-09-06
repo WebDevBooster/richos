@@ -115,7 +115,7 @@ esac
 ARC=0
 ca_assess "$ENTITY_ROOT" "" || ARC=$?
 if [ "$ARC" -ge 2 ]; then
-    emit "The CEO TODOs could not be assessed: ${CA_BROKEN:-the predicate could not run}. Treat this as an UNREAD list, not an empty one; scripts/ceo-asks-status.sh has the detail." \
+    emit "The CEO TODOs could not be assessed: ${CA_BROKEN:-the predicate could not run}. Treat this as an UNREAD list, not an empty one; '${ENGINE_ROOT}/scripts/ceo-asks-status.sh' has the detail." \
          "CEO TODOs could not be read: ${CA_BROKEN:-predicate failed}."
     exit 0
 fi
@@ -128,9 +128,9 @@ TOP_ASK="$(printf '%s' "$TOP" | cut -f4)"
 
 REST=""
 if [ "${CA_UNASKED:-0}" -gt 1 ]; then
-    REST=" ($((CA_UNASKED - 1)) more after it — scripts/ceo-asks-status.sh.)"
+    REST=" ($((CA_UNASKED - 1)) more after it; '${ENGINE_ROOT}/scripts/ceo-asks-status.sh' --session <this-session-id>.)"
 fi
 
-emit "PUT THIS TO THE CEO BEFORE DISPATCHING ANYONE. His TODO ${TOP_ID}: ${TOP_ASK}${REST} Ask it with the AskUserQuestion tool — a PostToolUse witness records which item the question was actually about, and guard-ceo-ask-first.sh REFUSES every teammate dispatch this session until one of his prepared items has been put to him. Summarizing his list back to him does not count and never has; on 2026-08-31 that is precisely what happened instead of asking." \
+emit "Prepared CEO decision ${TOP_ID}: ${TOP_ASK}${REST} Normally put one prepared item to him with AskUserQuestion before dispatch. If he has directed you to continue independent work, use the existing per-spawn 'ceo-todos-deferred: <truthful reason>' line and continue that authorized work. Do not ask an unrelated question to unlock dispatch, treat cancellation as an answer or claim a guard refused a call that was never attempted. OPEN/exit 1 from the status CLI means an unasked item, not an execution failure. A pending CEO decision blocks only work that depends on it when deferral is authorized. Read the complete current work queue and check active owners before selecting all independent work; a restart anchor is not an exhaustive queue. The deferral records no decision and leaves the question pending. Other guards retain their own requirements; not every guard has an escape hatch." \
      "CEO TODO ${TOP_ID} — ${TOP_ASK}${REST}"
 exit 0

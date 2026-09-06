@@ -103,6 +103,11 @@ echo "  unasked    : ${CA_UNASKED:-0}"
 echo "  verdict    : ${CA_VERDICT:-?}"
 if [ "${CA_UNASKED:-0}" -gt 0 ]; then
     echo ""
+    echo "  OPEN/exit 1 is a policy state, not a failed command."
+    echo "  If the CEO directed independent work to continue, add this truthful per-spawn line:"
+    echo "    ceo-todos-deferred: <reason from the CEO's instruction>"
+    echo "  This leaves the question pending and records no answer. It grants no other guard exemption."
+    echo ""
     echo "  NOT PUT TO HIM${SESSION:+ IN SESSION $SESSION} — ask ONE of these with AskUserQuestion:"
     echo ""
     printf '%s\n' "$CA_ASK_LINES" | awk -F'\t' 'NF>1 {printf "    %s  %s\n         %s\n\n", $2, $3, $4}'

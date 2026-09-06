@@ -6,19 +6,12 @@
 # ===========================================================================
 # WHY THIS EXISTS
 # ===========================================================================
-# Native `isolation: "worktree"` roots at the SESSION's repository, so a
-# femcboost session cannot give a teammate a native worktree in `richos`. The
-# Agent tool's own escape hatch is `cwd` — "mutually exclusive with
-# isolation: worktree" — which means cross-repository work runs in a
-# HAND-ROLLED worktree, and until 2026-09-02 that worktree was improvised by
-# the teammate itself from a sentence in its prompt ("git -C <repo> worktree
-# add ..."). Native isolation gives six things for free that the improvised
-# tree got none of: creation, `.worktreeinclude` seeding (.envrc, **/.env.local
-# — nobody seeded these into a richos worktree), base-ref from HEAD, the
-# agent's cwd, spawn-time enforcement, and — the one that matters most — a
-# RECORD of who owns it. This helper does the first four and the last one in
-# a single call; guard-worktree-isolation.sh supplies the enforcement by
-# refusing a `cwd` spawn into a worktree this helper did not register.
+# Native isolation roots at the SESSION repository. For another repository,
+# this helper prepares and registers an external worktree. The Agent call must
+# STILL set isolation:"worktree" and name the external path on a
+# cross-repo-worktree: prompt line. The native worktree supplies the platform
+# lifecycle witness; the registered external tree supplies the target checkout.
+# A cwd-only spawn is refused because it has no native lifecycle witness.
 #
 # WHAT IT DOES, in order — and it stops at the first refusal:
 #   1. Refuses a name that is not <role>-<model>-<identifier> (the spawn
@@ -39,10 +32,10 @@
 #      agent id (docs/plans/worktree-real-fix-2026-09-03.md, phase 1). If the
 #      record cannot be written and read back, the worktree and branch are
 #      ROLLED BACK — a tree without its record is worse than no tree.
-#   5. Prints the path and the two spawn shapes that carry it.
+#   5. Prints the path and the native+external spawn contract that carries it.
 #
 # USAGE
-#   scripts/create-teammate-worktree.sh <repo> <teammate-name> [--dir <path>]
+#   ~/.claude/richos-engine/scripts/create-teammate-worktree.sh <repo> <teammate-name> [--dir <path>]
 #       [--base <ref>] [--session <id>] [--pid <n>]
 #
 #   <repo>            any path inside the target repository
@@ -69,7 +62,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEDGER_PY="$SCRIPT_DIR/lib/worktree-ledger.py"
 
 usage() {
-    sed -n '38,52p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '/^# USAGE/,/^# Environment/p' "$0" | sed 's/^# \{0,1\}//' >&2
 }
 
 REPO_ARG=""; NAME=""; DIR=""; BASE=""; SESSION=""; PID_ARG=""
@@ -242,7 +235,9 @@ echo "branch:     $NAME  (from $BASE in $MAIN)"
 echo "seeded:     $SEEDED file(s) from .worktreeinclude"
 echo "prepared:   teammate=$NAME session=$SESSION pid=${SESSION_PID:-<unknown>} ($(python3 "$LEDGER_PY" path 2>/dev/null))"
 echo ""
-echo "Spawn it one of two ways (guard-worktree-isolation.sh refuses any other):"
-echo "  cwd: \"$DIR\"                       -- no isolation: the teammate works here directly"
-echo "  cross-repo-worktree: $DIR   -- as a prompt line, with isolation: \"worktree\" in the session repo"
+echo "Spawn with isolation: \"worktree\" in the session repo; add this prompt line:"
+echo "  cross-repo-worktree: $DIR"
+echo "A cwd-only spawn is refused: it has no platform-owned lifecycle witness."
+echo "Prepare the full Agent JSON, including its mandatory acknowledgement contract:"
+echo "  python3 \"$SCRIPT_DIR/prepare-agent-spawn.py\" --file <task-input.json>"
 exit 0
