@@ -337,6 +337,27 @@ run_layer_R() {
     fi
 
     # R2/R3 — the hooks that resolve a root.
+    # PENDING ONE ENTRY, AND THE REASON IT IS NOT ALREADY HERE (2026-09-06).
+    # `notice-unlanded-branches` landed on main in 3a661a4 and belongs on this
+    # list; it is absent from THIS branch, and the list is typed rather than
+    # derived precisely so that naming a hook nobody can find is a failure. So
+    # adding it here now would turn this layer red on a branch where the hook
+    # genuinely does not exist. It goes in with the merge:
+    #
+    #     commit-ceo-inputs notice-ceo-inputs-unheld \
+    #     notice-unlanded-branches"
+    #
+    # VERIFIED, not guessed. main's copy of the hook was dropped into a scratch
+    # engine built from this branch, the line above was added, install.sh was
+    # run sandboxed to mint the sidecars, and the probe was run:
+    #
+    #     R. root-resolution contract present + hashed + sourced by all 48
+    #        rooted hooks with a byte-identical bootstrap
+    #     probe exit 0
+    #
+    # So the hook's bootstrap really is byte-identical and the entry is correct.
+    # Until it is added, that hook's root bootstrap has no check standing over
+    # it — which is the whole cost of a typed list, paid here in the open.
     R_ROOTED_HOOKS="engine-status guard-sealed-worktree guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-dialect \
