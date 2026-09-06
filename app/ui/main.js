@@ -1820,6 +1820,98 @@ function syncComposerMode() {
 
 const QUIET_AFTER_MS = 35000;
 
+// ---------------------------------------------------------------------------------------
+// THE PACED BAR — a bar over a wait whose length nobody knows, and why it is not a lie
+//
+// The CEO asked, 2026-09-06, whether the compaction row could show a bar like the splash
+// screen's. He was told a bar would have to fabricate progress, because the duration is
+// unknown. He rejected that and specified the design himself:
+//
+//   *"It doesn't need to know. It just needs to move to almost full with the expected minimum
+//    time and then stay at 'almost full' until all finished etc."*
+//
+// He is right, and the reason is worth stating because it is the whole honesty of the thing:
+// THE BAR NEVER CLAIMS A COMPLETION IT DOES NOT HAVE. It climbs over the SHORTEST wait of its
+// kind ever measured and then it stops. Reaching almost-full and holding is itself a true
+// signal — this one is taking longer than the fastest case — where a bar that stalls mid-way
+// looks broken and a bar that completes early lies.
+//
+// NOTHING IN THIS FILE KNOWS WHAT A COMPACTION IS, and that stays true. An activity row may
+// arrive carrying `measuredMinMs`, the shortest wait of its kind ever measured
+// (`machinery.rs` `COMPACTION_MEASURED_MIN_MS` = 38138 ms, re-derived there from 16 committed
+// `compact_boundary` frames). A row that carries one gets a bar; a row that does not, does
+// not. The band pieces together three observed things and invents none of them:
+//
+//   * WHERE IT STARTED — the row's own `startedAt`, which is the LEDGER's instant for the
+//     frame that announced the wait, not this window's. So a bar drawn on a compaction the
+//     window joined late is drawn where it truly is.
+//   * HOW FAST — `measuredMinMs`, a measured span, used as a RATE and never shown.
+//   * WHEN IT ENDED — the row's own `completed`/`failed` state, off the wire. Never a timer,
+//     never an inference from the clock running out.
+//
+// THE THREE THINGS IT REFUSES TO DO
+// =================================
+//   1. IT NEVER COMPLETES ON TIME PASSING. At `measuredMinMs` it stops at PACE_ALMOST and
+//      holds, still, for as long as the wait lasts — 24 more seconds at the longest boundary
+//      ever measured (62029 ms). Only a frame off the wire fills it.
+//   2. IT NEVER OUTLIVES WHAT IT IS PACING. The bar is drawn only while the band is
+//      DESCRIBING that row: the instant another signal takes over the sentence, or the band
+//      goes quiet (QUIET_AFTER_MS with nothing arriving — a child that dies mid-compaction),
+//      the bar goes with the description. `compaction-notice.js` fixed the truth for the
+//      sentence; the bar obeys that one rather than a second one of its own. A bar left
+//      sitting at almost-full over a dead child would be exactly the spinner-that-keeps-
+//      spinning this whole band exists to remove.
+//   3. IT NEVER PUBLISHES A NUMBER. No percentage, no countdown, no `aria-valuenow` — the
+//      element is `aria-hidden`, like the mark. A `role="progressbar"` owes a value, and any
+//      value it could carry would be a proportion of a span that is not this wait's.
+//
+// THE CURVE is the splash bar's, because the CEO named the splash bar: mostly linear with one
+// gentle surge early that fades out (`splash.js` BAR_SURGE = 0.12), and deliberately NOT an
+// ease-out, since the classic "stuck at 95%" feeling IS an ease-out. What was NOT borrowed is
+// the mechanism: the splash bar knows its own hold and lands at 100% exactly when the curtain
+// lifts. This one does not know when it ends, which is the entire problem, and is why it
+// holds instead of landing.
+// ---------------------------------------------------------------------------------------
+
+/// WHERE THE BAR STOPS AND WAITS. 0.92 of a 604px-wide bar at the band's capped reading width
+/// (680px, less 28px of padding each side, less the 10px mark and its 10px gap) leaves
+/// 604 x 0.08 = 48.3px of empty track — a gap the eye reads as "not finished" across the
+/// room, where 0.95 leaves 30px and starts to read as a rounding error.
+const PACE_ALMOST = 0.92;
+
+/// The splash bar's early surge, verbatim (`splash.js` BAR_SURGE). `u + 0.12 sin(2 pi u)(1-u)`
+/// is monotonic on [0,1] and is exactly 0 and 1 at the ends, so the bar never stalls, never
+/// goes backwards, and arrives at PACE_ALMOST exactly at `measuredMinMs`.
+const PACE_SURGE = 0.12;
+
+/// ONE BAR-LENGTH OF CATCH-UP, in ms — the case the CEO did not name, and the one that decides
+/// whether this is honest: a wait that ends FASTER than the shortest ever measured.
+///
+/// The bar is then somewhere short of almost-full and the ending is a fact. Snapping from a
+/// third to full is the jump that makes a person distrust every bar they meet afterwards, so
+/// the paint CATCHES UP at a fixed speed of one bar-length per 700ms — bounded below by
+/// PACE_LAND_MIN_MS, and never longer than the wait it is drawing (see `paceLandingMs`).
+///
+/// The SPEED is fixed rather than the duration, so how far it had to come is legible in how
+/// long the sweep takes. It is 59x the climbing rate (one bar-length per ~41s) and does not
+/// pretend to be work: the work is already over, and this is the paint arriving after it.
+const PACE_LAND_FULL_MS = 700;
+
+/// The floor on that catch-up. 180ms is the settle transition's own duration, inside §17.4's
+/// allowed 150–220ms band; below it a movement stops being read as a movement and becomes a
+/// jump. It is what the ordinary case gets — from PACE_ALMOST there are only 8 points to
+/// travel, which at full speed would be 56ms.
+const PACE_LAND_MIN_MS = 180;
+
+/// The splash strike's easing, so the landing belongs to the same family as the screen the
+/// CEO pointed at (`splash.css` `splash-strike-fill`).
+const PACE_LAND_EASE = "cubic-bezier(0.25, 0.6, 0.35, 1)";
+
+/// The id of the span whose position was last PAINTED, so the first paint of a span can land
+/// at its true position with no transition. Without it, a bar on a compaction this window
+/// joined 20s late would sweep up from zero — animating through positions it was never at.
+let pacePaintedId = null;
+
 /// One record for the live turn of the thread ON SCREEN. Cleared at the turn's terminal
 /// status, so nothing here outlives the turn it describes.
 ///
@@ -1853,6 +1945,13 @@ function noteTurnSignal(turnId, what) {
   waitTurn.lastAt = now;
   waitTurn.signals += 1;
   if (what) waitTurn.lastWhat = what;
+  // THE BAR CANNOT OUTLIVE THE SENTENCE IT PACES. The moment a different signal takes over
+  // the description, whatever the bar was drawing is no longer what the band is talking
+  // about, so it goes. A signal that carries no description (a worker row, arriving text)
+  // leaves the sentence alone and therefore leaves the bar alone. `notePacedActivity` runs
+  // FIRST on an activity row and has already refreshed `summary` for the row's own ending,
+  // so "Making room" -> "Made room" is a continuation and not a replacement.
+  if (what && waitTurn.pace && what !== waitTurn.pace.summary) waitTurn.pace = null;
   waitQuietAnnounced = false;
   flashWaitMark();
   // A streaming reply delivers a delta every few tens of milliseconds (measured p50 62ms,
@@ -1861,6 +1960,79 @@ function noteTurnSignal(turnId, what) {
   // the quiet state. Without the `described` clause the band went on showing the previous
   // activity for up to a second after Rich had started writing.
   if (waitTurn.signals === 1 || described || now - waitLastPaintAt > 400) renderWaitBand();
+}
+
+/// Take the pace off an activity row, or drop the one being drawn.
+///
+/// Called for EVERY activity row and before `noteTurnSignal`, so the band repaints once with
+/// both the new sentence and the bar that belongs to it.
+///
+/// A row without a `measuredMinMs` is not paceable and takes the bar down with it — it is
+/// about to replace the sentence anyway. A row WITH one either opens a new span or continues
+/// the one already being drawn, and the two are told apart by the row's id, which is stable
+/// across a whole compaction (`machinery.rs` `merge_into` keeps the OPENING record's
+/// `machinery_id`, which is what makes the announcement, its 30-second heartbeats and its
+/// ending one row rather than four).
+function notePacedActivity(p) {
+  if (!waitTurn || waitTurn.turnId !== p.turnId) return;
+  const minMs = typeof p.measuredMinMs === "number" && p.measuredMinMs > 0 ? p.measuredMinMs : null;
+  const startedAt = typeof p.startedAt === "number" ? p.startedAt : null;
+  const summary = typeof p.summary === "string" && p.summary.trim() ? p.summary.trim() : null;
+  if (!minMs || !startedAt || !p.id || !summary) {
+    waitTurn.pace = null;
+    return;
+  }
+  // The wire's word for "the wait is over", and the ONLY thing that fills the bar. Both
+  // endings count: `timeline.rs` gives the CEO one `completed` state for a compaction that
+  // succeeded and one that was abandoned, because what ended is the PAUSE, and the two are
+  // told apart in the sentence rather than in the state.
+  const ended = p.state === "completed" || p.state === "failed";
+  const pace = waitTurn.pace && waitTurn.pace.id === p.id ? waitTurn.pace : null;
+  if (!pace) {
+    const opened = { id: p.id, minMs, startedAt, summary, doneAt: null, landMs: PACE_LAND_MIN_MS };
+    if (ended) {
+      const from = pacePosition(opened, Date.now());
+      opened.doneAt = Date.now();
+      opened.landMs = paceLandingMs(opened, from);
+    }
+    waitTurn.pace = opened;
+    return;
+  }
+  pace.summary = summary;
+  if (ended && pace.doneAt === null) {
+    // Read WHERE IT HAD GOT TO before the ending is recorded, because from here on the
+    // position is 1 and the distance still to travel would be unrecoverable.
+    const from = pacePosition(pace, Date.now());
+    pace.doneAt = Date.now();
+    pace.landMs = paceLandingMs(pace, from);
+  }
+}
+
+/// WHERE THE BAR IS, 0 to 1, as a pure function of two instants and one measured span.
+///
+/// Before `measuredMinMs` has elapsed it is climbing. After it, it is exactly PACE_ALMOST and
+/// stays there — there is no branch that lets time alone carry it past that point. Only
+/// `doneAt`, which is a frame off the wire, returns 1.
+function pacePosition(pace, nowMs) {
+  if (!pace) return null;
+  if (pace.doneAt !== null) return 1;
+  const u = Math.max(0, Math.min(1, (nowMs - pace.startedAt) / pace.minMs));
+  const eased = u + PACE_SURGE * Math.sin(2 * Math.PI * u) * (1 - u);
+  return PACE_ALMOST * Math.max(0, Math.min(1, eased));
+}
+
+/// How long the catch-up to full may take, from wherever the bar had got to.
+///
+/// One bar-length per PACE_LAND_FULL_MS, floored at PACE_LAND_MIN_MS so it reads as a
+/// movement, and CAPPED AT THE WAIT ITSELF: a catch-up may never take longer than the thing
+/// it is drawing. That last clause is what disposes of the abandoned attempt — `cellT1` holds
+/// two compactions that ended 1ms after they began (`too_few_groups`, what a 2% threshold
+/// override does to a conversation with nothing to summarize), and a 644ms gold sweep over a
+/// 1ms event would make a non-wait look like a wait. It gets the 180ms floor instead.
+function paceLandingMs(pace, from) {
+  const remaining = Math.max(0, 1 - (from || 0));
+  const waited = Math.max(0, (pace.doneAt || Date.now()) - pace.startedAt);
+  return Math.max(PACE_LAND_MIN_MS, Math.min(remaining * PACE_LAND_FULL_MS, waited));
 }
 
 /// The mark's ONE animation, played once per arriving signal and never on a loop. The class
@@ -1902,7 +2074,14 @@ function ensureWaitBand() {
     '<span class="wait-mark" data-contrast-role="indicator" aria-hidden="true"></span>' +
     '<span class="wait-head"></span>' +
     '<span class="wait-time"></span>' +
-    '<span class="wait-detail"></span>';
+    '<span class="wait-detail"></span>' +
+    // `aria-hidden` and no `role="progressbar"`: see THE PACED BAR above. Both elements are
+    // declared indicators so the SHIPPING contrast gate walks them — the track's border
+    // carries the bar's extent and the fill carries how far along it is, and an indicator no
+    // gate walks is how `.tl-pulse` reached 1.40:1 unnoticed.
+    '<span class="wait-pace" data-contrast-role="indicator" aria-hidden="true" hidden>' +
+    '<span class="wait-pace-fill" data-contrast-role="indicator"></span>' +
+    "</span>";
   zone.insertBefore(band, zone.firstChild);
   waitBandEl = band;
   return band;
@@ -1947,7 +2126,60 @@ function waitBandCopy(t, nowMs) {
   else if (t.lastWhat) detail = t.lastWhat + (gap ? " · " + gap + " ago" : "");
   else detail = "Last update " + (gap ? gap + " ago" : "just now");
 
-  return { head, time: time || "", detail, tone: quiet ? "quiet" : t.status === "queued" ? "queued" : "working" };
+  // THE BAR IS PART OF THE SENTENCE, not a second opinion beside it. It is drawn only while
+  // the band is describing the row it paces and is in the working tone:
+  //
+  //   * `quiet` — nothing has arrived for QUIET_AFTER_MS. The band has just stopped saying
+  //     what it last saw and started naming the silence, which is what a child dying
+  //     mid-compaction produces, and the bar stops with the sentence rather than a moment
+  //     later. Two missed 30-second heartbeats is not "still making room".
+  //   * `stopping` — the CEO asked for this turn to end. Whatever the child is still doing
+  //     inside it, pacing it toward a finish is not what he is waiting to see.
+  //   * `queued` — nothing has started, so there is nothing to pace.
+  const paceable = !quiet && t.status !== "queued" && t.status !== "stopping";
+  const pace =
+    t.pace && paceable
+      ? { id: t.pace.id, done: t.pace.doneAt !== null, position: pacePosition(t.pace, nowMs), landMs: t.pace.landMs }
+      : null;
+
+  return {
+    head,
+    time: time || "",
+    detail,
+    pace,
+    tone: quiet ? "quiet" : t.status === "queued" ? "queued" : "working",
+  };
+}
+
+/// Paint the bar, or take it off the screen. The ONE writer of the fill's width and of its
+/// transition, so what the bar is doing and how it is allowed to move are decided together.
+function renderWaitPace(band, copy) {
+  const track = band.querySelector(".wait-pace");
+  const fill = band.querySelector(".wait-pace-fill");
+  if (!track || !fill) return;
+  if (!copy.pace) {
+    track.hidden = true;
+    fill.style.transition = "none";
+    fill.style.width = "0%";
+    pacePaintedId = null;
+    return;
+  }
+  track.hidden = false;
+  const first = pacePaintedId !== copy.pace.id;
+  // §18: no motion for anyone who has asked for none. The bar still ADVANCES under reduced
+  // motion — it steps once a second with the band's own tick, which is the same evidence
+  // arriving at the same rate, just not interpolated. A loading bar that does not move is a
+  // broken loading bar (`splash.js` makes the same call for the same reason).
+  const still = first || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  fill.style.transition = still
+    ? "none"
+    : copy.pace.done
+      ? "width " + Math.round(copy.pace.landMs) + "ms " + PACE_LAND_EASE
+      : // The tick owns the clock, so one second of linear interpolation between two true
+        // positions is exactly the span the next repaint will replace.
+        "width 1000ms linear";
+  fill.style.width = (copy.pace.position * 100).toFixed(3) + "%";
+  pacePaintedId = copy.pace.id;
 }
 
 function renderWaitBand() {
@@ -1963,6 +2195,7 @@ function renderWaitBand() {
   band.querySelector(".wait-head").textContent = copy.head;
   band.querySelector(".wait-time").textContent = copy.time;
   band.querySelector(".wait-detail").textContent = copy.detail;
+  renderWaitPace(band, copy);
   if (copy.tone === "quiet" && !waitQuietAnnounced) {
     waitQuietAnnounced = true;
     announce(copy.head + ". " + copy.detail + ".");
@@ -2006,6 +2239,9 @@ function syncWaitBand(payload, opts) {
       lastAt: now,
       lastWhat: null,
       signals: 0,
+      // Nothing is being paced yet, and nothing is carried over from the previous turn — a
+      // bar belongs to the row that declared it, and that row belongs to one turn.
+      pace: null,
       fromStart: !(opts && opts.joinedLate),
     };
     waitQuietAnnounced = false;
@@ -2060,7 +2296,17 @@ function hideWaitBandOffConversation() {
 /// READ-ONLY, for the acceptance harness: the sentence the band is showing and the evidence
 /// it was derived from. It exposes nothing the DOM does not already carry.
 window.__RICHOS_WAIT__ = () =>
-  waitTurn ? Object.assign({}, waitTurn, { copy: waitBandCopy(waitTurn, Date.now()), quietAfterMs: QUIET_AFTER_MS }) : null;
+  waitTurn
+    ? Object.assign({}, waitTurn, {
+        copy: waitBandCopy(waitTurn, Date.now()),
+        quietAfterMs: QUIET_AFTER_MS,
+        // The bar's own constants, so a suite asserts the PROPERTY ("it stops short of full
+        // and holds") against the value the product actually runs, instead of retyping it.
+        paceAlmost: PACE_ALMOST,
+        paceLandFullMs: PACE_LAND_FULL_MS,
+        paceLandMinMs: PACE_LAND_MIN_MS,
+      })
+    : null;
 
 /// A READ-ONLY handle on the timeline model, for the acceptance harness and for anyone
 /// debugging a render against a live shell. It exposes nothing the DOM does not already
@@ -2224,6 +2470,10 @@ Bridge.listen("rich://activity-upserted", ({ payload }) => {
   // `summary` is written in Rust (`machinery.rs`) and relayed VERBATIM. Nothing here
   // composes, shortens or interprets it, and an activity row without one contributes its
   // instant only — a signal the band can time but not describe.
+  //
+  // The pace is read FIRST (see THE PACED BAR) so the single repaint below carries the
+  // sentence and the bar that belongs to it together, rather than a bar one frame behind.
+  notePacedActivity(payload);
   noteTurnSignal(payload.turnId, typeof payload.summary === "string" && payload.summary.trim() ? payload.summary.trim() : null);
   scheduleRender();
 });

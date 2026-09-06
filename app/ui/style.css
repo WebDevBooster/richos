@@ -778,6 +778,89 @@ button {
   line-height: 1.4;
 }
 
+/* THE PACED BAR — the CEO's own design for a wait whose length is unknown, 2026-09-06.
+
+   He asked whether the compaction row could carry a bar like the splash screen's. It was put
+   to him that a bar would have to fabricate progress, because the duration is unknown. He
+   rejected that and specified the mechanism instead:
+
+     *"It doesn't need to know. It just needs to move to almost full with the expected minimum
+      time and then stay at 'almost full' until all finished etc."*
+
+   That is what makes it honest, and the honesty is in the HOLD: the bar climbs over the
+   shortest wait of its kind ever measured (`machinery.rs` `COMPACTION_MEASURED_MIN_MS`,
+   38138 ms over 16 boundaries), and then it STOPS at almost-full and stays there. It never
+   claims a completion it does not have. Arriving at almost-full and holding is itself a true
+   statement — this one is taking longer than the fastest case — where a bar that stalls
+   mid-way looks broken and a bar that completes early lies.
+
+   THE SPLASH SCREEN'S LOOK, NOT ITS MECHANISM. The CEO named the splash bar, so this is the
+   same object: a thin, round-ended track carrying a signal-gold fill (`splash-library.js`
+   entry #1 — a 2px rule at `rgba(194,163,92,0.22)` with a `#C2A35C` fill). The mechanism
+   could not be borrowed and was not: the splash bar knows its own hold and arrives at 100%
+   exactly when the curtain lifts, and this one does not know when it ends. The one thing
+   taken from it is the progress CURVE — mostly linear with a gentle early surge, deliberately
+   not an ease-out, because "stuck at 95%" IS an ease-out (`splash.js` `BAR_SURGE`).
+
+   IT MOVES ONLY BECAUSE TIME PASSES, which is the band's whole rule ("EVERY MOVING THING IN
+   IT IS A FACT", `main.js`). There is no loop, no shimmer and no indeterminate sweep: while
+   it holds it is perfectly still, and a still bar over a dead child is not reassurance,
+   because the band drops the bar the moment it stops describing what it is pacing.
+
+   NO NUMBER IS RENDERED and no ARIA value is published — `aria-hidden`, like the mark beside
+   it. A `role="progressbar"` owes an `aria-valuenow`, and any value it could carry would be a
+   percentage of a span that is not this wait's. The sentence above the bar is what a screen
+   reader gets, and it is the same sentence a sighted CEO reads.
+
+   CONTRAST — THREE BOUNDARIES, EACH HELD BY THE THING THAT CARRIES IT (3:1, non-text).
+   Computed with `tests/lib/contrast.js` on `--paper` (#0c1322 dark, #eae6dd light), and
+   re-measured off the rendered DOM by `tests/compaction-progress.js` and the shipping
+   `tests/contrast.js`, which walks both elements as declared indicators.
+
+     what it carries          element                        dark     light    floor
+     the bar's full extent    .wait-pace border-color        4.57:1   3.35:1   3:1
+     how far along it is      .wait-pace-fill vs the track   6.29:1   4.87:1   3:1
+     the moving thing itself  .wait-pace-fill vs the paper   7.68:1   5.48:1   3:1
+
+   NOTHING HERE IS EXEMPT. The track's INTERIOR (`--gold-soft`, 1.22:1 dark / 1.13:1 light
+   against the paper) is deliberately faint and is not an exemption: it is the unfilled
+   ground the fill is read AGAINST, and the boundary a reader needs — where the gold stops —
+   is the 6.29:1 / 4.87:1 row above. The extent is carried by the border, at 3:1, which is why
+   the border exists at all. This is the same call `splash-library.js` recorded when it lifted
+   entry #2's strap edge to 4.89:1: *"the strap's edge is what marks the bar's full extent —
+   a non-text indicator with a 3:1 floor."*
+
+   Why the three cannot all be one element: a chain of two 3:1 steps needs 9:1 end to end, and
+   signal gold is 7.68:1 on the dark paper. Every arrangement of a gold fill and a
+   luminance-separated track fails one of the three. A third value — the border — is what
+   makes all three payable, and it is `--line-control`, the token that exists because "the
+   border of a form control is a non-text indicator and owes 3:1". */
+.wait-pace {
+  grid-column: 2 / 4;
+  margin-top: 9px;
+  height: 6px;
+  /* border-box (the global `*` rule), so the 1px edge eats into the 6px and the fill runs
+     4px tall inside it. */
+  border: 1px solid var(--line-control);
+  border-radius: 3px;
+  background: var(--gold-soft);
+  /* The fill is a plain rectangle and this is what rounds its ends, so the two never
+     disagree about the radius. */
+  overflow: hidden;
+}
+
+.wait-pace-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--live-mark);
+}
+
+/* THE TRANSITION IS SET IN `main.js`, NOT HERE, and that is deliberate: it changes with what
+   the bar is doing (one second, linear, while it climbs at the tick's own rate; a bounded
+   landing when the ending arrives) and it is turned OFF outright under reduced motion, which
+   an inline style would otherwise beat. `renderWaitPace` is the one writer. */
+
 /* THE QUIET STATE. Not an error and not a diagnosis — the app does not know that anything
    is wrong, and says only what it does know: nothing has arrived for this long. The ink
    moves to `--attention` and the mark stops flashing because nothing is arriving to flash
