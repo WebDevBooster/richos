@@ -16,8 +16,9 @@ A resumed session may keep its session ID while changing PID. Adoption considers
 every recorded process incarnation; a dead predecessor cannot hide a live
 successor or overrule it based on record order.
 
-Session fallback also retains every recorded incarnation when a path row omits
-its PID. A missing session ID does not hide a recorded process or a new ownership
+Session lookup retains every recorded incarnation whether a path row omits its
+PID or names a dead predecessor. A live successor recorded on another path of
+the same session still vetoes retirement of the session-owned tree. A missing session ID does not hide a recorded process or a new ownership
 registration. A named owner with no resolvable process remains unknown unless
 that exact agent has an independent platform terminal record. An unrelated old
 owner's terminal record never resolves the uncertainty.

@@ -130,6 +130,20 @@ class ProcessIdentity(unittest.TestCase):
                         self.assertIn('UNKNOWN' if current_start == 'legacy-local-time'
                                       else 'STILL RUNNING', reason)
 
+    def test_direct_old_pid_cannot_hide_a_resumed_session_elsewhere(self):
+        with tempfile.TemporaryDirectory() as temp:
+            old = {'worktree': temp + '/target', 'session_id': 'resumed',
+                   'session_pid': 99999999}
+            current = {'worktree': temp + '/another', 'session_id': 'resumed',
+                       'session_pid': os.getpid()}
+            for token in (self.token('UTC', 'C'), 'legacy-local-time'):
+                current['pid_start'] = token
+                for records in ([old, current], [current, old]):
+                    tier, reason = ad.owner_evidence(records, old['worktree'])
+                    self.assertIsNone(tier, reason)
+                    self.assertIn('UNKNOWN' if token == 'legacy-local-time'
+                                  else 'STILL RUNNING', reason)
+
     def test_missing_named_owner_cannot_borrow_an_old_owner_termination(self):
         with tempfile.TemporaryDirectory() as temp:
             old = {'worktree': temp, 'session_id': 'old', 'session_pid': 99999999,

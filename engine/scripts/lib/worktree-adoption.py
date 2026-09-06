@@ -353,7 +353,10 @@ def owner_evidence(records, path):
         if not sid and not r.get("session_pid") and r.get("event") not in wl.OWNERSHIP_EVENTS:
             continue
         pid, start = (r.get("session_pid"), r.get("pid_start") or "")
-        identities = [(pid, start)] if pid else ident.get(sid, [])
+        # The SID binds the path to the session across resumptions. An old
+        # direct PID identifies its preparer, not proof that a live successor
+        # abandoned the tree. Include every recorded session incarnation.
+        identities = ([(pid, start)] if pid else []) + ident.get(sid, [])
         if not identities:
             # A different owner's death cannot resolve this named owner.
             # Only this row's exact platform agent termination can substitute
