@@ -193,9 +193,11 @@ COMMAND="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.s
 # BRANCH name (created four ways, plus the refspec a push names), a merge
 # message, a note, and every `gh` subcommand that carries a title or a body.
 # Everything else on the Bash matcher passes untouched.
-NP_SURFACE="$(GUARD_CMD="$COMMAND" python3 -c '
-import os, re, sys
-cmd = os.environ.get("GUARD_CMD", "")
+# Command bodies can be larger than one environment entry. Feed the full
+# script on stdin and distinguish classifier failure from a non-publishing call.
+NP_SURFACE="$(python3 -c '
+import re, sys
+cmd = sys.stdin.read()
 # One shell statement at a time, so an unrelated later command cannot bleed in.
 for seg in re.split(r"[;\n|&]+", cmd):
     if re.search(r"\bgit\b.*\b(branch|push)\b", seg) \
@@ -209,11 +211,14 @@ for seg in re.split(r"[;\n|&]+", cmd):
 for seg in re.split(r"[;\n|&]+", cmd):
     if re.search(r"(?:^|\s)gh\s", seg):
         print("a GitHub artifact (PR or issue title, release name, comment body)"); sys.exit(0)
-' 2>/dev/null || true)"
+' <<< "$COMMAND" 2>/dev/null)" || {
+    echo "ERROR: guard-named-persons-commands.sh: command classifier could not run; refusing." >&2
+    exit 2
+}
 [ -n "$NP_SURFACE" ] || exit 0
 
 # --- WHICH REPOSITORY, AND DOES IT PUBLISH? --------------------------------
-NP_ANCHOR="$(richos_git_anchor "$INPUT" "commit tag notes merge branch push checkout switch worktree" | head -1 | cut -f2)"
+NP_ANCHOR="$(richos_git_anchor "$INPUT" "commit tag notes merge branch push checkout switch worktree" | sed -n '1p' | cut -f2)"
 if [ -z "$NP_ANCHOR" ]; then
     NP_ANCHOR="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("cwd") or "")' 2>/dev/null || true)"
 fi
@@ -231,7 +236,7 @@ case "$NP_BOUND_RC" in
 esac
 
 RESULT="$(printf '%s' "$INPUT" | python3 "$NP_PREDICATE" --scan-payload 2>/dev/null || printf 'PARSEFAIL\n')"
-VERDICT="$(printf '%s' "$RESULT" | head -1 | cut -f1)"
+VERDICT="$(printf '%s' "$RESULT" | sed -n '1p' | cut -f1)"
 
 case "$VERDICT" in
   CLEAN|PARSEFAIL)
@@ -243,7 +248,7 @@ case "$VERDICT" in
     ;;
   BROKEN)
     np_broken_banner "scripts/hooks/guard-named-persons-commands.sh" \
-        "$(printf '%s' "$RESULT" | head -1 | cut -f2-)"
+        "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2-)"
     exit 2
     ;;
   FOUND)

@@ -282,6 +282,51 @@ ccase "(g) git tag -m carrying a listed name is refused" \
       2 "git -C $SB tag -a v1 -m 'thanks to $F_FULL'" "$SB"
 
 # ---------------------------------------------------------------------------
+# A shell script carried on stdin is not limited to one execve argument.
+# Keep the fixture payload out of argv/environment so the test reaches the guard.
+for PAD in 0 150000; do
+    for MODE in listed clean; do
+        python3 - "$SB" "$F_FULL" "$PAD" "$MODE" "$SCRATCH/large-command.sh" > "$SCRATCH/large-command.json" <<'NP_TRANSPORT'
+import json, sys
+name = sys.argv[2] if sys.argv[4] == 'listed' else 'ordinary implementation change'
+command = ('# ' + 'x' * int(sys.argv[3]) + '\n' if int(sys.argv[3]) else '') + 'git commit -m "' + name + '"'
+if int(sys.argv[3]):
+    assert len(command.encode()) > 131072
+with open(sys.argv[5], 'w') as f:
+    f.write(command)
+print(json.dumps({'tool_name': 'Bash', 'cwd': sys.argv[1], 'tool_input': {'command': command}}))
+NP_TRANSPORT
+        bash -n < "$SCRATCH/large-command.sh" || { bad "large command fixture is not valid shell syntax"; continue; }
+        OUT="$(bash "$CMD_HOOK" < "$SCRATCH/large-command.json" 2>&1)"; RC=$?
+        WANT=0; [ "$MODE" = listed ] && WANT=2
+        if [ "$RC" -eq "$WANT" ] && ! grep -F 'Argument list too long' <<< "$OUT" >/dev/null &&
+           { [ "$MODE" != listed ] || grep -F 'NAMED-PERSON DENY-LIST: BLOCKED' <<< "$OUT" >/dev/null; }; then
+            ok "command transport preserves $MODE decision (padding=$PAD)"
+        else
+            bad "command transport lost $MODE decision (padding=$PAD expected=$WANT rc=$RC): $OUT"
+        fi
+        if grep -F "$F_FULL" <<< "$OUT" >/dev/null; then
+            bad "command transport refusal repeated the listed name"
+        fi
+    done
+done
+# Interpreter failure must not be mistaken for an unrelated command.
+REAL_NP_PYTHON="$(command -v python3)"
+mkdir -p "$SCRATCH/classifier-failure"
+cat > "$SCRATCH/classifier-failure/python3" <<'NP_FAILURE'
+#!/usr/bin/env bash
+case "${2:-}" in *'a branch name'*) exit 73 ;; esac
+exec "$TRANSPORT_REAL_PYTHON" "$@"
+NP_FAILURE
+chmod +x "$SCRATCH/classifier-failure/python3"
+bash_payload 'git commit -m ordinary' "$SB" > "$SCRATCH/classifier-failure.json"
+OUT="$(PATH="$SCRATCH/classifier-failure:$PATH" TRANSPORT_REAL_PYTHON="$REAL_NP_PYTHON" bash "$CMD_HOOK" < "$SCRATCH/classifier-failure.json" 2>&1)"; RC=$?
+if [ "$RC" -eq 2 ] && grep -F 'command classifier could not run' <<< "$OUT" >/dev/null; then
+    ok "command classifier execution failure refuses explicitly"
+else
+    bad "command classifier execution failure silently passed (rc=$RC): $OUT"
+fi
+
 # (h) THE BRANCH NAME.
 # ---------------------------------------------------------------------------
 BR="$(printf 'fix-%s-%s' "$F_GIVEN" "$F_FAMILY" | tr 'A-Z' 'a-z')"
