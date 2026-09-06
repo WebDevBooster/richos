@@ -26,12 +26,13 @@ with tempfile.TemporaryDirectory(prefix="richos-projection-mutations-") as tmp:
             sys.exit("Compilation failed. This is not a killed mutation.\n" + build.stdout)
         return subprocess.run([str(root / "target/debug/projection-review")], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
     baseline = run(source)
-    if baseline.returncode or len(json.loads(baseline.stdout)) != 3:
-        sys.exit("Baseline did not produce all three projections.\n" + baseline.stdout)
-    print("PASS baseline: real controller receipts and all three projections")
+    if baseline.returncode or len(json.loads(baseline.stdout)) != 4:
+        sys.exit("Baseline did not produce all four projections.\n" + baseline.stdout)
+    print("PASS baseline: real controller receipts and all four projections")
     mutations = [
         ("raw-task-description", "description: if snapshot.plan.autonomous() {", "description: if false {", "assertion `left == right` failed"),
         ("raw-verifier-receipt", "if snapshot.plan.autonomous() && human_contract(&t.prompt).is_some() {", "if false {", "Machine contract leaked:"),
+        ("raw-unknown-envelope", '.unwrap_or_else(|| "Saved assignment".into())', '.unwrap_or_else(|| snapshot.plan.display_goal().into())', "Unknown envelope leaked into the title"),
     ]
     for name, old, new, expected in mutations:
         if source.count(old) != 1:
@@ -40,4 +41,4 @@ with tempfile.TemporaryDirectory(prefix="richos-projection-mutations-") as tmp:
         if result.returncode == 0 or expected not in result.stdout:
             sys.exit("Mutation did not fail for its expected assertion: " + name + "\n" + result.stdout)
         print("PASS killed " + name + " after successful compilation")
-    print("2/2 projection mutations rejected")
+    print("3/3 projection mutations rejected")

@@ -96,7 +96,10 @@ const SURFACES = [
       await p.evaluate(() => document.querySelector('.nav-thread[data-thread-id="hiring"]').click());
       await require("./lib/assignments").drive(p, ["scope"].includes(state) ? "decision" : ["history", "picker"].includes(state) ? "running" : state);
       if (["decision", "scope"].includes(state)) await require("./lib/assignments").review(p);
-      if (state === "history") await p.locator("#managed-run summary").click();
+      if (state === "history") {
+        await p.evaluate(async()=>{window.assignmentCurrent.tasks[0].evidence=["Checked the approved figures. Nothing was sent."];await window.RichRuns.show("hiring");});
+        await p.locator("#managed-run summary").click();
+      }
       if (state === "picker") { await p.locator("#managed-run [data-run-picker]").click(); await p.waitForSelector("#managed-run .run-choices button"); }
       if (state === "scope") await p.locator("#managed-run [data-run-scope]").click();
     }
@@ -806,6 +809,7 @@ async function main() {
         if (surface.name.startsWith("assignment-")) {
           const required = surface.name === "assignment-decision" ? "run-question" : surface.name === "assignment-picker" ? "run-choices" : surface.name === "assignment-scope" ? "textarea" : surface.name === "assignment-history" ? "run-checks" : "run-status";
           assert(out.measuredPaths.some(p => p.includes(required)), surface.name + " did not measure its required state: " + required);
+          if (surface.name === "assignment-history") assert(out.measuredPaths.some(p => p.includes("run-receipt")), "Assignment history did not measure its receipt text");
         }
         if (theme === "light") {
           const s = await shot(page, "contrast-" + surface.name, { fullPage: false });

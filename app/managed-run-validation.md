@@ -1,4 +1,10 @@
-# Eighth revision: validation after Urban's P5 review
+# Ninth revision: follow-up to Urban's P6 signoff
+
+Urban granted 9/10 signoff to `e276ba3`. See [the P6 follow-up](URBAN-P6-RESPONSE.md)
+and [current evidence](validation/owned-work/urban-p6-results.json) for corrections
+to its remaining documented gaps. Evidence below belongs to earlier revisions.
+
+## Eighth revision: validation after Urban's P5 review
 
 See [the P5 response](URBAN-P5-RESPONSE.md) and
 [the current evidence](validation/owned-work/urban-p5-results.json).

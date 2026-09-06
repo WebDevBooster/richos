@@ -1,4 +1,4 @@
-# RichOS durable work: eighth review
+# RichOS durable work: ninth review
 
 ## Problem and target
 
@@ -213,9 +213,12 @@ Assignment fixtures assert the state text and the usable control together.
 Urban's next review of `b45145f` withheld P5 approval at 7/10.
 See [the P5 response](URBAN-P5-RESPONSE.md) for the long-question, Rust projection
 and source-inventory corrections, evidence and reproduction. The earlier
-[P4 response](URBAN-REVIEW-RESPONSE.md) is historical. P5 remains open pending
-independent re-review. No design approval, production
-deployment or main-branch merge is claimed. Native window chrome, OS accent
+[P4 response](URBAN-REVIEW-RESPONSE.md) is historical. P5 approval was withheld
+until independent re-review. Urban subsequently granted P6 signoff
+at `e276ba3`, scoring it 9/10. The [P6 follow-up](URBAN-P6-RESPONSE.md) addresses
+the remaining history, contrast-gate and presentation gaps. That document records
+the current checks and distinguishes them from Urban's signoff of the earlier
+commit. No production deployment or main-branch merge is claimed. Native window chrome, OS accent
 behavior and interactive speech were not visually audited in this pass.
 
 ## Review entry points

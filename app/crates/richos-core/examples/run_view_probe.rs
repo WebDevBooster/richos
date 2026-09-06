@@ -101,12 +101,12 @@ fn probe() -> serde_json::Value {
         &[original.clone()],
     );
     let second = serde_json::to_value(projection::view("hiring", &amended)).unwrap();
-    assert!(second["tasks"][0]["previous_instructions"][0]
+    assert!(second["tasks"][0]["previous_instructions"][0]["request"]
         .as_str()
         .unwrap()
         .contains("Do not send it"));
     for view in [&first, &second] {
-        // commands retain the verification recipe, but autonomous history never renders them.
+        // The desktop projection carries no autonomous command recipe.
         let task = &view["tasks"][0];
         let visible = format!(
             "{} {} {} {} {}",
@@ -145,8 +145,39 @@ fn probe() -> serde_json::Value {
         third["tasks"][0]["description"],
         "Check the supplied report"
     );
+    // A durable older-format input is deliberately independent of today's registrar.
+    let mut older = original.clone();
+    older.plan.goal = "CEO request v0: private machine contract".into();
+    older.plan.tasks[0].prompt =
+        "Legacy machine scope: Preserve prohibitions. Conversation context: private".into();
+    older.plan.tasks[0].checks[0].name = "Legacy verifier contract with private context".into();
+    older.tasks[0].evidence =
+        vec!["Legacy verifier contract with private context: old result".into()];
+    let older_bytes = serde_json::to_vec(&older).unwrap();
+    let fourth = serde_json::to_value(projection::view("hiring", &older)).unwrap();
+    assert_eq!(
+        fourth["goal"], "Saved assignment",
+        "Unknown envelope leaked into the title"
+    );
+    assert_eq!(
+        fourth["tasks"][0]["description"],
+        "The saved assignment details are unavailable in this view.",
+        "Unknown envelope leaked into history"
+    );
+    assert_eq!(fourth["tasks"][0]["checks"], serde_json::json!([]));
+    assert_eq!(fourth["tasks"][0]["commands"], serde_json::json!([]));
+    assert_eq!(
+        fourth["tasks"][0]["evidence"][0],
+        "Saved results are kept with this assignment."
+    );
+    assert_eq!(
+        serde_json::to_vec(&older).unwrap(),
+        older_bytes,
+        "Fallback changed the journal"
+    );
+    assert!(!serde_json::to_string(&fourth).unwrap().contains("private"));
     std::fs::remove_dir_all(&workspace).unwrap();
-    serde_json::json!([first, second, third])
+    serde_json::json!([first, second, third, fourth])
 }
 fn main() {
     println!("{}", probe());

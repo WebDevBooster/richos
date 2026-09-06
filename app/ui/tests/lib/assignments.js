@@ -32,6 +32,7 @@ async function drive(page, state = "running") {
         if (name === "select_run") { window.assignmentCurrent = window.assignmentRows.find(a => a.runId === args.runId); return window.assignmentCurrent; }
         if (name === "pause_run") { window.assignmentCurrent.state = "paused"; return; }
         if (name === "drive_run") { window.assignmentCurrent.state = "running"; return window.assignmentCurrent; }
+        if (name === "retry_run_task") { window.assignmentCurrent.tasks.find(t=>t.id===args.taskId).state="pending";return window.assignmentCurrent; }
         if (name === "end_run") { window.assignmentCurrent.state = "canceled"; return window.assignmentCurrent; }
         if (name === "respond_run_decision") {
           if (window.decisionFailure) throw Error(window.decisionFailure);

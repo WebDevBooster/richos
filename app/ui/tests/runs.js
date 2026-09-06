@@ -26,6 +26,10 @@ async function main(){
      assertEqual(clipped,[],`${theme} ${width}x${height} ${state}`);
      if(state==="decision") { assertEqual(await panel.locator(".run-question-body").count(),0); assert(await panel.locator("[data-run-review]").isVisible()); }
      const size=await panel.boundingBox();assert(size.height<height*.3,`${size.height}/${height}`);
+     if(state==="decision") {
+       await panel.locator(".run-status").evaluate(e=>{const extra=document.createElement("span");extra.style.display="block";extra.dataset.testHeadroom="";extra.textContent="Your decision is still pending.";e.append(extra);});
+       const extra=await panel.boundingBox();assert(extra.height>=size.height+16&&extra.height<height*.3,"The strip must tolerate another status line");await panel.locator("[data-test-headroom]").evaluate(e=>e.remove());
+     }
    }
    await A.resize(page,{width:1400,height:900});
  });
@@ -149,13 +153,16 @@ async function main(){
    const path=require("path"),os=require("os"),cp=require("child_process");
    const cargo=process.env.CARGO || path.join(os.homedir(),".cargo","bin","cargo");
    const views=JSON.parse(cp.execFileSync(cargo,["run","--quiet","--manifest-path",path.resolve(__dirname,"../../Cargo.toml"),"-p","richos-core","--example","run_view_probe"],{encoding:"utf8",timeout:120000}));
-   assertEqual(views.length,3);
+   assertEqual(views.length,4);
    for(const view of views) {
      await A.drive(page);await page.evaluate(async snapshot=>{window.assignmentCurrent=snapshot;window.assignmentRows=[snapshot];await window.RichRuns.show("hiring");},view);
      await panel.locator("summary").first().click();const text=await panel.innerText();
      for(const forbidden of ["verbatim","acceptance constraint","Preserve prohibitions","certify partial","Conversation context","Sensitive conversation"])assert(!text.includes(forbidden),forbidden);
-     assert(text.includes(view.tasks[0].description));assert(text.includes(view.tasks[0].checks[0]));
-     if(view.tasks[0].previous_instructions.length)assert(text.includes("Do not send it"));
+     assert(text.includes(view.tasks[0].description));for(const check of view.tasks[0].checks)assert(text.includes(check));
+     if(view.tasks[0].previous_instructions.length) {
+       const previous=panel.locator(".run-previous-instructions");assert((await previous.innerText()).includes("Your request: Draft"));assert((await previous.innerText()).includes("Rich agreed: I'll"));assertEqual(await previous.locator("p").count(),2);
+     }
+     if(view.autonomous&&view.tasks[0].checks.length)assert(text.includes("What Rich agreed to deliver:"));
    }
  });
  await run.check("Empty assignments explain the next action without opening history",async()=>{
@@ -167,6 +174,74 @@ async function main(){
    const list=panel.locator(".run-choices"),more=panel.locator("[data-run-more]");for(let n=0;n<20&&await more.isVisible();n++)await more.click();
    assert(await list.evaluate(e=>e.scrollTop+e.clientHeight>=e.scrollHeight-1), JSON.stringify(await list.evaluate(e=>({top:e.scrollTop,height:e.clientHeight,content:e.scrollHeight}))));assert(await panel.locator("[data-run-previous]").isVisible(),"Previous cue absent at end of list");
    await page.keyboard.press("Escape");assert(await panel.locator("[data-run-picker]").evaluate(e=>e===document.activeElement));
+ });
+ await run.check("History exposes every hidden receipt and imported retry through the shared reading controls",async()=>{
+   for(const theme of ["dark","light"])for(const [width,height]of [[1400,900],[1280,800],[1024,768],[760,720],[520,680]])for(const imported of [false,true]) {
+     await A.resize(page,{width,height});await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);await A.drive(page);
+     await page.evaluate(async imported=>{
+       const a=window.assignmentCurrent;a.autonomous=!imported;
+       a.tasks=Array.from({length:imported?8:1},(_,i)=>({id:`receipt-task-${i}`,description:imported?`Review section ${i+1}`:a.goal,state:imported&&i===6?"needs_attention":"passed",checks:["The report matches the approved figures and covers the complete agreed scope."],commands:imported?[["check-report",`section-${i+1}.txt`]]:[],evidence:Array.from({length:imported?2:6},(_,j)=>`Checked the figures in section ${j+1} against the approved report. The totals agree and the requested corrections are included. Nothing was sent.`)}));
+       await window.RichRuns.show("hiring");
+     },imported);
+     await panel.locator(".run-history > summary").click();const body=panel.locator(".run-history-body");await body.waitFor();
+     assert((await body.innerText()).includes("Nothing was sent."),"History content must render before measuring absence of clipping");
+     const surface=panel.locator(".run-history-panel"),rect=await surface.boundingBox();assert(rect.height>0&&rect.y>=0&&rect.y+rect.height<=height);
+     const geometry=await body.evaluate(e=>({height:e.clientHeight,content:e.scrollHeight}));assert(geometry.height>0&&geometry.content>0);
+     const more=surface.locator("[data-run-more]");assertEqual(await more.isVisible(),geometry.content>geometry.height+1,"Hidden history needs a persistent cue");
+     if(width===520)await page.screenshot({path:`/tmp/richos-p6-history-${imported?"imported":"receipts"}-${theme}.png`});
+     if(imported) {
+       assert(geometry.content>geometry.height,"The imported fixture must overflow");
+       const retry=body.locator("[data-run-retry]");let hit=false;
+       for(let i=0;i<30;i++) {
+         hit=await retry.evaluate(e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
+         if(hit||!await more.isVisible())break;await more.click();
+       }
+       assert(hit,"The reading control must uncover the retry action");await retry.click();
+       assert(await page.evaluate(()=>window.assignmentCalls.some(([n,a])=>n==="retry_run_task"&&a.taskId==="receipt-task-6"&&a.runId==="assignment-1")));
+     } else {
+       assertEqual(await body.locator("ol").count(),0,"One assignment must not become a numbered list of one");
+       assertEqual(await body.getByText("Prepare the Q4 investor update",{exact:true}).count(),0,"The task must not repeat its title");
+       assert(await body.locator(".run-receipt").first().evaluate(e=>getComputedStyle(e).fontFamily===getComputedStyle(document.getElementById("managed-run")).fontFamily));
+     }
+     await page.keyboard.press("Escape");assertEqual(await panel.locator(".run-history-panel").count(),0);assert(await panel.locator(".run-history > summary").evaluate(e=>e===document.activeElement));
+   }
+   await A.resize(page,{width:1400,height:900});
+ });
+ await run.check("History's overflow check goes red when its reading cue disappears",async()=>{
+   await A.drive(page);await page.evaluate(async()=>{window.assignmentCurrent.tasks[1].evidence=Array.from({length:30},(_,i)=>`Verified receipt ${i}: the result covers the requested section and nothing was sent.`);await window.RichRuns.show("hiring");});
+   await panel.locator(".run-history > summary").click();await panel.locator(".run-history-body").waitFor();
+   async function check(){const body=panel.locator(".run-history-body");assert(await body.evaluate(e=>e.clientHeight>0&&e.scrollHeight>e.clientHeight));assert(await panel.locator(".run-history-panel [data-run-more]").isVisible(),"Missing history cue");}
+   await check();const style=await page.addStyleTag({content:".run-history-panel [data-run-more] { display:none !important }"});let reason;
+   try { await check(); } catch(e) {reason=String(e);}assert(reason?.includes("Missing history cue"));await style.evaluate(e=>e.remove());await check();
+ });
+ await run.check("Attention text stays on the text floor and its separate mark stays on the indicator floor",async()=>{
+   for(const theme of ["dark","light"])for(const picker of [false,true]) {
+     await A.drive(page,"decision");await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
+     if(picker)await panel.locator("[data-run-picker]").click();
+     const target=panel.locator(picker?".run-choices .run-attention":".run-status.run-attention");
+     assertEqual(await target.getAttribute("data-contrast-role"),null);
+     assertEqual(await target.locator('[data-contrast-role="indicator"]').innerText(),"");
+     const bg=await target.evaluate(e=>{for(let n=e;n;n=n.parentElement){const c=getComputedStyle(n).backgroundColor;if(c.startsWith("rgb("))return c;}throw Error("No opaque background for matched contrast control");});
+     const grey=Array.from({length:256},(_,i)=>`rgb(${i},${i},${i})`).find(c=>{const r=C.contrastRatio(C.parseCssColor(c),C.parseCssColor(bg));return r>3.3&&r<4;});assert(grey,"Need a matched ink between the two floors");
+     await page.evaluate(C.pageScript());
+     const walk=()=>page.evaluate(()=>window.__contrastProbe({surface:"attention",theme:document.documentElement.dataset.theme}));
+     const baseline=await walk();assertEqual(Object.keys(baseline.failures),[]);assert(baseline.measuredPaths.some(p=>p.includes("run-attention-marker")&&p.includes("indicator")),"The empty mark must actually be measured");
+     await target.evaluate((e,c)=>e.style.color=c,grey);const lowText=await walk();const failures=Object.values(lowText.failures).filter(f=>!f.indicator&&f.selector.includes(picker?"run-choices":"run-status"));
+     assert(failures.length>0&&failures.every(f=>f.threshold===4.5&&f.ratio>3&&f.ratio<4.5),JSON.stringify(lowText.failures));
+     // Reintroducing the old marker must defeat this matched control. That proves
+     // the test detects this exact regression, not an unrelated darkened border.
+     await target.evaluate(e=>e.dataset.contrastRole="indicator");const old=await walk();assert(!Object.values(old.failures).some(f=>!f.indicator&&f.selector.includes(picker?"run-choices":"run-status")));
+     await target.evaluate(e=>{delete e.dataset.contrastRole;e.style.removeProperty("color");});
+     await target.locator(".run-attention-marker").evaluate((e,bg)=>e.style.borderLeftColor=bg,bg);const lowMark=await walk();assert(Object.values(lowMark.failures).some(f=>f.indicator&&f.threshold===3&&f.selector.includes("run-attention-marker")),JSON.stringify(lowMark.failures));
+   }
+ });
+ await run.check("Dismissal has one unambiguous name and reading cues sit at the cut edge",async()=>{
+   await A.resize(page,{width:520,height:680});await A.longDecision(page,8,12);await A.review(page);
+   assertEqual(await panel.getByRole("button",{name:"Back to conversation",exact:true}).count(),1);assertEqual(await panel.getByRole("button",{name:/^Close/}).count(),0);
+   const body=await panel.locator(".run-reading-body").boundingBox(),more=await panel.locator("[data-run-more]").boundingBox();assert(more.y>=body.y+body.height && more.y-(body.y+body.height)<16,"More must sit directly below the clipped edge");
+   await panel.locator("[data-run-more]").click();assert(await panel.getByRole("button",{name:"Read more above",exact:true}).isVisible());await click("Back to conversation");
+   assert(!(await page.evaluate(()=>window.assignmentCalls.some(([n])=>n==="respond_run_decision"))));assertEqual(await panel.locator(".run-reading").count(),0);
+   await A.resize(page,{width:1400,height:900});
  });
  await run.check("Thread changes clear the assignment and its error",async()=>{await page.evaluate(()=>window.RichRuns.show(null));assert(await panel.isHidden());assertEqual(await panel.innerText(),"");});
  assertEqual(page.__errors,[]);fs.mkdirSync("/tmp/richos-urban-shots",{recursive:true});await A.drive(page,"decision");await page.screenshot({path:"/tmp/richos-urban-shots/decision.png"});await browser.close();return run.report();

@@ -100,15 +100,19 @@ creation time, with a reference only if the displayed times also collide. Pause 
 optional history. End asks you to confirm which assignment you are ending.
 
 Review decision opens the complete question and its answers above the compact
-strip. Read more below and Read previous expose long content. The question
+strip. Read more below and Read more above expose long content. The question
 itself never has a height cap. Pause and End remain accessible. Keep going authorizes only the
 allowance displayed above it. Change instructions accepts your exact correction
 and rechecks the revised outcome. Business questions offer their choices or a
 written answer. These actions call the desktop controller directly and are saved
 before work proceeds. You can also answer Rich in the conversation.
 
-“Show me what happened” opens your request, the accepted scope and results.
-Earlier instructions remain visible separately when you change the assignment.
+“Show me what happened” opens your request, the accepted scope and results
+with the same reading controls. Back to conversation dismisses the view without
+committing a decision.
+Earlier instructions and Rich’s accepted scope have separate labels when you
+change the assignment. Receipts use the body face. Unknown older formats show
+a neutral explanation while the saved work stays intact.
 Execution instructions stay in the durable record. Imported commands have a
 separate Technical details disclosure within history. Completion checks use the same readable type size as the rest of the
 panel. A load failure offers Refresh first and preserves diagnostic details in

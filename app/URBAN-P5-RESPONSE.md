@@ -1,5 +1,8 @@
 # Response to Urban's September 6 assignment-panel review
 
+Historical response. Urban subsequently granted P6 signoff to `e276ba3` at 9/10.
+See [the P6 follow-up](URBAN-P6-RESPONSE.md) for the remaining-gap corrections.
+
 Urban withheld P5 approval at **7/10**, reviewing `b45145f` in
 `URBAN_SIGNOFF_2026-09-06_00.29.md`. The rejection was justified. The previous
 fixture could not expose the question-height defect and the history projected

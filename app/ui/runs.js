@@ -4,11 +4,16 @@
   let bridge, root, thread, current, assignments = [], generation = 0, polling = false;
   let lastError = "", pickerOpen = false, decisionOpen = false, historyOpen = false, editor = null, working = false, archiveConfirm = false;
   const pausing = new Set();
-  const labels = { review_open: "Close decision", review_closed: "Review decision", pausing: "Pausing…", needs_input: "need you", needs_one: "needs you", ready: "Queued", waiting: "Retrying automatically", needs_decision: "Waiting for your decision",
+  const labels = { agreed_delivery: "What Rich agreed to deliver", imported_checks: "Completion checks", review_closed: "Review decision", pausing: "Pausing…", needs_input: "need you", needs_one: "needs you", ready: "Queued", waiting: "Retrying automatically", needs_decision: "Waiting for your decision",
     running: "Working", paused: "Paused", needs_attention: "Needs attention", completed: "Completed",
     pending: "Not started", verifying: "Checking the result", passed: "Checks passed", canceled: "Ended without completion" };
   function node(tag, text, cls) { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
   function button(text, fn, key) { const b = node("button", text); b.type = "button"; if (key) b.dataset[key] = ""; b.addEventListener("click", fn); return b; }
+  function attention(element) {
+    element.classList.add("run-attention");
+    const mark = node("span", null, "run-attention-marker");
+    mark.dataset.contrastRole = "indicator"; mark.setAttribute("aria-hidden", "true"); element.prepend(mark);
+  }
   function fitReading() { if (root && !root.hidden) root.style.setProperty("--run-reading-room", Math.max(0, root.getBoundingClientRect().top - 8) + "px"); }
   function error(e) { lastError = String(e); render(); }
   function all() { const rows = assignments.filter(a => a.runId !== current?.runId); if (current) rows.push(current); return rows; }
@@ -28,14 +33,15 @@
     const panel = node("section", null, "run-reading " + kind);
     panel.setAttribute("aria-label", kind === "run-choices-panel" ? "Choose assignment" : "Assignment details");
     const toolbar = node("div", null, "run-reading-controls");
-    toolbar.append(button("Close", close, "runDismiss"));
-    const above = button("Read previous", () => { body.scrollTop -= Math.max(40, body.clientHeight * .8); cue(); }, "runPrevious");
+    toolbar.append(button("Back to conversation", close, "runDismiss"));
+    const above = button("Read more above", () => { body.scrollTop -= Math.max(40, body.clientHeight * .8); cue(); }, "runPrevious");
     const below = button("Read more below", () => { body.scrollTop += Math.max(40, body.clientHeight * .8); cue(); }, "runMore");
-    toolbar.append(above, below); body.classList.add("run-reading-body"); body.tabIndex = 0;
-    function cue() { above.hidden = body.scrollTop < 1; below.hidden = body.scrollTop + body.clientHeight >= body.scrollHeight - 1; }
+    const next = node("div", null, "run-reading-next"); next.append(below);
+    toolbar.append(above); body.classList.add("run-reading-body"); body.tabIndex = 0;
+    function cue() { above.hidden = body.scrollTop < 1; below.hidden = body.scrollTop + body.clientHeight >= body.scrollHeight - 1; next.hidden = below.hidden; }
     body.addEventListener("scroll", cue); const resize = new ResizeObserver(() => { if (!panel.isConnected) { resize.disconnect(); return; } cue(); });
     resize.observe(body); requestAnimationFrame(cue);
-    panel.append(toolbar, body); panel.updateReadingCue = cue; return panel;
+    panel.append(toolbar, body, next); panel.updateReadingCue = cue; return panel;
   }
   function target() { return { threadId: thread, runId: current.runId }; }
   async function mutate(command, args, after) {
@@ -63,7 +69,7 @@
     const headline = progress >= 0 ? `${state} · task ${progress + 1} of ${current.tasks.length}` : state;
     const status = node("p", lastError ? "Rich couldn’t update this assignment. Refresh to try again. Your saved work is kept." : (waiting ? `${waiting} ${waiting === 1 ? labels.needs_one : labels.needs_input}${current?.state === "needs_decision" ? "" : " · " + headline}` : headline), "run-status");
     status.setAttribute("role", "status"); root.append(status);
-    if (waiting || lastError) { status.classList.add("run-attention"); status.dataset.contrastRole = "indicator"; }
+    if (waiting || lastError) { attention(status); }
     if (lastError) root.append(button("Refresh assignments", () => window.RichRuns.show(thread), "runRefresh"));
     if (current) {
       const picker = node("div", null, "run-picker");
@@ -81,14 +87,15 @@
               const result = await bridge.invoke("select_run", { threadId: thread, runId: a.runId });
               if (stamp === generation) { current = result; pickerOpen = false; decisionOpen = false; editor = null; render(); root.querySelector("[data-run-picker]")?.focus(); }
             } catch (e) { if (stamp === generation) error(e); }
-          }); row.dataset.runChoice = a.runId; if (needs(a)) { row.classList.add("run-attention"); row.dataset.contrastRole = "indicator"; } list.append(row);
+          }); row.dataset.runChoice = a.runId; if (needs(a)) { attention(row); } list.append(row);
         } root.append(readingPanel(list, "run-choices-panel", () => { pickerOpen = false; render(); root.querySelector("[data-run-picker]")?.focus(); }));
       } root.append(picker);
       const tasks = current.tasks.filter(t => t.decision), task = tasks[0];
-      if (task) root.append(button(decisionOpen ? labels.review_open : labels.review_closed, () => {
-        decisionOpen = !decisionOpen; pickerOpen = false; historyOpen = false; editor = null; render();
+      const review = task ? button(labels.review_closed, () => {
+        decisionOpen = true; pickerOpen = false; historyOpen = false; editor = null; render();
         if (decisionOpen) root.querySelector(".run-reading-body")?.focus();
-      }, "runReview"));
+      }, "runReview") : null;
+      if (review) review.setAttribute("aria-expanded", String(decisionOpen));
       if (task && !editor && decisionOpen) {
         const d = task.decision, decision = node("section", null, "run-decision"); decision.setAttribute("aria-label", "Your decision");
         const question = node("div", null, "run-question-body");
@@ -107,6 +114,7 @@
       }
       if (!["completed", "canceled"].includes(current.state)) {
         const controls = node("div", null, "run-actions");
+        if (review) controls.append(review);
         if ((!current.autonomous || current.state === "paused") && !needs(current)) controls.append(button("Continue assignment", () => mutate("drive_run", target()), "runContinue"));
         if (current.state !== "paused") controls.append(button("Pause assignment", () => {
           const args = target(); pausing.add(args.runId);
@@ -136,20 +144,28 @@
       }
     }
     const history = node("details", null, "run-history"); history.open = historyOpen; history.append(node("summary", current || lastError ? "Show me what happened" : "Import an assignment"));
-    history.addEventListener("toggle", () => { if (history.isConnected) { historyOpen = history.open; if (historyOpen && (decisionOpen || pickerOpen || editor)) { decisionOpen = false; pickerOpen = false; editor = null; render(); } } });
+    history.addEventListener("toggle", () => { if (history.isConnected && historyOpen !== history.open) { historyOpen = history.open; if (historyOpen) { decisionOpen = false; pickerOpen = false; editor = null; } render(); } });
     const body = node("div", null, "run-history-body"); if (lastError) body.append(node("pre", lastError));
     if (current) {
-      const list = node("ol");
+      const single = current.tasks.length === 1, list = node(single ? "div" : "ol");
       for (const task of current.tasks) {
-        const item = node("li"); item.append(node("p", `${task.description} (${labels[task.state]})`));
-        if (task.checks.length) item.append(node("p", `Completion checks: ${task.checks.join("; ")}`, "run-checks"));
-        if (task.previous_instructions?.length) item.append(node("p", `Earlier instructions still apply unless changed: ${task.previous_instructions.join("\n")}`));
+        const item = node(single ? "section" : "li", null, "run-history-task");
+        if (!single || task.description !== current.goal) item.append(node("p", task.description));
+        item.append(node("p", labels[task.state]));
+        if (task.checks.length) item.append(node("p", `${current.autonomous ? labels.agreed_delivery : labels.imported_checks}: ${task.checks.join("; ")}`, "run-checks"));
+        if (task.previous_instructions?.length) {
+          item.append(node("p", "Earlier instructions still apply unless changed."));
+          for (const previous of task.previous_instructions) {
+            const section = node("section", null, "run-previous-instructions");
+            section.append(node("p", `Your request: ${previous.request}`), node("p", `Rich agreed: ${previous.acceptedScope}`)); item.append(section);
+          }
+        }
         if (task.decision?.recommendation) item.append(node("p", task.decision.recommendation));
-        const evidence = (task.evidence || []).filter(e => !e.includes("CEO_DECISION:")); if (evidence.length) item.append(node("pre", evidence.join("\n")));
+        const evidence = (task.evidence || []).filter(e => !e.includes("CEO_DECISION:")); for (const receipt of evidence) item.append(node("p", receipt, "run-receipt"));
         if (!current.autonomous && task.commands?.length) {
           const technical = node("details"); technical.append(node("summary", "Technical details"), node("pre", task.commands.map(a => a.map(v => /^[a-zA-Z0-9_./=-]+$/.test(v) ? v : "'" + v.replaceAll("'", "'\\''") + "'").join(" ")).join("\n"))); item.append(technical);
         }
-        if (!current.autonomous && task.state === "needs_attention") item.append(button("Retry after reviewing the result", () => mutate("retry_run_task", { ...target(), taskId: task.id })));
+        if (!current.autonomous && task.state === "needs_attention") item.append(button("Retry after reviewing the result", () => mutate("retry_run_task", { ...target(), taskId: task.id }), "runRetry"));
         list.append(item);
       } body.append(list);
       if (!current.autonomous && current.workspace) body.append(node("p", `Workspace: ${current.workspace}. Up to ${current.maxAttempts} attempts per task, ${current.turnTimeoutSeconds} seconds per attempt.`));
@@ -173,7 +189,7 @@
         } catch (e) { if (stamp === generation) error(e); }
       }); label.append(load); body.append(label);
     }
-    history.append(body); root.append(history);
+    if (historyOpen) history.append(readingPanel(body, "run-history-panel", () => { historyOpen = false; render(); root.querySelector(".run-history > summary")?.focus(); })); root.append(history);
     fitReading();
     for (const panel of root.querySelectorAll(".run-reading")) panel.updateReadingCue();
     for (const b of root.querySelectorAll("button")) if (!b.hasAttribute("data-run-pause") && !b.hasAttribute("data-run-end") && !b.hasAttribute("data-run-dismiss")) b.disabled = working;
@@ -185,7 +201,7 @@
   window.RichRuns = {
     mount(b, element) {
       bridge = b; root = element; window.addEventListener("resize", fitReading);
-      document.addEventListener("keydown", e => { if (e.key === "Escape" && (pickerOpen || decisionOpen || editor)) { const focus = pickerOpen ? "[data-run-picker]" : "[data-run-review], [data-run-end]"; pickerOpen = false; decisionOpen = false; editor = null; render(); root.querySelector(focus)?.focus(); } });
+      document.addEventListener("keydown", e => { if (e.key === "Escape" && (pickerOpen || decisionOpen || editor || historyOpen)) { const focus = pickerOpen ? "[data-run-picker]" : historyOpen ? ".run-history > summary" : "[data-run-review], [data-run-end]"; pickerOpen = false; decisionOpen = false; historyOpen = false; editor = null; render(); root.querySelector(focus)?.focus(); } });
       document.addEventListener("click", e => { if (pickerOpen && !e.composedPath().includes(root)) { pickerOpen = false; render(); } });
       setInterval(async () => {
         if (!thread || (!current?.preparing && !pausing.has(current?.runId)) || polling) return;

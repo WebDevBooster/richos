@@ -66,25 +66,29 @@
 "use strict";
 
 module.exports = [
+  {"s": "Back to conversation", "c": "CONTROL", "why": "Dismisses the reading surface without committing a decision."},
+  {"s": "Read more above", "c": "CONTROL", "why": "Scrolls toward earlier content with overlap, without changing the selected assignment."},
+  {"s": "Completion checks", "c": "FRAGMENT", "why": "Labels the checks supplied with an imported assignment."},
+  {"s": "What Rich agreed to deliver", "c": "FRAGMENT", "why": "Labels the accepted scope projected from Rich’s reply."},
+  {"s": "Earlier instructions still apply unless changed.", "c": "INFORMATIONAL", "why": "Introduces separately labeled prior CEO instructions and Rich’s accepted scope."},
+  {"s": "Saved results are kept with this assignment.", "c": "INFORMATIONAL", "why": "Neutral display fallback for results from an unrecognized journal format; storage and execution are unchanged."},
+  {"s": "The saved assignment details are unavailable in this view.", "c": "INFORMATIONAL", "why": "Reports an unrecognized display format without exposing raw execution instructions or implying lost work."},
+
   {"s":"?","c":"FRAGMENT","why":"Thread navigation status label or glyph, composed with the thread title and its navigation control."},
   {"s":"working","c":"FRAGMENT","why":"Thread navigation status label or glyph, composed with the thread title and its navigation control."},
   {"s":"⊘","c":"FRAGMENT","why":"Thread navigation status label or glyph, composed with the thread title and its navigation control."},
   {"s":"△","c":"FRAGMENT","why":"Thread navigation status label or glyph, composed with the thread title and its navigation control."},
   {"s":"◆","c":"FRAGMENT","why":"Thread navigation status label or glyph, composed with the thread title and its navigation control."},
   {s:"Review decision",c:"CONTROL",why:"Opens the question and its answers in a reading surface."},
-  {s:"Close decision",c:"CONTROL",why:"Returns to the conversation without answering the pending decision."},
   {s:"done",c:"FRAGMENT",why:"Activity-state label in timeline.js, composed with the activity description and outcome."},
   {s:"failed",c:"FRAGMENT",why:"Activity-state label in timeline.js, composed with the activity description and outcome."},
   {s:"queued",c:"FRAGMENT",why:"Activity-state label in timeline.js, composed with the activity description and outcome."},
   {s:"running",c:"FRAGMENT",why:"Activity-state label in timeline.js, composed with the activity description and outcome."},
   {s:"stopped",c:"FRAGMENT",why:"Activity-state label in timeline.js, composed with the activity description and outcome."},
 
-  {"s":"Close","c":"CONTROL","why":"Explicit assignment disclosure or reading control; exercised in the panel browser checks."},
-  {"s":"Earlier instructions still apply unless changed:","c":"FRAGMENT","why":"Short controller label or composed status component. The surrounding state and controls are exercised in the real shell."},
   {"s":"Ended","c":"FRAGMENT","why":"Short controller label or composed status component. The surrounding state and controls are exercised in the real shell."},
   {"s":"Import an assignment","c":"CONTROL","why":"Explicit assignment disclosure or reading control; exercised in the panel browser checks."},
   {"s":"Read more below","c":"CONTROL","why":"Explicit assignment disclosure or reading control; exercised in the panel browser checks."},
-  {"s":"Read previous","c":"CONTROL","why":"Explicit assignment disclosure or reading control; exercised in the panel browser checks."},
   {"s":"Starting","c":"FRAGMENT","why":"Short controller label or composed status component. The surrounding state and controls are exercised in the real shell."},
   {"s":"Technical details","c":"CONTROL","why":"Explicit assignment disclosure or reading control; exercised in the panel browser checks."},
   {"s":"active","c":"FRAGMENT","why":"Short controller label or composed status component. The surrounding state and controls are exercised in the real shell."},

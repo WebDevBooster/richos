@@ -92,31 +92,31 @@
     },
     "assignment-empty": {
       "checked": 106,
-      "considered": 432
+      "considered": 430
     },
     "assignment-running": {
       "checked": 112,
-      "considered": 448
+      "considered": 436
     },
     "assignment-decision": {
       "checked": 124,
-      "considered": 466
+      "considered": 452
     },
     "assignment-error": {
       "checked": 108,
-      "considered": 438
+      "considered": 432
     },
     "assignment-history": {
-      "checked": 124,
-      "considered": 448
+      "checked": 132,
+      "considered": 460
     },
     "assignment-picker": {
       "checked": 116,
-      "considered": 456
+      "considered": 444
     },
     "assignment-scope": {
       "checked": 122,
-      "considered": 464
+      "considered": 450
     }
   },
   "signatures": {}

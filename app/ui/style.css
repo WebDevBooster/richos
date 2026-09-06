@@ -4443,7 +4443,7 @@ body.bp-narrow .tl-user-bubble {
 #managed-run { position: relative; flex: none; border-top: 1px solid var(--line); margin: 0 clamp(16px, 5vw, 72px); padding: 8px 0; font-size: 1rem; color: var(--ink); }
 #managed-run p { margin: 6px 0; overflow-wrap: anywhere; }
 #managed-run .run-status, #managed-run .run-question { font-weight: 600; }
-#managed-run .run-attention { font-weight: 700; border-left: 3px solid var(--ink); padding-left: 8px; }
+#managed-run .run-attention { position: relative; font-weight: 700; padding-left: 12px; }
 #managed-run button, #managed-run input::file-selector-button { padding: 6px 10px; cursor: pointer; color: var(--ink); background: var(--surface-raised); border: 1px solid var(--line-control); border-radius: 6px; font: inherit; }
 #managed-run button:disabled { cursor: default; color: var(--ink-soft); }
 #managed-run :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
@@ -4457,7 +4457,11 @@ body.bp-narrow .tl-user-bubble {
 #managed-run .run-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 #managed-run .run-choices button { display: block; width: 100%; text-align: left; margin: 3px 0; overflow-wrap: anywhere; }
 #managed-run summary { cursor: pointer; padding: 4px 0; }
-#managed-run .run-history-body { position: absolute; bottom: 100%; left: 0; right: 0; z-index: 9; background: var(--paper); max-height: 40vh; overflow: auto; scrollbar-gutter: stable; border: 1px solid var(--line-control); padding: 8px; }
+#managed-run .run-attention-marker { position: absolute; left: 0; top: 2px; bottom: 2px; width: 0; border-left: 3px solid var(--ink); pointer-events: none; }
+#managed-run .run-receipt, #managed-run .run-previous-instructions { white-space: pre-wrap; font-family: inherit; }
+#managed-run .run-history-task + .run-history-task { margin-top: 12px; }
+#managed-run .run-reading-next { flex: none; padding-top: 6px; border-top: 1px solid var(--line-control); }
+#managed-run .run-reading-next[hidden] { display: none; }
 /* The strip stays compact. Deliberately opened reading surfaces own long content. */
 #managed-run .run-question-body { white-space: pre-wrap; }
 #managed-run .run-reading { position: absolute; bottom: 100%; left: 0; right: 0; z-index: 11; box-sizing: border-box; max-height: min(60vh, var(--run-reading-room, calc(100vh - 320px))); display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line-control); padding: 8px; box-shadow: 0 4px 16px var(--line); }
