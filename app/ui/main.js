@@ -1722,15 +1722,19 @@ let waitQuietAnnounced = false;
 function noteTurnSignal(turnId, what) {
   if (!waitTurn || waitTurn.turnId !== turnId) return;
   const now = Date.now();
+  // Whether the SENTENCE is about to change, decided before the value is overwritten.
+  const described = !!what && what !== waitTurn.lastWhat;
   waitTurn.lastAt = now;
   waitTurn.signals += 1;
   if (what) waitTurn.lastWhat = what;
   waitQuietAnnounced = false;
   flashWaitMark();
   // A streaming reply delivers a delta every few tens of milliseconds (measured p50 62ms,
-  // above). The ticker owns the once-a-second repaint; this one only forces the frames
-  // where the SENTENCE changes — the first signal, and leaving the quiet state.
-  if (waitTurn.signals === 1 || now - waitLastPaintAt > 400) renderWaitBand();
+  // above), so the ticker owns the once-a-second repaint and this forces only the frames
+  // where the sentence actually changes: the first signal, a new description, or leaving
+  // the quiet state. Without the `described` clause the band went on showing the previous
+  // activity for up to a second after Rich had started writing.
+  if (waitTurn.signals === 1 || described || now - waitLastPaintAt > 400) renderWaitBand();
 }
 
 /// The mark's ONE animation, played once per arriving signal and never on a loop. The class
