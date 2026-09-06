@@ -92,7 +92,34 @@ mutant() {
         printf '          %s\n' "$why"
         FAIL=$((FAIL + 1)); return
     fi
-    if ! grep -q "FAIL  $want" "$dir/out.txt"; then
+    # THE CASE MATCH IS A LITERAL WITH A BOUNDARY, NOT A BARE REGEX, and that
+    # is a correction rather than a style. It used to be `grep -q "FAIL  $want"`,
+    # in which an unescaped `.` matches ANY character: `g.` matched `FAIL  g1.`,
+    # `p1.` matched `FAIL  p10.`, `C1.` matched `FAIL  C10.`. Demonstrated on
+    # 2026-09-06 rather than suspected -- case `g.` of turn-manifest.test.sh was
+    # deliberately weakened so it could not fail, and the harness still reported
+    # `removing it turns g. red`, having matched a sibling case. The mutant was
+    # genuinely killed every time; what was false was the claim about WHICH case
+    # killed it, and that claim is the entire second clause of this harness's
+    # contract. A wrong witness is exactly what root-contract's M1 turned out to
+    # be. Metacharacters are escaped and the token must end at a non-alphanumeric
+    # or end of line. The token is TRIMMED first, and that is not tidiness:
+    # ceo-asks writes its cases as "C3. " with a trailing space, so the
+    # boundary landed one character late and demanded a non-alphanumeric where
+    # the label's first word begins. Five mutants went red for that reason on
+    # the first run of this very change -- a red that looked exactly like a
+    # finding and was not one.
+    want_re="$(printf '%s' "$want" | sed 's/[[:space:]]*$//' | sed 's/[][\.*^$(){}?+|\/]/\\&/g')"
+    # NO TRAILING BOUNDARY, and that is a correction to this very change made an
+    # hour after it: the first version required the token to end at a
+    # non-alphanumeric, which assumed every suite writes `FAIL  z1. some words`.
+    # claim-roles' suite writes `FAIL  z1.landed-claim-about-a-dangling-commit`,
+    # so the boundary demanded a space where a slug begins and turned ALL TWENTY
+    # of its mutants into misfires -- twenty reds that looked exactly like
+    # findings. The boundary was never what fixed anything: ESCAPING is. With
+    # `.` taken literally, `z1.` cannot match `z1b.` and `C1.` cannot match
+    # `C10.`, because the character after the prefix is a digit and not a dot.
+    if ! grep -q "FAIL  ${want_re}" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at %s (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
         FAIL=$((FAIL + 1)); return

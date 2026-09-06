@@ -66,7 +66,26 @@ mutate() {
         bad "$label — the suite still PASSED with the fix removed. The fix is not load-bearing, or nothing covers it."
         return
     fi
-    if ! printf '%s' "$out" | grep -q "FAIL.*$expect"; then
+    # `FAIL.*$expect` let the token match anywhere after the word FAIL,
+    # including inside another case's message body, and an unescaped `.` in the
+    # token matched any character. Both are false-precision in a clause whose
+    # whole job is precision -- see the note in turn-manifest.mutation.sh for
+    # the demonstration. Literal token, at the head of the label, ending at a
+    # non-alphanumeric. The token is TRIMMED first: ceo-asks writes its
+    # cases as "C3. " with a trailing space, which put the boundary one
+    # character late and turned five sound mutants red on the first run of
+    # this very change.
+    expect_re="$(printf '%s' "$expect" | sed 's/[[:space:]]*$//' | sed 's/[][\.*^$(){}?+|\/]/\\&/g')"
+    # NO TRAILING BOUNDARY, and that is a correction to this very change made an
+    # hour after it: the first version required the token to end at a
+    # non-alphanumeric, which assumed every suite writes `FAIL  z1. some words`.
+    # claim-roles' suite writes `FAIL  z1.landed-claim-about-a-dangling-commit`,
+    # so the boundary demanded a space where a slug begins and turned ALL TWENTY
+    # of its mutants into misfires -- twenty reds that looked exactly like
+    # findings. The boundary was never what fixed anything: ESCAPING is. With
+    # `.` taken literally, `z1.` cannot match `z1b.` and `C1.` cannot match
+    # `C10.`, because the character after the prefix is a digit and not a dot.
+    if ! printf '%s' "$out" | grep -q "FAIL  ${expect_re}"; then
         bad "$label — the suite failed, but NOT on '$expect'. It went red for some other reason, which is not proof."
         printf '%s\n' "$out" | grep '  FAIL' | sed 's/^/           /'
         return
