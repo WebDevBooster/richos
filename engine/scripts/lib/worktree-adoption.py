@@ -283,15 +283,21 @@ def candidate_paths(records=None):
 
 
 def _session_identities(records):
-    """{session_id: (pid, pid_start)} — the pid+start every agent of a session
-    ran inside, taken from any ledger row of that session that recorded one."""
+    """{session_id: [(pid, pid_start), ...]} across every recorded incarnation.
+
+    Historical path rows may omit the PID. Resolving those through only one
+    session row would make resumed-session safety depend on ledger order.
+    """
     out = {}
     for r in records:
         sid = r.get("session_id") or ""
         pid = r.get("session_pid")
-        if not sid or not pid or sid in out:
+        if not sid or not pid:
             continue
-        out[sid] = (pid, r.get("pid_start") or "")
+        identity = (pid, r.get("pid_start") or "")
+        identities = out.setdefault(sid, [])
+        if identity not in identities:
+            identities.append(identity)
     return out
 
 
@@ -341,33 +347,49 @@ def owner_evidence(records, path):
     seen = set()
     for r in _rows_for_path(records, path):
         sid = r.get("session_id") or ""
-        if not sid:
+        # Missing session metadata does not erase an explicit process or a
+        # new ownership registration. Bare finish/termination witnesses carry
+        # no independent owner and remain corroboration below.
+        if not sid and not r.get("session_pid") and r.get("event") not in wl.OWNERSHIP_EVENTS:
             continue
         pid, start = (r.get("session_pid"), r.get("pid_start") or "")
-        if not pid:
-            pid, start = ident.get(sid, (None, ""))
-        if not pid:
-            corroboration.append("session %s recorded no pid" % sid[:8])
+        identities = [(pid, start)] if pid else ident.get(sid, [])
+        if not identities:
+            # A different owner's death cannot resolve this named owner.
+            # Only this row's exact platform agent termination can substitute
+            # for its missing process identity; a terminal agent elsewhere on
+            # the same reusable path is not evidence about this one.
+            aid = (r.get("agent_id") or "").strip()
+            try:
+                terminal = bool(aid and tx.is_terminal_agent(aid))
+            except Exception:
+                terminal = False
+            if terminal:
+                corroboration.append("session %s recorded no pid; its exact agent %s is terminal"
+                                     % (sid[:8], aid))
+            else:
+                statuses.append((sid, None, "", "unknown"))
             continue
-        # A resumed session can retain its ID while moving to another process.
-        # Deduplicating by session ID would let an old dead PID hide its live
-        # successor and authorize T2 quarantine. Consider every incarnation.
-        identity = (sid, str(pid), start)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        statuses.append((sid, pid, start, wl.process_status(pid, start)))
+        for pid, start in identities:
+            # A resumed session can retain its ID while moving to another
+            # process. Neither direct path rows nor session fallback may hide
+            # a live successor behind an old dead PID.
+            identity = (sid, str(pid), repr(start))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            statuses.append((sid, pid, start, wl.process_status(pid, start)))
     alive = [s for s in statuses if s[3] == "alive"]
     if alive:
         sid, pid, _start, _st = alive[0]
         return None, ("session %s is STILL RUNNING as pid %s and the record binds it to %s — a live "
-                      "owner refuses the claim whatever else is on record" % (sid[:8], pid, path))
+                      "owner refuses the claim whatever else is on record" % (sid[:8] or "unrecorded", pid, path))
 
     uncertain = [s for s in statuses if s[3] == "unknown"]
     if uncertain:
         sid, pid, _start, _st = uncertain[0]
         return None, ("session %s pid %s has UNKNOWN process identity; retain its worktree "
-                      "until owner termination is established" % (sid[:8], pid))
+                      "until owner termination is established" % (sid[:8] or "unrecorded", pid))
 
     # T1 — the transaction store marks the agent id terminal.
     for aid in aids:

@@ -49,12 +49,43 @@ class ProcessIdentity(unittest.TestCase):
 
     def test_canonical_reuse_and_death_still_distinguishable(self):
         start = self.token('UTC', 'C')
-        with patch.object(wl, 'pid_start', return_value=start + '-different'):
-            self.assertEqual(wl.process_status(os.getpid(), start), 'reused')
+        old = 'ps-lstart-utc-v1:Mon Jan 1 00:00:00 1990'
+        newer = 'ps-lstart-utc-v1:Tue Jan 2 00:00:00 1990'
+        with patch.object(wl, 'pid_start', return_value=newer):
+            self.assertEqual(wl.process_status(os.getpid(), old), 'reused')
         with patch.object(wl, '_pid_running', return_value=False):
             self.assertEqual(wl.process_status(123, start), 'gone')
         with patch.object(wl, 'pid_start', return_value=''):
             self.assertEqual(wl.process_status(os.getpid(), start), 'unknown')
+
+    def test_malformed_identity_cannot_prove_reuse(self):
+        prefix = 'ps-lstart-utc-v1:'
+        bad = (prefix, prefix + 'Mon Jan 1 00:00:00 199',
+               prefix + 'Mon Jan 1 00:00:00 1990-different',
+               prefix + 'Tue Jan 1 00:00:00 1990',
+               prefix + 'Mon Feb 31 00:00:00 1990',
+               prefix + 'Mon Jan 1 25:00:00 1990',
+               42, ['invalid'], {'invalid': True})
+        for token in bad:
+            with self.subTest(token=token):
+                self.assertEqual(wl.process_status(os.getpid(), token), 'unknown')
+        with patch.object(wl, 'pid_start', return_value=prefix + 'broken'):
+            self.assertEqual(wl.process_status(os.getpid(),
+                             prefix + 'Mon Jan 1 00:00:00 1990'), 'unknown')
+        with patch.object(wl.subprocess, 'run', return_value=
+                          subprocess.CompletedProcess([], 0, stdout='broken ps output')):
+            self.assertEqual(wl.pid_start(os.getpid()), '')
+        # Malformed JSON field types must reach the conservative verdict, not
+        # crash the owner's deduplication before process_status can judge them.
+        with tempfile.TemporaryDirectory() as temp:
+            for token in bad:
+                rows = [{'worktree': temp, 'session_id': 'old', 'session_pid': 99999999},
+                        {'worktree': temp, 'session_id': 'current',
+                         'session_pid': os.getpid(), 'pid_start': token}]
+                with self.subTest(owner_token=token):
+                    tier, reason = ad.owner_evidence(rows, temp)
+                    self.assertIsNone(tier, reason)
+                    self.assertIn('UNKNOWN', reason)
 
     def test_unknown_owner_vetoes_an_older_dead_owner(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
@@ -80,6 +111,69 @@ class ProcessIdentity(unittest.TestCase):
                 tier, reason = ad.owner_evidence(records, temp)
                 self.assertIsNone(tier, reason)
                 self.assertIn('STILL RUNNING', reason)
+
+    def test_pidless_path_considers_every_resumed_session_incarnation(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+            'RICHOS_WORKTREE_TX_DIR': str(Path(temp) / 'tx'),
+            'RICHOS_WORKTREE_LEDGER': str(Path(temp) / 'ledger')}):
+            old = {'worktree': temp + '/old', 'session_id': 'resumed',
+                   'session_pid': 99999999, 'pid_start': ''}
+            current = {'worktree': temp + '/current', 'session_id': 'resumed',
+                       'session_pid': os.getpid(), 'pid_start': self.token('UTC', 'C')}
+            target = {'worktree': temp + '/target', 'session_id': 'resumed'}
+            for current_start in (current['pid_start'], 'legacy-local-time'):
+                current['pid_start'] = current_start
+                for records in ([old, current, target], [current, old, target]):
+                    with self.subTest(start=current_start, records=records):
+                        tier, reason = ad.owner_evidence(records, target['worktree'])
+                        self.assertIsNone(tier, reason)
+                        self.assertIn('UNKNOWN' if current_start == 'legacy-local-time'
+                                      else 'STILL RUNNING', reason)
+
+    def test_missing_named_owner_cannot_borrow_an_old_owner_termination(self):
+        with tempfile.TemporaryDirectory() as temp:
+            old = {'worktree': temp, 'session_id': 'old', 'session_pid': 99999999,
+                   'agent_id': 'a1111111111111111'}
+            current = {'event': 'prepared', 'worktree': temp, 'session_id': 'current',
+                       'agent_id': 'a2222222222222222'}
+            for terminal_agent in ('', old['agent_id'], current['agent_id']):
+                for records in ([old, current], [current, old]):
+                    with self.subTest(terminal_agent=terminal_agent, first=records[0]['session_id']), \
+                            patch.object(ad.tx, 'is_terminal_agent',
+                                         side_effect=lambda aid: aid == terminal_agent):
+                        tier, reason = ad.owner_evidence(records, temp)
+                        if terminal_agent == current['agent_id']:
+                            self.assertEqual(tier, 'T1', reason)
+                        else:
+                            self.assertIsNone(tier, reason)
+                            self.assertIn('UNKNOWN', reason)
+            current.pop('agent_id')
+            with patch.object(ad.tx, 'is_terminal_agent', return_value=True):
+                tier, reason = ad.owner_evidence([old, current], temp)
+                self.assertIsNone(tier, reason)
+                self.assertIn('UNKNOWN', reason)
+
+    def test_missing_session_id_does_not_hide_live_or_unknown_ownership(self):
+        with tempfile.TemporaryDirectory() as temp:
+            old = {'worktree': temp, 'session_id': 'old', 'session_pid': 99999999,
+                   'agent_id': 'a1111111111111111'}
+            current = {'event': 'registered', 'worktree': temp,
+                       'agent_id': 'a2222222222222222'}
+            for pid in (None, os.getpid()):
+                current['session_pid'] = pid
+                current['pid_start'] = self.token('UTC', 'C') if pid else ''
+                for terminal_agent in (old['agent_id'], current['agent_id']):
+                    for records in ([old, current], [current, old]):
+                        with self.subTest(pid=pid, terminal_agent=terminal_agent,
+                                          first=records[0].get('session_id')), \
+                                patch.object(ad.tx, 'is_terminal_agent',
+                                             side_effect=lambda aid: aid == terminal_agent):
+                            tier, reason = ad.owner_evidence(records, temp)
+                            if pid is None and terminal_agent == current['agent_id']:
+                                self.assertEqual(tier, 'T1', reason)
+                            else:
+                                self.assertIsNone(tier, reason)
+                                self.assertIn('STILL RUNNING' if pid else 'UNKNOWN', reason)
 
     def test_ambiguous_record_cannot_fall_through_to_process_name_scan(self):
         reg = {'session_pid': os.getpid(), 'pid_start': 'legacy-local-time',

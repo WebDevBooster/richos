@@ -261,6 +261,26 @@ def _process_env():
     return {**os.environ, "LC_ALL": "C", "LANG": "C", "TZ": "UTC0"}
 
 
+def _valid_process_start(token):
+    """Only a complete canonical identity can prove reuse, never a broken tag."""
+    if not isinstance(token, str) or not token.startswith(PROCESS_START_PREFIX):
+        return False
+    text = token[len(PROCESS_START_PREFIX):]
+    match = re.fullmatch(r"([A-Z][a-z]{2}) ([A-Z][a-z]{2}) ([1-9][0-9]?) "
+                         r"([0-9]{2}):([0-9]{2}):([0-9]{2}) ([0-9]{4})", text)
+    if not match:
+        return False
+    weekday, month, day, hour, minute, second, year = match.groups()
+    try:
+        # Do not let the embedding Python process's LC_TIME affect validation.
+        month_number = ("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split().index(month) + 1)
+        start = datetime(int(year), month_number, int(day), int(hour), int(minute),
+                         int(second), tzinfo=timezone.utc)
+        return weekday == "Mon Tue Wed Thu Fri Sat Sun".split()[start.weekday()]
+    except (ValueError, OverflowError):
+        return False
+
+
 def pid_start(pid):
     """Versioned UTC/C ps start token, or empty if unreadable.
 
@@ -280,7 +300,8 @@ def pid_start(pid):
         return ""
     if res.returncode != 0 or not _ws(res.stdout):
         return ""
-    return PROCESS_START_PREFIX + _ws(res.stdout)
+    token = PROCESS_START_PREFIX + _ws(res.stdout)
+    return token if _valid_process_start(token) else ""
 
 
 def _pid_running(pid):
@@ -301,7 +322,7 @@ def process_status(pid, recorded_start):
     alive    the pid runs AND (no start was recorded OR the start matches)
     gone     no process has this pid
     reused   a process has this pid but with a different start time
-    unknown  the pid is missing/unprobeable or its recorded identity is legacy
+    unknown  the pid is missing/unprobeable or an identity is legacy/malformed
     """
     if pid in (None, "", 0):
         return "unknown"
@@ -315,13 +336,15 @@ def process_status(pid, recorded_start):
     if not running:
         return "gone"
     cur = pid_start(pid)
+    if recorded_start is not None and not isinstance(recorded_start, str):
+        return "unknown"
     rec = _ws(recorded_start)
-    if not cur:
+    if not _valid_process_start(cur):
         # It answered kill -0 but ps could not read it — do not guess.
         return "unknown"
     if not rec:
         return "alive"
-    if not rec.startswith(PROCESS_START_PREFIX):
+    if not _valid_process_start(rec):
         return "unknown"
     return "alive" if cur == rec else "reused"
 

@@ -16,6 +16,16 @@ A resumed session may keep its session ID while changing PID. Adoption considers
 every recorded process incarnation; a dead predecessor cannot hide a live
 successor or overrule it based on record order.
 
+Session fallback also retains every recorded incarnation when a path row omits
+its PID. A missing session ID does not hide a recorded process or a new ownership
+registration. A named owner with no resolvable process remains unknown unless
+that exact agent has an independent platform terminal record. An unrelated old
+owner's terminal record never resolves the uncertainty.
+
+Canonical tags must contain a complete valid C/UTC date and time. A malformed or
+truncated tag, invalid JSON field type or unreadable process observation remains
+unknown. A shared prefix alone cannot prove that a PID was reused.
+
 The process table used by session exhaustion is also collected under C/UTC and
 parsed as UTC. A recorded but ambiguous PID cannot fall through to that weaker
 process-name scan. Adoption refuses when any recorded owner has unknown identity,
