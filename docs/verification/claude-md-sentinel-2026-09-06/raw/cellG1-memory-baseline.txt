@@ -1,0 +1,10 @@
+[drive] bin  = /Users/alex/.local/bin/claude
+[drive] cwd  = /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/sentinel/memcell
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "", "--no-session-persistence", "--session-id", "37954c20-4c8f-4319-818f-8e0d8c304efd", "--permission-prompt-tool", "stdio"]
+[drive] handshake ok in 0.681s
+[drive] result subtype = success stop_reason = end_turn
+[drive] tool requests denied = []
+----- ASSISTANT TEXT -----
+Status word: unknown
+Build command: unknown
+----- END -----
