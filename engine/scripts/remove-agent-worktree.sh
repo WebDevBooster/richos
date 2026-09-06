@@ -80,29 +80,56 @@
 #     remove-agent-worktree.sh --owner <agent-id> <worktree-path> \
 #         [--branch <branch>] [--repo <repo-path>] [--force]
 #
-#   Routed to `workspace-retire.py remove`. It still REMOVES rather than
-#   quarantines — the reaper relies on the directory being gone and deletes the
-#   branch itself with `-d` — but it runs the same termination authority as
-#   retirement, takes the same workspace lock, PRESERVES (verified archive)
-#   before any `--force` removal, records its intent in the same journal before
-#   the removal and the completion after it, and copies the positive verdict to
-#   the ownership ledger. It refuses: an owner it cannot bind to the path
-#   (`owner-unbound`), an owner that is ALIVE or INDETERMINATE, a directory that
-#   is not a registered worktree of the repository (exit 5 — this used to be
-#   the recursive delete), a directory that CONTAINS other worktrees (exit 5),
-#   and a journal that will not take a record.
+#   Routed to `workspace-retire.py remove`, which since the SECOND review of
+#   2026-09-06 is an ADAPTER onto the retirement transaction and nothing more:
+#   it resolves the path and the owner to the same workspace identity, asks
+#   the same termination authority, and then runs the SAME sequence retirement
+#   runs — preserve unconditionally (committed, staged, dirty, untracked AND
+#   ignored; verified by re-reading), re-check ownership after preservation,
+#   RENAME to quarantine under <parent>/.richos-retired/, re-check again after
+#   the rename and undo on any change, record before and after, unlock and
+#   prune the git registration. NOTHING IS DELETED. The directory is gone from
+#   its path and from git, which is all the reaper ever relied on; the bytes
+#   sit in quarantine for the retention period and in a verified archive
+#   after it.
+#
+#   WHY (the second review's three findings, all on this route): a worker that
+#   acquired the workspace during preservation lost its new file, because the
+#   re-check the last round added lived in retirement mode only; an ordinary
+#   removal without --force erased an ignored file with no archive at all,
+#   because a clean `git status` was read as "nothing to lose"; and `--branch`
+#   naming an UNRELATED unmerged branch deleted it, with the backup ref
+#   protecting the target's tip instead. Two lifecycle sequences sharing one
+#   authority was two places for the same check to be missing from one of
+#   them, so there is now one sequence.
+#
+#   It refuses: an owner it cannot bind to the path (`owner-unbound`), an
+#   owner that is ALIVE or INDETERMINATE, a directory that is not a registered
+#   worktree of the repository (exit 5 — this used to be the recursive
+#   delete), a directory that CONTAINS other worktrees (exit 5), a tree with
+#   modified or untracked paths when --force is not given
+#   (`dirty-without-force`), a --branch that is not the branch checked out at
+#   the path (`branch-mismatch`), a retired path reoccupied by an object no
+#   newer ownership record claims (`already-retired-path-reoccupied`), and a
+#   journal that will not take a record.
 #
 #   --owner <agent-id>   REQUIRED. Accepts "agent-<id>" or "<id>". Must be
 #                        BOUND to <worktree-path> (see the rule above).
-#   <worktree-path>      REQUIRED. The worktree directory to remove.
-#   --branch <branch>    Optional. A branch to delete after removal; its tip is
-#                        first made reachable from refs/richos/retired/<ws-id>/.
+#   <worktree-path>      REQUIRED. The worktree directory to retire.
+#   --branch <branch>    Optional ASSERTION: must be the branch checked out at
+#                        <worktree-path>, else refused before anything moves.
+#                        When it matches, it is deleted AFTER the quarantine by
+#                        compare-and-delete (`git update-ref -d <ref> <tip>`)
+#                        against the tip the backup ref
+#                        refs/richos/retired/<ws-id>/<branch> was read back to
+#                        hold; a branch that moved in between is left in place.
 #   --repo <repo-path>   Optional. The git repo that OWNS <worktree-path>.
 #                        Defaults to the entity main checkout.
-#   --force              Pass --force to `git worktree remove`. The tree is
-#                        preserved (verified archive under the retirement state
-#                        root) FIRST, because --force is what lets git destroy
-#                        dirty and untracked content.
+#   --force              Proceed although the tree has modified or untracked
+#                        paths. Without it, such a tree is refused exactly as
+#                        `git worktree remove` would refuse it — the reaper
+#                        treats "needed --force" as proof a gate was wrong.
+#                        Preservation does not depend on this flag.
 #
 # ENTITY OVERRIDE:
 #   --entity-repo <path>  (or env REMOVE_AGENT_ENTITY_REPO) overrides the repo
@@ -111,8 +138,9 @@
 #   registers it, which is by construction the entity that spawned it.
 #
 # Exit codes:
-#   0  removed (legacy) / quarantined, already-retired or a passing --dry-run
-#      (retirement).
+#   0  quarantined, already-retired or a passing --dry-run (both modes; the
+#      legacy mode's success line still reads "removed agent worktree" and says
+#      in the same line where the quarantine is).
 #   2  usage error.
 #   3  REFUSED — nothing removed. Owner alive, indeterminate, unresolved or
 #      unbound; repository unreadable; identity changed; lock contended; and
@@ -153,7 +181,13 @@ usage, LEGACY mode (the reaper's route, and operator work from a bare path):
            [--branch <branch>] [--repo <repo-path>] [--force] \\
            [--entity-repo <path>]
 
-The ONLY sanctioned way to remove an agent-associated worktree. Removes only
+  The SAME transaction as retirement, addressed by path + owner: preserved
+  (verified), RENAMED to <parent>/.richos-retired/, registration pruned.
+  Nothing is deleted. --branch is an ASSERTION that must name the branch
+  checked out at the path; it is deleted afterward by compare-and-delete.
+  Without --force a tree with modified or untracked paths is refused.
+
+The ONLY sanctioned way to retire an agent-associated worktree. Acts only
 when the owner is BOUND to the path (an ownership record, or the agent's own
 isolation worktree) AND is NOT-ALIVE on POSITIVE evidence (witnessed
 termination, observed unlocked/stale-locked isolation worktree, or a host
@@ -299,9 +333,11 @@ fi
 # NOT-ALIVE, then checked whether the path was a registered worktree. Three
 # things were wrong with that in the same direction: NOT-ALIVE covered
 # "no such agent exists"; nothing established that the owner OWNED the path;
-# and a `--force` removal preserved nothing. All three now live in
-# `workspace-retire.py remove`, beside the retirement operation, so the two
-# cannot drift apart.
+# and a `--force` removal preserved nothing. All three moved into
+# `workspace-retire.py remove`, beside the retirement operation — and the
+# second review then showed that "beside" was not "the same": the library's
+# remove ran its own sequence and had its own three holes. It now runs
+# retirement's sequence, so there is one thing to be wrong about.
 #
 # The library prints a human-readable banner on stderr (the refusal banner
 # carries the verdict word — ALIVE, INDETERMINATE — where the verdict decided

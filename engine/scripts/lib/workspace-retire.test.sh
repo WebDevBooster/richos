@@ -7,8 +7,10 @@
 # section "Acceptance criteria" (ten rows), plus the independent review of the
 # first fix, richos-hq docs/verification/worktree-removal-fix-review-2026-09-06/
 # (three reproduced findings; its reproduce.py is vendored beside this file and
-# run verbatim in the last section). The diagnosis's own instructions, followed
-# here:
+# run verbatim), plus the SECOND independent review,
+# docs/verification/worktree-removal-fix-recheck-2026-09-06/ (three more, all
+# on the legacy route; its reproduce.py is vendored too and run verbatim in the
+# last section). The diagnosis's own instructions, followed here:
 #
 #   "Use disposable fixtures only. No test should target real workspaces."
 #   "Tests must assert preservation of sibling file contents and relevant
@@ -147,6 +149,13 @@ snapshot() { # <dir>
 refs_snapshot() { git -C "$1" for-each-ref --format='%(refname) %(objectname)' | LC_ALL=C sort; }
 wt_snapshot()   { git -C "$1" worktree list --porcelain | LC_ALL=C sort; }
 inode_of()      { python3 -c 'import os,sys; s=os.lstat(sys.argv[1]); print("%d:%d"%(s.st_dev,s.st_ino))' "$1"; }
+# Every quarantine of workspace <name> in container <dir>. Quarantines live in
+# <dir>/.richos-retired/ (see the library header for why a dot-directory). A
+# row asserting "no quarantine exists" must look HERE: before this helper,
+# three rows looked in the container root, and when the location moved they
+# went green over a check of nowhere. R6 and QDIR pin the location, so an
+# empty answer from this helper means what the row says.
+quarantines_of() { ls -d "$1"/.richos-retired/"$2".richos-retired-* 2>/dev/null; }
 
 FIXNO=0
 FX=""; OWNER_REPO=""; ENTITY=""; CONTAINER=""; LEDGER=""
@@ -691,6 +700,8 @@ QPATH="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.s
 assert_dir "$QPATH" "the workspace was quarantined, not erased" || rc=1
 assert_eq "$BEFORE_ALPHA" "$(snapshot "$QPATH")" "the quarantine holds the workspace byte-for-byte" || rc=1
 assert_absent "$CONTAINER/alpha" "the original path is vacated" || rc=1
+assert_eq "$CONTAINER/.richos-retired" "$(dirname "$QPATH")" "the quarantine lives in <parent>/.richos-retired/ (pins the location every absence check below relies on)" || rc=1
+assert_eq "$QPATH" "$(quarantines_of "$CONTAINER" alpha)" "and quarantines_of finds exactly it" || rc=1
 assert_eq "$BEFORE_BETA" "$(snapshot "$CONTAINER/beta")" "the sibling workspace is untouched" || rc=1
 
 BACKUP_REF="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["branch"]["backup_ref"])' 2>/dev/null)"
@@ -1289,7 +1300,7 @@ assert_dir "$CONTAINER/alpha" "the workspace is at its own path" || rc=1
 assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "and is the same object" || rc=1
 a; [ -f "$CONTAINER/alpha/new-live-work.txt" ] || { printf '        ASSERT FAILED: the worker'"'"'s file is not at the original path\n'; rc=1; }
 assert_eq "written after the last check" "$(cat "$CONTAINER/alpha/new-live-work.txt" 2>/dev/null)" "with its bytes" || rc=1
-a; [ -z "$(ls -d "$CONTAINER"/alpha.richos-retired-* 2>/dev/null)" ] || { printf '        ASSERT FAILED: a quarantine directory exists\n'; rc=1; }
+a; [ -z "$(quarantines_of "$CONTAINER" alpha)" ] || { printf '        ASSERT FAILED: a quarantine directory exists\n'; rc=1; }
 assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git registrations unchanged" || rc=1
 assert_eq "[]" "$(jf "$DRV" sweep_actions)" "the sweep found nothing to erase" || rc=1
 if [ "$rc" -eq 0 ]; then
@@ -1312,7 +1323,7 @@ assert_contains "$(jf "$DRV" reason)" "UNDONE" "the outcome says the rename was 
 assert_dir "$CONTAINER/alpha" "the workspace is back at its own path" || rc=1
 assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "the same object, renamed there and back" || rc=1
 assert_eq "written after the last check" "$(cat "$CONTAINER/alpha/new-live-work.txt" 2>/dev/null)" "the worker's file rode along" || rc=1
-a; [ -z "$(ls -d "$CONTAINER"/alpha.richos-retired-* 2>/dev/null)" ] || { printf '        ASSERT FAILED: a quarantine directory remains\n'; rc=1; }
+a; [ -z "$(quarantines_of "$CONTAINER" alpha)" ] || { printf '        ASSERT FAILED: a quarantine directory remains\n'; rc=1; }
 assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git still registers the worktree (nothing was pruned)" || rc=1
 assert_eq "[]" "$(jf "$DRV" sweep_actions)" "the sweep erases nothing: no completed quarantine is on record" || rc=1
 N_INTENT="$(R records "$WS_ALPHA" | python3 -c 'import json,sys; rs=json.load(sys.stdin); print(sum(1 for r in rs if r.get("outcome")=="in-progress"))')"
@@ -1419,7 +1430,7 @@ assert_dir "$CONTAINER/alpha" "the workspace is back at its own path" || rc=1
 assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "same object" || rc=1
 assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "byte-for-byte" || rc=1
 assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git still registers it — nothing was pruned" || rc=1
-a; [ -z "$(ls -d "$CONTAINER"/alpha.richos-retired-* 2>/dev/null)" ] || { printf '        ASSERT FAILED: a quarantine directory remains\n'; rc=1; }
+a; [ -z "$(quarantines_of "$CONTAINER" alpha)" ] || { printf '        ASSERT FAILED: a quarantine directory remains\n'; rc=1; }
 RECON="$(R reconcile)"
 assert_eq "1" "$(printf '%s' "$RECON" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["dangling"]))')" "reconcile lists the one dangling intent" || rc=1
 assert_contains "$RECON" "source-present" "and says the workspace is at its own path" || rc=1
@@ -1532,6 +1543,620 @@ if [ "$rc" -eq 0 ]; then
     ok "REVIEW  the reviewer's reproduce.py, run verbatim: finding 1 refuses with the workspace intact, finding 2 refuses with the original path and the new worker's file intact and nothing swept, finding 3 fails with the workspace intact and nothing to restore — read by the named outcomes, as the reviewer specified"
 else
     bad "REVIEW  the reviewer's script still reproduces at least one finding"
+fi
+
+
+# ==========================================================================
+# THE SECOND 2026-09-06 REVIEW — three findings the second fix missed, each
+# reproduced by the reviewer against 3aa3acb, each closed here — and the
+# further instances of the same class this round went looking for.
+#
+# Source: richos-hq docs/verification/worktree-removal-fix-recheck-2026-09-06/
+# (README.md, reproduce.py, results.json). The reviewer's script is vendored
+# beside this suite as workspace-retire.recheck-2026-09-06.py with ONE changed
+# line (ENGINE) and is run verbatim in the last row of this section.
+#
+# THE CLASS EVERY ROW HERE IS ABOUT: a destructive step trusting a fact
+# established earlier, elsewhere, or about something else. A liveness verdict
+# from before the archive. A clean `git status` read as "nothing to lose". A
+# branch name trusted to belong to the workspace. A registration's absence
+# read as "nobody's". A tip read a few lines before the delete.
+#
+# EVERY DESTRUCTIVE ROW HAS A NEGATIVE CONTROL against the library or helper
+# as it stood at the reviewed revision 3aa3acb, so that a refusal below is a
+# refusal over a fixture proven destructible by the code that had the defect.
+# ==========================================================================
+echo "--- RECHECK 2026-09-06, finding 1: acquisition during preservation, legacy route ---"
+
+# The library and helper as the reviewer saw them, from git history, with the
+# CURRENT sibling libraries (the reviewer ran them with the same siblings).
+REVIEWED_REV=3aa3acbbe29ff9a2ae81ad9a55fa844cb1a2b857
+reviewed_engine() { # -> prints the dir holding remove-agent-worktree.sh + lib/, or nothing
+    local d="$FX/reviewed-3aa3acb"
+    if ! git -C "$SCRIPT_DIR" cat-file -e "$REVIEWED_REV:engine/scripts/lib/workspace-retire.py" 2>/dev/null; then
+        return 1
+    fi
+    mkdir -p "$d/lib"
+    cp "$SCRIPT_DIR/agent-liveness.sh" "$SCRIPT_DIR/agent-liveness.py" \
+       "$SCRIPT_DIR/resolve-roots.sh" "$SCRIPT_DIR/worktree-ledger.py" \
+       "$SCRIPT_DIR/worktree-transactions.py" "$d/lib/" 2>/dev/null
+    git -C "$SCRIPT_DIR" show "$REVIEWED_REV:engine/scripts/lib/workspace-retire.py" >"$d/lib/workspace-retire.py"
+    git -C "$SCRIPT_DIR" show "$REVIEWED_REV:engine/scripts/remove-agent-worktree.sh" >"$d/remove-agent-worktree.sh"
+    chmod +x "$d/remove-agent-worktree.sh"
+    printf '%s\n' "$d"
+}
+
+# A python driver for the LEGACY route: imports the library at <lib>, runs
+# remove_legacy() on alpha with the given owner, and schedules a REAL
+# acquisition (a live native lock in the entity, a real ownership record, a
+# real file) at the interleaving named by <when>: inside-preserve (the
+# reviewer's), before-rename (the tighter window), branch-moves (the asserted
+# branch is moved by a real git call immediately before the compare-and-
+# delete), or none. Nothing about liveness is mocked; only WHEN is chosen.
+legacy_driver() { # <lib> <when> <owner> <force 0|1> <branch> <new-agent-id>
+    python3 - "$1" "$LEDGER_PY" "$2" "$3" "$4" "$5" "$6" "$ENTITY" "$OWNER_REPO" "$CONTAINER/alpha" "$LEDGER" <<'PY'
+import importlib.util, json, os, subprocess, sys
+lib, ledger_py, when, owner, force, branch, new, entity, repo, work, ledger = sys.argv[1:12]
+spec = importlib.util.spec_from_file_location("wr", lib)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+observed = {}
+
+def acquire():
+    native = os.path.join(entity, ".claude", "worktrees", "agent-" + new)
+    os.makedirs(os.path.dirname(native), exist_ok=True)
+    subprocess.run(["git", "-C", entity, "worktree", "add", "-qb", "native-" + new, native], check=True)
+    subprocess.run(["git", "-C", entity, "worktree", "lock", "--reason",
+                    "claude agent agent-%s (pid %d start test)" % (new, os.getpid()), native], check=True)
+    subprocess.run(["python3", ledger_py, "--ledger", ledger, "record", "registered", "--agent-id", new,
+                    "--teammate", "zach-newcomer", "--session-id", "sess-new", "--repo", repo,
+                    "--worktree", work, "--branch", "alpha", "--class", "hand-rolled"],
+                   check=True, capture_output=True)
+    with open(os.path.join(work, "new-live-work.txt"), "w") as f:
+        f.write("only copy, written after the archive\n")
+    # The REAL authority, asked at this exact moment, with the OLD owner: it
+    # must say the workspace is ALIVE now. If it does not, the interleaving
+    # proved nothing and the driver says so instead of recording an outcome.
+    mod = m._ledger_module()
+    auth = m.termination_authority(entity, repo, work, owner=owner, records=mod.read_all(),
+                                   ledger_mod=mod, live_mod=mod._liveness_module())
+    observed["authority_after_acquisition"] = auth.get("reason_code")
+    observed["verdict_after_acquisition"] = auth.get("verdict")
+    assert not auth["authorized"] and auth["verdict"] == "ALIVE", auth
+
+if when == "inside-preserve":
+    real = m.preserve
+    def wrapped(ws, target, dest):
+        r = real(ws, target, dest)
+        assert r["status"] == "verified", r
+        acquire()
+        return r
+    m.preserve = wrapped
+elif when == "before-rename":
+    real_rename = m.FsTarget.rename_to
+    def wrapped_rename(self, new_base):
+        acquire()
+        return real_rename(self, new_base)
+    m.FsTarget.rename_to = wrapped_rename
+elif when == "branch-moves":
+    real_git = m._git
+    def moving_git(cwd, *args, **kw):
+        if len(args) >= 2 and args[0] == "update-ref" and args[1] == "-d":
+            # A REAL move of the branch, by git, between the tip read and the delete.
+            other = subprocess.run(["git", "-C", repo, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
+            subprocess.run(["git", "-C", repo, "branch", "-f", branch, other], check=True)
+            observed["moved_to"] = other
+        return real_git(cwd, *args, **kw)
+    m._git = moving_git
+
+res = m.remove_legacy(entity, repo, work, owner, force=(force == "1"), branch=branch)
+sweep = m.sweep(retention=0, execute=True)
+out = {"outcome": res.get("outcome"), "reason_code": res.get("reason_code"), "stage": res.get("stage"),
+       "reason": res.get("reason"), "exit": res.get("exit"),
+       "preservation_status": (res.get("preservation") or {}).get("status"),
+       "archive": (res.get("preservation") or {}).get("archive"),
+       "branch": res.get("branch"), "quarantine": res.get("quarantine"),
+       "sweep_actions": [i.get("action") for i in sweep["items"]]}
+out.update(observed)
+print(json.dumps(out))
+PY
+}
+
+# --- G1-control. THE NEGATIVE CONTROL: the library at the reviewed revision
+# DOES lose the new worker's file on the reviewer's interleaving, exit ok.
+new_fixture
+rc=0
+REV_DIR="$(reviewed_engine)" || REV_DIR=""
+if [ -n "$REV_DIR" ]; then
+    DRV="$(legacy_driver "$REV_DIR/lib/workspace-retire.py" inside-preserve "$ALPHA_AGENT" 1 "" 1111aaaa2222bbbb)"
+    assert_eq "ALIVE" "$(jf "$DRV" verdict_after_acquisition)" "the authority said ALIVE after the acquisition" || rc=1
+    assert_eq "ok" "$(jf "$DRV" outcome)" "the reviewed revision reported ok" || rc=1
+    assert_eq "removed" "$(jf "$DRV" reason_code)" "and called it removed" || rc=1
+    assert_absent "$CONTAINER/alpha" "it DELETED the workspace" || rc=1
+    assert_absent "$CONTAINER/alpha/new-live-work.txt" "and the live worker's new file with it" || rc=1
+    a; tar -tf "$(jf "$DRV" archive)" 2>/dev/null | grep -q 'new-live-work.txt' && { printf '        ASSERT FAILED: the new file IS in the archive, so nothing was lost\n'; rc=1; }
+    if [ "$rc" -eq 0 ]; then
+        ok "G1-control  NEGATIVE CONTROL — the library at the reviewed revision 3aa3acb deletes a workspace, and a file a live worker wrote into it after the archive, on the reviewer's interleaving (finding 1, reproduced)"
+    else
+        bad "G1-control  the reviewed revision did not reproduce finding 1 — G1a below would be proving nothing"
+    fi
+else
+    notcovered "G1-control  negative control against the reviewed revision" \
+        "the object 3aa3acb:engine/scripts/lib/workspace-retire.py is not in this clone's history."
+fi
+
+# --- G1a. THE REVIEWER'S INTERLEAVING against the current library: refused as
+# reacquired BEFORE the rename; the workspace, its inode, its registration and
+# the worker's file are all where they were; the archive exists and is named
+# in the refusal (the reviewer's script reads it); the sweep erases nothing.
+new_fixture
+BEFORE_ALPHA_INODE="$(inode_of "$CONTAINER/alpha")"
+BEFORE_WT="$(wt_snapshot "$OWNER_REPO")"
+rc=0
+DRV="$(legacy_driver "$LIB" inside-preserve "$ALPHA_AGENT" 1 "" 3333aaaa4444bbbb)"
+assert_eq "ALIVE" "$(jf "$DRV" verdict_after_acquisition)" "the authority said ALIVE after the acquisition" || rc=1
+assert_eq "refused" "$(jf "$DRV" outcome)" "legacy removal refused" || rc=1
+assert_eq "reacquired" "$(jf "$DRV" reason_code)" "because the workspace was reacquired" || rc=1
+assert_eq "verified" "$(jf "$DRV" preservation_status)" "the refusal carries the verified preservation" || rc=1
+assert_dir "$CONTAINER/alpha" "the workspace is at its own path" || rc=1
+assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "and is the same object" || rc=1
+assert_eq "only copy, written after the archive" "$(cat "$CONTAINER/alpha/new-live-work.txt" 2>/dev/null)" "the worker's file, with its bytes" || rc=1
+a; [ -z "$(quarantines_of "$CONTAINER" alpha)" ] || { printf '        ASSERT FAILED: a quarantine exists\n'; rc=1; }
+assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git registrations unchanged" || rc=1
+assert_eq "[]" "$(jf "$DRV" sweep_actions)" "the sweep found nothing to erase" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "G1a   a worker that acquires the workspace INSIDE preservation on the LEGACY route is caught before the rename: refused (reacquired), nothing renamed, the worker's file at the original path, git registration intact, nothing swept"
+else
+    bad "G1a   the legacy route lost a worker's post-archive work — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+# --- G1b. THE TIGHTER WINDOW on the legacy route: acquisition between the last
+# pre-rename check and the rename itself. Caught after the rename; undone.
+new_fixture
+BEFORE_ALPHA_INODE="$(inode_of "$CONTAINER/alpha")"
+BEFORE_WT="$(wt_snapshot "$OWNER_REPO")"
+rc=0
+DRV="$(legacy_driver "$LIB" before-rename "$ALPHA_AGENT" 1 "" 5555aaaa6666bbbb)"
+assert_eq "refused" "$(jf "$DRV" outcome)" "refused" || rc=1
+assert_eq "reacquired-after-quarantine" "$(jf "$DRV" reason_code)" "caught after the rename" || rc=1
+assert_contains "$(jf "$DRV" reason)" "UNDONE" "the rename was undone" || rc=1
+assert_dir "$CONTAINER/alpha" "the workspace is back at its own path" || rc=1
+assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "the same object, renamed there and back" || rc=1
+assert_eq "only copy, written after the archive" "$(cat "$CONTAINER/alpha/new-live-work.txt" 2>/dev/null)" "the worker's file rode along" || rc=1
+a; [ -z "$(quarantines_of "$CONTAINER" alpha)" ] || { printf '        ASSERT FAILED: a quarantine remains\n'; rc=1; }
+assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git still registers the worktree (nothing was pruned)" || rc=1
+assert_eq "[]" "$(jf "$DRV" sweep_actions)" "no completed quarantine for the sweep to erase" || rc=1
+RECON="$(R reconcile)"
+assert_eq "[]" "$(jf "$RECON" dangling)" "the intent is resolved by the refusal record — nothing dangling" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "G1b   a worker that acquires between the last check and the rename on the LEGACY route is caught AFTER the rename: renamed back (same inode), git registration intact, the worker's file intact, intent resolved"
+else
+    bad "G1b   an acquisition in the legacy rename window was not undone — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+echo "--- RECHECK 2026-09-06, finding 2: ignored files, no --force, clean status ---"
+
+# A fixture whose ONLY local content is an ignored file: git status is clean.
+ignored_only_fixture() {
+    new_fixture
+    git -C "$CONTAINER/alpha" checkout -q -- committed.txt
+    git -C "$CONTAINER/alpha" reset -q
+    rm -f "$CONTAINER/alpha/staged.txt" "$CONTAINER/alpha/untracked.txt" "$CONTAINER/alpha/secret.ign" "$CONTAINER/alpha/link.txt"
+    rm -rf "$CONTAINER/alpha/ignored"
+    printf 'local-draft.txt\n' >>"$CONTAINER/alpha/.gitignore"
+    git -C "$CONTAINER/alpha" add .gitignore
+    git -C "$CONTAINER/alpha" commit -q -m "ignore local draft"
+    printf 'only copy of a local draft\n' >"$CONTAINER/alpha/local-draft.txt"
+}
+
+# --- G2-control. THE NEGATIVE CONTROL: the reviewed helper, no --force, erases
+# the ignored file and creates NO archive.
+ignored_only_fixture
+rc=0
+REV_DIR="$(reviewed_engine)" || REV_DIR=""
+if [ -n "$REV_DIR" ]; then
+    assert_eq "" "$(git -C "$CONTAINER/alpha" status --porcelain=v1 --untracked-files=all)" "git status is clean (the precondition)" || rc=1
+    REV_OUT="$(bash "$REV_DIR/remove-agent-worktree.sh" --entity-repo "$ENTITY" --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" "$CONTAINER/alpha" 2>&1)"
+    assert_eq "0" "$?" "the reviewed helper exited 0" || rc=1
+    assert_absent "$CONTAINER/alpha/local-draft.txt" "it ERASED the ignored file" || rc=1
+    assert_eq "0" "$(find "$RICHOS_WORKSPACE_RETIRE_DIR" -name workspace.tar 2>/dev/null | wc -l | tr -d ' ')" "and created no archive at all" || rc=1
+    if [ "$rc" -eq 0 ]; then
+        ok "G2-control  NEGATIVE CONTROL — the helper at 3aa3acb erases an ignored file over a clean git status with no archive, exit 0 (finding 2, reproduced)"
+    else
+        bad "G2-control  the reviewed revision did not reproduce finding 2 — G2a below would be proving nothing"
+    fi
+else
+    notcovered "G2-control  negative control against the reviewed revision" \
+        "the object 3aa3acb:engine/scripts/remove-agent-worktree.sh is not in this clone's history."
+fi
+
+# --- G2a. The current helper, same fixture, no --force: quarantined with a
+# verified archive that counts the ignored file; the file is byte-identical
+# in the quarantine and comes back from restore.
+ignored_only_fixture
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+rc=0
+assert_eq "" "$(git -C "$CONTAINER/alpha" status --porcelain=v1 --untracked-files=all)" "git status is clean (the precondition)" || rc=1
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" "$CONTAINER/alpha")"
+assert_eq "0" "$?" "exit 0" || rc=1
+JSON="$(printf '%s\n' "$OUT" | python3 -c 'import sys; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
+assert_eq "quarantined" "$(jf "$JSON" outcome)" "outcome quarantined" || rc=1
+assert_eq "verified" "$(jf "$JSON" preservation.status)" "preserved and verified" || rc=1
+a; [ "$(jf "$JSON" preservation.counts.ignored)" -ge 1 ] 2>/dev/null || { printf '        ASSERT FAILED: the archive counts no ignored file\n'; rc=1; }
+QPATH="$(jf "$JSON" quarantine.path)"
+assert_dir "$QPATH" "the quarantine exists" || rc=1
+assert_eq "only copy of a local draft" "$(cat "$QPATH/local-draft.txt" 2>/dev/null)" "the ignored file is in the quarantine, byte for byte" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$QPATH")" "the whole tree is in the quarantine, byte for byte" || rc=1
+assert_absent "$CONTAINER/alpha" "the original path is vacated" || rc=1
+a; git -C "$OWNER_REPO" worktree list --porcelain | grep -qxF "worktree $CONTAINER/alpha" && { printf '        ASSERT FAILED: git still registers the worktree\n'; rc=1; }
+assert_eq "1" "$(find "$RICHOS_WORKSPACE_RETIRE_DIR" -name workspace.tar 2>/dev/null | wc -l | tr -d ' ')" "exactly one archive" || rc=1
+ROUT="$(R restore "$WS_ALPHA" "$FX/restored-ignored")"
+assert_eq "0" "$?" "restore succeeds" || rc=1
+assert_eq "only copy of a local draft" "$(cat "$FX/restored-ignored/workspace/local-draft.txt" 2>/dev/null)" "and reproduces the ignored file" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "G2a   an ordinary legacy removal (no --force) of a tree whose only local content is an IGNORED file preserves it: verified archive counting it, byte-identical in quarantine, restorable — the clean status decided nothing"
+else
+    bad "G2a   the legacy route erased or failed to preserve an ignored file — raw: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+# --- G2b. Without --force a tree with MODIFIED or UNTRACKED paths is refused
+# BEFORE preservation (no archive is made), exactly as `git worktree remove`
+# would refuse it; the identical request with --force proceeds. The refusal
+# is the flag and not some earlier gate wearing its label.
+new_fixture
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" "$CONTAINER/alpha")"
+assert_eq "3" "$?" "refused (exit 3)" || rc=1
+assert_contains "$OUT" "dirty-without-force" "the reason is the missing --force over a dirty tree" || rc=1
+assert_dir "$CONTAINER/alpha" "the workspace is still there" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "byte for byte" || rc=1
+a; [ -z "$(quarantines_of "$CONTAINER" alpha)" ] || { printf '        ASSERT FAILED: a quarantine exists after a refusal\n'; rc=1; }
+assert_eq "0" "$(find "$RICHOS_WORKSPACE_RETIRE_DIR" -name workspace.tar 2>/dev/null | wc -l | tr -d ' ')" "no archive: the refusal came before preservation" || rc=1
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "with --force the identical request proceeds" || rc=1
+assert_contains "$OUT" '"outcome": "quarantined"' "quarantined" || rc=1
+assert_absent "$CONTAINER/alpha" "and the path is vacated" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "G2b   the legacy route without --force refuses a tree with modified or untracked paths before preservation (git's own rule, which the reaper relies on), and the identical request with --force quarantines it"
+else
+    bad "G2b   the dirty-without-force rule did not hold — raw: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+echo "--- RECHECK 2026-09-06, finding 3: --branch names an unrelated branch ---"
+
+unrelated_branch_fixture() { # creates refs/heads/unrelated-unmerged with its own commit; prints its tip
+    new_fixture
+    git -C "$OWNER_REPO" checkout -q -b unrelated-unmerged
+    printf 'independent committed work\n' >"$OWNER_REPO/unrelated.txt"
+    git -C "$OWNER_REPO" add unrelated.txt
+    git -C "$OWNER_REPO" commit -q -m "unrelated work"
+    UNRELATED_TIP="$(git -C "$OWNER_REPO" rev-parse HEAD)"
+    git -C "$OWNER_REPO" checkout -q main
+}
+
+# --- G3-control. THE NEGATIVE CONTROL: the reviewed helper deletes the
+# unrelated unmerged branch and leaves no ref protecting its tip.
+unrelated_branch_fixture
+rc=0
+REV_DIR="$(reviewed_engine)" || REV_DIR=""
+if [ -n "$REV_DIR" ]; then
+    REV_OUT="$(bash "$REV_DIR/remove-agent-worktree.sh" --entity-repo "$ENTITY" --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --branch unrelated-unmerged --force "$CONTAINER/alpha" 2>&1)"
+    assert_eq "0" "$?" "the reviewed helper exited 0" || rc=1
+    a; git -C "$OWNER_REPO" show-ref --verify --quiet refs/heads/unrelated-unmerged && { printf '        ASSERT FAILED: the unrelated branch survived, so this control proves nothing\n'; rc=1; }
+    assert_eq "" "$(git -C "$OWNER_REPO" for-each-ref --contains "$UNRELATED_TIP" --format='%(refname)')" "no ref protects the unrelated tip" || rc=1
+    if [ "$rc" -eq 0 ]; then
+        ok "G3-control  NEGATIVE CONTROL — the helper at 3aa3acb deletes an UNRELATED unmerged branch named by --branch and leaves its tip unreferenced, exit 0 (finding 3, reproduced)"
+    else
+        bad "G3-control  the reviewed revision did not reproduce finding 3 — G3a below would be proving nothing"
+    fi
+else
+    notcovered "G3-control  negative control against the reviewed revision" \
+        "the object 3aa3acb:engine/scripts/remove-agent-worktree.sh is not in this clone's history."
+fi
+
+# --- G3a. The current helper: --branch naming a branch that is not the one
+# checked out at the path is refused BEFORE the lock — no archive, no backup
+# ref, the workspace and the branch untouched.
+unrelated_branch_fixture
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+BEFORE_ALPHA_INODE="$(inode_of "$CONTAINER/alpha")"
+BEFORE_REFS="$(refs_snapshot "$OWNER_REPO")"
+BEFORE_WT="$(wt_snapshot "$OWNER_REPO")"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --branch unrelated-unmerged --force "$CONTAINER/alpha")"
+assert_eq "3" "$?" "refused (exit 3)" || rc=1
+assert_contains "$OUT" "branch-mismatch" "the reason is the branch that is not this workspace's" || rc=1
+assert_eq "$UNRELATED_TIP" "$(git -C "$OWNER_REPO" rev-parse --verify --quiet refs/heads/unrelated-unmerged)" "the unrelated branch is at its tip" || rc=1
+assert_eq "$BEFORE_REFS" "$(refs_snapshot "$OWNER_REPO")" "every ref unchanged — no backup ref was even written" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "the workspace is byte for byte untouched" || rc=1
+assert_eq "$BEFORE_ALPHA_INODE" "$(inode_of "$CONTAINER/alpha")" "and the same object" || rc=1
+assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git registrations unchanged" || rc=1
+assert_eq "0" "$(find "$RICHOS_WORKSPACE_RETIRE_DIR" -name workspace.tar 2>/dev/null | wc -l | tr -d ' ')" "no archive: the refusal came before anything" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "G3a   --branch naming a branch other than the one checked out at the path is REFUSED (branch-mismatch) before the lock: the unrelated branch, every ref, the workspace and its registration are untouched"
+else
+    bad "G3a   an unrelated branch was acted on, or the refusal came late — raw: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+# --- G3b. The asserted branch IS the workspace's: deleted after the
+# quarantine by COMPARE-AND-DELETE, tip reachable from the backup ref. Then
+# the row that makes compare-and-delete load-bearing: a REAL move of the
+# branch immediately before the delete leaves it in place (branch-moved).
+new_fixture
+ALPHA_TIP="$(git -C "$CONTAINER/alpha" rev-parse HEAD)"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --branch alpha --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "exit 0" || rc=1
+JSON="$(printf '%s\n' "$OUT" | python3 -c 'import sys; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
+assert_eq "true" "$(jf "$JSON" branch.deleted)" "the workspace's own branch was deleted" || rc=1
+assert_eq "branch-deleted" "$(jf "$JSON" branch.reason_code)" "by name" || rc=1
+a; git -C "$OWNER_REPO" show-ref --verify --quiet refs/heads/alpha && { printf '        ASSERT FAILED: refs/heads/alpha still exists\n'; rc=1; }
+assert_eq "$ALPHA_TIP" "$(git -C "$OWNER_REPO" rev-parse --verify --quiet "refs/richos/retired/$WS_ALPHA/alpha")" "the tip stays reachable from the backup ref" || rc=1
+a; git -C "$OWNER_REPO" cat-file -e "$ALPHA_TIP^{commit}" 2>/dev/null || { printf '        ASSERT FAILED: the commit object is gone\n'; rc=1; }
+# The load-bearing half.
+new_fixture
+ALPHA_TIP="$(git -C "$CONTAINER/alpha" rev-parse HEAD)"
+DRV="$(legacy_driver "$LIB" branch-moves "$ALPHA_AGENT" 1 alpha 7777aaaa8888bbbb)"
+assert_eq "quarantined" "$(jf "$DRV" outcome)" "the workspace itself is quarantined" || rc=1
+assert_eq "false" "$(jf "$DRV" branch.deleted)" "the branch was NOT deleted" || rc=1
+assert_eq "branch-moved" "$(jf "$DRV" branch.reason_code)" "because it moved between the read and the delete" || rc=1
+assert_eq "$(jf "$DRV" moved_to)" "$(git -C "$OWNER_REPO" rev-parse --verify --quiet refs/heads/alpha)" "refs/heads/alpha exists at the tip it was moved to" || rc=1
+assert_ne "" "$(jf "$DRV" moved_to)" "the move really happened (the driver recorded it)" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "G3b   the asserted branch, when it IS the workspace's, is deleted by compare-and-delete with its tip reachable from the backup ref — and a branch that moves between the tip read and the delete is LEFT IN PLACE (branch-moved), so the check and the destruction are one operation"
+else
+    bad "G3b   branch deletion is not bound to the tip it read — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+echo "--- the same class, found by looking: stale locks, the quarantine's neighbors, reoccupied paths ---"
+
+# --- LOCK. A STALE-LOCKED native isolation worktree (lock names a dead pid).
+# Git never prunes a locked registration; retirement never unlocked. Both
+# routes must leave the registration GONE and the branch deletable — the
+# reaper's `git branch -d` is what follows a reap. The control: the lock is
+# shown present before, and git is shown to refuse pruning it while locked.
+dead_pid() { sleep 5 & local p=$!; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; printf '%s\n' "$p"; }
+new_fixture
+rc=0
+DP="$(dead_pid)"
+mkdir -p "$ENTITY/.claude/worktrees"
+git -C "$ENTITY" worktree add -q -b worktree-agent-1a1a1a1a1b1b1b1b "$ENTITY/.claude/worktrees/agent-1a1a1a1a1b1b1b1b"
+git -C "$ENTITY" worktree lock --reason "claude agent agent-1a1a1a1a1b1b1b1b (pid $DP start test)" "$ENTITY/.claude/worktrees/agent-1a1a1a1a1b1b1b1b"
+assert_contains "$(git -C "$ENTITY" worktree list --porcelain)" "locked claude agent agent-1a1a1a1a1b1b1b1b" "the lock is on (control)" || rc=1
+OUT="$(H --owner 1a1a1a1a1b1b1b1b "$ENTITY/.claude/worktrees/agent-1a1a1a1a1b1b1b1b")"
+assert_eq "0" "$?" "legacy: a stale-locked native worktree is retired" || rc=1
+assert_contains "$OUT" "observed-isolation-worktree" "on the observation of its stale lock" || rc=1
+assert_absent "$ENTITY/.claude/worktrees/agent-1a1a1a1a1b1b1b1b" "the path is vacated" || rc=1
+a; git -C "$ENTITY" worktree list --porcelain | grep -qxF "worktree $ENTITY/.claude/worktrees/agent-1a1a1a1a1b1b1b1b" && { printf '        ASSERT FAILED: git still registers the stale-locked worktree\n'; rc=1; }
+assert_contains "$OUT" '"git_registration": "gone"' "and the outcome READ BACK that the registration is gone" || rc=1
+a; git -C "$ENTITY" branch -d worktree-agent-1a1a1a1a1b1b1b1b >/dev/null 2>&1 || { printf '        ASSERT FAILED: the reaper'"'"'s follow-up `git branch -d` would fail\n'; rc=1; }
+# Retirement mode, same shape, with an ownership record.
+DP="$(dead_pid)"
+git -C "$ENTITY" worktree add -q -b worktree-agent-2c2c2c2c2d2d2d2d "$ENTITY/.claude/worktrees/agent-2c2c2c2c2d2d2d2d"
+git -C "$ENTITY" worktree lock --reason "claude agent agent-2c2c2c2c2d2d2d2d (pid $DP start test)" "$ENTITY/.claude/worktrees/agent-2c2c2c2c2d2d2d2d"
+L record registered --teammate zach-stale --agent-id 2c2c2c2c2d2d2d2d --session-id sess-s \
+    --repo "$ENTITY" --worktree "$ENTITY/.claude/worktrees/agent-2c2c2c2c2d2d2d2d" \
+    --branch worktree-agent-2c2c2c2c2d2d2d2d --class native
+WS_STALE="$(python3 "$LIB" workspace-id "$ENTITY" "$ENTITY/.claude/worktrees/agent-2c2c2c2c2d2d2d2d")"
+OUT="$(H --workspace "$WS_STALE")"
+assert_eq "0" "$?" "retirement: a stale-locked native worktree is retired" || rc=1
+a; git -C "$ENTITY" worktree list --porcelain | grep -qxF "worktree $ENTITY/.claude/worktrees/agent-2c2c2c2c2d2d2d2d" && { printf '        ASSERT FAILED: retirement left the stale-locked registration behind\n'; rc=1; }
+a; git -C "$ENTITY" branch -d worktree-agent-2c2c2c2c2d2d2d2d >/dev/null 2>&1 || { printf '        ASSERT FAILED: the branch is still held by a registration\n'; rc=1; }
+if [ "$rc" -eq 0 ]; then
+    ok "LOCK  a stale-locked native worktree (dead pid) is retired on BOTH routes with its git registration gone and its branch deletable — the sequence unlocks before it prunes and reads the registry back"
+else
+    bad "LOCK  a stale lock survived retirement, or the registration did — raw: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+# --- QDIR. WHERE the quarantine lives decides whether it survives its
+# neighbors. hooks/detect-nonnative-worktree.sh rm -rf's every entry `*/`
+# under .claude/worktrees/ that git does not register; the reaper's residue
+# scan reports every such entry. A quarantine is unregistered by construction.
+# The row: the quarantine is in <parent>/.richos-retired/, the exact `*/`
+# glob both scanners run does NOT enumerate it — and DOES enumerate a real
+# sibling, so the glob is shown to work.
+new_fixture
+rc=0
+OUT="$(H --workspace "$WS_ALPHA")"
+assert_eq "0" "$?" "retirement succeeds" || rc=1
+QPATH="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["quarantine"]["path"])' 2>/dev/null)"
+assert_dir "$QPATH" "the quarantine exists" || rc=1
+assert_eq "$CONTAINER/.richos-retired" "$(dirname "$QPATH")" "and lives in <parent>/.richos-retired/" || rc=1
+a; [ -z "$(ls -d "$CONTAINER"/alpha.richos-retired-* 2>/dev/null)" ] || { printf '        ASSERT FAILED: a quarantine sits as a visible sibling in the container\n'; rc=1; }
+GLOB_SEEN=""
+for d in "$CONTAINER"/*/; do GLOB_SEEN="$GLOB_SEEN $(basename "${d%/}")"; done
+assert_contains "$GLOB_SEEN" "beta" "the scanners' glob enumerates a real sibling (control)" || rc=1
+a; case "$GLOB_SEEN" in *richos-retired*) printf '        ASSERT FAILED: the scanners'"'"' glob enumerates the quarantine (%s)\n' "$GLOB_SEEN"; rc=1 ;; esac
+# The sweep still finds and erases it where it is (the location did not break retention).
+SOUT="$(R sweep --retention-days 0 --execute)"
+assert_contains "$SOUT" '"action": "erased"' "the sweep erases it there once retention elapses" || rc=1
+assert_absent "$QPATH" "erased" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "QDIR  the quarantine lives in <parent>/.richos-retired/, which the \`*/\` glob of the residue scan and of the auto-reaping hook does not enumerate (while the same glob does enumerate a real sibling), and the sweep still erases it there after retention"
+else
+    bad "QDIR  the quarantine is where a scanner would delete or report it"
+fi
+
+# --- PRIOR. A path this module retired, now occupied by a DIFFERENT object.
+# Legacy route: unclaimed (no ownership record newer than the retirement) ->
+# refused, the object untouched; claimed by a new, witnessed-terminated owner
+# -> retired on its own evidence (the reaper reaps reused hand-rolled paths).
+new_fixture
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "first legacy retirement succeeds" || rc=1
+# No sleep here, deliberately. The first version of the rule compared
+# timestamps and this row needed a second to pass; a row that needs the clock
+# is a row about the clock.
+git -C "$OWNER_REPO" worktree add -q -b alpha-again "$CONTAINER/alpha"
+printf 'replacement payload\n' >"$CONTAINER/alpha/replacement.txt"
+REPL="$(snapshot "$CONTAINER/alpha")"
+REPL_INODE="$(inode_of "$CONTAINER/alpha")"
+OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "3" "$?" "an UNCLAIMED replacement at a retired path is refused" || rc=1
+assert_contains "$OUT" "already-retired-path-reoccupied" "by name" || rc=1
+assert_eq "$REPL" "$(snapshot "$CONTAINER/alpha")" "the replacement is byte for byte untouched" || rc=1
+assert_eq "$REPL_INODE" "$(inode_of "$CONTAINER/alpha")" "and the same object" || rc=1
+L record registered --teammate zach-again --agent-id 9e9e9e9e9f9f9f9f --session-id sess-again \
+    --repo "$OWNER_REPO" --worktree "$CONTAINER/alpha" --branch alpha-again --class hand-rolled
+L record terminated --agent-id 9e9e9e9e9f9f9f9f --worktree "$CONTAINER/alpha" \
+    --reason "test fixture: witnessed termination" --witness test
+OUT="$(H --repo "$OWNER_REPO" --owner 9e9e9e9e9f9f9f9f --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "a CLAIMED replacement whose new owner is witnessed dead is retired" || rc=1
+assert_contains "$OUT" '"outcome": "quarantined"' "quarantined" || rc=1
+assert_absent "$CONTAINER/alpha" "and the path is vacated" || rc=1
+assert_eq "2" "$(ls -d "$CONTAINER"/.richos-retired/alpha.richos-retired-* 2>/dev/null | wc -l | tr -d ' ')" "two quarantines now exist, one per occupant" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "PRIOR an object nobody has claimed at a retired path is refused on the legacy route (already-retired-path-reoccupied), while a replacement claimed by a new, witnessed-terminated owner is retired on its own evidence — reused hand-rolled paths keep working for the reaper"
+else
+    bad "PRIOR the reoccupied-path rule did not hold — raw: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-600)"
+fi
+
+# --- TWICE. The same workspace ID retired twice, back to back, with NO sleep
+# between. Found by the mutation loop: with a whole-second stamp the second
+# retirement minted the same quarantine name AND the same preservation
+# directory as the first, overwrote the first's archive, and then failed on
+# the occupied name. Both must succeed, into distinct names, and the first
+# recovery copy must be byte-identical afterward.
+new_fixture
+rc=0
+OUT1="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "first retirement succeeds" || rc=1
+J1="$(printf '%s\n' "$OUT1" | python3 -c 'import sys; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
+ARCHIVE1="$(jf "$J1" preservation.archive)"
+Q1="$(jf "$J1" quarantine.path)"
+ARCHIVE1_SHA="$(shasum -a 256 "$ARCHIVE1" | cut -d' ' -f1)"
+git -C "$OWNER_REPO" worktree add -q -b alpha-twice "$CONTAINER/alpha"
+printf 'second occupant\n' >"$CONTAINER/alpha/second.txt"
+L record registered --teammate zach-twice --agent-id 5b5b5b5b5c5c5c5c --session-id sess-t \
+    --repo "$OWNER_REPO" --worktree "$CONTAINER/alpha" --branch alpha-twice --class hand-rolled
+L record terminated --agent-id 5b5b5b5b5c5c5c5c --worktree "$CONTAINER/alpha" \
+    --reason "test fixture: witnessed termination" --witness test
+OUT2="$(H --repo "$OWNER_REPO" --owner 5b5b5b5b5c5c5c5c --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "second retirement of the same ID, in the same breath, succeeds" || rc=1
+J2="$(printf '%s\n' "$OUT2" | python3 -c 'import sys; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
+assert_eq "quarantined" "$(jf "$J2" outcome)" "quarantined" || rc=1
+assert_ne "$Q1" "$(jf "$J2" quarantine.path)" "into a DIFFERENT quarantine name" || rc=1
+assert_ne "$ARCHIVE1" "$(jf "$J2" preservation.archive)" "with a DIFFERENT archive path" || rc=1
+assert_eq "$ARCHIVE1_SHA" "$(shasum -a 256 "$ARCHIVE1" | cut -d' ' -f1)" "and the FIRST archive is byte-identical to before — the recovery copy was not written over" || rc=1
+assert_dir "$Q1" "the first quarantine still exists" || rc=1
+assert_eq "second occupant" "$(cat "$(jf "$J2" quarantine.path)/second.txt" 2>/dev/null)" "the second quarantine holds the second occupant" || rc=1
+# The property itself, deterministically: two retirements in this row are more
+# than a second apart on a slow machine, so the collision above only shows when
+# the clock cooperates. What the fix establishes is that IMMEDIATE calls to the
+# stamp differ. Fifty back-to-back calls must yield more than one value; a
+# whole-second stamp yields one (unless they straddle a boundary within ~100 us).
+STAMPS="$(python3 - "$LIB" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("wr", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+vals = [m._stamp() for _ in range(50)]
+print(len(set(vals)), m.QUARANTINE_RE.search("x.richos-retired-ws-0123456789abcdef-" + vals[0]) is not None)
+PY
+)"
+a; [ "${STAMPS%% *}" -gt 1 ] 2>/dev/null || { printf '        ASSERT FAILED: fifty immediate stamps yielded %s distinct value(s) — the stamp cannot tell two retirements apart\n' "${STAMPS%% *}"; rc=1; }
+assert_eq "True" "${STAMPS##* }" "and a name minted with such a stamp is one the sweep recognizes" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "TWICE the same workspace ID retired twice with no pause mints two distinct quarantine names and two distinct archives, the first recovery copy is byte-identical afterward, and fifty immediate stamps are distinct"
+else
+    bad "TWICE two retirements of one ID collided on a name or an archive — raw: $(printf '%s' "$OUT2" | tr '\n' ' ' | cut -c1-500)"
+fi
+
+# --- STAMP. The guards behind TWICE, forced: with the stamp PINNED to one
+# constant (a real collision cannot be built against microsecond stamps), the
+# second retirement must refuse or fail BEFORE anything moves, and the first
+# recovery copy must be byte-identical afterward. Without this row, the
+# exist_ok=False in preserve() and the name-taken refusal would be code no
+# case ever reaches.
+new_fixture
+rc=0
+DRV="$(python3 - "$LIB" "$LEDGER_PY" "$ENTITY" "$OWNER_REPO" "$CONTAINER/alpha" "$LEDGER" "$ALPHA_AGENT" <<'PY'
+import hashlib, importlib.util, json, os, subprocess, sys
+lib, ledger_py, entity, repo, work, ledger, owner = sys.argv[1:8]
+spec = importlib.util.spec_from_file_location("wr", lib)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m._stamp = lambda: "20260101T000000.000000Z"
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        h.update(f.read())
+    return h.hexdigest()
+r1 = m.remove_legacy(entity, repo, work, owner, force=True)
+a1 = (r1.get("preservation") or {}).get("archive")
+s1 = sha(a1) if a1 and os.path.isfile(a1) else ""
+subprocess.run(["git", "-C", repo, "worktree", "add", "-qb", "alpha-stamp", work], check=True)
+with open(os.path.join(work, "second.txt"), "w") as f:
+    f.write("second occupant\n")
+new = "6d6d6d6d6e6e6e6e"
+subprocess.run(["python3", ledger_py, "--ledger", ledger, "record", "registered", "--agent-id", new,
+                "--teammate", "zach-stamp", "--session-id", "sess-stamp", "--repo", repo,
+                "--worktree", work, "--branch", "alpha-stamp", "--class", "hand-rolled"], check=True, capture_output=True)
+subprocess.run(["python3", ledger_py, "--ledger", ledger, "record", "terminated", "--agent-id", new,
+                "--worktree", work, "--reason", "fixture", "--witness", "test"], check=True, capture_output=True)
+r2 = m.remove_legacy(entity, repo, work, new, force=True)
+print(json.dumps({"first_outcome": r1.get("outcome"), "first_archive": a1,
+                  "second_outcome": r2.get("outcome"), "second_reason_code": r2.get("reason_code"),
+                  "second_stage": r2.get("stage"),
+                  "first_archive_same_bytes": bool(s1) and os.path.isfile(a1) and sha(a1) == s1,
+                  "work_present": os.path.isdir(work),
+                  "second_file_present": os.path.isfile(os.path.join(work, "second.txt"))}))
+PY
+)"
+assert_eq "quarantined" "$(jf "$DRV" first_outcome)" "the first retirement succeeds" || rc=1
+a; case "$(jf "$DRV" second_outcome)" in failed|refused) ;; *) printf '        ASSERT FAILED: the second retirement under a pinned stamp reported %s\n' "$(jf "$DRV" second_outcome)"; rc=1 ;; esac
+a; case "$(jf "$DRV" second_reason_code)" in preservation-failed|quarantine-name-taken) ;; *) printf '        ASSERT FAILED: unexpected reason %s\n' "$(jf "$DRV" second_reason_code)"; rc=1 ;; esac
+assert_eq "true" "$(jf "$DRV" first_archive_same_bytes)" "the first archive is byte-identical — not written over" || rc=1
+assert_eq "true" "$(jf "$DRV" work_present)" "the second occupant is untouched at its path" || rc=1
+assert_eq "true" "$(jf "$DRV" second_file_present)" "with its file" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "STAMP with the stamp pinned to one constant, the second retirement of the same ID stops before anything moves (preservation refuses the existing directory) and the first recovery copy is byte-identical — the collision guards are reached, not merely present"
+else
+    bad "STAMP a forced name collision overwrote an archive or moved the workspace — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-500)"
+fi
+
+echo "--- RECHECK 2026-09-06: the reviewer's own script, verbatim ---"
+
+RECHECK_PY="$SCRIPT_DIR/workspace-retire.recheck-2026-09-06.py"
+rc=0
+a; [ -f "$RECHECK_PY" ] || { printf '        ASSERT FAILED: the vendored recheck script is missing at %s\n' "$RECHECK_PY"; rc=1; }
+RECHECK_ORIG=/Users/alex/ab/richos-hq/docs/verification/worktree-removal-fix-recheck-2026-09-06/reproduce.py
+if [ -f "$RECHECK_ORIG" ]; then
+    a; diff <(sed 1,12d "$RECHECK_PY" | grep -v '^ENGINE = ') <(grep -v '^ENGINE = ' "$RECHECK_ORIG") >/dev/null 2>&1 \
+        || { printf '        ASSERT FAILED: the vendored recheck script differs from the reviewer'"'"'s beyond the ENGINE line\n'; rc=1; }
+else
+    printf '        note: the reviewer'"'"'s original is not on this machine (%s); the vendored copy was not byte-compared to it in this run\n' "$RECHECK_ORIG"
+fi
+RECHECK_OUT="$(cd "$SANDBOX" && TMPDIR="$SANDBOX" PYTHONDONTWRITEBYTECODE=1 python3 "$RECHECK_PY" 2>&1)"
+RECHECK_RC=$?
+assert_eq "0" "$RECHECK_RC" "the reviewer's recheck script ran to completion (its own asserts hold)" || rc=1
+RECHECK_JSON="$(printf '%s\n' "$RECHECK_OUT" | sed -n '/^\[/,/^\]/p')"
+read_recheck() { # <case> <field>
+    printf '%s' "$RECHECK_JSON" | python3 -c '
+import json, sys
+rs = json.loads(sys.stdin.read())
+r = [x for x in rs if x.get("case") == sys.argv[1]][0]
+v = r.get(sys.argv[2])
+print(v if isinstance(v, str) else json.dumps(v))' "$1" "$2" 2>/dev/null
+}
+assert_eq "owner-alive" "$(read_recheck legacy_worker_acquires_after_preservation authority_after_acquisition)" "case 1: the authority said ALIVE after the acquisition" || rc=1
+assert_eq "refused" "$(read_recheck legacy_worker_acquires_after_preservation outcome)" "case 1: refused (was ok)" || rc=1
+assert_eq "reacquired" "$(read_recheck legacy_worker_acquires_after_preservation reason_code)" "case 1: reacquired (was removed)" || rc=1
+assert_eq "true" "$(read_recheck legacy_worker_acquires_after_preservation workspace_survived)" "case 1: the workspace survived (was false)" || rc=1
+assert_eq "true" "$(read_recheck legacy_worker_acquires_after_preservation new_file_survived)" "case 1: the new file survived (was false)" || rc=1
+assert_eq "" "$(read_recheck legacy_ignored_file_without_force git_status)" "case 2: git status was clean (the precondition)" || rc=1
+assert_eq "0" "$(read_recheck legacy_ignored_file_without_force exit)" "case 2: exit 0" || rc=1
+assert_eq "quarantined" "$(read_recheck legacy_ignored_file_without_force outcome)" "case 2: quarantined (was ok/removed)" || rc=1
+assert_contains "$(read_recheck legacy_ignored_file_without_force preservation)" '"status": "verified"' "case 2: preservation verified (was null)" || rc=1
+assert_eq "1" "$(read_recheck legacy_ignored_file_without_force archive_count)" "case 2: one archive (was zero)" || rc=1
+assert_eq "3" "$(read_recheck legacy_unrelated_branch_deletion exit)" "case 3: refused, exit 3 (was 0)" || rc=1
+assert_eq "refused" "$(read_recheck legacy_unrelated_branch_deletion outcome)" "case 3: outcome refused" || rc=1
+assert_eq "false" "$(read_recheck legacy_unrelated_branch_deletion unrelated_branch_deleted)" "case 3: the unrelated branch was NOT deleted (was true)" || rc=1
+assert_contains "$(read_recheck legacy_unrelated_branch_deletion refs_preserving_unrelated_tip)" "refs/heads/unrelated-unmerged" "case 3: its own ref still protects its tip (was none)" || rc=1
+assert_eq "true" "$(read_recheck legacy_unrelated_branch_deletion unrelated_commit_object_survives)" "case 3: the commit object survives" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "RECHECK  the reviewer's second reproduce.py, run verbatim: finding 1 refuses as reacquired with the workspace and the new file intact, finding 2 quarantines with a verified archive, finding 3 refuses with the unrelated branch and its ref intact — read by the named outcomes, as the reviewer specified"
+else
+    bad "RECHECK  the reviewer's second script still reproduces at least one finding"
 fi
 
 

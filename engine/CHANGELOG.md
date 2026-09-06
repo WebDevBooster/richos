@@ -12,6 +12,64 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **The legacy worktree remover still had three ways to destroy something
+  the retirement route protected** (`scripts/lib/workspace-retire.py`,
+  `scripts/remove-agent-worktree.sh`, `scripts/lib/workspace-retire.test.sh`,
+  `scripts/reap-stale-worktrees.test.sh`) — MINOR.
+
+  The second independent review of the 2026-09-05 container-deletion fix
+  (richos-hq `docs/verification/worktree-removal-fix-recheck-2026-09-06/`)
+  put three probes through `remove-agent-worktree.sh --owner <id> <path>`,
+  the route the reaper calls, and each destroyed something: a worker that
+  acquired the workspace during preservation lost its new file (the
+  post-preservation re-check the previous round added lived in `retire()`
+  only); an ordinary removal without `--force` erased an ignored file with no
+  archive at all (a clean `git status` read as "nothing to lose"); and
+  `--branch` naming an UNRELATED unmerged branch deleted it, with the backup
+  ref protecting the target's tip instead. All six findings across both
+  reviews were in this route, and all six are one defect: a destructive step
+  trusting a fact established earlier, elsewhere, or about something else.
+
+  **The legacy route no longer has a lifecycle of its own.** It resolves a
+  path and an owner to the same workspace identity retirement uses, asks the
+  same authority, and runs the same `_transact()`: preserve unconditionally
+  (verified by re-reading), re-check ownership after preservation and again
+  after the rename (undoing it), RENAME to quarantine, record before and
+  after, unlock and prune the git registration and read back that it is
+  gone. Nothing is deleted on either route. Three differences remain, each
+  declared: without `--force` a tree with modified or untracked paths is
+  refused (`dirty-without-force`, git's own rule for `worktree remove`,
+  which the reaper relies on); `--branch` is an ASSERTION bound to the branch
+  checked out at the path (`branch-mismatch` otherwise) and deleted only by
+  compare-and-delete; an OBSERVED termination is copied to the ownership
+  ledger.
+
+  Found by looking for the rest of the class, and fixed:
+
+  - Quarantines now live in `<parent>/.richos-retired/`. Renamed in place
+    beside its siblings a quarantine was unregistered by construction, and
+    `hooks/detect-nonnative-worktree.sh` recursively deletes every
+    unregistered entry under `.claude/worktrees/` on the next tool call — a
+    native worktree's quarantine lived for seconds and the sweep's
+    byte-coverage refusal never ran. The reaper's residue scan would also
+    have reported it every run. Both glob `*/`, which never matches a
+    dot-name. The hook's own rule is raised separately
+    (`esc-20260906T015544Z-82747bce`).
+  - Every branch deletion is `git update-ref -d <ref> <expected-tip>`, so a
+    ref that moved between the read and the delete refuses (`branch-moved`).
+  - A locked registration is never pruned and `retire()` never unlocked, so a
+    stale-locked native worktree stayed registered with an undeletable
+    branch. The sequence now unlocks by the old path before it prunes.
+  - The reaper's 43-case suite had been journaling into the operator's real
+    `~/.claude/state/workspace-retirement/` (1,304 records, 650 lock files,
+    every one a sandbox path). Its state root is now pinned per case.
+
+  The reviewer's `reproduce.py` is vendored beside the suite and run
+  verbatim on every run; 13 rows join the suite (49 cases, 385 assertions),
+  each destructive row with a negative control against the reviewed
+  revision `3aa3acb`, and three existing rows that had gone green over a
+  check of the wrong location were retargeted.
+
 - **The worktree inventory reported `reaped=11` for a run that removed
   nothing** (`scripts/reap-stale-worktrees.sh`,
   `scripts/reap-stale-worktrees.test.sh`,
