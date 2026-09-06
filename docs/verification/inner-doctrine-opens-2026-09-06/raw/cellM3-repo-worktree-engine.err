@@ -1,0 +1,13 @@
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "", "--no-session-persistence", "--session-id", "59ba3e0f-d7ba-442e-9cef-c7d6a41788e2", "--permission-prompt-tool", "stdio"]
+[drive] cwd  = /Users/alex/ab/richos-wt/echo-opus-q14/engine
+[drive] autocompact_pct_override = None
+[drive] memory_paths = {"auto": "/Users/alex/.claude/projects/-Users-alex-ab-richos/memory/"}
+[drive] model = "claude-opus-5[1m]"
+[drive] cwd(init) = "/Users/alex/ab/richos-wt/echo-opus-q14/engine"
+
+===== TURN 1 =====
+PROMPT: Reply with the single word: ok
+REPLY:
+ok
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=14489 cache_write=4158 out=4 compactions=0]
+[drive] compactions = []

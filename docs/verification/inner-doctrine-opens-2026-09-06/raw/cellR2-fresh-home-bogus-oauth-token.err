@@ -1,0 +1,14 @@
+[drive] child env keys = ['CI', 'CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_ACTIONS', 'HOME', 'PATH']
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "", "--no-session-persistence", "--session-id", "e3367f62-40b6-4b89-bfe6-859704cbbae1", "--permission-prompt-tool", "stdio"]
+[drive] cwd  = /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/runner-home
+[drive] autocompact_pct_override = None
+[drive] memory_paths = {"auto": "/private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/runner-home/.claude/projects/-private-tmp-claude-501--Users-alex-ab-femcboost-16b21750-131b-400e-a6b4-f9313174b201-scratchpad-q14-runner-home/memory/"}
+[drive] model = "claude-sonnet-5"
+[drive] cwd(init) = "/private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/runner-home"
+
+===== TURN 1 =====
+PROMPT: Reply with the single word: ok
+REPLY:
+Failed to authenticate. API Error: 401 Invalid bearer token
+[subtype=success stop_reason=stop_sequence tools_denied=[] in=0 cache_read=0 cache_write=0 out=0 compactions=0]
+[drive] compactions = []

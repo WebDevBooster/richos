@@ -1,0 +1,60 @@
+[drive] child env keys = ['AI_AGENT', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'CLAUDECODE', 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', 'CLAUDE_CODE_BRIDGE_SESSION_ID', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', 'CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_EFFORT', 'CLAUDE_PID', 'COREPACK_ENABLE_AUTO_PIN', 'FPATH', 'GIT_EDITOR', 'HOME', 'HOMEBREW_CELLAR', 'HOMEBREW_PREFIX', 'HOMEBREW_REPOSITORY', 'INFOPATH', 'JAVA_HOME', 'LANG', 'LOGNAME', 'NoDefaultCurrentDirectoryInExePath', 'OLDPWD', 'PATH', 'PWD', 'SHELL', 'SHLVL', 'SSH_AUTH_SOCK', 'TERM', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'TERM_SESSION_ID', 'TMPDIR', 'USER', 'XPC_FLAGS', 'XPC_SERVICE_NAME', '_', '__CFBundleIdentifier', '__CF_USER_TEXT_ENCODING']
+[drive] argv = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--include-partial-messages", "--verbose", "--setting-sources", "", "--no-session-persistence", "--session-id", "ffda2e71-2a62-431f-860a-8a1629d0476e", "--permission-prompt-tool", "stdio"]
+[drive] cwd  = /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/customer-home/.claude/richos-engine
+[drive] autocompact_pct_override = 2
+[drive] memory_paths = {"auto": "/Users/alex/.claude/projects/-private-tmp-claude-501--Users-alex-ab-femcboost-16b21750-131b-400e-a6b4-f9313174b201-scratchpad-q14-customer-home--claude-richos-engine/memory/"}
+[drive] model = "claude-opus-5[1m]"
+[drive] cwd(init) = "/private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/q14/customer-home/.claude/richos-engine"
+
+===== TURN 1 =====
+PROMPT: This is a standing instruction for the whole of this conversation, delivered the way
+RichOS delivers its re-prime payload today: as an internal turn the CEO never sees
+(reprime.rs:317, Source::Interna …[722 chars total]
+REPLY:
+Acknowledged.
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=14548 cache_write=3895 out=9 compactions=0]
+
+===== TURN 2 =====
+PROMPT: Here is a batch of inventory notes. Read them and reply with the single word ok.
+
+0002: ballast transom windlass bollard spigot cordage thimble tallow quoin spigot spandrel quoin cistern kelson
+0003:  …[49264 chars total]
+REPLY:
+Acknowledged.
+ok
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=18443 cache_write=20661 out=61 compactions=0]
+[drive] COMPACT_BOUNDARY {"trigger": "auto", "pre_tokens": 51510, "post_tokens": 15185, "cumulative_dropped_tokens": 36325, "duration_ms": 61883, "preserved_segment": {"head_uuid": "b938a1fd-6c56-44f5-9f60-78ee029d0769", "anchor_uuid": "69e70387-2d5a-4b74-8f6e-3a69b6d18ef3", "tail_uuid": "56d1eb35-8261-43d1-a7b1-282a087e9c89"}, "preserved_messages": {"anchor_uuid": "69e70387-2d5a-4b74-8f6e-3a69b6d18ef3", "uuids": ["b938a1fd-6c56-44f5-9f60-78ee029d0769", "9e9ee0c8-4342-4421-bb91-dcfe2e4a1bfc", "ea1c5cb0-8c50-4db2-b5e7-d6c5edb13bec", "56d1eb35-8261-43d1-a7b1-282a087e9c89"], "all_uuids": ["b938a1fd-6c56-44f5-9f60-78ee029d0769", "9e9ee0c8-4342-4421-bb91-dcfe2e4a1bfc", "ea1c5cb0-8c50-4db2-b5e7-d6c5edb13bec", "56d1eb35-8261-43d1-a7b1-282a087e9c89"]}}
+
+===== TURN 3 =====
+PROMPT: Here is a batch of inventory notes. Read them and reply with the single word ok.
+
+0002: windlass windlass lantern cordage cordage furrow capstan gasket grommet bollard conduit windlass varnish thimble …[49269 chars total]
+REPLY:
+Acknowledged.
+ok
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=14548 cache_write=25063 out=12 compactions=1]
+[drive] COMPACT_BOUNDARY {"trigger": "auto", "pre_tokens": 52114, "post_tokens": 16277, "cumulative_dropped_tokens": 72162, "duration_ms": 60747, "preserved_segment": {"head_uuid": "41ef7b0a-9b7e-4e8a-8dbb-a1eb1bda13fc", "anchor_uuid": "50d60921-4b3b-4d61-b8f0-82b1dcd38a14", "tail_uuid": "2719d0c1-8b73-456c-9d60-6cd9a4066413"}, "preserved_messages": {"anchor_uuid": "50d60921-4b3b-4d61-b8f0-82b1dcd38a14", "uuids": ["41ef7b0a-9b7e-4e8a-8dbb-a1eb1bda13fc", "d62d72cc-547c-4585-bc68-0c9083d0b3d6", "72ab8f2e-aa23-4dc1-9acf-c6a32833473f", "9cbb2f6a-9c6b-40a9-a2fc-5452cf8e2402", "2719d0c1-8b73-456c-9d60-6cd9a4066413"], "all_uuids": ["41ef7b0a-9b7e-4e8a-8dbb-a1eb1bda13fc", "d62d72cc-547c-4585-bc68-0c9083d0b3d6", "72ab8f2e-aa23-4dc1-9acf-c6a32833473f", "9cbb2f6a-9c6b-40a9-a2fc-5452cf8e2402", "2719d0c1-8b73-456c-9d60-6cd9a4066413"]}}
+
+===== TURN 4 =====
+PROMPT: Here is a batch of inventory notes. Read them and reply with the single word ok.
+
+0002: pumice transom purlin ballast furrow cleat mullion quoin cistern transom cordage mullion harbor cleat
+0003: caps …[49289 chars total]
+REPLY:
+Acknowledged.
+ok
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=14548 cache_write=26597 out=12 compactions=2]
+[drive] COMPACT_BOUNDARY {"trigger": "auto", "pre_tokens": 41255, "post_tokens": 4248, "cumulative_dropped_tokens": 109169, "duration_ms": 62029, "preserved_segment": {"head_uuid": "fa820602-a505-46bf-a5ba-cbf66c8562bc", "anchor_uuid": "5d1a1044-b990-484f-b3e0-a4e1c64234e5", "tail_uuid": "50d8044c-fa73-4ad2-bc09-ac24d6cfc42a"}, "preserved_messages": {"anchor_uuid": "5d1a1044-b990-484f-b3e0-a4e1c64234e5", "uuids": ["fa820602-a505-46bf-a5ba-cbf66c8562bc", "d7e909cf-e205-4d23-9ec3-c09497df1bc6", "50d8044c-fa73-4ad2-bc09-ac24d6cfc42a"], "all_uuids": ["fa820602-a505-46bf-a5ba-cbf66c8562bc", "d7e909cf-e205-4d23-9ec3-c09497df1bc6", "50d8044c-fa73-4ad2-bc09-ac24d6cfc42a"]}}
+
+===== TURN 5 =====
+PROMPT: Answer with six short numbered lines and use no tools: (1) the project status word, (2) the project build command, (3) the project deploy command, (4) the release port number, (5) the project mascot,  …[294 chars total]
+REPLY:
+Acknowledged.
+1. BINNACLE-8840
+2. `make sextant`
+3. `make holystone`
+4. 39104
+5. The copper marten
+6. FATHOM-215
+[subtype=success stop_reason=end_turn tools_denied=[] in=2 cache_read=14548 cache_write=6351 out=89 compactions=3]
+[drive] compactions = [{"trigger": "auto", "pre_tokens": 51510, "post_tokens": 15185, "cumulative_dropped_tokens": 36325, "duration_ms": 61883, "preserved_segment": {"head_uuid": "b938a1fd-6c56-44f5-9f60-78ee029d0769", "anchor_uuid": "69e70387-2d5a-4b74-8f6e-3a69b6d18ef3", "tail_uuid": "56d1eb35-8261-43d1-a7b1-282a087e9c89"}, "preserved_messages": {"anchor_uuid": "69e70387-2d5a-4b74-8f6e-3a69b6d18ef3", "uuids": ["b938a1fd-6c56-44f5-9f60-78ee029d0769", "9e9ee0c8-4342-4421-bb91-dcfe2e4a1bfc", "ea1c5cb0-8c50-4db2-b5e7-d6c5edb13bec", "56d1eb35-8261-43d1-a7b1-282a087e9c89"], "all_uuids": ["b938a1fd-6c56-44f5-9f60-78ee029d0769", "9e9ee0c8-4342-4421-bb91-dcfe2e4a1bfc", "ea1c5cb0-8c50-4db2-b5e7-d6c5edb13bec", "56d1eb35-8261-43d1-a7b1-282a087e9c89"]}}, {"trigger": "auto", "pre_tokens": 52114, "post_tokens": 16277, "cumulative_dropped_tokens": 72162, "duration_ms": 60747, "preserved_segment": {"head_uuid": "41ef7b0a-9b7e-4e8a-8dbb-a1eb1bda13fc", "anchor_uuid": "50d60921-4b3b-4d61-b8f0-82b1dcd38a14", "tail_uuid": "2719d0c1-8b73-456c-9d60-6cd9a4066413"}, "preserved_messages": {"anchor_uuid": "50d60921-4b3b-4d61-b8f0-82b1dcd38a14", "uuids": ["41ef7b0a-9b7e-4e8a-8dbb-a1eb1bda13fc", "d62d72cc-547c-4585-bc68-0c9083d0b3d6", "72ab8f2e-aa23-4dc1-9acf-c6a32833473f", "9cbb2f6a-9c6b-40a9-a2fc-5452cf8e2402", "2719d0c1-8b73-456c-9d60-6cd9a4066413"], "all_uuids": ["41ef7b0a-9b7e-4e8a-8dbb-a1eb1bda13fc", "d62d72cc-547c-4585-bc68-0c9083d0b3d6", "72ab8f2e-aa23-4dc1-9acf-c6a32833473f", "9cbb2f6a-9c6b-40a9-a2fc-5452cf8e2402", "2719d0c1-8b73-456c-9d60-6cd9a4066413"]}}, {"trigger": "auto", "pre_tokens": 41255, "post_tokens": 4248, "cumulative_dropped_tokens": 109169, "duration_ms": 62029, "preserved_segment": {"head_uuid": "fa820602-a505-46bf-a5ba-cbf66c8562bc", "anchor_uuid": "5d1a1044-b990-484f-b3e0-a4e1c64234e5", "tail_uuid": "50d8044c-fa73-4ad2-bc09-ac24d6cfc42a"}, "preserved_messages": {"anchor_uuid": "5d1a1044-b990-484f-b3e0-a4e1c64234e5", "uuids": ["fa820602-a505-46bf-a5ba-cbf66c8562bc", "d7e909cf-e205-4d23-9ec3-c09497df1bc6", "50d8044c-fa73-4ad2-bc09-ac24d6cfc42a"], "all_uuids": ["fa820602-a505-46bf-a5ba-cbf66c8562bc", "d7e909cf-e205-4d23-9ec3-c09497df1bc6", "50d8044c-fa73-4ad2-bc09-ac24d6cfc42a"]}}]

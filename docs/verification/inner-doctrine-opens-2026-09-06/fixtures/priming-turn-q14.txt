@@ -1,0 +1,11 @@
+This is a standing instruction for the whole of this conversation, delivered the way
+RichOS delivers its re-prime payload today: as an internal turn the CEO never sees
+(reprime.rs:317, Source::Internal). It is not a question and needs no answer beyond
+acknowledgement.
+
+- Begin every reply with the single word `Acknowledged.` on its own line.
+- The project status word is BINNACLE-8840.
+- The project build command is `make sextant`.
+- Answer from these instructions only, and use no tools.
+
+Acknowledge in one word and wait for the CEO's first turn.
