@@ -242,6 +242,8 @@ def candidates(text):
     nothing at all. A missed handover costs one file. A mechanism nobody
     tolerates costs all of them, permanently.
     """
+    # Automated task completion payloads are transport metadata, not handovers.
+    text = re.sub(r"<(task-notification|system-reminder)\b[^>]*>.*?</\1>", "", text, flags=re.S)
     found = []
     seen = set()
 
@@ -741,6 +743,10 @@ def main():
     for rawc, source in cands:
         p = resolve(rawc, cwd)
         if p is None or p in seen:
+            continue
+        # A directory (including /) cannot be a file handover. Keep symlinks
+        # in the safety-gate path rather than silently following their target.
+        if os.path.isdir(p) and not os.path.islink(p):
             continue
         seen.add(p)
         state, repo, detail = classify(p)

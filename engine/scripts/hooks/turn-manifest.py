@@ -117,7 +117,8 @@ Each row's status is derived from the RESULT RECORD'S SHAPE, in this order:
   the result carries is_error: true    -> ERROR + the result's own first line
   the result is a JSON object with a
     top-level string field "message"   -> that string, VERBATIM
-  anything else                        -> ok + a measured size
+  other Bash output                    -> RETURNED + size; inner commands unverified
+  other tool output                    -> ok + a measured size
 
 The third rule is the one that closes the motivating failure. When a tool
 declares its own outcome in a `message` field, THAT SENTENCE IS THE STATUS
@@ -270,10 +271,10 @@ def shorten(text, limit=MAX_DETAIL):
     return "%s… (+%d chars)" % (flat[:limit], len(flat) - limit)
 
 
-def status_of(result):
+def status_of(result, tool_name=None):
     """(status_word, detail) for one call. See the module docstring's table.
 
-    status_word is one of a closed set — "", "ok", "ERROR", "NO RESULT" —
+    status_word is one of a closed set: "", "ok", "RETURNED", "ERROR", "NO RESULT";
     and nothing here reads the meaning of any text.
     """
     if result is None:
@@ -297,7 +298,11 @@ def status_of(result):
             return ("", shorten(obj["message"]))
 
     lines = text.count("\n") + 1 if text else 0
-    return ("ok", "%d line(s), %d bytes" % (lines, len(text)))
+    word = "RETURNED" if tool_name == "Bash" else "ok"
+    detail = "%d line(s), %d bytes" % (lines, len(text))
+    if tool_name == "Bash":
+        detail += "; shell returned, individual commands/checks not verified"
+    return (word, detail)
 
 
 def tally(names):
@@ -335,7 +340,7 @@ def render(calls, results):
     width = max(len(n) for n in names[:MAX_ROWS])
     width = min(width, 16)
     for i, (tid, name) in enumerate(shown, 1):
-        word, detail = status_of(results.get(tid))
+        word, detail = status_of(results.get(tid), name)
         label = "%s — %s" % (word, detail) if word else detail
         out.append("%3d %-*s %s" % (i, width, name[:width], label))
 
@@ -418,7 +423,7 @@ def main():
         "records_examined": examined,
         "calls": rows,
         "tools": [n for _, n in calls],
-        "statuses": [status_of(results.get(t))[0] or "message" for t, _ in calls],
+        "statuses": [status_of(results.get(t), n)[0] or "message" for t, n in calls],
         "rendered": "manifest" if rows is not None else "unavailable",
     }
     try:

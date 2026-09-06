@@ -1,0 +1,56 @@
+# Reliable session evidence
+
+The shell evidence hook enables `errexit` and `pipefail` before each Bash tool
+command. A failed test followed by `; echo done`, or piped through `tail`, now
+fails the tool call. Other tool arguments, including background execution and
+timeout, are preserved. The hook does not grant permission or execute commands.
+
+It uses the official [PreToolUse updatedInput contract](https://code.claude.com/docs/en/hooks#pretooluse-decision-control).
+It is registered in both the seated engine settings and the plugin hooks.
+Restart/resume Claude Code after installing to load the new registration.
+
+Expected nonzero outcomes belong in explicit control flow:
+
+```sh
+if command > 'command.log' 2>&1; then
+    cat 'command.log'
+else
+    command_status=$?
+    cat 'command.log'
+    exit "$command_status"
+fi
+```
+
+Use the original command's status. A trailing filter, `echo` or `cat` must not
+stand in for it. The shell's explicit if/else, AND/OR and subprocess semantics
+still apply. A script that itself swallows a failure can still exit zero.
+Reading a log is evidence retrieval, not a rerun of its tests.
+
+The turn manifest now calls plain Bash output RETURNED and explicitly says
+individual commands/checks were not verified. Structured tool errors remain
+ERROR. This prevents a successful shell wrapper being labeled as successful
+inner work.
+
+Input handovers include files, not directories. The ingress ignores directories
+and automatic task-notification/system-reminder envelopes. Its follow-up reader
+also rechecks historical directory and Claude task-output entries, so they stop
+creating notices without editing the original ledger. Real untracked documents,
+symlinks and refusals continue through their existing safety checks.
+
+For Cargo output, `app/scripts/rust-test-summary.py path/to/cargo.log` separates
+ordinary passes, ignored cases and documentation passes. A log with no ordinary
+test result is an error. Failed suites exit 1. The summary explicitly does not
+attest the original cargo process exit status or log completeness.
+
+Verification:
+
+- `scripts/hooks/session-evidence.test.sh` reproduces hidden failures in Bash
+  and Zsh, tests argument preservation and inspects real ingress ledger output.
+- `scripts/hooks/ceo-inputs.test.sh` checks existing handover safety and recovery.
+- `scripts/hooks/turn-manifest.test.sh` includes its seven negative controls.
+- `scripts/hooks/guard-stated-actions.test.sh` checks the manifest consumer.
+- `scripts/hooks/unevaluated-payload.test.sh` checks every registered hook.
+
+The six focused negative controls in `session-evidence.mutation.sh` restore each
+failure in an isolated copy. Each corresponding regression must fail. The source
+worktree and live engine are never mutated by that runner.

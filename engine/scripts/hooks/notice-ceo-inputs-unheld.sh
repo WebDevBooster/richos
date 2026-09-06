@@ -179,7 +179,7 @@ notice_clean() {
 
 set +e
 UNRESOLVED="$(LEDGER="$LEDGER" python3 -c '
-import json, os, subprocess, sys
+import json, os, re, subprocess, sys
 
 path = os.environ["LEDGER"]
 
@@ -217,6 +217,10 @@ def still_unheld(p):
     """Re-decided against git every turn. Never trusted from the ledger."""
     if not os.path.lexists(p):
         return False
+    if os.path.isdir(p) and not os.path.islink(p):
+        return False  # Historical scanner noise, never a file handover.
+    if re.search(r"/(?:private/)?tmp/claude-[^/]+/.+/tasks/[^/]+\.output$", p):
+        return False  # Claude task-notification transport artifact, not CEO input.
     base = p if os.path.isdir(p) else os.path.dirname(p) or "/"
     if not os.path.isdir(base):
         return False
