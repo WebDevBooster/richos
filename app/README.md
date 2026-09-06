@@ -794,7 +794,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 880 tests + 5 doc-tests; 877 direct, 3 child-only
+cargo test -p richos-core                       # 890 tests + 5 doc-tests; 887 direct, 3 child-only
 #     ONE OF THE THREE NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
 #     every repository and is on no clean checkout. `home_field::tests::
 #     against_a_real_corpus_when_one_is_configured` compiles one into the home screen's
