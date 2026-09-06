@@ -176,10 +176,15 @@ adoption refuses it **four separate times**:
    today against the live machine: `REFUSED linked-worktree /Users/alex/ab/richos-wt
    is not the top level of a git worktree (git says the top level is '<none>')`.
 2. **`not-a-container`**, if it somehow were a worktree. This gate exists only
-   for this question and carries two independent probes: the registry sees
-   workspaces under it that the record names, and a shallow listing sees a
-   `gitdir: .../worktrees/` pointer in a subdirectory belonging to a repository
-   the record never named. `worktree-adoption.test.sh` A24/A25 build both.
+   for this question and carries two independent probes: the candidate's own
+   repository's worktree list sees a workspace registered under it, and a
+   shallow listing sees a `gitdir: .../worktrees/` pointer in a subdirectory
+   belonging to any other repository, registered or not.
+   `worktree-adoption.test.sh` A24/A25 build one fixture for each. Their joint
+   limit — a worktree of a different repository nested two or more levels down
+   — is declared at `_nested_worktree_pointers`, alongside why widening either
+   probe is refused: every gate is O(1) in git calls because `evaluate()` runs
+   inside a session-start inventory.
 3. **`owner-terminated`.** No ownership record names a container, and absence of
    a record is never a claim. A registration naming it would still not help,
    because gates 1 and 2 fire first — A21 proves exactly that.
@@ -210,11 +215,29 @@ before evaluating a single candidate and costs that suite nothing.
 
 ## What is still PENDING, and why it is not a coverage hole
 
-With adoption in place the sweep's `would-remove` clause becomes:
+With adoption in place, the same command on the same machine now prints:
 
-> ALL 3 ARE ADOPTABLE: reconcile-terminal-worktrees.py's adoption pass claims
-> them on its next scheduled run ... NO OPERATOR ACTION is needed to move them
-> out of this line.
+```
+DRY-RUN REAP agent-a2b51c2b8f6924483 adoptable(T2) — reconcile-terminal-worktrees.py's
+    adoption pass claims this one on its next run; no operator action
+DRY-RUN REAP agent-a2c0e6ec671b8414f adoptable(T2) — ...
+DRY-RUN REAP reed-fable-wl1 adoptable(T2) — ...
+=== verdict: PENDING — quarantined=10 ...; would-remove=3 worktree(s) passed every
+    gate and this inventory removed none — it is DRY-RUN by construction. ALL 3 ARE
+    ADOPTABLE: reconcile-terminal-worktrees.py's adoption pass claims them on its
+    next scheduled run and takes each through backup ref, quarantine, capture and
+    verification, so NO OPERATOR ACTION is needed to move them out of this line.
+    What that pass deliberately does NOT do is erase
+    (docs/workspace-retirement-safety.md), so they will reappear as quarantined=
+    above and stay there until an enforced access boundary exists — retention by
+    ruling, not a coverage hole ===
+```
+
+**Nothing has been adopted on this machine.** The three are reported adoptable
+by a read-only evaluation; the claim itself is a mutation of shared state and
+belongs to the land, not to the branch that wrote it. The end-to-end claim —
+backup ref, rename to quarantine, files preserved, second pass refused — is
+exercised in the hermetic sandbox by `worktree-adoption.test.sh` A50–A58.
 
 The verdict as a whole stays `PENDING`, and it must. Adopted worktrees reappear
 as `quarantined=N`, because the reconciler retains every quarantine by the
