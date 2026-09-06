@@ -117,14 +117,60 @@ async function openApp(browser, viewport) {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+  page.__errors = errors;
   await page.goto(APP);
-  await page.waitForFunction("typeof window.RichHome === 'object'");
-  await page.waitForFunction("typeof window.RichTimeline === 'object'");
+  await waitForFact(page, "window.RichHome is the home screen's export", "typeof window.RichHome === 'object'", 15000);
+  await waitForFact(page, "window.RichTimeline is the shell's export", "typeof window.RichTimeline === 'object'", 15000);
   // The curtain is a separate feature with its own suite. Send it away so this one is about
   // what is underneath it, which is the surface this file exists for.
   await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
-  page.__errors = errors;
   return page;
+}
+
+/// Wait for a NAMED FACT about the page, on an explicit budget, and DIAGNOSE it when it does
+/// not arrive.
+///
+/// WHY THIS EXISTS, AND WHY IT IS NOT COSMETIC. `page.waitForFunction(pred)` with no timeout
+/// carries Playwright's default 30,000ms, and when that expires it says
+/// `page.waitForFunction: Timeout 30000ms exceeded` and nothing else — not which fact was
+/// missing, not what the page's state was, and NOT WHETHER THE PAGE HAD ALREADY THROWN. On
+/// 2026-09-06 that is exactly the output a full sweep produced from `WITH A CORPUS ABOVE THE
+/// THRESHOLD`, and it is not possible to tell from it whether the machine was slow or the boot
+/// had failed. Those want opposite fixes.
+///
+/// A CHECK THAT NAMES NO CAUSE IS THE SAME DEFECT AS ONE THAT NAMES THE WRONG CAUSE, with the
+/// volume turned down. This one names the fact it wanted, the budget it allowed, the errors the
+/// page had already produced — the most likely answer, since `window.RichHome` is assigned by a
+/// synchronous IIFE and simply does not exist if that IIFE threw — and what the boot had
+/// reached. It still fails; it just stops being a riddle.
+///
+/// The budgets are EXPLICIT everywhere they are used, because a default is a number nobody
+/// chose and nobody can defend.
+async function waitForFact(page, fact, predicate, budgetMs) {
+  try {
+    await page.waitForFunction(predicate, { timeout: budgetMs });
+  } catch (_e) {
+    const seen = await page
+      .evaluate(() => ({
+        readyState: document.readyState,
+        url: String(location.href).split("/").slice(-1)[0],
+        richHome: typeof window.RichHome,
+        richTimeline: typeof window.RichTimeline,
+        richSplash: typeof window.RichSplash,
+        richTheme: typeof window.RichTheme,
+        field: window.RichHome && window.RichHome.state ? window.RichHome.state.field : null,
+        loro: typeof window.__loro,
+        scripts: Array.from(document.querySelectorAll("script[src]")).map((s) => s.getAttribute("src")).join(" "),
+      }))
+      .catch((e2) => ({ evaluateAlsoFailed: String(e2).split("\n")[0] }));
+    const errs = (page.__errors || []).slice(0, 6);
+    throw new Error(
+      `waited ${budgetMs}ms for ${fact} and it never became true.\n` +
+        `          the page had already reported ${(page.__errors || []).length} error(s)` +
+        (errs.length ? ":\n            " + errs.join("\n            ") : " — so this is a slow boot rather than a broken one") +
+        `\n          page state: ${JSON.stringify(seen)}`
+    );
+  }
 }
 
 /// Wait for the picture. `startField()` rather than the idle callback: a headless run's main
@@ -381,6 +427,91 @@ async function installMeter(page) {
   });
 }
 
+/// Wait for everything on this surface that is GOING to stop to have stopped, and say what was
+/// waited for and what was deliberately left running.
+///
+/// WHY THIS IS NOT A SLEEP, AND WHAT A SLEEP COSTS. A measurement taken while a color is still
+/// transitioning is real arithmetic over a frame nobody will ever look at, which is exactly why
+/// it survives review — it does not look like a mistake, it looks like a number. `contrast.js`
+/// priced it on 2026-09-06: replacing ONE `waitForTimeout(400)` with a wait on the animation's
+/// own end state, and changing nothing else, surfaced 13 contrast failures headed by
+/// `p#feedback-title` at 1.39:1 that a 160ms fade had been hiding the whole time.
+///
+/// It is also not a LONGER sleep, which is the other half. The number replaced here was 1100ms
+/// against a settle measured at 842, 847, 897, 903 and 911ms on this machine — about 200ms of
+/// slack, which is a machine-speed bet rather than a fact. Waiting on `finished` cannot be one
+/// frame short on a slow runner and cannot be 200ms wasteful on a fast one.
+///
+/// WHAT IT CANNOT WAIT FOR, DECLARED RATHER THAN QUIETLY SKIPPED. An animation with
+/// `iteration-count: infinite` has no `finished` to await, and this surface keeps three running
+/// for as long as it is up: `home-drift` on `#home-bokeh` (38s), `home-sill-breathe` on the
+/// sill's dot (2.4s) and `home-breathe` on the loading pulse (1.2s). They are RETURNED BY NAME
+/// so the caller prints them, because "everything that ends has ended" and "nothing is moving"
+/// are different sentences and only the first one is true. The meter's own sheet holds all
+/// three at their base value for the duration of a screenshot, which is where that matters.
+///
+/// AND IT CANNOT WAIT FOR THE PICTURE, which is the point of the picture. `home/field-*.js`
+/// draws on `requestAnimationFrame` for as long as the screen is up; there is no settled state
+/// to reach, and a check that demanded one would be asking the product to stop being what it
+/// is. Where that motion reaches a measurement, it is reported and not asserted — see
+/// "CONTRAST, BOTH THEMES" below.
+///
+/// The budget is a REFUSAL and not a fallback: something finite that has not finished inside it
+/// is named and thrown, never measured anyway.
+async function settle(page, budgetMs) {
+  const budget = budgetMs || 5000;
+  const r = await page.evaluate(async (ms) => {
+    const timing = (a) => (a.effect && a.effect.getTiming ? a.effect.getTiming() : {});
+    // THIS WEBKIT REPORTS AN INFINITE ITERATION COUNT AS `null`, NOT AS `Infinity` — probed on
+    // all three of this surface's endless animations. So the test is "is it a finite number",
+    // never `!== Infinity`: the second spelling lets every endless animation through and then
+    // awaits a `finished` that never resolves, which is a hang dressed as a wait.
+    const ends = (a) => {
+      const n = timing(a).iterations;
+      return typeof n === "number" && isFinite(n);
+    };
+    const name = (a) => {
+      const t = a.effect && a.effect.target;
+      const where = t
+        ? t.id
+          ? "#" + t.id
+          : t.tagName.toLowerCase() + (t.classList && t.classList[0] ? "." + t.classList[0] : "")
+        : "(no target)";
+      return (a.transitionProperty || a.animationName || a.constructor.name) + " on " + where;
+    };
+    const all = document.getAnimations();
+    const finite = all.filter(ends);
+    const endless = Array.from(new Set(all.filter((a) => !ends(a)).map(name)));
+    const t0 = performance.now();
+    let timedOut = false;
+    await Promise.race([
+      Promise.all(finite.map((a) => a.finished.catch(() => {}))),
+      new Promise((res) =>
+        setTimeout(() => {
+          timedOut = true;
+          res();
+        }, ms)
+      ),
+    ]);
+    // Two frames: one for the style change the last finished animation asked for, one for the
+    // paint of it.
+    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    return {
+      waited: finite.map(name),
+      ms: Math.round(performance.now() - t0),
+      endless,
+      timedOut,
+      unfinished: timedOut ? document.getAnimations().filter(ends).map(name) : [],
+    };
+  }, budget);
+  assert(
+    !r.timedOut,
+    `the surface would not settle inside ${budget}ms — still running: ` +
+      (r.unfinished.join(", ") || "(nothing finite, so the budget ran out on a paint rather than on an animation)")
+  );
+  return r;
+}
+
 /// Measure a list of `{ name, sel, needs, kind?, ink? }` against the rendered frame.
 async function measure(page, list) {
   const targets = await page.evaluate((l) => window.__meter.targets(l), list);
@@ -392,11 +523,80 @@ async function measure(page, list) {
   // ANIMATE BACK — the signal numbers over 900ms. A screenshot taken by a later check in that
   // window catches them half-lit and commits a frame that looks like a rendering defect. It
   // did: `home-named.png` shipped once with five ghosted numbers down the left column.
-  await page.waitForTimeout(1100);
+  //
+  // MEASURED, on this machine, five consecutive calls: removing the sheet creates 14 finite
+  // CSSTransitions — seven `color` at 180ms on the chips, seven at 900ms on the signal numbers
+  // — and they finish in 903, 842, 847, 897 and 911ms. This waits for those, by name, instead
+  // of for the 1100ms that used to be typed here.
+  await settle(page, 5000);
   return page.evaluate(
     ({ b64, targets }) => window.__meter.worst(b64, targets),
     { b64: buf.toString("base64"), targets }
   );
+}
+
+/// A DETERMINISTIC picture of everything the CEO's theme preference could change about a list
+/// of elements. Nothing here is sampled from a frame, so nothing here moves on its own.
+///
+/// Two halves. The TOKENS are every custom property that resolves on `:root` — 53 on this
+/// build, which is the whole vocabulary both palettes are written in. The NODES are, for each
+/// selector, the resolved colors, shadow, filter and geometry of the element AND of every
+/// ancestor up to `<html>`, so a leak that repainted a container rather than the text itself
+/// still moves the fingerprint.
+///
+/// PROVEN DETERMINISTIC AND PROVEN SENSITIVE, because a leak detector that is only one of those
+/// is not a detector. Twelve alternating dark/light walks produced 1 distinct fingerprint;
+/// writing `data-theme="light"` onto `<html>` moved 40 of the 53 tokens and all 6 node chains.
+/// The check that uses it stages that same leak itself rather than trusting this sentence.
+///
+/// IT IS INSTALLED IN THE PAGE rather than being an `evaluate` callback, because the caller has
+/// to stage a leak, read the fingerprint and put the page back WITHOUT a round trip in the
+/// middle: a surface left in the wrong lighting across an `await` is a surface some other
+/// check, or a screenshot, can catch mid-lie.
+function installFingerprint(page) {
+  return page.evaluate(() => {
+    if (window.__themeFingerprint) return;
+    window.__themeFingerprint = function (list) {
+      const PROPS = [
+        "color", "background-color", "background-image", "opacity", "box-shadow", "filter",
+        "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+        "-webkit-text-fill-color", "text-shadow", "mix-blend-mode",
+      ];
+      const out = { tokens: {}, nodes: {} };
+      const rootCs = getComputedStyle(document.documentElement);
+      for (let i = 0; i < rootCs.length; i++) {
+        const p = rootCs[i];
+        if (p.slice(0, 2) === "--") out.tokens[p] = rootCs.getPropertyValue(p).trim();
+      }
+      for (const sel of list) {
+        const el = document.querySelector(sel);
+        if (!el) {
+          out.nodes[sel] = "MISSING";
+          continue;
+        }
+        const chain = [];
+        let node = el;
+        while (node && node.nodeType === 1) {
+          const cs = getComputedStyle(node);
+          const r = node.getBoundingClientRect();
+          chain.push(
+            (node.id ? "#" + node.id : node.tagName) +
+              "{" + PROPS.map((p) => cs.getPropertyValue(p)).join("|") + "}" +
+              "@" + [r.left, r.top, r.width, r.height].map((n) => Math.round(n)).join(",")
+          );
+          if (node === document.documentElement) break;
+          node = node.parentElement;
+        }
+        out.nodes[sel] = chain.join(" << ");
+      }
+      return out;
+    };
+  });
+}
+
+async function themeFingerprint(page, sels) {
+  await installFingerprint(page);
+  return page.evaluate((l) => window.__themeFingerprint(l), sels);
 }
 
 function reportRatios(rows) {
@@ -834,7 +1034,10 @@ async function main() {
     assert(after.rowW <= 500, `the row went past its cap at ${after.rowW}px`);
 
     await page.click('.home-chip[data-entity=""]');
-    await page.waitForTimeout(400);
+    // The collapse's own transitions, not 400ms. The slide is declared in
+    // `--home-chip-slide` and read off the stylesheet twenty lines above precisely so no
+    // duration is typed in this file; waiting on `finished` needs neither.
+    await settle(page, 5000);
     const back = await page.evaluate(READ_ROW);
     assertEqual(back.rest, ["All", "1", "2", "3", "4", "5", "6"], "the name did not collapse back to its number");
 
@@ -1182,6 +1385,10 @@ async function main() {
     p5.on("console", (m) => {
       if (m.type() === "error") errors.push("console: " + m.text());
     });
+    // The same list `waitForFact` reads, so a boot that threw is reported by the wait that
+    // notices it is missing rather than only by the assertion at the foot of the check that
+    // this run will never reach.
+    p5.__errors = errors;
 
     // A corpus comfortably over the floor, in place BEFORE THE PAGE'S OWN SCRIPTS RUN —
     // which is the only moment it can matter, since the choice picks the script list.
@@ -1212,7 +1419,14 @@ async function main() {
       });
     }, OBJECTS);
     await p5.goto(APP);
-    await p5.waitForFunction("typeof window.RichHome === 'object'");
+    // NAMED, ON AN EXPLICIT BUDGET, AND DIAGNOSED. This wait carried Playwright's undeclared
+    // 30,000ms default, and on 2026-09-06 a full sweep failed this check on it with
+    // `page.waitForFunction: Timeout 30000ms exceeded` and not one word about which fact was
+    // missing. `window.RichHome` is assigned by a synchronous IIFE at `home.js:55`, so it is
+    // absent for exactly one reason — that IIFE threw — and this page has been collecting page
+    // errors since before `goto`. Reporting them is the difference between a riddle and a
+    // finding. See `waitForFact`.
+    await waitForFact(p5, "window.RichHome on the customer-corpus launch", "typeof window.RichHome === 'object'", 15000);
     await p5.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     // THE SLOW RUNNER, ON DEMAND, AND POINTED AT THE RACE THAT WAS HERE — the same
     // `RICHOS_SPLASH_LAG_MS` knob the cold-launch check carries, because it reproduces the
@@ -1316,19 +1530,46 @@ async function main() {
     // (`home.css:892`, `1px solid rgba(194, 163, 92, 0.7)`), so it waits for the fact rather
     // than for a duration — and it is asserted, because a wait that silently stopped working
     // would put this row back to measuring gold on gold while staying green.
+    //
+    // THE WAIT IS NOW THE TRANSITION'S OWN END STATE, AND THE COLOR IS AN ASSERTION AGAINST
+    // WHAT THE STYLESHEET DECLARES. It used to be a regex poll for `/^rgba\(194, 163, 92,
+    // 0\.70/` on `borderTopColor`, whose comment read: *"`0\.70` and not `0\.7`: the resting
+    // value is `rgba(194, 163, 92, 0.706)` and the transition passes through 0.79 on the way to
+    // it, which `0\.7` would accept — a wait that stops one frame early is a measurement of a
+    // state nobody sees."*
+    //
+    // THE REASONING WAS RIGHT AND THE PREMISE WAS FALSE, AND THAT MADE IT DO THE THING IT
+    // WARNED ABOUT. `home.css:892` declares `border: 1px solid rgba(194, 163, 92, 0.7)` — alpha
+    // exactly 0.7, which this engine serializes as `rgba(194, 163, 92, 0.7)`. That string does
+    // NOT match `0\.70`. So 0.706 was never the resting value; it is a value the fade passes
+    // through on its way down, and the old poll returned there — one frame early, mid-fade,
+    // measuring a state nobody sees. Caught by replacing the poll with `settle()`: the settled
+    // read came back `rgba(194, 163, 92, 0.7)` after 6 transitions finished in 275ms.
+    //
+    // So `settle()` waits for the blur's transitions to REPORT themselves finished, which is
+    // the fact itself and has no spelling to get wrong, and the resting color is then ASSERTED
+    // against the value read out of `home.css` — never typed here, on this file's own rule that
+    // a test carrying its own copy of a constant passes forever after somebody moves one of
+    // them. Asserted rather than waited for, so a wait that silently stopped working can no
+    // longer put this row back to measuring gold on gold while staying green.
     await p5.evaluate(() => document.activeElement && document.activeElement.blur());
-    await p5.waitForFunction(
-      // `0\.70` and not `0\.7`: the resting value is `rgba(194, 163, 92, 0.706)` and the
-      // transition passes through 0.79 on the way to it, which `0\.7` would accept — a wait
-      // that stops one frame early is a measurement of a state nobody sees.
-      () => /^rgba\(194, 163, 92, 0\.70/.test(getComputedStyle(document.getElementById("home-enter")).borderTopColor),
-      { timeout: 5000 }
-    );
+    const restedAfter = await settle(p5, 5000);
     const rested = await p5.evaluate(() => {
       const d = document.getElementById("home-enter");
       return { focused: d.matches(":focus-visible"), hovered: d.matches(":hover"), border: getComputedStyle(d).borderTopColor };
     });
     assert(!rested.focused && !rested.hovered, "the door is not at rest, so its edge would be measured against its own ring");
+    const homeCss = fs.readFileSync(path.join(UI_DIR, "home.css"), "utf8");
+    const declaredBorder = (homeCss.match(/#home-enter\s*\{[\s\S]*?border:\s*1px solid (rgba\([^)]*\))/) || [])[1];
+    assert(declaredBorder, "home.css no longer declares a resting border on #home-enter, so there is nothing to settle to");
+    const squash = (s) => String(s).replace(/\s+/g, "");
+    assertEqual(
+      squash(rested.border),
+      squash(declaredBorder),
+      `the door's border settled at ${rested.border}, not at the ${declaredBorder} home.css declares for it — the ` +
+        `focus ring is still in the frame, so an edge measurement here would be gold against its own glow. ` +
+        `${restedAfter.waited.length} transition(s) finished in ${restedAfter.ms}ms before this was read`
+    );
     const rows = await measure(p5, [
       { name: "the mark, letterforms", sel: "#home-brand .p-ink", needs: 3, kind: "svg" },
       { name: "owner line", sel: "#home-owner", needs: 4.5 },
@@ -1366,7 +1607,12 @@ async function main() {
   // -------------------------------------------------------------------------------------
 
   await run.check("CONTRAST: every line of the home screen, measured on the rendered frame", async () => {
-    await page.waitForTimeout(400);
+    // The fact, not 400ms. What this is standing clear of is whatever the checks above left
+    // transitioning — a chip's 180ms color, a signal number's 900ms — and `settle()` reports
+    // what it waited for rather than assuming the number covered it. Removing the blind wait
+    // is how `contrast.js` found 13 hidden failures on 2026-09-06; here it found none, and the
+    // readings below are unchanged, which is a result rather than the absence of one.
+    await settle(page, 5000);
     const rows = await measure(page, [
       { name: "the mark, letterforms", sel: "#home-brand .p-ink", needs: 3, kind: "svg" },
       { name: "the mark, swoosh", sel: "#home-brand .p-signal", needs: 3, kind: "svg" },
@@ -1414,8 +1660,76 @@ async function main() {
     // preference, not a write to it, so the case that matters is a CEO who has CHOSEN light.
     //
     // So this drives that case and MEASURES the result, rather than asserting the attribute and
-    // stopping. If the clamp ever leaked, these numbers would move and this check would say so
-    // in the same breath as the ones above.
+    // stopping.
+    //
+    // ---------------------------------------------------------------------------------------
+    // WHAT THIS CHECK ASSERTED UNTIL 2026-09-06, AND WHY IT WAS THE WRONG INSTRUMENT FOR IT
+    // ---------------------------------------------------------------------------------------
+    //
+    // It took the six ratios measured under each preference and required the two lists to be
+    // EQUAL AS STRINGS, under the message "the clamp is leaking".
+    //
+    // MEASURED, 40 theme walks on an otherwise idle machine: five of the six readings are
+    // bit-identical every single walk, and one is not. `"Enter" under the door` reads 8.6:1 on
+    // 38 walks and 8.34:1 on 2 — a 5% failure rate, which is the 2-in-7 two people reproduced
+    // independently. The cause is in `worst()` above: it samples THE PIXEL THAT MINIMIZES
+    // CONTRAST WITH THE INK inside the glyph's own line box, and behind that glyph is the
+    // PICTURE. Its worst neighbor moves between rgb(16,21,36) and rgb(20,24,40) as the nebula
+    // drifts. Against ink rgb(166,179,203) that is 8.6:1 and 8.34:1 — both clear the 4.5:1
+    // floor by better than 3.8x, on a screen where nothing is wrong.
+    //
+    // SO THE OLD ASSERTION FAILED ABOUT ONE RUN IN TWENTY AND, WHEN IT DID, IT NAMED A CAUSE IT
+    // HAD NOT ESTABLISHED. Nothing leaked. Two photographs of a moving composition disagreed in
+    // the second decimal. That is worse than a bare failure: it sent an engineer looking for a
+    // clamp bug that does not exist. A check that names a cause may only name one it has
+    // established; where it cannot, it reports what it measured and says the cause is open.
+    //
+    // WAITING FOR THE ANIMATION TO SETTLE IS NOT THE FIX HERE, AND THAT WAS MEASURED TOO. At
+    // the instant of `setTheme()` this surface has exactly three animations running and all
+    // three are ENDLESS — `home-drift`, `home-sill-breathe`, `home-breathe`. The finite count
+    // is zero and `settle()` returns in 0ms. There is nothing in flight to wait out; the thing
+    // that moves is a WebGL canvas on `requestAnimationFrame`, which never settles by design,
+    // because "Working now" is what it means. Holding it with `__loro.pause()` across both
+    // walks DOES work — 15/15 agreement, measured — and is not used, because it mutates product
+    // state inside a contrast check to buy a comparison that is not the right one anyway.
+    //
+    // ---------------------------------------------------------------------------------------
+    // THE GUARANTEE IS UNCHANGED. THE INSTRUMENT IS NOW THE ONE THAT CARRIES IT
+    // ---------------------------------------------------------------------------------------
+    //
+    //   WCAG, exactly as before: every element measured on the rendered frame, under BOTH
+    //   preferences, against ITS OWN floor — 4.5:1 for the four normal-text rows, 3:1 for the
+    //   two `edge` rows, which are non-text indicators (WCAG 1.4.11). That is `failures(rows)`
+    //   below and it is the entire meaning of "clears the floor". Comparing two measurements to
+    //   EACH OTHER never proved it and could not have: two readings that agreed at 2:1 would
+    //   have passed that assertion.
+    //
+    //   THE CLAMP, from what actually carries a theme to this surface. `theme-boot.js:78` has
+    //   exactly one channel — `root.setAttribute("data-theme", resolved())` — and no stylesheet
+    //   under `app/ui` names `prefers-color-scheme` (grepped: zero hits in every .css), so
+    //   nothing can repaint without going through that attribute. The attribute, the force
+    //   flag, and a COMPUTED-STYLE FINGERPRINT of all six targets and their full ancestor
+    //   chains, plus every one of the 53 theme tokens on `:root`, are compared between the two
+    //   preferences and must be identical. That is a strictly FINER leak detector than one
+    //   worst-pixel ratio: it sees a leak in any color on any ancestor, not only in the single
+    //   pixel that happened to be worst on one frame.
+    //
+    //   AND THE PICTURE CANNOT CARRY A LEAK, which is why its pixels are reported rather than
+    //   asserted equal. `home/field-data.js`, `field-prep.js`, `field-engine.js` and
+    //   `field-ref.js` contain no reference to `RichTheme`, `data-theme` or
+    //   `prefers-color-scheme` (grepped: zero hits across all four), so the composition it
+    //   paints is the same composition under either preference.
+    //
+    // THE FINGERPRINT IS PROVEN DETERMINISTIC AND PROVEN SENSITIVE, because a leak detector
+    // that is only one of those is not a detector: 12 alternating dark/light walks produced 1
+    // distinct fingerprint, and writing `data-theme="light"` onto `<html>` moved 40 of the 53
+    // tokens and all 6 node chains.
+    //
+    // ONE THING THE OLD ASSERTION NEVER REACHED, AND THIS ONE DOES. The clamp is SELF-HEALING:
+    // `home.js:1415` re-raises `forceDark` from inside the theme notification, so
+    // `RichTheme.forceDark(false)` cannot drop it while this screen is open. That is what
+    // actually protects the surface, it was untested, and it is asserted at the foot of this
+    // check by driving it.
     const targets = [
       { name: "the first-run banner", sel: "#home-note-line", needs: 4.5 },
       { name: "the door's label", sel: "#home-enter .home-enter-label", needs: 4.5 },
@@ -1424,10 +1738,41 @@ async function main() {
       { name: "a numbered button", sel: '.home-chip[data-entity="northwind"] .home-chip-rest', needs: 4.5 },
       { name: "a numbered button's edge", sel: '.home-chip[data-entity="northwind"]', needs: 3, kind: "edge" },
     ];
+
+    // IT IS LOOKING AT WHAT IT SAYS IT IS LOOKING AT. A green walk over the wrong surface is
+    // the failure this repository keeps finding — `contrast.js` shipped one measuring sixteen
+    // absent nodes of one thread and eight present ones of another, and it was caught only
+    // because the floor happened to notice the eight. So the surface is named before anything
+    // is measured, and `failures()` below refuses a row that is MISSING or UNRESOLVABLE rather
+    // than passing over it.
+    const surface = await page.evaluate(() => ({
+      open: window.RichHome.isOpen(),
+      hidden: document.getElementById("home").hidden,
+      focus: (document.activeElement && document.activeElement.id) || (document.activeElement || {}).tagName || null,
+      found: {
+        note: !!document.querySelector("#home-note-line"),
+        door: !!document.querySelector("#home-enter"),
+        cap: !!document.querySelector("#home-door-cap"),
+        chip: !!document.querySelector('.home-chip[data-entity="northwind"]'),
+      },
+    }));
+    assert(surface.open && !surface.hidden, "the home screen is not the surface in front, so this would measure something else");
+    assertEqual(
+      Object.keys(surface.found).filter((k) => !surface.found[k]),
+      [],
+      "the home screen is up but the things this check names are not on it"
+    );
+
     const seen = {};
+    const prints = {};
+    let endless = [];
     for (const theme of ["dark", "light"]) {
       await page.evaluate((t) => window.RichTheme.setTheme(t), theme);
-      await page.waitForTimeout(400);
+      // The fact, not a duration. On this surface a theme switch has nothing finite to wait
+      // for, and this returns in ~0ms and says so; if a transition is ever added to the themed
+      // properties, this waits for it instead of photographing it half-lit.
+      const s = await settle(page, 5000);
+      endless = s.endless;
       const state = await page.evaluate(() => ({
         pref: window.RichTheme.theme(),
         rendered: document.documentElement.getAttribute("data-theme"),
@@ -1436,17 +1781,100 @@ async function main() {
       assertEqual(state.pref, theme, "the CEO's own preference was not set to " + theme);
       assertEqual(state.rendered, "dark", "§15's clamp let " + theme + " mode reach the home screen");
       assert(state.forced, "the always-dark clamp is not raised while the preference is " + theme);
+      prints[theme] = await themeFingerprint(page, targets.map((t) => t.sel));
       const rows = await measure(page, targets);
       const bad = failures(rows);
       assertEqual(bad.length, 0, "under the floor with the preference set to " + theme + ":\n" + reportRatios(bad));
-      seen[theme] = rows.map((r) => r.name + " " + r.ratio + ":1");
+      seen[theme] = rows;
     }
+
+    // THE LEAK TEST. Every theme token and every measured element's whole ancestor chain, under
+    // one preference against the other. Nothing here is sampled from a frame.
+    const tokenDrift = Object.keys(prints.dark.tokens).filter((k) => prints.dark.tokens[k] !== prints.light.tokens[k]);
+    assertEqual(
+      tokenDrift,
+      [],
+      "these `:root` tokens resolve differently under the two preferences, so the preference is reaching " +
+        "this surface:\n          " +
+        tokenDrift.map((k) => `${k}: dark ${prints.dark.tokens[k]} vs light ${prints.light.tokens[k]}`).join("\n          ")
+    );
+    const nodeDrift = Object.keys(prints.dark.nodes).filter((k) => prints.dark.nodes[k] !== prints.light.nodes[k]);
+    assertEqual(
+      nodeDrift,
+      [],
+      "these elements resolve differently under the two preferences — color, shadow or geometry, on the " +
+        "element or on an ancestor:\n          " +
+        nodeDrift.map((k) => `${k}\n            dark  ${prints.dark.nodes[k]}\n            light ${prints.light.nodes[k]}`).join("\n          ")
+    );
+    const tokenCount = Object.keys(prints.dark.tokens).length;
+    assert(tokenCount > 20, `only ${tokenCount} custom properties resolved on :root — the fingerprint is not seeing the palette`);
+
+    // THE POSITIVE PROBE FOR THE TWO NEGATIVES ABOVE. "These two fingerprints are equal" passes
+    // perfectly over a fingerprint that reads nothing, which is how a check goes green while
+    // measuring the wrong screen — the exact failure `contrast.js` shipped and was lucky to
+    // catch. So a leak is STAGED and the detector has to see it.
+    //
+    // It has to be staged by writing the attribute, and that is a finding rather than a
+    // shortcut: `RichTheme.forceDark(false)` cannot be used, because `home.js:1415` re-raises
+    // it from inside the notification while the screen is open. `data-theme` on `<html>` is the
+    // one channel a real leak would have to come through (`theme-boot.js:78`), so staging it
+    // there is staging the real thing.
+    const control = await page.evaluate((sels) => {
+      const before = document.documentElement.getAttribute("data-theme");
+      document.documentElement.setAttribute("data-theme", "light");
+      const read = window.__themeFingerprint(sels);
+      document.documentElement.setAttribute("data-theme", before);
+      return { read, restored: document.documentElement.getAttribute("data-theme") };
+    }, targets.map((t) => t.sel));
+    const controlTokens = Object.keys(prints.dark.tokens).filter((k) => prints.dark.tokens[k] !== control.read.tokens[k]);
+    const controlNodes = Object.keys(prints.dark.nodes).filter((k) => prints.dark.nodes[k] !== control.read.nodes[k]);
+    assert(
+      controlTokens.length > 20,
+      `a staged leak moved only ${controlTokens.length} of ${tokenCount} theme tokens — this fingerprint is not ` +
+        `reading the palette, so the two equalities above prove nothing`
+    );
+    assertEqual(
+      controlNodes.length,
+      targets.length,
+      `a staged leak moved ${controlNodes.length} of ${targets.length} element chains — the ones it did not move ` +
+        `are not being read, so their equality above is vacuous`
+    );
+    assertEqual(control.restored, "dark", "the staged leak was not put back");
+
+    // AND THE CLAMP HOLDS ITSELF UP. Ask it to come down while the screen is open; it must not.
+    const healed = await page.evaluate(() => {
+      window.RichTheme.forceDark(false);
+      return {
+        forced: window.RichTheme.forcedDark(),
+        rendered: document.documentElement.getAttribute("data-theme"),
+        pref: window.RichTheme.theme(),
+      };
+    });
+    assert(healed.forced, "forceDark(false) took the clamp down while the home screen was open");
+    assertEqual(healed.rendered, "dark", "the surface rendered light for a moment after the clamp was asked to drop");
+    assertEqual(healed.pref, "light", "re-raising the clamp overwrote the CEO's own preference instead of forcing over it");
+
     await page.evaluate(() => window.RichTheme.setTheme("dark"));
-    // The two runs must agree, because there is one lighting. A drift here IS the leak.
-    assertEqual(seen.light, seen.dark, "the same elements measured differently under the two preferences — the clamp is leaking");
+
+    // THE PIXELS ARE REPORTED, AND WHERE THE PICTURE MOVED UNDER THEM IT IS NAMED AS THE
+    // PICTURE. This is the sentence the old assertion should have been: an observation with an
+    // established cause, not a diagnosis with a guessed one.
+    const moved = seen.dark
+      .map((d, i) => ({ d, l: seen.light[i] }))
+      .filter((p) => p.d.ratio !== p.l.ratio)
+      .map(
+        (p) =>
+          `${p.d.name} ${p.d.ratio}:1 over rgb(${p.d.worstPx.join(",")}) and ${p.l.ratio}:1 over ` +
+          `rgb(${p.l.worstPx.join(",")}) — the nebula, not the theme; both clear ${p.d.needs}:1`
+      );
     return (
-      "preference dark and preference light both render dark, and measure identically:\n          " +
-      seen.dark.join("\n          ")
+      `preference dark and preference light both render dark, and all ${tokenCount} theme tokens and all ` +
+      `${targets.length} element chains resolve identically; forceDark(false) put itself back up with the screen open\n          ` +
+      `measured under preference light (focus on ${surface.focus}, endless animations held by the meter: ${endless.join(", ")}):\n          ` +
+      reportRatios(seen.light) +
+      (moved.length
+        ? `\n          the live picture moved under ${moved.length} of ${targets.length} between the two walks: ` + moved.join("; ")
+        : `\n          the live picture happened not to move under any of the ${targets.length} between the two walks`)
     );
   });
 
@@ -1772,9 +2200,31 @@ async function main() {
     await page.evaluate(() => window.RichHome.openSettings());
     await page.waitForFunction(() => document.querySelectorAll(".home-prefs-row").length > 0);
     await page.focus('.home-prefs-label[data-entity="northwind"]');
+    // A NEGATIVE HAS NO SIGNAL TO WAIT FOR, SO THIS WAITS FOR THE DECISION INSTEAD OF FOR
+    // 150ms. `onHomeKey` (`home.js:734`) is a capture-phase `keydown` listener that calls
+    // `hide("enter-key")` SYNCHRONOUSLY, and `hide` sets `state.open = false` and
+    // `state.lastLeaveReason` on its first two lines (`home.js:1003-1004`) before it fades
+    // anything. So the decision is already made by the time `keyboard.press` resolves; 150ms
+    // was slack over a synchronous fact, and a longer sleep would not have made the negative
+    // any safer.
+    //
+    // AND THE NEGATIVE IS WIDENED, which is the part that is worth more than the wait. Asking
+    // only `isOpen()` would pass over a screen that left and came back. `lastLeaveReason` is
+    // written on every leave and never cleared, so requiring it to be UNCHANGED across the
+    // keystroke catches a leave whether or not anything returned afterwards.
+    const leaveBefore = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(150);
-    const stillHome = await page.evaluate(() => window.RichHome.isOpen());
+    const afterKey = await page.evaluate(() => ({
+      open: window.RichHome.isOpen(),
+      reason: window.RichHome.state.lastLeaveReason,
+    }));
+    assertEqual(
+      afterKey.reason,
+      leaveBefore,
+      `Enter inside the company-buttons panel recorded a leave ("${afterKey.reason}") — the screen went, ` +
+        `whether or not it came back`
+    );
+    const stillHome = afterKey.open;
     await page.evaluate(() => window.RichHome.closeSettings());
     assert(stillHome, "Enter inside the company-buttons panel walked out of the home screen");
 
@@ -1915,6 +2365,20 @@ async function main() {
     // launch and the order is what is asserted — which is both immune to when the harness
     // wakes up AND strictly stronger than what a single sample could say: a cover that went
     // early would be caught wherever it went, not only if the harness happened to be looking.
+    //
+    // AND WHAT IT LEARNED ON 2026-09-06, WHICH IS THE OTHER HALF OF THE SAME LESSON. Having
+    // stopped reading the page's CLOCK at the harness's convenience, it still read the page's
+    // RECORD at the harness's convenience — `waitForFunction(state.field === "live")` and then
+    // immediately `evaluate` — and the record is taken by a 10ms poller, so the two can be one
+    // tick apart. MEASURED, 25 cold launches: `__liveAt` was still null when the harness got
+    // its turn on 1 of them, and on that run the independent rAF observer had already seen
+    // `live` at 440ms with `performance.now()` at 461ms. Nothing was wrong with the launch;
+    // the record simply had not been taken yet.
+    //
+    // The check was RIGHT to refuse the harness clock, and wrong to have no third option
+    // besides "measure" and "fail". It now WAITS for the page's own record, which is the
+    // product's signal rather than the harness's, and if that record never appears it says so
+    // in those words and reports the gap instead of substituting a number from this process.
     const p2 = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await p2.addInitScript(() => {
       // WHEN THE BUILD ACTUALLY STARTED, which no state flag records — `state.field` is
@@ -1978,8 +2442,28 @@ async function main() {
     });
     await p2.goto(APP);
     if (LAG_MS > 0) await p2.waitForTimeout(LAG_MS);
-    await p2.waitForFunction("typeof window.RichHome === 'object'");
+    await waitForFact(p2, "window.RichHome on the cold launch", "typeof window.RichHome === 'object'", 15000);
     await p2.waitForFunction("window.RichHome.state.field === 'live'", { timeout: 60000 });
+    // ...AND THEN FOR THE PAGE'S OWN RECORD OF THAT INSTANT, which is a separate fact and can
+    // be one 10ms tick behind the state it records. 5,000ms is four hundred ticks: a budget
+    // this wide is only reachable if the poller is dead, never if the machine is slow.
+    try {
+      await p2.waitForFunction("window.__liveAt != null", { timeout: 5000 });
+    } catch (_e) {
+      const why = await p2.evaluate(() => ({
+        field: window.RichHome.state.field,
+        installed: "__liveAt" in window,
+        now: Math.round(performance.now()),
+      }));
+      await p2.close();
+      throw new Error(
+        "the page never recorded WHEN the picture landed. Its own state said \"live\" and 5000ms later " +
+          `\`window.__liveAt\` is still null (state.field is now "${why.field}", the poller ` +
+          `${why.installed ? "is installed and stopped running" : "was never installed"}, page clock ${why.now}ms). ` +
+          "The only other number available is this process's clock, which on a runner reports the harness's lag " +
+          "as the product's launch time — so this reports the gap rather than substituting it."
+      );
+    }
     const t = await p2.evaluate(() => ({
       live: window.__liveAt == null ? null : Math.round(window.__liveAt),
       sampledAt: Math.round(performance.now()),
@@ -2003,7 +2487,10 @@ async function main() {
     // 1. STRICT. The kick-off is floored by a TIMER, not by the machine's speed, so a slow
     //    runner has no excuse here — 300ms of slack for timer imprecision and nothing more.
     assert(t.started != null, "the field scripts were never requested — nothing kicked the picture off");
-    assert(t.live != null, "nothing recorded WHEN the picture landed — the number below would be the harness's clock, not the product's");
+    // Unreachable while the wait above is doing its job, and kept for exactly that reason: a
+    // wait that silently stopped working would otherwise put this row back to reporting a null
+    // as a launch time while staying green.
+    assert(t.live != null, "the wait for the page's own record of the landing returned without the record being there");
     assert(t.domReady != null, "DOMContentLoaded was never seen, so the floor has no origin to be measured from");
     const armed = t.started - t.domReady;
     assert(
@@ -2077,6 +2564,7 @@ async function main() {
     p5.on("console", (m) => {
       if (m.type() === "error") noise.push("console: " + m.text());
     });
+    p5.__errors = noise;
     await p5.addInitScript(() => {
       const proto = WebGLRenderingContext.prototype;
       const orig = proto.getShaderParameter;
@@ -2090,7 +2578,7 @@ async function main() {
       };
     });
     await p5.goto(APP);
-    await p5.waitForFunction("typeof window.RichHome === 'object'");
+    await waitForFact(p5, "window.RichHome on the refusing-display launch", "typeof window.RichHome === 'object'", 15000);
     const t0 = Date.now();
     await p5.waitForFunction("window.RichHome.state.field === 'degraded'", { timeout: 20000 });
     const took = Date.now() - t0;
@@ -2147,8 +2635,8 @@ async function main() {
       window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "reload" });
     });
     await p4.goto(APP);
-    await p4.waitForFunction("typeof window.RichHome === 'object'");
-    await p4.waitForFunction("typeof window.RichTimeline === 'object'");
+    await waitForFact(p4, "window.RichHome on the no-curtain launch", "typeof window.RichHome === 'object'", 15000);
+    await waitForFact(p4, "window.RichTimeline on the no-curtain launch", "typeof window.RichTimeline === 'object'", 15000);
     const r = await p4.evaluate(() => ({
       splashDrew: window.RichSplash.state.shown,
       splashDeclined: window.RichSplash.state.declined,
