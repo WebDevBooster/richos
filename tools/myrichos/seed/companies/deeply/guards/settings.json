@@ -1,0 +1,22 @@
+{
+  "env": {
+    "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION": "2000"
+  },
+  "worktree": {
+    "baseRef": "head"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "@MYRICHOS@/companies/deeply/guards/deeply-design-brief-gate.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
