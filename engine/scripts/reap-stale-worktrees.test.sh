@@ -671,11 +671,12 @@ else
 fi
 
 # 15c. PID REUSED: the pid is running but its start time is not the recorded
-#      one. A bare kill -0 would say alive; the identity check says gone.
+#      canonical one. A bare kill -0 would say alive; the identity check says
+#      gone. An untagged historical timestamp cannot establish PID reuse.
 DIR="$(make_world pid-reuse)"
 add_handrolled "$DIR/other" "$DIR/other-wt" zach-opus-reuse1
 ledger_record "$DIR" registered --teammate zach-opus-reuse1 --agent-id reuse1 --session-id sess-x \
-    --session-pid "$$" --pid-start "Mon 1 Jan 00:00:00 1990" --repo "$DIR/entity" \
+    --session-pid "$$" --pid-start "ps-lstart-utc-v1:Mon Jan 1 00:00:00 1990" --repo "$DIR/entity" \
     --worktree "$DIR/other-wt/zach-opus-reuse1" --class native
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/zach-opus-reuse1" ] \
@@ -683,6 +684,24 @@ if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/zach-opus-reuse1" ] \
     ok "PID REUSE: a running pid with a different start time is a gone session — reaped"
 else
     bad "pid reuse (rc=$RC dir=$([ -d "$DIR/other-wt/zach-opus-reuse1" ] && echo present || echo gone))"
+fi
+
+# 15d. LEGACY NEGATIVE CONTROL: the same running PID with an untagged
+#      timestamp has unknown identity. Its formatting context was not saved;
+#      neither a differing date nor a different locale can establish reuse.
+DIR="$(make_world pid-legacy)"
+add_handrolled "$DIR/other" "$DIR/other-wt" zach-opus-legacy1
+ledger_record "$DIR" registered --teammate zach-opus-legacy1 --agent-id legacy1 --session-id sess-legacy \
+    --session-pid "$$" --pid-start "Mon 1 Jan 00:00:00 1990" --repo "$DIR/entity" \
+    --worktree "$DIR/other-wt/zach-opus-legacy1" --class native
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
+if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/zach-opus-legacy1" ] \
+   && git -C "$DIR/other" rev-parse --verify --quiet refs/heads/zach-opus-legacy1 >/dev/null \
+   && printf '%s' "$OUT" | grep -E >/dev/null '^SKIP zach-opus-legacy1 owner-indeterminate.*recorded session process identity is unknown' \
+   && printf '%s' "$OUT" | grep -E >/dev/null '^=== verdict: PENDING'; then
+    ok "LEGACY IDENTITY: a running pid with an untagged start stays INDETERMINATE/PENDING; worktree and branch survive"
+else
+    bad "legacy identity (rc=$RC dir=$([ -d "$DIR/other-wt/zach-opus-legacy1" ] && echo present || echo GONE)): $(printf '%s' "$OUT" | grep '^SKIP zach-opus-legacy1' || true)"
 fi
 
 # 16. THE WITNESS SURVIVES THE LAND. Sweep 1 (dry-run) sees done-owner's native
