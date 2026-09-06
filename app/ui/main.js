@@ -612,6 +612,9 @@ function setMainView(view) {
   conversationEl.hidden = view !== "conversation";
   entityViewEl.hidden = view !== "entity";
   unboundViewEl.hidden = view !== "unbound";
+  // The waiting band is a conversation surface. It never sits over the entity screen or the
+  // §21 unbound screen, where there is no turn on screen for it to describe.
+  hideWaitBandOffConversation();
 }
 
 function showConversationView() {
@@ -1001,6 +1004,9 @@ function reviveLiveTurns() {
     t.live = true;
     if (typeof live.startedAt === "number") t.startedAt = live.startedAt;
   }
+  // The band belongs to the thread ON SCREEN, so a reload or a thread switch re-derives it
+  // from the model that was just applied rather than carrying the previous thread's across.
+  resetWaitBandForThread();
 }
 
 // ---- scroll (§15) ----------------------------------------------------------------------
@@ -1547,6 +1553,7 @@ async function stopTurn() {
     const report = await Bridge.invoke("stop_turn");
     if (!report || !report.stopped) return;
     if (window.RichTimeline.markStopping(timelineModel, report.turnId)) scheduleRender();
+    markWaitStopping(report.turnId);
     announce("Stopping.");
     // REPORTED, NOT HIDDEN. The request is durable and the turn will be recorded as
     // stopped either way, but nothing was there to interrupt it — so the work may still run
@@ -1617,6 +1624,313 @@ function syncComposerMode() {
   sendBtn.disabled = stopping;
   el("composer-row").dataset.mode = stopping ? "stopping" : working ? "working" : "idle";
 }
+
+// ---------------------------------------------------------------------------------------
+// THE WAITING STATE — what the CEO sees while a turn runs and nothing has come back
+// (the first outside user's report, 2026-09-06)
+// ---------------------------------------------------------------------------------------
+//
+// HIS WORDS: *"it takes a lot of time to get a reply, a lot of spinning wheels waiting …
+// no interaction of feedback, so it looks like a crashed application."*
+//
+// MEASURED FIRST, WRITTEN SECOND. A 60-second turn was driven under WebKit against this
+// renderer with `send_message` never returning and the spine's own `queued -> working`
+// events on the wire; the driver, the frames and the frame-by-frame reading are committed
+// at `docs/verification/waiting-state-2026-09-06/`. At 2s, 10s, 30s and 60s the only thing
+// on the entire screen saying the app was alive was the timeline's duration row —
+// `Working for 58s`, 14px, in the top-left corner of an otherwise empty 400px region — plus
+// a 5px dot beside it. The four frames were otherwise identical.
+//
+// So the app was never silent by design. It was quiet in a place nobody was looking, and
+// its one moving mark failed the 3:1 non-text floor for part of its cycle in dark mode and
+// for ALL of it in light (`.tl-pulse`; the arithmetic is beside the fix in style.css).
+//
+// THE RULE THIS BAND IS BUILT ON: EVERY MOVING THING IN IT IS A FACT
+// =================================================================
+// The clock moves because time passes. The mark flashes because a signal arrived. Nothing
+// loops on a timer pretending to be work — a spinner that keeps spinning after the process
+// dies is precisely the lie that produced the report above, and this band is incapable of
+// it: with no events arriving the mark goes STILL and the band starts counting the silence
+// out loud.
+//
+// Three inputs, all observed rather than inferred:
+//
+//   1. `status` and `startedAt`, from `rich://turn-status` — which the spine emits from the
+//      ledger's own transitions and reads back OUT of the ledger before emitting
+//      (`spine.rs` `turn_status_event`), so the wire cannot report a span the ledger does
+//      not hold.
+//   2. THE LAST SIGNAL and its wall-clock instant. A "signal" is any §13 event the TIMELINE
+//      ITSELF ACCEPTED for the thread on screen — the fence has already refused everything
+//      else, so this can never count another thread's traffic as this turn's progress.
+//   3. What that signal WAS. An activity row contributes the backend's own `summary`,
+//      relayed verbatim and never composed here. Text contributes the fact that text is
+//      arriving, and nothing beyond it.
+//
+// NO PERCENTAGE, NO STEP COUNT, NO ESTIMATE, NO INVENTED STEP NAME. There is no source for
+// any of them — `docs/verification/acp-emission-probe-2026-08-28.md` §4-5 records the
+// complete union of what the adapter emits, and nothing in it says how much of a turn is
+// done. When the app does not know what is happening it says how long it has been waiting,
+// which is true.
+//
+// WHY 25 SECONDS, AND WHERE THE NUMBER COMES FROM
+// ==============================================
+// `QUIET_AFTER_MS` is where the band stops describing the last thing it saw and starts
+// naming the silence. Derived from the five committed real `claude-agent-acp` runs in
+// `docs/verification/acp-emission-probe-2026-08-28/run{1..5}.raw.jsonl`, which carry an
+// `atMs` on every inbound message. Gaps between consecutive inbound messages during the
+// prompt phase, plus each run's `session/prompt` -> first-inbound gap, n=192:
+//
+//     p50 62ms   p90 894ms   p95 1119ms   p99 7090ms   max 20741ms
+//     over 5s: 4     over 10s: 1     over 20s: 1
+//
+// A HEALTHY turn has therefore gone 20.7s with nothing observable arriving, and a threshold
+// under that would call working quiet. 25000ms clears the largest gap ever measured here.
+// It is a PRESENTATION threshold only: "Nothing new for 41s" is true at every value this
+// constant could take, so no number here can make the band say something false — only
+// something differently emphasized.
+//
+// Re-derive: `node docs/verification/waiting-state-2026-09-06/gaps.js`.
+// ---------------------------------------------------------------------------------------
+
+const QUIET_AFTER_MS = 25000;
+
+/// One record for the live turn of the thread ON SCREEN. Cleared at the turn's terminal
+/// status, so nothing here outlives the turn it describes.
+///
+///   startedAt   the LEDGER's, via `rich://turn-status`. Null while `queued`.
+///   acceptedAt  when this window first saw the turn. The only clock available while
+///               `startedAt` is null, and the copy says whose clock it is.
+///   lastAt      the instant of the last accepted signal — or of the moment this window
+///               started watching, on a turn it joined late.
+///   lastWhat    a description of that signal, or null. An activity row's is the BACKEND's,
+///               verbatim.
+///   signals     accepted signals observed for this turn. Zero is a real state, not a gap.
+///   fromStart   false when the CEO opened a thread whose turn was already running, so the
+///               band never says "nothing has come back yet" about work it simply did not
+///               watch.
+let waitTurn = null;
+let waitBandEl = null;
+let waitTimer = null;
+let waitLastPaintAt = 0;
+/// One announcement per quiet stretch. §18 forbids announcing a ticking timer; this is a
+/// single state change, said once.
+let waitQuietAnnounced = false;
+
+/// Record a signal against the live turn. Called ONLY where the timeline ACCEPTED the event
+/// (`!r.rejected`) — the fence has already decided whether the payload belongs to the
+/// thread on screen and this never second-guesses it.
+function noteTurnSignal(turnId, what) {
+  if (!waitTurn || waitTurn.turnId !== turnId) return;
+  const now = Date.now();
+  waitTurn.lastAt = now;
+  waitTurn.signals += 1;
+  if (what) waitTurn.lastWhat = what;
+  waitQuietAnnounced = false;
+  flashWaitMark();
+  // A streaming reply delivers a delta every few tens of milliseconds (measured p50 62ms,
+  // above). The ticker owns the once-a-second repaint; this one only forces the frames
+  // where the SENTENCE changes — the first signal, and leaving the quiet state.
+  if (waitTurn.signals === 1 || now - waitLastPaintAt > 400) renderWaitBand();
+}
+
+/// The mark's ONE animation, played once per arriving signal and never on a loop. The class
+/// is removed, a reflow forced and the class re-added, so consecutive signals each get
+/// their own flash instead of being coalesced into one.
+function flashWaitMark() {
+  if (!waitBandEl) return;
+  const mark = waitBandEl.querySelector(".wait-mark");
+  if (!mark) return;
+  mark.classList.remove("wait-mark--flash");
+  void mark.offsetWidth;
+  mark.classList.add("wait-mark--flash");
+}
+
+/// The band sits at the top of the composer zone rather than in the timeline, for one
+/// reason the reproduction made obvious: the duration row scrolls with the conversation, so
+/// a CEO who scrolls up to re-read his own question takes the app's only sign of life off
+/// the screen with it. This is where his eyes already are — directly over the box he types
+/// in — and it is there at every scroll position.
+function ensureWaitBand() {
+  if (waitBandEl && waitBandEl.isConnected) return waitBandEl;
+  const zone = el("composer-zone");
+  if (!zone) return null;
+  const band = document.createElement("div");
+  band.id = "turn-wait";
+  band.className = "turn-wait";
+  // `role="status"` with `aria-live="off"`, for the same reason `#conversation` carries the
+  // pair: the elapsed line rewrites itself every second, and a polite live region wrapped
+  // around a ticking clock is what §18's "do not announce every timer tick" forbids. The one
+  // thing worth saying aloud — the turn going quiet — is announced once, below.
+  band.setAttribute("role", "status");
+  band.setAttribute("aria-live", "off");
+  // `data-contrast-role="indicator"` puts the mark under the SHIPPING contrast gate
+  // (`tests/contrast.js`, which holds every declared indicator to 3:1 in both themes)
+  // rather than only under this feature's own suite. The mark is the one non-text thing in
+  // the band that carries meaning, and `.tl-pulse` reaching 1.40:1 unnoticed is precisely
+  // what happens to an indicator no gate is walking.
+  band.innerHTML =
+    '<span class="wait-mark" data-contrast-role="indicator" aria-hidden="true"></span>' +
+    '<span class="wait-head"></span>' +
+    '<span class="wait-time"></span>' +
+    '<span class="wait-detail"></span>';
+  zone.insertBefore(band, zone.firstChild);
+  waitBandEl = band;
+  return band;
+}
+
+function removeWaitBand() {
+  if (waitBandEl && waitBandEl.isConnected) waitBandEl.remove();
+  waitBandEl = null;
+}
+
+/// WHAT THE BAND SAYS, as a pure function of what has been observed — separate from the DOM
+/// so a suite can assert on the sentence rather than on a picture of it.
+///
+/// The headlines are the live `rich://turn-status` values and nothing else. There is no
+/// "thinking", no "almost done", no phase: `phase` is `unknown` on every message this
+/// runtime emits (live.rs, "THE MESSAGE PHASE, STATED LOUDLY"), so a band that named one
+/// would be inventing it.
+function waitBandCopy(t, nowMs) {
+  const quietMs = nowMs - t.lastAt;
+  const quiet = (t.status === "working" || t.status === "recovering") && quietMs >= QUIET_AFTER_MS;
+
+  let head;
+  if (t.status === "queued") head = "Rich has your message";
+  else if (t.status === "recovering") head = "Rich is picking this back up";
+  else if (t.status === "stopping") head = "Rich is letting go of this turn";
+  else head = "Rich is working";
+
+  // The elapsed number is the DURATION ROW'S OWN, straight out of
+  // `RichTimeline.durationRow` — one derivation, so the band and the row can never show two
+  // different ages for one turn. While `queued` the ledger holds no `started_at` at all, so
+  // the only honest clock is the one this window watched, and the headline says whose.
+  const modelTurn = timelineModel.turns.get(t.turnId);
+  const rowDuration = modelTurn ? window.RichTimeline.durationRow(modelTurn, nowMs).duration : null;
+  const time = t.status === "queued" ? window.RichTimeline.formatDuration(nowMs - t.acceptedAt) : rowDuration;
+  const gap = window.RichTimeline.formatDuration(quietMs);
+
+  let detail;
+  if (t.status === "queued") detail = "He hasn't started on it yet";
+  else if (quiet) detail = "Nothing new for " + gap;
+  else if (t.signals === 0 && t.fromStart) detail = "Nothing has come back yet";
+  else if (t.signals === 0) detail = "Nothing new for " + (gap || "a moment");
+  else if (t.lastWhat) detail = t.lastWhat + (gap ? " · " + gap + " ago" : "");
+  else detail = "Last update " + (gap ? gap + " ago" : "just now");
+
+  return { head, time: time || "", detail, tone: quiet ? "quiet" : t.status === "queued" ? "queued" : "working" };
+}
+
+function renderWaitBand() {
+  if (!waitTurn) {
+    removeWaitBand();
+    return;
+  }
+  const band = ensureWaitBand();
+  if (!band) return;
+  waitLastPaintAt = Date.now();
+  const copy = waitBandCopy(waitTurn, waitLastPaintAt);
+  band.dataset.tone = copy.tone;
+  band.querySelector(".wait-head").textContent = copy.head;
+  band.querySelector(".wait-time").textContent = copy.time;
+  band.querySelector(".wait-detail").textContent = copy.detail;
+  if (copy.tone === "quiet" && !waitQuietAnnounced) {
+    waitQuietAnnounced = true;
+    announce(copy.head + ". " + copy.detail + ".");
+  }
+}
+
+/// Once a second while a turn is live, and dead stopped while the window is hidden — the
+/// same rule and the same reason as the timeline's own timer (§6.2: recompute from
+/// timestamps on return, never accumulate).
+function startOrStopWaitTimer() {
+  if (waitTurn && !waitTimer && !document.hidden) {
+    waitTimer = window.setInterval(renderWaitBand, 1000);
+  } else if ((!waitTurn || document.hidden) && waitTimer) {
+    window.clearInterval(waitTimer);
+    waitTimer = null;
+  }
+}
+
+/// Drive the band from a `rich://turn-status` the timeline accepted.
+///
+/// A TERMINAL STATUS ENDS IT, and that is the half of this feature the report is really
+/// about: the turn's own outcome — the completed duration row, or §21's failure card — is
+/// what the CEO reads next, and a band still saying "Rich is working" over a failure card
+/// would be the reassurance-after-death this whole change exists to remove.
+function syncWaitBand(payload, opts) {
+  const live = payload.status === "queued" || payload.status === "working" || payload.status === "recovering";
+  if (!live) {
+    waitTurn = null;
+    waitQuietAnnounced = false;
+    startOrStopWaitTimer();
+    renderWaitBand();
+    return;
+  }
+  const now = Date.now();
+  if (!waitTurn || waitTurn.turnId !== payload.turnId) {
+    waitTurn = {
+      turnId: payload.turnId,
+      status: payload.status,
+      startedAt: typeof payload.startedAt === "number" ? payload.startedAt : null,
+      acceptedAt: now,
+      lastAt: now,
+      lastWhat: null,
+      signals: 0,
+      fromStart: !(opts && opts.joinedLate),
+    };
+    waitQuietAnnounced = false;
+  } else {
+    // A status TRANSITION is evidence of life and moves the silence clock, but it is not
+    // something coming back from Rich — `signals` counts content only, so `queued` ->
+    // `working` can never turn "Nothing has come back yet" into a claim that something did.
+    waitTurn.status = payload.status;
+    if (typeof payload.startedAt === "number") waitTurn.startedAt = payload.startedAt;
+    waitTurn.lastAt = now;
+    waitQuietAnnounced = false;
+  }
+  startOrStopWaitTimer();
+  renderWaitBand();
+  flashWaitMark();
+}
+
+/// The CEO's own stop, from `stop_turn`'s durable answer rather than from an event — the
+/// same one status `timeline.js` sets from a command return, and for the same reason: the
+/// request is fsync'd before the call returns, so "you asked me to stop" is already a fact.
+function markWaitStopping(turnId) {
+  if (!waitTurn || (turnId && waitTurn.turnId !== turnId)) return;
+  waitTurn.status = "stopping";
+  waitTurn.lastAt = Date.now();
+  waitQuietAnnounced = false;
+  renderWaitBand();
+}
+
+/// A thread switch, or a snapshot reload. The band belongs to the thread on screen, so it is
+/// dropped and re-established from the reloaded model — never carried across, which would
+/// attribute one thread's work to another. A turn found this way is marked `joinedLate`: the
+/// window did not watch its first seconds and must not report on them.
+function resetWaitBandForThread() {
+  waitTurn = null;
+  waitQuietAnnounced = false;
+  removeWaitBand();
+  for (const [turnId, t] of timelineModel.turns) {
+    if (!t.live) continue;
+    syncWaitBand({ turnId, status: t.status, startedAt: t.startedAt }, { joinedLate: true });
+    return;
+  }
+  startOrStopWaitTimer();
+}
+
+/// The band is a live-turn surface and belongs only to the conversation. Leaving that view
+/// (the entity screen, the unbound screen) takes it with it.
+function hideWaitBandOffConversation() {
+  if (mainView !== "conversation") removeWaitBand();
+  else renderWaitBand();
+}
+
+/// READ-ONLY, for the acceptance harness: the sentence the band is showing and the evidence
+/// it was derived from. It exposes nothing the DOM does not already carry.
+window.__RICHOS_WAIT__ = () =>
+  waitTurn ? Object.assign({}, waitTurn, { copy: waitBandCopy(waitTurn, Date.now()), quietAfterMs: QUIET_AFTER_MS }) : null;
 
 /// A READ-ONLY handle on the timeline model, for the acceptance harness and for anyone
 /// debugging a render against a live shell. It exposes nothing the DOM does not already
@@ -1698,6 +2012,10 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
   const r = window.RichTimeline.onTurnStatus(timelineModel, payload);
   if (r.rejected) return;
 
+  // The waiting state (see THE WAITING STATE above). Placed after the fence, so the band on
+  // screen can only ever describe the turn of the thread on screen.
+  syncWaitBand(payload);
+
   // The composer has two modes (§9.1/§9.2) and this is the authoritative signal for which
   // one it is in — not a timer, not the absence of events.
   syncComposerMode();
@@ -1741,12 +2059,17 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
 
 Bridge.listen("rich://message-started", ({ payload }) => {
   const r = window.RichTimeline.onMessageStarted(timelineModel, payload);
-  if (!r.rejected && r.structural) scheduleRender();
+  if (r.rejected) return;
+  // "Writing the reply" is the ONLY thing this event licenses. `phase` is `unknown` on every
+  // message this runtime emits, so naming a kind of writing would be inventing one.
+  noteTurnSignal(payload.turnId, "Writing the reply");
+  if (r.structural) scheduleRender();
 });
 
 Bridge.listen("rich://message-delta", ({ payload }) => {
   const r = window.RichTimeline.onMessageDelta(timelineModel, payload);
   if (r.rejected) return;
+  noteTurnSignal(payload.turnId, "Writing the reply");
   if (r.structural) scheduleRender();
   else if (r.textOnly) scheduleProse(r.textOnly);
 });
@@ -1754,6 +2077,10 @@ Bridge.listen("rich://message-delta", ({ payload }) => {
 Bridge.listen("rich://message-completed", ({ payload }) => {
   const r = window.RichTimeline.onMessageCompleted(timelineModel, payload);
   if (r.rejected) return;
+  // A signal with NO new description: this closes one run of prose, and whether more
+  // writing follows is not knowable from here, so the band keeps the last thing it could
+  // honestly say and only moves its clock.
+  noteTurnSignal(payload.turnId, null);
   if (r.structural) scheduleRender();
   else if (r.textOnly) scheduleProse(r.textOnly);
   // §18: "announce meaningful commentary when it completes, not every token." Every run is
@@ -1763,7 +2090,12 @@ Bridge.listen("rich://message-completed", ({ payload }) => {
 
 Bridge.listen("rich://activity-upserted", ({ payload }) => {
   const r = window.RichTimeline.onActivityUpserted(timelineModel, payload);
-  if (!r.rejected) scheduleRender();
+  if (r.rejected) return;
+  // `summary` is written in Rust (`machinery.rs`) and relayed VERBATIM. Nothing here
+  // composes, shortens or interprets it, and an activity row without one contributes its
+  // instant only — a signal the band can time but not describe.
+  noteTurnSignal(payload.turnId, typeof payload.summary === "string" && payload.summary.trim() ? payload.summary.trim() : null);
+  scheduleRender();
 });
 
 // §7 — a delegated AI worker, live. Until 2026-08-29 this event was deferred in the emitter
@@ -1774,6 +2106,10 @@ Bridge.listen("rich://activity-upserted", ({ payload }) => {
 Bridge.listen("rich://worker-upserted", ({ payload }) => {
   const r = window.RichTimeline.onWorkerUpserted(timelineModel, payload);
   if (r.rejected) return;
+  // Timed, not described. A worker row carries a NAME, and "Sage" on its own says nothing a
+  // CEO can use, while any sentence built around it would be composed here rather than
+  // observed. The chip below the composer is where a delegation gets its words.
+  noteTurnSignal(payload.turnId, null);
   scheduleRender();
   // §7.2's inspector is open on a worker whose state just moved — repaint it from the row
   // that just arrived, or it would keep showing the state it was opened at.
