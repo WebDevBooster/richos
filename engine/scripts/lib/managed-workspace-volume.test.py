@@ -26,6 +26,9 @@ class ProviderSafety(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         self.store = volumes.VolumeStore(self.root / 'vault', self.root / 'active', require_root=False)
+        self.boot = str(uuid.uuid4())
+        boot = patch.object(self.store, '_boot_id', return_value=self.boot)
+        boot.start();self.addCleanup(boot.stop)
         self.ident = str(uuid.uuid4())
         base, image, active, readonly = self.store._paths(self.ident)
         for p in (base, image, active, readonly):
@@ -33,7 +36,7 @@ class ProviderSafety(unittest.TestCase):
         st = image.stat()
         self.record = dict(version=1, id=self.ident, image_identity=[st.st_dev, st.st_ino],
                            state='attached_writable', operation=None, device='/dev/disk999',
-                           owner_uid=os.getuid(), owner_gid=os.getgid())
+                           owner_uid=os.getuid(), owner_gid=os.getgid(), boot_id=self.boot)
         self.store._save(self.ident, self.record)
         self.attachment = {'image-path': str(image), 'writeable': True, 'system-entities': [
             {'dev-entry': '/dev/disk999', 'content-hint': 'GUID_partition_scheme'},
@@ -101,6 +104,65 @@ class ProviderSafety(unittest.TestCase):
             self.store.detach(self.ident)
         self.assertEqual(self.store._load(self.ident)['operation'], 'detach')
 
+    def test_new_boot_and_absent_image_establishes_cutoff(self):
+        next_boot = str(uuid.uuid4())
+        self.record['operation'] = 'attach_writable'
+        self.store._save(self.ident, self.record)
+        with patch.object(self.store, '_attached', return_value=None), \
+                patch.object(self.store, '_boot_id', return_value=next_boot):
+            result = self.store.detach(self.ident)
+        self.assertEqual(result['state'], 'detached')
+        self.assertEqual(result['cutoff'], dict(kind='new-boot', previous_boot_id=self.boot, boot_id=next_boot))
+
+    def test_missing_or_malformed_old_boot_cannot_authorize_cutoff(self):
+        for old in (None, 'invalid', 42):
+            self.record['boot_id'] = old
+            self.store._save(self.ident, self.record)
+            with self.subTest(old=old), patch.object(self.store, '_attached', return_value=None), \
+                    self.assertRaises(volumes.VolumeError):
+                self.store.detach(self.ident)
+
+    def test_new_boot_does_not_hide_attached_image_or_force_it(self):
+        with patch.object(self.store, '_boot_id', return_value=str(uuid.uuid4())), \
+                patch.object(self.store, '_attached', return_value=self.attachment), \
+                patch.object(self.store, '_run', side_effect=volumes.VolumeError('busy')), \
+                self.assertRaises(volumes.VolumeError):
+            self.store.detach(self.ident)
+        self.assertNotEqual(self.store._load(self.ident)['state'], 'detached')
+
+    def test_boot_identity_requires_valid_kernel_output(self):
+        for raw in (b'', b'invalid', b'\xff'):
+            with self.subTest(raw=raw), patch.object(self.store, '_run', return_value=raw), \
+                    self.assertRaises(volumes.VolumeError):
+                volumes.VolumeStore._boot_id(self.store)
+
+    def test_acl_grants_and_unknown_metadata_are_not_protection(self):
+        outputs = [('drwx------ fixture\n', True),
+                   ('drwx------+ fixture\n 0: group:everyone deny delete\n', True),
+                   ('drwx------+ fixture\n 0: user:someone allow add_file,delete_child\n', False),
+                   ('drwx------+ fixture\n unexpected ACL\n', False), ('', False)]
+        for output, allowed in outputs:
+            with self.subTest(output=output), patch.object(volumes.sys, 'platform', 'darwin'), \
+                    patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, output, '')):
+                if allowed:
+                    volumes.reject_unsafe_acl(self.root)
+                else:
+                    with self.assertRaises(volumes.VolumeError):
+                        volumes.reject_unsafe_acl(self.root)
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'actual macOS ACL fixture')
+    def test_actual_acl_grant_is_rejected_even_with_private_mode(self):
+        import pwd
+        fixture = self.root / 'acl';fixture.mkdir(mode=0o700)
+        username = pwd.getpwuid(os.getuid()).pw_name
+        subprocess.run(['/bin/chmod', '+a', 'user:' + username + ' allow add_file,delete_child', str(fixture)], check=True)
+        self.assertEqual(fixture.stat().st_mode & 0o777, 0o700)
+        try:
+            with self.assertRaises(volumes.VolumeError):
+                volumes.reject_unsafe_acl(fixture)
+        finally:
+            subprocess.run(['/bin/chmod', '-N', str(fixture)], check=True)
+
     def test_interrupted_attach_absence_cannot_establish_clean_cutoff(self):
         self.record.update(state='detached', operation='attach_writable', device=None)
         self.store._save(self.ident, self.record)
@@ -166,6 +228,7 @@ class ActualMacOSVolume(unittest.TestCase):
             result = store.create(ident, str(source), commit, owner_uid=os.getuid(),
                                   owner_gid=os.getgid(), size='128m')
             self.assertTrue(result['initialized'])
+            self.assertEqual(result['boot_id'], store._boot_id())
             repo = store._paths(ident)[2] / 'repo'
             self.assertTrue((repo / '.git').is_dir())
             self.assertFalse((repo / '.git/objects/info/alternates').exists())
@@ -218,6 +281,11 @@ class ActualMacOSVolume(unittest.TestCase):
             with self.assertRaises(OSError):
                 (readonly / 'file').write_text('must fail')
             store.detach(ident)
+            # Reboot clears /var/run: constructor recreates its protected root,
+            # and attach recreates only the exact missing UUID mountpoint.
+            store._paths(ident)[2].rmdir()
+            store.active_root.rmdir()
+            store = volumes.VolumeStore(root / 'vault', root / 'active', require_root=False)
             public = Path(store.attach(ident, readonly=True, owner_readable=True)['mountpoint'])
             self.assertEqual(public, store._paths(ident)[2])
             self.assertEqual((public / 'repo/file').read_bytes(), working)

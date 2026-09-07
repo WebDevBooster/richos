@@ -13,11 +13,29 @@ import plistlib
 import re
 import stat
 import subprocess
+import sys
 import uuid
 
 
 class VolumeError(RuntimeError):
     pass
+
+
+def reject_unsafe_acl(path):
+    """macOS mode bits do not bound ACL grants. Accept only no ACL or deny-only ACLs."""
+    if sys.platform != 'darwin':
+        return
+    try:
+        result = subprocess.run(['/bin/ls', '-lde', str(path)], capture_output=True,
+                                text=True, timeout=5, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+    except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+        raise VolumeError('ACL metadata unavailable: ' + str(path)) from exc
+    lines = result.stdout.splitlines()
+    if result.returncode != 0 or not lines:
+        raise VolumeError('ACL metadata unavailable: ' + str(path))
+    for line in lines[1:]:
+        if not re.fullmatch(r'\s*\d+: .+ deny [A-Za-z_,]+', line):
+            raise VolumeError('ACL grants or unreadable ACL on protected path: ' + str(path))
 
 
 class VolumeStore:
@@ -47,10 +65,12 @@ class VolumeStore:
             raise VolumeError('managed directory permissions invalid')
         # Every ancestor must resist replacement by the workspace owner.
         if self.require_root:
+            reject_unsafe_acl(path)
             for parent in path.parents:
                 ps = parent.lstat()
                 if not stat.S_ISDIR(ps.st_mode) or ps.st_uid != 0 or ps.st_mode & 0o022:
                     raise VolumeError('managed ancestor is not root protected')
+                reject_unsafe_acl(parent)
 
     def _paths(self, ident):
         try:
@@ -129,6 +149,30 @@ class VolumeStore:
                           '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always',
                           *args], owner=owner)
 
+    def _boot_id(self):
+        raw = self._run(['/usr/sbin/sysctl', '-n', 'kern.bootsessionuuid'])
+        try:
+            return str(uuid.UUID(raw.decode('ascii').strip()))
+        except (ValueError, UnicodeError, AttributeError) as exc:
+            raise VolumeError('kernel boot identity unavailable') from exc
+
+    def _boot_cutoff(self, ident, record):
+        """Only call after the exact image is verified absent from hdiutil."""
+        previous = record.get('boot_id')
+        try:
+            valid = isinstance(previous, str) and str(uuid.UUID(previous)) == previous
+        except ValueError:
+            valid = False
+        if not valid:
+            return False
+        current = self._boot_id()
+        if current == previous:
+            return False
+        record.update(state='detached', operation=None, device=None, boot_id=current,
+                      cutoff={'kind': 'new-boot', 'previous_boot_id': previous, 'boot_id': current})
+        self._save(ident, record)
+        return True
+
     def _attached(self, image):
         info = plistlib.loads(self._run(['/usr/bin/hdiutil', 'info', '-plist']))
         found = [item for item in info.get('images', [])
@@ -171,7 +215,7 @@ class VolumeStore:
         self._sync_dir(self.root)
         with self._locked(ident):
             record = dict(version=1, id=ident, state='creating', operation='create',
-                          owner_uid=owner_uid, owner_gid=owner_gid, commit=commit)
+                          owner_uid=owner_uid, owner_gid=owner_gid, commit=commit, boot_id=self._boot_id())
             self._save(ident, record)
             self._run(['/usr/bin/hdiutil', 'create', '-size', size, '-fs', 'APFS',
                        '-type', 'SPARSEBUNDLE', '-volname', 'RichOS-' + ident, str(image)])
@@ -215,13 +259,18 @@ class VolumeStore:
         base, image, active, private = self._paths(ident)
         if self._attached(image):
             raise VolumeError('detach required before attach')
+        self._boot_cutoff(ident, record)
         if record.get('state') != 'detached' or record.get('operation') is not None:
             raise VolumeError('verified clean detach required before attach')
         mount = private if readonly and not owner_readable else active
+        # /var/run is cleared at reboot. The namespace parent is protected;
+        # only recreate this exact manager-issued mountpoint, never contents.
+        self._check_directory(self.active_root, private=False)
+        mount.mkdir(mode=0o700, exist_ok=True)
         self._check_directory(mount)
         if any(mount.iterdir()):
             raise VolumeError('mountpoint is not empty')
-        record['operation'] = 'attach_readonly' if readonly else 'attach_writable'
+        record.update(operation='attach_readonly' if readonly else 'attach_writable', boot_id=self._boot_id())
         self._save(ident, record)
         args = ['/usr/bin/hdiutil', 'attach', '-plist', '-nobrowse', '-owners', 'on',
                 '-mountpoint', str(mount)]
@@ -255,12 +304,12 @@ class VolumeStore:
             device = self._device(current)
             if record.get('device') and record['device'] != device:
                 raise VolumeError('attachment device changed')
-            record.update(operation='detach', device=device)
+            record.update(operation='detach', device=device, boot_id=self._boot_id())
             self._save(ident, record)
             self._run(['/usr/bin/hdiutil', 'detach', device])
             if self._attached(image):
                 raise VolumeError('image remains attached after detach')
-        elif not (record.get('state') == 'detached' and record.get('operation') is None):
+        elif not (record.get('state') == 'detached' and record.get('operation') is None) and not self._boot_cutoff(ident, record):
             # Intent is not an execution receipt. Another actor may have forced
             # a detach after our intent was saved. An interrupted operation whose
             # image is now absent needs the broker's stronger recovery boundary.

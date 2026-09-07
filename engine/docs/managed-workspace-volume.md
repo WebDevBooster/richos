@@ -12,7 +12,10 @@ must be separate absolute directories under root-owned ancestors that users
 cannot replace. macOS aliases such as `/var` are canonicalized once before
 validation and use. The private root is mode 0700. The active mount root is mode
 0711 so the workspace owner can traverse a known mount path. The provider refuses
-writable resolved ancestors and a non-root production caller.
+writable resolved ancestors and a non-root production caller. On macOS it also
+rejects ACL grants or unreadable ACL metadata on protected directories and
+ancestors; POSIX mode bits alone do not establish that boundary. Deny-only ACLs
+are accepted.
 
 `create(id, source_repo, commit, owner_uid=..., owner_gid=..., size="32g")`
 reserves a canonical UUID, creates a sparse APFS image and clones a complete
@@ -54,7 +57,8 @@ disk space. The broker must require `initialized` before publishing a workspace.
 Each private `id/` directory contains `image.sparsebundle`, `journal.json`, a
 lock file and the private `readonly/` mountpoint. Journal version 1 records
 `id`, `owner_uid`, `owner_gid`, `commit`, `image_identity` (device and inode),
-`state`, `operation`, `device` and, after initialization, `initialized`.
+`state`, `operation`, `device`, canonical kernel `boot_id` and, after
+initialization, `initialized`.
 States are `creating`, `detached`, `attached_writable` and `attached_readonly`.
 Operation intent is durably written before mutation; updates use fsync and
 atomic replacement. An exclusive per-image lock covers clone initialization
@@ -65,9 +69,13 @@ incomplete reservation requiring broker recovery. The provider does not guess
 that an existing image belongs to an incomplete record. A pending detach may be
 retried while the exact image remains attached. Once an interrupted operation's
 image has disappeared, intent alone cannot prove that a successful unforced
-detach occurred. The provider refuses to manufacture that receipt; broker
-recovery needs a stronger boundary such as a subsequent boot before authorizing
-capture or deletion.
+detach occurred. Same-boot disappearance therefore refuses. If the recorded
+valid `kern.bootsessionuuid` differs from the current kernel UUID and the exact
+image is absent, the provider records a `new-boot` cutoff: old descriptors,
+queued rights and mappings cannot survive that reboot. A missing or malformed
+recorded boot identity never grants this recovery. An image still attached must
+undergo normal unforced detach even after reboot. Missing UUID mountpoints under
+the protected active root are recreated, including after `/var/run` is cleared.
 
 ## Trust boundary and verification
 
