@@ -506,7 +506,7 @@ fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json:
 /// very turn it is meant to interrupt — the stop would be structurally impossible no
 /// matter how the rest of the plumbing is written.
 #[tauri::command(async)]
-fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, String> {
+fn send_message(state: State<AppState>, text: String, thread_id: String) -> Result<Vec<Message>, String> {
     let mut spine = state.spine.lock().unwrap();
     // A configured factory connects inside the tracked turn. This covers first launch,
     // a later sign-in and replacement of a session retired by Stop.
@@ -518,6 +518,9 @@ fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, St
         return Err(LEASE_UNAVAILABLE_MESSAGE.into());
     }
     let thread = spine.active_thread().ok_or("Open a conversation first.")?.to_string();
+    if thread != thread_id {
+        return Err("The conversation changed before your message was sent. Open the original conversation to try again.".into());
+    }
     spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;
     spine.messages(&thread).map_err(|e| e.to_string())
 }
