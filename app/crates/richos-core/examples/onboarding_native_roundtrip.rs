@@ -42,8 +42,9 @@ impl richos_core::stream::TurnObserver for FirstText {
         }
     }
 }
-fn ask(spine: &mut Spine, text: &str) -> String { ask_with_assignment(spine, text, false) }
-fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool) -> String {
+fn ask(spine: &mut Spine, text: &str) -> String { ask_with_assignment(spine, text, false, false) }
+fn ask_saved(spine: &mut Spine, text: &str) -> String { ask_with_assignment(spine, text, false, true) }
+fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool, expects_tool: bool) -> String {
     let start = Instant::now();
     spine.set_observer(Box::new(FirstText { start, seen: std::sync::atomic::AtomicBool::new(false) }));
     let turn = spine.submit_prompt(text, Source::Text).expect("live turn");
@@ -55,6 +56,16 @@ fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool) -> Str
     assert!(!reply.trim().is_empty(), "no visible reply");
     let handled = richos_core::onboarding_tools::handled_in_turn(
         spine.machinery_journal().unwrap().read_thread(&result.thread_id), &turn);
+    if expects_tool { assert!(handled, "the approved action must happen in this visible turn, not hidden priming"); }
+    let scope = spine.onboarding_tool_scope(&spine.active_binding().unwrap()).unwrap();
+    let grants = std::fs::read_dir(scope.record_path.parent().unwrap().join("onboarding-scopes")).unwrap();
+    let mut grants_checked = 0;
+    for entry in grants {
+        let value: serde_json::Value = serde_json::from_slice(&std::fs::read(entry.unwrap().path()).unwrap()).unwrap();
+        assert_eq!(value["actions_allowed"], false, "tool grant remained open after the turn");
+        grants_checked += 1;
+    }
+    assert!(grants_checked > 0, "no native scope grant checked");
     let tail = spine.ledger().turns().iter().filter(|t| t.thread_id == result.thread_id && t.id != turn && matches!(t.source, Source::Text | Source::Jam))
         .map(|t| format!("CEO: {}\nRich: {}", t.user_text, t.assistant_text)).collect::<Vec<_>>().join("\n");
     let (handoff, _) = richos_core::registration::register_with_onboarding(text, &reply, &tail, &[], "", handled)
@@ -78,7 +89,7 @@ fn main() {
     let mut spine = open(&root, &executable);
     assert_eq!(state(&spine), OnboardingState::NotYet);
     ask(&mut spine, "Let's start the company interview. Our company is Northstar, a small business selling handmade notebooks to independent bookstores. I am Morgan, the owner. Please ask me the first question.");
-    ask(&mut spine, "Our three-year destination is 120 independent bookstore customers and a four-person team. Today we have 18 customers, two part-time staff and about 12000 pounds monthly revenue. Cash is tight and late shipments are the main problem. I approve saving these details now. I need to pause the interview here; we can cover the remaining stages later.");
+    ask_saved(&mut spine, "Our three-year destination is 120 independent bookstore customers and a four-person team. Today we have 18 customers, two part-time staff and about 12000 pounds monthly revenue. Cash is tight and late shipments are the main problem. I approve saving these details now. I need to pause the interview here; we can cover the remaining stages later.");
     assert_eq!(state(&spine), OnboardingState::Partial, "model must checkpoint a paused interview");
     let notes = root.join("central/companies/northstar-fixture/company.md");
     let saved = std::fs::read_to_string(&notes).unwrap();
@@ -88,17 +99,17 @@ fn main() {
     assert_eq!(state(&spine), OnboardingState::Partial);
     let reply = ask(&mut spine, "Before we continue, what kind of business do I run and what is our three-year destination? Use the company notes you have.");
     assert!(reply.to_lowercase().contains("notebook") && reply.contains("120"), "saved facts were not recalled");
-    ask(&mut spine, "Not now, please don't offer to resume the company interview until I ask for it.");
+    ask_saved(&mut spine, "Not now, please don't offer to resume the company interview until I ask for it.");
     assert!(matches!(state(&spine), OnboardingState::Declined { .. }), "spoken decline must persist");
     drop(spine);
     let mut spine = open(&root, &executable);
     assert!(matches!(state(&spine), OnboardingState::Declined { .. }));
-    ask(&mut spine, "I want to resume and finish the company interview now. My priorities this month are dependable shipping and keeping enough cash for materials. The constraints are a 2000 pound budget and no more than 10 of my hours weekly. I make decisions after a short recommendation with costs and risks. Success means shipping within three working days and no missed supplier payments. For the team stage, record reliable operations support as a wish only, with no promise of hiring or staffing. I explicitly defer any other unanswered interview stages. I approve these notes and the earlier facts; please save the completed interview.");
+    ask_saved(&mut spine, "I want to resume and finish the company interview now. My priorities this month are dependable shipping and keeping enough cash for materials. The constraints are a 2000 pound budget and no more than 10 of my hours weekly. I make decisions after a short recommendation with costs and risks. Success means shipping within three working days and no missed supplier payments. For the team stage, record reliable operations support as a wish only, with no promise of hiring or staffing. I explicitly defer any other unanswered interview stages. I approve these notes and the earlier facts; please save the completed interview.");
     assert_eq!(state(&spine), OnboardingState::Described, "completed notes must persist");
     drop(spine);
     let mut spine = open(&root, &executable);
     assert_eq!(state(&spine), OnboardingState::Described);
-    ask_with_assignment(&mut spine, "Update our company notes to say our shipping cutoff is 2 pm. Also prepare a one-page shipping checklist as a separate deliverable, shipping-checklist.md in our workspace. Do not contact any customers.", true);
+    ask_with_assignment(&mut spine, "Update our company notes to say our shipping cutoff is 2 pm. Also prepare a one-page shipping checklist as a separate deliverable, shipping-checklist.md in our workspace. Do not contact any customers.", true, true);
     spine.ensure_active_thread_in(&EntityId::parse("second-fixture").unwrap()).unwrap();
     assert_eq!(state(&spine), OnboardingState::NotYet, "other company must retain own onboarding");
     println!("PASS: actual model saved partial notes, recalled after restart, persisted a typed decline, completed on request kept another company independent and registered only the separate accepted work.");

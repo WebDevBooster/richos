@@ -1434,6 +1434,7 @@ fn main() {
                 engine_dir: Arc::clone(&engine_cell),
                 data_dir: data_dir.clone(),
             }));
+            eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
 
             // ==============================================================================
             // FIRST-RUN SETUP — what this machine is missing, named at boot
