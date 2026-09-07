@@ -72,6 +72,28 @@ class BranchShadow(unittest.TestCase):
     def source_files(self):
         return {p.relative_to(self.common).as_posix():p.read_bytes() for p in self.common.rglob('*') if p.is_file()}
 
+    def test_exact_retiring_admin_exclusion_preserves_other_registry_checks(self):
+        for name in ('retiring','remaining'):
+            self.git('-C',self.repo,'worktree','add','-qb',name,self.root/name)
+        admin=self.common/'worktrees/retiring'
+        (admin/'gitdir').unlink()
+        with self.assertRaises(Exception):self.observation()
+        with tempfile.TemporaryDirectory(dir=self.scratch) as temp:
+            _,_,registry,_=shadow._shadow(self.common,Path(temp)/'view.git',BINARY,
+                                          excluded_admin_names=('retiring',))
+        self.assertEqual({row['path'] for row in registry},{'HEAD','worktrees/remaining/HEAD'})
+        (self.common/'worktrees/remaining/HEAD').unlink()
+        with self.assertRaises(Exception):shadow._registry(self.common,excluded_admin_names=('retiring',))
+
+    def test_admin_exclusion_refuses_traversal_multiple_names_and_symlink_entry(self):
+        for names in ('worker',('../worker',),('.',),('a','b'),('a/b',),('a\0b',)):
+            with self.subTest(names=names),self.assertRaises(shadow.ShadowError):
+                shadow._registry(self.common,excluded_admin_names=names)
+        (self.common/'worktrees').mkdir()
+        (self.common/'worktrees/retiring').symlink_to(self.root,target_is_directory=True)
+        with self.assertRaisesRegex(shadow.ShadowError,'malformed worktree registry'):
+            shadow._registry(self.common,excluded_admin_names=('retiring',))
+
     def test_packed_branch_transaction_preserves_unrelated_refs_and_held_bytes(self):
         selection=self.selection();before=self.source_files()
         result=self.prepare(selection)

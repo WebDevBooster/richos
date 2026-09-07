@@ -157,8 +157,18 @@ def _storage(common):
     return objects
 
 
-def _registry(common):
-    """Read actual symbolic HEAD declarations, even if old checkout paths moved."""
+def _registry(common, *, excluded_admin_names=()):
+    """Read registered HEADs, optionally omitting one journaled retiring admin.
+
+    Only a retirement replay that has already verified its exact journal roots
+    and every remaining held inode may supply an exclusion. Public observation
+    and preparation always use the complete registry.
+    """
+    if (not isinstance(excluded_admin_names, (tuple, list, set, frozenset))
+            or len(excluded_admin_names) > 1
+            or any(not isinstance(name, str) or not name or name in ('.', '..')
+                   or '/' in name or '\0' in name for name in excluded_admin_names)):
+        raise ShadowError('at most one exact linked admin component may be excluded')
     paths = [common / 'HEAD']
     worktrees = common / 'worktrees'
     if os.path.lexists(worktrees):
@@ -167,6 +177,8 @@ def _registry(common):
         for directory in sorted(worktrees.iterdir()):
             if directory.is_symlink() or not directory.is_dir():
                 raise ShadowError('malformed worktree registry entry')
+            if directory.name in excluded_admin_names:
+                continue
             paths.append(directory / 'HEAD')
             # Missing linkage cannot be silently treated as detached/dead.
             linkage = _bytes(directory / 'gitdir', 65536).decode('utf-8').strip()
@@ -267,9 +279,9 @@ def _logical_refs(binary, directory, objects, files):
     return resolved
 
 
-def _shadow(common, directory, binary):
+def _shadow(common, directory, binary, *, excluded_admin_names=()):
     files = _metadata(common);objects = _storage(common)
-    registry = _registry(common)
+    registry = _registry(common, excluded_admin_names=excluded_admin_names)
     # Determine the object hash format from immutable current HEAD/ref object
     # names, never execute or load the original repository configuration.
     packed = files.get('packed-refs', b'')
