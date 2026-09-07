@@ -407,7 +407,7 @@ m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
         self.assertEqual(set(content), set(broker.CODE_FILES))
         self.assertEqual(set(manifest), set(broker.CODE_FILES))
         plist = plistlib.loads((package / (installer.LABEL + ".plist")).read_bytes())
-        self.assertEqual(plist["ProgramArguments"][:4], ["/usr/bin/python3", "-I", "-S", "-B"])
+        self.assertEqual(plist["ProgramArguments"][:4], ["/Library/Developer/CommandLineTools/usr/bin/python3", "-I", "-S", "-B"])
         self.assertNotIn(str(HERE), json.dumps(plist))
         self.assertEqual(plist["UserName"], "root")
         self.assertTrue((package / "install.py").is_file())
@@ -432,6 +432,16 @@ m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
         with self.assertRaises(ValueError):
             installer.install(self.root / "absent", self.root / "policy")
 
+    def test_install_refuses_a_different_actual_interpreter_before_writes(self):
+        with mock.patch.object(installer.os, 'geteuid', return_value=0), \
+                mock.patch.object(installer.sys, 'platform', 'darwin'), \
+                mock.patch.object(installer.sys, 'flags', types.SimpleNamespace(isolated=1, no_site=1)), \
+                mock.patch.object(installer.sys, 'executable', '/Applications/Untrusted.app/python3'), \
+                mock.patch.object(installer, 'protected'), mock.patch.object(installer, 'payloads') as payload:
+            with self.assertRaisesRegex(ValueError, 'fixed root-owned'):
+                installer.install(self.root / 'absent', self.root / 'policy')
+        payload.assert_not_called()
+
     def test_installation_artifacts_in_disposable_namespace_without_activation(self):
         package = installer.stage(self.root / "package")
         (self.root / "approved").mkdir()
@@ -449,6 +459,7 @@ m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
         with mock.patch.multiple(installer, **overrides), \
                 mock.patch.object(installer.os, "geteuid", return_value=0), \
                 mock.patch.object(installer.sys, "platform", "darwin"), \
+                mock.patch.object(installer.sys, "executable", installer.INTERPRETER), \
                 mock.patch.object(installer.sys, "flags", types.SimpleNamespace(isolated=1, no_site=1)), \
                 mock.patch.object(installer, "protected", side_effect=lambda p: Path(p).resolve()):
             unrelated = self.root / "unrelated"

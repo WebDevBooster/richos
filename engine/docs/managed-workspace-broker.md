@@ -66,8 +66,8 @@ installation script, a launchd plist and a policy example. Replace the example's
 UIDs and paths with the explicitly approved host configuration. The example is
 not an approved policy.
 
-A reviewed package can later be installed by an administrator using the system
-Python with `-I -S`. The installer requires root, checks the package hashes and
+A reviewed package can later be installed by an administrator using the root-owned Apple Command Line Tools
+Python (`/Library/Developer/CommandLineTools/usr/bin/python3`) with `-I -S`. The installer requires root, checks the package hashes and
 uses only the dedicated `/var/db/richos-workspaces` and
 `/var/db/richos-workspace-mounts` storage namespaces. It refuses to repurpose
 other policy paths or change permissions on mismatched existing directories.
@@ -94,7 +94,7 @@ runs `sudo`, `launchctl` or another activation workaround.
 
 ## Root code execution and remaining acceptance
 
-The launchd plist uses `/usr/bin/python3 -I -S -B`, an absolute installed release
+The launchd plist uses `/Library/Developer/CommandLineTools/usr/bin/python3 -I -S -B`, an absolute installed release
 path and a fixed working directory. Before loading the manager, the broker
 requires root ownership and non-writable resolved ancestors for its executable,
 interpreter import paths, policy and all runtime files. On macOS it additionally
@@ -110,3 +110,8 @@ redirects every destination into a disposable directory and simulates privilege
 checks. It does not establish real installed ownership or prove an activated
 root service. Actual root-to-user volume creation, terminal cleanup, restart
 recovery and measured disk reclamation still require installed-host acceptance.
+
+The system `/usr/bin/python3` shim can select a user-owned Xcode installation.
+Installation refuses that interpreter and checks its actual executable and
+import paths before writing files. Apple Command Line Tools must be installed;
+the installer never changes Xcode ownership or weakens runtime protection.

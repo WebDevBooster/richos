@@ -26,7 +26,7 @@ CLIENT_CONFIG_PATH = Path("/Library/Application Support/RichOS/ManagedWorkspaces
 SOCKET_ROOT = Path("/var/db/richos-workspace-sockets")
 LABEL = "com.richos.managed-workspace-broker"
 PLIST_PATH = Path("/Library/LaunchDaemons") / (LABEL + ".plist")
-INTERPRETER = "/usr/bin/python3"
+INTERPRETER = "/Library/Developer/CommandLineTools/usr/bin/python3"
 PRIVATE_ROOT = Path("/var/db/richos-workspaces")
 ACTIVE_ROOT = Path("/var/db/richos-workspace-mounts")
 
@@ -153,6 +153,15 @@ def install(package, policy_source):
     if sys.platform != "darwin":
         raise ValueError("launchd broker installation is macOS-only")
     protected(INTERPRETER)
+    if Path(sys.executable).resolve() != Path(INTERPRETER).resolve():
+        raise ValueError("installation requires the fixed root-owned Command Line Tools interpreter")
+    for entry in sys.path:
+        if not entry or not Path(entry).is_absolute():
+            raise ValueError("relative installer interpreter import path")
+        ancestor = Path(entry)
+        while not ancestor.exists():
+            ancestor = ancestor.parent
+        protected(ancestor)
     content, manifest = payloads(Path(package))
     # Execute exactly the reviewed, hashed broker bytes to share policy
     # validation. No manager or provider is imported during installation.

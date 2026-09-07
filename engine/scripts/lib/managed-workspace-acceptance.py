@@ -2,7 +2,8 @@
 """Installed root/user acceptance using only newly created disposable fixtures.
 
 Never enables client.json, starts launchd, reboots or accesses real worktrees.
-Run from a reviewed root-owned release with /usr/bin/python3 -I -S -B.
+Run from a reviewed root-owned release with the root-owned Command Line Tools
+Python using -I -S -B.
 """
 import argparse
 import importlib.util
