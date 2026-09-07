@@ -82,7 +82,7 @@ pub const SETUP_UNPINNED_NOTE: &str =
 /// So this is the arm where the cause is on disk in front of us. It says which piece is
 /// missing, in the same words the consent sheet uses ([`Component::display_name`]), it
 /// offers the one thing that fixes it — the sheet is reopened behind this notice, and
-/// `run_setup` attaches a lease with no relaunch — and it closes the door on the advice that
+/// `run_setup` refreshes the lease factory with no relaunch — and it closes the door on the advice that
 /// cannot help: *there's nothing to quit and nothing to reopen*.
 ///
 /// THREE ARMS AND THREE WHOLE SENTENCES, not one template with a hole in it. `affordances.js`
@@ -235,7 +235,7 @@ pub fn ask_for(status: &SetupStatus) -> SetupAsk {
 ///
 /// `engine_dir` is the shared cell the lease factory reads (`main.rs::EngineLeaseFactory`).
 /// A successful engine install rewrites it, so the next lease — a rotation, a recovery, or the
-/// attach this function attempts — starts `claude` in the engine that was just installed,
+/// first accepted request — starts `claude` in the engine that was just installed,
 /// **without a relaunch**. That property is not a nicety: `provision_memory` already set it as
 /// the standard, after a customer's first five minutes were spent with a corpus he had just
 /// created and a desk that would not open until he quit.

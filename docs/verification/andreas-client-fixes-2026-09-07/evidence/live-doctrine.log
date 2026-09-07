@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/doctrine_sentinel.rs (target/debug/deps/doctrine_sentinel-86375d0ae8e9e96b)
+
+running 1 test
+binary: /Users/alex/.local/bin/claude
+resolved: /Users/alex/.local/share/claude/versions/2.1.263
+treatment doctrine: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-sentinel-treatment-21478-1788768227115533000/inner-doctrine.md (3505 bytes)
+
+--- TREATMENT REPLY ---
+Acknowledged.
+TOPGALLANT-6641
+`make kedge`
+
+control doctrine: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-sentinel-control-21478-1788768229718757000/inner-doctrine.md (3328 bytes)
+
+--- CONTROL REPLY ---
+unknown
+unknown
+
+test the_standing_instruction_reaches_the_model_and_the_control_proves_it ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.91s
+

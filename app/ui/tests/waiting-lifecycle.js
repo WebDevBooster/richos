@@ -1,0 +1,265 @@
+// Adversarial lifecycle regressions from Andreas's first-client audit. These drive the
+// shipping renderer through its bridge listeners, including command failure without a
+// terminal event. Native IPC and core cancellation are tested separately.
+"use strict";
+const { loadPlaywright, createRun, assert, assertEqual } = require("./lib/harness");
+const { openApp, startTurn, goWorking, advance, tick, band } = require("./waiting-state");
+
+async function activity(page, fence, turnId, values) {
+  await page.evaluate(({ fence, turnId, values }) => window.__emit("rich://activity-upserted", {
+    ...fence, kind: "activity", id: "audit_activity", turnId, createdAt: Date.now(),
+    updatedAt: Date.now(), sequence: 1, slot: "stream", visibility: "ceo",
+    activityType: "command", state: "running", at: Date.now(), ...values,
+  }), { fence, turnId, values });
+}
+
+async function controllableSend(page) {
+  await page.evaluate(() => {
+    const original = window.RichBridge.invoke.bind(window.RichBridge);
+    window.RichBridge.invoke = (cmd, args) => cmd === "send_message"
+      ? new Promise((resolve, reject) => { window.__rejectSend = reject; })
+      : original(cmd, args);
+  });
+}
+
+async function main() {
+  const run = createRun("waiting lifecycle: acceptance, failure, evidence and accessibility");
+  const browser = await loadPlaywright().webkit.launch();
+  try {
+    await run.check("opening another company hides old messages, fences Send and keeps Stop usable", async () => {
+      for (const theme of ["dark", "light"]) {
+        const page = await openApp(browser, theme);
+        const fence = await startTurn(page, "opening_previous");
+        await goWorking(page, fence, "opening_previous");
+        await page.evaluate(() => {
+          const original = window.RichBridge.invoke.bind(window.RichBridge);
+          window.__openingCalls = [];
+          window.RichBridge.invoke = (cmd, args) => {
+            window.__openingCalls.push({ cmd, args });
+            if (cmd === "switch_thread") return new Promise(resolve => {
+              window.__finishOpeningSwitch = () => original(cmd, args).then(resolve);
+            });
+            if (cmd === "get_timeline") return new Promise(resolve => {
+              window.__finishOpeningSnapshot = () => original(cmd, args).then(resolve);
+            });
+            if (cmd === "stop_turn") return Promise.reject("temporary disk error");
+            return original(cmd, args);
+          };
+        });
+        await page.click('.nav-thread[data-thread-id="acme"]');
+        await page.waitForFunction(() => !!window.__finishOpeningSwitch);
+        assert(await page.isHidden("#conversation"), "previous company's messages are hidden immediately");
+        assertEqual((await band(page)).head, "Opening conversation");
+        assert((await band(page)).detail.includes("previous conversation"));
+        assert(await page.isDisabled("#send"));
+        assert(await page.isVisible("#stop"));
+        await page.fill("#input", "New company's draft");
+        await page.press("#input", "Enter");
+        assertEqual(await page.evaluate(() => window.__openingCalls.filter(c => c.cmd === "send_message" || c.cmd === "steer_turn").length), 0);
+        await page.click("#stop");
+        assertEqual((await band(page)).detail, "I couldn't stop the previous conversation. Press Stop again.");
+        assertEqual(await page.evaluate(() => window.__openingCalls.find(c => c.cmd === "stop_turn").args.expectedTurnId), "opening_previous");
+        assert(!(await page.isDisabled("#stop")), "failed Stop is actionable while navigation waits");
+        await page.evaluate(() => {
+          const original = window.RichBridge.invoke.bind(window.RichBridge);
+          window.RichBridge.invoke = (cmd, args) => cmd === "stop_turn"
+            ? Promise.resolve({ stopped: true, turnId: "opening_previous", reachedLease: true }) : original(cmd, args);
+        });
+        await page.click("#stop");
+        assertEqual((await band(page)).detail, "Stopping work in the previous conversation");
+        assert(await page.isDisabled("#stop"));
+        await page.evaluate(fence => window.__emit("rich://turn-status", { ...fence, turnId: "opening_previous", status: "stopped", at: Date.now(), visibility: "ceo" }), fence);
+        assert(await page.isHidden("#stop"), "previous terminal event removes its Stop");
+        await page.evaluate(() => window.__finishOpeningSwitch());
+        await page.waitForFunction(() => !!window.__finishOpeningSnapshot);
+        assert(await page.isDisabled("#send"), "binding alone does not enable Send before saved messages arrive");
+        await page.evaluate(() => window.__finishOpeningSnapshot());
+        await page.waitForSelector('#conversation:not([hidden])');
+        assertEqual(await page.inputValue("#input"), "New company's draft");
+        assert(!(await page.isDisabled("#send")));
+        assertEqual(await band(page), null);
+        assertEqual(await page.evaluate(() => window.__RICHOS_TIMELINE__().threadId), "acme");
+        await page.close();
+      }
+    });
+
+    await run.check("a slow invocation is visible before acceptance and queued silence ages honestly", async () => {
+      const page = await openApp(browser);
+      await page.evaluate(() => { window.__TAP.hang = true; });
+      await page.fill("#input", "Please help with the board memo.");
+      await page.press("#input", "Enter");
+      await advance(page, 40000); await tick(page);
+      let b = await band(page);
+      assertEqual(b.head, "Sending your message");
+      assertEqual(b.detail, "Waiting for Rich to accept it");
+      assertEqual(b.tone, "quiet");
+      assert(await page.isHidden("#stop"), "no accepted operation exists to stop yet");
+      await page.evaluate(() => {
+        const m = window.__RICHOS_TIMELINE__();
+        window.__emit("rich://turn-status", { entityId: m.entityId, threadId: m.threadId,
+          bindingRevision: m.bindingRevision, turnId: "queued_slow", status: "queued",
+          startedAt: null, visibility: "ceo", at: Date.now() });
+      });
+      await advance(page, 40000); await tick(page);
+      b = await band(page);
+      assertEqual(b.head, "Rich has your message");
+      assertEqual(b.detail, "Nothing new for 40s");
+      assertEqual(b.tone, "quiet");
+      assertEqual(await page.locator(".tl-duration-label").last().textContent(), "Waiting to start");
+      await page.close();
+    });
+
+    await run.check("queued then working cannot consume a second message awaiting its own acceptance", async () => {
+      const page = await openApp(browser);
+      await page.evaluate(() => { window.__TAP.hang = true; });
+      await page.fill("#input", "First request"); await page.press("#input", "Enter");
+      await page.fill("#input", "Second request"); await page.press("#input", "Enter");
+      await page.evaluate(() => {
+        const m = window.__RICHOS_TIMELINE__();
+        const fence = { entityId: m.entityId, threadId: m.threadId, bindingRevision: m.bindingRevision };
+        for (const status of ["queued", "working"]) window.__emit("rich://turn-status", {
+          ...fence, turnId: "first_request", status, startedAt: status === "working" ? Date.now() : null,
+          at: Date.now(), visibility: "ceo",
+        });
+      });
+      await tick(page);
+      assertEqual(await page.evaluate(() => window.__RICHOS_TIMELINE__().pendingUser.length), 1);
+      const text = await page.locator("#messages").innerText();
+      assert(text.includes("First request") && text.includes("Second request"), "both requests remain visible");
+      await page.close();
+    });
+
+    await run.check("a rejected accepted send ends its waiting state even when the terminal event is missing", async () => {
+      const page = await openApp(browser);
+      await controllableSend(page);
+      await startTurn(page, "prime_failed");
+      await page.evaluate(() => window.__rejectSend("cognition io: priming process exited"));
+      await page.waitForFunction(() => window.__RICHOS_WAIT__() === null);
+      await advance(page, 300000); await tick(page);
+      assertEqual(await band(page), null, "five minutes cannot revive a rejected invocation");
+      assert(await page.isHidden("#stop"), "no misleading Stop after failure");
+      const text = await page.locator("#messages").innerText();
+      assert(text.includes("Draft the Q4 board memo"), "accepted user words survive");
+      assert(text.includes("Pick it back up"), "the failure has an actionable retry");
+      assert(!text.includes("cognition io"), "raw machinery is not a user explanation");
+      await page.close();
+    });
+
+    await run.check("a terminal failure followed by command rejection is explained once", async () => {
+      const page = await openApp(browser);
+      await controllableSend(page);
+      const fence = await startTurn(page, "failed_once");
+      await goWorking(page, fence, "failed_once");
+      await page.evaluate(f => {
+        window.__emit("rich://turn-status", { ...f, turnId: "failed_once", status: "failed",
+          startedAt: Date.now(), activeDurationMs: 0, at: Date.now(), visibility: "ceo" });
+        window.__rejectSend("cognition io: broken pipe");
+      }, fence);
+      await tick(page);
+      assertEqual(await band(page), null);
+      assertEqual(await page.inputValue("#input"), "", "accepted text is not duplicated into a resend draft");
+      assert(!(await page.locator("#messages").innerText()).includes("broken pipe"));
+      assertEqual(await page.getByRole("button", { name: "Pick it back up", exact: true }).count(), 1);
+      await page.close();
+    });
+
+    await run.check("a refusal preserves text typed while the invocation was pending", async () => {
+      const page = await openApp(browser);
+      await controllableSend(page);
+      await page.fill("#input", "The original request"); await page.press("#input", "Enter");
+      await page.fill("#input", "A newer unsent draft");
+      await page.evaluate(() => window.__rejectSend("I couldn't accept that request."));
+      await page.waitForFunction(() => document.querySelector("#input").value.includes("The original request"));
+      assertEqual(await page.inputValue("#input"), "The original request\n\nA newer unsent draft");
+      await page.close();
+    });
+
+    await run.check("a send refused after navigation restores its draft only to the original thread", async () => {
+      const page = await openApp(browser);
+      await controllableSend(page);
+      const origin = await page.evaluate(() => window.__RICHOS_TIMELINE__().threadId);
+      await page.fill("#input", "Original company request"); await page.press("#input", "Enter");
+      await page.click('.nav-thread[data-thread-id="acme"]');
+      await page.waitForFunction(() => window.__RICHOS_TIMELINE__().threadId === "acme");
+      await page.fill("#input", "New company draft");
+      await page.evaluate(() => window.__rejectSend("The selected task changed."));
+      await page.waitForTimeout(100);
+      assertEqual(await page.inputValue("#input"), "New company draft");
+      assert(!(await page.locator("#messages").innerText()).includes("Original company request"));
+      await page.click('.nav-thread[data-thread-id="' + origin + '"]');
+      await page.waitForFunction(id => window.__RICHOS_TIMELINE__().threadId === id, origin);
+      await page.waitForFunction(() => document.querySelector("#input").value === "Original company request");
+      assertEqual(await page.inputValue("#input"), "Original company request");
+      await page.close();
+    });
+
+    await run.check("a worker heartbeat cannot change the age of an earlier activity", async () => {
+      const page = await openApp(browser);
+      const fence = await startTurn(page, "activity_age");
+      await goWorking(page, fence, "activity_age");
+      await activity(page, fence, "activity_age", { summary: "Read the Q3 board pack", state: "completed" });
+      await advance(page, 23000);
+      await page.evaluate(f => window.__emit("rich://worker-upserted", { ...f,
+        kind: "worker_activity", id: "sage", turnId: "activity_age", createdAt: Date.now(),
+        sequence: 2, slot: "stream", visibility: "ceo", at: Date.now(), worker: {
+          agentId: "sage", workerName: "Sage", agentType: "research", observedState: "updated",
+          state: "running", latestUpdate: null, eventsObserved: 3,
+        } }), fence);
+      await advance(page, 3000); await tick(page);
+      assertEqual((await band(page)).detail, "Read the Q3 board pack · 26s ago");
+      assertEqual((await band(page)).tone, "working", "recent liveness still counts separately");
+      await page.close();
+    });
+
+    await run.check("compaction start and ending are announced once, with no heartbeat or tick chatter", async () => {
+      const page = await openApp(browser);
+      const fence = await startTurn(page, "accessible_compaction");
+      await goWorking(page, fence, "accessible_compaction");
+      await page.waitForTimeout(100);
+      await page.evaluate(() => {
+        window.__said = [];
+        new MutationObserver(() => {
+          const text = document.querySelector("#live-region").textContent;
+          if (text) window.__said.push(text);
+        }).observe(document.querySelector("#live-region"), { childList: true, subtree: true, characterData: true });
+      });
+      const startedAt = await page.evaluate(() => Date.now());
+      for (const offset of [0, 30000, 30000]) {
+        await advance(page, offset);
+        await activity(page, fence, "accessible_compaction", { summary: "Making room to keep going", startedAt, measuredMinMs: 38138 });
+        await tick(page);
+      }
+      await activity(page, fence, "accessible_compaction", { summary: "Made room to keep going", state: "completed", startedAt, measuredMinMs: 38138 });
+      await tick(page);
+      assertEqual(await page.evaluate(() => window.__said), ["Making room to keep going", "Made room to keep going"]);
+      await page.close();
+    });
+
+    await run.check("a mid-turn snapshot restores the activity age and paced bar without restarting either", async () => {
+      const page = await openApp(browser);
+      const fence = await startTurn(page, "snapshot_compaction");
+      await goWorking(page, fence, "snapshot_compaction");
+      const startedAt = await page.evaluate(() => Date.now());
+      await activity(page, fence, "snapshot_compaction", { summary: "Making room to keep going", startedAt, measuredMinMs: 38138 });
+      await advance(page, 20000); await tick(page);
+      const before = await page.evaluate(() => window.__RICHOS_WAIT__().copy.pace.position);
+      await page.evaluate(f => {
+        const m = window.__RICHOS_TIMELINE__();
+        const original = window.RichBridge.invoke.bind(window.RichBridge);
+        const snapshot = { ...f, mode: "ceo", items: [...m.items.values(), {
+          ...f, kind: "work_duration", id: "snapshot_compaction:duration", turnId: "snapshot_compaction",
+          state: "working", startedAt: m.turns.get("snapshot_compaction").startedAt, activeMs: null,
+          visibility: "ceo", slot: "terminal", createdAt: Date.now(),
+        }] };
+        window.RichBridge.invoke = (cmd, args) => cmd === "get_timeline" ? Promise.resolve(snapshot) : original(cmd, args);
+        window.__emit("rich://proactive-message", { threadId: m.threadId });
+      }, fence);
+      await tick(page);
+      assertEqual((await band(page)).detail, "Making room to keep going · 20s ago");
+      assertEqual(await page.evaluate(() => window.__RICHOS_WAIT__().copy.pace.position), before);
+      await page.close();
+    });
+  } finally { await browser.close(); }
+  process.exitCode = run.report() ? 1 : 0;
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,0 +1,76 @@
+   Compiling richos-tauri v1.0.3 (/Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.18s
+     Running unittests src/main.rs (app/src-tauri/target/debug/deps/richos_tauri-07fd9f70f45e5500)
+
+running 68 tests
+test activation::tests::his_own_double_click_still_comes_to_the_front ... ok
+test activation::tests::a_harness_booting_the_real_install_is_still_accessory ... ok
+test activation::tests::the_accessory_line_tells_its_reader_what_happened_and_what_to_do ... ok
+test activation::tests::bundle_root_reads_the_macos_layout_and_nothing_else ... ok
+test activation::tests::no_home_is_not_an_installed_launch ... ok
+test activation::tests::an_unrecognized_override_value_decides_nothing ... ok
+test activation::tests::a_bundle_belonging_to_some_other_app_is_not_this_one ... ok
+test activation::tests::a_redirected_data_directory_never_takes_the_screen ... ok
+test activation::tests::a_cargo_built_binary_never_takes_the_screen ... ok
+test activation::tests::a_scratch_home_takes_the_screen_only_if_it_is_the_real_one ... ok
+test activation::tests::the_override_answers_in_both_directions ... ok
+test activation::tests::the_identifier_is_read_out_of_a_real_info_plist ... ok
+test activation::tests::the_regular_line_says_so_on_one_line ... ok
+test engine::tests::cwd_root_never_yields_a_relative_parent_expression ... ok
+test engine::tests::a_directory_called_engine_that_is_not_an_engine_is_not_accepted ... ok
+test engine::tests::a_failed_resolution_carries_every_place_it_looked ... ok
+test engine::tests::the_sibling_of_app_dogfood_layout_still_resolves_from_the_working_directory ... ok
+test entity_choice_tests::a_launch_from_inside_a_registered_folder_still_resolves_by_containment ... ok
+test entity_choice_tests::a_colliding_name_gets_a_distinct_id_rather_than_a_refusal ... ok
+test entity_choice_tests::a_launch_with_no_working_directory_at_all_still_fails_closed ... ok
+test entity_choice_tests::a_saved_choice_answers_the_launch_the_working_directory_cannot ... ok
+test entity_choice_tests::an_explicit_environment_value_outranks_a_saved_choice ... ok
+test entity_choice_tests::a_stale_saved_choice_is_named_and_falls_through_to_containment ... ok
+test engine::tests::a_moved_config_directory_moves_the_install_pointer ... ok
+test entity_choice_tests::a_folder_that_is_not_there_is_refused_in_words_he_can_act_on ... ok
+test engine::tests::a_double_clicked_bundle_with_cwd_root_and_no_environment_still_finds_an_installed_engine ... ok
+test engine::tests::an_explicit_override_wins_and_does_not_fall_through_when_it_is_wrong ... ok
+test entity_choice_tests::an_id_is_derived_from_the_name_he_typed_and_never_asked_of_him ... ok
+test entity_choice_tests::an_unregistered_environment_value_refuses_and_never_falls_through ... ok
+test engine::tests::a_bundle_built_inside_the_repo_resolves_from_the_executable_with_cwd_root ... ok
+test entity_choice_tests::the_gui_launch_resolves_nothing_and_says_which_root_it_refused ... ok
+test engine::tests::a_bundle_that_carries_its_own_engine_prefers_it_over_the_host ... ok
+test engine::tests::the_ancestor_walk_is_bounded ... ok
+test entity_choice_tests::an_empty_ledger_migrates_nothing_so_a_fresh_user_is_asked_rather_than_seeded ... ok
+test entity_choice_tests::an_unregistered_company_is_refused_rather_than_invented ... ok
+test entity_choice_tests::choosing_a_company_puts_him_in_a_thread_without_a_relaunch ... ok
+test entity_choice_tests::changing_the_company_never_rehomes_or_leaves_an_open_conversation ... ok
+test entity_choice_tests::nothing_chosen_and_nothing_resolved_still_refuses_every_send ... ok
+test entity_choice_tests::the_migration_reads_the_ids_the_ledger_already_uses_and_invents_nothing ... ok
+test lease_gate_tests::the_lease_gate_is_never_a_cached_boolean ... ok
+test ipc_responsiveness_tests::synchronous_commands_never_run_on_the_native_event_loop ... ok
+test entity_choice_tests::the_choice_is_still_in_force_on_the_next_boot_with_the_same_empty_environment ... ok
+test nav::tests::a_corrupt_file_degrades_to_defaults_instead_of_refusing_to_launch ... ok
+test nav::tests::a_preferences_file_written_before_the_inspector_existed_still_loads ... ok
+test managed_runs::stop_scope_tests::stopping_another_conversation_does_not_pause_this_assignment ... ok
+test navigation_tests::an_unbound_thread_reports_no_turn_state_because_its_turns_are_not_readable ... ok
+test navigation_tests::search_folding_is_index_aligned_so_excerpts_are_not_sliced_in_the_wrong_place ... ok
+test navigation_tests::pin_rename_and_archive_move_the_row_without_touching_the_entity_home ... ok
+test setup_view::tests::a_blocked_build_says_what_the_sheet_says ... ok
+test setup_view::tests::a_complete_machine_has_no_setup_sentence ... ok
+test navigation_tests::create_thread_in_refuses_an_unregistered_entity_rather_than_inventing_one ... ok
+test nav::tests::width_survives_relaunch ... ok
+test navigation_tests::search_finds_titles_and_entities_but_never_an_unbound_threads_contents ... ok
+test setup_view::tests::no_progress_line_carries_a_path_or_a_version ... ok
+test setup_view::tests::the_consent_sheet_says_he_still_needs_his_own_account ... ok
+test setup_view::tests::it_names_what_is_missing_and_offers_the_setting_up ... ok
+test setup_view::tests::a_machine_missing_something_is_never_told_to_restart ... ok
+test setup_view::tests::the_unpinned_sentence_is_the_error_it_stands_for ... ok
+test navigation_tests::the_real_pre_entity_thread_lands_in_unbound_and_in_no_entity_group ... ok
+test updates::tests::a_minisign_failure_is_classified_as_a_signature_failure_and_nothing_else ... ok
+test updates::tests::a_real_endpoint_opens_as_idle_with_nothing_claimed_about_it ... ok
+test updates::tests::an_unreachable_server_is_offline_and_a_bad_manifest_is_not ... ok
+test updates::tests::the_committed_placeholder_endpoint_opens_as_unconfigured ... ok
+test nav::tests::blank_rename_clears_the_override_rather_than_storing_a_nameless_row ... ok
+test nav::tests::width_is_clamped_to_the_ux_shell_bounds_in_rust_not_only_in_css ... ok
+test nav::tests::pin_and_archive_are_idempotent_sets ... ok
+test nav::tests::the_inspector_width_is_its_own_number_clamped_and_durable ... ok
+test navigation_tests::a_ten_thousand_entity_index_stays_searchable_and_the_result_stays_bounded ... ok
+
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+

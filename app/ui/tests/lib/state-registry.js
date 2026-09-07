@@ -607,11 +607,6 @@ module.exports = [
     c: "INFORMATIONAL",
     why: "The stopping row's description. In flight; nothing to press.",
   },
-  {
-    s: "You stopped this before it started running, so there is no time to report.",
-    c: "INFORMATIONAL",
-    why: "Explains an absent duration.",
-  },
   { s: "You stopped it", c: "INFORMATIONAL", why: "§6.1's attribution label." },
   { s: "You stopped it.", c: "INFORMATIONAL", why: "The §18 announcement of the same." },
   {
@@ -2640,7 +2635,7 @@ module.exports = [
       "has been handed it yet. Nothing to act on — the turn moves itself to `working`.",
   },
   {
-    s: "He hasn't started on it yet",
+    s: "Waiting to start",
     c: "INFORMATIONAL",
     why:
       "The detail line under `queued`, and the whole content of that state: the message is " +
@@ -2790,4 +2785,22 @@ module.exports = [
       "the offer is deliberately left open behind it. Closing the notice here would report " +
       "success over work that did not happen.",
   },
+  { s: "Sending your message", c: "INFORMATIONAL", why: "The invoke is pending. This does not claim the backend has accepted the words." },
+  { s: "Waiting for Rich to accept it", c: "INFORMATIONAL", why: "The local request has no authoritative queued event yet." },
+  { s: "Your message is recorded.", c: "INFORMATIONAL", why: "The queued event follows the durable acceptance." },
+  { s: "Rich is picking this back up.", c: "INFORMATIONAL", why: "A one-time announcement of an authoritative recovery transition." },
+  { s: "Resume the questions", c: "CONTROL", why: "The existing Start control continues an incomplete interview." },
+  { s: "Let's pick up the questions about my business where we stopped.", c: "CONTROL", why: "The explicit Resume acceptance sent through the ordinary message path." },
+  { s: "Your business notes are started.", c: "ACTIONABLE", control: "#first-run-start", fixture: "first-run-partial", why: "Saved partial answers have a Resume control in the same panel." },
+  { s: "Your saved answers are kept. We can pick up the remaining questions where we stopped. Press Resume the questions when you're ready.", c: "ACTIONABLE", control: "#first-run-start", fixture: "first-run-partial", why: "Explains that resuming keeps existing answers and names the control beside it." },
+
+  { s: "Missing onboarding scope", c: "NOT-RENDERED", why: "The standalone onboarding MCP process reports this on stderr when launched without its required scope argument. It is not displayed in the app." },
+  { s: "The company changed. Please use the offer for the company now open.", c: "INFORMATIONAL", why: "An obsolete company-specific action was refused. The onboarding context guard refreshes the current offer and retains its controls." },
+  { s: "The conversation changed before your message was sent. Open the original conversation to try again.", c: "ACTIONABLE", control: ".nav-thread", fixture: "rail-mark", why: "The rejected message stays with its original conversation. Its navigation row lets the CEO reopen that conversation and retry." },
+  { s: "Waiting for its saved messages", c: "INFORMATIONAL", why: "The selected conversation has not finished loading." },
+  { s: "The previous conversation is still working. Press Stop to stop that work.", c: "ACTIONABLE", control: "#stop", fixture: "opening-conversation", why: "The previous live model keeps its actual Stop control while navigation waits for its lock." },
+  { s: "I couldn't stop the previous conversation. Press Stop again.", c: "ACTIONABLE", control: "#stop", fixture: "opening-stop-failed", why: "A failed stop remains visible in the opening band beside the retryable Stop control." },
+
+  { s: "Stopping work in the previous conversation", c: "INFORMATIONAL", why: "A durable Stop receipt disables repeat Stop while awaiting its terminal event." },
+
 ];

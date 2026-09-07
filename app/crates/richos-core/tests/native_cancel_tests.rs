@@ -84,7 +84,8 @@ fn connect(script: &PathBuf) -> NativeClient {
         &richos_core::doctrine::DoctrineIdentity::default(),
     )
     .expect("the doctrine fixture must render");
-    let skills = richos_core::skills::ensure_rendered(&dir).expect("the skills fixture must render");
+    let skills =
+        richos_core::skills::ensure_rendered(&dir).expect("the skills fixture must render");
     match NativeClient::spawn(script, std::path::Path::new("/tmp"), &doctrine, &skills) {
         Ok(c) => c,
         Err(e) => panic!("the fake agent should have completed the handshake: {e}"),
@@ -149,8 +150,14 @@ fn a_deaf_agent_does_not_hold_the_turn_open_and_is_reported_as_deaf() {
     // 150ms before the press + a 300ms grace = 450ms floor. The ceiling is generous because
     // a loaded CI box is not a real-time system; what is being proven is that the loop
     // RETURNS rather than parking forever on a `result` that never comes.
-    assert!(elapsed.as_millis() >= 400, "returned too early: {elapsed:?}");
-    assert!(elapsed.as_millis() < 5_000, "the deaf agent held the turn open: {elapsed:?}");
+    assert!(
+        elapsed.as_millis() >= 400,
+        "returned too early: {elapsed:?}"
+    );
+    assert!(
+        elapsed.as_millis() < 5_000,
+        "the deaf agent held the turn open: {elapsed:?}"
+    );
     std::env::remove_var("RICHOS_CANCEL_GRACE_MS");
     let _ = std::fs::remove_file(&script);
 }
@@ -160,6 +167,129 @@ fn cancelling_with_no_turn_in_flight_reports_that_it_reached_nothing() {
     let script = fake_agent("idle", true);
     let client = connect(&script);
     let cancel = client.cancel_handle();
-    assert!(!cancel.cancel(), "there was no turn in flight, and saying otherwise would be a lie");
+    assert!(
+        !cancel.cancel(),
+        "there was no turn in flight, and saying otherwise would be a lie"
+    );
     let _ = std::fs::remove_file(&script);
+}
+
+/// A fully local child that logs user frames and replies with the selected terminal.
+fn terminal_agent(terminal: &str) -> (PathBuf, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("richos-native-terminal-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("agent.sh");
+    let received = dir.join("received");
+    std::fs::write(&script, format!(r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"subtype":"initialize"'*)
+      printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+      ;;
+    *'"type":"user"'*)
+      printf '%s\n' "$line" >> '{}'
+      {}
+      ;;
+  esac
+done
+"#, received.display(), if terminal == "exit" { "exit 0".into() } else if terminal == "close_stdout" { "exec 1>&-".into() } else { format!("printf '%s\\n' '{terminal}'") })).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    (script, received)
+}
+
+#[test]
+fn stop_between_wire_prompts_is_latched_and_never_sends_the_user_frame() {
+    let (script, received) = terminal_agent(r#"{"type":"result","stop_reason":"end_turn"}"#);
+    let client = connect(&script);
+    let cancel = client.cancel_handle();
+    cancel.begin_operation();
+    assert_eq!(
+        client.prompt("internal prime", &mut |_| {}).unwrap(),
+        "end_turn"
+    );
+    assert!(
+        cancel.cancel(),
+        "the accepted request is active between its wire turns"
+    );
+    assert_eq!(
+        client
+            .prompt("user words that must not run", &mut |_| {})
+            .unwrap(),
+        STOP_REASON_CANCELLED
+    );
+    assert_eq!(
+        std::fs::read_to_string(&received).unwrap().lines().count(),
+        1
+    );
+    cancel.end_operation();
+    cancel.begin_operation();
+    assert_eq!(
+        client
+            .prompt("a later explicit request", &mut |_| {})
+            .unwrap(),
+        "end_turn"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&received).unwrap().lines().count(),
+        2
+    );
+    cancel.end_operation();
+}
+
+#[test]
+fn stop_before_the_first_wire_prompt_prevents_all_model_requests() {
+    let (script, received) = terminal_agent(r#"{"type":"result","stop_reason":"end_turn"}"#);
+    let client = connect(&script);
+    let cancel = client.cancel_handle();
+    cancel.begin_operation();
+    assert!(cancel.cancel());
+    assert_eq!(
+        client.prompt("must never arrive", &mut |_| {}).unwrap(),
+        STOP_REASON_CANCELLED
+    );
+    assert!(!received.exists());
+    cancel.end_operation();
+    assert!(
+        !cancel.cancel(),
+        "an idle cancellation must not poison the next request"
+    );
+}
+
+#[test]
+fn child_exit_and_error_results_are_errors_not_successful_answers() {
+    for terminal in [
+        "exit",
+        r#"{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["upstream request failed"]}"#,
+    ] {
+        let (script, _) = terminal_agent(terminal);
+        let client = connect(&script);
+        assert!(client.prompt("hello", &mut |_| {}).is_err());
+    }
+}
+
+#[test]
+fn chat_priming_rejects_an_incomplete_terminal() {
+    use richos_core::cognition::{Cognition, CognitionError};
+    let (script, _) = terminal_agent(r#"{"type":"result","stop_reason":"max_tokens"}"#);
+    let dir = script.parent().unwrap();
+    let doctrine = richos_core::doctrine::ensure_rendered(dir, &Default::default()).unwrap();
+    let skills = richos_core::skills::ensure_rendered(dir).unwrap();
+    let mut lease =
+        richos_core::native::NativeCognition::start(&script, dir, &doctrine, &skills).unwrap();
+    assert!(
+        matches!(lease.reprime("internal", &mut |_| {}), Err(CognitionError::PrimingStopped(reason)) if reason == "max_tokens")
+    );
+}
+
+#[test]
+fn a_closed_output_stream_cannot_accept_a_later_prompt_that_would_wait_forever() {
+    let (script, _) = terminal_agent("close_stdout");
+    let client = connect(&script);
+    assert!(client.prompt("first", &mut |_| {}).is_err());
+    // The process still reads stdin. A successful write cannot imply a live response stream.
+    assert!(client.prompt("second", &mut |_| {}).is_err());
 }

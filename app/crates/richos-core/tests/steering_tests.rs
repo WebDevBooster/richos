@@ -242,7 +242,7 @@ fn the_spine_lock_is_genuinely_held_for_the_whole_turn_and_the_stop_does_not_wai
     // 60 chunks x 20ms = 1.2s of turn, which is 60x the 20ms the stop needs. If the stop
     // were routed through the spine lock this test would take the full 1.2s and the turn
     // would complete normally — which is exactly what a decorative stop button looks like.
-    let (spine, control, _live, _thread) = running_spine("lock", 60);
+    let (spine, control, live, _thread) = running_spine("lock", 60);
     let runner = {
         let spine = Arc::clone(&spine);
         std::thread::spawn(move || {
@@ -253,8 +253,10 @@ fn the_spine_lock_is_genuinely_held_for_the_whole_turn_and_the_stop_does_not_wai
     // Wait until the turn is genuinely running — observed through the control's mirror,
     // never through a sleep-and-hope.
     let began = std::time::Instant::now();
-    while control.active_turn().is_none() {
-        assert!(began.elapsed() < Duration::from_secs(5), "the turn never started");
+    // Active now includes preparation. Wait for actual output in this test of
+    // preserving partial output; preparation-only Stop has its own regressions.
+    while !live.events.lock().unwrap().iter().any(|(name, _)| name == "rich://message-delta") {
+        assert!(began.elapsed() < Duration::from_secs(5), "the turn never produced output");
         std::thread::sleep(Duration::from_millis(2));
     }
 
@@ -462,6 +464,8 @@ fn a_stop_request_that_outlived_the_process_is_applied_at_startup_not_replayed()
     spine.reconcile_intake().unwrap();
 
     assert_eq!(spine.ledger().turn(&turn_id).unwrap().state, TurnState::Stopped);
+    assert_eq!(spine.ledger().turn(&turn_id).unwrap().active_ms(), None,
+        "a replayed Stop must not count the closed-app interval as active work");
     assert!(control.pending_intake().is_empty(), "the request was applied and marked drained");
 }
 

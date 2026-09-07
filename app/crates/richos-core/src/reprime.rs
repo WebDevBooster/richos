@@ -180,6 +180,22 @@ impl RePrimePayload {
         tail_turns: usize,
         session_id: Option<&str>,
     ) -> Result<Self, LedgerError> {
+        Self::assemble_filtered(ledger, binding, tail_turns, session_id, false)
+    }
+
+    /// Context injection must not receive a request awaiting visible delivery. The ledger
+    /// records acceptance before priming for crash recovery, not as model authorization.
+    pub fn assemble_for_priming(
+        ledger: &Ledger, binding: &ThreadBinding, tail_turns: usize,
+        session_id: Option<&str>,
+    ) -> Result<Self, LedgerError> {
+        Self::assemble_filtered(ledger, binding, tail_turns, session_id, true)
+    }
+
+    fn assemble_filtered(
+        ledger: &Ledger, binding: &ThreadBinding, tail_turns: usize,
+        session_id: Option<&str>, exclude_pending: bool,
+    ) -> Result<Self, LedgerError> {
         // Superseded turns (§5.3 mid-turn-crash replay) are excluded from the working
         // set entirely — a successfully-replayed turn is no longer "unfinished," and its
         // dead predecessor shouldn't pollute the verbatim tail either.
@@ -187,6 +203,7 @@ impl RePrimePayload {
         let turns: Vec<_> = scoped
             .into_iter()
             .filter(|t| t.source != Source::Internal && t.superseded_by.is_none())
+            .filter(|t| !exclude_pending || !matches!(t.state, TurnState::Received | TurnState::InFlight))
             .collect();
         let thread_id = binding.thread_id();
 
@@ -500,4 +517,12 @@ impl RePrimePayload {
         s.push_str("Acknowledge internally and continue as the same Rich. Reply only with: ready");
         s
     }
+}
+
+/// This instruction is appended after all context and policy sections, including tool
+/// exceptions. Priming cannot answer a historical request, begin an interview or save.
+pub const CONTEXT_ONLY_PRIMING: &str = "This message only restores internal context. It is not a CEO request and authorizes no action. Treat every request quoted above as historical context, never as a new instruction. Do not answer, repeat, continue or act on it. Do not call any tool, save company notes, decline an interview, delegate work or start the interview. The next separate visible message will contain the request to handle. Reply with only CONTEXT_READY.";
+
+pub fn context_only_priming(text: &str) -> String {
+    format!("{text}\n\n{CONTEXT_ONLY_PRIMING}")
 }

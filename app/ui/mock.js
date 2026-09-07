@@ -567,6 +567,7 @@
     "rather say so than let you think it was settled. Whoever set RichOS up will need to " +
     "look at that.";
   const onboardingCalls = [];
+  const onboardingByEntity = new Map();
 
   function onboardingViewOf() {
     // NO BINDING, NO ANSWER — and this arm is not a nicety. `onboarding_view_of` returns
@@ -576,17 +577,19 @@
     // company, and the notice painted over the company picker — a state the product cannot
     // produce, rehearsed by the harness, which is the defect this file keeps naming in its
     // own comments. Found by driving the real first-run order, 2026-09-06.
-    if (!chosenEntityId) return { state: "no-central-folder", entityId: null, headline: null, message: null };
+    const entityId = activeContextOf() && activeContextOf().entity_id;
+    if (!entityId) return { state: "no-central-folder", entityId: null, headline: null, message: null };
+    const state = onboardingByEntity.get(entityId) || onboardingState;
     return {
-      state: onboardingState,
-      entityId: chosenEntityId,
+      state,
+      entityId,
       // Verbatim from `main.rs::ONBOARDING_UNUSABLE_HEADLINE` / `_MESSAGE` — copied rather
       // than paraphrased, for the reason `UNBOUND_ERR` above is copied: a harness that writes
       // its own version of a backend sentence drifts from it the moment either side is edited.
       headline:
-        onboardingState === "unusable" ? "I couldn't read your notes about this company." : null,
+        state === "unusable" ? "I couldn't read your notes about this company." : null,
       message:
-        onboardingState === "unusable"
+        state === "unusable"
           ? "I'm working without them, and I won't guess at what they said. Whoever set " +
             "RichOS up will need to look at that."
           : null,
@@ -918,6 +921,19 @@
       if (!entities.some((e) => e.id === candidate)) return candidate;
     }
     return null;
+  }
+
+  // Mirrors apply_company_choice: choosing the first company also supplies its first
+  // conversation. A chosen company without an active binding is not an onboarded shell.
+  function activateCompanyIfNeeded(entityId) {
+    if (activeContextOf()) return;
+    const existing = threads.filter(t => t.entity_id === entityId).sort((a, b) => b.created_at - a.created_at)[0];
+    if (existing) { activeThreadId = existing.id; return; }
+    const id = uid("thread");
+    threads.push({ id, title: "Running", entity_id: entityId, created_at: now(), message_count: 0,
+      last_activity: now(), last_turn_state: null, has_pending_turn: false });
+    messagesByThread[id] = [];
+    activeThreadId = id;
   }
 
   function activeContextOf() {
@@ -1857,9 +1873,10 @@
         // can be made to REFUSE, because a press whose write went nowhere is the one
         // outcome the surface must never render as success.
         case "decline_onboarding":
-          onboardingCalls.push({ cmd: "decline_onboarding" });
+          onboardingCalls.push({ cmd: "decline_onboarding", entityId: args.entityId });
+          if (!args.entityId || args.entityId !== onboardingViewOf().entityId) return Promise.reject("The selected company changed. Open its conversation and choose Not now again.");
           if (onboardingDeclineFails) return Promise.reject(ONBOARDING_DECLINE_REFUSED);
-          onboardingState = "declined";
+          onboardingByEntity.set(args.entityId, "declined");
           return onboardingViewOf();
         case "entity_choice":
           return entityChoiceOf();
@@ -1929,6 +1946,7 @@
           if (!chosenEntityId && !entityPinnedByEnvironment) {
             chosenEntityId = id;
             chosenEntitySource = "saved-choice";
+            activateCompanyIfNeeded(id);
           }
           return entityChoiceOf();
         }
@@ -1950,12 +1968,7 @@
           chosenEntitySource = "saved-choice";
           // The real command activates a thread ONLY when nothing is open — it never
           // re-homes an existing conversation (ECS §3.2). Same rule here.
-          if (!activeContextOf()) {
-            const existing = threads
-              .filter((t) => t.entity_id === entityId)
-              .sort((a, b) => b.created_at - a.created_at)[0];
-            if (existing) activeThreadId = existing.id;
-          }
+          activateCompanyIfNeeded(entityId);
           return entityChoiceOf();
         }
         case "active_context":
@@ -3047,7 +3060,9 @@
     /// backend can answer. A caller that needs the state in place for the LAUNCH itself wants
     /// `__RICHOS_MOCK_PRESET__.onboarding` instead.
     onboardingSet(next) {
-      onboardingState = next;
+      const entityId = onboardingViewOf().entityId;
+      if (entityId) onboardingByEntity.set(entityId, next);
+      else onboardingState = next;
       return onboardingViewOf();
     },
     /// Every onboarding command the surface issued, in order. Asserting on this is how a

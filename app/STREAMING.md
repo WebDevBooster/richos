@@ -123,7 +123,7 @@ listen("rich://turn-error", ({ payload }) => {
 });
 ```
 
-`send_message({ text })` still resolves with the final `Message[]` for the active thread;
+`send_message({ text, threadId })` still resolves with the final `Message[]` for the active thread;
 treat it as the reconciled snapshot, not the primary render path.
 
 ---
@@ -345,6 +345,11 @@ crash to this status, which is what makes §6.1's `You stopped after {duration}`
 attribution to the CEO — safe to render. A crash or a rotation still produces
 `work_duration state: "interrupted"` on a reload, and **which one it was is still not
 recorded**; the only thing that state can now say for certain is that it was not the CEO.
+
+The renderer sends `stop_turn({ expectedTurnId })` for the turn it displays. The backend
+checks that identity atomically before writing a stop claim or interrupting a lease. An
+obsolete request returns `stopped: false` and cannot stop a successor turn. The optional
+unscoped form remains available to explicit global callers.
 
 **`stopping` is a UI-LOCAL state and is deliberately not on the wire.** The `stop_turn`
 command does not answer until the request is durable, so the renderer setting `stopping`

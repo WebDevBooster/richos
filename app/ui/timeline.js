@@ -151,6 +151,9 @@
             live: false,
           };
         }
+        if (t.status === "queued") {
+          return { label: "Waiting to start", duration: null, tone: "active", note: "Your message is recorded.", live: true };
+        }
         if (typeof t.startedAt !== "number") {
           // Accepted but not yet handed to a lease: §6.1's under-one-second row.
           return { label: "Working", duration: null, tone: "active", note: DURATION_MEANING, live: true };
@@ -212,13 +215,13 @@
       // for a compute-lease failure.
       case "stopped": {
         if (typeof t.activeMs !== "number") {
-          // He stopped it before it was ever handed to a lease: there is no span to
-          // report, and the sentence says only what is known.
+          // A queued stop or a restart without an observed end time has no measured
+          // span. Missing duration does not prove the work never started.
           return {
             label: "You stopped it",
             duration: null,
             tone: "ceo-stopped",
-            note: "You stopped this before it started running, so there is no time to report.",
+            note: "How long this took was not recorded.",
             live: false,
           };
         }
@@ -802,6 +805,9 @@
   /// ledger will derive for it. Doing this — rather than leaving the placeholder and adding
   /// the projected item later — is what stops the CEO's one sentence appearing twice.
   function adoptPendingUserMessage(model, turnId) {
+    // queued and working both arrive for one turn. The second event must not consume
+    // the next request's words merely because this turn already has its own bubble.
+    if (model.items.has(`${turnId}:user`)) return;
     const pendingId = model.pendingUser.shift();
     if (!pendingId) return;
     const item = model.items.get(pendingId);
@@ -830,6 +836,18 @@
     model.items.delete(id);
     const at = model.pendingUser.indexOf(id);
     if (at >= 0) model.pendingUser.splice(at, 1);
+    return true;
+  }
+
+  /// The command rejected but its terminal event did not reach this window. This is a
+  /// local failure of that invocation, not an invented ledger event or measured duration.
+  /// A subsequent authoritative snapshot replaces it. Keep accepted words and partial work.
+  function markSendRejected(model, turnId) {
+    const t = model.turns.get(turnId);
+    if (!t || !t.live) return false;
+    t.status = "failed";
+    t.live = false;
+    t.activeMs = null;
     return true;
   }
 
@@ -2460,6 +2478,7 @@
     applySnapshot,
     addPendingUserMessage,
     dropPendingUserMessage,
+    markSendRejected,
     markStopping,
     addLocalNotice,
     onTurnStatus,

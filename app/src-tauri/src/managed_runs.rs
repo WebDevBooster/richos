@@ -18,7 +18,12 @@ pub struct ManagedRuns {
 
 impl ManagedRuns {
     pub fn pause_active(&self, _data_dir: &std::path::Path) -> Result<(), String> {
-        if let Some((_, path, flag)) = self.active.lock().unwrap().as_ref() {
+        self.pause_matching(None)
+    }
+
+    pub fn pause_matching(&self, expected_thread: Option<&str>) -> Result<(), String> {
+        if let Some((thread, path, flag)) = self.active.lock().unwrap().as_ref() {
+            if expected_thread.is_some_and(|expected| expected != thread) { return Ok(()); }
             let f =
                 std::fs::File::create(path.with_extension("pause")).map_err(|e| e.to_string())?;
             f.sync_all().map_err(|e| e.to_string())?;
@@ -496,4 +501,26 @@ pub fn respond_run_decision(
     let result = view(&thread_id, ctl.snapshot());
     let _ = app.emit(EVENT_RUN_UPDATED, &result);
     Ok(result)
+}
+
+#[cfg(test)]
+mod stop_scope_tests {
+    use super::*;
+
+    #[test]
+    fn stopping_another_conversation_does_not_pause_this_assignment() {
+        let root = std::env::temp_dir().join(format!("richos-stop-scope-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("run.jsonl");
+        let flag = Arc::new(AtomicBool::new(false));
+        let runs = ManagedRuns::default();
+        *runs.active.lock().unwrap() = Some(("thread-a".into(), path.clone(), flag.clone()));
+        runs.pause_matching(Some("thread-b")).unwrap();
+        assert!(!flag.load(Ordering::SeqCst));
+        assert!(!path.with_extension("pause").exists());
+        runs.pause_matching(Some("thread-a")).unwrap();
+        assert!(flag.load(Ordering::SeqCst));
+        assert!(path.with_extension("pause").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

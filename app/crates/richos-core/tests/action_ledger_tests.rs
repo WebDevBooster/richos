@@ -128,6 +128,7 @@ fn rotation_writes_internal_actions_claimed_then_completed() {
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["ack2"])));
 
     spine.request_rotation("test-rotation").unwrap();
+    spine.submit_prompt("continue", Source::Text).unwrap();
 
     let internal = spine.ledger().internal_actions();
     let kinds: Vec<&str> = internal.iter().map(|a| a.kind.as_str()).collect();
@@ -165,7 +166,11 @@ fn a_rotation_that_cannot_spawn_a_successor_leaves_a_durable_failed_record() {
     factory.fail_next_spawn();
     spine.set_lease_factory(Box::new(factory));
 
-    let err = spine.request_rotation("watermark").unwrap_err();
+    spine.request_rotation("watermark").unwrap();
+    // Exercise the attempt without automatic replay, so the failed rotation is
+    // inspected independently of a recovery that might subsequently succeed.
+    let binding = spine.active_binding().unwrap().clone();
+    let err = spine.submit_run_prompt(&binding, "continue").unwrap_err();
     assert!(err.to_string().contains("forced spawn failure"), "the error still surfaces honestly");
 
     let rotation = spine
@@ -248,6 +253,7 @@ fn a_ceo_facing_action_recorded_by_production_code_reaches_the_successors_primin
         .unwrap();
 
     spine.request_rotation("test").unwrap();
+    spine.submit_prompt("continue", Source::Text).unwrap();
 
     let per_spawn = spawned_reprimes.lock().unwrap();
     assert_eq!(per_spawn.len(), 1, "exactly one successor lease was spawned");
@@ -281,6 +287,7 @@ fn internal_machinery_actions_never_leak_into_a_priming_prompt() {
     spine.request_rotation("first").unwrap();
     spine.submit_prompt("hello", Source::Text).unwrap();
     spine.request_rotation("second").unwrap();
+    spine.submit_prompt("continue again", Source::Text).unwrap();
 
     // The machinery IS durably recorded...
     assert!(
@@ -415,6 +422,7 @@ fn actions_and_their_visibility_survive_a_restart() {
         spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
         spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["ack2"])));
         spine.request_rotation("restart-test").unwrap();
+        spine.submit_prompt("continue", Source::Text).unwrap();
     }
 
     let reopened = Ledger::open(&path).unwrap();

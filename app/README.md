@@ -230,7 +230,8 @@ app/
                               — so it cannot silently start passing for the wrong reason.
                               Also: a turn the CEO stopped is never crash-replayed, and a
                               stop request that outlived the process is applied at startup
-    tests/native_cancel_tests.rs 3 interrupt tests against a REAL CHILD PROCESS over real
+    tests/native_onboarding_grant_tests.rs 6 real-child checks for scoped visible-turn grants and safe revocation.
+    tests/native_cancel_tests.rs 8 interrupt tests against a REAL CHILD PROCESS over real
                               stdio (a POSIX-sh fake `claude` the test writes itself), in two
                               variants: compliant, and deliberately deaf to the interrupt
     src/skills.rs             THE SKILLS RichOS gives its inner Rich — the on-demand half of
@@ -389,6 +390,8 @@ app/
                               learning where the central folder is re-primes a lease that was
                               already running. The two negative controls come first because
                               they are what make the positives mean anything
+    tests/onboarding_persistence_tests.rs regressions for verified tool persistence, per-company answers, resumption and MCP transport.
+    tests/request_preparation_tests.rs regressions for cancellable connection, priming, rotation, bounded recovery and restart outcomes.
     tests/onboarding_declination_tests.rs 4 tests over the two spine methods the first-run
                               notice is built on. `record_declination` shipped with no caller
                               anywhere in the product, so `OnboardingState::Declined` and
@@ -399,7 +402,7 @@ app/
                               screen and the priming turn to one derived fact across all four
                               reachable states, and refuse a write that has nowhere to go
                               rather than reporting success over it
-    tests/loro_reprime_tests.rs 10 Tier-C tests: a slice that carries another company's
+    tests/loro_reprime_tests.rs 11 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
                               CEO layer and nothing else
     tests/loro_lane_map_tests.rs 11 lane-map tests: the default map is the CEO's six
@@ -872,10 +875,10 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 981 tests + 5 doc-tests; 977 direct, 4 child-only
+cargo test -p richos-core                       # 1034 tests + 5 doc-tests; 1030 direct, 4 ignored
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
-#     ONE OF THE THREE NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
+#     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
 #     every repository and is on no clean checkout. `home_field::tests::
 #     against_a_real_corpus_when_one_is_configured` compiles one into the home screen's
 #     picture and prints its counts; run it by hand with

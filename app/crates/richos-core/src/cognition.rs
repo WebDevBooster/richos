@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CognitionError {
+    #[error("Preparation stopped with {0}")]
+    PrimingStopped(String),
     #[error("cognition io: {0}")]
     Io(String),
     #[error("cognition protocol: {0}")]
@@ -34,6 +36,11 @@ pub trait LeaseFactory: Send {
     /// is missing, or Claude isn't signed in. A failure here means rotation/recovery
     /// cannot proceed and must surface honestly rather than silently keep the dead lease.
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError>;
+
+    /// Stop may be recorded before a child has completed its initialize handshake.
+    fn spawn_cancellable(&self, _control: &crate::steering::TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
+        self.spawn()
+    }
 }
 
 /// ONE item leaving a turn's drain loop, in the order it actually happened.
@@ -63,6 +70,13 @@ pub trait Cognition: Send {
     /// A stable identifier for the backing session (for the ledger's rotation record).
     fn session_id(&self) -> &str;
 
+    /// Bind app-owned onboarding tools before a priming turn. Adapters without these tools
+    /// keep the default no-op; the native chat lease atomically updates its private scope.
+    fn set_onboarding_scope(
+        &mut self, _entity: &crate::entity::EntityId, _central_root: &std::path::Path,
+        _record_path: &std::path::Path,
+    ) -> Result<(), CognitionError> { Ok(()) }
+
     /// Inject the re-prime payload as an INTERNAL, non-rendered priming turn.
     /// Called once when the lease is (re)spawned, before any CEO-visible turn.
     ///
@@ -89,6 +103,12 @@ pub trait Cognition: Send {
         text: &str,
         on_item: &mut dyn FnMut(TurnItem),
     ) -> Result<String, CognitionError>;
+
+    /// Run hidden context maintenance without granting tools or onboarding writes.
+    /// Adapters with side-effecting tools must override this method.
+    fn prompt_context_only(
+        &mut self, text: &str, on_item: &mut dyn FnMut(TurnItem),
+    ) -> Result<String, CognitionError> { self.prompt(text, on_item) }
 
     /// A handle that interrupts the CURRENTLY RUNNING `prompt` from another thread
     /// (UX §9.3 step 2).
@@ -309,11 +329,14 @@ pub struct CancellableMockCognition {
 pub struct CancelFlag {
     flag: AtomicBool,
     /// Whether a cancel was ever requested — separate from `flag`, which the lease clears
-    /// at the start of each turn, so a test can tell "never asked" from "asked and acted on".
+    /// at the start of each accepted operation, so tests can distinguish asking from acting.
     pub requested: AtomicBool,
 }
 
 impl TurnCancel for CancelFlag {
+    fn begin_operation(&self) { self.flag.store(false, Ordering::SeqCst); }
+    fn end_operation(&self) { self.flag.store(false, Ordering::SeqCst); }
+
     fn cancel(&self) -> bool {
         self.requested.store(true, Ordering::SeqCst);
         self.flag.store(true, Ordering::SeqCst);
@@ -349,7 +372,6 @@ impl Cognition for CancellableMockCognition {
 
     fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
         self.prompts.lock().unwrap().push(text.to_string());
-        self.cancel.flag.store(false, Ordering::SeqCst);
         let mut seq = 0u64;
         for chunk in &self.chunks {
             if self.cancel.flag.load(Ordering::SeqCst) {

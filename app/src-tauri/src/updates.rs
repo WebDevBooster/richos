@@ -763,18 +763,18 @@ pub fn spawn_work_watcher(app: AppHandle) {
 /// is deliberately looking at this surface. Serving him a verdict up to
 /// `WATCH_INTERVAL` old there would be the one place a stale answer is guaranteed to be
 /// seen — and it would be seen as an Install button that should not be there.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_state(app: AppHandle) -> UpdateView {
     refresh_work_verdict(&app);
     app.state::<Updates>().snapshot()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub async fn update_check(app: AppHandle) -> UpdateView {
     check(&app).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub async fn update_install(app: AppHandle) -> UpdateView {
     install(&app).await
 }
@@ -790,7 +790,7 @@ pub async fn update_install(app: AppHandle) -> UpdateView {
 ///
 /// It now returns the view instead of never returning, because refusing is a real outcome
 /// that the surface has to render. On the success path it still never returns.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_relaunch(app: AppHandle) -> UpdateView {
     let verdict = refresh_work_verdict(&app);
     if verdict.busy {

@@ -79,6 +79,7 @@ pub mod live;
 pub mod machinery;
 pub mod native;
 pub mod onboarding;
+pub mod onboarding_tools;
 pub mod provision;
 pub mod reachability;
 pub mod reprime;

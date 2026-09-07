@@ -226,7 +226,7 @@ async function main() {
     let b = await band(page);
     assert(b, "no band on screen while the turn was queued — the state the report is about");
     assertEqual(b.head, "Rich has your message", "queued headline");
-    assertEqual(b.detail, "He hasn't started on it yet", "queued detail");
+    assertEqual(b.detail, "Waiting to start", "queued detail");
     assert(b.onScreen, "the band is off screen");
 
     await goWorking(page, fence, "t_silent");
@@ -544,7 +544,9 @@ async function main() {
   process.exitCode = run.report() ? 1 : 0;
 }
 
-main().catch((e) => {
+module.exports = { openApp, startTurn, goWorking, advance, tick, band };
+
+if (require.main === module) main().catch((e) => {
   console.error(e);
   process.exit(1);
 });

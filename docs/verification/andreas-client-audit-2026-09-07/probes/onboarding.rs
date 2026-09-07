@@ -1,0 +1,37 @@
+use richos_core::{company::{CompanyLayer,company_file,company_home},onboarding::{self,OnboardingRecord},entity::EntityId};
+use std::{fs,path::Path};
+fn main() {
+ let base_path=Path::new("/tmp/richos-audit-20260907/echo/fixtures").join(format!("run-{}",std::process::id())); let base=base_path.as_path(); fs::create_dir_all(base).unwrap();
+ let central=base.join("home/myrichos"); let config=base.join("config");fs::create_dir_all(&config).unwrap();
+ let a=EntityId::parse("harborline").unwrap();let b=EntityId::parse("second-company").unwrap();
+ let absent=CompanyLayer::read(&central,&a);
+ println!("Fresh company: {:?}", onboarding::state(Some(&absent),&OnboardingRecord::default()));
+ let prime=onboarding::priming_block(&a,Some(&absent),&OnboardingRecord::default()).unwrap();
+ println!("Fresh prime has central root? {} / filename? {} / company id? {}",prime.contains(&central.to_string_lossy().to_string()),prime.contains("company.md"),prime.contains(a.as_str()));
+ fs::write(base.join("offer.txt"),prime).unwrap();
+ onboarding::OnboardingRecord::record_declination(&onboarding::record_path(&config),42).unwrap();
+ let record=OnboardingRecord::load(&onboarding::record_path(&config));
+ println!("Declined A: {:?}; newly registered B: {:?}",onboarding::state(Some(&absent),&record),onboarding::state(Some(&CompanyLayer::read(&central,&b)),&record));
+ fs::create_dir_all(company_home(&central,&a)).unwrap();
+ fs::write(company_file(&central,&a),"# Harborline\nBusiness: rope for harbors\nStages 2-6: not discussed yet.\n").unwrap();
+ println!("Partial interview with only stage 1: {:?}",onboarding::state(Some(&CompanyLayer::read(&central,&a)),&OnboardingRecord::default()));
+ let unicode="界".repeat(3000);fs::write(company_file(&central,&a),&unicode).unwrap();
+ println!("Under 8000 characters: {} chars / {} bytes -> {:?}",unicode.chars().count(),unicode.len(),onboarding::state(Some(&CompanyLayer::read(&central,&a)),&OnboardingRecord::default()));
+ let malformed=config.join("malformed.json");fs::write(&malformed,"garbage \"declined_at_millis\": 123not-json").unwrap();
+ println!("Malformed record accepted as declined: {}",OnboardingRecord::load(&malformed).is_declined());
+ let doctrine=richos_core::doctrine::ensure_rendered(&config,&richos_core::doctrine::DoctrineIdentity::new(Some("Test CEO"))).unwrap();
+ let skills=richos_core::skills::ensure_rendered(&config).unwrap();
+ println!("Fixture doctrine={} plugin={}",doctrine.display(),skills.display());
+ use richos_core::{entity::{Entity,EntityRegistry},ledger::{Ledger,Source},spine::Spine,cognition::MockCognition};
+ let mut spine=Spine::new(Ledger::open(&base.join("flow-ledger.jsonl")).unwrap());
+ spine.set_entity_registry(EntityRegistry::new(vec![Entity::new("second-company","Second company",&["/fixture/second-company"]).unwrap()]).unwrap());
+ spine.set_central_root(central.clone());
+ spine.set_onboarding_record(base.join("flow-onboarding.json"));
+ let binding=spine.ensure_active_thread_in(&b).unwrap();
+ let mock=MockCognition::new("audit-s1",vec!["Hello","Fine"]);let reprimes=mock.reprimes.clone();
+ spine.attach_lease(Box::new(mock));spine.submit_prompt("Hello",Source::Text).unwrap();
+ let full=reprimes.lock().unwrap()[0].clone();fs::write(base.join("full-prime.txt"),&full).unwrap();
+ println!("FULL production spine prime contains central root? {} / filename? {}",full.contains(&central.to_string_lossy().to_string()),full.contains("company.md"));
+ spine.record_onboarding_declination(99).unwrap();spine.submit_prompt("What can you help me with?",Source::Text).unwrap();
+ println!("After same-session decline: backend {:?}, prime count {} (first prime still tells model to offer)",spine.onboarding_state(&binding),reprimes.lock().unwrap().len());
+}

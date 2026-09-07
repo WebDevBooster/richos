@@ -1,0 +1,71 @@
+--- a/app/src-tauri/src/main.rs
++++ b/app/src-tauri/src/main.rs
+@@ -1833,11 +1833,28 @@
+             // It is also the honest answer to an operator reading a terminal: the lines
+             // above are all of it, so nothing further is coming and a missing line is
+             // missing rather than late.
++            {
++                let handle = app.handle().clone();
++                std::thread::spawn(move || {
++                    let marker = std::path::Path::new("/tmp/richos-audit-20260907/root/native/visible-started");
++                    for _ in 0..600 {
++                        if marker.exists() {
++                            std::thread::sleep(std::time::Duration::from_millis(300));
++                            let requested = std::time::Instant::now();
++                            eprintln!("AUDIT main-loop probe scheduled");
++                            let _ = handle.run_on_main_thread(move || eprintln!("AUDIT main-loop delay_ms={}", requested.elapsed().as_millis()));
++                            return;
++                        }
++                        std::thread::sleep(std::time::Duration::from_millis(100));
++                    }
++                });
++            }
+             eprintln!("[richos] boot complete — every line above is what this launch resolved");
+             Ok(())
+         })
+         .plugin(tauri_plugin_updater::Builder::new().build())
+         .invoke_handler(tauri::generate_handler![
++            audit_record,
+             list_threads,
+             active_thread,
+             create_thread,
+@@ -5691,3 +5708,10 @@
+     );
+     serde_json::json!({ "available": true, "field": field })
+ }
++
++#[tauri::command]
++fn audit_record(app: tauri::AppHandle, payload: String) {
++    eprintln!("AUDIT JS {}", payload);
++    let _ = std::fs::write("/tmp/richos-audit-20260907/root/native/renderer.json", payload);
++    app.exit(0);
++}
+--- a/app/ui/main.js
++++ b/app/ui/main.js
+@@ -6057,3 +6057,26 @@
+ }
+ 
+ init();
++
++
++// Audit-only driver appended to scratch source; clicks the production Send control.
++(async function auditNativeWait() {
++  while (!window.RichBridge || !window.__RICHOS_TIMELINE__ || !document.querySelector('.nav-thread')) await new Promise(r=>setTimeout(r,100));
++  if(window.RichHome?.isOpen()) window.RichHome.hide('audit');
++  const row=document.querySelector('.nav-thread');
++  row.click();
++  while(window.__RICHOS_TIMELINE__().threadId !== row.dataset.threadId) await new Promise(r=>setTimeout(r,100));
++  const readings=[], events=[];
++  const base=performance.now();
++  let last=base;
++  const timer=setInterval(()=>{const now=performance.now();readings.push({t:now-base,gap:now-last,wait:document.querySelector('.turn-wait')?.textContent||'',body:document.getElementById('messages')?.textContent.slice(-350)||''});last=now;},100);
++  let resolveDone;
++  const done=new Promise(r=>resolveDone=r);
++  await window.RichBridge.listen('rich://turn-status',e=>{events.push({t:performance.now()-base,type:e.payload.status}); if(['completed','failed','interrupted'].includes(e.payload.status))resolveDone();});
++  document.getElementById('input').value='AUDIT_SLOW_REPLY';
++  document.getElementById('send').click();
++  await done;
++  await new Promise(r=>setTimeout(r,500));
++  clearInterval(timer);
++  await window.RichBridge.invoke('audit_record',{payload:JSON.stringify({elapsed:performance.now()-base,events,readings})});
++})();

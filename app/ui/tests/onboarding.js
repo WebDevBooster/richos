@@ -546,7 +546,9 @@ async function main() {
   process.exit(failed ? 1 : 0);
 }
 
-main().catch((e) => {
+module.exports = { openApp, noticeText };
+
+if (require.main === module) main().catch((e) => {
   console.error(e);
   process.exit(1);
 });

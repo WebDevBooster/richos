@@ -89,7 +89,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -641,6 +641,12 @@ impl BetweenTurn {
     }
 }
 
+#[derive(Default)]
+struct OperationCancellation {
+    active: bool,
+    requested: bool,
+}
+
 /// A live session to a native `claude` child.
 pub struct NativeClient {
     child: Child,
@@ -659,6 +665,8 @@ pub struct NativeClient {
     /// either, so "the turn in flight" is positional: there is at most one, and the next
     /// `result` ends it.
     current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>>,
+    operation_cancel: Arc<Mutex<OperationCancellation>>,
+    reader_closed: Arc<AtomicBool>,
     /// §1.5's machinery sink INDEPENDENT of the prompt channel.
     between: Arc<Mutex<BetweenTurn>>,
     /// The child's own stderr, bounded, so a startup failure can quote it verbatim.
@@ -679,6 +687,8 @@ pub struct NativeClient {
 /// starting value is `NotYetReported` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
+    /// Host-owned phase, never set by a model frame.
+    context_only: bool,
     /// The model this session is running, from `system/init.model`.
     ///
     /// **Load-bearing, and finding §10 of the spike is why.** The probe's console line took
@@ -718,14 +728,18 @@ struct ReaderState {
     /// handshake. That is a third state, not a pessimistic default: "nobody has told us" and
     /// "we were told no" call for opposite responses.
     skills_verdict: crate::skills::SkillsVerdict,
+    /// Both exact app-owned onboarding tools, as reported by the child on its first turn.
+    onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict,
 }
 
 impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
+            context_only: false,
             session_model: None,
             context_window: None,
             skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
+            onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported,
         }
     }
 }
@@ -860,14 +874,14 @@ impl NativeClient {
     /// `entity.rs` makes about its own directory: the shell resolves `app_data_dir()` and that
     /// is the authority, so this file does not carry a second opinion about where it lives.
     pub fn spawn(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, false, None, None, Some((doctrine, skills)))
+        Self::spawn_with_tools(bin, cwd, false, None, None, Some((doctrine, skills)), None, None)
     }
 
     fn spawn_with_policy(bin: &Path, cwd: &Path, managed: bool) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, managed, None, None, None)
+        Self::spawn_with_tools(bin, cwd, managed, None, None, None, None, None)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
         // The standing instruction and the skills belong to the CEO-facing chat lease alone.
         // See `chat_child_args`.
         debug_assert!(
@@ -887,6 +901,13 @@ impl NativeClient {
             (false, Some((d, s))) => chat_child_args(&session_id, d, s),
             (false, None) => child_args(&session_id),
         };
+        if let Some((executable, scope)) = onboarding {
+            let config = json!({"mcpServers": {"richos_onboarding": {
+                "type": "stdio", "command": executable,
+                "args": ["--onboarding-mcp", scope]
+            }}});
+            args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
+        }
         if let Some(model) = registrar_model {
             args = child_args(&session_id);
             args.extend(["--model".into(), model.into()]);
@@ -961,6 +982,8 @@ impl NativeClient {
             }
         });
 
+        let reader_closed = Arc::new(AtomicBool::new(false));
+        let reader_closed_flag = Arc::clone(&reader_closed);
         let reader_stdin = Arc::clone(&stdin);
         let reader_pending = Arc::clone(&pending);
         let reader_current = Arc::clone(&current_prompt);
@@ -993,7 +1016,9 @@ impl NativeClient {
             // EOF, which is a fact about the child and not an inference from silence. Fail
             // every waiter so no caller hangs forever.
             reader_pending.lock().unwrap().clear();
-            if let Some(sink) = reader_current.lock().unwrap().take() {
+            let mut current = reader_current.lock().unwrap();
+            reader_closed_flag.store(true, Ordering::SeqCst);
+            if let Some(sink) = current.take() {
                 let _ = sink.send(ChunkMsg::Done(json!({ "stop_reason": "child_exited" })));
             }
         });
@@ -1007,13 +1032,15 @@ impl NativeClient {
             next_id: AtomicI64::new(1),
             pending,
             current_prompt,
+            operation_cancel: Arc::new(Mutex::new(OperationCancellation::default())),
+            reader_closed,
             between,
             stderr_tail,
             reader_state: Arc::clone(&state),
             _reader: reader_handle,
             _stderr: stderr_handle,
         };
-        client.handshake()?;
+        client.handshake_cancellable(control)?;
         Ok(client)
     }
 
@@ -1026,7 +1053,7 @@ impl NativeClient {
     ///
     /// It costs NO API turn: measured 697.9 ms on 2.1.252, and `run10` of the spike
     /// established that control requests are free.
-    fn handshake(&mut self) -> Result<(), NativeError> {
+    fn handshake_cancellable(&mut self, control: Option<&crate::steering::TurnControl>) -> Result<(), NativeError> {
         let (tx, rx): (Sender<Value>, Receiver<Value>) = channel();
         self.pending.lock().unwrap().insert("req_init".to_string(), tx);
         let msg = json!({
@@ -1057,7 +1084,21 @@ impl NativeClient {
             let exited = broken && self.child_has_exited();
             return Err(self.startup_error(Self::write_failure_reason(&e, broken, exited)));
         }
-        match rx.recv_timeout(HANDSHAKE_TIMEOUT) {
+        let deadline = std::time::Instant::now() + HANDSHAKE_TIMEOUT;
+        let response = loop {
+            if control.and_then(|c| c.stop_claim()).is_some() {
+                self.pending.lock().unwrap().remove("req_init");
+                return Err(NativeError::Protocol("Connection stopped at your request.".into()));
+            }
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                break Err(RecvTimeoutError::Timeout);
+            };
+            match rx.recv_timeout(remaining.min(std::time::Duration::from_millis(50))) {
+                Err(RecvTimeoutError::Timeout) => continue,
+                result => break result,
+            }
+        };
+        match response {
             Ok(resp) => {
                 let subtype = resp.get("response").and_then(|r| r.get("subtype")).and_then(|v| v.as_str());
                 if subtype == Some("success") {
@@ -1099,6 +1140,17 @@ impl NativeClient {
             }
         };
         NativeError::Startup { reason, stderr }
+    }
+
+    /// Permission callbacks during hidden context are always denied. App-owned onboarding
+    /// tools additionally require a scope grant, covering vendor automatic approvals too.
+    pub fn prompt_context_only(
+        &mut self, text: &str, on_item: &mut dyn FnMut(TurnItem),
+    ) -> Result<String, NativeError> {
+        self.reader_state.lock().unwrap().context_only = true;
+        let result = self.prompt(text, on_item);
+        self.reader_state.lock().unwrap().context_only = false;
+        result
     }
 
     /// The sentence a failed handshake WRITE gets, as a pure function of the three facts
@@ -1168,7 +1220,8 @@ impl NativeClient {
             return;
         }
         if ty == "control_request" {
-            Self::handle_agent_request(&msg, stdin, current, between, managed);
+            let context_only = state.lock().unwrap().context_only;
+            Self::handle_agent_request(&msg, stdin, current, between, managed, context_only);
             return;
         }
 
@@ -1204,6 +1257,9 @@ impl NativeClient {
             // frame repeats every turn and says the same thing, so a later rejection is caught
             // too. The verdict is a FACT FROM THE CHILD, not an inference: `plugins` lists what
             // it actually loaded.
+            if st.onboarding_tools_verdict == crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported {
+                st.onboarding_tools_verdict = crate::onboarding_tools::verdict_from_init(&msg);
+            }
             let before = st.skills_verdict;
             st.skills_verdict = crate::skills::verdict_from_init(&msg);
             if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
@@ -1316,13 +1372,16 @@ impl NativeClient {
         current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
         between: &Arc<Mutex<BetweenTurn>>,
         managed: bool,
+        context_only: bool,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
         let subtype = request.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
 
         let (response, machinery) = if subtype == "can_use_tool" {
-            let decision = if managed {
+            let decision = if context_only {
+                PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
+            } else if managed {
                 PermissionDecision::Deny { message: "This action is outside the automatic execution policy. Find a permitted way to achieve the authorized outcome. Do not ask the CEO to edit settings or resolve implementation details. Report a precise authority or access requirement only if no permitted alternative exists.".into() }
             } else { decide_permission(&request) };
             let body = match &decision {
@@ -1391,6 +1450,23 @@ impl NativeClient {
         self.reader_state.lock().map(|s| s.skills_verdict).unwrap_or(crate::skills::SkillsVerdict::NotYetReported)
     }
 
+    pub fn onboarding_tools_verdict(&self) -> crate::onboarding_tools::OnboardingToolsVerdict {
+        self.reader_state.lock().map(|s| s.onboarding_tools_verdict)
+            .unwrap_or(crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported)
+    }
+
+    /// Call after the internal prime has completed, and only on a chat lease configured with
+    /// the onboarding server. Before the first turn the inventory has not arrived yet.
+    pub fn ensure_onboarding_tools_loaded(&self) -> Result<(), CognitionError> {
+        match self.onboarding_tools_verdict() {
+            crate::onboarding_tools::OnboardingToolsVerdict::Loaded => Ok(()),
+            crate::onboarding_tools::OnboardingToolsVerdict::Rejected => Err(CognitionError::Protocol(
+                "The company interview tools did not load. This connection cannot save interview answers.".into())),
+            crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported => Err(CognitionError::Protocol(
+                "The connection did not report whether company interview tools loaded.".into())),
+        }
+    }
+
     /// Take everything the agent said while no turn was in flight (§1.5, gap #1).
     ///
     /// **`turn_id` stays `None` and the caller stamps the thread.** These records attach to
@@ -1423,6 +1499,7 @@ impl NativeClient {
         Arc::new(NativeCancelHandle {
             stdin: Arc::clone(&self.stdin),
             current_prompt: Arc::clone(&self.current_prompt),
+            operation_cancel: Arc::clone(&self.operation_cancel),
             next_id: Arc::new(AtomicI64::new(self.next_id.load(Ordering::SeqCst) + 1_000_000)),
         })
     }
@@ -1441,13 +1518,27 @@ impl NativeClient {
     pub fn prompt(&self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, NativeError> {
         *self.structured_output.lock().unwrap() = None;
         let (tx, rx): (Sender<ChunkMsg>, Receiver<ChunkMsg>) = channel();
-        *self.current_prompt.lock().unwrap() = Some(tx);
-
         let msg = json!({
             "type": "user",
             "message": { "role": "user", "content": [{ "type": "text", "text": text }] }
         });
-        Self::write_line(&self.stdin, &msg)?;
+        {
+            // Serialize Stop with the send boundary: a cancellation between the
+            // internal prime and the user prompt must prevent that next send.
+            let operation = self.operation_cancel.lock().unwrap();
+            if operation.active && operation.requested {
+                return Ok(STOP_REASON_CANCELLED.to_string());
+            }
+            {
+                let mut current = self.current_prompt.lock().unwrap();
+                if self.reader_closed.load(Ordering::SeqCst) { return Err(NativeError::Closed); }
+                *current = Some(tx);
+            }
+            if let Err(error) = Self::write_line(&self.stdin, &msg) {
+                *self.current_prompt.lock().unwrap() = None;
+                return Err(error);
+            }
+        }
 
         // THE shared per-turn counter (§1.4 G1). Advanced only when an item is actually
         // delivered — a frame that normalizes to nothing consumes no position.
@@ -1505,7 +1596,16 @@ impl NativeClient {
                 }
                 Ok(ChunkMsg::Done(result)) => {
                     *self.structured_output.lock().unwrap() = result.get("structured_output").cloned();
-                    return Ok(if permission_denied { "permission_denied".into() } else { stop_reason_of(&result) });
+                    let reason = stop_reason_of(&result);
+                    if reason == "child_exited" { return Err(NativeError::Closed); }
+                    if result.get("is_error").and_then(Value::as_bool) == Some(true)
+                        && reason != STOP_REASON_CANCELLED
+                    {
+                        let detail = result.get("errors").or_else(|| result.get("result"))
+                            .map(Value::to_string).unwrap_or_else(|| reason.clone());
+                        return Err(NativeError::Protocol(detail));
+                    }
+                    return Ok(if permission_denied { "permission_denied".into() } else { reason });
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     // The agent was told to interrupt and did not answer within the grace
@@ -1555,11 +1655,22 @@ fn tokens_in_context(usage: &Value) -> Option<u64> {
 pub struct NativeCancelHandle {
     stdin: Arc<Mutex<ChildStdin>>,
     current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>>,
+    operation_cancel: Arc<Mutex<OperationCancellation>>,
     next_id: Arc<AtomicI64>,
 }
 
 impl TurnCancel for NativeCancelHandle {
+    fn begin_operation(&self) {
+        *self.operation_cancel.lock().unwrap() = OperationCancellation { active: true, requested: false };
+    }
+
+    fn end_operation(&self) {
+        *self.operation_cancel.lock().unwrap() = OperationCancellation::default();
+    }
+
     fn cancel(&self) -> bool {
+        let mut operation = self.operation_cancel.lock().unwrap();
+        if operation.active { operation.requested = true; }
         // Take the sink FIRST so the ordering is unambiguous: interrupt out, then wake. The
         // reverse order would let a very fast agent's `result` overtake the wake, and the
         // loop would return `end_turn` for a turn the CEO stopped. Measured: the agent acked
@@ -1568,7 +1679,7 @@ impl TurnCancel for NativeCancelHandle {
             Some(sink) => sink.clone(),
             // Nothing in flight on this session. Reported as `false` and never as a success —
             // see `StopOutcome::reached_lease`.
-            None => return false,
+            None => return operation.active,
         };
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let request = json!({
@@ -1630,6 +1741,7 @@ pub fn resolve_claude_bin() -> std::path::PathBuf {
 pub struct NativeCognition {
     client: NativeClient,
     session_id: String,
+    onboarding_scope: Option<std::path::PathBuf>,
 }
 
 impl NativeCognition {
@@ -1648,8 +1760,21 @@ impl NativeCognition {
     pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
-        Ok(NativeCognition { client, session_id })
+        Ok(NativeCognition { client, session_id, onboarding_scope: None })
     }
+    /// A chat lease with app-owned, company-scoped persistence tools. The scope is
+    /// supplied by the spine before priming, never selected by the model.
+    pub fn start_with_onboarding(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path,
+        executable: &Path, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
+        let scopes = doctrine.parent().unwrap_or(cwd).join("onboarding-scopes");
+        std::fs::create_dir_all(&scopes)?;
+        let scope = scopes.join(format!("{}.json", uuid::Uuid::new_v4()));
+        let client = NativeClient::spawn_with_tools(bin, cwd, false, None, None,
+            Some((doctrine, skills)), Some((executable, &scope)), control)?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id, onboarding_scope: Some(scope) })
+    }
+
     /// Launch a managed worker in its actual workspace, retaining the configured
     /// settings and refusing requests for permissions that have not been granted.
     pub fn structured_output(&self) -> Option<Value> { self.client.structured_output.lock().unwrap().clone() }
@@ -1659,28 +1784,47 @@ impl NativeCognition {
     }
 
     pub fn start_inspector_with_schema(bin: &Path, workspace: &Path, schema: serde_json::Value) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema), None, None)?;
+        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema), None, None, None, None)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id })
+        Ok(Self { client, session_id, onboarding_scope: None })
     }
 
     /// A detached transcriber has no tools, plugins or workspace access. Managed
     /// callbacks still deny unexpected permission requests and drop kills its group.
     pub fn start_registrar(bin: &Path, neutral_cwd: &Path, schema: Value, model: &str) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, neutral_cwd, true, Some(schema), Some(model), None)?;
+        let client = NativeClient::spawn_with_tools(bin, neutral_cwd, true, Some(schema), Some(model), None, None, None)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id })
+        Ok(Self { client, session_id, onboarding_scope: None })
     }
 
     pub fn start_managed(bin: &Path, workspace: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn_with_policy(bin, workspace, true)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id })
+        Ok(Self { client, session_id, onboarding_scope: None })
     }
 
 }
 
+impl Drop for NativeCognition {
+    fn drop(&mut self) {
+        if let Some(path) = &self.onboarding_scope {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 impl Cognition for NativeCognition {
+    fn set_onboarding_scope(&mut self, entity: &crate::entity::EntityId,
+        central_root: &Path, record_path: &Path) -> Result<(), CognitionError> {
+        if let Some(path) = &self.onboarding_scope {
+            crate::onboarding_tools::write_scope(path, &crate::onboarding_tools::OnboardingToolScope {
+                version: 1, entity_id: entity.to_string(), actions_allowed: false,
+                central_root: central_root.to_path_buf(), record_path: record_path.to_path_buf(),
+            }).map_err(|e| CognitionError::Io(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     fn prepare_managed(&self, workspace: &Path) -> Result<(), CognitionError> {
         if self.client.managed_workspace.as_ref() != workspace.canonicalize().ok().as_ref()
             || self.client.managed_workspace.is_none() {
@@ -1698,15 +1842,35 @@ impl Cognition for NativeCognition {
         // its MACHINERY flows to the caller, which stamps it `internal: true` /
         // `turn_id: None` per §1.5 — retained for debugging, never in a thread render,
         // honouring the standing order that Rich never reveals session rotation.
-        let reason = self.client.prompt(priming_text, on_item)?;
-        if self.client.managed_workspace.is_some() && reason != "end_turn" {
-            return Err(CognitionError::Protocol(format!("Managed worker priming stopped with {reason}.")));
+        let reason = self.client.prompt_context_only(&crate::reprime::context_only_priming(priming_text), on_item)?;
+        if reason != "end_turn" {
+            return Err(CognitionError::PrimingStopped(reason));
+        }
+        if self.onboarding_scope.is_some() {
+            self.client.ensure_onboarding_tools_loaded()?;
         }
         Ok(())
     }
 
     fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
-        Ok(self.client.prompt(text, on_item)?)
+        if let Some(path) = &self.onboarding_scope {
+            crate::onboarding_tools::set_actions_allowed(path, true).map_err(CognitionError::Io)?;
+        }
+        let result = self.client.prompt(text, on_item).map_err(CognitionError::from);
+        if let Some(path) = &self.onboarding_scope {
+            if let Err(error) = crate::onboarding_tools::set_actions_allowed(path, false) {
+                // A lease whose grant cannot be revoked must not accept another operation.
+                let _ = self.client.child.kill();
+                let _ = self.client.child.wait();
+                let _ = std::fs::remove_file(path);
+                return Err(CognitionError::Io(error));
+            }
+        }
+        result
+    }
+
+    fn prompt_context_only(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        Ok(self.client.prompt_context_only(text, on_item)?)
     }
 
     fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
@@ -1937,6 +2101,31 @@ mod native_driver_tests {
     }
 
     #[test]
+    fn the_real_reader_verifies_both_onboarding_tools_from_the_first_init() {
+        use crate::onboarding_tools::{OnboardingToolsVerdict, QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL};
+        for (suffix, names, expected) in [
+            ("present", vec![QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL], OnboardingToolsVerdict::Loaded),
+            ("missing-decline", vec![QUALIFIED_SAVE_TOOL], OnboardingToolsVerdict::Rejected),
+            ("lookalike", vec!["mcp__other__save_company_notes", QUALIFIED_DECLINE_TOOL], OnboardingToolsVerdict::Rejected),
+        ] {
+            let init = json!({"type":"system","subtype":"init","tools":names,"plugins":[{"name":"rich-skills"}]}).to_string();
+            let body = format!(
+                "read -r line\nprintf '%s\\n' '{{\"type\":\"control_response\",\"response\":{{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{{}}}}}}'\n\
+                 read -r line\nprintf '%s\\n' '{init}'\n\
+                 printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"stop_reason\":\"end_turn\"}}'\n\
+                 while read -r line; do :; done\n"
+            );
+            let script = write_script(&format!("onboarding-tools-{suffix}"), &body);
+            let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+            assert_eq!(client.onboarding_tools_verdict(), OnboardingToolsVerdict::NotYetReported);
+            assert!(client.ensure_onboarding_tools_loaded().is_err());
+            client.prompt("ready", &mut |_| {}).unwrap();
+            assert_eq!(client.onboarding_tools_verdict(), expected);
+            assert_eq!(client.ensure_onboarding_tools_loaded().is_ok(), expected == OnboardingToolsVerdict::Loaded);
+        }
+    }
+
+    #[test]
     fn a_missing_binary_fails_loudly_and_names_the_path() {
         let err = NativeClient::spawn(Path::new("/nonexistent/definitely/not/claude"), Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
             .err()
@@ -2080,6 +2269,42 @@ mod native_driver_tests {
     }
 
     #[test]
+    fn a_pending_initialize_handshake_is_cancellable() {
+        let script = write_script("cancel-handshake", r#"
+count=0
+while IFS= read -r line; do
+  case "$line" in
+    *'"subtype":"initialize"'*)
+      count=$((count + 1))
+      if [ "$count" -eq 1 ]; then
+        printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+      fi
+      ;;
+  esac
+done
+"#);
+        let mut client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let root = std::env::temp_dir().join(format!("richos-handshake-stop-{}", uuid::Uuid::new_v4()));
+        let control = crate::steering::TurnControl::open(&root).unwrap();
+        control.begin_turn(crate::steering::ActiveTurn {
+            turn_id: "initial-request".into(), thread_id: "thread".into(),
+            entity_id: None, started_at: None,
+        });
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let worker_control = control.clone();
+        let worker = std::thread::spawn(move || {
+            entered_tx.send(()).unwrap();
+            client.handshake_cancellable(Some(&worker_control))
+        });
+        entered_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let began = std::time::Instant::now();
+        control.request_stop().unwrap();
+        let error = worker.join().unwrap().unwrap_err();
+        assert!(error.to_string().contains("stopped at your request"), "{error}");
+        assert!(began.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
     fn a_healthy_handshake_yields_a_client_whose_session_id_is_known_immediately() {
         // The session id is ours (`--session-id`), so it is answerable before any turn —
         // which is what `ledger.rs`'s rotation records need.
@@ -2128,6 +2353,28 @@ mod native_driver_tests {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         path
+    }
+
+    #[test]
+    fn hidden_context_denies_permission_then_visible_delivery_restores_normal_policy() {
+        let script = write_script("context-only-permissions", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+for expected in deny allow; do
+  read -r prompt
+  printf '%s\n' '{"type":"control_request","request_id":"tool-permission","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"touch should-not-run"}}}'
+  read -r answer
+  case "$answer" in
+    *\"behavior\":\"$expected\"*) ;;
+    *) exit 9 ;;
+  esac
+  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+done
+"#);
+        let mut client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        assert_eq!(client.prompt_context_only("Only context", &mut |_| {}).unwrap(), "end_turn");
+        assert!(!client.reader_state.lock().unwrap().context_only);
+        assert_eq!(client.prompt("Actual visible request", &mut |_| {}).unwrap(), "end_turn");
     }
 
     // ---- the permission seam -----------------------------------------------------------

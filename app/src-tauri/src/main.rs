@@ -200,6 +200,15 @@ struct EngineLeaseFactory {
 
 impl LeaseFactory for EngineLeaseFactory {
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
+        self.spawn_chat(None)
+    }
+    fn spawn_cancellable(&self, control: &TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
+        self.spawn_chat(Some(control))
+    }
+}
+
+impl EngineLeaseFactory {
+    fn spawn_chat(&self, control: Option<&TurnControl>) -> Result<Box<dyn Cognition>, CognitionError> {
         let dir = self
             .engine_dir
             .lock()
@@ -230,7 +239,8 @@ impl LeaseFactory for EngineLeaseFactory {
         // without saying so (`skills.rs`).
         let skills = richos_core::skills::ensure_rendered(&self.data_dir)
             .map_err(|e| CognitionError::Io(e.to_string()))?;
-        let cog = NativeCognition::start(&bin, &dir, &doctrine, &skills)?;
+        let executable = std::env::current_exe().map_err(|e| CognitionError::Io(e.to_string()))?;
+        let cog = NativeCognition::start_with_onboarding(&bin, &dir, &doctrine, &skills, &executable, control)?;
         Ok(Box::new(cog))
     }
 }
@@ -428,17 +438,17 @@ struct AppState {
     boot_engine: Option<PathBuf>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_threads(state: State<AppState>) -> Vec<ThreadSummary> {
     state.spine.lock().unwrap().threads()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn active_thread(state: State<AppState>) -> Option<String> {
     state.spine.lock().unwrap().active_thread().map(|s| s.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_thread(state: State<AppState>, title: String) -> Result<String, String> {
     let title = if title.trim().is_empty() { "New thread".to_string() } else { title };
     // A thread cannot exist without an immutable entity home (ECS §3.2). Until the entity
@@ -448,7 +458,7 @@ fn create_thread(state: State<AppState>, title: String) -> Result<String, String
     state.spine.lock().unwrap().create_thread(&title, &entity).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn switch_thread(state: State<AppState>, thread_id: String) -> Result<(), String> {
     state.spine.lock().unwrap().switch_thread(&thread_id).map_err(|e| e.to_string())
 }
@@ -456,7 +466,7 @@ fn switch_thread(state: State<AppState>, thread_id: String) -> Result<(), String
 /// Scoped read. Now fallible: a thread written before entity scoping existed has no
 /// entity home, and `LedgerError::UnboundThread` is returned rather than an empty list —
 /// "I will not serve this" and "there is nothing here" are different statements.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message>, String> {
     state.spine.lock().unwrap().messages(&thread_id).map_err(|e| e.to_string())
 }
@@ -477,7 +487,7 @@ fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message
 /// wanted to — it never holds those bytes.
 ///
 /// Fails closed on an unbound thread, exactly like `get_messages`.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
     timeline_payload(&state.spine.lock().unwrap(), &thread_id)
 }
@@ -496,49 +506,21 @@ fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json:
 /// very turn it is meant to interrupt — the stop would be structurally impossible no
 /// matter how the rest of the plumbing is written.
 #[tauri::command(async)]
-fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, String> {
+fn send_message(state: State<AppState>, text: String, thread_id: String) -> Result<Vec<Message>, String> {
     let mut spine = state.spine.lock().unwrap();
-    // THE GATE IS THE LIVE LEASE, NOT A BOOT-TIME SNAPSHOT — and that distinction is the
-    // whole of the first-run defect fixed on 2026-09-04.
-    //
-    // What this line used to be: `if !state.lease_ready`, an `AppState` field written once
-    // in `setup` and never again. On a machine that already had Claude Code and the engine
-    // it was `true` at boot and correct for ever, which is every developer's machine and
-    // therefore every machine this was tested on. On a FRESH install it is `false` at boot
-    // — there is no engine directory yet, so `NativeCognition::start` fails on
-    // `WorkingDirMissing` before the CEO has been offered anything — and it STAYED false
-    // after `run_setup` installed both components and successfully attached a real lease.
-    //
-    // So the app held a live `claude` child, correct working directory, healthy account,
-    // and refused the customer's FIRST message with `LEASE_UNAVAILABLE_MESSAGE`; quitting
-    // and reopening then made the boot attach succeed and the app worked for ever after.
-    // Broken on run 1, fine from run 2 — the exact shape of a stale snapshot, and it is not
-    // reachable at all by anyone whose machine was already set up.
-    //
-    // `has_lease()` is the same question `run_setup` already asks before attaching, read at
-    // the moment it is acted on, so there is no second copy of the answer to go stale.
-    if !spine.has_lease() {
-        // WHICH KIND OF NO-LEASE THIS IS, asked here rather than assumed — because the two
-        // kinds need opposite things from him and until 2026-09-04 they shared one sentence.
-        //
-        // ray-opus-a2, published v1.0.1: four sends, four refusals reading "Quit RichOS and
-        // open it again", and an engine directory holding zero files. Quitting would have
-        // done nothing — the next boot looks for the same absent engine, fails the same
-        // attach, and says the same thing. The app told a customer to perform a ritual that
-        // could not work, in the only sentence it gave him.
-        //
-        // Read from DISK, not from a boot flag, for the same reason `has_lease()` above is
-        // read live: `run_setup` can change this answer inside one session, and a snapshot
-        // taken at boot is the exact defect `c2abf1f` removed from the line above.
+    // A configured factory connects inside the tracked turn. This covers first launch,
+    // a later sign-in and replacement of a session retired by Stop.
+    if !spine.has_lease() && !spine.has_lease_factory() {
         let disk = setup_view::detect(state.boot_engine.as_deref());
         if let Some(sentence) = setup_view::incomplete_message(&disk) {
             return Err(sentence.into());
         }
-        // Everything is installed and there is still no lease — the account is not signed
-        // in, and for THAT cause quitting and reopening genuinely does clear it.
         return Err(LEASE_UNAVAILABLE_MESSAGE.into());
     }
     let thread = spine.active_thread().ok_or("Open a conversation first.")?.to_string();
+    if thread != thread_id {
+        return Err("The conversation changed before your message was sent. Open the original conversation to try again.".into());
+    }
     spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;
     spine.messages(&thread).map_err(|e| e.to_string())
 }
@@ -894,6 +876,17 @@ fn install_correction_desk(
 }
 
 fn main() {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() == Some(std::ffi::OsStr::new("--onboarding-mcp")) {
+        let result = args.next().ok_or_else(|| "Missing onboarding scope".to_string())
+            .and_then(|scope| richos_core::onboarding_tools::run_stdio(Path::new(&scope))
+                .map_err(|e| e.to_string()));
+        if let Err(error) = result {
+            eprintln!("[richos] onboarding tool server: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     tauri::Builder::default()
         .setup(|app| {
             // Durable ledger lives in the app data dir (survives restart + rotation).
@@ -1237,6 +1230,9 @@ fn main() {
                 Some(entity) => {
                     eprintln!("[richos] company: {entity} (via {})", boot.source.map(|s| s.describe()).unwrap_or("resolution"));
                     let binding = spine.ensure_active_thread_in(entity).expect("ensure thread");
+                    if let Err(error) = spine.migrate_legacy_onboarding_declination() {
+                        eprintln!("[richos] onboarding answer migration failed: {error}");
+                    }
                     // WHAT THIS LAUNCH WILL ACTUALLY DO ABOUT ONBOARDING, said out loud.
                     //
                     // Every state prints, including the good one, for the reason the lease line
@@ -1427,50 +1423,9 @@ fn main() {
             // THE CELL THE LEASE FACTORY READS, beside `engine_cell` and for the same reason
             // (see `EngineLeaseFactory`). A successful first-run install rewrites it.
             let claude_bin_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(claude_bin.clone()));
-            // RichOS's standing instruction, written into RichOS's own directory before the
-            // first lease exists (`doctrine.rs`). A failure to render it is reported and the
-            // attach is not attempted: `NativeCognition::start` would refuse anyway, and the
-            // refusal here names the directory rather than the flag.
-            let doctrine = richos_core::doctrine::ensure_rendered(
-                &data_dir,
-                &richos_core::doctrine::identity_from_config(&data_dir),
-            );
-            let skills = richos_core::skills::ensure_rendered(&data_dir);
-            match doctrine
-                .as_ref()
-                .map_err(|e| e.to_string())
-                .and_then(|d| skills.as_ref().map_err(|e| e.to_string()).map(|s| (d, s)))
-                .and_then(|(d, s)| NativeCognition::start(&claude_bin, &engine, d, s).map_err(|e| e.to_string()))
-            {
-                Ok(cog) => {
-                    // The POSITIVE half, and it is here because its absence is not evidence:
-                    // before this line, a successful boot was silent and a reader had to
-                    // infer success from the failure line NOT appearing. It names the binary
-                    // because that is the operator-useful fact — which `claude` this install
-                    // is actually driving, out of the several a self-updating installer
-                    // leaves under `~/.local/share/claude/versions/`.
-                    //
-                    // It names the BINARY and nothing else. Not the account, not the
-                    // subscription, not a token: RichOS may never collect, store or
-                    // intermediate Claude credentials (§16's licence condition), and a log
-                    // line is storage.
-                    eprintln!("[richos] compute lease attached over {}", claude_bin.display());
-                    spine.attach_lease(Box::new(cog));
-                }
-                Err(e) => {
-                    eprintln!("[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.");
-                    eprintln!("[richos]   binary: {}", claude_bin.display());
-                    // THE SECOND PATH, printed because it was the missing one. Until
-                    // 2026-09-01 this block named only the binary, so a failure caused by the
-                    // WORKING DIRECTORY printed a binary path, a "binary was not found"
-                    // message, and no mention of the directory at all. `native.rs::preflight`
-                    // now separates the two causes; this line makes the other path visible
-                    // whichever cause fired, so nobody has to infer it from the message text.
-                    eprintln!("[richos]   engine: {}", engine.display());
-                    eprintln!("[richos]   cause : {e}");
-                }
-            }
-
+            // Connect on the first accepted request. The spine publishes Working and
+            // installs Stop before spawning, so startup cannot block the window or leave
+            // a CEO staring at an inert application during the CLI handshake.
             // Attach the rotation/recovery seam REGARDLESS of initial boot success — even
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
@@ -1479,6 +1434,7 @@ fn main() {
                 engine_dir: Arc::clone(&engine_cell),
                 data_dir: data_dir.clone(),
             }));
+            eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
 
             // ==============================================================================
             // FIRST-RUN SETUP — what this machine is missing, named at boot
@@ -2004,24 +1960,24 @@ fn main() {
 /// UX §2.1: "Rail header = the company/CEO identity, not RichOS." Configurable,
 /// persisted, sensible fallback when unset — the fallback lives in richos-core's
 /// config.rs so this thin shell layer never has to know the placeholder string.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_company_name(state: State<AppState>) -> String {
     state.config.lock().unwrap().company_name_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_company_name(state: State<AppState>, name: String) -> Result<(), String> {
     state.config.lock().unwrap().set_company_name(&name).map_err(|e| e.to_string())
 }
 
 /// UX §5.2: the CEO's one plain 3-way proactive-attention dial. Default = Quiet,
 /// survives restart (config.rs).
-#[tauri::command]
+#[tauri::command(async)]
 fn get_assertiveness(state: State<AppState>) -> String {
     state.config.lock().unwrap().assertiveness().as_str().to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_assertiveness(state: State<AppState>, level: String) -> Result<(), String> {
     let parsed = Assertiveness::parse(&level).ok_or_else(|| format!("unknown assertiveness level: {level}"))?;
     state.config.lock().unwrap().set_assertiveness(parsed).map_err(|e| e.to_string())
@@ -2040,7 +1996,7 @@ fn set_assertiveness(state: State<AppState>, level: String) -> Result<(), String
 /// `send_message` holds the spine mutex for the entire turn, and `app/ui/main.js` polls
 /// this command on TURN START. Taking the spine lock here would make the worker chip block
 /// until Rich finished — the same reason the stop control lives on this handle (§9.3).
-#[tauri::command]
+#[tauri::command(async)]
 fn get_worker_status(state: State<AppState>) -> WorkerStatusView {
     worker_status::current_status(state.control.lease_session().as_deref())
 }
@@ -2049,7 +2005,7 @@ fn get_worker_status(state: State<AppState>) -> WorkerStatusView {
 /// UI event. Judgment of WHEN to raise one is explicitly NOT here — no timer/log-watcher
 /// trigger is wired yet (a later leg); this command is the seam a future trigger (or, for
 /// now, a manual/test caller) calls once it has already decided to speak.
-#[tauri::command]
+#[tauri::command(async)]
 fn raise_proactive_message(
     state: State<AppState>,
     thread_id: Option<String>,
@@ -2164,7 +2120,7 @@ fn voice_readiness() -> serde_json::Value {
 
 /// Enter voice mode: open the mic and start listening. Returns the resolved audio
 /// configuration for developer eyes; the CEO-facing UI only renders `rich://voice-state`.
-#[tauri::command]
+#[tauri::command(async)]
 fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serde_json::Value, String> {
     let _ = thread_id; // voice rides the ACTIVE thread — there is no per-thread voice.
     // REFUSE BEFORE THE MICROPHONE, NOT AFTER IT. `VoiceController::start` resolves the
@@ -2195,7 +2151,7 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
         // THE LIVE LEASE, for the reason `send_message` reads it live — a spoken sentence
         // must not be refused by a boot-time snapshot that a completed first-run setup has
         // already made false. Same question, same moment, one answer.
-        if !spine.has_lease() {
+        if !spine.has_lease() && !spine.has_lease_factory() {
             drop(spine);
             let _ = submit_app.emit(
                 richos_voice::event::EVENT_VOICE_ERROR,
@@ -2243,7 +2199,7 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
 
 /// Leave voice mode. Dropping the controller closes the microphone — "off" means the mic
 /// is genuinely closed, not merely ignored.
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<(), String> {
     let _ = thread_id;
     ensure_voice_state(&app);
@@ -2255,7 +2211,7 @@ fn stop_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<(), S
 
 /// One `rich://chunk` delta, relayed by the UI while voice mode is on. Completed sentences
 /// are synthesized and queued immediately — this is the gapless pipelining.
-#[tauri::command]
+#[tauri::command(async)]
 fn voice_speak_delta(app: AppHandle, text: String) {
     if let Some(handle) = app.try_state::<VoiceHandle>() {
         if let Ok(slot) = handle.controller.lock() {
@@ -2268,7 +2224,7 @@ fn voice_speak_delta(app: AppHandle, text: String) {
 
 /// The turn's terminal event: speak the unterminated tail so Rich never swallows his last
 /// words.
-#[tauri::command]
+#[tauri::command(async)]
 fn voice_speak_end(app: AppHandle) {
     if let Some(handle) = app.try_state::<VoiceHandle>() {
         if let Ok(slot) = handle.controller.lock() {
@@ -2280,7 +2236,7 @@ fn voice_speak_end(app: AppHandle) {
 }
 
 /// `rich://turn-started`, relayed from the UI.
-#[tauri::command]
+#[tauri::command(async)]
 fn voice_turn_started(app: AppHandle) {
     if let Some(handle) = app.try_state::<VoiceHandle>() {
         if let Ok(slot) = handle.controller.lock() {
@@ -2292,7 +2248,7 @@ fn voice_turn_started(app: AppHandle) {
 }
 
 /// `rich://turn-completed` / `rich://turn-error`, relayed from the UI.
-#[tauri::command]
+#[tauri::command(async)]
 fn voice_turn_ended(app: AppHandle) {
     if let Some(handle) = app.try_state::<VoiceHandle>() {
         if let Ok(slot) = handle.controller.lock() {
@@ -2321,7 +2277,7 @@ fn voice_turn_ended(app: AppHandle) {
 ///
 /// Nothing queued is silenced. Sentences Rich already completed are real answer and they
 /// finish; the notice follows them. See `richos_voice::controller::CutOffDesk`.
-#[tauri::command]
+#[tauri::command(async)]
 fn voice_turn_cut_off(app: AppHandle, reason: Option<String>) {
     if let Some(handle) = app.try_state::<VoiceHandle>() {
         if let Ok(slot) = handle.controller.lock() {
@@ -2336,7 +2292,7 @@ fn voice_turn_cut_off(app: AppHandle, reason: Option<String>) {
 /// The UI's "tap to stop" — the CEO's instant interrupt while AEC is missing. Returns the
 /// seconds of queued speech dropped and the measured stop latency, so an interruption is
 /// reported in real units rather than as an adjective.
-#[tauri::command]
+#[tauri::command(async)]
 fn voice_barge_in(app: AppHandle) -> serde_json::Value {
     if let Some(handle) = app.try_state::<VoiceHandle>() {
         if let Ok(slot) = handle.controller.lock() {
@@ -2355,7 +2311,7 @@ fn voice_barge_in(app: AppHandle) -> serde_json::Value {
 }
 
 /// Developer-facing audio facts. Never rendered to the CEO.
-#[tauri::command]
+#[tauri::command(async)]
 fn voice_diagnostics(app: AppHandle) -> Option<String> {
     let handle = app.try_state::<VoiceHandle>()?;
     let slot = handle.controller.lock().ok()?;
@@ -2519,7 +2475,7 @@ fn active_binding_view(spine: &Spine) -> Option<ActiveContext> {
 /// THE navigation query. One call returns the whole rail: every registered entity as its
 /// own group, each group's threads resolved through the immutable binding, the unbound
 /// quarantine list, and the authoritative active scope.
-#[tauri::command]
+#[tauri::command(async)]
 fn navigation_tree(state: State<AppState>) -> NavigationTree {
     let spine = state.spine.lock().unwrap();
     let nav = state.nav.lock().unwrap();
@@ -2596,7 +2552,7 @@ fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> Navigation
 ///
 /// The sentences are composed in richos-core and rendered verbatim, so this shell never
 /// gets to phrase a claim about a customer's history.
-#[tauri::command]
+#[tauri::command(async)]
 fn history_health(state: State<AppState>) -> richos_core::ledger::HistoryHealth {
     state.spine.lock().unwrap().ledger().history_health()
 }
@@ -2686,6 +2642,7 @@ fn onboarding_view_of(state: &State<AppState>) -> OnboardingView {
         richos_core::onboarding::OnboardingState::NoCentralFolder => ("no-central-folder", None, None),
         richos_core::onboarding::OnboardingState::NotYet => ("not-yet", None, None),
         richos_core::onboarding::OnboardingState::Declined { .. } => ("declined", None, None),
+        richos_core::onboarding::OnboardingState::Partial => ("partial", None, None),
         richos_core::onboarding::OnboardingState::Described => ("described", None, None),
         richos_core::onboarding::OnboardingState::Unusable { why } => {
             // The operator's half goes to the operator's channel and nowhere else — it is the
@@ -2703,7 +2660,7 @@ fn onboarding_view_of(state: &State<AppState>) -> OnboardingView {
 
 /// Read where onboarding stands. The window calls it at boot and after every company change,
 /// and `not-yet` is what makes it show the offer.
-#[tauri::command]
+#[tauri::command(async)]
 fn onboarding_view(state: State<AppState>) -> OnboardingView {
     onboarding_view_of(&state)
 }
@@ -2722,13 +2679,19 @@ fn onboarding_view(state: State<AppState>) -> OnboardingView {
 ///   3. **It is reversible by asking.** `DECLINED_BLOCK` tells Rich the interview is still
 ///      there if the CEO brings it up. The surface says the same thing in the CEO's own
 ///      words, so the button's effect and the product's behavior are one claim.
-#[tauri::command]
-fn decline_onboarding(state: State<AppState>) -> Result<OnboardingView, String> {
+#[tauri::command(async)]
+fn decline_onboarding(state: State<AppState>, entity_id: String) -> Result<OnboardingView, String> {
     let now_millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    let outcome = state.spine.lock().unwrap().record_onboarding_declination(now_millis);
+    let outcome = {
+        let mut spine = state.spine.lock().unwrap();
+        if spine.active_binding().map(|b| b.entity_id().to_string()).as_deref() != Some(entity_id.as_str()) {
+            return Err("The company changed. Please use the offer for the company now open.".into());
+        }
+        spine.record_onboarding_declination(now_millis)
+    };
     if let Err(why) = outcome {
         // THE ERROR THE CEO SEES IS NOT THE ERROR THE CRATE RAISED, and that is deliberate
         // rather than a wrapper for its own sake. `record_declination` writes through
@@ -2757,14 +2720,14 @@ const ONBOARDING_DECLINE_REFUSED: &str =
      look at that.";
 
 /// The authoritative answer to "which entity and thread is the CEO actually talking to?".
-#[tauri::command]
+#[tauri::command(async)]
 fn active_context(state: State<AppState>) -> Option<ActiveContext> {
     active_binding_view(&state.spine.lock().unwrap())
 }
 
 /// One thread's durable scope. Fallible on purpose: an unbound thread returns the core's
 /// own `UnboundThread` message, which is what the UI renders in the binding-failure state.
-#[tauri::command]
+#[tauri::command(async)]
 fn thread_scope(state: State<AppState>, thread_id: String) -> Result<ActiveContext, String> {
     let spine = state.spine.lock().unwrap();
     spine
@@ -2788,7 +2751,7 @@ fn thread_scope(state: State<AppState>, thread_id: String) -> Result<ActiveConte
 ///
 /// §3.3: *"no pre-created thread record until the CEO sends the first message"* — so the
 /// UI holds a draft with no record and calls this on first send, not on picker open.
-#[tauri::command]
+#[tauri::command(async)]
 fn create_thread_in(state: State<AppState>, entity_id: String, title: String) -> Result<String, String> {
     let entity = EntityId::parse(entity_id.trim()).map_err(|e| e.to_string())?;
     let title = if title.trim().is_empty() { "New thread".to_string() } else { title.trim().to_string() };
@@ -2929,7 +2892,7 @@ fn entity_choice_view(state: &State<AppState>) -> EntityChoiceView {
 
 /// Read the state of his memory. The window calls it at boot, and a `state` of `none` is
 /// what makes it ask — the same shape `entity_choice`'s `chosen: None` already uses.
-#[tauri::command]
+#[tauri::command(async)]
 fn memory_status(state: State<AppState>) -> MemoryStatus {
     let status = state.memory.lock().unwrap().clone();
     memory::with_offered_location(status, std::env::var_os("HOME").map(PathBuf::from).as_deref())
@@ -3087,7 +3050,7 @@ fn provision_memory(
 ///
 /// Called at boot by the window, exactly as `memory_status` is: a `needs` that is non-empty is
 /// what makes it ask, and it is the only signal it needs.
-#[tauri::command]
+#[tauri::command(async)]
 fn setup_status(state: State<AppState>) -> serde_json::Value {
     setup_view::view(&setup_view::detect(state.boot_engine.as_deref()))
 }
@@ -3102,69 +3065,30 @@ fn setup_status(state: State<AppState>) -> serde_json::Value {
 ///   2. **The final status is RE-READ FROM DISK**, not assembled from "every step returned
 ///      Ok". The same rule `install_claude_code` applies to Anthropic's own exit code.
 ///   3. **No relaunch.** A successful engine install rewrites `AppState::engine_dir`, which is
-///      the same `Arc` the lease factory reads, and this command then attempts an attach if
-///      the boot could not get one. `provision_memory` set that standard on 2026-09-01 after a
+///      the same `Arc` the lease factory reads. The next accepted request connects with
+///      visible progress and Stop. `provision_memory` set that standard on 2026-09-01 after a
 ///      customer's first five minutes were spent with a corpus he had just created and a desk
 ///      that would not open until he quit.
 ///
-/// `(async)` for the reason `provision_memory` is async: it takes the spine's mutex, which
-/// `send_message` holds for a whole turn — and this one additionally runs a multi-minute
-/// download, which must never sit on the UI thread.
+/// `(async)` keeps installation downloads off the UI thread. Setup does not acquire the
+/// spine or start an untracked model handshake.
 #[tauri::command(async)]
 fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json::Value, String> {
     let status = setup_view::run(&app, state.boot_engine.as_deref(), &state.engine_dir)?;
 
-    // THE LEASE, WITHOUT A RELAUNCH. Attempted only when there is not one already: a live
-    // lease is mid-conversation and replacing it would throw away the session the CEO is in.
-    let mut spine = state.spine.lock().unwrap();
-    if !spine.has_lease() {
-        let engine = state.engine_dir.lock().map(|d| d.clone()).unwrap_or_default();
-        let claude_bin = resolve_claude_bin();
-        // RE-POINT THE FACTORY TOO, not just this attach. Before 2026-09-04 the re-resolved
-        // path was used here and thrown away, and every later rotation and crash recovery
-        // went on spawning the boot's answer — the bare name `claude`, which a Finder
-        // launch's `PATH` cannot resolve. Written before the attach so a failed attach still
-        // leaves the factory pointing at the binary that was actually installed.
-        if let Ok(mut cell) = state.claude_bin.lock() {
-            *cell = claude_bin.clone();
-        }
-        let doctrine = richos_core::doctrine::ensure_rendered(
-            &state.data_dir,
-            &richos_core::doctrine::identity_from_config(&state.data_dir),
-        );
-        let skills = richos_core::skills::ensure_rendered(&state.data_dir);
-        match doctrine
-            .as_ref()
-            .map_err(|e| e.to_string())
-            .and_then(|d| skills.as_ref().map_err(|e| e.to_string()).map(|s| (d, s)))
-            .and_then(|(d, s)| NativeCognition::start(&claude_bin, &engine, d, s).map_err(|e| e.to_string()))
-        {
-            Ok(cog) => {
-                eprintln!(
-                    "[richos] compute lease attached after first-run setup, over {} in {}",
-                    claude_bin.display(),
-                    engine.display()
-                );
-                spine.attach_lease(Box::new(cog));
-            }
-            // NOT FATAL, AND NOT HIDDEN. The install itself succeeded and is reported as such;
-            // what failed is the attach, and the most common cause is the one thing setup
-            // cannot do for him — he has not signed in to Claude yet. The window's
-            // "not connected" state already exists for exactly this and says it in his words.
-            Err(e) => eprintln!(
-                "[richos] first-run setup installed everything, but no compute lease could be \
-                 attached yet: {e}"
-            ),
-        }
-    }
-    drop(spine);
+    // Refresh the factory after installation, even if a conversation is already live.
+    // The existing lease is untouched. The next accepted request owns connection, visible
+    // progress and Stop, just as it does after a normal boot.
+    *state.claude_bin.lock().map_err(|_| {
+        "The connection settings could not be updated. Please reopen RichOS."
+    })? = resolve_claude_bin();
 
     Ok(setup_view::view(&status))
 }
 
 /// Read the state of the question. The UI calls this at boot: a `chosen` of `None` is what
 /// makes it ask, and it is the only signal it needs.
-#[tauri::command]
+#[tauri::command(async)]
 fn entity_choice(state: State<AppState>) -> EntityChoiceView {
     entity_choice_view(&state)
 }
@@ -3229,7 +3153,9 @@ fn apply_company_choice(spine: &mut Spine, id: &EntityId) -> Result<(), String> 
     if spine.active_thread().is_some() {
         return Ok(());
     }
-    spine.ensure_active_thread_in(id).map(|_| ()).map_err(|e| e.to_string())
+    spine.ensure_active_thread_in(id).map_err(|e| e.to_string())?;
+    spine.migrate_legacy_onboarding_declination().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ---- ADDING A COMPANY (2026-09-04) -----------------------------------------------------
@@ -3513,7 +3439,7 @@ fn excerpt_at(original: &[char], at: usize, needle_len: usize) -> String {
 /// thread's TITLE (already listed in the rail, and a title is navigation metadata) but can
 /// never surface its contents. Each hit carries its entity so the renderer groups by entity
 /// without having to work out which entity a result came from.
-#[tauri::command]
+#[tauri::command(async)]
 fn search_nav(state: State<AppState>, query: String, limit: Option<usize>) -> Vec<SearchHit> {
     let spine = state.spine.lock().unwrap();
     let nav = state.nav.lock().unwrap();
@@ -3618,36 +3544,36 @@ fn run_search(spine: &Spine, nav_state: &nav::NavState, query: &str, limit: usiz
 
 // ---- durable navigation view state (nav.rs) -------------------------------------------
 
-#[tauri::command]
+#[tauri::command(async)]
 fn nav_state(state: State<AppState>) -> nav::NavState {
     state.nav.lock().unwrap().state().clone()
 }
 
 /// Returns the width the store ACCEPTED (clamped to UX §2.1's 224–420px), not the width
 /// requested — so the rail renders what was persisted and the two cannot disagree.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_sidebar_width(state: State<AppState>, width: f64) -> Result<f64, String> {
     state.nav.lock().unwrap().set_sidebar_width(width).map_err(|e| e.to_string())
 }
 
 /// Returns the width the store ACCEPTED (clamped to nav.rs's 280-520px, whose maximum is
 /// derived from §20's 620px conversation floor). UX §7.2 / §25.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_inspector_width(state: State<AppState>, width: f64) -> Result<f64, String> {
     state.nav.lock().unwrap().set_inspector_width(width).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_sidebar_collapsed(state: State<AppState>, collapsed: bool) -> Result<(), String> {
     state.nav.lock().unwrap().set_sidebar_collapsed(collapsed).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_entity_collapsed(state: State<AppState>, entity_id: String, collapsed: bool) -> Result<(), String> {
     state.nav.lock().unwrap().set_entity_collapsed(&entity_id, collapsed).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_thread_pinned(state: State<AppState>, thread_id: String, pinned: bool) -> Result<(), String> {
     state.nav.lock().unwrap().set_thread_pinned(&thread_id, pinned).map_err(|e| e.to_string())
 }
@@ -3655,14 +3581,14 @@ fn set_thread_pinned(state: State<AppState>, thread_id: String, pinned: bool) ->
 /// Archive REMOVES FROM THE NORMAL LIST (§3.2) — it does not delete, and it does not touch
 /// the thread's entity home. An archived thread is still bound to exactly the entity it was
 /// always bound to and is still fully readable from the archive view.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_thread_archived(state: State<AppState>, thread_id: String, archived: bool) -> Result<(), String> {
     state.nav.lock().unwrap().set_thread_archived(&thread_id, archived).map_err(|e| e.to_string())
 }
 
 /// A DISPLAY override. The ledger's title is evidence and is left exactly as written — see
 /// nav.rs's module doc for why a rename is not a ledger edit.
-#[tauri::command]
+#[tauri::command(async)]
 fn rename_thread(state: State<AppState>, thread_id: String, title: String) -> Result<(), String> {
     state.nav.lock().unwrap().rename_thread(&thread_id, &title).map_err(|e| e.to_string())
 }
@@ -3714,19 +3640,16 @@ mod lease_gate_tests {
              (run_setup attaches one), and the cached copy is what refused a customer's \
              first message on 2026-09-04"
         );
-        // THREE SITES ASK THE SPINE, and naming all three is the point of pinning a count
-        // rather than a presence: the two REFUSAL gates — the typed send (`send_message`)
-        // and the spoken one (the voice submit callback) — plus `run_setup`'s guard, which
-        // asks the same question for the opposite reason (do not replace a lease the CEO is
-        // mid-conversation with). A fourth is not forbidden; it is required to come with
-        // someone having read this.
-        let gate = concat!("if !spine.", "has_lease() {");
-        let gates = SOURCE.matches(gate).count();
-        assert_eq!(
-            gates, 3,
-            "expected three live-lease questions — send_message, the voice submit \
-             callback, and run_setup's attach guard; found {gates}"
-        );
+        let factory_gate = concat!("if !spine.has_lease() && !spine.", "has_lease_factory() {");
+        assert_eq!(SOURCE.matches(factory_gate).count(), 2,
+            "typed and spoken requests must allow a configured factory to reconnect");
+        let setup_start = SOURCE.find(concat!("fn run_", "setup(")).unwrap();
+        let setup_end = SOURCE[setup_start..].find(concat!("fn entity_", "choice(")).unwrap() + setup_start;
+        let setup = &SOURCE[setup_start..setup_end];
+        assert!(!setup.contains("start_with_onboarding") && !setup.contains("spine.lock()"),
+            "setup must leave connection to the next tracked cancellable request");
+        assert!(setup.contains("resolve_claude_bin()") && setup.contains("state.claude_bin.lock()"),
+            "setup must refresh the factory with the newly installed executable");
         // And the sentence they refuse with is still the one the CEO was written for.
         assert!(LEASE_UNAVAILABLE_MESSAGE.starts_with("I'm not connected to my thinking"));
     }
@@ -4414,9 +4337,21 @@ struct StopReport {
 /// §9.3: persist a stop request, then interrupt the active turn. In that order, enforced
 /// in `steering.rs` rather than here.
 #[tauri::command(async)]
-fn stop_turn(state: State<AppState>) -> Result<StopReport, String> {
-    state.managed_runs.pause_active(&state.data_dir)?;
-    match state.control.request_stop().map_err(|e| e.to_string())? {
+fn stop_turn(state: State<AppState>, expected_turn_id: Option<String>) -> Result<StopReport, String> {
+    let outcome = if let Some(expected) = expected_turn_id.as_deref() {
+        let observed = state.control.active_turn();
+        let result = state.control.request_stop_for(expected).map_err(|e| e.to_string())?;
+        if matches!(result, StopOutcome::Requested { .. }) {
+            if let Some(turn) = observed.filter(|turn| turn.turn_id == expected) {
+                state.managed_runs.pause_matching(Some(&turn.thread_id))?;
+            }
+        }
+        result
+    } else {
+        state.managed_runs.pause_active(&state.data_dir)?;
+        state.control.request_stop().map_err(|e| e.to_string())?
+    };
+    match outcome {
         StopOutcome::NothingRunning => {
             Ok(StopReport { stopped: false, turn_id: None, requested_at: None, reached_lease: false })
         }
@@ -4478,7 +4413,7 @@ struct RunningTurn {
     started_at: Option<u64>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn running_turn(state: State<AppState>) -> Option<RunningTurn> {
     state.control.active_turn().map(|a| RunningTurn {
         turn_id: a.turn_id,
@@ -4505,7 +4440,7 @@ fn running_turn(state: State<AppState>) -> Option<RunningTurn> {
 
 /// Whether this install can read and correct company memory at all — so the UI can show a
 /// real state instead of a dead button. Never a guess: it reflects the configured corpus.
-#[tauri::command]
+#[tauri::command(async)]
 fn loro_available(state: State<AppState>) -> bool {
     state.correction.lock().unwrap().is_some()
 }
@@ -4546,14 +4481,14 @@ fn desk(state: &State<AppState>) -> Result<SharedCorrectionDesk, String> {
 
 /// "What does loro actually believe?" — the answer is a file. Read-only; no proposal, no
 /// confirmation, because reading is not correcting.
-#[tauri::command]
+#[tauri::command(async)]
 fn loro_show_record(state: State<AppState>, record_ref: String) -> Result<WriteOutput, String> {
     desk(&state)?.lock().unwrap().show(&record_ref).map_err(|e| e.to_string())
 }
 
 /// Corrections waiting on the CEO, for the entity this launch is bound to. Scoped, not
 /// global: a proposal about one entity's memory has no business in another's queue.
-#[tauri::command]
+#[tauri::command(async)]
 fn loro_pending_corrections(state: State<AppState>) -> Result<Vec<Proposal>, String> {
     let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
     Ok(desk(&state)?.lock().unwrap().pending_for(entity.as_str()).into_iter().cloned().collect())
@@ -4563,7 +4498,7 @@ fn loro_pending_corrections(state: State<AppState>) -> Result<Vec<Proposal>, Str
 /// `why` is the CEO's own words for what is wrong, and an empty one is refused before a
 /// process is started — a correction with no stated reason is the shape an inferred one
 /// takes.
-#[tauri::command]
+#[tauri::command(async)]
 fn loro_propose_correction(
     state: State<AppState>,
     thread_id: Option<String>,
@@ -4586,7 +4521,7 @@ fn loro_propose_correction(
 /// digest exists to stop a successor denying from absent memory (`reprime.rs`, §2.1 #6).
 /// The ledger write is best-effort and never fails the correction: the desk's own log is
 /// already durable, and losing a ledger line must not un-write a record that landed.
-#[tauri::command]
+#[tauri::command(async)]
 fn loro_confirm_correction(state: State<AppState>, id: String) -> Result<Proposal, String> {
     let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
     let done = desk(&state)?.lock().unwrap().confirm(entity.as_str(), &id).map_err(|e| e.to_string())?;
@@ -4607,20 +4542,20 @@ fn loro_confirm_correction(state: State<AppState>, id: String) -> Result<Proposa
 /// He says no. `permanent` is his explicit "don't ask about this record again" — a plain
 /// decline is NOT permanent, because a decline is ambiguous while a repeat is evidence
 /// (ceo-decisions.md §7).
-#[tauri::command]
+#[tauri::command(async)]
 fn loro_decline_correction(state: State<AppState>, id: String, permanent: bool) -> Result<(), String> {
     desk(&state)?.lock().unwrap().decline(&id, permanent).map_err(|e| e.to_string())
 }
 
 /// The suppression list, inspectable — §7 requires it, "or a term silently refuses to
 /// learn with no way to see why".
-#[tauri::command]
+#[tauri::command(async)]
 fn loro_suppressed_records(state: State<AppState>) -> Result<Vec<String>, String> {
     Ok(desk(&state)?.lock().unwrap().suppressed().to_vec())
 }
 
 /// ...and liftable. A list you can see and cannot clear is only half of inspectable.
-#[tauri::command]
+#[tauri::command(async)]
 fn loro_unsuppress_record(state: State<AppState>, record_ref: String) -> Result<(), String> {
     desk(&state)?.lock().unwrap().unsuppress(&record_ref).map_err(|e| e.to_string())
 }
@@ -4652,7 +4587,7 @@ fn spoken_desk<'a>(
 
 /// Is the trigger live at all? A UI that cannot tell "nothing to ask" from "the desk is
 /// broken" would render a permanently empty HUD and call it calm.
-#[tauri::command]
+#[tauri::command(async)]
 fn spoken_corrections_available(state: State<AppState>) -> bool {
     state.spoken.is_some()
 }
@@ -4660,7 +4595,7 @@ fn spoken_corrections_available(state: State<AppState>) -> bool {
 /// Everything awaiting §7's one-keystroke answer. Each carries the CEO's own sentence, the
 /// pair, the prompt to show, and — when the wrong form was found on the record — the line
 /// it appeared on, so the ask can quote him rather than assert at him.
-#[tauri::command]
+#[tauri::command(async)]
 fn spoken_pending_corrections(state: State<AppState>) -> Result<Vec<Candidate>, String> {
     Ok(spoken_desk(&state)?.pending().to_vec())
 }
@@ -4674,7 +4609,7 @@ fn spoken_pending_corrections(state: State<AppState>) -> Result<Vec<Candidate>, 
 /// The ledger write is best-effort and never fails the answer, the same posture
 /// `loro_confirm_correction` takes: what the CEO decided is already durable on the desk's
 /// own log, and the action-ledger row is a record OF that decision, not the decision.
-#[tauri::command]
+#[tauri::command(async)]
 fn spoken_confirm_correction(state: State<AppState>, key: String) -> Result<LearnOutcome, String> {
     let (outcome, canonical, mangled) = {
         let mut desk = spoken_desk(&state)?;
@@ -4697,7 +4632,7 @@ fn spoken_confirm_correction(state: State<AppState>, key: String) -> Result<Lear
 /// He says no. `permanent` is his explicit "don't ask for this term again". A plain decline
 /// is NOT permanent and the pair is asked again on its very next repeat — §7: repetition is
 /// the evidence, and waiting dilutes it.
-#[tauri::command]
+#[tauri::command(async)]
 fn spoken_decline_correction(
     state: State<AppState>,
     key: String,
@@ -4708,13 +4643,13 @@ fn spoken_decline_correction(
 
 /// The suppression list, inspectable — §7 requires it, "or a term silently refuses to learn
 /// with no way to see why".
-#[tauri::command]
+#[tauri::command(async)]
 fn spoken_suppressed_terms(state: State<AppState>) -> Result<Vec<String>, String> {
     Ok(spoken_desk(&state)?.suppressed().to_vec())
 }
 
 /// ...and liftable. A list you can see and cannot clear is only half of inspectable.
-#[tauri::command]
+#[tauri::command(async)]
 fn spoken_unsuppress_term(state: State<AppState>, key: String) -> Result<(), String> {
     spoken_desk(&state)?.unsuppress(&key).map_err(|e| e.to_string())
 }
@@ -4789,7 +4724,7 @@ fn feedback_store<'a>(
 /// Can an answer be kept at all? A surface that cannot tell "nothing recorded yet" from
 /// "the file would not open" would render an empty history over a broken store and call it
 /// calm — the same distinction both correction desks draw.
-#[tauri::command]
+#[tauri::command(async)]
 fn feedback_available(state: State<AppState>) -> bool {
     state.feedback.is_some()
 }
@@ -4800,7 +4735,7 @@ fn feedback_available(state: State<AppState>) -> bool {
 /// specifically so the UI cannot paraphrase it, and `invitesReport` comes from
 /// `Rating::invites_report` so the "only 1 and 2" rule is not re-derived on the other side
 /// of the bridge.
-#[tauri::command]
+#[tauri::command(async)]
 fn feedback_wording() -> serde_json::Value {
     // Every rating there is. Not a list this file keeps: `Rating` has exactly three
     // variants and `0` is deliberately not one of them, so a fourth would be a compile
@@ -4836,7 +4771,7 @@ fn feedback_wording() -> serde_json::Value {
 /// THE WHOLE VOCABULARY a report can be assembled from, iterated from each term's own
 /// `ALL`. Nothing here is a list this file maintains: adding a term in `feedback.rs` puts
 /// it on screen, and removing one takes it off.
-#[tauri::command]
+#[tauri::command(async)]
 fn feedback_taxonomy() -> serde_json::Value {
     let failure_class: Vec<serde_json::Value> = FailureClass::ALL
         .iter()
@@ -4932,7 +4867,7 @@ fn outcome_from_key(key: &str) -> Result<PromptOutcome, String> {
 /// Nothing is stored by this command and nothing is consented to by calling it. It exists
 /// so the CEO reads the report BEFORE he is asked to approve it, which is the half of his
 /// design that the type system cannot carry across an IPC boundary on its own.
-#[tauri::command]
+#[tauri::command(async)]
 fn feedback_preview(key: String, selection: Selection) -> Result<serde_json::Value, String> {
     let rating = rating_from_key(&key)?;
     let disclosure = disclosure_for(rating, &selection)?;
@@ -4954,7 +4889,7 @@ fn feedback_preview(key: String, selection: Selection) -> Result<serde_json::Val
 /// and `FeedbackEntry::with_report` refuses a report attached to a rating that never invited
 /// one, or one that disagrees with the rating he gave. Every one of those rules lives in
 /// `feedback.rs`; none of them is re-implemented here.
-#[tauri::command]
+#[tauri::command(async)]
 fn feedback_record(
     state: State<AppState>,
     key: String,
@@ -4985,7 +4920,7 @@ fn feedback_record(
 /// from the stored payload. `render_disclosure` is deterministic and total, so no second
 /// free-text copy of what he saw has to be kept in the record; keeping one would have put an
 /// unvalidated `String` into the durable file, which is the exact channel this design closes.
-#[tauri::command]
+#[tauri::command(async)]
 fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, String> {
     let entries = feedback_store(&state)?.entries().map_err(|e| e.to_string())?;
     Ok(entries
@@ -5026,7 +4961,7 @@ fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, St
 /// and the toggle controls RENDERING only; making the read conditional on the flag would
 /// put policy in two places, and the second one would eventually disagree. The renderer
 /// decides whether to ask.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_machinery(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
     let mut spine = state.spine.lock().unwrap();
     // PUMP, THEN READ (techy-mode §1.5). Between-turn traffic is parked by the reader
@@ -5055,7 +4990,7 @@ fn get_machinery(state: State<AppState>, thread_id: String) -> Result<serde_json
 /// **§7.2 is not answered here.** How long raw payloads survive is the CEO's open question;
 /// nothing in this path consults the window. Whatever he chooses — 14 days, 2 GB, or
 /// forever — this returns what is on disk and the two states stay the same two states.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_machinery_raw(
     state: State<AppState>,
     thread_id: String,
@@ -5107,7 +5042,7 @@ fn not_retained() -> serde_json::Value {
 /// `source` is `"thread"` when the CEO pinned this conversation and `"default"` when it
 /// follows the global switch — so the surface can say *"follows your default"* instead of
 /// implying a choice he did not make, and so clearing a pin is a visible, reversible act.
-#[tauri::command]
+#[tauri::command(async)]
 fn techy_mode(state: State<AppState>, thread_id: String) -> TechyMode {
     state.config.lock().unwrap().techy_mode(&thread_id)
 }
@@ -5118,7 +5053,7 @@ fn techy_mode(state: State<AppState>, thread_id: String) -> TechyMode {
 /// **The `null` arm is what keeps §7.1 open** (global default vs per-thread only — the
 /// CEO's, unanswered). Without it a pin is one-way, "all of their conversations" stops
 /// reaching any thread he ever touched, and the product has answered his question for him.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_techy_mode(
     state: State<AppState>,
     thread_id: String,
@@ -5136,7 +5071,7 @@ fn set_techy_mode(
 ///
 /// Threads he pinned individually are untouched — that is what makes a pin mean something,
 /// and it is the half of §7.1 a global-only build would lose.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_techy_default(state: State<AppState>, enabled: bool) -> Result<bool, String> {
     let mut config = state.config.lock().unwrap();
     config.set_techy_default(enabled).map_err(|e| e.to_string())?;
@@ -5193,7 +5128,7 @@ impl RetentionView {
 }
 
 /// What the window is set to right now, and what it currently costs.
-#[tauri::command]
+#[tauri::command(async)]
 fn raw_retention(state: State<AppState>) -> RetentionView {
     let config = state.config.lock().unwrap();
     let bytes = MachineryJournal::new(&state.machinery_root).raw_bytes();
@@ -5206,7 +5141,7 @@ fn raw_retention(state: State<AppState>) -> RetentionView {
 /// an instruction — is REFUSED rather than rounded to something plausible. Nothing is
 /// written and nothing is evicted: the failure mode of a bad argument to a command that
 /// deletes has to be "did nothing".
-#[tauri::command]
+#[tauri::command(async)]
 fn set_raw_retention(state: State<AppState>, choice: String) -> Result<RetentionView, String> {
     let Some(choice) = RetentionChoice::parse(&choice) else {
         return Err(format!("unknown retention choice: {choice}"));
@@ -5238,7 +5173,7 @@ fn set_raw_retention(state: State<AppState>, choice: String) -> Result<Retention
 // ---------------------------------------------------------------------------------------
 
 /// Whether the opening screen shows at launch. Default on (`config.rs`).
-#[tauri::command]
+#[tauri::command(async)]
 fn splash_enabled(state: State<AppState>) -> bool {
     state.config.lock().unwrap().splash_enabled()
 }
@@ -5246,7 +5181,7 @@ fn splash_enabled(state: State<AppState>) -> bool {
 /// The switch. `config.rs` stamps `splash_disabled_at` on the way off and clears it on the
 /// way back on, and ignores a write of the value already stored — so the UI syncing this
 /// preference on every launch can never walk the timestamp forward.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_splash_enabled(state: State<AppState>, enabled: bool) -> Result<(), String> {
     state
         .config
@@ -5262,7 +5197,7 @@ fn set_splash_enabled(state: State<AppState>, enabled: bool) -> Result<(), Strin
 ///
 /// It is the zero point of §7's time-to-disable, and it is MEASUREMENT, never display —
 /// §5 bans every counter and score from the CEO's screen and nothing reads this back to him.
-#[tauri::command]
+#[tauri::command(async)]
 fn splash_note_shown(state: State<AppState>) -> Result<(), String> {
     state
         .config
@@ -5308,7 +5243,7 @@ struct Appearance {
     font_scale: u16,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_appearance(state: State<AppState>) -> Appearance {
     let config = state.config.lock().unwrap();
     Appearance { theme: config.theme().as_str().to_string(), font_scale: config.font_scale() }
@@ -5317,7 +5252,7 @@ fn get_appearance(state: State<AppState>) -> Appearance {
 /// Persist the CEO's lighting. An unparseable string is REFUSED rather than coerced to the
 /// default: silently writing "dark" because the UI sent something unexpected would look
 /// exactly like the CEO changing his mind, on his own machine, for no reason he can see.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_theme(state: State<AppState>, theme: String) -> Result<(), String> {
     let parsed = richos_core::config::Theme::parse(&theme)
         .ok_or_else(|| format!("unknown theme {theme:?} — expected \"dark\", \"light\" or \"system\""))?;
@@ -5326,7 +5261,7 @@ fn set_theme(state: State<AppState>, theme: String) -> Result<(), String> {
 
 /// Persist the type size. Off-ladder values are snapped by `config.rs` rather than refused,
 /// for the reason stated there: rejecting would put a hand-edited file silently back to 100%.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_font_scale(state: State<AppState>, scale: u16) -> Result<(), String> {
     state.config.lock().unwrap().set_font_scale(scale).map_err(|e| e.to_string())
 }
@@ -5345,7 +5280,7 @@ struct UserIdentity {
     initials: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_user_identity(state: State<AppState>) -> UserIdentity {
     let config = state.config.lock().unwrap();
     UserIdentity {
@@ -5357,7 +5292,7 @@ fn get_user_identity(state: State<AppState>) -> UserIdentity {
 /// Set (or, with a blank string, clear) the CEO's name. Clearing returns the rail footer to
 /// its honest unset state rather than storing an empty string that would render as a circle
 /// with nothing in it.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_user_name(state: State<AppState>, name: String) -> Result<(), String> {
     state.config.lock().unwrap().set_user_name(&name).map_err(|e| e.to_string())
 }
@@ -5430,7 +5365,7 @@ struct LaunchStateView {
 
 /// Read the launch record. `utc_offset_minutes` is positive east — the NEGATION of
 /// JavaScript's `getTimezoneOffset()`, so US Pacific daylight time is `-420`.
-#[tauri::command]
+#[tauri::command(async)]
 fn launch_state(state: State<AppState>, utc_offset_minutes: i32) -> LaunchStateView {
     let launch = state.launch.lock().unwrap();
     LaunchStateView {
@@ -5448,7 +5383,7 @@ fn launch_state(state: State<AppState>, utc_offset_minutes: i32) -> LaunchStateV
 /// Called by the surface that drew it, so the ring holds what was on screen rather than
 /// what was chosen — the two differ whenever a draw is made and the render then declines
 /// (`splash.js` has three such paths, and all three leave `state.shown` false).
-#[tauri::command]
+#[tauri::command(async)]
 fn launch_note_splash_shown(state: State<AppState>, id: String) -> Result<(), String> {
     state.launch.lock().unwrap().note_splash_shown(&id).map_err(|e| e.to_string())
 }
@@ -5510,7 +5445,7 @@ struct HomeEntityView {
 /// command reports what IS, and the settings surface has to list every company — including
 /// the ones he has hidden — or he could never unhide one. The count that decides whether the
 /// home screen draws a row at all is `visible`, and the home screen applies it.
-#[tauri::command]
+#[tauri::command(async)]
 fn home_entity_row(state: State<AppState>) -> Vec<HomeEntityView> {
     // Lock order, everywhere in this file: config, then entity, then spine.
     let config = state.config.lock().unwrap();
@@ -5541,7 +5476,7 @@ fn home_entity_row(state: State<AppState>) -> Vec<HomeEntityView> {
 ///
 /// It REFUSES an unregistered id rather than storing a key nothing will ever read — the same
 /// fail-closed posture `choose_entity` takes, and for the same reason.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_home_entity_label(
     state: State<AppState>,
     entity_id: String,
@@ -5559,7 +5494,7 @@ fn set_home_entity_label(
 
 /// Show or hide one company in the home screen's row. Display only — the company, its
 /// threads and its records are untouched, and it is still everywhere else in the app.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_home_entity_visible(
     state: State<AppState>,
     entity_id: String,
@@ -5690,4 +5625,22 @@ fn home_field_data(state: State<AppState>) -> serde_json::Value {
         topics.len(),
     );
     serde_json::json!({ "available": true, "field": field })
+}
+
+#[cfg(test)]
+mod ipc_responsiveness_tests {
+    #[test]
+    fn synchronous_commands_never_run_on_the_native_event_loop() {
+        // A read may wait behind a model turn. It must not monopolize Tauri IPC:
+        // the Stop command and streamed feedback need the event loop to run.
+        for (name, source) in [
+            ("main", include_str!("main.rs")),
+            ("updates", include_str!("updates.rs")),
+        ] {
+            let blocking = concat!("#[tauri::", "command]");
+            for line in source.lines() {
+                assert_ne!(line.trim(), blocking, "{name}: command needs async dispatch");
+            }
+        }
+    }
 }

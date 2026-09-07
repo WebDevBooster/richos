@@ -206,7 +206,7 @@ fn the_notice_state_and_the_priming_block_never_disagree() {
 #[test]
 fn a_declination_with_nowhere_to_go_is_refused() {
     let (path, ledger) = tmp_ledger("nowhere");
-    let spine = support::spine(ledger);
+    let mut spine = support::spine(ledger);
     // `set_onboarding_record` deliberately NOT called — the shipped default for every
     // headless example and every other test in this crate.
     let err = spine
@@ -229,13 +229,16 @@ fn the_spines_write_produces_a_record_holding_only_a_declination() {
     let (path, ledger) = tmp_ledger("onefact");
     let mut spine = support::spine(ledger);
     spine.set_onboarding_record(record_path(&config));
+    spine.ensure_active_thread_in(&company()).unwrap();
     spine.record_onboarding_declination(1_788_634_800_000).unwrap();
 
     let body = std::fs::read_to_string(record_path(&config)).unwrap();
-    assert!(body.contains("declined_at_millis"), "the one fact is there: {body}");
-    assert_eq!(body.matches(':').count(), 1, "and it is the ONLY key: {body}");
+    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(parsed["version"], 1);
+    assert_eq!(parsed["declined_by_entity"][company().as_str()], 1_788_634_800_000_u64);
+    assert_eq!(parsed["declined_by_entity"].as_object().unwrap().len(), 1);
     assert_eq!(
-        OnboardingRecord::load(&record_path(&config)).declined_at_millis(),
+        OnboardingRecord::load(&record_path(&config)).for_entity(&company()).declined_at_millis(),
         Some(1_788_634_800_000),
         "and it reads back as what was written"
     );

@@ -314,7 +314,14 @@ pub enum Event {
         seq: Option<u64>,
     },
     TurnCompleted { turn_id: String, stop_reason: String, at: u64 },
-    TurnInterrupted { turn_id: String, reason: String, at: u64 },
+    TurnInterrupted {
+        turn_id: String,
+        reason: String,
+        at: u64,
+        /// Reopening observes that the old request ended, but cannot know when.
+        #[serde(default, skip_serializing_if = "is_false")]
+        recovered_after_restart: bool,
+    },
     /// **The turn died to the UPSTREAM MODEL API** — `529 Overloaded`, `429` quota, a
     /// `5xx`. `open-items.md` row 3.30, measured 2026-09-03.
     ///
@@ -340,7 +347,11 @@ pub enum Event {
     /// `at` is when the turn actually ended. They differ by however long the lease took to
     /// let go — recorded, not averaged away, because the gap is the honest measure of how
     /// immediate "immediate" was.
-    TurnStopped { turn_id: String, requested_at: u64, at: u64 },
+    TurnStopped {
+        turn_id: String, requested_at: u64, at: u64,
+        #[serde(default, skip_serializing_if = "is_false")]
+        recovered_after_restart: bool,
+    },
     /// Recorded AS the action happens (not at turn-end) so replay can't double-execute (§5.4).
     /// `turn_id` is `None` for actions that are not turn-scoped — lease rotation and
     /// re-prime injection happen AT a turn boundary, BETWEEN turns, and claiming them
@@ -653,6 +664,8 @@ pub struct Ledger {
     next_revision: u64,
 }
 
+fn is_false(value: &bool) -> bool { !*value }
+
 impl Ledger {
     /// Open (creating if needed) and replay the on-disk log into the projection.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
@@ -887,7 +900,9 @@ impl Ledger {
             Event::TurnStarted { turn_id, session_id, at } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.state = TurnState::InFlight;
-                    t.session_id = Some(session_id);
+                    // An accepted request can start connecting before a session exists.
+                    // A later start record attaches the real session without resetting time.
+                    t.session_id = (!session_id.is_empty()).then_some(session_id);
                     // FIRST start wins. A mid-turn-crash replay is a NEW turn id (§5.3),
                     // so a second start on THIS id would be a duplicated record, not a
                     // legitimate restart of the same span.
@@ -907,11 +922,11 @@ impl Ledger {
                     t.ended_at = Some(at);
                 }
             }
-            Event::TurnInterrupted { turn_id, reason, at } => {
+            Event::TurnInterrupted { turn_id, reason, at, recovered_after_restart } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.state = TurnState::Interrupted;
                     t.stop_reason = Some(format!("interrupted: {reason}"));
-                    t.ended_at = Some(at);
+                    t.ended_at = (!recovered_after_restart).then_some(at);
                 }
             }
             // ATTACHES ONLY. It sets no state, no `ended_at` and no `stop_reason` —
@@ -923,7 +938,7 @@ impl Ledger {
                     t.upstream_failure = Some(record);
                 }
             }
-            Event::TurnStopped { turn_id, requested_at, at } => {
+            Event::TurnStopped { turn_id, requested_at, at, recovered_after_restart } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     // A stop OVERRIDES nothing that already ended: a turn that completed
                     // before the stop request reached the lease stays completed, because
@@ -939,7 +954,7 @@ impl Ledger {
                     if matches!(t.state, TurnState::Received | TurnState::InFlight) {
                         t.state = TurnState::Stopped;
                         t.stop_reason = Some("stopped_by_ceo".to_string());
-                        t.ended_at = Some(at);
+                        t.ended_at = (!recovered_after_restart).then_some(at);
                         t.stop_requested_at = Some(requested_at);
                     }
                 }
@@ -1512,9 +1527,17 @@ impl Ledger {
 
     pub fn interrupt_turn(&mut self, turn_id: &str, reason: &str) -> Result<(), LedgerError> {
         self.append(
-            Event::TurnInterrupted { turn_id: turn_id.to_string(), reason: reason.to_string(), at: now_millis() },
+            Event::TurnInterrupted { turn_id: turn_id.to_string(), reason: reason.to_string(), at: now_millis(), recovered_after_restart: false },
             true,
         )
+    }
+
+    /// Make an orphan request terminal without claiming it ran until this launch.
+    pub fn interrupt_turn_after_restart(&mut self, turn_id: &str, reason: &str) -> Result<(), LedgerError> {
+        self.append(Event::TurnInterrupted {
+            turn_id: turn_id.to_string(), reason: reason.to_string(), at: now_millis(),
+            recovered_after_restart: true,
+        }, true)
     }
 
     /// Attach the UPSTREAM classification and the sentences the CEO was shown to a turn
@@ -1553,9 +1576,16 @@ impl Ledger {
     /// no code path that turns a crash into a CEO stop.
     pub fn stop_turn(&mut self, turn_id: &str, requested_at: u64) -> Result<(), LedgerError> {
         self.append(
-            Event::TurnStopped { turn_id: turn_id.to_string(), requested_at, at: now_millis() },
+            Event::TurnStopped { turn_id: turn_id.to_string(), requested_at, at: now_millis(), recovered_after_restart: false },
             true,
         )
+    }
+
+    /// Honor a durable Stop after a crash without inventing the time it took effect.
+    pub fn stop_turn_after_restart(&mut self, turn_id: &str, requested_at: u64) -> Result<(), LedgerError> {
+        self.append(Event::TurnStopped {
+            turn_id: turn_id.to_string(), requested_at, at: now_millis(), recovered_after_restart: true,
+        }, true)
     }
 
     /// Claim a CEO-FACING, turn-scoped action BEFORE executing it (claim-then-execute,
