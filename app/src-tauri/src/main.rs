@@ -3065,62 +3065,23 @@ fn setup_status(state: State<AppState>) -> serde_json::Value {
 ///   2. **The final status is RE-READ FROM DISK**, not assembled from "every step returned
 ///      Ok". The same rule `install_claude_code` applies to Anthropic's own exit code.
 ///   3. **No relaunch.** A successful engine install rewrites `AppState::engine_dir`, which is
-///      the same `Arc` the lease factory reads, and this command then attempts an attach if
-///      the boot could not get one. `provision_memory` set that standard on 2026-09-01 after a
+///      the same `Arc` the lease factory reads. The next accepted request connects with
+///      visible progress and Stop. `provision_memory` set that standard on 2026-09-01 after a
 ///      customer's first five minutes were spent with a corpus he had just created and a desk
 ///      that would not open until he quit.
 ///
-/// `(async)` for the reason `provision_memory` is async: it takes the spine's mutex, which
-/// `send_message` holds for a whole turn — and this one additionally runs a multi-minute
-/// download, which must never sit on the UI thread.
+/// `(async)` keeps installation downloads off the UI thread. Setup does not acquire the
+/// spine or start an untracked model handshake.
 #[tauri::command(async)]
 fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json::Value, String> {
     let status = setup_view::run(&app, state.boot_engine.as_deref(), &state.engine_dir)?;
 
-    // THE LEASE, WITHOUT A RELAUNCH. Attempted only when there is not one already: a live
-    // lease is mid-conversation and replacing it would throw away the session the CEO is in.
-    let mut spine = state.spine.lock().unwrap();
-    if !spine.has_lease() {
-        let engine = state.engine_dir.lock().map(|d| d.clone()).unwrap_or_default();
-        let claude_bin = resolve_claude_bin();
-        // RE-POINT THE FACTORY TOO, not just this attach. Before 2026-09-04 the re-resolved
-        // path was used here and thrown away, and every later rotation and crash recovery
-        // went on spawning the boot's answer — the bare name `claude`, which a Finder
-        // launch's `PATH` cannot resolve. Written before the attach so a failed attach still
-        // leaves the factory pointing at the binary that was actually installed.
-        if let Ok(mut cell) = state.claude_bin.lock() {
-            *cell = claude_bin.clone();
-        }
-        let doctrine = richos_core::doctrine::ensure_rendered(
-            &state.data_dir,
-            &richos_core::doctrine::identity_from_config(&state.data_dir),
-        );
-        let skills = richos_core::skills::ensure_rendered(&state.data_dir);
-        match doctrine
-            .as_ref()
-            .map_err(|e| e.to_string())
-            .and_then(|d| skills.as_ref().map_err(|e| e.to_string()).map(|s| (d, s)))
-            .and_then(|(d, s)| std::env::current_exe().map_err(|e| e.to_string()).and_then(|exe| NativeCognition::start_with_onboarding(&claude_bin, &engine, d, s, &exe, None).map_err(|e| e.to_string())))
-        {
-            Ok(cog) => {
-                eprintln!(
-                    "[richos] compute lease attached after first-run setup, over {} in {}",
-                    claude_bin.display(),
-                    engine.display()
-                );
-                spine.attach_lease(Box::new(cog));
-            }
-            // NOT FATAL, AND NOT HIDDEN. The install itself succeeded and is reported as such;
-            // what failed is the attach, and the most common cause is the one thing setup
-            // cannot do for him — he has not signed in to Claude yet. The window's
-            // "not connected" state already exists for exactly this and says it in his words.
-            Err(e) => eprintln!(
-                "[richos] first-run setup installed everything, but no compute lease could be \
-                 attached yet: {e}"
-            ),
-        }
-    }
-    drop(spine);
+    // Refresh the factory after installation, even if a conversation is already live.
+    // The existing lease is untouched. The next accepted request owns connection, visible
+    // progress and Stop, just as it does after a normal boot.
+    *state.claude_bin.lock().map_err(|_| {
+        "The connection settings could not be updated. Please reopen RichOS."
+    })? = resolve_claude_bin();
 
     Ok(setup_view::view(&status))
 }
@@ -3682,9 +3643,13 @@ mod lease_gate_tests {
         let factory_gate = concat!("if !spine.has_lease() && !spine.", "has_lease_factory() {");
         assert_eq!(SOURCE.matches(factory_gate).count(), 2,
             "typed and spoken requests must allow a configured factory to reconnect");
-        let attach_gate = concat!("if !spine.", "has_lease() {");
-        assert_eq!(SOURCE.matches(attach_gate).count(), 1,
-            "setup must preserve an existing live lease");
+        let setup_start = SOURCE.find(concat!("fn run_", "setup(")).unwrap();
+        let setup_end = SOURCE[setup_start..].find(concat!("fn entity_", "choice(")).unwrap() + setup_start;
+        let setup = &SOURCE[setup_start..setup_end];
+        assert!(!setup.contains("start_with_onboarding") && !setup.contains("spine.lock()"),
+            "setup must leave connection to the next tracked cancellable request");
+        assert!(setup.contains("resolve_claude_bin()") && setup.contains("state.claude_bin.lock()"),
+            "setup must refresh the factory with the newly installed executable");
         // And the sentence they refuse with is still the one the CEO was written for.
         assert!(LEASE_UNAVAILABLE_MESSAGE.starts_with("I'm not connected to my thinking"));
     }
