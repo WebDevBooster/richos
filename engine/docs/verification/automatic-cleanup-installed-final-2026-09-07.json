@@ -1,0 +1,699 @@
+[
+  {
+    "input_pins": {
+      "engine-manifest.json": "8be237ad468540de1cbc477c1da5565eb92b63dadad63badb3bbcde09782e6ff",
+      "engine-modes.json": "a4947b29821ac4bee5a14b9f9c6176805d29ac506ea4fe78a1fa93d7124ae04b",
+      "managed-workspace-claude-canary.acceptance.py": "397e592a0a40d614e8279585019dfea678afc1597d55daf0a0f930a987510bb4",
+      "managed-workspace-interrupted-creation.acceptance.py": "767875bb767dcd374489cea562d064ab60b3527bb93716377c4081910f399e9b",
+      "package/com.richos.managed-workspace-broker.plist": "ab9e30dba154953e667e2171d2c77b0169bd18d6dac4da3a55a7d873d43a43a8",
+      "package/durable-filesystem-identity.py": "e819901bf418f1f80e636f80d0cf880b414963689a0422f0a5fc95096853eaf8",
+      "package/host-policy.json": "51a0ee60faea2fb2aa4da9e775e89af5a65100cd51cf50b307cbfe115a7e29b5",
+      "package/install.py": "4a22bfac6864ced66f3d93d90964f78e6287ed6ab338d1bcc08f598694de969a",
+      "package/legacy-workspace-acceptance.py": "3334815f03266545a97fa729b900809b7c03a8ef3a4638add7a7ca7ef7a12369",
+      "package/legacy-workspace-admin.py": "c36aea5be412ebb3d266b6e8c7b8fdfaf82167099b96599024556f1bb72f42a6",
+      "package/legacy-workspace-capture.py": "ce2a275c8e3c758063dd456b3c2037931ddb03443eb8bdbd566f0b08b3e64d37",
+      "package/legacy-workspace-expiry.py": "4ed55cef65e2c49906db39c35a7b4f2b44f8272d5fc8846c210d7bae54ced391",
+      "package/legacy-workspace-gate.py": "9b6d68dbb382fc63b56aca23ec992f3c79fac69155aad8fd8522257af8834b65",
+      "package/legacy-workspace-inspection.py": "cb895ad204a7a4a0bab88720368ae848ba09060987b777758f5e4d263e802a52",
+      "package/legacy-workspace-job.py": "81b6f1b15609cba7e1d69d5bce086aa9e363e777e36e2ae215ade2cf4fb352c9",
+      "package/legacy-workspace-maintenance.py": "4aff2fb395a88fa281b94da9094c56551f4c021e80ca5eeaa2ecfd02a86f91da",
+      "package/legacy-workspace-mutation.py": "e2ff564e6c421be9ae1c7f9f7e9b834005c67f00b8fd867102a392041572c435",
+      "package/legacy-workspace-retirement.py": "e0a4416ad7862f130a113be2e90141830d8fef1fba7acccc653bd65589ebb453",
+      "package/legacy-workspace-service.py": "3d18609d6e328dcc4fbbc45645269c1517d63ccac4ea1d186af080b524a0f0c1",
+      "package/managed-workspace-acceptance.py": "e43578fd2252907962535f2e692f1ef8e0495826a4e758c80c25bc9d0c6cb997",
+      "package/managed-workspace-broker.py": "c5fff0c532d8afefd54e8b9b4e99f3ef382c4002df88471bb7b5f621aa240e8b",
+      "package/managed-workspace-client.py": "700a023fef4d774992f8a7613d13a56ed444f126d811b489045350276ad2f985",
+      "package/managed-workspace-failed-creation.py": "e9a8d2b18888f92bf8f9122ede42df7913bd333bb5964ced7aaf4723f51bf287",
+      "package/managed-workspace-manager.py": "e3123c14ed1fe0c5779fe161339f1e3b8cdaf27da636a25df0a767ebb27087c9",
+      "package/managed-workspace-volume.py": "ce38a4b19576a24eae1dbf3ff8c0a99733446f7b988153bf69c37a4ef12ab522",
+      "package/manifest.json": "4042008d14f76816aee3287f23076c8c6c22e7ce410d4d69e6d5342804652936",
+      "package/policy.example.json": "923d64b690d91cf1a375f9eab8c9bb496530a684c2590a46f36770f92dc4992c",
+      "package/terminal-branch-cleanup.py": "f90c9e2bcaf4c7d082f42da127976950d6e97bc4be63fe9aa3790eeaff2a18dd",
+      "package/terminal-branch-shadow.py": "3a924d72763e8f4f89b0566d72bb91989cdaaf0d896454ced946b794e138bcfe",
+      "package/terminal-recovery-shadow.py": "b1afb4ec35c31b0b7f3d4206422d6568016c9dc6748b8f4d185d09dd73093f59",
+      "package/workspace-recovery-metadata.py": "cf710b0bcf2a9d34c476ca86730bdcddb26e4b8265b233a2b3d6eb7f796f8f2e",
+      "package/worktree-ledger.py": "91d0a6d1d0436e023d0a38a34dd5d23ffc3dc1ceb3d7c4334b576b5231608ee9",
+      "package/worktree-transactions.py": "72f5c73f6a1bafb4b7fd56a76450344c46107216740317e4dfad67c4113e953b"
+    },
+    "phase": "started",
+    "receipt_path": "/Library/Application Support/RichOS/workspace-broker/acceptance-runs/claude-canary-daf3e419a0d643b7b21d4187d54553ec/receipt.jsonl",
+    "source_commit": "e49e902d6bd6c7c2110c569beeac5df8eef0e32d"
+  },
+  {
+    "exit_code": 0,
+    "phase": "installed",
+    "result": {
+      "activated": false,
+      "client_config": "/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json",
+      "plist": "/Library/Application Support/RichOS/workspace-broker/com.richos.managed-workspace-broker.plist.pending",
+      "policy": "/Library/Application Support/RichOS/workspace-broker/policy.json",
+      "release": "/Library/Application Support/RichOS/workspace-broker/releases/264e5dd53a4caa819faf86457a4ba34d56e69876cb95bf8507d88a1d78d46648"
+    }
+  },
+  {
+    "phase": "installed-manifest",
+    "raw_manifest_sha256": "af179e8be5ba8a244426f98e129cb27cf8ffc738b391893837adeabfac517143",
+    "release": "/Library/Application Support/RichOS/workspace-broker/releases/264e5dd53a4caa819faf86457a4ba34d56e69876cb95bf8507d88a1d78d46648",
+    "runtime_files": 24
+  },
+  {
+    "exit_code": 0,
+    "phase": "managed-lifecycle-and-metadata",
+    "result": {
+      "acceptance_id": "acceptance-474e7d99ee8f4bbea4d1f9fd9919e4b2",
+      "activated": false,
+      "checks": [
+        {
+          "detail": "",
+          "name": "owner-write-tracked",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "installed-legacy-expiry-verifies-git-as-owner",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "installed-legacy-expiry-cannot-read-root-private-metadata",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-cannot-read-backing-image",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-cannot-change-backing-permissions",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "holder-ready-within-deadline",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "holder-started",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "busy-holder-blocks-reclamation",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "holder-finished",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "root-to-owner-capture-succeeds",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "active-image-reclaimed",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "dirty-recovery-retained",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "latest-working-bytes-recovered",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "separate-index-bytes-recovered",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "dirty-expiry-refused",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-writes-binary-extended-attribute",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-write-.git/canary-private-state",
+          "passed": true
+        },
+        {
+          "detail": "hdiutil: couldn't unmount \"disk5\" - Permission denied\n",
+          "name": "owner-cannot-force-unmount-hdiutil",
+          "passed": true
+        },
+        {
+          "detail": "Volume RichOS-9c239076-7127-45d4-9fe6-7589f4daa6da on disk5s1 failed to unmount\n",
+          "name": "owner-cannot-force-unmount-diskutil",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "clean-recovery-created",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "clean-proof-preserves-exact-attribute-and-git-metadata-bytes",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "missing-extended-attributes.json-blocks-expiry",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "altered-extended-attributes.json-blocks-expiry",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "missing-compact-metadata.json-blocks-expiry",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "altered-compact-metadata.json-blocks-expiry",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "clean-recovery-expires",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "compact-recovery-survives-bulk-image-expiry",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "installed-root-broker-starts",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-client-authenticates-installed-root-broker",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "installed-legacy-worker-reports-empty-fixture-inventory",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-socket-creation-is-idempotent",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-socket-binding-acknowledged",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-write-socket-delivered",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-socket-terminal-acknowledged",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-socket-unused-preparation-cancelled",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "installed-sweep-reclaims-terminal-and-unused-workspaces",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-delivery-ref-binds-exact-source-and-commit",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "new-managed-workers-create-no-ordinary-source-branches",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "preexisting-same-name-source-branch-is-preserved",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "owner-merges-exact-delivery-after-image-reclamation",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "installed-root-broker-shuts-down-cleanly",
+          "passed": true
+        }
+      ],
+      "fixture_cleanup_complete": true,
+      "fixture_root": "/private/var/db/richos-workspaces/acceptance-474e7d99ee8f4bbea4d1f9fd9919e4b2",
+      "owner_uid": 501,
+      "passed": true,
+      "version": 1
+    }
+  },
+  {
+    "exit_code": 0,
+    "phase": "interrupted-creation",
+    "result": {
+      "acceptance_id": "interrupted-acceptance-3309e49cca9342e683d3984d90d13ad4",
+      "activated": false,
+      "active_root": "/private/var/db/richos-workspace-mounts/interrupted-acceptance-3309e49cca9342e683d3984d90d13ad4",
+      "checks": [
+        {
+          "detail": "",
+          "name": "creator-reached-real-attached-clone-boundary",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "uninitialized-image-is-actually-attached",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "actual-owner-holds-writable-descriptor",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "creator-really-exits-without-provider-cleanup",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "fault-boundary-malformed-detached",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "fault-boundary-unreserved",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "ordinary-provider-exception-cleanly-detached",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "unreserved-request-has-no-provider-directory",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "actual-owner-authenticates-root-broker",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "same-boot-sweep-does-not-invent-cancellation",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "wrong-session-cancellation-refused",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "unforced-cutoff-retains-busy-owner-storage",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "holder-final-write-is-fsynced-and-closed",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "normal-unattended-sweeps-finish-all-cancelled-requests",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "permanent-request-retry-crashed-attached",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "permanent-request-retry-malformed-detached",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "permanent-request-retry-unreserved",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "installed-broker-shuts-down-cleanly",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "verified-lossless-raw-archive-crashed-attached",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "verified-lossless-raw-archive-malformed-detached",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "malformed-image-bytes-preserved",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "outer-image-xattr-preserved",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "empty-reservation-has-no-archive-or-byte-reclamation-claim",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "actual-readonly-restoration-preserves-final-owner-write",
+          "passed": true
+        }
+      ],
+      "cleanup": {
+        "remaining_fixture_attachments": 0,
+        "roots_match": true,
+        "strict_inventory_complete": true,
+        "unforced_detached_paths": []
+      },
+      "commit": "df5a5d909791431f5e9b31e6bff70e4392693a24",
+      "expected": {
+        "malformed_sha256": "d5bc67671ff0f728fca187d936646874c31785d522871f3b12a739ff5d0325d6",
+        "outer_xattr_base64": "cmF3IG91dGVyIGltYWdlIGF0dHJpYnV0ZQD/",
+        "working_sha256": "fccb72394022114cdabe6a9d0580727e5a0647529a4a1f061d2665d0e1b5cbb9"
+      },
+      "fault_injection": "isolated creator process only",
+      "fixture_cleanup_complete": true,
+      "identifiers": {
+        "crashed-attached": "cd66b8a2-2a5a-4377-8fc7-e7ace90a1545",
+        "malformed-detached": "7ac1182b-15a3-4d5a-bd5a-7c9752869e87",
+        "unreserved": "0027415b-7ca7-415a-9883-697c2d64c989"
+      },
+      "manifest_sha256": "af179e8be5ba8a244426f98e129cb27cf8ffc738b391893837adeabfac517143",
+      "ordinary_sweep_interval_seconds": 60,
+      "owner_gid": 20,
+      "owner_uid": 501,
+      "passed": true,
+      "private_root": "/private/var/db/richos-workspaces/interrupted-acceptance-3309e49cca9342e683d3984d90d13ad4",
+      "release": "/Library/Application Support/RichOS/workspace-broker/releases/264e5dd53a4caa819faf86457a4ba34d56e69876cb95bf8507d88a1d78d46648",
+      "root_pins": [
+        [
+          16777233,
+          203890353,
+          0,
+          448
+        ],
+        [
+          16777233,
+          203890354,
+          0,
+          457
+        ]
+      ],
+      "version": 1
+    }
+  },
+  {
+    "exit_code": 0,
+    "phase": "installed-orphan-locked-integration-not-cutoff",
+    "result": {
+      "acceptance": "installed orphan/locked capture-retirement integration with controller-only boot seam",
+      "activated": false,
+      "cases": [
+        {
+          "case": "locked",
+          "checks": [
+            "real-same-boot-refused",
+            "actual-owner-held-access-refused",
+            "journaled-job-complete",
+            "original-index-and-classified-archive",
+            "registration-and-worker-branch-removed",
+            "staged-objects-survive-immediate-gc",
+            "idempotent-completion"
+          ],
+          "cleanup_complete": false,
+          "fixture_retained": true,
+          "passed": true,
+          "receipt": "/private/var/db/richos-workspaces/legacy-acceptance-da56b389047b41668a253aca23208ce9/receipt.json",
+          "tests_cutoff": false
+        },
+        {
+          "case": "orphan",
+          "checks": [
+            "real-same-boot-refused",
+            "actual-owner-held-access-refused",
+            "journaled-job-complete",
+            "original-index-and-classified-archive",
+            "registration-and-worker-branch-removed",
+            "staged-objects-survive-immediate-gc",
+            "idempotent-completion"
+          ],
+          "cleanup_complete": false,
+          "fixture_retained": true,
+          "passed": true,
+          "receipt": "/private/var/db/richos-workspaces/legacy-acceptance-b9adb4c4ae264aa48a985649200b4c37/receipt.json",
+          "tests_cutoff": false
+        },
+        {
+          "case": "orphan-recreated",
+          "checks": [
+            "real-same-boot-refused",
+            "actual-owner-held-access-refused",
+            "recreated-path-held",
+            "recreated-bytes-and-old-admin-retained"
+          ],
+          "cleanup_complete": false,
+          "fixture_retained": true,
+          "passed": true,
+          "receipt": "/private/var/db/richos-workspaces/legacy-acceptance-c4415b6be98249c29fda05b10c784df3/receipt.json",
+          "tests_cutoff": false
+        }
+      ],
+      "fixture_cleanup_complete": false,
+      "passed": true,
+      "tests_cutoff": false
+    }
+  },
+  {
+    "exit_code": 0,
+    "phase": "actual-claude-lifecycle",
+    "result": {
+      "acceptance_id": "claude-canary-dbe072f4b6284aa198b9486868208ef8",
+      "activated": false,
+      "active_root": "/private/var/db/richos-workspace-mounts/claude-canary-dbe072f4b6284aa198b9486868208ef8",
+      "agent_id": "ab2a71c57b3c43295",
+      "agent_tool_use_id": "toolu_014kD8RCfJ5jKt8TPR4ofbSH",
+      "blocked_agent_calls": [
+        {
+          "reason": "=== Teammate-spawn guard: BLOCKED ===\n  Agent 'canary' can edit repo files, so it must satisfy the\n  teammate-spawn contract. It failed:\n    - missing/malformed name \u2014 give a unique '<role>-<model>-<identifier>' name, e.g. dev-sonnet-1 / qa-opus-r3 (got name='unset'). Needs THREE dash-joined parts (role, model, identifier). Never bare ('dev'), 2-part ('dev-1'), or run-together ('devsonnet1'). NOT relaxed by main-checkout-run:.\n  Re-issue the Agent call fixing the above.\n  (If this agent is genuinely READ-ONLY, add its type to READONLY_ALLOWLIST\n   in orchestration.config.)\n(hook: scripts/hooks/guard-worktree-isolation.sh)\n",
+          "tool_use_id": "toolu_01CbyX52LgWkVwruFY4L9vuu"
+        }
+      ],
+      "bridge_substitution": {
+        "after": "CLIENT_CONFIG = Path('/private/var/db/richos-workspace-mounts/claude-canary-dbe072f4b6284aa198b9486868208ef8/client.json')",
+        "after_sha256": "9649510dfffea359fbad37b41a74c730e241f4d07b85972b1051fd80622a7dff",
+        "before": "CLIENT_CONFIG = Path('/Library/Application Support/RichOS/ManagedWorkspaces/client.json')",
+        "before_sha256": "7bf80560be3c30c64a08d93ff03b9169232a6f27623dac693bffc59542d258d1",
+        "path": "scripts/lib/managed-workspace-integration.py"
+      },
+      "broker_process": {
+        "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+        "pid": 95830,
+        "pid_start": "ps-lstart-utc-v1:Mon Sep 7 13:33:16 2026"
+      },
+      "checks": [
+        {
+          "detail": "",
+          "name": "only-bridge-configuration-constant-substituted",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "all-installed-plugins-explicitly-disabled-before-model-execution",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "real-claude-process-completed",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "actual-cli-reports-no-loaded-plugins-or-mcp",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "actual-agent-binding-and-worker-write-events-match",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "only-admitted-agent-call-bound",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "real-hooks-sealed-native-and-managed-membership",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "actual-subagent-stop-is-terminal-ingress",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "unattended-broker-reclaimed-the-managed-image",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "exact-delivery-merged-into-generated-source",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "native-platform-checkout-and-registration-are-gone",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "managed-delivery-created-no-ordinary-source-branches",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "native-platform-ordinary-branches-returned-to-baseline",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "transaction-persisted-managed-delivery",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "fixture-broker-stops-cleanly",
+          "passed": true
+        }
+      ],
+      "claude_process": {
+        "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+        "pid": 96392,
+        "pid_start": "ps-lstart-utc-v1:Mon Sep 7 13:33:19 2026",
+        "session_id": "0edaccec-506b-4aa3-a62e-be6dc7cdea8e",
+        "type": "canary_host_identity",
+        "uid": 501
+      },
+      "claude_supervisor_process": {
+        "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+        "pid": 96389,
+        "pid_start": "ps-lstart-utc-v1:Mon Sep 7 13:33:19 2026"
+      },
+      "delivery": {
+        "manager_id": "301eb087-71b7-4e88-b995-8dc524707184",
+        "ref": "refs/richos/handoffs/managed/301eb087-71b7-4e88-b995-8dc524707184/HEAD",
+        "source_repo": "/private/var/db/richos-workspace-mounts/claude-canary-dbe072f4b6284aa198b9486868208ef8/source",
+        "tip": "f55dbf52771457483a50184c975a6d6e69aa7747"
+      },
+      "engine_original_manifest_sha256": "8be237ad468540de1cbc477c1da5565eb92b63dadad63badb3bbcde09782e6ff",
+      "explicitly_disabled_plugin_ids": [
+        "richos-engine@richos-local",
+        "swift-lsp@claude-plugins-official"
+      ],
+      "fixture_cleanup_complete": false,
+      "hook_profile": "bounded native-plus-managed lifecycle",
+      "initial_native_branches": [
+        "refs/heads/master"
+      ],
+      "initial_source_branches": [
+        "refs/heads/master"
+      ],
+      "manager_id": "301eb087-71b7-4e88-b995-8dc524707184",
+      "manifest_sha256": "af179e8be5ba8a244426f98e129cb27cf8ffc738b391893837adeabfac517143",
+      "native_cleanup": {
+        "cleanup_evidence": [
+          "complete NUL registry equals canonical baseline",
+          "original and quarantine paths absent including symlinks",
+          "Claude-owned native transaction removed/platform-removed",
+          "ordinary branches equal recorded baseline"
+        ],
+        "worktree_remove_event_count": 0,
+        "worktree_remove_event_observed": false,
+        "worktree_remove_observation_source": "persisted fixture hook-wrapper records; absence does not prove non-invocation"
+      },
+      "normal_auth_reused": true,
+      "normal_project_transcript_directory": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-dbe072f4b6284aa198b9486868208ef8-session",
+      "owner_gid": 20,
+      "owner_uid": 501,
+      "passed": true,
+      "private_root": "/private/var/db/richos-workspaces/claude-canary-dbe072f4b6284aa198b9486868208ef8",
+      "release": "/Library/Application Support/RichOS/workspace-broker/releases/264e5dd53a4caa819faf86457a4ba34d56e69876cb95bf8507d88a1d78d46648",
+      "remaining_fixture_attachments": [],
+      "retained_fixture_receipt": "/private/var/db/richos-workspaces/claude-canary-dbe072f4b6284aa198b9486868208ef8/acceptance.json",
+      "root_pins": [
+        [
+          16777233,
+          203891789,
+          0,
+          448
+        ],
+        [
+          16777233,
+          203891790,
+          0,
+          457
+        ]
+      ],
+      "session_id": "0edaccec-506b-4aa3-a62e-be6dc7cdea8e",
+      "settings_sources": [],
+      "strict_attachment_inventory_complete": true,
+      "transcripts_retained": [
+        "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-dbe072f4b6284aa198b9486868208ef8-session/0edaccec-506b-4aa3-a62e-be6dc7cdea8e.jsonl",
+        "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-dbe072f4b6284aa198b9486868208ef8-session/0edaccec-506b-4aa3-a62e-be6dc7cdea8e/subagents/agent-ab2a71c57b3c43295.jsonl"
+      ],
+      "version": 1
+    }
+  },
+  {
+    "activated": false,
+    "phase": "complete",
+    "receipt_path": "/Library/Application Support/RichOS/workspace-broker/acceptance-runs/claude-canary-daf3e419a0d643b7b21d4187d54553ec/receipt.jsonl"
+  }
+]

@@ -1,9 +1,9 @@
 # Automatic workspace cleanup
 
-Status: candidate implementation, service files staged on the acceptance host
-but not enabled. The complete
-worktree-cleanup objective is not finished. Existing active work must remain
-untouched.
+Status: reviewed candidate ready to merge, with complete inactive installed
+acceptance passed. Production remains disabled. Canonical hook rollout and
+existing-backlog migration are still pending, so the complete worktree-cleanup
+objective is not finished. Existing active work must remain untouched.
 
 ## Scope
 
@@ -36,7 +36,7 @@ absence, exact removed platform ownership and native ordinary branches returning
 to their initial baseline. A model retry blocked before admission is allowed
 only when it never produces a binding. The original failed event assertion and
 independent cleanup evidence are [preserved together](verification/claude-native-cleanup-event-assumption-2026-09-07.md).
-The corrected complete canary still requires a passing installed run.
+The corrected complete canary subsequently passed all 15 installed checks.
 
 New external workspaces can use root-managed APFS sparse images containing an
 independent Git clone. Working files, indexes and objects share the same
@@ -102,7 +102,7 @@ an explicit administration-only capture of the surviving index and Git metadata;
 the receipt never claims to recover absent working files. Locked checkouts retain
 their lock bytes in the full capture. A recreated path, changed linkage or
 unknown owner prevents retirement. These paths passed the focused macOS/Linux
-suites and independent review; their installed integration remains pending.
+suites, independent review and all three installed integration scenarios.
 See the [source review record](verification/legacy-registration-source-review-2026-09-07.json)
 and [installed controller scope](legacy-workspace-orphan-acceptance.md).
 
@@ -147,31 +147,26 @@ has been replayed and verified. Armed jobs automatically execute their fixed
 approved branch selections. This does not grant arbitrary live-branch deletion
 or discover and approve a broader selection during a retry.
 
-## Remaining acceptance and work
+## Acceptance and remaining rollout
 
-- The earlier inactive installed release passed all 31 managed lifecycle and
-  delivery checks, including owner socket authentication, normal timer cleanup,
-  preservation of a preexisting same-name branch and merging the exact delivered
-  commit after image reclamation. See the [installed receipts](verification/managed-delivery-installed-2026-09-07.md).
-  The isolated legacy real-reboot acceptance also passed. The latest metadata
-  and native-ownership changes require their own installed acceptance; these
-  historical receipts do not certify newer bytes.
-- Validate the complete real Claude spawn-to-retirement path before enabling
-  the public configuration. The isolated actual-Claude canary is being rerun;
-  it substitutes only the copied bridge's config location and does not activate
-  production.
-- Installed interrupted-creation acceptance passed all 24 checks with actual
-  process exit after attachment, busy owner descriptor retention, wrong-session
-  cancellation refusal, normal unattended sweeps, raw malformed-image/xattr
-  recovery, empty reservation handling and stable retries. Both disposable test
-  namespaces were removed after strict attachment checks. Raw recovery has no
-  automatic expiry because unique data cannot be classified.
-- The legacy executor, coordinated branch publication and armed-job background
-  worker have passed disposable integration tests and independent review.
-  The installed UUID fixture passed across a real reboot; its
-  [result and receipts](verification/legacy-workspace-uuid-installed-postboot-2026-09-07.md)
-  are saved in this branch. Actual repository downtime still requires explicit
-  authorization. The first failed fixture remains historical evidence.
+- The final inactive release passed 41 managed lifecycle/delivery/metadata
+  checks, 24 interrupted-creation checks, all three installed locked/orphan
+  recovery scenarios and 15 real-Claude checks. The exact source, release and
+  [complete receipts](verification/automatic-cleanup-installed-final-2026-09-07.md)
+  are saved. Managed and interrupted fixtures were removed after strict
+  attachment checks; controller and Claude diagnostic fixtures remain retained.
+- The installed UUID fixture passed a real reboot. The later orphan controller
+  scenarios explicitly use a test seam and do not replace or repeat that cutoff
+  evidence. Historical failed receipts remain unchanged.
+- Land the candidate and follow the [activation sequence](managed-workspace-activation.md)
+  to refresh canonical hooks, loaded settings and the user reconciler before
+  enabling the protected service and public configuration. The passing isolated
+  CLI uses a copied engine and does not certify the currently loaded production
+  profile. Verify a live configured assignment after rollout.
+- Existing worktrees and branches still require exact reviewed selections and
+  coordinated repository downtime before their gate is armed. No real backlog
+  has been gated or retired. Clean recovery can expire only with its required
+  metadata proof; unique, unknown and historical recovery remains retained.
 
 The package's health endpoint reports listener availability, sweep progress and
 owned unresolved records separately. It explicitly does not certify the complete
