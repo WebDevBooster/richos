@@ -62,7 +62,11 @@ branches retain their previous contract and are never silently deleted.
 Slow capture and expiry run in the manager's sweep, outside Claude hook budgets.
 
 Clean recovery images expire after the configured retention, subject to verified
-canonical source identity and handoff refs. Recovery with unique working, staged,
+canonical source identity, direct exact handoff refs and complete protected
+metadata receipts. Extended attributes and non-object Git bytes remain in compact
+sidecars after the bulk image expires. Missing or altered sidecars block expiry.
+Hardlinked files or symlinks, BSD flags and ACLs retain the image because the
+compact format cannot reconstruct them. Recovery with unique working, staged,
 untracked or ignored data is retained. An index lock, hidden index flags,
 submodule or uncertain cleanliness also prevents expiry. Finite deletion of that
 unique data has not been authorized. Committed history is preserved in Git after
@@ -131,11 +135,13 @@ or discover and approve a broader selection during a retry.
 
 ## Remaining acceptance and work
 
-- The final inactive installed release passed all 31 managed lifecycle and
+- The earlier inactive installed release passed all 31 managed lifecycle and
   delivery checks, including owner socket authentication, normal timer cleanup,
   preservation of a preexisting same-name branch and merging the exact delivered
   commit after image reclamation. See the [installed receipts](verification/managed-delivery-installed-2026-09-07.md).
-  The isolated legacy real-reboot acceptance also passed.
+  The isolated legacy real-reboot acceptance also passed. The latest metadata
+  and native-ownership changes require their own installed acceptance; these
+  historical receipts do not certify newer bytes.
 - Validate the complete real Claude spawn-to-retirement path before enabling
   the public configuration. The isolated actual-Claude canary is being prepared;
   it substitutes only the copied bridge's config location and does not activate
