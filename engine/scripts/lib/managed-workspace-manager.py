@@ -503,7 +503,10 @@ class WorkspaceManager:
             raise ManagerError('frozen workspace lost its independent Git directory')
         if (gitdir / 'objects/info/alternates').exists():
             raise ManagerError('frozen workspace has mutable alternate object dependencies')
-        record['has_uncommitted_data'] = self._has_uncommitted_data(frozen, owner)
+        attributes_preserved = self._preserve_attributes(ident, record, frozen)
+        metadata_preserved = self._preserve_metadata(ident, record, frozen, owner)
+        record['has_uncommitted_data'] = self._has_uncommitted_data(frozen, owner) or not (attributes_preserved and metadata_preserved)
+        record['cleanliness_proof_version'] = 4
         self._save(ident, record)
         # Export is owner-readable under a protected ancestor. The user cannot
         # replace it or grant themselves write access to the manager-owned file.
@@ -571,6 +574,135 @@ class WorkspaceManager:
             if export.exists():
                 export.unlink()
             self.provider.detach(ident)
+
+    def _preserve_attributes(self, ident, record, frozen):
+        """Keep exact extended attributes independently of bulk image retention."""
+        budget = 8 * 1024 * 1024
+        limit = 100000
+        temporary = None
+        try:
+            attributes = _module('clean_attributes', 'managed-workspace-failed-creation.py')
+            entries = []; used = 0; examined = 0
+            def collect(path):
+                nonlocal used, examined
+                examined += 1
+                if examined > limit:
+                    raise ManagerError('attribute path inventory exceeds capture budget')
+                info = path.lstat()
+                kind = ('directory' if stat.S_ISDIR(info.st_mode) else 'file' if stat.S_ISREG(info.st_mode)
+                        else 'symlink' if stat.S_ISLNK(info.st_mode) else None)
+                if kind is None:
+                    raise ManagerError('unsupported attribute inventory object')
+                values = attributes._xattrs(path, max_bytes=budget-used)
+                if values:
+                    row = dict(path=path.relative_to(frozen).as_posix(), kind=kind, attributes=values)
+                    used += len(json.dumps(row, sort_keys=True).encode())
+                    if used > budget:
+                        raise ManagerError('attribute payload exceeds capture budget')
+                    entries.append(row)
+            def walk_error(error):
+                raise error
+            collect(frozen)
+            for current, dirs, files in os.walk(frozen, followlinks=False, onerror=walk_error):
+                for name in sorted(dirs + files):
+                    collect(Path(current) / name)
+            value = dict(version=1, complete=True, manager_id=ident, examined_paths=examined,
+                         entries=sorted(entries, key=lambda row: row['path']))
+            payload = (json.dumps(value, sort_keys=True) + '\n').encode()
+            digest = hashlib.sha256(payload).hexdigest()
+            target = self._base(ident) / 'extended-attributes.json'
+            if target.exists() or target.is_symlink():
+                identity = self._identity(target, stat.S_ISREG)
+                if self._digest(target) != digest:
+                    raise ManagerError('existing attribute receipt differs from frozen metadata')
+            else:
+                previous = record.get('attributes_candidate')
+                if previous:
+                    if not re.fullmatch(r'attributes-[0-9a-f]{32}\.tmp', previous):
+                        raise ManagerError('invalid partial attribute receipt name')
+                    partial = target.with_name(previous)
+                    if partial.exists() or partial.is_symlink():
+                        self._identity(partial, stat.S_ISREG)
+                        partial.unlink(); self.provider._sync_dir(partial.parent)
+                temporary = target.with_name('attributes-' + uuid.uuid4().hex + '.tmp')
+                record['attributes_candidate'] = temporary.name
+                self._save(ident, record)
+                with temporary.open('xb') as stream:
+                    os.fchmod(stream.fileno(), 0o600)
+                    stream.write(payload); stream.flush(); os.fsync(stream.fileno())
+                identity = self._identity(temporary, stat.S_ISREG)
+                os.rename(temporary, target); temporary = None
+                self.provider._sync_dir(target.parent)
+            record.update(attributes_identity=identity, attributes_sha256=digest, attributes_version=1)
+            record.pop('attributes_candidate', None)
+            record.pop('attribute_capture_error', None)
+            self._verify_attributes(ident, record)
+            return True
+        except Exception as error:
+            record['attribute_capture_error'] = str(error)
+            return False
+        finally:
+            if temporary is not None and temporary.exists():
+                temporary.unlink()
+
+    def _verify_attributes(self, ident, record):
+        target = self._base(ident) / 'extended-attributes.json'
+        if record.get('attributes_version') != 1:
+            raise ManagerError('complete extended-attribute preservation receipt required')
+        if self._identity(target, stat.S_ISREG) != record.get('attributes_identity'):
+            raise ManagerError('extended-attribute receipt identity changed')
+        if self._digest(target) != record.get('attributes_sha256'):
+            raise ManagerError('extended-attribute receipt bytes changed')
+
+    def _preserve_metadata(self, ident, record, frozen, owner):
+        temporary = None
+        try:
+            # Validate recognized object files before omitting their bulk bytes.
+            # Unknown files anywhere in .git, including objects/, are retained.
+            self._user_git(['fsck', '--full', '--no-reflogs', '--no-dangling', '--no-progress'], owner, cwd=frozen)
+            metadata = _module('compact_metadata', 'workspace-recovery-metadata.py')
+            payload = metadata.encode(metadata.from_managed_tree(frozen, object_storage_verified=True))
+            digest = hashlib.sha256(payload).hexdigest()
+            target = self._base(ident) / 'compact-metadata.json'
+            if target.exists() or target.is_symlink():
+                identity = self._identity(target, stat.S_ISREG)
+                if self._digest(target) != digest:
+                    raise ManagerError('existing compact metadata differs from frozen source')
+            else:
+                previous = record.get('metadata_candidate')
+                if previous:
+                    if not re.fullmatch(r'metadata-[0-9a-f]{32}\.tmp', previous):
+                        raise ManagerError('invalid partial compact metadata name')
+                    partial = target.with_name(previous)
+                    if partial.exists() or partial.is_symlink():
+                        self._identity(partial, stat.S_ISREG)
+                        partial.unlink(); self.provider._sync_dir(partial.parent)
+                temporary = target.with_name('metadata-' + uuid.uuid4().hex + '.tmp')
+                record['metadata_candidate'] = temporary.name; self._save(ident, record)
+                with temporary.open('xb') as stream:
+                    os.fchmod(stream.fileno(), 0o600)
+                    stream.write(payload); stream.flush(); os.fsync(stream.fileno())
+                identity = self._identity(temporary, stat.S_ISREG)
+                os.rename(temporary, target); temporary = None
+                self.provider._sync_dir(target.parent)
+            record.update(metadata_identity=identity, metadata_sha256=digest, metadata_version=1)
+            record.pop('metadata_candidate', None); record.pop('metadata_capture_error', None)
+            self._verify_metadata(ident, record)
+            return True
+        except Exception as error:
+            record['metadata_capture_error'] = str(error)
+            return False
+        finally:
+            if temporary is not None and temporary.exists(): temporary.unlink()
+
+    def _verify_metadata(self, ident, record):
+        target = self._base(ident) / 'compact-metadata.json'
+        if record.get('metadata_version') != 1:
+            raise ManagerError('complete compact metadata receipt required')
+        if self._identity(target, stat.S_ISREG) != record.get('metadata_identity'):
+            raise ManagerError('compact metadata receipt identity changed')
+        if self._digest(target) != record.get('metadata_sha256'):
+            raise ManagerError('compact metadata receipt bytes changed')
 
     def _has_uncommitted_data(self, frozen, owner):
         """Prove clean from frozen bytes, independent of Git's stat shortcuts."""
@@ -644,6 +776,10 @@ class WorkspaceManager:
             raise ManagerError('verified terminal commit handoff is required')
         owner = (record['owner_uid'], record['owner_gid'])
         for ref in refs:
+            kind = self._user_git(['for-each-ref', '--format=%(refname)%00%(symref)', ref['destination']], owner,
+                                  cwd=record['source_repo'])
+            if kind != (ref['destination'] + '\0\n').encode():
+                raise ManagerError('handoff reference is not an exact direct recovery ref')
             actual = self._user_git(['rev-parse', '--verify', ref['destination']], owner,
                                     cwd=record['source_repo']).decode().strip()
             if actual != ref['oid']:
@@ -791,9 +927,13 @@ class WorkspaceManager:
     def _expire(self, ident, record, now):
         if record['state'] not in ('retained', 'expiring') or now < record['expires_at']:
             return record
+        if record.get('cleanliness_proof_version') != 4:
+            raise ManagerError('cleanliness proof predates complete metadata verification; recovery retained')
         if record.get('has_uncommitted_data') is not False:
             raise ManagerError('recovery retained: unique uncommitted data has no expiry authorization')
         self._verify_handoff(record)
+        self._verify_attributes(ident, record)
+        self._verify_metadata(ident, record)
         archive = self._base(ident) / 'recovery.dmg'
         self._not_attached(archive)
         if archive.exists() or archive.is_symlink():

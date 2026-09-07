@@ -41,8 +41,16 @@ class Lifecycle(unittest.TestCase):
                            archive_sha256=self.m._digest(self.archive),
                            image_identity=self.m._identity(self.image, manager.stat.S_ISDIR),
                            expires_at=time.time()+100, retention_days=14,
-                           has_uncommitted_data=False,
+                           has_uncommitted_data=False, cleanliness_proof_version=4,
                            handoff_refs=[dict(source='HEAD', destination='refs/richos/x', oid='a'*40)])
+        self.attributes = self.base / 'extended-attributes.json'
+        self.attributes.write_text('{}'); self.attributes.chmod(0o600)
+        self.record.update(attributes_version=1, attributes_identity=self.m._identity(self.attributes, manager.stat.S_ISREG),
+                           attributes_sha256=self.m._digest(self.attributes))
+        self.metadata = self.base / 'compact-metadata.json'
+        self.metadata.write_text('{}'); self.metadata.chmod(0o600)
+        self.record.update(metadata_version=1, metadata_identity=self.m._identity(self.metadata, manager.stat.S_ISREG),
+                           metadata_sha256=self.m._digest(self.metadata))
         self.m._save(self.ident, self.record)
         self.attached = patch.object(self.m.provider, '_attached', return_value=None)
         self.attached.start()
@@ -136,6 +144,42 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(self.m.inspect(self.ident)['state'], 'expiring')
         with patch.object(self.m, '_verify_handoff'):
             self.assertEqual(self.m.reconcile(self.ident, now=self.record['expires_at']+1)['state'], 'expired')
+
+    def test_attribute_receipt_tampering_prevents_bulk_archive_expiry(self):
+        self.record['state'] = 'retained'; self.m._save(self.ident, self.record)
+        self.attributes.write_text('changed unique metadata')
+        with patch.object(self.m, '_verify_handoff'):
+            result = self.m.reconcile(self.ident, now=self.record['expires_at']+1)
+        self.assertEqual(result['state'], 'retained')
+        self.assertIn('attribute receipt bytes changed', result['last_error'])
+        self.assertTrue(self.archive.exists())
+
+    def test_clean_expiry_retains_exact_attribute_receipt(self):
+        self.record['state'] = 'retained'; self.m._save(self.ident, self.record)
+        expected = self.attributes.read_bytes()
+        with patch.object(self.m, '_verify_handoff'):
+            result = self.m.reconcile(self.ident, now=self.record['expires_at']+1)
+        self.assertEqual(result['state'], 'expired', result)
+        self.assertFalse(self.archive.exists())
+        self.assertEqual(self.attributes.read_bytes(), expected)
+
+    def test_compact_metadata_loss_prevents_bulk_expiry(self):
+        self.record.update(state='retained', expires_at=0); self.m._save(self.ident, self.record)
+        self.metadata.unlink()
+        with patch.object(self.m, '_verify_handoff'):
+            result = self.m.reconcile(self.ident)
+        self.assertEqual(result['state'], 'retained'); self.assertTrue(self.archive.exists())
+        self.assertIn('last_error', result)
+
+    def test_old_unversioned_cleanliness_cannot_authorize_archive_expiry(self):
+        self.record.update(state='retained')
+        self.record.pop('cleanliness_proof_version')
+        self.m._save(self.ident, self.record)
+        with patch.object(self.m, '_verify_handoff'):
+            result = self.m.reconcile(self.ident, now=self.record['expires_at']+1)
+        self.assertEqual(result['state'], 'retained')
+        self.assertIn('complete metadata verification', result['last_error'])
+        self.assertEqual(self.archive.read_bytes(), b'verified recovery data')
 
     def test_missing_handoff_blocks_expiry(self):
         self.record['state'] = 'retained'
@@ -314,6 +358,15 @@ class FrozenContent(unittest.TestCase):
         self.assertEqual((self.repo / 'delivered').read_text(), 'unique committed work')
         self.assertEqual(self.git('for-each-ref', '--format=%(refname)', 'refs/heads/same-worker'), b'')
 
+    def test_same_tip_symbolic_handoff_is_not_a_durable_direct_ref(self):
+        record = self.delivery_record()
+        ref = record['handoff_refs'][0]['destination']
+        self.git('update-ref', 'refs/heads/mutable-target', record['handoff_refs'][0]['oid'])
+        self.git('symbolic-ref', ref, 'refs/heads/mutable-target')
+        self.assertEqual(self.git('rev-parse', ref).decode().strip(), record['handoff_refs'][0]['oid'])
+        with self.assertRaisesRegex(manager.ManagerError, 'direct recovery ref'):
+            self.m._verify_handoff(record)
+
     def test_delivery_rechecks_current_ref_and_source_identity(self):
         record = self.delivery_record()
         self.m._publish_terminal_branch(record); self.m._save(record['id'], record)
@@ -351,6 +404,132 @@ class FrozenContent(unittest.TestCase):
 
     def test_clean_checkout_is_proved(self):
         self.assertFalse(self.dirty())
+
+    def preserve_attributes(self):
+        ident = str(uuid.uuid4()); self.m._base(ident).mkdir(mode=0o700)
+        record = dict(version=1, id=ident)
+        result = self.m._preserve_attributes(ident, record, self.repo)
+        return ident, record, result
+
+    def test_compact_metadata_preserves_arbitrary_git_state_and_excludes_only_verified_objects(self):
+        import base64
+        (self.repo / '.git/custom-state').write_bytes(b'\x00unique admin state\xff')
+        ident = str(uuid.uuid4()); self.m._base(ident).mkdir(mode=0o700)
+        record = dict(version=1, id=ident)
+        self.assertTrue(self.m._preserve_metadata(ident, record, self.repo, self.owner), record)
+        compact = json.loads((self.m._base(ident) / 'compact-metadata.json').read_text())
+        self.assertEqual(base64.b64decode(compact['contents']['.git/custom-state']), b'\x00unique admin state\xff')
+        self.assertIn('.git/config', compact['contents']); self.assertIn('tracked', compact['manifest'])
+        excluded = [name for name,row in compact['manifest'].items() if row.get('content') == 'verified-git-object-storage']
+        self.assertTrue(excluded); self.assertTrue(all(name not in compact['contents'] for name in excluded))
+        self.m._verify_metadata(ident, record)
+        saved = dict(record)
+        self.assertTrue(self.m._preserve_metadata(ident, record, self.repo, self.owner), record)
+        self.assertEqual(saved, record)
+        (self.m._base(ident) / 'compact-metadata.json').write_text('tampered')
+        with self.assertRaisesRegex(manager.ManagerError, 'bytes changed'): self.m._verify_metadata(ident, saved)
+
+    def test_unverified_git_objects_cannot_authorize_metadata_omission(self):
+        ident = str(uuid.uuid4()); self.m._base(ident).mkdir(mode=0o700)
+        record = dict(version=1, id=ident)
+        loose = self.repo / '.git/objects/ab'; loose.mkdir(exist_ok=True)
+        (loose / ('c'*38)).write_bytes(b'not a valid Git object')
+        self.assertFalse(self.m._preserve_metadata(ident, record, self.repo, self.owner), record)
+        self.assertNotIn('metadata_version', record)
+        self.assertFalse((self.m._base(ident) / 'compact-metadata.json').exists())
+
+    def test_attributes_are_preserved_exactly_without_forcing_clean_file_retention(self):
+        if sys.platform == 'darwin':
+            def attribute(path):
+                subprocess.run(['/usr/bin/xattr', '-s', '-w', 'org.richos.fixture.unique',
+                                'unique metadata payload', str(path)], check=True, capture_output=True)
+        elif hasattr(os, 'setxattr'):
+            def attribute(path):
+                os.setxattr(path, 'user.richos.fixture.unique', b'unique metadata payload', follow_symlinks=False)
+        else:
+            self.skipTest('native xattr writer unavailable')
+        paths = [self.repo / 'tracked', self.repo, self.repo / '.git/config']
+        if sys.platform == 'darwin':
+            link = self.repo / 'linked'; link.symlink_to('tracked')
+            self.git('add', '.'); self.git('commit', '-qm', 'tracked symlink'); paths.append(link)
+        for path in paths:
+            attribute(path)
+        ident, record, ok = self.preserve_attributes()
+        self.assertTrue(ok, record)
+        data = json.loads((self.m._base(ident) / 'extended-attributes.json').read_text())
+        self.assertTrue(data['complete'])
+        self.assertEqual(data['manager_id'], ident)
+        actual = manager._module('native_attributes', 'managed-workspace-failed-creation.py')
+        for path in paths:
+            row = next(row for row in data['entries'] if row['path'] == path.relative_to(self.repo).as_posix())
+            self.assertEqual(row['attributes'], actual._xattrs(path))
+        self.assertFalse(self.dirty())
+        self.m._verify_attributes(ident, record)
+
+    def test_unreadable_attribute_inventory_never_publishes_complete_proof(self):
+        actual = manager._module
+        for target in (self.repo, self.repo / 'tracked', self.repo / '.git/config'):
+            def load(name, filename):
+                value = actual(name, filename); original = value._xattrs
+                def attrs(path, **kwargs):
+                    if path == target:
+                        raise OSError('fixture attribute read failure')
+                    return original(path, **kwargs)
+                value._xattrs = attrs
+                return value
+            with self.subTest(path=target.name), patch.object(manager, '_module', side_effect=load):
+                ident, record, ok = self.preserve_attributes()
+                self.assertFalse(ok)
+                self.assertIn('attribute read failure', record['attribute_capture_error'])
+                self.assertNotIn('attributes_version', record)
+                self.assertFalse((self.m._base(ident) / 'extended-attributes.json').exists())
+
+    def test_native_attribute_reader_enforces_its_byte_budget(self):
+        path = self.repo / 'tracked'
+        if sys.platform == 'darwin':
+            subprocess.run(['/usr/bin/xattr', '-w', 'org.richos.fixture.bound', 'x'*100, str(path)],
+                           check=True, capture_output=True)
+        elif hasattr(os, 'setxattr'):
+            os.setxattr(path, 'user.richos.fixture.bound', b'x'*100)
+        else:
+            self.skipTest('native xattr writer unavailable')
+        reader = manager._module('bounded_attributes', 'managed-workspace-failed-creation.py')
+        with self.assertRaisesRegex(reader.RecoveryError, 'budget'):
+            reader._xattrs(path, max_bytes=8)
+
+    def test_interrupted_attribute_copy_reclaims_only_its_recorded_partial(self):
+        ident = str(uuid.uuid4()); base = self.m._base(ident); base.mkdir(mode=0o700)
+        name = 'attributes-' + uuid.uuid4().hex + '.tmp'
+        partial = base / name; partial.write_bytes(b'partial metadata copy')
+        foreign = base / ('attributes-' + uuid.uuid4().hex + '.tmp'); foreign.write_bytes(b'unknown')
+        record = dict(version=1, id=ident, attributes_candidate=name)
+        self.assertTrue(self.m._preserve_attributes(ident, record, self.repo), record)
+        self.assertFalse(partial.exists()); self.assertEqual(foreign.read_bytes(), b'unknown')
+        self.assertNotIn('attributes_candidate', record)
+        self.m._verify_attributes(ident, record)
+
+    def test_attribute_inventory_budget_refuses_before_publication(self):
+        actual = manager._module
+        def load(name, filename):
+            value = actual(name, filename)
+            value._xattrs = Mock(return_value={'x': 'a' * (8 * 1024 * 1024 + 1)})
+            return value
+        with patch.object(manager, '_module', side_effect=load):
+            ident, record, ok = self.preserve_attributes()
+        self.assertFalse(ok)
+        self.assertIn('budget', record['attribute_capture_error'])
+        self.assertFalse((self.m._base(ident) / 'extended-attributes.json').exists())
+
+    def test_lost_attribute_receipt_response_adopts_exact_bytes_and_rejects_replacement(self):
+        ident, record, ok = self.preserve_attributes(); self.assertTrue(ok, record)
+        original = dict(record)
+        self.assertTrue(self.m._preserve_attributes(ident, {}, self.repo))
+        self.m._verify_attributes(ident, original)
+        path = self.m._base(ident) / 'extended-attributes.json'; path.write_text('different')
+        record = {}
+        self.assertFalse(self.m._preserve_attributes(ident, record, self.repo))
+        self.assertIn('differs', record['attribute_capture_error'])
+        self.assertEqual(path.read_text(), 'different')
 
     def test_assume_unchanged_cannot_hide_unique_bytes(self):
         self.git('update-index', '--assume-unchanged', 'tracked')

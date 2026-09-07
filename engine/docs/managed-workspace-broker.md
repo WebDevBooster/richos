@@ -159,3 +159,26 @@ ordinary-branch publication behavior. This upgrade neither deletes those
 branches nor converts their historical receipts. Existing branches require the
 explicit frozen maintenance selection. UUID handoff refs remain recovery roots
 after image expiry and are not automatically pruned.
+
+Clean recovery expiry requires a complete extended-attribute inventory for the
+frozen workspace, including directories, symlinks and Git metadata. Exact
+attribute bytes and paths are preserved in the protected manager-owned
+`extended-attributes.json` sidecar before image expiry. Its durable filesystem
+identity and SHA-256 are checked again before deleting `recovery.dmg`; the
+sidecar remains. No attribute-name whitelist discards metadata. Unreadable or
+over-budget inventories retain the full recovery image. Inventory is bounded to
+100,000 paths and 8 MiB of encoded attribute rows.
+
+The separate `compact-metadata.json` sidecar preserves every path's metadata
+and all non-object Git administration bytes, including arbitrary extra files.
+Only recognized loose objects and pack/index files may omit bulk bytes, after
+owner-credential `git fsck --full` verifies object storage. Unknown files under
+`objects/` are preserved too. Existing verified refs and reflogs retain their
+Git history; unreachable Git object garbage is not a separate retention promise.
+The compact sidecar is limited to 64 MiB and 100,000 paths. Exceeding either
+limit or encountering unsupported/unreadable metadata retains the full image.
+Its exact file identity and hash must also verify before bulk image expiry.
+
+Cleanliness proof version 4 records both requirements. Older classifications do
+not authorize expiry; those recovery images remain intact until a separate
+verified reclassification is implemented.

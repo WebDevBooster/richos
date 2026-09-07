@@ -92,11 +92,17 @@ def _hash(path):
         os.close(fd)
 
 
-def _xattrs(path):
+def _xattrs(path, max_bytes=None):
     """Preserve binary outer attributes using the native macOS ABI when needed."""
     if sys.platform != 'darwin':
-        return {name: base64.b64encode(os.getxattr(path, name, follow_symlinks=False)).decode('ascii')
-                for name in sorted(os.listxattr(path, follow_symlinks=False))}
+        result = {}; used = 0
+        for name in sorted(os.listxattr(path, follow_symlinks=False)):
+            value = os.getxattr(path, name, follow_symlinks=False)
+            used += len(os.fsencode(name)) + len(value)
+            if max_bytes is not None and used > max_bytes:
+                raise RecoveryError('extended attributes exceed capture budget')
+            result[name] = base64.b64encode(value).decode('ascii')
+        return result
     library = ctypes.CDLL(None, use_errno=True)
     listing = library.listxattr
     listing.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
@@ -108,6 +114,9 @@ def _xattrs(path):
     size = listing(encoded, None, 0, 1)  # XATTR_NOFOLLOW
     if size < 0:
         raise OSError(ctypes.get_errno(), 'extended attribute inventory unavailable')
+    if max_bytes is not None and size > max_bytes:
+        raise RecoveryError('extended attributes exceed capture budget')
+    used = size
     buffer = ctypes.create_string_buffer(size)
     if listing(encoded, buffer, size, 1) != size:
         raise RecoveryError('extended attribute inventory changed')
@@ -121,6 +130,9 @@ def _xattrs(path):
         length = getter(encoded, name, None, 0, 0, 1)
         if length < 0:
             raise OSError(ctypes.get_errno(), 'extended attribute bytes unavailable')
+        used += length
+        if max_bytes is not None and used > max_bytes:
+            raise RecoveryError('extended attributes exceed capture budget')
         value = ctypes.create_string_buffer(length)
         if getter(encoded, name, value, length, 0, 1) != length:
             raise RecoveryError('extended attribute bytes changed')
