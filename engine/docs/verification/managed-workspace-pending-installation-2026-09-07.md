@@ -21,5 +21,7 @@ move. No existing service is stopped and no launchd job is loaded.
 
 Apple documents boot discovery of system daemon property lists in
 [Creating Launch Daemons and Agents](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
-The host migration receipt will establish when the actual file correction is
-complete; the source change alone does not remove an earlier installed plist.
+The [host migration receipt](managed-workspace-pending-installation-2026-09-07.json)
+confirms that the exact file was moved successfully and the live plist path is
+absent. Public creation remains disabled. No earlier installed startup file is
+left for launchd to discover.
