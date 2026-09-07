@@ -32,8 +32,13 @@ Only a normal successful detach, or positively verified absence after a differen
 kernel boot identity, supplies a write cutoff. Busy filesystems remain intact.
 Unknown, incomplete or malformed attachment inventories refuse reclamation.
 The manager preserves terminal refs and both endpoints of reflog history in the
-canonical Git store, publishes the worker branch without overwriting a different
-tip and verifies a readonly recovery image before deleting the active image.
+canonical Git store and verifies a readonly recovery image before deleting the
+active image. New managed requests deliver their terminal commit through
+`refs/richos/handoffs/managed/<UUID>/HEAD`, without creating an ordinary branch
+in the source repository. The authenticated delivery query returns the exact
+source, reference and commit; reconciliation also records this in the terminal
+transaction. The orchestrator merges that exact commit. Existing published
+branches retain their previous contract and are never silently deleted.
 Slow capture and expiry run in the manager's sweep, outside Claude hook budgets.
 
 Clean recovery images expire after the configured retention, subject to verified
@@ -84,6 +89,11 @@ Explicitly armed jobs now run automatically through the broker's separate
 passed. Real repository migration still requires an exact reviewed scope and downtime.
 
 ## Branches
+
+The old reaper no longer deletes ordinary branches, including with `--execute`.
+Its live registry/process snapshots cannot exclude branch reuse or concurrent
+checkout. It reports retained candidates as pending and cannot claim CLEAN
+while those candidates remain. Existing branches use the frozen selection below.
 
 The existing branch-retirement helper now refuses unreadable worktree registries
 and preserves a recovery ref together with exact-tip deletion in one Git ref

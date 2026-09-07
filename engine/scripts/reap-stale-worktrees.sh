@@ -309,36 +309,13 @@
 #   4. `git status --porcelain` is empty, tracked AND untracked.
 #   5. No live process references the tree path.
 #
-# Removal is the sanctioned two-step: the remover without --force, then branch
-# deletion with -d and never -D. Since the second 2026-09-06 review the remover
-# does not delete anything — it preserves the tree (verified archive), RENAMES
-# it into <parent>/.richos-retired/ for a retention period, and prunes the git
-# registration; what this script relies on (the path vacated, the registration
-# gone, the branch deletable) is exactly what it gets. Without --force the
-# remover refuses a tree with modified or untracked paths (exit 3,
-# `dirty-without-force`), which is git's own rule and the backstop for a gate
-# 4 that is somehow wrong. A branch with unmerged commits refuses -d, which is
-# the backstop for a gate 3 that is somehow wrong.
-#
-# ===========================================================================
-# THE BRANCH SWEEP — orphan branches whose worktree is already gone
-# ===========================================================================
-# `git branch -d` above lives inside the per-worktree loop, so it only ever
-# sees a branch still attached to a registered worktree. A branch whose
-# worktree vanished by any other route (a raw removal, the harness's own
-# auto-clean, a prune) was unreachable by the only code that could delete it —
-# permanently. femcboost held four such orphans on 2026-09-02.
-#
-# So after the worktree loop, every reap-eligible repository gets a pass over
-# refs/heads/. A branch is a CANDIDATE only if it is teammate-shaped —
-# `worktree-*` (native isolation), `<role>-<model>-<identifier>` (the spawn
-# name contract), or a branch the ledger registered for this repository — so
-# an operator's own topic branches are never touched. A candidate is swept
-# only if ALL hold: it is not the repository's current branch; no worktree is
-# registered on it; it is a merge-base ancestor of HEAD; no live process
-# references it. Unmerged -> SKIP-BRANCH unmerged(+N), and `-d` (never `-D`)
-# is the backstop. `worktree-agent-a66286903967ee525` in femcboost is
-# UNMERGED (+1) and is the standing live negative for this pass.
+# Removal routes through the sanctioned preservation/quarantine helper without
+# --force or --branch. Branch inventory is read-only even with --execute.
+# Live process and registry snapshots cannot exclude concurrent attachment or
+# branch-name reuse. Existing ordinary branches need an exact frozen selection
+# through legacy-workspace-job.py; this inventory never authorizes deletion.
+# Teammate-shaped names and current-HEAD ancestry are discovery hints only.
+# Retained candidates count as pending, never as branches swept.
 #
 # ===========================================================================
 # PROCESSES, NOT JUST DIRECTORIES
@@ -1141,6 +1118,7 @@ CLAIMED_PATHS=""
 
 BR_SWEPT=0
 BR_SKIPPED=0
+BR_PENDING=0
 N_NATIVE=0
 N_HANDROLLED=0
 
@@ -1411,12 +1389,9 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             # answer. Two implementations of "alive" is how one of them
             # silently becomes the stale one.
             #
-            # --branch is deliberately NOT passed. The remover deletes with
-            # `git branch -D`; this loop keeps `-d`, which REFUSES a branch
-            # holding unmerged commits and is the backstop for a gate 3 that
-            # is somehow wrong. Nor is --force passed: gate 4 already proved
-            # the tree clean of tracked AND untracked files, so a removal that
-            # needs --force means a gate was wrong and must fail loudly.
+            # --branch is deliberately NOT passed. Branch retirement requires
+            # an exact frozen selection, not a live registry/process snapshot.
+            # Nor is --force passed: dirty trees must refuse quarantine here.
             _owner_agent=""
             if [ "$class" = "native" ]; then
                 _owner_agent="${id#agent-}"
@@ -1446,13 +1421,9 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
 
             if [ "$_rm_rc" -eq 0 ]; then
                 [ "$class" = "native" ] && record_terminated "${id#agent-}" "$path" "native isolation worktree reaped: unlocked, merged, clean, no live process" "reaper-removal"
-                if git -C "$repo" branch -d "$branch_name" >/dev/null 2>&1; then
-                    echo "REAP $id"
-                    REAP_COUNT=$((REAP_COUNT + 1))
-                else
-                    echo "ERROR: removed worktree $id but the branch deletion of $branch_name refused (unmerged commits protecting it?) — investigate manually" >&2
-                    ERROR_COUNT=$((ERROR_COUNT + 1))
-                fi
+                echo "REAP $id"
+                echo "RETAIN-BRANCH $branch_name requires-frozen-branch-selection"
+                REAP_COUNT=$((REAP_COUNT + 1))
             elif [ "$_rm_rc" -eq 3 ]; then
                 # THE TWO AUTHORITIES DISAGREE. Every gate above said this
                 # tree's owner is not alive; the sanctioned remover, reading
@@ -1493,10 +1464,9 @@ fi
 # ===========================================================================
 # THE BRANCH SWEEP — refs/heads/ of every reap-eligible repository
 # ===========================================================================
-# See the header. Candidates are teammate-shaped branches only; every gate is
-# named in the SKIP-BRANCH reason. Computed AFTER the worktree loop so a branch
-# whose worktree was just reaped (and whose -d succeeded) is not reported
-# twice, and a branch whose -d was refused is caught on the next pass.
+# This is inventory only, including --execute. Names, ancestry and process
+# snapshots cannot authorize live ref deletion. The offline planner validates
+# exact ownership, integration refs and branch generations under its gate.
 if [ "${#REPOS[@]}" -gt 0 ]; then
     for _ri in $(seq 0 $(( ${#REPOS[@]} - 1 ))); do
         [ "${REPO_ELIGIBLE[$_ri]}" = "1" ] || continue
@@ -1536,18 +1506,8 @@ if [ "${#REPOS[@]}" -gt 0 ]; then
                 BR_SKIPPED=$((BR_SKIPPED + 1))
                 continue
             fi
-            if [ "$EXECUTE" -eq 1 ]; then
-                if git -C "$_repo" branch -d "$_b" >/dev/null 2>&1; then
-                    echo "SWEEP-BRANCH $_b"
-                    BR_SWEPT=$((BR_SWEPT + 1))
-                else
-                    echo "ERROR: branch deletion of $_b in $_repo refused (unmerged commits protecting it?) — investigate manually" >&2
-                    ERROR_COUNT=$((ERROR_COUNT + 1))
-                fi
-            else
-                echo "DRY-RUN SWEEP-BRANCH $_b"
-                BR_SWEPT=$((BR_SWEPT + 1))
-            fi
+            echo "SKIP-BRANCH $_b requires-frozen-branch-selection"
+            BR_PENDING=$((BR_PENDING + 1))
         done <<BRANCHES_EOF
 $(git -C "$_repo" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null || true)
 BRANCHES_EOF
@@ -1809,7 +1769,7 @@ if [ "$EXECUTE" -eq 1 ]; then
 else
     ACTION_FIELDS="removed=0 would-remove=$WOULD_COUNT"
 fi
-echo "=== summary ($MODE_LABEL): $ACTION_FIELDS skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED ==="
+echo "=== summary ($MODE_LABEL): $ACTION_FIELDS skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED branches-pending=$BR_PENDING ==="
 echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE shells=$N_SHELLS workspaces=$N_WORKSPACES unobserved-native=$N_UNOBSERVED_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE operator=$SKIP_OPERATOR ==="
 echo "=== sources:$SRC_SUMMARY ==="
 echo "    skip breakdown: quarantined=$SKIP_QUARANTINED locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR report-only-repo=$SKIP_REPORT_ONLY duplicate-registration=$SKIP_DUPLICATE"
@@ -1837,7 +1797,7 @@ fi
 
 # --- THE VERDICT — the one line that is not allowed to read as routine -------
 if [ "$ERROR_COUNT" -gt 0 ]; then
-    echo "=== verdict: FAIL — errors=$ERROR_COUNT (a removal, unlock or branch deletion failed; see ERROR lines above) ==="
+    echo "=== verdict: FAIL — errors=$ERROR_COUNT (a removal or unlock failed; see ERROR lines above) ==="
     exit 1
 fi
 if [ "$SKIP_OWNER_UNRESOLVED" -gt 0 ]; then
@@ -1876,6 +1836,9 @@ if [ "$EXECUTE" -eq 0 ] && [ "$WOULD_COUNT" -gt 0 ]; then
     else
         PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and this inventory removed none — it is DRY-RUN by construction. $ADOPTABLE_COUNT are ADOPTABLE and reconcile-terminal-worktrees.py's adoption pass claims those; $NOT_ADOPTABLE_COUNT are NOT (adoption gate:${NOT_ADOPTABLE_GATES:- unknown}) and nothing automatic will ever take THOSE — each is named above with its gate. An operator removes them by hand with: $0 ${REPO_ROOT} --discover --execute")
     fi
+fi
+if [ "$BR_PENDING" -gt 0 ]; then
+    PENDING_CLAUSES+=("branches-pending=$BR_PENDING ordinary branch candidate(s) require an exact frozen branch selection; --execute does not delete live refs")
 fi
 if [ "${#PENDING_CLAUSES[@]}" -gt 0 ]; then
     _joined="${PENDING_CLAUSES[0]}"

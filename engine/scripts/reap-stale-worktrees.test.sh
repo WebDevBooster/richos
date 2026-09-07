@@ -290,8 +290,8 @@ add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 BRANCH_GONE=1
 git -C "$DIR/other" rev-parse --verify --quiet refs/heads/done-owner >/dev/null && BRANCH_GONE=0
-if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/done-owner" ] && [ "$BRANCH_GONE" -eq 1 ]; then
-    ok "hand-rolled worktree of an observably terminated owner is reaped, branch deleted"
+if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/done-owner" ] && [ "$BRANCH_GONE" -eq 0 ]; then
+    ok "hand-rolled worktree of an observably terminated owner is quarantined, branch retained for a frozen selection"
 else
     bad "terminated owner (rc=$RC branch_gone=$BRANCH_GONE)"
 fi
@@ -646,7 +646,7 @@ ledger_record "$DIR" registered --teammate zach-opus-old1 --agent-id old1 --sess
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 BRANCH_GONE=1
 git -C "$DIR/other" rev-parse --verify --quiet refs/heads/zach-opus-old1 >/dev/null && BRANCH_GONE=0
-if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/zach-opus-old1" ] && [ "$BRANCH_GONE" -eq 1 ] \
+if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/zach-opus-old1" ] && [ "$BRANCH_GONE" -eq 0 ] \
    && printf '%s' "$OUT" | grep -q '(owner zach-opus-old1 terminated — its host session pid .* is gone'; then
     ok "PRIOR SESSION: a hand-rolled worktree whose owner's session is provably gone is reaped from the ledger alone — no native worktree, no transcript"
 else
@@ -773,13 +773,13 @@ B1=1; git -C "$DIR/entity" rev-parse --verify --quiet refs/heads/worktree-agent-
 B2=1; git -C "$DIR/entity" rev-parse --verify --quiet refs/heads/zach-opus-orphan2 >/dev/null && B2=0
 K=0;  git -C "$DIR/entity" rev-parse --verify --quiet refs/heads/worktree-agent-keep >/dev/null && K=1
 F=0;  git -C "$DIR/entity" rev-parse --verify --quiet refs/heads/feature-topic >/dev/null && F=1
-if [ "$RC" -eq 0 ] && [ "$B1" -eq 1 ] && [ "$B2" -eq 1 ] && [ "$K" -eq 1 ] && [ "$F" -eq 1 ] \
-   && printf '%s' "$OUT" | grep -q '^SWEEP-BRANCH worktree-agent-orphan1$' \
-   && printf '%s' "$OUT" | grep -q '^SWEEP-BRANCH zach-opus-orphan2$' \
+if [ "$RC" -eq 0 ] && [ "$B1" -eq 0 ] && [ "$B2" -eq 0 ] && [ "$K" -eq 1 ] && [ "$F" -eq 1 ] \
+   && printf '%s' "$OUT" | grep -q '^SKIP-BRANCH worktree-agent-orphan1 requires-frozen-branch-selection$' \
+   && printf '%s' "$OUT" | grep -q '^SKIP-BRANCH zach-opus-orphan2 requires-frozen-branch-selection$' \
    && printf '%s' "$OUT" | grep -q '^SKIP-BRANCH worktree-agent-keep unmerged(+1)$' \
    && ! printf '%s' "$OUT" | grep -q 'feature-topic' \
-   && printf '%s' "$OUT" | grep -q 'branches-swept=2 branches-skipped=1'; then
-    ok "orphan branches: merged teammate-shaped ones are swept, the unmerged one (+1) is kept, the operator's topic branch is never a candidate"
+   && printf '%s' "$OUT" | grep -q 'branches-swept=0 branches-skipped=1 branches-pending=3'; then
+    ok "orphan branches: --execute retains merged candidates for a frozen selection, unmerged and operator branches also survive"
 else
     bad "branch sweep (rc=$RC orphan1_gone=$B1 orphan2_gone=$B2 keep_present=$K topic_present=$F): $(printf '%s' "$OUT" | grep -E 'BRANCH|branches-' | tr '\n' ' ')"
 fi
@@ -795,8 +795,8 @@ else
     bad "attached branch swept: $(printf '%s' "$OUT" | grep 'SWEEP-BRANCH' | tr '\n' ' ')"
 fi
 
-# 19. VERDICT CLEAN: every candidate decided (live owner skipped, dead owner
-#     reaped) -> CLEAN, exit 0. The positive half of the verdict contract.
+# 19. Ordinary branches survive worktree quarantine and keep the result
+#     PENDING until an exact frozen branch selection handles them.
 #
 #     CHANGED 2026-09-05: this ran in DRY-RUN and asserted CLEAN over a world
 #     holding one worktree that was removable and had not been removed. That
@@ -808,10 +808,10 @@ DIR="$(make_world clean-verdict)"
 add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN' \
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING.*branches-pending=' \
    && printf '%s' "$OUT" | grep -q 'undecidable=0 unresolved=0 indeterminate=0' \
    && [ ! -d "$DIR/other-wt/done-owner" ] && [ -d "$DIR/other-wt/live-owner" ]; then
-    ok "verdict CLEAN when every candidate is decided AND the removals actually happened"
+    ok "verdict PENDING after quarantine while ordinary branches still need a frozen selection"
 else
     bad "clean verdict (rc=$RC): $(printf '%s' "$OUT" | grep -E '^=== (verdict|coverage)' | tr '\n' ' ')"
 fi
@@ -946,8 +946,8 @@ OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/ci-base" ] \
    && printf '%s' "$OUT" | grep -q '^SKIP ci-base operator-worktree(' \
    && printf '%s' "$OUT" | grep -q 'unresolved=0 indeterminate=0 operator=1' \
-   && printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN'; then
-    ok "a non-teammate worktree is SKIP operator-worktree, counted apart, kept, and the run is CLEAN"
+   && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING.*branches-pending='; then
+    ok "operator worktree stays separate and untouched; retained teammate branches keep the run PENDING"
 else
     bad "operator worktree (rc=$RC): $(printf '%s' "$OUT" | grep -E 'ci-base|^=== (verdict|coverage)' | tr '\n' ' ' | cut -c1-300)"
 fi
