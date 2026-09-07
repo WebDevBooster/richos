@@ -124,13 +124,14 @@ class LegacyGate:
 
     @staticmethod
     def _require_completed_mutation(base):
-        path = base / 'mutation.json'
-        if os.path.lexists(path):
-            if path.is_symlink():
-                raise GateError('invalid mutation receipt')
-            journal = json.loads(path.read_text())
-            if journal.get('version') != 1 or journal.get('gate_id') != base.name or journal.get('phase') != 'complete':
-                raise GateError('incomplete frozen mutation requires replay before access can reopen')
+        for name in ('mutation.json','retirement.json'):
+            path = base / name
+            if os.path.lexists(path):
+                if path.is_symlink():
+                    raise GateError('invalid mutation receipt')
+                journal = json.loads(path.read_text())
+                if journal.get('version') != 1 or journal.get('gate_id') != base.name or journal.get('phase') != 'complete':
+                    raise GateError('incomplete frozen mutation requires replay before access can reopen')
 
     def _append(self, base, value):
         fd = os.open(base / 'metadata.jsonl', os.O_CREAT | os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, 0o600)
@@ -328,6 +329,10 @@ class LegacyGate:
             raise error
         for root in record['roots']:
             path = base / root['held']
+            if root.get('retired'):
+                if os.path.lexists(path):
+                    raise GateError('retired gate root unexpectedly exists')
+                continue
             paths = [path]
             for directory, dirs, files in os.walk(path, followlinks=False, onerror=scan_error):
                 paths.extend(Path(directory) / name for name in dirs + files)
@@ -398,6 +403,8 @@ class LegacyGate:
                 elif not self._status(base, record)['boot_cutoff_verified']:
                     raise GateError('verified later boot required before restoring access')
                 for root in record['roots']:
+                    if root.get('retired'):
+                        continue
                     if os.path.lexists(root['source']):
                         if ((base / root['held']).exists() or record['phase'] != 'staging'
                                 or not self._same(Path(root['source']).lstat(), root['metadata'])):
@@ -414,6 +421,8 @@ class LegacyGate:
                     self._apply(Path(parent['path']), parent['metadata'])
             entries = self._entries(base)
             for root in record['roots']:
+                if root.get('retired'):
+                    continue
                 source, held = Path(root['source']), base / root['held']
                 parent = next(p for p in record['restore_parents'] if p['path'] == str(source.parent))
                 fd = self._parent(parent)

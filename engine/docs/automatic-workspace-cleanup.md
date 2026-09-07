@@ -54,10 +54,12 @@ A process scan cannot revoke writes through already-open files. Descriptors
 queued through a Unix socket and writable mappings survive ordinary permission
 changes. Copying an arbitrary directory into an archive does not fix that race.
 
-Existing directory-based worktrees therefore remain captured and retained under
-the current safety rule. They are not erased by this candidate. The read-only
-legacy maintenance planner describes the complete repository gate needed for a
-future migration. Shared Git objects mean the gate must cover the canonical Git
+Existing directory-based worktrees require the
+[offline retirement executor](legacy-workspace-retirement.md). It preserves a
+verified archive and Git recovery refs before reclaiming the selected worktree
+and registration. No real worktrees have been passed through this executor.
+The read-only legacy maintenance planner describes the complete repository gate
+needed for migration. Shared Git objects mean the gate must cover the canonical Git
 store and every registered checkout, including checkouts that are not removal
 candidates. It cannot run while another worktree has active or unknown work.
 
@@ -68,8 +70,10 @@ A candidate gate now consolidates nested native worktrees into physical root
 gates, discloses temporary parent-directory protection and supports explicit
 later-boot restoration after interrupted staging. Its owner-inspection boundary
 and protected administrator command are implemented. It is not installed or
-accepted on the privileged host. Selective capture and reclamation are still
-required before migration can complete.
+accepted on the privileged host. Selective capture and reclamation now have
+disposable real-Git coverage, including recovery after interrupted deletion and
+survival of staged/conflict blobs after reflog expiry and Git garbage collection.
+Automatic execution and installed acceptance remain required before migration.
 
 ## Branches
 

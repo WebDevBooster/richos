@@ -29,8 +29,10 @@ class Commands(unittest.TestCase):
         runtime=SimpleNamespace(validate_runtime=lambda:self.release,protected_path=lambda p,**kw:Path(p),validate_policy=lambda v:v)
         self.store=Mock();self.store.frozen_view.side_effect=lambda *a,**kw:contextlib.nullcontext({})
         self.mutation=Mock();self.shadow=Mock()
+        self.retirement=Mock();self.capture=Mock()
         modules={'managed-workspace-broker.py':runtime,'legacy-workspace-gate.py':gate,
-                 'legacy-workspace-mutation.py':self.mutation,'terminal-branch-shadow.py':self.shadow}
+                 'legacy-workspace-mutation.py':self.mutation,'terminal-branch-shadow.py':self.shadow,
+                 'legacy-workspace-retirement.py':self.retirement,'legacy-workspace-capture.py':self.capture}
         for p in (patch.object(admin,'load',side_effect=lambda name,file:modules[file]),
                   patch.object(admin.sys,'executable',gate.INTERPRETER),patch.object(gate,'LegacyGate',return_value=self.store)):
             p.start();self.addCleanup(p.stop)
@@ -67,6 +69,32 @@ class Commands(unittest.TestCase):
         self.mutation.replay.assert_not_called()
         self.args.approved_selection_sha256='selection-hash';admin.run(self.args)
         self.mutation.replay.assert_called_once_with(self.store,'gate',approved_selection_sha256='selection-hash')
+        self.store.frozen_view.assert_not_called()
+
+    def test_recovery_and_retirement_use_distinct_fixed_dispatch(self):
+        self.args.operation='publish-recovery';admin.run(self.args)
+        self.mutation.publish_recovery.assert_called_once_with(self.store,self.selection,approved_selection_sha256='selection-hash',
+                                                             scratch_root=self.private/'legacy-scratch')
+        self.mutation.publish.assert_not_called()
+        self.args.operation='retire';admin.run(self.args)
+        self.retirement.retire.assert_called_once_with(self.store,self.selection,approved_selection_sha256='selection-hash',
+                                                      scratch_root=self.private/'legacy-scratch')
+
+    def test_capture_requires_exact_candidate_identity(self):
+        self.args.operation='capture';self.args.candidate_path=None
+        with self.assertRaisesRegex(ValueError,'candidate'):admin.run(self.args)
+        self.capture.prepare.assert_not_called()
+        self.args.candidate_path='/selected/worker';admin.run(self.args)
+        self.capture.prepare.assert_called_once_with(self.store,'gate',approved_gate_sha256='gate-hash',
+            repo_alias='fixture',candidate_path='/selected/worker',scratch_root=self.private/'legacy-scratch')
+
+    def test_retirement_replay_bypasses_pending_frozen_view_without_bypassing_approval(self):
+        self.args.operation='replay-retirement';self.args.approved_selection_sha256=None
+        with self.assertRaisesRegex(ValueError,'approval'):admin.run(self.args)
+        self.retirement.replay.assert_not_called()
+        self.args.approved_selection_sha256='retirement-hash';admin.run(self.args)
+        self.retirement.replay.assert_called_once_with(self.store,'gate',approved_selection_sha256='retirement-hash',
+                                                      scratch_root=self.private/'legacy-scratch')
         self.store.frozen_view.assert_not_called()
 
 if __name__=='__main__':unittest.main()

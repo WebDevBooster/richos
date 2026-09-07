@@ -100,6 +100,19 @@ def publish(gate, selection, *, approved_selection_sha256, scratch_root, trusted
     """Prepare internally, revalidate under the gate lock then publish/replay."""
     artifact = shadow.prepare(gate, selection, approved_selection_sha256=approved_selection_sha256,
                               scratch_root=scratch_root, trusted_git=trusted_git)
+    return _publish_prepared(gate, selection, artifact)
+
+
+def publish_recovery(gate, selection, *, approved_selection_sha256, scratch_root, trusted_git=shadow.TRUSTED_GIT):
+    """Only the fixed recovery preparer can supply additive recovery ref deltas."""
+    spec = importlib.util.spec_from_file_location('recovery_shadow', Path(__file__).with_name('terminal-recovery-shadow.py'))
+    recovery = importlib.util.module_from_spec(spec); spec.loader.exec_module(recovery)
+    artifact = recovery.prepare(gate, selection, approved_selection_sha256=approved_selection_sha256,
+                                scratch_root=scratch_root, trusted_git=trusted_git)
+    return _publish_prepared(gate, selection, artifact)
+
+
+def _publish_prepared(gate, selection, artifact):
     prepared = Path(artifact['artifact_path'])
     try:
         ident = selection['gate_id']
@@ -179,6 +192,7 @@ def _replay_locked(gate, base, record, journal):
         if shadow.digest(shadow._file_manifest(shadow._metadata(common))) != artifact['expected_ref_snapshot_sha256']:
             raise MutationError('completed mutation snapshot changed')
         return {'gate_id': base.name, 'phase': 'complete', 'retired_branches': artifact['retired_branches'],
+                'preserved_objects': artifact.get('preserved_objects', []),
                 'held_storage_modified': True, 'working_directories_deleted': False}
     original = {}
     for line in (base / 'mutation-data/original-metadata.jsonl').read_bytes().splitlines():
@@ -250,4 +264,5 @@ def _replay_locked(gate, base, record, journal):
     journal['phase'] = 'complete'
     _save(base / 'mutation.json', journal)
     return {'gate_id': base.name, 'phase': 'complete', 'retired_branches': artifact['retired_branches'],
+            'preserved_objects': artifact.get('preserved_objects', []),
             'held_storage_modified': True, 'working_directories_deleted': False}

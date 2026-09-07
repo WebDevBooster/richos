@@ -78,10 +78,17 @@ def run(args):
         if not args.approved_sha256:
             raise ValueError('restore requires explicit approved gate SHA256')
         return store.restore(args.gate_id, approved_sha256=args.approved_sha256)
-    if args.operation in ('branches', 'publish-branches', 'replay-branches'):
-        if args.operation == 'replay-branches':
+    if args.operation in ('branches', 'publish-branches', 'replay-branches', 'capture', 'publish-recovery', 'retire', 'replay-retirement'):
+        if args.operation in ('replay-branches', 'replay-retirement'):
             if not args.approved_selection_sha256:
                 raise ValueError('explicit matching branch selection approval required')
+            if args.operation == 'replay-retirement':
+                scratch = private / 'legacy-scratch'
+                if scratch.is_symlink(): raise ValueError('legacy scratch must not be a symlink')
+                scratch.mkdir(mode=0o700, exist_ok=True)
+                retirement = load('legacy_admin_retirement', 'legacy-workspace-retirement.py')
+                return retirement.replay(store, args.gate_id, approved_selection_sha256=args.approved_selection_sha256,
+                                         scratch_root=scratch)
             mutation = load('legacy_admin_mutation', 'legacy-workspace-mutation.py')
             return mutation.replay(store, args.gate_id, approved_selection_sha256=args.approved_selection_sha256)
         if not args.approved_sha256:
@@ -92,6 +99,12 @@ def run(args):
         if scratch.is_symlink():
             raise ValueError('legacy scratch must not be a symlink')
         scratch.mkdir(mode=0o700, exist_ok=True)
+        if args.operation == 'capture':
+            if len(args.repository) != 1 or not args.candidate_path:
+                raise ValueError('capture requires one repository alias and exact candidate path')
+            capture = load('legacy_admin_capture', 'legacy-workspace-capture.py')
+            return capture.prepare(store, args.gate_id, approved_gate_sha256=args.approved_sha256,
+                                   repo_alias=args.repository[0], candidate_path=args.candidate_path, scratch_root=scratch)
         if args.operation == 'branches':
             if len(args.repository) != 1:
                 raise ValueError('one repository alias required for branch observation')
@@ -107,15 +120,20 @@ def run(args):
         selection = json.loads(raw)
         if selection.get('gate_id') != args.gate_id or selection.get('gate_sha256') != args.approved_sha256:
             raise ValueError('branch selection targets a different gate')
+        if args.operation == 'retire':
+            retirement = load('legacy_admin_retirement', 'legacy-workspace-retirement.py')
+            return retirement.retire(store, selection, approved_selection_sha256=args.approved_selection_sha256,
+                                     scratch_root=scratch)
         mutation = load('legacy_admin_mutation', 'legacy-workspace-mutation.py')
-        return mutation.publish(store, selection, approved_selection_sha256=args.approved_selection_sha256,
-                                scratch_root=scratch)
+        publish = mutation.publish_recovery if args.operation == 'publish-recovery' else mutation.publish
+        return publish(store, selection, approved_selection_sha256=args.approved_selection_sha256,scratch_root=scratch)
     return getattr(store, args.operation)(args.gate_id)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('plan','stage','inspect','resume','restore','branches','publish-branches','replay-branches'))
+    parser.add_argument('operation', choices=('plan','stage','inspect','resume','restore','branches','publish-branches','replay-branches',
+                                             'capture','publish-recovery','retire','replay-retirement'))
     parser.add_argument('--owner-uid', type=int, required=True)
     parser.add_argument('--transactions', required=True)
     parser.add_argument('--ledger', required=True)
@@ -124,6 +142,7 @@ def main():
     parser.add_argument('--approved-sha256')
     parser.add_argument('--approved-selection-sha256')
     parser.add_argument('--gate-id')
+    parser.add_argument('--candidate-path')
     args = parser.parse_args()
     print(json.dumps(run(args), sort_keys=True))
 
