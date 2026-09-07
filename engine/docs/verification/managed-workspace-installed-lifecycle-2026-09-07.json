@@ -1,0 +1,151 @@
+{
+  "source_commit": "cd6205c",
+  "installation": {
+    "activated": false,
+    "client_config": "/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json",
+    "plist": "/Library/LaunchDaemons/com.richos.managed-workspace-broker.plist",
+    "policy": "/Library/Application Support/RichOS/workspace-broker/policy.json",
+    "release": "/Library/Application Support/RichOS/workspace-broker/releases/b9d9131fdf6efa3eba0fa3c93feee019d60548e99f14ea913e9f91a83bad04cc"
+  },
+  "acceptance": {
+    "acceptance_id": "acceptance-3eed19f4891d4f12b0aec65cb23eb8c6",
+    "activated": false,
+    "checks": [
+      {
+        "detail": "",
+        "name": "owner-write-tracked",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-cannot-read-backing-image",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-cannot-change-backing-permissions",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-ready-within-deadline",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-started",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "busy-holder-blocks-reclamation",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-finished",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "root-to-owner-capture-succeeds",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "active-image-reclaimed",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "dirty-recovery-retained",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "latest-working-bytes-recovered",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "separate-index-bytes-recovered",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "dirty-expiry-refused",
+        "passed": true
+      },
+      {
+        "detail": "hdiutil: couldn't unmount \"disk9\" - Permission denied\n",
+        "name": "owner-cannot-force-unmount-hdiutil",
+        "passed": true
+      },
+      {
+        "detail": "Volume RichOS-499ab65b-e4f7-4cd5-9041-8f85c94f3a2c on disk9s1 failed to unmount\n",
+        "name": "owner-cannot-force-unmount-diskutil",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "clean-recovery-created",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "clean-recovery-expires",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "installed-root-broker-starts",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-client-authenticates-installed-root-broker",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "installed-legacy-worker-reports-empty-fixture-inventory",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-socket-creation-is-idempotent",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-socket-binding-acknowledged",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-socket-terminal-acknowledged",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-socket-unused-preparation-cancelled",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "installed-sweep-reclaims-terminal-and-unused-workspaces",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "installed-root-broker-shuts-down-cleanly",
+        "passed": true
+      }
+    ],
+    "fixture_cleanup_complete": true,
+    "fixture_root": "/private/var/db/richos-workspaces/acceptance-3eed19f4891d4f12b0aec65cb23eb8c6",
+    "owner_uid": 501,
+    "passed": true,
+    "version": 1
+  }
+}

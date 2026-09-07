@@ -20,8 +20,8 @@ Both failures have deterministic subprocess regressions. The inherited-mask
 case failed before the change. A separate mutation retaining the mask fix but
 restoring the locking handler deadlocked when a second signal arrived in the
 stop-event critical section. The corrected CLTools Python suite passed all
-35 tests. Installed acceptance must be rerun on the corrected package before
-this finding is considered verified on the host.
+35 tests. The corrected package subsequently passed all 26 installed checks, including
+clean shutdown through the same launcher. See the [successful rerun](managed-workspace-installed-lifecycle-2026-09-07.md).
 
 The [failed acceptance and actual masks](managed-workspace-broker-shutdown-2026-09-07.json)
 preserve the evidence. Production cleanup remained inactive throughout.

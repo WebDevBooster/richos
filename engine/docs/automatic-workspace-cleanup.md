@@ -69,8 +69,8 @@ proof that writers have stopped. A Claude session restart is insufficient.
 A candidate gate now consolidates nested native worktrees into physical root
 gates, discloses temporary parent-directory protection and supports explicit
 later-boot restoration after interrupted staging. Its owner-inspection boundary
-and protected administrator command are implemented. It is not installed or
-accepted on the privileged host. Selective capture and reclamation now have
+and protected administrator command are implemented and installed in an inactive
+protected release. Actual privileged gate acceptance is still outstanding. Selective capture and reclamation now have
 disposable real-Git coverage, including recovery after interrupted deletion and
 survival of staged/conflict blobs after reflog expiry and Git garbage collection.
 Explicitly armed jobs now run automatically through the broker's separate
@@ -95,15 +95,16 @@ or discover and approve a broader selection during a retry.
 
 ## Remaining acceptance and work
 
-- The installed root-to-user acceptance fixture passed all 17 checks, including
-  backing-image protection and forced-unmount refusal. See the
-  [host receipt](verification/managed-workspace-host-acceptance-2026-09-07.md).
+- The final installed root-to-user acceptance fixture passed all 26 checks,
+  including backing-image protection, forced-unmount refusal, actual owner socket
+  lifecycle, unattended terminal and unused-preparation reclamation and clean
+  broker shutdown. See the [installed lifecycle receipt](verification/managed-workspace-installed-lifecycle-2026-09-07.md).
   Actual reboot acceptance remains separate.
 - Validate the complete installed Claude spawn-to-retirement path before enabling
   the public configuration.
-- Run the integrated preparation recovery through the installed service. The
-  source implementation now handles unused preparations and interrupted provider
-  creation. Exact session cancellation is durable, live or unknown sessions are
+- Unused preparation cancellation and automatic reclamation passed through the
+  installed service. Interrupted provider creation still requires separate
+  installed fault-injection acceptance. The source implementation handles both. Exact session cancellation is durable, live or unknown sessions are
   retained and paginated inventory reaches later abandoned records. Verified raw
   archives preserve malformed images, including outer extended attributes.
   Requests that never reserved storage close without a disk-reclamation claim.
