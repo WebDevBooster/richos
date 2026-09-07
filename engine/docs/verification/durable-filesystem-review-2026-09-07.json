@@ -1,0 +1,33 @@
+{
+  "source_commit": "1e3e49902d76c49f48a00844c9c738aa83d71c9f",
+  "reviewers": [
+    "Sage",
+    "Frank"
+  ],
+  "remaining_review_findings": [],
+  "native_tests": {
+    "helper": 9,
+    "legacy_consumers": 82,
+    "recovery_job_acceptance": 57,
+    "volume": 25,
+    "manager": 27,
+    "broker": 35,
+    "idempotency": 18,
+    "retirement": 8,
+    "mutation": 11,
+    "service": 10,
+    "managed_integration": 24,
+    "retirement_safety": 11
+  },
+  "test_count_note": "Suites overlap; do not sum. Volume and manager each include one optional installed-test skip.",
+  "full_retirement": {
+    "passed": 52,
+    "failed": 0,
+    "assertions": 402,
+    "explicit_not_covered": 2
+  },
+  "native_regression_method": "Consistent simulated st_dev renumber while native UUID queries stay real; old code fails new controls.",
+  "installation_bootstrap_sha256": "106690168004e5befb80c6a2f2860d86948df2da48b6bc85c8470ee1bd8c5a7d",
+  "pending_release_digest": "bd03b3b3bbfffdf74cdf3d61730fddc1297ece1a5fbd54d718444120289ced7a",
+  "actual_new_reboot_verified": false
+}
