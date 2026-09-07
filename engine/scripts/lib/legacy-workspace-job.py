@@ -40,7 +40,7 @@ def _scope(selection, approved):
     for key in ('gate_id','gate_sha256','approval_kind'):
         if not isinstance(selection[key],str) or not 0<len(selection[key])<=128:raise JobError('bounded job identity required')
     if (not isinstance(selection['candidates'],list) or not isinstance(selection['branches'],list)
-            or len(selection['candidates'])>128 or len(selection['branches'])>128
+            or len(selection['candidates'])>128 or len(selection['branches'])>512
             or not selection['candidates'] and not selection['branches']):raise JobError('bounded nonempty job scope required')
     seen=set()
     for row in selection['candidates']:
@@ -87,7 +87,31 @@ def _read(base):
     _scope(record['selection'],record['approved_selection_sha256'])
     if record.get('version')!=1 or record.get('gate_id')!=base.name or record['selection']['gate_id']!=base.name:
         raise JobError('job identity changed')
+    version=record.get('branch_batch_version')
+    if version is None:
+        if len(record['selection']['branches'])>128:
+            raise JobError('historical branch scope exceeds its original bound')
+        expected=sorted({row['repo_alias'] for row in record['selection']['branches']})
+    elif type(version) is int and version==1:
+        expected=_branch_batches(record['selection'])
+    else:
+        raise JobError('unsupported branch batch version')
+    if record.get('branch_groups')!=expected:
+        raise JobError('branch batches differ from exact approved selection')
+    index=record.get('branch_group_index')
+    if type(index) is not int or not 0<=index<=len(expected):
+        raise JobError('branch batch cursor is invalid')
     return record
+
+
+def _branch_batches(selection):
+    """One immutable selection, bounded publications with independent journals."""
+    groups=[]
+    for alias in sorted({row['repo_alias'] for row in selection['branches']}):
+        refs=[row['ref'] for row in selection['branches'] if row['repo_alias']==alias]
+        for start in range(0,len(refs),shadow.MAX_SELECTED_BRANCHES):
+            groups.append(dict(repo_alias=alias,refs=refs[start:start+shadow.MAX_SELECTED_BRANCHES]))
+    return groups
 
 
 def _save(base, record):
@@ -157,13 +181,13 @@ def arm(gate, selection, *, approved_selection_sha256, scratch_root):
             aliases={row['alias'] for row in plan['repositories']}
             if any(row['repo_alias'] not in aliases for row in selection['branches']):raise JobError('branch repository is outside approved gate')
             # Stable nonce reserves the exclusive scratch name before any copy.
-            groups=sorted({row['repo_alias'] for row in selection['branches']})
+            groups=_branch_batches(selection)
             record=dict(version=1,gate_id=selection['gate_id'],selection=selection,
                 approved_selection_sha256=approved_selection_sha256,inspection_context=gated.get('inspection_context'),
                 scratch_root=str(scratch),scratch_nonce=str(uuid.uuid4()),scratch={},
                 state='waiting-for-boot',phase='capture' if selection['candidates'] else 'branches',
                 candidate_index=0,branch_group_index=0,branch_groups=groups,captures=[],pending=None,last_error=None,
-                expiry_policy_version=1)
+                expiry_policy_version=1,branch_batch_version=1)
             _save(base,record)
             return _summary(record,progressed=True)
 
@@ -324,10 +348,12 @@ def _step(gate,base,record,scratch,binary):
         record['pending']=None;return
     if phase=='branches':
         if record['branch_group_index']>=len(record['branch_groups']):record['phase']='restore';return
-        alias=record['branch_groups'][record['branch_group_index']]
+        group=record['branch_groups'][record['branch_group_index']]
+        alias=group['repo_alias'] if record.get('branch_batch_version')==1 else group
         if record['pending'] is None:
             observed=shadow.observe(gate,ident,approved_gate_sha256=scope['gate_sha256'],repo_alias=alias,scratch_root=scratch,trusted_git=binary)
-            branches=[{k:v for k,v in row.items() if k!='repo_alias'} for row in scope['branches'] if row['repo_alias']==alias]
+            branches=[{k:v for k,v in row.items() if k!='repo_alias'} for row in scope['branches']
+                      if row['repo_alias']==alias and (record.get('branch_batch_version')!=1 or row['ref'] in group['refs'])]
             _derived(record,observed,dict(approval_kind='exact-frozen-selection',branches=branches),'branches');_save(base,record)
         pending=record['pending']
         if pending['kind']!='branches':raise JobError('unexpected branch pending operation')

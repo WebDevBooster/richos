@@ -56,3 +56,18 @@ policy and scheduling integration. This module itself does not activate a
 service or arm jobs through an unprivileged socket.
 
 An orphan registration must be selected explicitly with `kind: orphan-registration` and its exact absent-namespace identity. Ordinary selections default to `registered-linked-worktree` for compatibility. The same journaled capture, handoff and retirement phases preserve its surviving administration and object dependencies, while removing no nonexistent working directory. A newly recreated logical path stops the job before retirement. Such captures remain retained and never receive a clean-worktree expiry proof.
+
+### Bounded branch publication
+
+An approved job can select at most 512 branches, within the unchanged 256 KiB
+input bound. Each publication retains the primitive's limit of 128 branches.
+The job records an exact ordered batch map derived from its approved selection
+and a durable cursor. Reload rederives that map and refuses changed, missing,
+reordered or duplicated batches. A lost response replays the current batch
+before advancing. Every branch still requires its selected tip and recovery
+receipt before deletion.
+
+Existing jobs without a batch version retain their original per-repository
+cursor shape and total 128-branch limit. They cannot be reinterpreted as larger
+jobs. The real-Git branch-batch suite covers a 129-branch publication, interrupted
+replay, changed tips, batch tampering and historical compatibility.

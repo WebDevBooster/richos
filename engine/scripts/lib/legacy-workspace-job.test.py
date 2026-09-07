@@ -225,7 +225,7 @@ class Jobs(unittest.TestCase):
 
     def test_cross_repo_branch_groups_keep_original_tips_despite_new_snapshots(self):
         self.ready();record=job._read(self.base)
-        record['phase']='branches';record['branch_groups']=['alpha','beta'];record['branch_group_index']=0
+        record['phase']='branches';record['branch_groups']=[dict(repo_alias=alias,refs=['refs/heads/chosen']) for alias in ('alpha','beta')];record['branch_group_index']=0
         record['selection']['branches']=[dict(repo_alias=alias,ref='refs/heads/chosen',tip=self.head,integration_ref='refs/heads/main',integration_tip=self.head) for alias in ('beta','alpha')]
         publications=[]
         def observe(*args,**kwargs):
