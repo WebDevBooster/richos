@@ -97,6 +97,11 @@ of the exact policy and release: publish the reviewed pending plist into
 `/Library/LaunchDaemons/`, load that job and enable the public configuration only
 after the required acceptance. The installer does none of those operations.
 
+The [activation and migration sequence](managed-workspace-activation.md) also
+requires landing and installing the user-facing engine before enabling the
+public configuration. A protected broker release alone does not upgrade Claude
+hooks, helpers or running sessions.
+
 ## Root code execution and remaining acceptance
 
 The launchd plist uses `/Library/Developer/CommandLineTools/usr/bin/python3 -I -S -B`, an absolute installed release
