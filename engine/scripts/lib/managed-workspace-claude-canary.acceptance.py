@@ -91,6 +91,55 @@ def isolated_env(config, home):
         GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null')
 
 
+
+def owner_context_argv(owner, env, argv):
+    """Restore the real login audit/bootstrap context, then drop credentials.
+
+    launchctl asuser changes the Mach/audit session, not UID/GID. sudo changes
+    credentials. env -i comes last so sudo cannot discard lifecycle variables.
+    """
+    require(type(owner[0]) is int and owner[0]>0 and type(owner[1]) is int and owner[1]>=0,'numeric owner required')
+    require(argv and Path(argv[0]).is_absolute(),'absolute owner command required')
+    require(all(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',key) and isinstance(value,str) for key,value in env.items()),'invalid owner environment')
+    return ['/bin/launchctl','asuser',str(owner[0]),'/usr/bin/sudo','-n','-u','#'+str(owner[0]),
+            '-g','#'+str(owner[1]),'--','/usr/bin/env','-i',
+            *[key+'='+value for key,value in sorted(env.items())],*argv]
+
+
+def await_host_identity(path, supervisor, uid, sid, timeout=20):
+    deadline=time.monotonic()+timeout
+    while time.monotonic()<deadline:
+        with path.open('rb') as stream:
+            line=stream.readline(4096)
+        if line.endswith(b'\n'):
+            record=json.loads(line)
+            require(record.get('type')=='canary_host_identity' and record.get('uid')==uid
+                    and record.get('session_id')==sid and type(record.get('pid')) is int
+                    and record['pid']>0,'actual Claude launch identity mismatch')
+            actual=process_identity(record['pid'])
+            require(all(record.get(key)==actual[key] for key in ('pid','pid_start','boot_id')),'Claude host changed during launch')
+            return record
+        require(supervisor.poll() is None,'owner launcher exited before publishing its host identity')
+        time.sleep(.05)
+    raise RuntimeError('actual Claude host identity deadline')
+
+
+def stop_host(record):
+    """A fresh matching identity is required; unknown or reused PIDs are kept."""
+    if record is None:
+        return 'no-host-identity'
+    try:
+        actual=process_identity(record['pid'])
+    except RuntimeError:
+        return 'absent-or-identity-unavailable'
+    if any(record.get(key)!=actual[key] for key in ('pid','pid_start','boot_id')):
+        return 'identity-changed-no-signal'
+    owner=subprocess.run(['/bin/ps','-p',str(record['pid']),'-o','uid='],capture_output=True,text=True,timeout=5)
+    if owner.returncode!=0 or owner.stdout.strip()!=str(record['uid']):
+        return 'owner-unavailable-no-signal'
+    os.kill(record['pid'],signal.SIGTERM)
+    return 'SIGTERM-to-current-matching-host'
+
 def read_config(path):
     path = Path(path)
     for parent in (path, *path.parents):
@@ -134,6 +183,17 @@ def operation(args):
     config = read_config(args.fixture_config)
     active = Path(config['active_root']); engine = Path(config['engine'])
     os.environ.update(isolated_env(config, pwd.getpwuid(os.getuid()).pw_dir))
+    if args.op == 'launch':
+        launch_path=active/'launch.json'
+        info=launch_path.lstat()
+        require(stat.S_ISREG(info.st_mode) and info.st_uid==0 and not info.st_mode & 0o022,'unprotected launch specification')
+        launch=json.loads(launch_path.read_text())
+        require(launch['session_id']==config['session_id'] and launch['argv'][0]==str(Path(pwd.getpwuid(os.getuid()).pw_dir)/'.local/bin/claude'),'launch specification scope mismatch')
+        os.chdir(config['session_repo'])
+        os.environ['CLAUDE_PID']=str(os.getpid())
+        identity=dict(process_identity(os.getpid()),type='canary_host_identity',uid=os.getuid(),session_id=config['session_id'])
+        print(json.dumps(identity,sort_keys=True),flush=True)
+        os.execvpe(launch['argv'][0],launch['argv'],os.environ)
     tx = module(engine/'scripts/lib/worktree-transactions.py')
     bridge = module(engine/'scripts/lib/managed-workspace-integration.py')
     sid = config['session_id']
@@ -231,14 +291,14 @@ def execute(args, support, release, policy, owner):
                  Path('/Library/Managed Preferences/com.anthropic.claudecode.plist')):
         require(not path.exists() and not path.is_symlink(), 'managed Claude policy requires separate isolation review: '+str(path))
     env=dict(support.ENV,HOME=home,USER=account.pw_name,LOGNAME=account.pw_name)
-    plugins=subprocess.run([str(claude),'--restricted','--setting-sources','','plugin','list','--json'],env=env,
-        user=owner[0],group=owner[1],extra_groups=[],capture_output=True,timeout=30)
+    plugins=subprocess.run(owner_context_argv(owner,env,[str(claude),'--restricted','--setting-sources','','plugin','list','--json']),
+        env=support.ENV,capture_output=True,timeout=30)
     require(plugins.returncode==0,'cannot inventory installed Claude plugins')
     plugin_rows=json.loads(plugins.stdout)
     require(isinstance(plugin_rows,list) and all(isinstance(row,dict) and isinstance(row.get('id'),str) and row['id'] for row in plugin_rows),'invalid plugin inventory')
     disabled_plugins={row['id']:False for row in plugin_rows}
-    auth=subprocess.run([str(claude),'--setting-sources','','auth','status','--json'],env=env,
-        user=owner[0],group=owner[1],extra_groups=[],capture_output=True,timeout=30)
+    auth=subprocess.run(owner_context_argv(owner,env,[str(claude),'--setting-sources','','auth','status','--json']),
+        env=support.ENV,capture_output=True,timeout=30)
     try: authenticated=json.loads(auth.stdout).get('loggedIn') is True
     except Exception: authenticated=False
     require(authenticated, 'normal owner login unavailable; no credentials copied or substituted')
@@ -253,10 +313,14 @@ def execute(args, support, release, policy, owner):
         settings_sources=[],hook_profile='bounded native-plus-managed lifecycle',transcripts_retained=[])
     receipt=private/'acceptance.json'; support.save(receipt,report)
     server=cli=None
+    host_identity=None
     def check(name,value,detail=''):
         report['checks'].append(dict(name=name,passed=bool(value),detail=detail));support.save(receipt,report)
         require(value,name+(': '+detail if detail else ''))
     def child(argv,**kwargs):
+        if argv[0]==str(claude):
+            return subprocess.run(owner_context_argv(owner,env,argv),env=support.ENV,capture_output=True,
+                                  timeout=kwargs.pop('timeout',30),**kwargs)
         return subprocess.run(argv,env=env,user=owner[0],group=owner[1],extra_groups=[],capture_output=True,
                               timeout=kwargs.pop('timeout',30),**kwargs)
     try:
@@ -306,7 +370,7 @@ def execute(args, support, release, policy, owner):
         support.save(active/'canary.json',config);(active/'canary.json').chmod(0o644)
         runtime_copy=active/'canary-runtime.py';runtime_copy.write_bytes(Path(__file__).read_bytes());runtime_copy.chmod(0o644)
         wrapper=Path(config['wrapper'])
-        wrapper.write_text('#!/bin/bash\nset -euo pipefail\nexec '+shlex.quote(PYTHON)+' -I -S -B '+shlex.quote(str(runtime_copy))+' --fixture-config '+shlex.quote(str(active/'canary.json'))+' --op "$@"\n');wrapper.chmod(0o755)
+        wrapper.write_text('#!/bin/bash\nset -euo pipefail\ncase "${1:-}" in prepare|work|finish|hook) ;; *) exit 2 ;; esac\nexec '+shlex.quote(PYTHON)+' -I -S -B '+shlex.quote(str(runtime_copy))+' --fixture-config '+shlex.quote(str(active/'canary.json'))+' --op "$@"\n');wrapper.chmod(0o755)
         client=dict(version=1,socket=str(active/'b.sock'),active_root=str(active),repositories={'fixture':str(active/'source')})
         support.save(active/'client.json',client);(active/'client.json').chmod(0o644)
         fixture_policy=dict(version=1,private_root=str(private),active_root=str(active),owners={str(owner[0]):{'gid':owner[1]}},
@@ -342,11 +406,14 @@ def execute(args, support, release, policy, owner):
               '--permission-mode','dontAsk','--output-format','stream-json','--include-hook-events','--verbose',
               '--agents',json.dumps({'canary':{'description':'Execute the isolated managed worktree canary.','prompt':'Run only the supplied canary-op work command and report its result.','model':'sonnet'}}),
               '--max-budget-usd',str(args.max_budget_usd),prompt]
-        # exec preserves the launcher PID, which preparation records as Claude's.
-        launch=['/bin/bash','-c','export CLAUDE_PID=$$; exec "$@"','canary-launch',*argv]
+        support.save(active/'launch.json',dict(session_id=report['session_id'],argv=argv));(active/'launch.json').chmod(0o644)
+        launch=owner_context_argv(owner,env,[PYTHON,'-I','-S','-B',str(runtime_copy),
+            '--fixture-config',str(active/'canary.json'),'--op','launch'])
         with (private/'claude-stream.jsonl').open('wb') as output,(private/'claude-stderr.log').open('wb') as errors:
-            cli=subprocess.Popen(launch,cwd=session,env=env,user=owner[0],group=owner[1],extra_groups=[],stdin=subprocess.DEVNULL,stdout=output,stderr=errors)
-            report['claude_process']=process_identity(cli.pid);support.save(receipt,report)
+            cli=subprocess.Popen(launch,cwd=session,env=support.ENV,stdin=subprocess.DEVNULL,stdout=output,stderr=errors)
+            report['claude_supervisor_process']=process_identity(cli.pid);support.save(receipt,report)
+            host_identity=await_host_identity(private/'claude-stream.jsonl',cli,owner[0],report['session_id'])
+            report['claude_process']=host_identity;support.save(receipt,report)
             cli.wait(timeout=420)
         check('real-claude-process-completed',cli.returncode==0);cli=None
         stream=[json.loads(line) for line in (private/'claude-stream.jsonl').read_text().splitlines() if line.strip()]
@@ -389,6 +456,9 @@ def execute(args, support, release, policy, owner):
     except Exception as error:
         report['error']=str(error)
     finally:
+        if not report['passed'] and host_identity is not None:
+            try:report['claude_host_stop']=stop_host(host_identity)
+            except Exception as error:report['claude_host_stop_error']=str(error)
         support.stop(cli);support.stop(server)
         # Preserve all fixture evidence on both outcomes. A real background Agent
         # may outlive its lead on failure, so this runner has no recursive cleanup.
@@ -409,7 +479,7 @@ def main():
     parser.add_argument('--release');parser.add_argument('--manifest-sha256');parser.add_argument('--owner-uid',type=int)
     parser.add_argument('--engine');parser.add_argument('--engine-manifest');parser.add_argument('--engine-manifest-sha256')
     parser.add_argument('--max-budget-usd',type=float,default=1.0)
-    parser.add_argument('--fixture-config');parser.add_argument('--op',choices=('prepare','work','finish','hook'))
+    parser.add_argument('--fixture-config');parser.add_argument('--op',choices=('prepare','work','finish','hook','launch'))
     parser.add_argument('--hook')
     args=parser.parse_args()
     if args.op:

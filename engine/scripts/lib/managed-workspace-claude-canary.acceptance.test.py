@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
+import json
 
 spec=importlib.util.spec_from_file_location('canary',Path(__file__).with_name('managed-workspace-claude-canary.acceptance.py'))
 a=importlib.util.module_from_spec(spec);spec.loader.exec_module(a)
@@ -16,6 +18,29 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='richos-canary-test-');self.root=Path(self.temp.name)
     def tearDown(self):self.temp.cleanup()
+    def test_owner_context_restores_audit_session_then_credentials_then_exact_environment(self):
+        argv=a.owner_context_argv((501,20),{'HOME':'/Users/example','RICHOS_WORKTREE_TX_DIR':'/fixture/tx'},['/fixed/claude','auth','status'])
+        self.assertEqual(argv[:11],['/bin/launchctl','asuser','501','/usr/bin/sudo','-n','-u','#501','-g','#20','--','/usr/bin/env'])
+        self.assertEqual(argv[11],'-i')
+        self.assertEqual(argv[-3:],['/fixed/claude','auth','status'])
+        self.assertIn('RICHOS_WORKTREE_TX_DIR=/fixture/tx',argv[12:-3])
+        with self.assertRaises(RuntimeError):a.owner_context_argv((0,20),{},['/fixed/claude'])
+    def test_actual_host_identity_is_distinct_from_the_launchctl_supervisor(self):
+        path=self.root/'stream.jsonl'
+        identity=dict(type='canary_host_identity',uid=501,session_id='session',pid=4321,pid_start='exact',boot_id='boot')
+        path.write_text(json.dumps(identity)+'\n')
+        supervisor=mock.Mock(pid=1000)
+        with mock.patch.object(a,'process_identity',return_value={key:identity[key] for key in ('pid','pid_start','boot_id')}) as query:
+            self.assertEqual(a.await_host_identity(path,supervisor,501,'session'),identity)
+            query.assert_called_once_with(4321)
+        with self.assertRaisesRegex(RuntimeError,'identity mismatch'):
+            a.await_host_identity(path,supervisor,501,'different')
+    def test_reused_or_unavailable_host_identity_never_receives_a_signal(self):
+        identity=dict(pid=4321,pid_start='original',boot_id='boot',uid=501)
+        with mock.patch.object(a,'process_identity',return_value=dict(pid=4321,pid_start='new-owner',boot_id='boot')),mock.patch.object(a.os,'kill') as kill:
+            self.assertEqual(a.stop_host(identity),'identity-changed-no-signal');kill.assert_not_called()
+        with mock.patch.object(a,'process_identity',side_effect=RuntimeError('unavailable')),mock.patch.object(a.os,'kill') as kill:
+            self.assertEqual(a.stop_host(identity),'absent-or-identity-unavailable');kill.assert_not_called()
     def test_manifest_refuses_external_symlink(self):
         (self.root/'link').symlink_to('/etc/passwd')
         with self.assertRaisesRegex(RuntimeError,'symlink'):a.file_manifest(self.root)
