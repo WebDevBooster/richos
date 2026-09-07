@@ -13,6 +13,32 @@ use std::path::{Path, PathBuf};
 pub const SERVER_NAME: &str = "richos_onboarding";
 pub const SAVE_TOOL_NAME: &str = "save_company_notes";
 pub const DECLINE_TOOL_NAME: &str = "decline_onboarding";
+pub const QUALIFIED_SAVE_TOOL: &str = "mcp__richos_onboarding__save_company_notes";
+pub const QUALIFIED_DECLINE_TOOL: &str = "mcp__richos_onboarding__decline_onboarding";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnboardingToolsVerdict {
+    NotYetReported,
+    Loaded,
+    Rejected,
+}
+
+/// Configuration acceptance is not proof that the subprocess connected. Both exact tool
+/// names must appear in the native child's actual first system/init inventory.
+pub fn verdict_from_init(init: &Value) -> OnboardingToolsVerdict {
+    let Some(tools) = init.get("tools").and_then(Value::as_array) else {
+        return OnboardingToolsVerdict::Rejected;
+    };
+    if [QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL]
+        .iter()
+        .all(|name| tools.iter().any(|tool| tool.as_str() == Some(name)))
+    {
+        OnboardingToolsVerdict::Loaded
+    } else {
+        OnboardingToolsVerdict::Rejected
+    }
+}
+
 const MAX_FRAME_BYTES: usize = 128 * 1024;
 const MAX_SCOPE_BYTES: u64 = 16 * 1024;
 

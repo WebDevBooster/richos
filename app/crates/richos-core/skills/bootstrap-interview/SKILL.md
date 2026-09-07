@@ -58,7 +58,7 @@ to 3 and check it with him: "it sounds like you would want someone on the back e
 the front, and someone testing — anything else, or does that cover it?"
 
 **Then tell him what happens to that answer, in plain words: you are writing down who he wants,
-you cannot bring anyone on yet, and he will be told when you can.** Do not skip this because
+you cannot bring anyone on yet.** Do not skip this because
 the conversation is going well. It is the sentence that keeps the rest of it honest.
 
 ### 5 — What must never happen

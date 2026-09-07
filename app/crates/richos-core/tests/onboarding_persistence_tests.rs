@@ -393,3 +393,34 @@ fn progress_metadata_alone_never_counts_as_an_answer() {
     fs::write(path, format!("{}\n \n", company::PARTIAL_MARKER)).unwrap();
     assert_eq!(f.state(&f.a), OnboardingState::NotYet);
 }
+
+#[test]
+fn storage_refusal_is_about_notes_and_never_claims_the_app_cannot_start() {
+    let f = Fixture::new();
+    let path = company::company_file(&f.central, &f.a);
+    fs::create_dir_all(&path).unwrap();
+    let why = f.save("Proposed answer", "complete").unwrap_err();
+    assert!(why.contains("notes could not be saved"));
+    assert!(!why.contains("standing instruction"));
+    assert!(!why.contains("will not start"));
+    assert!(path.is_dir());
+}
+
+#[test]
+fn malformed_and_incomplete_tool_inventories_are_refused() {
+    use onboarding_tools::{
+        verdict_from_init, OnboardingToolsVerdict, QUALIFIED_DECLINE_TOOL, QUALIFIED_SAVE_TOOL,
+    };
+    for init in [
+        json!({}),
+        json!({"tools":null}),
+        json!({"tools":[QUALIFIED_SAVE_TOOL]}),
+        json!({"tools":[{"name":QUALIFIED_SAVE_TOOL},QUALIFIED_DECLINE_TOOL]}),
+    ] {
+        assert_eq!(verdict_from_init(&init), OnboardingToolsVerdict::Rejected);
+    }
+    assert_eq!(
+        verdict_from_init(&json!({"tools":["Read",QUALIFIED_SAVE_TOOL,QUALIFIED_DECLINE_TOOL]})),
+        OnboardingToolsVerdict::Loaded
+    );
+}

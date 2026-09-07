@@ -322,8 +322,15 @@ pub fn save_company_notes(
     let path = company_file(central_root, entity);
     std::fs::create_dir_all(company_home(central_root, entity))
         .map_err(|e| CompanyWriteError::Storage(e.to_string()))?;
-    crate::doctrine::write_verified(&path, &body)
-        .map_err(|e| CompanyWriteError::Storage(e.to_string()))?;
+    crate::doctrine::write_verified(&path, &body).map_err(|e| {
+        // The shared writer's display text describes doctrine startup, which is false for
+        // interview notes. Preserve the actual storage cause without claiming Rich cannot boot.
+        let why = match e {
+            crate::doctrine::DoctrineError::Unwritable { why, .. } => why,
+            crate::doctrine::DoctrineError::NoHome => "the storage location is unavailable".into(),
+        };
+        CompanyWriteError::Storage(why)
+    })?;
     match CompanyLayer::read(central_root, entity) {
         CompanyLayer::Present { text, .. } if text == body => Ok(body.len()),
         other => Err(CompanyWriteError::Storage(other.describe())),

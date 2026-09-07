@@ -726,6 +726,8 @@ struct ReaderState {
     /// handshake. That is a third state, not a pessimistic default: "nobody has told us" and
     /// "we were told no" call for opposite responses.
     skills_verdict: crate::skills::SkillsVerdict,
+    /// Both exact app-owned onboarding tools, as reported by the child on its first turn.
+    onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict,
 }
 
 impl Default for ReaderState {
@@ -734,6 +736,7 @@ impl Default for ReaderState {
             session_model: None,
             context_window: None,
             skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
+            onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported,
         }
     }
 }
@@ -1243,6 +1246,9 @@ impl NativeClient {
             // frame repeats every turn and says the same thing, so a later rejection is caught
             // too. The verdict is a FACT FROM THE CHILD, not an inference: `plugins` lists what
             // it actually loaded.
+            if st.onboarding_tools_verdict == crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported {
+                st.onboarding_tools_verdict = crate::onboarding_tools::verdict_from_init(&msg);
+            }
             let before = st.skills_verdict;
             st.skills_verdict = crate::skills::verdict_from_init(&msg);
             if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
@@ -1428,6 +1434,23 @@ impl NativeClient {
     /// fact. It is three states for that reason.
     pub fn skills_verdict(&self) -> crate::skills::SkillsVerdict {
         self.reader_state.lock().map(|s| s.skills_verdict).unwrap_or(crate::skills::SkillsVerdict::NotYetReported)
+    }
+
+    pub fn onboarding_tools_verdict(&self) -> crate::onboarding_tools::OnboardingToolsVerdict {
+        self.reader_state.lock().map(|s| s.onboarding_tools_verdict)
+            .unwrap_or(crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported)
+    }
+
+    /// Call after the internal prime has completed, and only on a chat lease configured with
+    /// the onboarding server. Before the first turn the inventory has not arrived yet.
+    pub fn ensure_onboarding_tools_loaded(&self) -> Result<(), CognitionError> {
+        match self.onboarding_tools_verdict() {
+            crate::onboarding_tools::OnboardingToolsVerdict::Loaded => Ok(()),
+            crate::onboarding_tools::OnboardingToolsVerdict::Rejected => Err(CognitionError::Protocol(
+                "The company interview tools did not load. This connection cannot save interview answers.".into())),
+            crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported => Err(CognitionError::Protocol(
+                "The connection did not report whether company interview tools loaded.".into())),
+        }
     }
 
     /// Take everything the agent said while no turn was in flight (§1.5, gap #1).
@@ -2041,6 +2064,31 @@ mod native_driver_tests {
             crate::skills::SkillsVerdict::NotYetReported,
             "the init frame arrives with the first TURN; before that we have been told nothing"
         );
+    }
+
+    #[test]
+    fn the_real_reader_verifies_both_onboarding_tools_from_the_first_init() {
+        use crate::onboarding_tools::{OnboardingToolsVerdict, QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL};
+        for (suffix, names, expected) in [
+            ("present", vec![QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL], OnboardingToolsVerdict::Loaded),
+            ("missing-decline", vec![QUALIFIED_SAVE_TOOL], OnboardingToolsVerdict::Rejected),
+            ("lookalike", vec!["mcp__other__save_company_notes", QUALIFIED_DECLINE_TOOL], OnboardingToolsVerdict::Rejected),
+        ] {
+            let init = json!({"type":"system","subtype":"init","tools":names,"plugins":[{"name":"rich-skills"}]}).to_string();
+            let body = format!(
+                "read -r line\nprintf '%s\\n' '{{\"type\":\"control_response\",\"response\":{{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{{}}}}}}'\n\
+                 read -r line\nprintf '%s\\n' '{init}'\n\
+                 printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"stop_reason\":\"end_turn\"}}'\n\
+                 while read -r line; do :; done\n"
+            );
+            let script = write_script(&format!("onboarding-tools-{suffix}"), &body);
+            let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+            assert_eq!(client.onboarding_tools_verdict(), OnboardingToolsVerdict::NotYetReported);
+            assert!(client.ensure_onboarding_tools_loaded().is_err());
+            client.prompt("ready", &mut |_| {}).unwrap();
+            assert_eq!(client.onboarding_tools_verdict(), expected);
+            assert_eq!(client.ensure_onboarding_tools_loaded().is_ok(), expected == OnboardingToolsVerdict::Loaded);
+        }
     }
 
     #[test]
