@@ -102,6 +102,17 @@ class Storage(unittest.TestCase):
         self.assertEqual(link.lstat().st_ino,(self.root/'outside-link').lstat().st_ino)
         self.assertEqual(os.readlink(link),'file');self.assertEqual((self.work/'file').read_text(),'committed')
 
+    def test_historical_partial_gate_cannot_adopt_unjournaled_link_group(self):
+        with patch.object(self.manager,'_protect_tree',side_effect=RuntimeError('after rename')),self.assertRaises(RuntimeError):self.stage()
+        base=next(self.vault.iterdir());record=self.manager._load(base)
+        record.pop('metadata_snapshot_version');self.manager._save(base,record)
+        held=next(base/root['held'] for root in record['roots'] if (base/root['held']).exists())
+        first=held/'aaa-link-a';first.write_bytes(b'late preserved bytes');os.link(first,held/'aaa-link-b')
+        before=(base/'metadata.jsonl').read_bytes()
+        with self.assertRaisesRegex(gate.GateError,'historical partial'):self.manager.resume(base.name)
+        self.assertEqual((base/'metadata.jsonl').read_bytes(),before)
+        self.assertEqual(first.read_bytes(),b'late preserved bytes')
+
     @unittest.skipUnless(sys.platform=='darwin','actual BSD flags')
     def test_benign_flags_survive_and_other_flags_refuse(self):
         first,second=self.pair();os.chflags(first,0x8040)

@@ -261,6 +261,8 @@ class LegacyGate:
             if getattr(self, '_snapshot_protection', False):
                 raise GateError('unrecorded object appeared after metadata snapshot')
             original = dict(self._metadata(path), relative=relative)
+            if original['kind'] == 'file' and original['nlink'] > 1:
+                raise GateError('historical partial gate cannot adopt a new hardlink group')
             self._append(base, original)  # Original metadata is durable before mutation.
             entries[relative] = original
         original = entries[relative]
