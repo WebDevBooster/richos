@@ -58,6 +58,30 @@ class Jobs(unittest.TestCase):
         self.assertTrue((Path(record['captures'][0]['path'])/'recovery.tar.gz').is_file())
         self.assertFalse(self.advance()['progressed'])
 
+    @unittest.skipUnless(sys.platform=='darwin','durable cross-boot UUID contract is macOS only')
+    def test_persisted_scratch_and_capture_survive_device_renumber_before_handoff(self):
+        self.ready();self.next_boot();self.until('handoff')
+        saved=job._read(self.base);known=saved['scratch']['0'];path=Path(known['path'])
+        artifact=Path(saved['captures'][0]['path']);archive=(artifact/'recovery.tar.gz').read_bytes()
+        self.next_boot()
+        with fixtures.renumbered_device():
+            observed,witness=job._scratch(self.manager,self.base,saved)
+            self.assertEqual(observed,path);self.assertEqual(witness,known)
+            result=self.until('complete')
+        self.assertEqual(result['state'],'complete');self.assertFalse(self.work.exists())
+        self.assertEqual((artifact/'recovery.tar.gz').read_bytes(),archive)
+
+    def test_old_numeric_or_other_volume_scratch_is_retained_without_cleanup(self):
+        self.ready();self.next_boot();self.until('handoff')
+        saved=job._read(self.base);known=saved['scratch']['0'];path=Path(known['path'])
+        contents=sorted(p.name for p in path.iterdir())
+        for token in (path.lstat().st_dev,'darwin-volume-uuid-v1:'+str(uuid.uuid4())):
+            with self.subTest(token=token):
+                changed=json.loads(json.dumps(saved));changed['scratch']['0']['identity']['device']=token
+                with self.assertRaisesRegex(job.JobError,'scratch identity changed'):
+                    job._scratch(self.manager,self.base,changed)
+                self.assertTrue(path.is_dir());self.assertEqual(sorted(p.name for p in path.iterdir()),contents)
+
     def test_rearming_cannot_broaden_scope_or_use_staging_gate(self):
         self.ready();changed=dict(self.selection,candidates=[])
         with self.assertRaisesRegex(job.JobError,'different immutable'):job.arm(self.manager,changed,approved_selection_sha256=job.shadow.digest(changed),scratch_root=self.scratch)

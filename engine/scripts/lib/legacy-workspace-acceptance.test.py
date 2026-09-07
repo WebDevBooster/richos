@@ -22,6 +22,7 @@ def load(name):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
 mod=load('legacy-workspace-acceptance');gate_module=load('legacy-workspace-gate')
+identity_fixtures=load('legacy-workspace-gate.test')
 
 
 class Fixture(unittest.TestCase):
@@ -115,6 +116,17 @@ class Fixture(unittest.TestCase):
             self.driver.stage(self.ident,self.record['plan_sha256'])
         self.assertFalse((self.base/'legacy-gates').exists())
 
+    def test_old_numeric_and_foreign_volume_fixture_roots_require_new_preparation(self):
+        self.prepare();original=json.loads((self.base/'receipt.json').read_text())
+        for token in (self.live.lstat().st_dev,'darwin-volume-uuid-v1:'+str(uuid.uuid4())):
+            with self.subTest(token=token):
+                changed=json.loads(json.dumps(original));changed['active_identity']['device']=token
+                mod.save(self.base/'receipt.json',changed)
+                with self.assertRaisesRegex(ValueError,'no durable filesystem UUID|root was replaced'):
+                    with self.driver.existing(self.ident):self.fail('must not accept replaced volume')
+                self.assertEqual((self.live/'sources/worker/file').read_bytes(),b'working')
+        mod.save(self.base/'receipt.json',original)
+
     def test_ambient_installed_owner_change_precedes_creation(self):
         with self.assertRaisesRegex(ValueError,'not approved'):self.driver.prepare(self.uid+12345)
         self.assertEqual(list(self.private.iterdir()),[]);self.assertEqual(list(self.active.iterdir()),[])
@@ -155,7 +167,7 @@ class Fixture(unittest.TestCase):
                 self.driver.resume(self.ident,self.record['plan_sha256'])
 
     @unittest.skipUnless(sys.platform=='darwin','actual macOS xattr expectation')
-    def test_real_tiny_job_and_archive_verification_under_disposable_boot_model(self):
+    def test_real_job_root_pins_and_archive_survive_disposable_boot_and_device_renumber(self):
         gate,ident,base=self.staged();self.boot=str(uuid.uuid4())
         def run(private,active,record):
             for _ in range(20):
@@ -163,7 +175,7 @@ class Fixture(unittest.TestCase):
                 self.assertNotEqual(result['state'],'failed',result)
                 if result['phase']=='complete':return
             self.fail('job not complete')
-        with patch.object(self.driver,'run_broker',side_effect=run):
+        with identity_fixtures.renumbered_device(),patch.object(self.driver,'run_broker',side_effect=run):
             result=self.driver.resume(self.ident,self.record['plan_sha256'])
         self.assertTrue(result['passed']);self.assertFalse(result['activated']);self.assertFalse(result['cleanup_authorized'])
         self.assertTrue((self.base/'legacy-gates').exists())

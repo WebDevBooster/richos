@@ -24,6 +24,7 @@ def load(name):
 
 recovery = load('managed-workspace-failed-creation')
 volumes = load('managed-workspace-volume')
+identity_fixtures = load('legacy-workspace-gate.test')
 
 
 class FailedCreation(unittest.TestCase):
@@ -48,7 +49,7 @@ class FailedCreation(unittest.TestCase):
         self.write_json(self.provider.root / (key + '.request.json'), self.request)
         self.raw = dict(version=1,id=self.ident,owner_uid=self.uid,owner_gid=os.getgid(),commit='a'*40,
                         state='detached',operation=None,boot_id=self.boot,
-                        image_identity=[self.image.stat().st_dev,self.image.stat().st_ino])
+                        image_identity=[recovery.fs_identity.filesystem_token(self.image),self.image.stat().st_ino])
         self.write_json(self.base / 'journal.json', self.raw)
         self.attached = False;self.busy = False;self.commands = []
         for name, function in (('_boot_id', lambda:self.boot),('_attached', self.attachment),('_run', self.run_command)):
@@ -87,6 +88,35 @@ class FailedCreation(unittest.TestCase):
         self.assert_archive();self.assertEqual(self.commands,[])
         self.assertEqual(recovery.inspect_failed_creation(self.provider,self.request)['state'],'creation-retained')
         self.assertEqual(self.recover()['state'],'creation-retained')
+
+    @unittest.skipUnless(sys.platform=='darwin','durable cross-boot UUID contract is macOS only')
+    def test_new_boot_and_device_renumber_preserve_uninitialized_image_bytes(self):
+        self.raw.update(state='creating',operation='create');self.write_json(self.base/'journal.json',self.raw)
+        self.boot=str(uuid.uuid4())
+        with identity_fixtures.renumbered_device():
+            result=self.recover(authorization={'kind':'new-boot'})
+        self.assertEqual(result['state'],'creation-retained',result);self.assert_archive()
+
+    @unittest.skipUnless(sys.platform=='darwin','durable cross-boot UUID contract is macOS only')
+    def test_captured_archive_replay_survives_device_renumber_without_recapture(self):
+        with self.crash_after('captured'),self.assertRaises(KeyboardInterrupt):self.recover()
+        candidate=self.base/'failed-creation.partial.tar.gz';captured=candidate.read_bytes()
+        self.boot=str(uuid.uuid4())
+        with identity_fixtures.renumbered_device(),patch.object(recovery,'_capture',side_effect=AssertionError('must reuse pinned capture')):
+            result=self.recover()
+        self.assertEqual(result['state'],'creation-retained',result);self.assert_archive()
+        self.assertEqual((self.base/'failed-creation.tar.gz').read_bytes(),captured)
+
+    def test_legacy_numeric_and_different_volume_pins_cannot_reclaim_raw_image(self):
+        info=self.image.lstat()
+        for token in (info.st_dev,'darwin-volume-uuid-v1:'+str(uuid.uuid4())):
+            with self.subTest(token=token):
+                self.raw['image_identity']=[token,info.st_ino];self.write_json(self.base/'journal.json',self.raw)
+                result=self.recover()
+                self.assertEqual(result['state'],'creation-blocked',result)
+                self.assertIn('image identity changed',result['last_error'])
+                self.assertTrue(self.image.is_dir());self.assertEqual((self.image/'bands/0').read_bytes(),self.data['bands/0'])
+                self.assertFalse((self.base/'failed-creation.tar.gz').exists())
 
     def test_unjournaled_image_identity_can_recover_after_actual_normal_detach(self):
         self.raw.pop('image_identity');self.raw.update(state='creating',operation='create')
