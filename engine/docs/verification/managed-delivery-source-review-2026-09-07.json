@@ -1,0 +1,27 @@
+{
+  "delivery_source_commit": "4fa95cab06cd0637970816360de34f3b670b9c34",
+  "reaper_source_commit": "539bf7f",
+  "reviewers": [
+    "Sage",
+    "Frank"
+  ],
+  "remaining_source_findings": [],
+  "managed_native_suites": {
+    "manager": 31,
+    "idempotency": 19,
+    "broker": 36,
+    "integration": 27,
+    "creation_helper": 20,
+    "creation_helper_mutations": 4
+  },
+  "managed_platform_skips": "manager includes one optional installed-test skip; Linux has three expected platform/optional skips",
+  "original_code_negative_controls": 4,
+  "reaper": {
+    "functional_passed": 52,
+    "mutations_caught": 6
+  },
+  "interrupted_acceptance_runner_commit": "f3edafd",
+  "external_harness_unprivileged_tests": 7,
+  "installed_release_under_test": "8397310ea1b75b6e48a839d403be70624f964d114d5e820a76dd245ecf83e04b",
+  "bootstrap_sha256": "5f34c8739a01de440d4ca98320f9a69f494c1f20f3bef3a04a5c741f69ba8005"
+}

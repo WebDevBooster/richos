@@ -111,20 +111,21 @@ or discover and approve a broader selection during a retry.
 
 ## Remaining acceptance and work
 
-- The final installed root-to-user acceptance fixture passed all 26 checks,
-  including backing-image protection, forced-unmount refusal, actual owner socket
-  lifecycle, unattended terminal and unused-preparation reclamation and clean
-  broker shutdown. The corrected UUID package passed all 26 again; see the [current receipt](verification/managed-workspace-uuid-installed-lifecycle-2026-09-07.json).
+- The final inactive installed release passed all 31 managed lifecycle and
+  delivery checks, including owner socket authentication, normal timer cleanup,
+  preservation of a preexisting same-name branch and merging the exact delivered
+  commit after image reclamation. See the [installed receipts](verification/managed-delivery-installed-2026-09-07.md).
   The isolated legacy real-reboot acceptance also passed.
-- Validate the complete installed Claude spawn-to-retirement path before enabling
-  the public configuration.
-- Unused preparation cancellation and automatic reclamation passed through the
-  installed service. Interrupted provider creation still requires separate
-  installed fault-injection acceptance. The source implementation handles both. Exact session cancellation is durable, live or unknown sessions are
-  retained and paginated inventory reaches later abandoned records. Verified raw
-  archives preserve malformed images, including outer extended attributes.
-  Requests that never reserved storage close without a disk-reclamation claim.
-  Raw recovery has no automatic expiry because unique data cannot be classified.
+- Validate the complete real Claude spawn-to-retirement path before enabling
+  the public configuration. The isolated actual-Claude canary is being prepared;
+  it substitutes only the copied bridge's config location and does not activate
+  production.
+- Installed interrupted-creation acceptance passed all 24 checks with actual
+  process exit after attachment, busy owner descriptor retention, wrong-session
+  cancellation refusal, normal unattended sweeps, raw malformed-image/xattr
+  recovery, empty reservation handling and stable retries. Both disposable test
+  namespaces were removed after strict attachment checks. Raw recovery has no
+  automatic expiry because unique data cannot be classified.
 - The legacy executor, coordinated branch publication and armed-job background
   worker have passed disposable integration tests and independent review.
   The installed UUID fixture passed across a real reboot; its

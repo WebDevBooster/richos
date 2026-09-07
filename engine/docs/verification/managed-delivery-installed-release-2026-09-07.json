@@ -1,0 +1,16 @@
+{
+  "source_commit": "4fa95cab06cd0637970816360de34f3b670b9c34",
+  "installed": {
+    "activated": false,
+    "client_config": "/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json",
+    "plist": "/Library/Application Support/RichOS/workspace-broker/com.richos.managed-workspace-broker.plist.pending",
+    "policy": "/Library/Application Support/RichOS/workspace-broker/policy.json",
+    "release": "/Library/Application Support/RichOS/workspace-broker/releases/8397310ea1b75b6e48a839d403be70624f964d114d5e820a76dd245ecf83e04b"
+  },
+  "manifest_sha256": "5b798931b3aa02b02324596fd3ad39cb559827589c36ac7a61e5b1346c45159c",
+  "protected_receipt": "/Library/Application Support/RichOS/workspace-broker/acceptance-runs/delivery-interrupted-a515daada4494148b9b5b6d30e618456/receipt.jsonl",
+  "bootstrap_sha256": "a04855f9738ff56ee391842b082f67f7be133901aae457eb88de1eb1d27dfbfc",
+  "managed_checks": 31,
+  "interrupted_checks": 24,
+  "production_active": false
+}

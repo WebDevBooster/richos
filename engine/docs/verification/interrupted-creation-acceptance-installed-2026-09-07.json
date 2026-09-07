@@ -1,0 +1,168 @@
+{
+  "acceptance_id": "interrupted-acceptance-0197b38f4b3b47c1b361d725a257b215",
+  "activated": false,
+  "active_root": "/private/var/db/richos-workspace-mounts/interrupted-acceptance-0197b38f4b3b47c1b361d725a257b215",
+  "checks": [
+    {
+      "detail": "",
+      "name": "creator-reached-real-attached-clone-boundary",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "uninitialized-image-is-actually-attached",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "actual-owner-holds-writable-descriptor",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "creator-really-exits-without-provider-cleanup",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "fault-boundary-malformed-detached",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "fault-boundary-unreserved",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "ordinary-provider-exception-cleanly-detached",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "unreserved-request-has-no-provider-directory",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "actual-owner-authenticates-root-broker",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "same-boot-sweep-does-not-invent-cancellation",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "wrong-session-cancellation-refused",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "unforced-cutoff-retains-busy-owner-storage",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "holder-final-write-is-fsynced-and-closed",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "normal-unattended-sweeps-finish-all-cancelled-requests",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "permanent-request-retry-crashed-attached",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "permanent-request-retry-malformed-detached",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "permanent-request-retry-unreserved",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "installed-broker-shuts-down-cleanly",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "verified-lossless-raw-archive-crashed-attached",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "verified-lossless-raw-archive-malformed-detached",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "malformed-image-bytes-preserved",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "outer-image-xattr-preserved",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "empty-reservation-has-no-archive-or-byte-reclamation-claim",
+      "passed": true
+    },
+    {
+      "detail": "",
+      "name": "actual-readonly-restoration-preserves-final-owner-write",
+      "passed": true
+    }
+  ],
+  "cleanup": {
+    "remaining_fixture_attachments": 0,
+    "roots_match": true,
+    "strict_inventory_complete": true,
+    "unforced_detached_paths": []
+  },
+  "commit": "5c72a2cbe6ef515dead558d506c642cb4e963ced",
+  "expected": {
+    "malformed_sha256": "d5bc67671ff0f728fca187d936646874c31785d522871f3b12a739ff5d0325d6",
+    "outer_xattr_base64": "cmF3IG91dGVyIGltYWdlIGF0dHJpYnV0ZQD/",
+    "working_sha256": "fccb72394022114cdabe6a9d0580727e5a0647529a4a1f061d2665d0e1b5cbb9"
+  },
+  "fault_injection": "isolated creator process only",
+  "fixture_cleanup_complete": true,
+  "identifiers": {
+    "crashed-attached": "299c292e-06fd-4806-9626-a3f69a388b21",
+    "malformed-detached": "9cf7fbab-a1db-41b1-b9c6-244bf64ad903",
+    "unreserved": "4988b3dc-c8db-49c4-a0d5-410b7f03bb96"
+  },
+  "manifest_sha256": "5b798931b3aa02b02324596fd3ad39cb559827589c36ac7a61e5b1346c45159c",
+  "ordinary_sweep_interval_seconds": 60,
+  "owner_gid": 20,
+  "owner_uid": 501,
+  "passed": true,
+  "private_root": "/private/var/db/richos-workspaces/interrupted-acceptance-0197b38f4b3b47c1b361d725a257b215",
+  "release": "/Library/Application Support/RichOS/workspace-broker/releases/8397310ea1b75b6e48a839d403be70624f964d114d5e820a76dd245ecf83e04b",
+  "root_pins": [
+    [
+      16777233,
+      203452941,
+      0,
+      448
+    ],
+    [
+      16777233,
+      203452942,
+      0,
+      457
+    ]
+  ],
+  "version": 1
+}
