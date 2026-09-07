@@ -1832,6 +1832,9 @@ impl Cognition for NativeCognition {
         if reason != "end_turn" {
             return Err(CognitionError::PrimingStopped(reason));
         }
+        if self.onboarding_scope.is_some() {
+            self.client.ensure_onboarding_tools_loaded()?;
+        }
         Ok(())
     }
 

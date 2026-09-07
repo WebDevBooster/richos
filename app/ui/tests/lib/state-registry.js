@@ -2799,4 +2799,7 @@ module.exports = [
   { s: "Your business notes are started.", c: "ACTIONABLE", control: "#first-run-start", fixture: "first-run-partial", why: "Saved partial answers have a Resume control in the same panel." },
   { s: "Your saved answers are kept. We can pick up the remaining questions where we stopped. Press Resume the questions when you're ready.", c: "ACTIONABLE", control: "#first-run-start", fixture: "first-run-partial", why: "Explains that resuming keeps existing answers and names the control beside it." },
 
+  { s: "Missing onboarding scope", c: "NOT-RENDERED", why: "The standalone onboarding MCP process reports this on stderr when launched without its required scope argument. It is not displayed in the app." },
+  { s: "The company changed. Please use the offer for the company now open.", c: "INFORMATIONAL", why: "An obsolete company-specific action was refused. The onboarding context guard refreshes the current offer and retains its controls." },
+  { s: "The conversation changed before your message was sent. Open the original conversation to try again.", c: "ACTIONABLE", control: ".nav-thread", fixture: "rail-mark", why: "The rejected message stays with its original conversation. Its navigation row lets the CEO reopen that conversation and retry." },
 ];

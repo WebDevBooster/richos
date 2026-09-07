@@ -123,7 +123,7 @@ listen("rich://turn-error", ({ payload }) => {
 });
 ```
 
-`send_message({ text })` still resolves with the final `Message[]` for the active thread;
+`send_message({ text, threadId })` still resolves with the final `Message[]` for the active thread;
 treat it as the reconciled snapshot, not the primary render path.
 
 ---

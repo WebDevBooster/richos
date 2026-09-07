@@ -33,6 +33,7 @@ fn ask(spine: &mut Spine, text: &str) -> String {
     let turn = spine.submit_prompt(text, Source::Text).expect("live turn");
     let result = spine.ledger().turn(&turn).unwrap();
     eprintln!("Turn {:?}, {} ms", result.state, start.elapsed().as_millis());
+    assert_eq!(result.state, richos_core::ledger::TurnState::Completed, "live turn did not complete");
     let reply = result.assistant_text.clone();
     println!("CEO: {text}\nRich: {reply}\n");
     assert!(!reply.trim().is_empty(), "no visible reply");
@@ -69,7 +70,7 @@ fn main() {
     drop(spine);
     let mut spine = open(&root, &executable);
     assert_eq!(state(&spine), OnboardingState::Described);
-    spine.create_thread("Other company", &EntityId::parse("second-fixture").unwrap()).unwrap();
+    spine.ensure_active_thread_in(&EntityId::parse("second-fixture").unwrap()).unwrap();
     assert_eq!(state(&spine), OnboardingState::NotYet, "other company must retain own onboarding");
     println!("PASS: actual model saved partial notes, recalled after restart, persisted a typed decline, completed on request and kept another company independent.");
 }

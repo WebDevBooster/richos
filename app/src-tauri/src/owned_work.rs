@@ -879,7 +879,7 @@ pub fn selftest(app: tauri::AppHandle) {
                     "fixture".into(),
                     "Native handoff".into(),
                 )?;
-                crate::send_message(app.state(), "Handle this: create hello.txt containing exactly Hello Rich with no trailing newline. Do not create other files.".into())?;
+                debug_send_message(app.state(), "Handle this: create hello.txt containing exactly Hello Rich with no trailing newline. Do not create other files.".into())?;
                 let deadline = std::time::Instant::now();
                 while deadline.elapsed() < Duration::from_secs(240) {
                     let journal = state.data_dir.join("runs").join(format!("{thread}.jsonl"));
@@ -925,7 +925,7 @@ pub fn selftest(app: tauri::AppHandle) {
                 if marker.exists() {
                     std::fs::remove_file(&marker).map_err(|e| e.to_string())?;
                 }
-                crate::send_message(
+                debug_send_message(
                     app.state(),
                     "Handle correction test: write original.txt.".into(),
                 )?;
@@ -965,7 +965,7 @@ pub fn selftest(app: tauri::AppHandle) {
                     "fixture".into(),
                     "Slow registration".into(),
                 )?;
-                crate::send_message(
+                debug_send_message(
                     app.state(),
                     "Handle slow registration: produce deliverable.txt containing Finished.".into(),
                 )?;
@@ -979,7 +979,7 @@ pub fn selftest(app: tauri::AppHandle) {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 let start = std::time::Instant::now();
-                crate::send_message(app.state(), "How is work going?".into())?;
+                debug_send_message(app.state(), "How is work going?".into())?;
                 if start.elapsed() > Duration::from_secs(3) {
                     return Err("Busy registration blocked Rich".into());
                 }
@@ -1017,7 +1017,7 @@ pub fn selftest(app: tauri::AppHandle) {
                 ctl.pause(true).map_err(|e| e.to_string())?;
                 let old_id = ctl.snapshot().id.clone();
                 drop(ctl);
-                crate::send_message(
+                debug_send_message(
                     app.state(),
                     "Handle this: produce deliverable.txt containing Finished.".into(),
                 )?;
@@ -1070,11 +1070,11 @@ pub fn selftest(app: tauri::AppHandle) {
                         "fixture".into(),
                         "Failed registration".into(),
                     )?;
-                    crate::send_message(
+                    debug_send_message(
                         app.state(),
                         "Handle malformed: deliver the document.".into(),
                     )?;
-                    crate::send_message(
+                    debug_send_message(
                         app.state(),
                         "Question inconsistent: what is the plan?".into(),
                     )?;
@@ -1133,7 +1133,7 @@ pub fn selftest(app: tauri::AppHandle) {
                     "fixture".into(),
                     "Live correction".into(),
                 )?;
-                crate::send_message(
+                debug_send_message(
                     app.state(),
                     "Handle correction test: write original.txt.".into(),
                 )?;
@@ -1158,7 +1158,7 @@ pub fn selftest(app: tauri::AppHandle) {
                     "Responsive conversation".into(),
                 )?;
                 let began = std::time::Instant::now();
-                crate::send_message(app.state(), "How is work going?".into())?;
+                debug_send_message(app.state(), "How is work going?".into())?;
                 let responsive = began.elapsed() < Duration::from_secs(3);
                 if !responsive {
                     return Err("Background worker blocked the conversation".into());
@@ -1169,7 +1169,7 @@ pub fn selftest(app: tauri::AppHandle) {
                     .unwrap()
                     .switch_thread(&thread)
                     .map_err(|e| e.to_string())?;
-                crate::send_message(app.state(), "Revise the assignment: write revised.txt containing Revised. instead. Do not produce original.txt.".into())?;
+                debug_send_message(app.state(), "Revise the assignment: write revised.txt containing Revised. instead. Do not produce original.txt.".into())?;
                 while deadline.elapsed() < Duration::from_secs(80) {
                     let journal = state.data_dir.join("runs").join(format!("{thread}.jsonl"));
                     if let Ok(snapshot) = richos_core::run::read_snapshot(&journal) {
@@ -1188,7 +1188,7 @@ pub fn selftest(app: tauri::AppHandle) {
             if mode == "enqueue" {
                 let thread =
                     crate::create_thread_in(app.state(), "fixture".into(), "Handle this".into())?;
-                crate::send_message(
+                debug_send_message(
                     app.state(),
                     "Handle this: produce deliverable.txt containing Finished.".into(),
                 )?;
@@ -1256,4 +1256,11 @@ pub fn selftest(app: tauri::AppHandle) {
         let write = std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap());
         app.exit(if write.is_ok() { code } else { 2 });
     });
+}
+
+#[cfg(debug_assertions)]
+fn debug_send_message(state: tauri::State<AppState>, text: String) -> Result<Vec<richos_core::ledger::Message>, String> {
+    let thread = state.spine.lock().unwrap().active_thread()
+        .ok_or("Open a conversation first.")?.to_string();
+    crate::send_message(state, text, thread)
 }

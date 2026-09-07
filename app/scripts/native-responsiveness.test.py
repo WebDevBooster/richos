@@ -71,6 +71,12 @@ ui.write_text(ui.read_text() + r'''
   const row = document.querySelector('.nav-thread');
   row.click();
   while (window.__RICHOS_TIMELINE__().threadId !== row.dataset.threadId) await pause(100);
+  const initialOnboarding = await window.RichBridge.invoke('onboarding_view');
+  let wrongCompanyRefused = false;
+  try { await window.RichBridge.invoke('decline_onboarding', {entityId: 'wrong-company'}); }
+  catch (_) { wrongCompanyRefused = true; }
+  const afterWrongCompany = await window.RichBridge.invoke('onboarding_view');
+  const scopeGuard = wrongCompanyRefused && initialOnboarding.state === 'not-yet' && afterWrongCompany.state === 'not-yet';
   const events = [], readings = [];
   const start = performance.now();
   let finished;
@@ -96,7 +102,7 @@ ui.write_text(ui.read_text() + r'''
   await Promise.race([done, pause(20000)]);
   await pause(300);
   clearInterval(timer);
-  await window.RichBridge.invoke('native_test_record', {payload: JSON.stringify({events, readings, stopped, stopMs})});
+  await window.RichBridge.invoke('native_test_record', {payload: JSON.stringify({events, readings, stopped, stopMs, scopeGuard})});
 })();
 ''')
 # Set before renderer initialization, in this test app's own WebKit data store.
@@ -119,6 +125,7 @@ def emit(data):
         print(json.dumps(data), flush=True)
 def answer(text):
     root.joinpath('started').write_text('yes')
+    emit({'type':'system','subtype':'init','tools':['mcp__richos_onboarding__save_company_notes','mcp__richos_onboarding__decline_onboarding']})
     visible = text == 'NATIVE_REGRESSION'
     root.joinpath('frames').open('a').write(('user' if visible else 'prime')+'\n')
     if mode == 'prime-failure' and not visible:
@@ -172,6 +179,7 @@ for mode in ("slow-reply", "prime-stop", "handshake-stop", "prime-failure", "chi
     with (run / "native.log").open("w") as log:
         subprocess.run([str(binary)], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=45, check=True)
     report = json.loads((run / "renderer.json").read_text())
+    assert report["scopeGuard"], (mode, "stale onboarding company accepted", report)
     events = report["events"]
     working = next(e for e in events if e["status"] == "working")
     terminal = [e for e in events if e["status"] in ("completed", "failed", "interrupted", "stopped")]

@@ -11,3 +11,7 @@ This list records useful ideas found while fixing Andreas's onboarding and waiti
 | Medium | Add a visible distinction between company setup and actual team staffing. | Make it easy to see which desired roles exist as working agents and which are only recorded wishes. | The interview correctly refuses to claim that recorded roles have been hired. Completing staffing is a separate product capability. |
 
 New suggestions should describe the actual user benefit, the observed trigger and why they do not belong in this repair. Do not turn this list into an unprioritized feature backlog.
+
+- **Medium: notes history and restoration.** Keep a recoverable revision history of company notes so a CEO can inspect or undo a mistaken summary.
+- **Medium: one clear location for company information.** Consolidate configuration for company notes and the separate memory corpus, with an explicit migration.
+- **Medium: shorter interview acknowledgements.** The live model repeated staffing limitations in multiple answers. Keep the necessary boundary clear once and focus subsequent replies on the next useful question or outcome.
