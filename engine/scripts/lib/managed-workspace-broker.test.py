@@ -115,6 +115,10 @@ class BrokerSafety(unittest.TestCase):
         self.assertIsNone(second['next_cursor'])
         self.assertFalse({row['id'] for row in first['records']} & {row['id'] for row in second['records']})
 
+    def test_completed_empty_creation_is_not_permanent_cleanup_debt(self):
+        self.assertFalse(broker.Broker._issue(dict(state='creation-empty')))
+        self.assertTrue(broker.Broker._issue(dict(state='creation-empty', last_error='receipt damaged')))
+
     def test_create_uses_only_root_policy_owner_path_size_and_retention(self):
         result = self.broker.dispatch(501, self.create)
         kwargs = self.manager.calls[-1][1]

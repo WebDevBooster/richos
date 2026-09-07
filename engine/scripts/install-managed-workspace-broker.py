@@ -18,7 +18,8 @@ import sys
 import tempfile
 
 FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py",
-         "managed-workspace-volume.py", "managed-workspace-client.py", "managed-workspace-acceptance.py")
+         "managed-workspace-volume.py", "managed-workspace-client.py", "managed-workspace-acceptance.py",
+         "managed-workspace-failed-creation.py")
 INSTALL_ROOT = Path("/Library/Application Support/RichOS/workspace-broker")
 POLICY_PATH = INSTALL_ROOT / "policy.json"
 CLIENT_CONFIG_PATH = Path("/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json")

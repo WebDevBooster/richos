@@ -27,6 +27,11 @@ Supported requests have exactly these fields:
 - `bind` and `terminal`: `operation`, manager-issued `id`, `session_id`
   and `agent_id`.
 - `inspect` and `reconcile`: `operation` and manager-issued `id`.
+- `preparations`: `operation` and `after` (empty string for the first page),
+  returning up to 100 owned unused or incomplete preparations and `next_cursor`.
+- `cancel_preparation`: `operation`, manager-issued `id` and exact `session_id`.
+  It records cancellation only for unbound preparations. Capture runs later in
+  the daemon. Published workers cannot be cancelled through this operation.
 - `health`: only `operation`, available to approved peer UIDs. It reports
   protocol version, server UID, permitted repository aliases, owned unresolved
   count and latest sweep timestamps. Unknown inventory remains unknown.
@@ -55,7 +60,7 @@ Build a package without privilege or live changes:
 python3 'scripts/install-managed-workspace-broker.py' --stage '/tmp/reviewed-workspace-broker'
 ```
 
-The package contains the five runtime modules, including the isolated privileged
+The package contains the six runtime modules, including the isolated privileged
 acceptance runner, their SHA-256 manifest, an
 installation script, a launchd plist and a policy example. Replace the example's
 UIDs and paths with the explicitly approved host configuration. The example is

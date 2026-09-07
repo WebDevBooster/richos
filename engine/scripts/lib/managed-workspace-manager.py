@@ -115,6 +115,36 @@ class WorkspaceManager:
     def _recover_create(self, request, *, start=False):
         ident = request['id']
         base = self._base(ident)
+        if (base / 'failed-creation.json').exists():
+            return _module('failed_creation', 'managed-workspace-failed-creation.py').inspect_failed_creation(self.provider, request)
+        if self._cancelled_request(request):
+            if (base / 'lifecycle.json').exists():
+                with self._lock(ident):
+                    record = self._load(ident)
+                    if record['state'] in ('active', 'creating'):
+                        if record.get('agent_id') is not None:
+                            raise ManagerError('cancelled request unexpectedly has a bound worker')
+                        record.update(state='terminal', terminal_at=time.time(),
+                                      terminal_ingress='abandoned-preparation')
+                        self._save(ident, record)
+                    return record
+            # Initialization may have finished before lifecycle publication.
+            # That image has a valid repository and must use normal recovery;
+            # the raw recovery module deliberately refuses initialized images.
+            if base.exists():
+                try:
+                    initialized = self.provider.inspect(ident).get('initialized') is True
+                except Exception:
+                    initialized = False
+                if initialized:
+                    with self._lock(ident):
+                        if (base / 'lifecycle.json').exists():
+                            return self._load(ident)
+                        record = dict(request, state='terminal', terminal_at=time.time(),
+                                      terminal_ingress='abandoned-preparation')
+                        self._save(ident, record)
+                        return record
+            return dict(request, state='creation-cancelled', terminal_ingress='abandoned-preparation')
         if not base.exists():
             if not start:
                 return dict(request, state='creation-incomplete', last_error='provider reservation not started')
@@ -267,13 +297,55 @@ class WorkspaceManager:
                 self._save(ident, record)
             return record
 
+    def _request_for(self, ident):
+        self._base(ident)
+        matches = []
+        for path in self.root.glob('*.request.json'):
+            request = json.loads(path.read_text(encoding='utf-8'))
+            if request.get('id') != ident:
+                continue
+            key = self._request_key(request['owner_uid'], request['request_id'])
+            if request.get('request_key') != key or path.name != key + '.request.json':
+                raise ManagerError('creation request identity mismatch')
+            matches.append(request)
+        if len(matches) != 1:
+            raise ManagerError('exact creation request unavailable')
+        return matches[0]
+
+    def _cancelled_request(self, request):
+        path = self.root / (request['request_key'] + '.cancel.json')
+        if not path.exists():
+            return False
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if data != {key: request[key] for key in ('id', 'session_id', 'owner_uid', 'request_key')}:
+            raise ManagerError('preparation cancellation identity mismatch')
+        return True
+
     def cancel_preparation(self, ident, *, session_id):
-        """Close an unused preparation. Binding and cancellation share one lock."""
+        """Close unused storage without doing slow capture on the client path."""
+        base = self._base(ident)
+        if not (base / 'lifecycle.json').exists():
+            request = self._request_for(ident)
+            with self._request_lock(request['request_key']):
+                if not (base / 'lifecycle.json').exists():
+                    if not session_id or request.get('session_id') != session_id or request.get('agent_id') is not None:
+                        raise ManagerError('preparation session identity differs')
+                    path = self.root / (request['request_key'] + '.cancel.json')
+                    if not self._cancelled_request(request):
+                        tmp = self.root / (request['request_key'] + '.' + uuid.uuid4().hex + '.cancel.tmp')
+                        with tmp.open('x', encoding='utf-8') as stream:
+                            os.chmod(tmp, 0o600)
+                            json.dump({key: request[key] for key in ('id', 'session_id', 'owner_uid', 'request_key')}, stream)
+                            stream.flush(); os.fsync(stream.fileno())
+                        os.replace(tmp, path); self.provider._sync_dir(self.root)
+                    return dict(request, state='creation-cancelled', terminal_ingress='abandoned-preparation')
+        # Binding and cancellation share this lock. A create that published its
+        # lifecycle while cancellation waited is checked as a normal workspace.
         with self._lock(ident):
             record = self._load(ident)
             if not session_id or record.get('session_id') != session_id or record.get('agent_id') is not None:
                 raise ManagerError('preparation is bound or session identity differs')
-            if record['state'] == 'active':
+            if record['state'] in ('active', 'creating'):
                 record.update(state='terminal', terminal_at=time.time(),
                               terminal_ingress='abandoned-preparation')
                 self._save(ident, record)
@@ -290,6 +362,8 @@ class WorkspaceManager:
 
     def owner_uid(self, ident):
         """Authenticate an existing ID even when its volume is unavailable."""
+        if not (self._base(ident) / 'lifecycle.json').exists():
+            return self._request_for(ident)['owner_uid']
         with self._lock(ident):
             return self._load(ident)['owner_uid']
 
@@ -307,6 +381,10 @@ class WorkspaceManager:
                 record = self._load(ident)
             except FileNotFoundError:
                 record = dict(source, state='creation-incomplete', last_error='lifecycle not published')
+                if (self._base(ident) / 'failed-creation.json').exists():
+                    record = _module('failed_creation', 'managed-workspace-failed-creation.py').inspect_failed_creation(self.provider, source)
+                elif source.get('request_key') and self._cancelled_request(source):
+                    record.update(state='creation-cancelled', last_error='awaiting cancelled creation recovery')
             except Exception:
                 record = dict(source, state='record-error', last_error='lifecycle unreadable')
             if record.get('owner_uid') != owner_uid:
@@ -530,15 +608,22 @@ class WorkspaceManager:
                 if not stat.S_ISLNK(info.st_mode):
                     return True
                 content = os.fsencode(os.readlink(path))
+                length = len(content)
             elif mode in (b'100644', b'100755'):
                 if not stat.S_ISREG(info.st_mode) or bool(info.st_mode & 0o111) != (mode == b'100755'):
                     return True
-                content = path.read_bytes()
+                content = None
+                length = info.st_size
             else:
                 return True
             digest = hashlib.sha1() if len(oid) == 40 else hashlib.sha256()
-            digest.update(b'blob ' + str(len(content)).encode() + b'\0')
-            digest.update(content)
+            digest.update(b'blob ' + str(length).encode() + b'\0')
+            if content is not None:
+                digest.update(content)
+            else:
+                with path.open('rb') as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                        digest.update(chunk)
             if digest.hexdigest().encode() != oid:
                 return True
         index = self._user_git(['ls-files', '--stage', '-z'], owner, cwd=frozen)
@@ -740,7 +825,15 @@ class WorkspaceManager:
                     raise ManagerError('pending request identity mismatch')
                 with self._request_lock(key):
                     recovered = self._recover_create(request)
-                if recovered['state'] == 'creation-incomplete':
+                    if recovered['state'].startswith('creation-') and recovered['state'] not in ('creation-retained', 'creation-empty'):
+                        auth = (dict(kind='owner-cancel', session_id=request['session_id']) if self._cancelled_request(request)
+                                else dict(kind='new-boot'))
+                        try:
+                            recovered = _module('failed_creation', 'managed-workspace-failed-creation.py').recover_failed_creation(
+                                self.provider, request, authorization=auth)
+                        except Exception as error:
+                            recovered = dict(recovered, last_error=str(error))
+                if recovered['state'].startswith('creation-'):
                     results.append(recovered)
                     seen.add(ident)
             except Exception as error:

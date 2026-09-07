@@ -63,8 +63,11 @@ candidates. It cannot run while another worktree has active or unknown work.
 A defensible migration gate must be established before reboot and remain closed
 until post-reboot capture completes. LaunchDaemon startup order alone is not a
 proof that writers have stopped. A Claude session restart is insufficient.
-No legacy maintenance executor or repository gate is installed or implemented
-here. Implementing and validating that migration remains required work.
+A candidate gate now consolidates nested native worktrees into physical root
+gates, discloses temporary parent-directory protection and supports explicit
+later-boot restoration after interrupted staging. It is not installed or
+accepted on the privileged host. Selective capture, reclamation and coordinated
+branch execution are still required before migration can complete.
 
 ## Branches
 
@@ -86,15 +89,15 @@ execution is not enabled or claimed complete.
   privilege boundary.
 - Validate the complete installed Claude spawn-to-retirement path before enabling
   the public configuration.
-- Finish recovery for abandoned or incomplete preparation within the same boot.
-  Completed but unbound preparations now close after conservative session-death
-  evidence in the existing startup/scheduled reconciler. Binding and cancellation
-  share a lock, live or unknown sessions are retained and paginated inventory
-  prevents a large live prefix hiding later abandoned preparations. Incomplete
-  provider initialization still requires raw recovery. A later boot closes
-  active/unpublished old-boot owners when identity is known.
-- Build and validate the legacy maintenance executor once its required downtime
-  can be authorized. The user's active worktree remains outside any cleanup.
+- Run the integrated preparation recovery through the installed service. The
+  source implementation now handles unused preparations and interrupted provider
+  creation. Exact session cancellation is durable, live or unknown sessions are
+  retained and paginated inventory reaches later abandoned records. Verified raw
+  archives preserve malformed images, including outer extended attributes.
+  Requests that never reserved storage close without a disk-reclamation claim.
+  Raw recovery has no automatic expiry because unique data cannot be classified.
+- Build and validate the legacy maintenance executor against the reviewed gate boundary. Actual repository downtime
+  requires separate authorization. The user's active worktree remains outside any cleanup.
 - Finish coordinated dead-branch execution and its startup/scheduled wiring.
 
 The package's health endpoint reports listener availability, sweep progress and

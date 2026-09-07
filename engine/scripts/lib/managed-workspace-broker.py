@@ -24,7 +24,7 @@ import threading
 import time
 import uuid
 
-CODE_FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py", "managed-workspace-volume.py", "managed-workspace-client.py", "managed-workspace-acceptance.py")
+CODE_FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py", "managed-workspace-volume.py", "managed-workspace-client.py", "managed-workspace-acceptance.py", "managed-workspace-failed-creation.py")
 MAX_REQUEST = 65536
 MAX_RESPONSE = 1048576
 
@@ -149,7 +149,7 @@ class Broker:
 
     @staticmethod
     def _issue(record):
-        return bool(record.get("last_error") or record.get("publication_error")) or record.get("state") not in ("active", "retained", "expired")
+        return bool(record.get("last_error") or record.get("publication_error")) or record.get("state") not in ("active", "retained", "expired", "creation-empty")
 
     @staticmethod
     def _summary(record):
@@ -220,7 +220,8 @@ class Broker:
             if not isinstance(after, str) or (after and not re.fullmatch(r'[0-9a-f-]{36}', after)):
                 raise BrokerError('invalid preparation inventory cursor')
             unused = [row for row in records if row.get('owner_uid') == uid and row['id'] > after
-                      and row.get('state') == 'active' and row.get('agent_id', 'unknown') is None]
+                      and row.get('state') in ('active', 'creating', 'creation-incomplete')
+                      and row.get('agent_id', 'unknown') is None]
             unused.sort(key=lambda row: row['id'])
             return {"records": [{key: row.get(key) for key in ('id', 'session_id', 'created_at')}
                                 for row in unused[:100]], "next_cursor": unused[99]["id"] if len(unused) > 100 else None}

@@ -118,6 +118,36 @@ class CreationReplay(unittest.TestCase):
         self.assertEqual(result['state'], 'active')
         self.assertEqual(self.created, [ident])
 
+    def test_cancel_initialized_unpublished_workspace_uses_normal_terminal_recovery(self):
+        with patch.object(self.m, '_save', side_effect=KeyboardInterrupt('journal crash')):
+            with self.assertRaises(KeyboardInterrupt):
+                self.m.create(**self.args)
+        ident = self.created[0]
+        self.m.cancel_preparation(ident, session_id='session')
+        request = json.loads(next(self.m.root.glob('*.request.json')).read_text())
+        recovered = self.m._recover_create(request)
+        self.assertEqual(recovered['state'], 'terminal')
+        self.assertEqual(recovered['terminal_ingress'], 'abandoned-preparation')
+        self.assertFalse((self.m._base(ident) / 'failed-creation.json').exists())
+        self.assertEqual(self.git(self.m.provider.active_root / ident / 'repo', 'rev-parse', 'HEAD'), self.head)
+        self.assertEqual(self.m.create(**self.args)['state'], 'terminal')
+        recovered['state'] = 'retained'
+        self.m._save(ident, recovered)
+        self.provider_records.pop(ident)
+        self.assertEqual(self.m.create(**self.args)['state'], 'retained')
+
+    def test_cancel_between_branch_journal_and_active_prevents_activation(self):
+        original = self.m._save
+        def save(ident, record):
+            if record['state'] == 'active':
+                raise KeyboardInterrupt('activation crash')
+            original(ident, record)
+        with patch.object(self.m, '_save', side_effect=save), self.assertRaises(KeyboardInterrupt):
+            self.m.create(**self.args)
+        ident = self.created[0]
+        self.assertEqual(self.m.cancel_preparation(ident, session_id='session')['state'], 'terminal')
+        self.assertEqual(self.m.create(**self.args)['state'], 'terminal')
+
     def test_crash_between_branch_journal_and_active_recovers(self):
         original = self.m._save
         def save(ident, record):

@@ -10,8 +10,9 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import uuid
+import tarfile
 
 spec = importlib.util.spec_from_file_location('manager', Path(__file__).with_name('managed-workspace-manager.py'))
 manager = importlib.util.module_from_spec(spec)
@@ -132,9 +133,66 @@ class Lifecycle(unittest.TestCase):
         data = json.loads(requests[0].read_text())
         self.assertEqual(data['session_id'], 'session2')
         rows = self.m.sweep()
-        self.assertTrue(any(row.get('id') == data['id'] and row['state'] == 'creation-incomplete' for row in rows))
+        self.assertTrue(any(row.get('id') == data['id'] and row['state'] == 'creation-blocked' for row in rows))
+        self.assertFalse(self.m._base(data['id']).exists(), 'speculative recovery must not cancel the request')
         inventory = self.m.status(os.getuid())
         self.assertTrue(any(row['id'] == data['id'] and row['state'] == 'creation-incomplete' for row in inventory))
+
+    def test_cancel_incomplete_creation_is_durable_and_prevents_reactivation(self):
+        kwargs = dict(request_id='failed-create', source_repo=self.top, commit='a'*40,
+                      owner_uid=os.getuid(), owner_gid=os.getgid(), session_id='session2', agent_name='dev-opus-test')
+        with patch.object(self.m, '_source_fingerprint', return_value={'fixture': True}), \
+                patch.object(self.m.provider, 'create', side_effect=RuntimeError('failed clone')):
+            with self.assertRaises(RuntimeError):
+                self.m.create(**kwargs)
+        data = json.loads(next(self.m.root.glob('*.request.json')).read_text())
+        self.assertEqual(self.m.owner_uid(data['id']), os.getuid())
+        with self.assertRaises(manager.ManagerError):
+            self.m.cancel_preparation(data['id'], session_id='different')
+        result = self.m.cancel_preparation(data['id'], session_id='session2')
+        self.assertEqual(result['state'], 'creation-cancelled')
+        with patch.object(self.m.provider, 'create') as create:
+            self.assertEqual(self.m.create(**kwargs)['state'], 'creation-cancelled')
+        create.assert_not_called()
+        self.assertTrue(any(row['id'] == data['id'] and row['state'] == 'creation-cancelled'
+                            for row in self.m.status(os.getuid())))
+        with patch.object(self.m.provider, '_boot_id', return_value=str(uuid.uuid4())):
+            rows = self.m.sweep()
+        self.assertTrue(any(row.get('id') == data['id'] and row['state'] == 'creation-empty' for row in rows), rows)
+
+    def test_session_recovery_reaches_raw_reclamation_through_broker_and_sweep(self):
+        broker = manager._module('broker_fixture', 'managed-workspace-broker.py')
+        bridge = manager._module('bridge_fixture', 'managed-workspace-integration.py')
+        (self.base / 'lifecycle.json').unlink()
+        uid, gid = os.getuid(), os.getgid()
+        key = self.m._request_key(uid, 'incomplete')
+        request = dict(version=1, id=self.ident, request_id='incomplete', request_key=key,
+                       owner_uid=uid, owner_gid=gid, session_id='gone-session', agent_id=None,
+                       source_commit='a'*40, source_repo=str(self.top), state='creating')
+        pending = self.m.root / (key+'.request.json')
+        pending.write_text(json.dumps(request)); pending.chmod(0o600)
+        boot = str(uuid.uuid4())
+        self.m.provider._save(self.ident, dict(version=1, id=self.ident, owner_uid=uid, owner_gid=gid,
+                    commit='a'*40, boot_id=boot, state='detached', operation=None,
+                    image_identity=self.m._identity(self.image, manager.stat.S_ISDIR)))
+        service = broker.Broker(self.m, dict(version=1, private_root=str(self.m.root),
+                    active_root=str(self.m.provider.active_root), owners={str(uid): {'gid': gid}},
+                    repositories={'fixture': dict(path=str(self.top), owners=[uid], size='128m', retention_days=14)}))
+        ledger = Mock()
+        ledger.session_gone_by_exhaustion.return_value = ('gone', 'accounted')
+        with patch.object(bridge, 'config', return_value={}), patch.object(bridge, '_module', return_value=ledger), \
+                patch.object(bridge, 'request', side_effect=lambda payload: service.dispatch(uid, payload)), \
+                patch.object(self.m.provider, '_boot_id', return_value=boot):
+            self.assertEqual(bridge.recover_preparations(), [dict(id=self.ident, state='terminal')])
+            self.assertTrue(self.image.exists(), 'client path must not capture or reclaim')
+            rows = self.m.sweep()
+        self.assertEqual(rows[0]['state'], 'creation-retained', rows)
+        self.assertFalse(self.image.exists())
+        with tarfile.open(self.base / 'failed-creation.tar.gz') as archive:
+            self.assertEqual(archive.extractfile('image.sparsebundle/band').read(), b'active data')
+        with patch.object(self.m.provider, 'create') as create:
+            self.assertEqual(self.m._recover_create(request, start=True)['state'], 'creation-retained')
+        create.assert_not_called()
 
     def test_inventory_filters_other_owners_without_publishing_paths(self):
         self.assertEqual(self.m.status(os.getuid()+1), [])
