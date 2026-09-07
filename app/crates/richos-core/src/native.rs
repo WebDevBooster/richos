@@ -860,14 +860,14 @@ impl NativeClient {
     /// `entity.rs` makes about its own directory: the shell resolves `app_data_dir()` and that
     /// is the authority, so this file does not carry a second opinion about where it lives.
     pub fn spawn(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, false, None, None, Some((doctrine, skills)))
+        Self::spawn_with_tools(bin, cwd, false, None, None, Some((doctrine, skills)), None, None)
     }
 
     fn spawn_with_policy(bin: &Path, cwd: &Path, managed: bool) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, managed, None, None, None)
+        Self::spawn_with_tools(bin, cwd, managed, None, None, None, None, None)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
         // The standing instruction and the skills belong to the CEO-facing chat lease alone.
         // See `chat_child_args`.
         debug_assert!(
@@ -887,6 +887,13 @@ impl NativeClient {
             (false, Some((d, s))) => chat_child_args(&session_id, d, s),
             (false, None) => child_args(&session_id),
         };
+        if let Some((executable, scope)) = onboarding {
+            let config = json!({"mcpServers": {"richos_onboarding": {
+                "type": "stdio", "command": executable,
+                "args": ["--onboarding-mcp", scope]
+            }}});
+            args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
+        }
         if let Some(model) = registrar_model {
             args = child_args(&session_id);
             args.extend(["--model".into(), model.into()]);
@@ -1013,7 +1020,7 @@ impl NativeClient {
             _reader: reader_handle,
             _stderr: stderr_handle,
         };
-        client.handshake()?;
+        client.handshake_cancellable(control)?;
         Ok(client)
     }
 
@@ -1630,6 +1637,7 @@ pub fn resolve_claude_bin() -> std::path::PathBuf {
 pub struct NativeCognition {
     client: NativeClient,
     session_id: String,
+    onboarding_scope: Option<std::path::PathBuf>,
 }
 
 impl NativeCognition {
@@ -1648,8 +1656,21 @@ impl NativeCognition {
     pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
-        Ok(NativeCognition { client, session_id })
+        Ok(NativeCognition { client, session_id, onboarding_scope: None })
     }
+    /// A chat lease with app-owned, company-scoped persistence tools. The scope is
+    /// supplied by the spine before priming, never selected by the model.
+    pub fn start_with_onboarding(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path,
+        executable: &Path, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
+        let scopes = doctrine.parent().unwrap_or(cwd).join("onboarding-scopes");
+        std::fs::create_dir_all(&scopes)?;
+        let scope = scopes.join(format!("{}.json", uuid::Uuid::new_v4()));
+        let client = NativeClient::spawn_with_tools(bin, cwd, false, None, None,
+            Some((doctrine, skills)), Some((executable, &scope)), control)?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id, onboarding_scope: Some(scope) })
+    }
+
     /// Launch a managed worker in its actual workspace, retaining the configured
     /// settings and refusing requests for permissions that have not been granted.
     pub fn structured_output(&self) -> Option<Value> { self.client.structured_output.lock().unwrap().clone() }
@@ -1659,28 +1680,47 @@ impl NativeCognition {
     }
 
     pub fn start_inspector_with_schema(bin: &Path, workspace: &Path, schema: serde_json::Value) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema), None, None)?;
+        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema), None, None, None, None)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id })
+        Ok(Self { client, session_id, onboarding_scope: None })
     }
 
     /// A detached transcriber has no tools, plugins or workspace access. Managed
     /// callbacks still deny unexpected permission requests and drop kills its group.
     pub fn start_registrar(bin: &Path, neutral_cwd: &Path, schema: Value, model: &str) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, neutral_cwd, true, Some(schema), Some(model), None)?;
+        let client = NativeClient::spawn_with_tools(bin, neutral_cwd, true, Some(schema), Some(model), None, None, None)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id })
+        Ok(Self { client, session_id, onboarding_scope: None })
     }
 
     pub fn start_managed(bin: &Path, workspace: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn_with_policy(bin, workspace, true)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id })
+        Ok(Self { client, session_id, onboarding_scope: None })
     }
 
 }
 
+impl Drop for NativeCognition {
+    fn drop(&mut self) {
+        if let Some(path) = &self.onboarding_scope {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 impl Cognition for NativeCognition {
+    fn set_onboarding_scope(&mut self, entity: &crate::entity::EntityId,
+        central_root: &Path, record_path: &Path) -> Result<(), CognitionError> {
+        if let Some(path) = &self.onboarding_scope {
+            crate::onboarding_tools::write_scope(path, &crate::onboarding_tools::OnboardingToolScope {
+                version: 1, entity_id: entity.to_string(),
+                central_root: central_root.to_path_buf(), record_path: record_path.to_path_buf(),
+            }).map_err(|e| CognitionError::Io(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     fn prepare_managed(&self, workspace: &Path) -> Result<(), CognitionError> {
         if self.client.managed_workspace.as_ref() != workspace.canonicalize().ok().as_ref()
             || self.client.managed_workspace.is_none() {
