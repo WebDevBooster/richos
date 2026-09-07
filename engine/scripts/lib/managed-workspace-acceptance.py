@@ -56,7 +56,7 @@ def main():
 
     def child(argv, **kwargs):
         return subprocess.run(argv, env=env, user=owner[0], group=owner[1], extra_groups=[],
-                              capture_output=True, timeout=30, **kwargs)
+                              capture_output=True, timeout=kwargs.pop('timeout', 30), **kwargs)
 
     def check(name, condition, detail=''):
         report['checks'].append(dict(name=name, passed=bool(condition), detail=detail))
@@ -171,7 +171,45 @@ def main():
                   health.get('legacy_maintenance',{}).get('enabled') is True
                   and health['legacy_maintenance'].get('inventory_complete') is True
                   and health['legacy_maintenance'].get('total') == 0)
-            server.terminate();server.wait(timeout=15);server=None
+            def request(payload):
+                result = child(['/Library/Developer/CommandLineTools/usr/bin/python3', '-I', '-S', '-B',
+                    str(release / 'managed-workspace-client.py'), '--socket', str(fixture_socket)],
+                    input=json.dumps(payload).encode(), timeout=340)
+                if result.returncode:
+                    raise RuntimeError('installed owner request failed: '+result.stderr.decode('utf-8','replace')[-1000:])
+                return json.loads(result.stdout)
+
+            creation = dict(operation='create', repository='fixture', commit=commit,
+                session_id=run_id, agent_name='dev-opus-socket', request_id='socket-lifecycle')
+            socket_record = request(creation)
+            socket_id = socket_record['id']
+            check('owner-socket-creation-is-idempotent', request(creation)['id'] == socket_id
+                  and socket_record['workspace_class'] == 'managed-image'
+                  and socket_record['path'] == str(active / socket_id / 'repo'))
+            binding = dict(id=socket_id, session_id=run_id, agent_id='agent-socket')
+            bound = request(dict(operation='bind', **binding))
+            check('owner-socket-binding-acknowledged', bound['agent_id'] == binding['agent_id'])
+            terminal = request(dict(operation='terminal', **binding))
+            check('owner-socket-terminal-acknowledged', terminal['state'] == 'terminal')
+            unused = request(dict(creation, request_id='socket-unused', agent_name='dev-opus-unused'))
+            cancelled = request(dict(operation='cancel_preparation', id=unused['id'], session_id=run_id))
+            check('owner-socket-unused-preparation-cancelled', cancelled['agent_id'] is None
+                  and cancelled.get('terminal_ingress') == 'abandoned-preparation')
+            # Exercise the ordinary unattended sweep, without a reconcile RPC.
+            deadline = time.monotonic()+150
+            retired_ids = set()
+            while time.monotonic() < deadline and server.poll() is None:
+                status = request({'operation':'status'})
+                retired_ids = {row['id'] for row in status['records'] if row.get('state') == 'retained'}
+                if {socket_id,unused['id']} <= retired_ids:break
+                time.sleep(0.2)
+            check('installed-sweep-reclaims-terminal-and-unused-workspaces',
+                  {socket_id,unused['id']} <= retired_ids
+                  and all(not (private / ident / 'image.sparsebundle').exists()
+                          and (private / ident / 'recovery.dmg').is_file() for ident in (socket_id,unused['id'])))
+            server.terminate();server.wait(timeout=15)
+            check('installed-root-broker-shuts-down-cleanly', server.returncode == 0)
+            server=None
         report['passed'] = True
     except Exception as error:
         report['error'] = str(error)
