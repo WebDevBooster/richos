@@ -72,10 +72,29 @@ class LegacyPlan(unittest.TestCase):
             self.assertEqual(row['removal_candidates'], [])
             self.assertIn('terminal-member-identity-mismatch:' + str(self.work), row['blockers'])
 
-    def test_nested_registered_workspace_is_explicitly_rejected(self):
+    def test_nested_registered_workspace_keeps_identity_under_consolidated_root(self):
         nested = self.repo / 'nested';self.git('worktree', 'add', '-qb', 'nested', str(nested))
         row = self.plan()['repositories'][0]
-        self.assertTrue(any(b.startswith('overlapping-gate-paths:') for b in row['blockers']))
+        self.assertFalse(any(b.startswith('overlapping-gate-paths:') for b in row['blockers']))
+        self.assertEqual({g['path'] for g in row['gate_roots']},{str(self.repo),str(self.work)})
+        target=next(g for g in row['gate_paths'] if g['path']==str(nested))
+        self.assertEqual((target['gate_root'],target['relative_path']),(str(self.repo),'nested'))
+        self.assertIn('unknown-owner:'+str(nested),row['blockers'])
+
+    def test_shared_parent_scope_includes_unrelated_sibling_entries(self):
+        sibling=self.root/'unrelated-active-repo';sibling.mkdir()
+        row=self.plan()['repositories'][0]
+        parent=next(p for p in row['temporary_parent_gates'] if p['path']==str(self.root))
+        self.assertIn(sibling.name,parent['affected_entries'])
+        self.assertIn('sibling',row['required_downtime'])
+
+    def test_nested_independent_repository_is_still_an_overlapping_gate_error(self):
+        nested=self.repo/'separate-repository';self.git('init','-q','-b','main',str(nested))
+        self.git('-C',str(nested),'config','user.name','fixture');self.git('-C',str(nested),'config','user.email','fixture@example.invalid')
+        (nested/'file').write_text('separate');self.git('-C',str(nested),'add','file');self.git('-C',str(nested),'commit','-qm','separate')
+        self.policy['repositories']['separate']={'path':str(nested)}
+        report=self.plan()
+        self.assertTrue(all(any(b.startswith('overlapping-gate-paths:') for b in row['blockers']) for row in report['repositories']))
 
     def test_external_object_alternates_are_not_covered_by_common_directory_gate(self):
         external = self.root / 'external-objects';external.mkdir()

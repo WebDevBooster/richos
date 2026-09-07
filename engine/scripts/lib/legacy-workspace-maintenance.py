@@ -263,7 +263,7 @@ def plan(policy, transactions, records, *, active_paths=(), input_errors=()):
             row['blockers'].append('inventory-unavailable:' + str(error))
     for index, (alias, path) in enumerate(all_gates):
         for other_alias, other in all_gates[index + 1:]:
-            if path == other or Path(path) in Path(other).parents or Path(other) in Path(path).parents:
+            if alias != other_alias and (path == other or Path(path) in Path(other).parents or Path(other) in Path(path).parents):
                 for row in result:
                     if row['alias'] in (alias, other_alias):
                         row['blockers'].append('overlapping-gate-paths:' + path + ':' + other)
@@ -271,9 +271,40 @@ def plan(policy, transactions, records, *, active_paths=(), input_errors=()):
     for path in active - covered:
         errors.append('explicit active path outside approved registered inventory:' + path)
     for row in result:
+        # Native checkouts often live below the canonical checkout. Move that
+        # ancestor once, while retaining every registered target's identity.
+        gates = row['gate_paths']
+        roots = [gate for gate in gates if not any(Path(other['path']) in Path(gate['path']).parents
+                                                  for other in gates if other is not gate)]
+        for gate in gates:
+            containing = [root for root in roots if gate['path'] == root['path']
+                          or Path(root['path']) in Path(gate['path']).parents]
+            if len(containing) != 1:
+                row['blockers'].append('ambiguous-consolidated-root:' + gate['path'])
+                continue
+            gate['gate_root'] = containing[0]['path']
+            gate['relative_path'] = str(Path(gate['path']).relative_to(containing[0]['path']))
+        row['gate_roots'] = [dict(root) for root in roots]
+        row['temporary_parent_gates'] = []
+        for parent in sorted({str(Path(root['path']).parent) for root in roots}):
+            try:
+                identity = pin(parent)
+                names = sorted(os.listdir(parent))
+                if pin(parent) != identity or sorted(os.listdir(parent)) != names:
+                    raise ValueError('temporary parent namespace changed')
+                row['temporary_parent_gates'].append(dict(path=parent, identity=identity,
+                    affected_entries=names, scope='Briefly denies access through this parent to every listed child, including unrelated repositories.'))
+            except (OSError, ValueError, TypeError) as error:
+                row['blockers'].append('temporary-parent-inventory-unavailable:' + str(error))
+        for candidate in row['removal_candidates']:
+            target = next(g for g in gates if g['path'] == candidate['path'])
+            candidate.update(gate_root=target.get('gate_root'), relative_path=target.get('relative_path'),
+                             contained_registered_targets=[g['path'] for g in gates
+                                 if Path(candidate['path']) in Path(g['path']).parents])
         row['blockers'] = sorted(set(row['blockers'] + errors))
         row['maintenance_ready'] = False
-        row['required_downtime'] = 'Entire canonical repository, shared Git objects/admin and every listed workspace must be offline together.'
+        row['required_downtime'] = ('Entire canonical repository, shared Git objects/admin and every listed workspace must be offline together. '
+            'Temporary parent gates also interrupt access to all listed sibling entries; explicit offline approval must cover that shared-parent scope.')
     return dict(version=1, mode='planning-only', execution_ready=False, execution_authorized=False,
                 repositories=result, errors=sorted(set(errors)),
                 history_sha256=history_digest,
