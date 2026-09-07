@@ -92,6 +92,16 @@ needed for migration. Shared Git objects mean the gate must cover the canonical 
 store and every registered checkout, including checkouts that are not removal
 candidates. It cannot run while another worktree has active or unknown work.
 
+Exact terminal registrations can now be selected when their working directory
+is already missing or the registration is locked. Missing directories receive
+an explicit administration-only capture of the surviving index and Git metadata;
+the receipt never claims to recover absent working files. Locked checkouts retain
+their lock bytes in the full capture. A recreated path, changed linkage or
+unknown owner prevents retirement. These paths passed the focused macOS/Linux
+suites and independent review; their installed integration remains pending.
+See the [source review record](verification/legacy-registration-source-review-2026-09-07.json)
+and [installed controller scope](legacy-workspace-orphan-acceptance.md).
+
 A defensible migration gate must be established before reboot and remain closed
 until post-reboot capture completes. LaunchDaemon startup order alone is not a
 proof that writers have stopped. A Claude session restart is insufficient.
