@@ -1,0 +1,587 @@
+{
+  "acceptance_result": {
+    "acceptance_id": "claude-canary-56172780c414446ea42ef3debb6c8421",
+    "activated": false,
+    "active_root": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421",
+    "agent_id": "a005fc6ed97323aad",
+    "bridge_substitution": {
+      "after": "CLIENT_CONFIG = Path('/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/client.json')",
+      "after_sha256": "14951495b911f2e0ca667a973cb775904485ed3725f22d033b1722478ace26eb",
+      "before": "CLIENT_CONFIG = Path('/Library/Application Support/RichOS/ManagedWorkspaces/client.json')",
+      "before_sha256": "7bf80560be3c30c64a08d93ff03b9169232a6f27623dac693bffc59542d258d1",
+      "path": "scripts/lib/managed-workspace-integration.py"
+    },
+    "broker_process": {
+      "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+      "pid": 43200,
+      "pid_start": "ps-lstart-utc-v1:Mon Sep 7 12:06:58 2026"
+    },
+    "checks": [
+      {
+        "detail": "",
+        "name": "only-bridge-configuration-constant-substituted",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "all-installed-plugins-explicitly-disabled-before-model-execution",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "real-claude-process-completed",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "actual-cli-reports-no-loaded-plugins-or-mcp",
+        "passed": true
+      }
+    ],
+    "claude_host_stop": "absent-or-identity-unavailable",
+    "claude_process": {
+      "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+      "pid": 43715,
+      "pid_start": "ps-lstart-utc-v1:Mon Sep 7 12:07:01 2026",
+      "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+      "type": "canary_host_identity",
+      "uid": 501
+    },
+    "claude_supervisor_process": {
+      "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+      "pid": 43712,
+      "pid_start": "ps-lstart-utc-v1:Mon Sep 7 12:07:01 2026"
+    },
+    "engine_original_manifest_sha256": "df7d4c5b0ab0f57b76e0dc10c2759cf105e9136eaf421a66bee61bbc922b3338",
+    "error": "actual Agent intent/binding join missing",
+    "explicitly_disabled_plugin_ids": [
+      "richos-engine@richos-local",
+      "swift-lsp@claude-plugins-official"
+    ],
+    "fixture_cleanup_complete": false,
+    "hook_profile": "bounded native-plus-managed lifecycle",
+    "initial_source_branches": [
+      "refs/heads/master"
+    ],
+    "manifest_sha256": "5b798931b3aa02b02324596fd3ad39cb559827589c36ac7a61e5b1346c45159c",
+    "normal_auth_reused": true,
+    "normal_project_transcript_directory": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session",
+    "owner_gid": 20,
+    "owner_uid": 501,
+    "passed": false,
+    "private_root": "/private/var/db/richos-workspaces/claude-canary-56172780c414446ea42ef3debb6c8421",
+    "release": "/Library/Application Support/RichOS/workspace-broker/releases/8397310ea1b75b6e48a839d403be70624f964d114d5e820a76dd245ecf83e04b",
+    "remaining_fixture_attachments": [],
+    "retained_fixture_receipt": "/private/var/db/richos-workspaces/claude-canary-56172780c414446ea42ef3debb6c8421/acceptance.json",
+    "root_pins": [
+      [
+        16777233,
+        203459965,
+        0,
+        448
+      ],
+      [
+        16777233,
+        203459966,
+        0,
+        457
+      ]
+    ],
+    "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+    "settings_sources": [],
+    "strict_attachment_inventory_complete": true,
+    "transcripts_retained": [
+      "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl",
+      "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb/subagents/agent-a005fc6ed97323aad.jsonl"
+    ],
+    "version": 1
+  },
+  "hook_events": [
+    {
+      "finished_at": 1788782824.8866172,
+      "hook": "guard-sealed-worktree.sh",
+      "input": {
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "tool_input": {
+          "command": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op prepare",
+          "description": "Run canary-op prepare"
+        },
+        "tool_name": "Bash",
+        "tool_use_id": "toolu_019gihjjhonNiWLjSVm7hkZx",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782824.8331552,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782834.8563771,
+      "hook": "guard-worktree-isolation.sh",
+      "input": {
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "tool_input": {
+          "description": "canary-sonnet-bb6c8421",
+          "isolation": "worktree",
+          "prompt": "cross-repo-worktree: /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/b7765516-1287-45df-84a2-cd4894cf2292/repo\nRun /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op work once from your native worktree. It writes and commits the fixture only in the assigned managed repository. Report the returned commit and finish.",
+          "run_in_background": true,
+          "subagent_type": "canary"
+        },
+        "tool_name": "Agent",
+        "tool_use_id": "toolu_01T466cgEezzED2c7ZTUWzdy",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 2,
+      "started_at": 1788782834.29849,
+      "stderr": "=== Teammate-spawn guard: BLOCKED ===\n  Agent 'canary' can edit repo files, so it must satisfy the\n  teammate-spawn contract. It failed:\n    - missing/malformed name \u2014 give a unique '<role>-<model>-<identifier>' name, e.g. dev-sonnet-1 / qa-opus-r3 (got name='unset'). Needs THREE dash-joined parts (role, model, identifier). Never bare ('dev'), 2-part ('dev-1'), or run-together ('devsonnet1'). NOT relaxed by main-checkout-run:.\n  Re-issue the Agent call fixing the above.\n  (If this agent is genuinely READ-ONLY, add its type to READONLY_ALLOWLIST\n   in orchestration.config.)\n(hook: scripts/hooks/guard-worktree-isolation.sh)\n",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782834.3762271,
+      "hook": "guard-sealed-worktree.sh",
+      "input": {
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "tool_input": {
+          "description": "canary-sonnet-bb6c8421",
+          "isolation": "worktree",
+          "prompt": "cross-repo-worktree: /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/b7765516-1287-45df-84a2-cd4894cf2292/repo\nRun /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op work once from your native worktree. It writes and commits the fixture only in the assigned managed repository. Report the returned commit and finish.",
+          "run_in_background": true,
+          "subagent_type": "canary"
+        },
+        "tool_name": "Agent",
+        "tool_use_id": "toolu_01T466cgEezzED2c7ZTUWzdy",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782834.29849,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782840.665726,
+      "hook": "guard-sealed-worktree.sh",
+      "input": {
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "tool_input": {
+          "description": "canary-sonnet-bb6c8421",
+          "isolation": "worktree",
+          "name": "canary-sonnet-bb6c8421",
+          "prompt": "cross-repo-worktree: /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/b7765516-1287-45df-84a2-cd4894cf2292/repo\nRun /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op work once from your native worktree. It writes and commits the fixture only in the assigned managed repository. Report the returned commit and finish.",
+          "run_in_background": true,
+          "subagent_type": "canary"
+        },
+        "tool_name": "Agent",
+        "tool_use_id": "toolu_01Cvmse4XfA1XYNXR67a2Pzf",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782840.613526,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782841.801975,
+      "hook": "guard-worktree-isolation.sh",
+      "input": {
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "tool_input": {
+          "description": "canary-sonnet-bb6c8421",
+          "isolation": "worktree",
+          "name": "canary-sonnet-bb6c8421",
+          "prompt": "cross-repo-worktree: /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/b7765516-1287-45df-84a2-cd4894cf2292/repo\nRun /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op work once from your native worktree. It writes and commits the fixture only in the assigned managed repository. Report the returned commit and finish.",
+          "run_in_background": true,
+          "subagent_type": "canary"
+        },
+        "tool_name": "Agent",
+        "tool_use_id": "toolu_01Cvmse4XfA1XYNXR67a2Pzf",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782840.613569,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782842.302741,
+      "hook": "record-subagent-start.sh",
+      "input": {
+        "agent_id": "a005fc6ed97323aad",
+        "agent_type": "canary",
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session/.claude/worktrees/agent-a005fc6ed97323aad",
+        "hook_event_name": "SubagentStart",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782842.21425,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782843.502908,
+      "hook": "detect-nonnative-worktree.sh",
+      "input": {
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session",
+        "duration_ms": 119,
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PostToolUse",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "tool_input": {
+          "description": "canary-sonnet-bb6c8421",
+          "isolation": "worktree",
+          "name": "canary-sonnet-bb6c8421",
+          "prompt": "cross-repo-worktree: /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/b7765516-1287-45df-84a2-cd4894cf2292/repo\nRun /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op work once from your native worktree. It writes and commits the fixture only in the assigned managed repository. Report the returned commit and finish.",
+          "run_in_background": true,
+          "subagent_type": "canary"
+        },
+        "tool_name": "Agent",
+        "tool_response": {
+          "agentId": "a005fc6ed97323aad",
+          "canReadOutputFile": true,
+          "description": "canary-sonnet-bb6c8421",
+          "isAsync": true,
+          "outputFile": "/private/tmp/claude-501/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb/tasks/a005fc6ed97323aad.output",
+          "prompt": "cross-repo-worktree: /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/b7765516-1287-45df-84a2-cd4894cf2292/repo\nRun /private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op work once from your native worktree. It writes and commits the fixture only in the assigned managed repository. Report the returned commit and finish.",
+          "resolvedModel": "claude-sonnet-5",
+          "status": "async_launched"
+        },
+        "tool_use_id": "toolu_01Cvmse4XfA1XYNXR67a2Pzf",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782842.2143948,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782846.1608782,
+      "hook": "guard-sealed-worktree.sh",
+      "input": {
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "tool_input": {
+          "command": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op finish",
+          "description": "Run canary-op finish",
+          "timeout": 300000
+        },
+        "tool_name": "Bash",
+        "tool_use_id": "toolu_016hMbD3xUWrqRjGUw6LKJNR",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782846.0926049,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782847.1054878,
+      "hook": "guard-sealed-worktree.sh",
+      "input": {
+        "agent_id": "a005fc6ed97323aad",
+        "agent_type": "canary",
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session/.claude/worktrees/agent-a005fc6ed97323aad",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "tool_input": {
+          "command": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op work",
+          "description": "Run canary-op work command"
+        },
+        "tool_name": "Bash",
+        "tool_use_id": "toolu_014iHuyY28wuyBcKmDNHuJCE",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782846.9254,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "finished_at": 1788782852.103918,
+      "hook": "terminalize-agent-worktrees.sh",
+      "input": {
+        "agent_id": "a005fc6ed97323aad",
+        "agent_transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb/subagents/agent-a005fc6ed97323aad.jsonl",
+        "agent_type": "canary",
+        "background_tasks": [
+          {
+            "agent_type": "canary",
+            "description": "canary-sonnet-bb6c8421",
+            "id": "a005fc6ed97323aad",
+            "status": "running",
+            "type": "subagent"
+          }
+        ],
+        "cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session/.claude/worktrees/agent-a005fc6ed97323aad",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "SubagentStop",
+        "last_assistant_message": "The canary-op work command ran successfully once from the native worktree.\n\nResult:\n- Commit (tip): `44c208aa8a93dffdf8f405c3d9174cdffa6a7df1`\n- agent_id: `a005fc6ed97323aad`\n- manager_id: `b7765516-1287-45df-84a2-cd4894cf2292`\n\nThe command executed the binary at `/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/canary-op` with the `work` argument, which per its own design writes and commits the fixture only in its assigned managed repository. I did not cd into the separately mentioned cross-repo-worktree path \u2014 the tool is expected to resolve and operate on its own assigned managed repo internally.",
+        "permission_mode": "dontAsk",
+        "prompt_id": "a514c024-f007-4da5-b2e3-f5bb7242e7a9",
+        "session_crons": [],
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "stop_hook_active": false,
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl"
+      },
+      "returncode": 0,
+      "started_at": 1788782851.85307,
+      "stderr": "terminalize-agent-worktrees.sh: SubagentStop ingress WON the claim for agent a005fc6ed97323aad (canary-sonnet-bb6c8421); members: agent-a005fc6ed97323aad:quarantined, repo:managed-terminal\n",
+      "stdout": ""
+    }
+  ],
+  "interpretation": "Acceptance failed. Actual worker and terminal ingress ran; verifier rejected a correctly blocked-and-retried Agent call. Native worktree was quarantined by RichOS and retained. Managed terminal delivery persistence had not completed before the canary exited. This is diagnostic evidence, not passing acceptance.",
+  "launcher_phases": [
+    {
+      "input_pins": {
+        "engine-manifest.json": "df7d4c5b0ab0f57b76e0dc10c2759cf105e9136eaf421a66bee61bbc922b3338",
+        "engine-modes.json": "617372452fa6267a8bf2be16c25c108d2dc4e4c6bf6878d805425cee4e05e4a0",
+        "managed-workspace-claude-canary.acceptance.py": "4ed069c5a3d2ea5d6ffa7d3ca54d665dca4d6639308830a6a9b2089168a72e2f",
+        "managed-workspace-interrupted-creation.acceptance.py": "767875bb767dcd374489cea562d064ab60b3527bb93716377c4081910f399e9b"
+      },
+      "phase": "started",
+      "receipt_path": "/Library/Application Support/RichOS/workspace-broker/acceptance-runs/claude-canary-9c1bd6b128d34e00bec7338c24caec95/receipt.jsonl",
+      "source_commit": "b6b7e2a8deae453f4ed201bc5bf5de16589be906"
+    },
+    {
+      "exit_code": 1,
+      "phase": "claude-canary",
+      "result": {
+        "acceptance_id": "claude-canary-56172780c414446ea42ef3debb6c8421",
+        "activated": false,
+        "active_root": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421",
+        "agent_id": "a005fc6ed97323aad",
+        "bridge_substitution": {
+          "after": "CLIENT_CONFIG = Path('/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/client.json')",
+          "after_sha256": "14951495b911f2e0ca667a973cb775904485ed3725f22d033b1722478ace26eb",
+          "before": "CLIENT_CONFIG = Path('/Library/Application Support/RichOS/ManagedWorkspaces/client.json')",
+          "before_sha256": "7bf80560be3c30c64a08d93ff03b9169232a6f27623dac693bffc59542d258d1",
+          "path": "scripts/lib/managed-workspace-integration.py"
+        },
+        "broker_process": {
+          "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+          "pid": 43200,
+          "pid_start": "ps-lstart-utc-v1:Mon Sep 7 12:06:58 2026"
+        },
+        "checks": [
+          {
+            "detail": "",
+            "name": "only-bridge-configuration-constant-substituted",
+            "passed": true
+          },
+          {
+            "detail": "",
+            "name": "all-installed-plugins-explicitly-disabled-before-model-execution",
+            "passed": true
+          },
+          {
+            "detail": "",
+            "name": "real-claude-process-completed",
+            "passed": true
+          },
+          {
+            "detail": "",
+            "name": "actual-cli-reports-no-loaded-plugins-or-mcp",
+            "passed": true
+          }
+        ],
+        "claude_host_stop": "absent-or-identity-unavailable",
+        "claude_process": {
+          "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+          "pid": 43715,
+          "pid_start": "ps-lstart-utc-v1:Mon Sep 7 12:07:01 2026",
+          "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+          "type": "canary_host_identity",
+          "uid": 501
+        },
+        "claude_supervisor_process": {
+          "boot_id": "008db402-7e5f-47dd-9b0e-d499611c6498",
+          "pid": 43712,
+          "pid_start": "ps-lstart-utc-v1:Mon Sep 7 12:07:01 2026"
+        },
+        "engine_original_manifest_sha256": "df7d4c5b0ab0f57b76e0dc10c2759cf105e9136eaf421a66bee61bbc922b3338",
+        "error": "actual Agent intent/binding join missing",
+        "explicitly_disabled_plugin_ids": [
+          "richos-engine@richos-local",
+          "swift-lsp@claude-plugins-official"
+        ],
+        "fixture_cleanup_complete": false,
+        "hook_profile": "bounded native-plus-managed lifecycle",
+        "initial_source_branches": [
+          "refs/heads/master"
+        ],
+        "manifest_sha256": "5b798931b3aa02b02324596fd3ad39cb559827589c36ac7a61e5b1346c45159c",
+        "normal_auth_reused": true,
+        "normal_project_transcript_directory": "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session",
+        "owner_gid": 20,
+        "owner_uid": 501,
+        "passed": false,
+        "private_root": "/private/var/db/richos-workspaces/claude-canary-56172780c414446ea42ef3debb6c8421",
+        "release": "/Library/Application Support/RichOS/workspace-broker/releases/8397310ea1b75b6e48a839d403be70624f964d114d5e820a76dd245ecf83e04b",
+        "remaining_fixture_attachments": [],
+        "retained_fixture_receipt": "/private/var/db/richos-workspaces/claude-canary-56172780c414446ea42ef3debb6c8421/acceptance.json",
+        "root_pins": [
+          [
+            16777233,
+            203459965,
+            0,
+            448
+          ],
+          [
+            16777233,
+            203459966,
+            0,
+            457
+          ]
+        ],
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "settings_sources": [],
+        "strict_attachment_inventory_complete": true,
+        "transcripts_retained": [
+          "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl",
+          "/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb/subagents/agent-a005fc6ed97323aad.jsonl"
+        ],
+        "version": 1
+      },
+      "stderr": "",
+      "stdout": "{\n  \"acceptance_id\": \"claude-canary-56172780c414446ea42ef3debb6c8421\",\n  \"activated\": false,\n  \"active_root\": \"/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421\",\n  \"agent_id\": \"a005fc6ed97323aad\",\n  \"bridge_substitution\": {\n    \"after\": \"CLIENT_CONFIG = Path('/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/client.json')\",\n    \"after_sha256\": \"14951495b911f2e0ca667a973cb775904485ed3725f22d033b1722478ace26eb\",\n    \"before\": \"CLIENT_CONFIG = Path('/Library/Application Support/RichOS/ManagedWorkspaces/client.json')\",\n    \"before_sha256\": \"7bf80560be3c30c64a08d93ff03b9169232a6f27623dac693bffc59542d258d1\",\n    \"path\": \"scripts/lib/managed-workspace-integration.py\"\n  },\n  \"broker_process\": {\n    \"boot_id\": \"008db402-7e5f-47dd-9b0e-d499611c6498\",\n    \"pid\": 43200,\n    \"pid_start\": \"ps-lstart-utc-v1:Mon Sep 7 12:06:58 2026\"\n  },\n  \"checks\": [\n    {\n      \"detail\": \"\",\n      \"name\": \"only-bridge-configuration-constant-substituted\",\n      \"passed\": true\n    },\n    {\n      \"detail\": \"\",\n      \"name\": \"all-installed-plugins-explicitly-disabled-before-model-execution\",\n      \"passed\": true\n    },\n    {\n      \"detail\": \"\",\n      \"name\": \"real-claude-process-completed\",\n      \"passed\": true\n    },\n    {\n      \"detail\": \"\",\n      \"name\": \"actual-cli-reports-no-loaded-plugins-or-mcp\",\n      \"passed\": true\n    }\n  ],\n  \"claude_host_stop\": \"absent-or-identity-unavailable\",\n  \"claude_process\": {\n    \"boot_id\": \"008db402-7e5f-47dd-9b0e-d499611c6498\",\n    \"pid\": 43715,\n    \"pid_start\": \"ps-lstart-utc-v1:Mon Sep 7 12:07:01 2026\",\n    \"session_id\": \"9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb\",\n    \"type\": \"canary_host_identity\",\n    \"uid\": 501\n  },\n  \"claude_supervisor_process\": {\n    \"boot_id\": \"008db402-7e5f-47dd-9b0e-d499611c6498\",\n    \"pid\": 43712,\n    \"pid_start\": \"ps-lstart-utc-v1:Mon Sep 7 12:07:01 2026\"\n  },\n  \"engine_original_manifest_sha256\": \"df7d4c5b0ab0f57b76e0dc10c2759cf105e9136eaf421a66bee61bbc922b3338\",\n  \"error\": \"actual Agent intent/binding join missing\",\n  \"explicitly_disabled_plugin_ids\": [\n    \"richos-engine@richos-local\",\n    \"swift-lsp@claude-plugins-official\"\n  ],\n  \"fixture_cleanup_complete\": false,\n  \"hook_profile\": \"bounded native-plus-managed lifecycle\",\n  \"initial_source_branches\": [\n    \"refs/heads/master\"\n  ],\n  \"manifest_sha256\": \"5b798931b3aa02b02324596fd3ad39cb559827589c36ac7a61e5b1346c45159c\",\n  \"normal_auth_reused\": true,\n  \"normal_project_transcript_directory\": \"/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session\",\n  \"owner_gid\": 20,\n  \"owner_uid\": 501,\n  \"passed\": false,\n  \"private_root\": \"/private/var/db/richos-workspaces/claude-canary-56172780c414446ea42ef3debb6c8421\",\n  \"release\": \"/Library/Application Support/RichOS/workspace-broker/releases/8397310ea1b75b6e48a839d403be70624f964d114d5e820a76dd245ecf83e04b\",\n  \"remaining_fixture_attachments\": [],\n  \"retained_fixture_receipt\": \"/private/var/db/richos-workspaces/claude-canary-56172780c414446ea42ef3debb6c8421/acceptance.json\",\n  \"root_pins\": [\n    [\n      16777233,\n      203459965,\n      0,\n      448\n    ],\n    [\n      16777233,\n      203459966,\n      0,\n      457\n    ]\n  ],\n  \"session_id\": \"9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb\",\n  \"settings_sources\": [],\n  \"strict_attachment_inventory_complete\": true,\n  \"transcripts_retained\": [\n    \"/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb.jsonl\",\n    \"/Users/alex/.claude/projects/-private-var-db-richos-workspace-mounts-claude-canary-56172780c414446ea42ef3debb6c8421-session/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb/subagents/agent-a005fc6ed97323aad.jsonl\"\n  ],\n  \"version\": 1\n}\n"
+    },
+    {
+      "error": "canary failed; preserved receipt: /Library/Application Support/RichOS/workspace-broker/acceptance-runs/claude-canary-9c1bd6b128d34e00bec7338c24caec95/receipt.jsonl",
+      "phase": "failed",
+      "receipt_path": "/Library/Application Support/RichOS/workspace-broker/acceptance-runs/claude-canary-9c1bd6b128d34e00bec7338c24caec95/receipt.jsonl",
+      "stderr": "",
+      "stdout": ""
+    }
+  ],
+  "observed_transaction": {
+    "agent_id": "a005fc6ed97323aad",
+    "kind": "native+external",
+    "members": [
+      {
+        "attempts": 1,
+        "backup_ref": "refs/richos/handoffs/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb/a005fc6ed97323aad/worktree-agent-a005fc6ed97323aad",
+        "blocked": true,
+        "blocked_reason": "exclusive-access-unavailable: automatic erasure is disabled; quarantine and Git registration are retained",
+        "branch": "worktree-agent-a005fc6ed97323aad",
+        "capture_dir": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/state/captures/9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb/a005fc6ed97323aad/member-0",
+        "captured_files": 4,
+        "class": "native",
+        "head": "b648220fa482ab467ed210389dcb3abc32606365",
+        "head_at_seal": "b648220fa482ab467ed210389dcb3abc32606365",
+        "last_attempt": "2026-09-07T12:07:34.025304+00:00",
+        "last_error": "exclusive-access-unavailable: automatic erasure is disabled; quarantine and Git registration are retained",
+        "path": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session/.claude/worktrees/agent-a005fc6ed97323aad",
+        "quarantine": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session/.claude/worktrees/agent-a005fc6ed97323aad.richos-terminal-9f6e9bb8-a005fc6ed97323aad",
+        "repo": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session",
+        "retry_after": "2026-09-07T12:07:34.025324+00:00 + 60s",
+        "retry_after_epoch": 1788782914.025323,
+        "sparse": {
+          "applied": true,
+          "bytes_after": 806,
+          "bytes_before": 806,
+          "bytes_freed": 0,
+          "entries_after": 6,
+          "entries_before": 6,
+          "keep": [
+            ".claude",
+            ".githooks"
+          ],
+          "mode": "cone",
+          "ts": "2026-09-07T12:07:23Z"
+        },
+        "state": "verified",
+        "ts": "2026-09-07T12:07:34.025395+00:00",
+        "verified_files": 4,
+        "verified_ts": "2026-09-07T12:07:34.024283+00:00"
+      },
+      {
+        "agent_name": "canary-sonnet-bb6c8421",
+        "attempts": 1,
+        "blocked": false,
+        "blocked_reason": null,
+        "branch": "canary-sonnet-bb6c8421",
+        "class": "managed-image",
+        "head_at_seal": "443c37ef3ed831a9558569b8bf0c41360b8271a4",
+        "last_attempt": "2026-09-07T12:07:34.190908+00:00",
+        "last_error": "managed retirement pending: terminal",
+        "manager_id": "b7765516-1287-45df-84a2-cd4894cf2292",
+        "manager_state": "terminal",
+        "path": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/b7765516-1287-45df-84a2-cd4894cf2292/repo",
+        "prepared_ts": "2026-09-07T12:07:08.183894+00:00",
+        "repo": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/source",
+        "retry_after": "2026-09-07T12:07:34.190937+00:00 + 60s",
+        "retry_after_epoch": 1788782914.190936,
+        "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+        "state": "managed-terminal",
+        "ts": "2026-09-07T12:07:34.191097+00:00"
+      }
+    ],
+    "record": "transaction",
+    "sealed": true,
+    "sealed_ts": "2026-09-07T12:07:23.244671+00:00",
+    "session_id": "9f6e9bb8-d8a5-4ddf-aa92-830f1c542ebb",
+    "start_cwd": "/private/var/db/richos-workspace-mounts/claude-canary-56172780c414446ea42ef3debb6c8421/session/.claude/worktrees/agent-a005fc6ed97323aad",
+    "state": "terminal",
+    "subagent_type": "canary",
+    "teammate": "canary-sonnet-bb6c8421",
+    "terminal": {
+      "detail": "",
+      "ingress": "SubagentStop",
+      "ts": "2026-09-07T12:07:31.912308+00:00"
+    },
+    "tool_use_id": "toolu_01Cvmse4XfA1XYNXR67a2Pzf"
+  },
+  "version": 1
+}
