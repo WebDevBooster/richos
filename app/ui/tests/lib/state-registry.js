@@ -2640,7 +2640,7 @@ module.exports = [
       "has been handed it yet. Nothing to act on — the turn moves itself to `working`.",
   },
   {
-    s: "He hasn't started on it yet",
+    s: "Waiting to start",
     c: "INFORMATIONAL",
     why:
       "The detail line under `queued`, and the whole content of that state: the message is " +
@@ -2790,4 +2790,13 @@ module.exports = [
       "the offer is deliberately left open behind it. Closing the notice here would report " +
       "success over work that did not happen.",
   },
+  { s: "Sending your message", c: "INFORMATIONAL", why: "The invoke is pending. This does not claim the backend has accepted the words." },
+  { s: "Waiting for Rich to accept it", c: "INFORMATIONAL", why: "The local request has no authoritative queued event yet." },
+  { s: "Your message is recorded.", c: "INFORMATIONAL", why: "The queued event follows the durable acceptance." },
+  { s: "Rich is picking this back up.", c: "INFORMATIONAL", why: "A one-time announcement of an authoritative recovery transition." },
+  { s: "Resume the questions", c: "CONTROL", why: "The existing Start control continues an incomplete interview." },
+  { s: "Let's pick up the questions about my business where we stopped.", c: "CONTROL", why: "The explicit Resume acceptance sent through the ordinary message path." },
+  { s: "Your business notes are started.", c: "ACTIONABLE", control: "#first-run-start", fixture: "first-run-partial", why: "Saved partial answers have a Resume control in the same panel." },
+  { s: "Your saved answers are kept. We can pick up the remaining questions where we stopped. Press Resume the questions when you're ready.", c: "ACTIONABLE", control: "#first-run-start", fixture: "first-run-partial", why: "Explains that resuming keeps existing answers and names the control beside it." },
+
 ];

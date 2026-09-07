@@ -623,6 +623,12 @@ const FIXTURES = {
   /// one above, for the reason `company-registry-unreadable` has its own: "I could not read
   /// your notes" and "you have not written any" are different repairs, and this one draws no
   /// control at all because no control could do it.
+  async "first-run-partial"(browser) {
+    const page = await openApp(browser, undefined, { onboarding: "partial" });
+    await page.waitForSelector('#first-run[data-state="partial"]:not([hidden])');
+    return page;
+  },
+
   async "first-run-unusable"(browser) {
     const page = await openApp(browser, undefined, { onboarding: "unusable" });
     await page.waitForSelector('#first-run[data-state="unusable"]:not([hidden])');
@@ -1148,6 +1154,7 @@ const TEXT_RENDERING_FIXTURES = new Set([
   // That matters most for the unusable state, which has no button at all: without the text
   // assertion there would be nothing to prove about it.
   "first-run-offer",
+  "first-run-partial",
   "first-run-unusable",
   "first-run-decline-refused",
   // The first-run setup sheet renders the BACKEND's words — `Component::why`,

@@ -933,6 +933,10 @@ async function openThread(threadId, opts) {
   stashThreadViewState();
   clearLiveMark(threadId);
   activeThreadId = threadId;
+  // The previous company's offer must not remain clickable while activation is pending.
+  el("first-run").hidden = true;
+  firstRunState = null;
+  ++firstRunRead;
   drillItems = [];
   // A fresh model per thread. `sessionLiveTurns` (not this model) remembers what is running
   // where, so nothing about the previous thread's live turn leaks into this one and nothing
@@ -1416,14 +1420,36 @@ async function loadTimeline() {
 // ---------------------------------------------------------------------------------------
 // Sending
 // ---------------------------------------------------------------------------------------
-async function send() {
-  const text = inputEl.value.trim();
+// Correlate an invocation with the accepted turn, rather than any live turn on screen.
+const pendingSends = new Map();
+
+function visiblePendingSend() {
+  return [...pendingSends.values()].find((request) => !request.turnId &&
+    (request.model === timelineModel || request.threadId && request.threadId === activeThreadId));
+}
+
+function restoreUnsentText(text, threadId) {
+  const current = threadId === activeThreadId;
+  const draft = current ? inputEl.value : drafts.get(threadId) || "";
+  const restored = draft.trim() && draft !== text ? text + "\n\n" + draft : text;
+  if (threadId) drafts.set(threadId, restored);
+  if (current) {
+    inputEl.value = restored;
+    autoGrow();
+  }
+  parkViewStateNow();
+}
+
+async function send(explicitText) {
+  // Start/Resume sends its own acceptance without silently submitting or deleting a draft.
+  const preserveDraft = typeof explicitText === "string";
+  const text = preserveDraft ? explicitText.trim() : inputEl.value.trim();
   if (!text) return;
   // §9.2: "The composer remains enabled. This is essential. Long work should not trap the
   // CEO in a passive state." Until this slice the line here read `if (anyLiveTurn()) return;`
   // — an honest refusal, because the spine's mutex is held for the whole turn and there was
   // nowhere durable to put the words. There is now (`steering.rs`), so they go there.
-  if (anyLiveTurn()) return steer(text);
+  if (anyLiveTurn()) return steer(text, preserveDraft);
   // §21 "Entity binding failure": BLOCK SEND and state why. Never quietly file the CEO's
   // words somewhere Rich guessed.
   if (sendBlockedReason) {
@@ -1431,12 +1457,13 @@ async function send() {
     composerBlockedEl.hidden = false;
     return;
   }
-  inputEl.value = "";
+  const keptDraft = preserveDraft ? inputEl.value : "";
+  if (!preserveDraft) inputEl.value = "";
   autoGrow();
   // THE SENT WORDS STOP BEING A DRAFT, on disk as well as in the box. Without this the
   // parked copy outlives the send and a crash would put a sentence he has already sent back
   // into his composer — the one restore that would be worse than no restore at all.
-  if (activeThreadId) drafts.delete(activeThreadId);
+  if (activeThreadId && !preserveDraft) drafts.delete(activeThreadId);
   parkViewStateNow();
 
   // §3.3 first send in a draft thread: NOTHING was persisted when the CEO opened the
@@ -1481,6 +1508,9 @@ async function send() {
     timelineModel = window.RichTimeline.createModel();
     showConversationView(); // clears `draftEntityId`; `entityId` is captured above
     const optimisticId = window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
+    pendingSends.set(optimisticId, { model: timelineModel, threadId: null, turnId: null, startedAt: Date.now() });
+    startOrStopWaitTimer();
+    renderWaitBand();
     followBottom = true;
     scheduleRender();
 
@@ -1493,6 +1523,9 @@ async function send() {
       // blank wait this block exists to fix. Then back to the screen he was on, with his
       // words in the box — `showEntityView` re-arms `draftEntityId`, so pressing Send again
       // takes the same path rather than filing the message somewhere he did not choose.
+      pendingSends.delete(optimisticId);
+      startOrStopWaitTimer();
+      removeWaitBand();
       window.RichTimeline.dropPendingUserMessage(timelineModel, optimisticId);
       scheduleRender();
       showEntityView(entityId, "new");
@@ -1512,27 +1545,52 @@ async function send() {
       return;
     }
     drafts.delete(ENTITY_DRAFT_PREFIX + entityId);
+    if (preserveDraft && keptDraft) drafts.set(newId, keptDraft);
+    pendingSends.get(optimisticId).threadId = newId;
     draftEntityId = null;
     await refreshNavigation();
     await openThread(newId);
+    pendingSends.delete(optimisticId);
   }
 
   // §25: "The submitted message renders immediately on the right in a quiet highlighted
   // surface." It carries a synthetic id until `rich://turn-status` names the turn, then it
   // is RE-KEYED onto `{turnId}:user` — the same id the ledger derives — so the CEO's one
   // sentence is never drawn twice.
-  const pendingId = window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
+  const sentModel = timelineModel;
+  const sentThreadId = activeThreadId;
+  const pendingId = window.RichTimeline.addPendingUserMessage(sentModel, text, Date.now());
+  const request = { model: sentModel, threadId: sentThreadId, turnId: null, startedAt: Date.now() };
+  pendingSends.set(pendingId, request);
+  startOrStopWaitTimer();
+  renderWaitBand();
   followBottom = true;
   scheduleRender();
 
   try {
-    await Bridge.invoke("send_message", { text });
-    window.RichRuns.show(activeThreadId);
+    await Bridge.invoke("send_message", { text, threadId: sentThreadId });
+    if (activeThreadId === sentThreadId) window.RichRuns.show(sentThreadId);
   } catch (e) {
-    // An outright rejection BEFORE any turn started (no lease ⇒ no stream events will ever
-    // fire for this attempt). A turn that started and then failed is resolved by
-    // `rich://turn-status: failed`, not here.
-    if (anyLiveTurn()) return;
+    // A terminal event already explains this attempt. If the command rejected without
+    // one, end only this invocation's local live state. A queued turn is not proof that
+    // the operation survived its rejection, nor is another thread's live turn relevant.
+    if (request.turnId) {
+      const turn = sentModel.turns.get(request.turnId);
+      if (turn && !turn.live) return;
+      window.RichTimeline.markSendRejected(sentModel, request.turnId);
+      sessionLiveTurns.delete(request.turnId);
+      waitHistory.delete(request.turnId);
+      if (timelineModel === sentModel) {
+        syncWaitBand({ turnId: request.turnId, status: "failed" });
+        syncComposerMode();
+        scheduleRender();
+        announce("Rich stopped before finishing.");
+      }
+      return;
+    }
+    window.RichTimeline.dropPendingUserMessage(sentModel, pendingId);
+    restoreUnsentText(text, sentThreadId);
+    if (timelineModel !== sentModel) return;
 
     // WHAT THIS USED TO DO, AND WHY IT WAS THE WORST STATE IN THE APP. It said
     // "Something went sideways on my end — one moment, I'll sort it." and then left the
@@ -1574,8 +1632,6 @@ async function send() {
             " me to try again."),
       Date.now()
     );
-    inputEl.value = text; // never swallow the CEO's words
-    autoGrow();
     syncComposerMode();
     scheduleRender();
     // THE OFFER, ACTUALLY ON SCREEN — and this line is what makes the backend's sentence
@@ -1589,6 +1645,10 @@ async function send() {
     // then trying to send is a legitimate path, not a mistake — so it gets an offer rather
     // than a refusal, every time, for as long as the pieces are missing.
     if (setupPending) maybeAskAboutSetup();
+  } finally {
+    pendingSends.delete(pendingId);
+    startOrStopWaitTimer();
+    renderWaitBand();
   }
 }
 
@@ -1604,8 +1664,8 @@ async function send() {
 /// So the UI never implies the message landed mid-thought. The bubble goes up with the
 /// §9.2 cue and nothing else is claimed: no "Rich is reading this", no re-ordering of the
 /// running turn's rows.
-async function steer(text) {
-  inputEl.value = "";
+async function steer(text, preserveDraft) {
+  if (!preserveDraft) inputEl.value = "";
   autoGrow();
   window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
   followBottom = true;
@@ -1939,12 +1999,14 @@ let pacePaintedId = null;
 ///               band never says "nothing has come back yet" about work it simply did not
 ///               watch.
 let waitTurn = null;
+// Evidence belongs to the turn, including while its thread is off screen.
+const waitHistory = new Map();
 let waitBandEl = null;
 let waitTimer = null;
 let waitLastPaintAt = 0;
 /// One announcement per quiet stretch. §18 forbids announcing a ticking timer; this is a
 /// single state change, said once.
-let waitQuietAnnounced = false;
+// The acknowledgement lives on each wait record, so reloading cannot announce it again.
 
 /// Record a signal against the live turn. Called ONLY where the timeline ACCEPTED the event
 /// (`!r.rejected`) — the fence has already decided whether the payload belongs to the
@@ -1956,7 +2018,10 @@ function noteTurnSignal(turnId, what) {
   const described = !!what && what !== waitTurn.lastWhat;
   waitTurn.lastAt = now;
   waitTurn.signals += 1;
-  if (what) waitTurn.lastWhat = what;
+  if (what) {
+    waitTurn.lastWhat = what;
+    waitTurn.whatAt = now;
+  }
   // THE BAR CANNOT OUTLIVE THE SENTENCE IT PACES. The moment a different signal takes over
   // the description, whatever the bar was drawing is no longer what the band is talking
   // about, so it goes. A signal that carries no description (a worker row, arriving text)
@@ -1964,7 +2029,7 @@ function noteTurnSignal(turnId, what) {
   // FIRST on an activity row and has already refreshed `summary` for the row's own ending,
   // so "Making room" -> "Made room" is a continuation and not a replacement.
   if (what && waitTurn.pace && what !== waitTurn.pace.summary) waitTurn.pace = null;
-  waitQuietAnnounced = false;
+  if (waitTurn) waitTurn.quietAnnounced = false;
   flashWaitMark();
   // A streaming reply delivers a delta every few tens of milliseconds (measured p50 62ms,
   // above), so the ticker owns the once-a-second repaint and this forces only the frames
@@ -2113,7 +2178,7 @@ function removeWaitBand() {
 /// would be inventing it.
 function waitBandCopy(t, nowMs) {
   const quietMs = nowMs - t.lastAt;
-  const quiet = (t.status === "working" || t.status === "recovering") && quietMs >= QUIET_AFTER_MS;
+  const quiet = quietMs >= QUIET_AFTER_MS;
 
   let head;
   if (t.status === "queued") head = "Rich has your message";
@@ -2131,11 +2196,14 @@ function waitBandCopy(t, nowMs) {
   const gap = window.RichTimeline.formatDuration(quietMs);
 
   let detail;
-  if (t.status === "queued") detail = "He hasn't started on it yet";
-  else if (quiet) detail = "Nothing new for " + gap;
+  if (quiet) detail = "Nothing new for " + gap;
+  else if (t.status === "queued") detail = "Waiting to start";
   else if (t.signals === 0 && t.fromStart) detail = "Nothing has come back yet";
   else if (t.signals === 0) detail = "Nothing new for " + (gap || "a moment");
-  else if (t.lastWhat) detail = t.lastWhat + (gap ? " · " + gap + " ago" : "");
+  else if (t.lastWhat) {
+    const age = window.RichTimeline.formatDuration(nowMs - t.whatAt);
+    detail = t.lastWhat + (age ? " · " + age + " ago" : "");
+  }
   else detail = "Last update " + (gap ? gap + " ago" : "just now");
 
   // THE BAR IS PART OF THE SENTENCE, not a second opinion beside it. It is drawn only while
@@ -2194,21 +2262,29 @@ function renderWaitPace(band, copy) {
 }
 
 function renderWaitBand() {
-  if (!waitTurn) {
+  const pending = visiblePendingSend();
+  if (mainView !== "conversation" || (!waitTurn && !pending)) {
     removeWaitBand();
     return;
   }
   const band = ensureWaitBand();
   if (!band) return;
   waitLastPaintAt = Date.now();
-  const copy = waitBandCopy(waitTurn, waitLastPaintAt);
+  const pendingMs = pending ? waitLastPaintAt - pending.startedAt : 0;
+  const copy = waitTurn ? waitBandCopy(waitTurn, waitLastPaintAt) : {
+    head: "Sending your message",
+    time: window.RichTimeline.formatDuration(pendingMs) || "",
+    detail: "Waiting for Rich to accept it",
+    tone: pendingMs >= QUIET_AFTER_MS ? "quiet" : "queued",
+    pace: null,
+  };
   band.dataset.tone = copy.tone;
   band.querySelector(".wait-head").textContent = copy.head;
   band.querySelector(".wait-time").textContent = copy.time;
   band.querySelector(".wait-detail").textContent = copy.detail;
   renderWaitPace(band, copy);
-  if (copy.tone === "quiet" && !waitQuietAnnounced) {
-    waitQuietAnnounced = true;
+  if (copy.tone === "quiet" && !(waitTurn || pending).quietAnnounced) {
+    (waitTurn || pending).quietAnnounced = true;
     announce(copy.head + ". " + copy.detail + ".");
   }
 }
@@ -2217,9 +2293,10 @@ function renderWaitBand() {
 /// same rule and the same reason as the timeline's own timer (§6.2: recompute from
 /// timestamps on return, never accumulate).
 function startOrStopWaitTimer() {
-  if (waitTurn && !waitTimer && !document.hidden) {
+  const active = waitTurn || visiblePendingSend();
+  if (active && !waitTimer && !document.hidden) {
     waitTimer = window.setInterval(renderWaitBand, WAIT_TICK_MS);
-  } else if ((!waitTurn || document.hidden) && waitTimer) {
+  } else if ((!active || document.hidden) && waitTimer) {
     window.clearInterval(waitTimer);
     waitTimer = null;
   }
@@ -2234,14 +2311,20 @@ function startOrStopWaitTimer() {
 function syncWaitBand(payload, opts) {
   const live = payload.status === "queued" || payload.status === "working" || payload.status === "recovering";
   if (!live) {
+    waitHistory.delete(payload.turnId);
+    if (waitTurn && waitTurn.turnId !== payload.turnId) return;
     waitTurn = null;
-    waitQuietAnnounced = false;
     startOrStopWaitTimer();
     renderWaitBand();
     return;
   }
   const now = Date.now();
-  if (!waitTurn || waitTurn.turnId !== payload.turnId) {
+  const restored = opts && opts.joinedLate && waitHistory.get(payload.turnId);
+  if (restored) {
+    waitTurn = restored;
+    waitTurn.status = payload.status;
+    if (typeof payload.startedAt === "number") waitTurn.startedAt = payload.startedAt;
+  } else if (!waitTurn || waitTurn.turnId !== payload.turnId) {
     waitTurn = {
       turnId: payload.turnId,
       status: payload.status,
@@ -2249,13 +2332,15 @@ function syncWaitBand(payload, opts) {
       acceptedAt: now,
       lastAt: now,
       lastWhat: null,
+      whatAt: now,
+      activityAnnouncements: new Set(),
       signals: 0,
       // Nothing is being paced yet, and nothing is carried over from the previous turn — a
       // bar belongs to the row that declared it, and that row belongs to one turn.
       pace: null,
       fromStart: !(opts && opts.joinedLate),
     };
-    waitQuietAnnounced = false;
+    if (waitTurn) waitTurn.quietAnnounced = false;
   } else {
     // A status TRANSITION is evidence of life and moves the silence clock, but it is not
     // something coming back from Rich — `signals` counts content only, so `queued` ->
@@ -2263,11 +2348,12 @@ function syncWaitBand(payload, opts) {
     waitTurn.status = payload.status;
     if (typeof payload.startedAt === "number") waitTurn.startedAt = payload.startedAt;
     waitTurn.lastAt = now;
-    waitQuietAnnounced = false;
+    if (waitTurn) waitTurn.quietAnnounced = false;
   }
+  waitHistory.set(payload.turnId, waitTurn);
   startOrStopWaitTimer();
   renderWaitBand();
-  flashWaitMark();
+  if (!(opts && opts.joinedLate)) flashWaitMark();
 }
 
 /// The CEO's own stop, from `stop_turn`'s durable answer rather than from an event — the
@@ -2277,7 +2363,7 @@ function markWaitStopping(turnId) {
   if (!waitTurn || (turnId && waitTurn.turnId !== turnId)) return;
   waitTurn.status = "stopping";
   waitTurn.lastAt = Date.now();
-  waitQuietAnnounced = false;
+  if (waitTurn) waitTurn.quietAnnounced = false;
   renderWaitBand();
 }
 
@@ -2287,11 +2373,28 @@ function markWaitStopping(turnId) {
 /// window did not watch its first seconds and must not report on them.
 function resetWaitBandForThread() {
   waitTurn = null;
-  waitQuietAnnounced = false;
   removeWaitBand();
   for (const [turnId, t] of timelineModel.turns) {
     if (!t.live) continue;
+    const hadEvidence = waitHistory.has(turnId);
     syncWaitBand({ turnId, status: t.status, startedAt: t.startedAt }, { joinedLate: true });
+    // A snapshot carries the actual latest activity instant. Restoring it must not make
+    // a 25-second-old heartbeat look as though it arrived when the window opened.
+    const items = [...timelineModel.items.values()].filter((item) =>
+      item.turnId === turnId && item.slot === "stream" && item.visibility === "ceo");
+    const instant = (item) => item.updatedAt ?? item.at ?? item.completedAt ?? item.createdAt;
+    items.sort((a, b) => instant(a) - instant(b));
+    const last = items[items.length - 1];
+    if (last && typeof instant(last) === "number" && (!hadEvidence || instant(last) > waitTurn.lastAt)) {
+      waitTurn.lastAt = instant(last);
+      waitTurn.signals = Math.max(1, waitTurn.signals);
+      const described = [...items].reverse().find((item) => item.summary || item.kind === "rich_message");
+      waitTurn.lastWhat = described ? described.summary || "Writing the reply" : null;
+      waitTurn.whatAt = described ? instant(described) : waitTurn.lastAt;
+      if (described && described.kind === "activity") notePacedActivity(described);
+      else waitTurn.pace = null;
+    }
+    renderWaitBand();
     return;
   }
   startOrStopWaitTimer();
@@ -2396,12 +2499,42 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
   // stay "live" forever in a thread nobody is looking at.
   if (payload.supersedesTurnId) sessionLiveTurns.delete(payload.supersedesTurnId);
 
+  // A user may leave the thread before its acceptance/rejection comes back. Keep the
+  // invocation's own model current as well, so a background accepted turn never becomes
+  // an "unsent" draft merely because its event was fenced out of the visible thread.
+  for (const request of pendingSends.values()) {
+    if (request.model === timelineModel || !window.RichTimeline.accepts(request.model, payload)) continue;
+    if (!request.turnId && payload.status === "queued" && !payload.supersedesTurnId) {
+      request.turnId = payload.turnId;
+    }
+    if (request.turnId === payload.turnId || request.turnId === payload.supersedesTurnId) {
+      window.RichTimeline.onTurnStatus(request.model, payload);
+      if (payload.supersedesTurnId) request.turnId = payload.turnId;
+      break;
+    }
+  }
+  if (!["queued", "working", "recovering"].includes(payload.status)) waitHistory.delete(payload.turnId);
+
+  const pendingId = timelineModel.pendingUser[0];
   const r = window.RichTimeline.onTurnStatus(timelineModel, payload);
   if (r.rejected) return;
+  const request = pendingSends.get(pendingId);
+  if (request && (payload.status === "queued" || payload.status === "working") &&
+      !timelineModel.pendingUser.includes(pendingId)) request.turnId = payload.turnId;
+  if (payload.supersedesTurnId) {
+    for (const pending of pendingSends.values()) {
+      if (pending.turnId === payload.supersedesTurnId) pending.turnId = payload.turnId;
+    }
+    waitHistory.delete(payload.supersedesTurnId);
+  }
 
   // The waiting state (see THE WAITING STATE above). Placed after the fence, so the band on
   // screen can only ever describe the turn of the thread on screen.
+  const previousWaitStatus = waitTurn && waitTurn.status;
   syncWaitBand(payload);
+  if (payload.status === "recovering" && previousWaitStatus !== "recovering") {
+    announce("Rich is picking this back up.");
+  }
 
   // The composer has two modes (§9.1/§9.2) and this is the authoritative signal for which
   // one it is in — not a timer, not the absence of events.
@@ -2485,6 +2618,13 @@ Bridge.listen("rich://activity-upserted", ({ payload }) => {
   // The pace is read FIRST (see THE PACED BAR) so the single repaint below carries the
   // sentence and the bar that belongs to it together, rather than a bar one frame behind.
   notePacedActivity(payload);
+  if (waitTurn && payload.measuredMinMs && payload.summary) {
+    const key = JSON.stringify([payload.id, payload.state, payload.summary]);
+    if (!waitTurn.activityAnnouncements.has(key)) {
+      waitTurn.activityAnnouncements.add(key);
+      announce(payload.summary);
+    }
+  }
   noteTurnSignal(payload.turnId, typeof payload.summary === "string" && payload.summary.trim() ? payload.summary.trim() : null);
   scheduleRender();
 });
@@ -3947,6 +4087,16 @@ async function renderHistoryNotice() {
 /// not survive the launch, nothing reads it to decide anything, and `onboarding.rs`'s module
 /// doc bans the durable version of that idea by name.
 let firstRunState = null;
+let firstRunRead = 0;
+let firstRunViewContext = null;
+const firstRunActions = new Map();
+function firstRunContext() {
+  return JSON.stringify([activeThreadId, activeContext && activeContext.entity_id, draftEntityId, mainView]);
+}
+function firstRunButtons(disabled) {
+  el("first-run-start").disabled = disabled;
+  el("first-run-later").disabled = disabled;
+}
 
 /// THE HEADLINE, and the word it deliberately does not contain is "anything".
 ///
@@ -4004,6 +4154,9 @@ const FIRST_RUN_DECLINED_RECEIPT =
 /// to do when the answer is yes, and a second, private route into the same skill would be a
 /// second thing to keep in step with it.
 const FIRST_RUN_ACCEPT_MESSAGE = "Let's do the twenty minutes of questions about my business.";
+const FIRST_RUN_RESUME_MESSAGE = "Let's pick up the questions about my business where we stopped.";
+const FIRST_RUN_PARTIAL_HEADLINE = "Your business notes are started.";
+const FIRST_RUN_PARTIAL_BODY = "Your saved answers are kept. We can pick up the remaining questions where we stopped. Press Resume the questions when you're ready.";
 
 /// Read where onboarding stands and paint it — or paint nothing, which is the answer in three
 /// of the five states.
@@ -4016,10 +4169,26 @@ const FIRST_RUN_ACCEPT_MESSAGE = "Let's do the twenty minutes of questions about
 async function renderFirstRunNotice() {
   const box = el("first-run");
   if (!box) return;
+  const context = firstRunContext();
+  const ticket = ++firstRunRead;
   const view = await invokeQuiet("onboarding_view");
+  if (ticket !== firstRunRead || context !== firstRunContext()) return;
+  const entityId = draftEntityId || activeContext && activeContext.entity_id;
+  if (view && view.entityId && entityId && view.entityId !== entityId) {
+    box.hidden = true;
+    return;
+  }
   firstRunState = view || null;
+  firstRunViewContext = context;
+  const pending = view && firstRunActions.get(view.entityId);
+  if (pending) {
+    firstRunButtons(true);
+    if (pending.kind === "start") box.hidden = true;
+    return;
+  }
+  firstRunButtons(false);
   const state = view && view.state;
-  if (state !== "not-yet" && state !== "unusable") {
+  if (state !== "not-yet" && state !== "partial" && state !== "unusable") {
     box.hidden = true;
     return;
   }
@@ -4037,8 +4206,9 @@ async function renderFirstRunNotice() {
     el("first-run-consequence").hidden = true;
     el("first-run-actions").hidden = true;
   } else {
-    el("first-run-headline").textContent = FIRST_RUN_HEADLINE;
-    el("first-run-body").textContent = FIRST_RUN_BODY;
+    el("first-run-headline").textContent = state === "partial" ? FIRST_RUN_PARTIAL_HEADLINE : FIRST_RUN_HEADLINE;
+    el("first-run-body").textContent = state === "partial" ? FIRST_RUN_PARTIAL_BODY : FIRST_RUN_BODY;
+    el("first-run-start").textContent = state === "partial" ? "Resume the questions" : "Start the questions";
     el("first-run-consequence").textContent = FIRST_RUN_CONSEQUENCE;
     el("first-run-consequence").hidden = false;
     el("first-run-actions").hidden = false;
@@ -4049,10 +4219,20 @@ async function renderFirstRunNotice() {
 /// HE ACCEPTS. The notice closes because the conversation now carries the question, and a
 /// panel offering what is already happening is clutter.
 async function startFirstRunInterview() {
+  const view = firstRunState;
+  if (!view || !view.entityId || firstRunViewContext !== firstRunContext() || firstRunActions.has(view.entityId)) return;
+  const action = { kind: "start", context: firstRunContext() };
+  firstRunActions.set(view.entityId, action);
+  ++firstRunRead; // a read begun before this press cannot re-open the offer
+  firstRunButtons(true);
   el("first-run").hidden = true;
-  inputEl.value = FIRST_RUN_ACCEPT_MESSAGE;
-  autoGrow();
-  await send();
+  inputEl.focus();
+  try {
+    await send(view.state === "partial" ? FIRST_RUN_RESUME_MESSAGE : FIRST_RUN_ACCEPT_MESSAGE);
+  } finally {
+    firstRunActions.delete(view.entityId);
+    if (action.context === firstRunContext()) firstRunButtons(false);
+  }
 }
 
 /// HE SAYS NOT NOW. The write happens FIRST and the panel only changes if it succeeded.
@@ -4062,27 +4242,32 @@ async function startFirstRunInterview() {
 /// is the shape of failure this whole line of work exists to remove — reporting success over
 /// work that did not happen.
 async function declineFirstRunInterview() {
-  const later = el("first-run-later");
+  const view = firstRunState;
+  if (!view || !view.entityId || firstRunViewContext !== firstRunContext() || firstRunActions.has(view.entityId)) return;
+  const action = { kind: "decline", context: firstRunContext() };
+  firstRunActions.set(view.entityId, action);
+  ++firstRunRead;
+  firstRunButtons(true);
   const err = el("first-run-error");
-  later.disabled = true;
+  err.hidden = true;
   try {
-    firstRunState = await Bridge.invoke("decline_onboarding");
+    const answer = await Bridge.invoke("decline_onboarding", { entityId: view.entityId });
+    if (action.context !== firstRunContext()) return;
+    firstRunState = answer;
+    el("first-run").dataset.state = "declined";
+    el("first-run-headline").textContent = FIRST_RUN_DECLINED_RECEIPT;
+    el("first-run-body").textContent = "";
+    el("first-run-consequence").hidden = true;
+    el("first-run-actions").hidden = true;
+    inputEl.focus();
   } catch (e) {
+    if (action.context !== firstRunContext()) return;
     err.textContent = String(e);
     err.hidden = false;
-    later.disabled = false;
-    return;
+  } finally {
+    firstRunActions.delete(view.entityId);
+    if (action.context === firstRunContext()) firstRunButtons(false);
   }
-  later.disabled = false;
-  err.hidden = true;
-  // The panel becomes a receipt, and the receipt is not a panel — `data-state` is what drops
-  // the border, the fill and the semibold headline, because a quiet acknowledgement wearing a
-  // panel's chrome reads as a fresh announcement.
-  el("first-run").dataset.state = "declined";
-  el("first-run-headline").textContent = FIRST_RUN_DECLINED_RECEIPT;
-  el("first-run-body").textContent = "";
-  el("first-run-consequence").hidden = true;
-  el("first-run-actions").hidden = true;
 }
 
 el("first-run-start").addEventListener("click", startFirstRunInterview);
