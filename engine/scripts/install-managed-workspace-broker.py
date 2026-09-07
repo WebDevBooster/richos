@@ -21,7 +21,8 @@ FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py",
          "managed-workspace-volume.py", "managed-workspace-client.py", "managed-workspace-acceptance.py",
          "managed-workspace-failed-creation.py", "legacy-workspace-admin.py",
          "legacy-workspace-gate.py", "legacy-workspace-inspection.py", "legacy-workspace-maintenance.py",
-         "terminal-branch-cleanup.py", "worktree-ledger.py", "worktree-transactions.py")
+         "terminal-branch-cleanup.py", "worktree-ledger.py", "worktree-transactions.py",
+         "terminal-branch-shadow.py", "legacy-workspace-mutation.py")
 INSTALL_ROOT = Path("/Library/Application Support/RichOS/workspace-broker")
 POLICY_PATH = INSTALL_ROOT / "policy.json"
 CLIENT_CONFIG_PATH = Path("/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json")

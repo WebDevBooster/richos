@@ -66,9 +66,10 @@ until post-reboot capture completes. LaunchDaemon startup order alone is not a
 proof that writers have stopped. A Claude session restart is insufficient.
 A candidate gate now consolidates nested native worktrees into physical root
 gates, discloses temporary parent-directory protection and supports explicit
-later-boot restoration after interrupted staging. It is not installed or
-accepted on the privileged host. Selective capture, reclamation and coordinated
-branch execution are still required before migration can complete.
+later-boot restoration after interrupted staging. Its owner-inspection boundary
+and protected administrator command are implemented. It is not installed or
+accepted on the privileged host. Selective capture and reclamation are still
+required before migration can complete.
 
 ## Branches
 
@@ -79,9 +80,11 @@ transaction. Focused races and symbolic-ref cases have regression coverage.
 The new terminal-branch planner checks exact terminal ownership, recorded tips,
 explicit main/master integration refs, merge ancestry and all registered
 checkouts across repositories. It retains attached, live, unknown, unmerged,
-moved or reused branches. It is read-only. Concurrent attachment and historical
-same-tip name reuse still require an executor-side boundary, so automatic branch
-execution is not enabled or claimed complete.
+moved or reused branches. It is read-only. An explicit frozen selection can now
+use the [journaled publisher](legacy-workspace-mutation.md) under the later-boot
+gate. It preserves backup refs and blocks reopening until interrupted publication
+has been replayed and verified. Automatic branch selection and scheduling are
+not enabled or claimed complete.
 
 ## Remaining acceptance and work
 

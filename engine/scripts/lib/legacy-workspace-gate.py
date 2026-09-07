@@ -122,6 +122,16 @@ class LegacyGate:
             raise GateError('gate belongs to another owner inspection context')
         return record
 
+    @staticmethod
+    def _require_completed_mutation(base):
+        path = base / 'mutation.json'
+        if os.path.lexists(path):
+            if path.is_symlink():
+                raise GateError('invalid mutation receipt')
+            journal = json.loads(path.read_text())
+            if journal.get('version') != 1 or journal.get('gate_id') != base.name or journal.get('phase') != 'complete':
+                raise GateError('incomplete frozen mutation requires replay before access can reopen')
+
     def _append(self, base, value):
         fd = os.open(base / 'metadata.jsonl', os.O_CREAT | os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'a') as stream:
@@ -275,6 +285,7 @@ class LegacyGate:
 
     def resume(self, ident):
         with self._lock(ident) as base:
+            self._require_completed_mutation(base)
             record = self._load(base)
             if record['phase'] != 'staging':
                 return self._status(base, record)
@@ -338,6 +349,7 @@ class LegacyGate:
             raise GateError('held object inventory changed')
 
     def _status(self, base, record):
+        self._require_completed_mutation(base)
         cutoff = False
         if record['phase'] == 'gated':
             previous = record.get('gated_boot_id')
@@ -371,6 +383,7 @@ class LegacyGate:
 
     def restore(self, ident, *, approved_sha256):
         with self._lock(ident) as base:
+            self._require_completed_mutation(base)
             record = self._load(base)
             if approved_sha256 != record['approved_sha256']:
                 raise GateError('explicit restore authorization required')
