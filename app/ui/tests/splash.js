@@ -1731,7 +1731,7 @@ async function main() {
     assert(/#\[serde\(default = "splash_default"\)\]\s*\n\s*splash_enabled: bool/.test(cfg), "splash_enabled does not use the named default");
     assert(/read\(KEY_ENABLED\) !== "false"/.test(fs.readFileSync(RENDERER_FILE, "utf8")), "splash.js does not treat an absent value as ON");
     for (const cmd of ["splash_enabled", "set_splash_enabled", "splash_note_shown"]) {
-      assert(new RegExp("#\\[tauri::command\\]\\s*\\nfn " + cmd + "\\b").test(rs), cmd + " is not a command");
+      assert(new RegExp("#\\[tauri::command(?:\\(async\\))?\\]\\s*\\nfn " + cmd + "\\b").test(rs), cmd + " is not a command");
       assert(new RegExp("^\\s*" + cmd + "[,\\s]*$", "m").test(rs), cmd + " is not registered in generate_handler!");
       assert(js.includes('"' + cmd + '"'), cmd + " is never invoked by main.js");
     }

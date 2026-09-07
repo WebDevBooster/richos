@@ -15,3 +15,5 @@ New suggestions should describe the actual user benefit, the observed trigger an
 - **Medium: notes history and restoration.** Keep a recoverable revision history of company notes so a CEO can inspect or undo a mistaken summary.
 - **Medium: one clear location for company information.** Consolidate configuration for company notes and the separate memory corpus, with an explicit migration.
 - **Medium: shorter interview acknowledgements.** The live model repeated staffing limitations in multiple answers. Keep the necessary boundary clear once and focus subsequent replies on the next useful question or outcome.
+- **Low: avoid false plugin diagnostics for the registrar.** The intentionally tool-free registrar logs a missing-skills warning even though it was not launched with a skills plugin. Scope that diagnostic to leases that requested the plugin.
+- **High: investigate the extra model round trip used for priming.** Measure whether context can safely be installed with the visible request while preserving company isolation and continuity. Provider response speed remains variable even when local feedback and Stop are immediate.

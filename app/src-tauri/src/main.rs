@@ -4371,9 +4371,21 @@ struct StopReport {
 /// §9.3: persist a stop request, then interrupt the active turn. In that order, enforced
 /// in `steering.rs` rather than here.
 #[tauri::command(async)]
-fn stop_turn(state: State<AppState>) -> Result<StopReport, String> {
-    state.managed_runs.pause_active(&state.data_dir)?;
-    match state.control.request_stop().map_err(|e| e.to_string())? {
+fn stop_turn(state: State<AppState>, expected_turn_id: Option<String>) -> Result<StopReport, String> {
+    let outcome = if let Some(expected) = expected_turn_id.as_deref() {
+        let observed = state.control.active_turn();
+        let result = state.control.request_stop_for(expected).map_err(|e| e.to_string())?;
+        if matches!(result, StopOutcome::Requested { .. }) {
+            if let Some(turn) = observed.filter(|turn| turn.turn_id == expected) {
+                state.managed_runs.pause_matching(Some(&turn.thread_id))?;
+            }
+        }
+        result
+    } else {
+        state.managed_runs.pause_active(&state.data_dir)?;
+        state.control.request_stop().map_err(|e| e.to_string())?
+    };
+    match outcome {
         StopOutcome::NothingRunning => {
             Ok(StopReport { stopped: false, turn_id: None, requested_at: None, reached_lease: false })
         }

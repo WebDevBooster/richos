@@ -79,9 +79,11 @@ ui.write_text(ui.read_text() + r'''
   const scopeGuard = wrongCompanyRefused && initialOnboarding.state === 'not-yet' && afterWrongCompany.state === 'not-yet';
   const events = [], readings = [];
   const start = performance.now();
+  let latestTurnId = null;
   let finished;
   const done = new Promise(r => { finished = r; });
   await window.RichBridge.listen('rich://turn-status', e => {
+    latestTurnId = e.payload.turnId || e.payload.turn_id || latestTurnId;
     events.push({t: performance.now() - start, status: e.payload.status});
     if (['completed', 'failed', 'interrupted', 'stopped'].includes(e.payload.status)) finished();
   });
@@ -94,15 +96,18 @@ ui.write_text(ui.read_text() + r'''
   const stopStart = performance.now();
   const mode = location.hash.slice(1);
   // The fixture writes an explicit Stop instruction into a build-time scenario map.
-  let stopped = null;
+  let stopped = null, staleStopRefused = true;
   if (window.__NATIVE_TEST_STOP__) {
-    stopped = await window.RichBridge.invoke('stop_turn');
+    const stale = await window.RichBridge.invoke('stop_turn', {expectedTurnId: 'an-obsolete-turn'});
+    staleStopRefused = stale.stopped === false;
+    if (!latestTurnId) throw new Error('No authoritative turn id for Stop');
+    stopped = await window.RichBridge.invoke('stop_turn', {expectedTurnId: latestTurnId});
   }
   const stopMs = performance.now() - stopStart;
   await Promise.race([done, pause(20000)]);
   await pause(300);
   clearInterval(timer);
-  await window.RichBridge.invoke('native_test_record', {payload: JSON.stringify({events, readings, stopped, stopMs, scopeGuard})});
+  await window.RichBridge.invoke('native_test_record', {payload: JSON.stringify({events, readings, stopped, stopMs, scopeGuard, staleStopRefused})});
 })();
 ''')
 # Set before renderer initialization, in this test app's own WebKit data store.
@@ -179,6 +184,7 @@ for mode in ("slow-reply", "prime-stop", "handshake-stop", "prime-failure", "chi
     with (run / "native.log").open("w") as log:
         subprocess.run([str(binary)], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=45, check=True)
     report = json.loads((run / "renderer.json").read_text())
+    assert report["staleStopRefused"], (mode, "stale Stop affected another turn", report)
     assert report["scopeGuard"], (mode, "stale onboarding company accepted", report)
     events = report["events"]
     working = next(e for e in events if e["status"] == "working")

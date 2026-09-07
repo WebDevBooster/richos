@@ -55,7 +55,7 @@ fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool) -> Str
     assert!(!reply.trim().is_empty(), "no visible reply");
     let handled = richos_core::onboarding_tools::handled_in_turn(
         spine.machinery_journal().unwrap().read_thread(&result.thread_id), &turn);
-    let tail = spine.ledger().turns().iter().filter(|t| t.thread_id == result.thread_id && t.id != turn)
+    let tail = spine.ledger().turns().iter().filter(|t| t.thread_id == result.thread_id && t.id != turn && matches!(t.source, Source::Text | Source::Jam))
         .map(|t| format!("CEO: {}\nRich: {}", t.user_text, t.assistant_text)).collect::<Vec<_>>().join("\n");
     let (handoff, _) = richos_core::registration::register_with_onboarding(text, &reply, &tail, &[], "", handled)
         .expect("actual registrar classification");
