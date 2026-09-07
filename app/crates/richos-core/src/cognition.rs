@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CognitionError {
+    #[error("Preparation stopped with {0}")]
+    PrimingStopped(String),
     #[error("cognition io: {0}")]
     Io(String),
     #[error("cognition protocol: {0}")]
@@ -34,6 +36,11 @@ pub trait LeaseFactory: Send {
     /// is missing, or Claude isn't signed in. A failure here means rotation/recovery
     /// cannot proceed and must surface honestly rather than silently keep the dead lease.
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError>;
+
+    /// Stop may be recorded before a child has completed its initialize handshake.
+    fn spawn_cancellable(&self, _control: &crate::steering::TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
+        self.spawn()
+    }
 }
 
 /// ONE item leaving a turn's drain loop, in the order it actually happened.

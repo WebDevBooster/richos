@@ -887,7 +887,9 @@ impl Ledger {
             Event::TurnStarted { turn_id, session_id, at } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.state = TurnState::InFlight;
-                    t.session_id = Some(session_id);
+                    // An accepted request can start connecting before a session exists.
+                    // A later start record attaches the real session without resetting time.
+                    t.session_id = (!session_id.is_empty()).then_some(session_id);
                     // FIRST start wins. A mid-turn-crash replay is a NEW turn id (§5.3),
                     // so a second start on THIS id would be a duplicated record, not a
                     // legitimate restart of the same span.

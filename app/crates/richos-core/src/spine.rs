@@ -1494,9 +1494,12 @@ impl Spine {
             return Ok(turn_id);
         }
         // (3) otherwise deliver now.
-        self.deliver(&turn_id, &binding, text, true)?;
-        self.after_turn_boundary(&binding)?;
-        self.drain_queue()?;
+        let delivered = self.deliver(&turn_id, &binding, text, true);
+        let boundary = self.after_turn_boundary(&binding);
+        let queued = self.drain_queue();
+        delivered?;
+        boundary?;
+        queued?;
         Ok(turn_id)
     }
 
@@ -1731,17 +1734,9 @@ impl Spine {
         // the priming turn below can put its own residue in the lane. The ordering is the
         // rule: honest first, then internal. See `pump_between_turn_stamped`.
         self.pump_between_turn_stamped(binding, false);
-        // Re-prime the lease on first use (continuity foundation): the successor reads
-        // the identity assertion + action ledger + tail before any CEO-visible turn.
-        self.prime_lease_if_needed(binding)?;
-
-        let session_id = {
-            let lease = self.lease.as_ref().ok_or(SpineError::NoLease)?;
-            lease.session_id().to_string()
-        };
-
-        self.turn_in_progress = true;
+        let session_id = self.lease_session_id().unwrap_or_default().to_string();
         self.ledger.mark_turn_started(turn_id, &session_id)?;
+        self.turn_in_progress = true;
         // Publish the running turn to the shared control. A MIRROR of `turn_in_progress`,
         // written at the same instant and from the same durable fact — never inferred from
         // activity or from silence (continuity §5.2).
@@ -1762,6 +1757,24 @@ impl Spine {
         // instead of it.
         self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Working, None));
         self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Working));
+
+        // Preparation belongs to the accepted request. Its text stays internal, but
+        // its wait and cancellation must share the user's visible lifecycle.
+        let preparation = if self.control.stop_claim_for(turn_id).is_some() {
+            Ok(())
+        } else {
+            self.prepare_request(binding)
+        };
+        let stopped_before_prompt = self.control.stop_claim_for(turn_id).is_some();
+        let preparation_stop = match &preparation {
+            Err(SpineError::Cognition(CognitionError::PrimingStopped(reason))) => Some(reason.clone()),
+            _ => None,
+        };
+        let preparation_failed = preparation.is_err();
+        let preparation = preparation.map_err(|error| match error {
+            SpineError::Cognition(error) => error,
+            other => CognitionError::Protocol(other.to_string()),
+        });
 
         // A turn the CEO never sees (re-prime injection, the rotation handoff summary)
         // produces machinery he must never see either — §1.5's `internal` rule, the same
@@ -1794,14 +1807,20 @@ impl Spine {
         // Captured up front: the borrow checker will not let `self` be touched inside the
         // stream closure below, and the session identity is what names the team directory.
         let worker_session = self.lease.as_ref().map(|l| l.session_id().to_string());
-        let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
+        let lease = self.lease.as_mut();
         let mut persist_err: Option<LedgerError> = None;
         // The additive family's per-turn bookkeeping (§13). Holds no counter of its own:
         // message ids come from the ledger's `text_runs` fold, activity identity and
         // position from `machinery.rs`'s merge rules.
         let mut live_turn = LiveTurn::new(EventFence::for_turn(binding, turn_id), internal_turn);
 
-        let stop = {
+        let stop = if stopped_before_prompt {
+            // An internal prime completing is not the user's request completing.
+            // Stop at this boundary prevents delivery of the user prompt.
+            Ok(preparation_stop.unwrap_or_else(|| crate::native::STOP_REASON_CANCELLED.to_string()))
+        } else if let Err(error) = preparation {
+            Err(error)
+        } else {
             let mut on_item = |item: TurnItem| match item {
                 // `seq` comes from the LEASE now (§1.4 G1): ONE counter per turn, shared
                 // by text and machinery. The spine no longer counts text items itself —
@@ -1858,7 +1877,7 @@ impl Spine {
                     Self::retain_and_emit_machinery(journal, machinery_observer, record);
                 }
             };
-            lease.prompt(text, &mut on_item)
+            lease.expect("successful preparation has a lease").prompt(text, &mut on_item)
         };
         // `ledger` / `lease` / `observer` / `machinery_*` borrows end here.
 
@@ -1960,7 +1979,7 @@ impl Spine {
             //   anything else           — NO. The lease reported its OWN terminal
             //                             (`end_turn`, `max_tokens`, `refusal`, …). The
             //                             turn ended because it finished.
-            let stop_ended_the_turn = !matches!(
+            let stop_ended_the_turn = stopped_before_prompt || preparation_failed || !matches!(
                 lease_reported,
                 Some(r) if r != crate::native::STOP_REASON_CANCELLED
                     && r != crate::native::STOP_REASON_CANCEL_UNACKNOWLEDGED
@@ -2182,12 +2201,13 @@ impl Spine {
 
         // A lease that never acknowledged `session/cancel` is no longer KNOWN to be idle —
         // it may still be working, and whatever it says next would land on the next turn.
-        // So it is retired at this boundary, through the rotation path that already exists
-        // (never mid-turn: `pending_rotation_reason` is honoured by `after_turn_boundary`).
-        if lease_stop_reason == Some(crate::native::STOP_REASON_CANCEL_UNACKNOWLEDGED)
-            && self.lease_factory.is_some()
-        {
-            self.pending_rotation_reason.get_or_insert_with(|| "cancel-unacknowledged".to_string());
+        // Retire it directly. Asking that same child for a rotation handoff would wait
+        // on a process already known to ignore cancellation. The next request reconnects.
+        if lease_stop_reason == Some(crate::native::STOP_REASON_CANCEL_UNACKNOWLEDGED) {
+            // Never ask an unresponsive child for a handoff before retiring it.
+            self.restore_run_lease(None);
+            self.context_chars = 0;
+            self.pending_rotation_reason = None;
         }
         Ok(())
     }
@@ -2338,18 +2358,35 @@ impl Spine {
     /// Called by the shell after the ledger and the control are both open. Safe to call
     /// when there is nothing to do.
     pub fn reconcile_intake(&mut self) -> Result<(), SpineError> {
+        let interrupted: Vec<String> = self.ledger.pending_turns().iter()
+            .filter(|turn| turn.source != Source::Internal)
+            .map(|turn| turn.id.clone()).collect();
         self.drain_intake()?;
+        for id in interrupted {
+            let Some(turn) = self.ledger.turn(&id) else { continue };
+            if !matches!(turn.state, crate::ledger::TurnState::Received | crate::ledger::TurnState::InFlight) {
+                continue;
+            }
+            let binding = self.ledger.thread_binding(&turn.thread_id)?;
+            self.ledger.interrupt_turn(&id, "RichOS closed before this request finished. Your message is saved; send it again to retry.")?;
+            self.emit_live(self.turn_status_event(&binding, &id, TurnStatus::Failed, None));
+            self.emit_live(self.thread_summary_event(&binding, &id, ThreadStatus::Failed));
+        }
         self.drain_queue()
     }
 
     /// Deliver queued prompts (FIFO) now that the turn boundary is clear.
     fn drain_queue(&mut self) -> Result<(), SpineError> {
+        let mut failure = None;
         while !self.turn_in_progress {
             let Some(next) = self.queue.pop_front() else { break };
-            self.deliver(&next.turn_id, &next.binding, &next.text, true)?;
-            self.after_turn_boundary(&next.binding)?;
+            let delivered = self.deliver(&next.turn_id, &next.binding, &next.text, true);
+            let boundary = self.after_turn_boundary(&next.binding);
+            if let Err(error) = delivered.and(boundary) {
+                if failure.is_none() { failure = Some(error); }
+            }
         }
-        Ok(())
+        match failure { Some(error) => Err(error), None => Ok(()) }
     }
 
     /// Everything that happens AT a turn boundary, after delivery and before the next
@@ -2624,58 +2661,26 @@ impl Spine {
         binding: &ThreadBinding,
         original_text: &str,
     ) -> Result<(), SpineError> {
-        if self.lease_factory.is_none() {
-            return Err(SpineError::NoLeaseFactory);
-        }
-        let thread_id = binding.thread_id();
-        // CLAIM-THEN-EXECUTE (§6.4), Internal visibility: written BEFORE the respawn, so
-        // a crash inside recovery itself leaves a durable `claimed` record instead of
-        // nothing. Internal because crash recovery is machinery the successor is under
-        // standing orders never to reference (§6.2) — see `ledger::ActionVisibility`.
+        if self.lease_factory.is_none() { return Err(SpineError::NoLeaseFactory); }
         let recovery_action = self.ledger.record_action_with(
-            None,
-            "crash_recovery",
-            &format!("replay interrupted turn {failed_turn_id} on a fresh lease; thread={thread_id}"),
-            ActionVisibility::Internal,
-            ActionStatus::Claimed,
+            None, "crash_recovery", &format!("replay interrupted turn {failed_turn_id}"),
+            ActionVisibility::Internal, ActionStatus::Claimed,
         )?;
-        let spawned = self.lease_factory.as_ref().unwrap().spawn(); // honest failure if e.g. Claude isn't signed in
-        let fresh = match spawned {
-            Ok(f) => f,
-            Err(e) => {
-                self.ledger.update_action(&recovery_action, ActionStatus::Failed)?;
-                return Err(e.into());
-            }
-        };
-        let from_session = self.lease.as_ref().map(|l| l.session_id().to_string()).unwrap_or_else(|| "crashed".to_string());
-        let to_session = fresh.session_id().to_string();
-
-        self.install_lease(fresh); // publishes the fresh cancel seam AND the fresh session id
-        self.context_chars = 0; // fresh lease, fresh budget
-
-        self.ledger.record_rotation(&from_session, &to_session, "mid-turn-crash")?;
-        self.rotation_count += 1;
-        self.last_rotation_reason = Some("mid-turn-crash".to_string());
-
-        // The REPLAY inherits the ORIGINAL turn's binding, not the current active context
-        // (§5.3 replays the turn that crashed, and it belongs to the entity it was
-        // accepted under — re-scoping it here would be exactly the cross-entity
-        // mis-attribution the guard exists to prevent).
+        let from_session = self.lease_session_id().unwrap_or("crashed").to_string();
         let replay_turn_id = self.ledger.record_prompt_received(binding, original_text, Source::Text)?;
         self.ledger.mark_turn_superseded(failed_turn_id, &replay_turn_id)?;
-        // ADDITIVE (§13), and the one place this contract goes BEYOND §13 — which has no
-        // event for "this turn continues as that one". Emitted only after the supersession
-        // is durable. `supersedesTurnId` is a MERGE instruction for the renderer, not an
-        // announcement: without it the replay's new turn id draws the CEO's single prompt
-        // a second time, and with it the two ids collapse into the one exchange a reload
-        // shows. Rich still never says that a rotation happened.
         self.emit_live(self.turn_status_event(
-            binding,
-            &replay_turn_id,
-            TurnStatus::Queued,
-            Some(failed_turn_id.to_string()),
+            binding, &replay_turn_id, TurnStatus::Queued, Some(failed_turn_id.to_string()),
         ));
+        // Retire the old child without asking it to finish another roundtrip. Delivery
+        // covers spawning, priming and the replay with one cancellable request lifecycle.
+        self.restore_run_lease(None);
         let outcome = self.deliver(&replay_turn_id, binding, original_text, false);
+        if let Some(to_session) = self.lease_session_id().map(str::to_string) {
+            self.ledger.record_rotation(&from_session, &to_session, "mid-turn-crash")?;
+            self.rotation_count += 1;
+            self.last_rotation_reason = Some("mid-turn-crash".to_string());
+        }
         self.ledger.update_action(
             &recovery_action,
             if outcome.is_ok() { ActionStatus::Completed } else { ActionStatus::Failed },
@@ -2864,6 +2869,20 @@ impl Spine {
         // whatever the outgoing lease says on its way out (§1.5).
         self.pump_between_turn_stamped(binding, true);
         Ok(self.ledger.turn(&turn_id).map(|t| t.assistant_text.clone()).unwrap_or_default())
+    }
+
+    fn prepare_request(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        if self.lease.is_none() {
+            let factory = self.lease_factory.as_ref().ok_or(SpineError::NoLease)?;
+            let fresh = factory.spawn_cancellable(&self.control)?;
+            self.install_lease(fresh);
+            if let Some(active) = self.control.active_turn() {
+                let session = self.lease_session_id().unwrap().to_string();
+                self.ledger.mark_turn_started(&active.turn_id, &session)?;
+            }
+        }
+        if self.control.stop_claim().is_some() { return Ok(()); }
+        self.prime_lease_if_needed(binding)
     }
 
     /// Assemble + inject the re-prime payload once per lease (before its first turn).

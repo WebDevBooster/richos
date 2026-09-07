@@ -583,6 +583,10 @@ impl IntakeLog {
 /// stop control runs on a different thread from the turn, and by construction it can never
 /// take the lock the turn is holding.
 pub trait TurnCancel: Send + Sync {
+    /// Scope cancellation across preparation and the gaps between wire prompts.
+    fn begin_operation(&self) {}
+    fn end_operation(&self) {}
+
     /// Ask the lease to stop. Returns whether the signal was actually delivered — `false`
     /// means the lease had nothing to cancel (no prompt in flight, or the child is gone),
     /// which the caller reports rather than hides.
@@ -714,6 +718,9 @@ impl TurnControl {
 
     /// The spine has handed (or journaled) this turn. Mirrors `turn_in_progress`.
     pub fn begin_turn(&self, turn: ActiveTurn) {
+        if let Some(cancel) = self.inner.cancel.lock().unwrap().as_ref() {
+            cancel.begin_operation();
+        }
         *self.inner.active.lock().unwrap() = Some(turn);
     }
 
@@ -723,6 +730,9 @@ impl TurnControl {
         let mut active = self.inner.active.lock().unwrap();
         if active.as_ref().map(|a| a.turn_id == turn_id).unwrap_or(false) {
             *active = None;
+            if let Some(cancel) = self.inner.cancel.lock().unwrap().as_ref() {
+                cancel.end_operation();
+            }
         }
     }
 
@@ -730,6 +740,12 @@ impl TurnControl {
     /// recovered; `None` when there is no lease, so a stop reports `reached_lease: false`
     /// rather than pretending.
     pub fn set_cancel(&self, cancel: Option<Arc<dyn TurnCancel>>) {
+        if self.active_turn().is_some() {
+            if let Some(handle) = cancel.as_ref() {
+                handle.begin_operation();
+                if self.stop_claim().is_some() { handle.cancel(); }
+            }
+        }
         *self.inner.cancel.lock().unwrap() = cancel;
     }
 
@@ -913,6 +929,10 @@ mod tests {
             StopOutcome::Requested { reached_lease, .. } => assert!(!reached_lease),
             other => panic!("expected Requested, got {other:?}"),
         }
+        // Start an independent request for the seam-present case. Installing a
+        // handle during the old stopped request now forwards that durable Stop.
+        ctl.end_turn(&active().turn_id);
+        ctl.clear_stop_claim();
         // And with a seam that says it delivered nothing.
         let calls = Arc::new(Mutex::new(0));
         ctl.set_cancel(Some(Arc::new(RecordingCancel(calls.clone(), false))));
