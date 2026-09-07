@@ -96,6 +96,9 @@ pub struct OnboardingToolScope {
     pub entity_id: String,
     pub central_root: PathBuf,
     pub record_path: PathBuf,
+    /// App-issued grant for one visible conversation turn. Missing is denied.
+    #[serde(default)]
+    pub actions_allowed: bool,
 }
 
 impl OnboardingToolScope {
@@ -105,6 +108,7 @@ impl OnboardingToolScope {
             entity_id: entity.to_string(),
             central_root: central_root.into(),
             record_path: record_path.into(),
+            actions_allowed: false,
         }
     }
 
@@ -144,6 +148,22 @@ fn read_scope(path: &Path) -> Result<(OnboardingToolScope, EntityId), String> {
     Ok((scope, entity))
 }
 
+/// The native adapter grants only around visible delivery, then revokes on every result.
+/// Hidden context injection never grants, even if the vendor bypasses permission callbacks.
+pub fn set_actions_allowed(path: &Path, allowed: bool) -> Result<(), String> {
+    let (mut scope, _) = read_scope(path)?;
+    scope.actions_allowed = allowed;
+    write_scope(path, &scope)
+}
+
+fn require_action_grant(scope: &OnboardingToolScope) -> Result<(), String> {
+    if scope.actions_allowed {
+        Ok(())
+    } else {
+        Err("Company notes and interview preferences cannot change during internal context preparation. Wait for the CEO's visible conversation turn. Nothing was changed.".into())
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SaveArguments {
@@ -180,6 +200,7 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
                 "Use only notes and progress (partial or complete). Nothing was saved.".to_string()
             })?;
             let (scope, entity) = read_scope(scope_path)?;
+            require_action_grant(&scope)?;
             let bytes = company::save_company_notes(
                 &scope.central_root,
                 &entity,
@@ -201,6 +222,7 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
                 "Declining the interview takes no arguments. Nothing was changed.".to_string()
             })?;
             let (scope, entity) = read_scope(scope_path)?;
+            require_action_grant(&scope)?;
             // Preserve the first explicit timestamp on retries.
             let record = OnboardingRecord::load(&scope.record_path).for_entity(&entity);
             if !record.is_declined() {

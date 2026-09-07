@@ -687,6 +687,8 @@ pub struct NativeClient {
 /// starting value is `NotYetReported` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
+    /// Host-owned phase, never set by a model frame.
+    context_only: bool,
     /// The model this session is running, from `system/init.model`.
     ///
     /// **Load-bearing, and finding §10 of the spike is why.** The probe's console line took
@@ -733,6 +735,7 @@ struct ReaderState {
 impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
+            context_only: false,
             session_model: None,
             context_window: None,
             skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
@@ -1139,6 +1142,17 @@ impl NativeClient {
         NativeError::Startup { reason, stderr }
     }
 
+    /// Permission callbacks during hidden context are always denied. App-owned onboarding
+    /// tools additionally require a scope grant, covering vendor automatic approvals too.
+    pub fn prompt_context_only(
+        &mut self, text: &str, on_item: &mut dyn FnMut(TurnItem),
+    ) -> Result<String, NativeError> {
+        self.reader_state.lock().unwrap().context_only = true;
+        let result = self.prompt(text, on_item);
+        self.reader_state.lock().unwrap().context_only = false;
+        result
+    }
+
     /// The sentence a failed handshake WRITE gets, as a pure function of the three facts
     /// that decide it.
     ///
@@ -1206,7 +1220,8 @@ impl NativeClient {
             return;
         }
         if ty == "control_request" {
-            Self::handle_agent_request(&msg, stdin, current, between, managed);
+            let context_only = state.lock().unwrap().context_only;
+            Self::handle_agent_request(&msg, stdin, current, between, managed, context_only);
             return;
         }
 
@@ -1357,13 +1372,16 @@ impl NativeClient {
         current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
         between: &Arc<Mutex<BetweenTurn>>,
         managed: bool,
+        context_only: bool,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
         let subtype = request.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
 
         let (response, machinery) = if subtype == "can_use_tool" {
-            let decision = if managed {
+            let decision = if context_only {
+                PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
+            } else if managed {
                 PermissionDecision::Deny { message: "This action is outside the automatic execution policy. Find a permitted way to achieve the authorized outcome. Do not ask the CEO to edit settings or resolve implementation details. Report a precise authority or access requirement only if no permitted alternative exists.".into() }
             } else { decide_permission(&request) };
             let body = match &decision {
@@ -1800,7 +1818,7 @@ impl Cognition for NativeCognition {
         central_root: &Path, record_path: &Path) -> Result<(), CognitionError> {
         if let Some(path) = &self.onboarding_scope {
             crate::onboarding_tools::write_scope(path, &crate::onboarding_tools::OnboardingToolScope {
-                version: 1, entity_id: entity.to_string(),
+                version: 1, entity_id: entity.to_string(), actions_allowed: false,
                 central_root: central_root.to_path_buf(), record_path: record_path.to_path_buf(),
             }).map_err(|e| CognitionError::Io(e.to_string()))?;
         }
@@ -1824,7 +1842,7 @@ impl Cognition for NativeCognition {
         // its MACHINERY flows to the caller, which stamps it `internal: true` /
         // `turn_id: None` per §1.5 — retained for debugging, never in a thread render,
         // honouring the standing order that Rich never reveals session rotation.
-        let reason = self.client.prompt(priming_text, on_item)?;
+        let reason = self.client.prompt_context_only(&crate::reprime::context_only_priming(priming_text), on_item)?;
         if reason != "end_turn" {
             return Err(CognitionError::PrimingStopped(reason));
         }
@@ -1835,7 +1853,24 @@ impl Cognition for NativeCognition {
     }
 
     fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
-        Ok(self.client.prompt(text, on_item)?)
+        if let Some(path) = &self.onboarding_scope {
+            crate::onboarding_tools::set_actions_allowed(path, true).map_err(CognitionError::Io)?;
+        }
+        let result = self.client.prompt(text, on_item).map_err(CognitionError::from);
+        if let Some(path) = &self.onboarding_scope {
+            if let Err(error) = crate::onboarding_tools::set_actions_allowed(path, false) {
+                // A lease whose grant cannot be revoked must not accept another operation.
+                let _ = self.client.child.kill();
+                let _ = self.client.child.wait();
+                let _ = std::fs::remove_file(path);
+                return Err(CognitionError::Io(error));
+            }
+        }
+        result
+    }
+
+    fn prompt_context_only(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        Ok(self.client.prompt_context_only(text, on_item)?)
     }
 
     fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
@@ -2318,6 +2353,28 @@ done
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         path
+    }
+
+    #[test]
+    fn hidden_context_denies_permission_then_visible_delivery_restores_normal_policy() {
+        let script = write_script("context-only-permissions", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+for expected in deny allow; do
+  read -r prompt
+  printf '%s\n' '{"type":"control_request","request_id":"tool-permission","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"touch should-not-run"}}}'
+  read -r answer
+  case "$answer" in
+    *\"behavior\":\"$expected\"*) ;;
+    *) exit 9 ;;
+  esac
+  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+done
+"#);
+        let mut client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        assert_eq!(client.prompt_context_only("Only context", &mut |_| {}).unwrap(), "end_turn");
+        assert!(!client.reader_state.lock().unwrap().context_only);
+        assert_eq!(client.prompt("Actual visible request", &mut |_| {}).unwrap(), "end_turn");
     }
 
     // ---- the permission seam -----------------------------------------------------------

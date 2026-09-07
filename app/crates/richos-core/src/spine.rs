@@ -2758,7 +2758,7 @@ impl Spine {
         // the OUTGOING lease on a rotation, which is the session whose workers the
         // conversation so far actually belongs to. Never a directory picked by mtime.
         let mut payload =
-            RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
+            RePrimePayload::assemble_for_priming(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
         // Onboarding, BEFORE the owned-work contract: this is either the CEO's own material
@@ -2875,7 +2875,7 @@ impl Spine {
                     Self::retain_and_emit_machinery(journal, machinery_observer, record);
                 }
             };
-            lease.prompt(HANDOFF_PROMPT, &mut on_item)
+            lease.prompt_context_only(HANDOFF_PROMPT, &mut on_item)
         };
 
         match result {
@@ -2929,7 +2929,7 @@ impl Spine {
         // the OUTGOING lease on a rotation, which is the session whose workers the
         // conversation so far actually belongs to. Never a directory picked by mtime.
         let mut payload =
-            RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
+            RePrimePayload::assemble_for_priming(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
         // Onboarding, BEFORE the owned-work contract: this is either the CEO's own material

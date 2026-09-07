@@ -104,6 +104,12 @@ pub trait Cognition: Send {
         on_item: &mut dyn FnMut(TurnItem),
     ) -> Result<String, CognitionError>;
 
+    /// Run hidden context maintenance without granting tools or onboarding writes.
+    /// Adapters with side-effecting tools must override this method.
+    fn prompt_context_only(
+        &mut self, text: &str, on_item: &mut dyn FnMut(TurnItem),
+    ) -> Result<String, CognitionError> { self.prompt(text, on_item) }
+
     /// A handle that interrupts the CURRENTLY RUNNING `prompt` from another thread
     /// (UX §9.3 step 2).
     ///

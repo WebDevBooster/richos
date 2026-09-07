@@ -44,6 +44,7 @@ impl Fixture {
             &OnboardingToolScope::new(e, &self.central, &self.record),
         )
         .unwrap();
+        onboarding_tools::set_actions_allowed(&self.scope, true).unwrap();
     }
     fn state(&self, e: &EntityId) -> OnboardingState {
         onboarding::state(
@@ -464,4 +465,63 @@ fn onboarding_intake_evidence_requires_a_real_terminal_tool_in_the_same_turn() {
         !onboarding_tools::handled_in_turn(records, "turn"),
         "a shell command's text is not a tool identity"
     );
+}
+
+#[test]
+fn hidden_context_has_no_write_authority_even_if_the_vendor_auto_approves_tools() {
+    let f = Fixture::new();
+    let denied = OnboardingToolScope::new(&f.a, &f.central, &f.record);
+    assert!(!denied.actions_allowed);
+    onboarding_tools::write_scope(&f.scope, &denied).unwrap();
+    assert!(f
+        .save("Hidden side effect", "partial")
+        .unwrap_err()
+        .contains("internal context"));
+    assert!(onboarding_tools::call(&f.scope, DECLINE_TOOL_NAME, json!({})).is_err());
+    assert_eq!(f.state(&f.a), OnboardingState::NotYet);
+    assert!(!f.record.exists());
+    onboarding_tools::set_actions_allowed(&f.scope, true).unwrap();
+    f.save("Visible approved answer", "partial").unwrap();
+    let before = CompanyLayer::read(&f.central, &f.a);
+    onboarding_tools::set_actions_allowed(&f.scope, false).unwrap();
+    assert!(f.save("Hidden overwrite", "complete").is_err());
+    assert!(onboarding_tools::call(&f.scope, DECLINE_TOOL_NAME, json!({})).is_err());
+    assert_eq!(CompanyLayer::read(&f.central, &f.a), before);
+    // An old app-issued scope with no phase field is denied rather than granted.
+    let mut legacy = serde_json::to_value(&denied).unwrap();
+    legacy.as_object_mut().unwrap().remove("actions_allowed");
+    fs::write(&f.scope, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(f.save("Legacy hidden overwrite", "complete").is_err());
+}
+
+#[test]
+fn accepted_request_is_delivered_once_and_never_injected_into_hidden_priming() {
+    let f = Fixture::new();
+    let mut spine = f.spine();
+    spine.enable_owned_work();
+    let mock = MockCognition::new("hidden-context", vec!["First answer", "Second answer"]);
+    let primes = mock.reprimes.clone();
+    let prompts = mock.prompts.clone();
+    spine.attach_lease(Box::new(mock));
+    let first = "First unique CEO request: save the blue notebook answer.";
+    spine.submit_prompt(first, Source::Text).unwrap();
+    assert!(!primes.lock().unwrap()[0].contains(first));
+    assert_eq!(prompts.lock().unwrap().as_slice(), [first]);
+    // A disk change forces same-lease refresh while the next request is durably accepted.
+    f.save("Previously approved company facts.", "partial")
+        .unwrap();
+    let second = "Second unique CEO request: finish and save exactly once.";
+    spine.submit_prompt(second, Source::Text).unwrap();
+    let primed = primes.lock().unwrap();
+    assert_eq!(primed.len(), 2);
+    assert!(primed[1].contains(first), "completed history survives");
+    assert!(
+        !primed[1].contains(second),
+        "accepted new request is absent"
+    );
+    assert!(!primed[1].contains("CURRENT INTENT (what we are doing right now)"));
+    assert_eq!(prompts.lock().unwrap().as_slice(), [first, second]);
+    let native_prompt = richos_core::reprime::context_only_priming(&primed[1]);
+    assert!(native_prompt.ends_with("Reply with only CONTEXT_READY."));
+    assert!(native_prompt.contains("Do not call any tool"));
 }
