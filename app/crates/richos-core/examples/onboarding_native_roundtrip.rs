@@ -17,6 +17,8 @@ fn open(root: &Path, executable: &Path) -> Spine {
         Entity::new("northstar-fixture", "Northstar fixture", &[engine.to_str().unwrap()]).unwrap(),
         Entity::new("second-fixture", "Second fixture", &[engine.to_str().unwrap()]).unwrap(),
     ]).unwrap());
+    spine.enable_owned_work();
+    spine.set_machinery_journal(richos_core::journal::MachineryJournal::new(root.join("machinery")));
     spine.set_central_root(root.join("central"));
     spine.set_onboarding_record(root.join("config/onboarding.json"));
     spine.ensure_active_thread_in(&EntityId::parse("northstar-fixture").unwrap()).unwrap();
@@ -28,8 +30,22 @@ fn open(root: &Path, executable: &Path) -> Spine {
     eprintln!("Connected in {} ms", start.elapsed().as_millis());
     spine
 }
-fn ask(spine: &mut Spine, text: &str) -> String {
+struct FirstText {
+    start: Instant,
+    seen: std::sync::atomic::AtomicBool,
+}
+impl richos_core::stream::TurnObserver for FirstText {
+    fn on_event(&self, event: &richos_core::stream::StreamEvent) {
+        if matches!(event, richos_core::stream::StreamEvent::Chunk { .. })
+            && !self.seen.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            eprintln!("First visible text in {} ms", self.start.elapsed().as_millis());
+        }
+    }
+}
+fn ask(spine: &mut Spine, text: &str) -> String { ask_with_assignment(spine, text, false) }
+fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool) -> String {
     let start = Instant::now();
+    spine.set_observer(Box::new(FirstText { start, seen: std::sync::atomic::AtomicBool::new(false) }));
     let turn = spine.submit_prompt(text, Source::Text).expect("live turn");
     let result = spine.ledger().turn(&turn).unwrap();
     eprintln!("Turn {:?}, {} ms", result.state, start.elapsed().as_millis());
@@ -37,6 +53,18 @@ fn ask(spine: &mut Spine, text: &str) -> String {
     let reply = result.assistant_text.clone();
     println!("CEO: {text}\nRich: {reply}\n");
     assert!(!reply.trim().is_empty(), "no visible reply");
+    let handled = richos_core::onboarding_tools::handled_in_turn(
+        spine.machinery_journal().unwrap().read_thread(&result.thread_id), &turn);
+    let tail = spine.ledger().turns().iter().filter(|t| t.thread_id == result.thread_id && t.id != turn)
+        .map(|t| format!("CEO: {}\nRich: {}", t.user_text, t.assistant_text)).collect::<Vec<_>>().join("\n");
+    let (handoff, _) = richos_core::registration::register_with_onboarding(text, &reply, &tail, &[], "", handled)
+        .expect("actual registrar classification");
+    eprintln!("Registrar: {:?}; tool receipt: {handled}", handoff);
+    if expects_work {
+        assert!(matches!(handoff, richos_core::autonomy::Handoff::Work { .. }), "independent work was lost");
+    } else {
+        assert!(matches!(handoff, richos_core::autonomy::Handoff::None), "interview incorrectly delegated");
+    }
     reply
 }
 fn state(spine: &Spine) -> OnboardingState { spine.onboarding_state(&spine.active_binding().unwrap()) }
@@ -70,7 +98,8 @@ fn main() {
     drop(spine);
     let mut spine = open(&root, &executable);
     assert_eq!(state(&spine), OnboardingState::Described);
+    ask_with_assignment(&mut spine, "Update our company notes to say our shipping cutoff is 2 pm. Also prepare a one-page shipping checklist as a separate deliverable, shipping-checklist.md in our workspace. Do not contact any customers.", true);
     spine.ensure_active_thread_in(&EntityId::parse("second-fixture").unwrap()).unwrap();
     assert_eq!(state(&spine), OnboardingState::NotYet, "other company must retain own onboarding");
-    println!("PASS: actual model saved partial notes, recalled after restart, persisted a typed decline, completed on request and kept another company independent.");
+    println!("PASS: actual model saved partial notes, recalled after restart, persisted a typed decline, completed on request kept another company independent and registered only the separate accepted work.");
 }

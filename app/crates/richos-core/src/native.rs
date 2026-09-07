@@ -1050,10 +1050,6 @@ impl NativeClient {
     ///
     /// It costs NO API turn: measured 697.9 ms on 2.1.252, and `run10` of the spike
     /// established that control requests are free.
-    fn handshake(&mut self) -> Result<(), NativeError> {
-        self.handshake_cancellable(None)
-    }
-
     fn handshake_cancellable(&mut self, control: Option<&crate::steering::TurnControl>) -> Result<(), NativeError> {
         let (tx, rx): (Sender<Value>, Receiver<Value>) = channel();
         self.pending.lock().unwrap().insert("req_init".to_string(), tx);
