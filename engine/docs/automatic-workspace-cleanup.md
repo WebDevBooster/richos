@@ -70,7 +70,8 @@ A candidate gate now consolidates nested native worktrees into physical root
 gates, discloses temporary parent-directory protection and supports explicit
 later-boot restoration after interrupted staging. Its owner-inspection boundary
 and protected administrator command are implemented and installed in an inactive
-protected release. Actual privileged gate acceptance is still outstanding. Selective capture and reclamation now have
+protected release. The isolated installed gate passed its owner-access and same-boot refusal checks.
+Its real post-reboot acceptance is still outstanding. Selective capture and reclamation now have
 disposable real-Git coverage, including recovery after interrupted deletion and
 survival of staged/conflict blobs after reflog expiry and Git garbage collection.
 Explicitly armed jobs now run automatically through the broker's separate
@@ -113,6 +114,9 @@ or discover and approve a broader selection during a retry.
   worker have passed disposable integration tests and independent review.
   Validate the installed legacy gate across a real reboot before migration.
   Actual repository downtime requires explicit authorization.
+  The disposable installed fixture is now gated and waiting for the user-controlled
+  Mac reboot; [exact continuation and receipts](verification/legacy-workspace-installed-preboot-2026-09-07.md)
+  are saved in this branch.
 
 The package's health endpoint reports listener availability, sweep progress and
 owned unresolved records separately. It explicitly does not certify the complete
