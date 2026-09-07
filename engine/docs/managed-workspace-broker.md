@@ -60,8 +60,8 @@ Build a package without privilege or live changes:
 python3 'scripts/install-managed-workspace-broker.py' --stage '/tmp/reviewed-workspace-broker'
 ```
 
-The package contains the six runtime modules, including the isolated privileged
-acceptance runner, their SHA-256 manifest, an
+The package contains the managed-image and legacy-maintenance runtime modules,
+including the isolated privileged acceptance runner, their SHA-256 manifest, an
 installation script, a launchd plist and a policy example. Replace the example's
 UIDs and paths with the explicitly approved host configuration. The example is
 not an approved policy.
