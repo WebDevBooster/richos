@@ -245,6 +245,34 @@ if applied M9 "substitutions inside inert text stop being classified"; then
     check M9 "substitutions inside inert text stop being classified" "PX3"
 fi
 
+# --- M10: restore the old assumption that default prune preserves Git metadata.
+restore
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='        elif sub2 == "prune":'
+assert source.count(old)==1
+path.write_text(source.replace(old, '        elif sub2 == "prune" and any(t.startswith("--expire") for t in rest):'))
+PY_MUTANT
+if applied M10 "plain and dry-run-overridden prune regain a direct bypass"; then
+    check M10 "plain and dry-run-overridden prune regain a direct bypass" "g2 " "b3 "
+fi
+
+# --- M11: a helper invocation cannot exempt a separate raw prune operation.
+restore
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='if helper and not reasons and not candidates:'
+assert source.count(old)==1
+path.write_text(source.replace(old,'if helper:'))
+PY_MUTANT
+if applied M11 "helper marker exempts a separate raw prune"; then
+    check M11 "helper marker exempts a separate raw prune" "b8 "
+fi
+
 restore
 echo ""
 

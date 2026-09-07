@@ -8,14 +8,14 @@
 # GUARD coverage (classification / precision):
 #   (a)  raw git worktree remove                  -> exit 2 (block)
 #   (a2) git -C <repo> worktree remove (x-repo)   -> exit 2 (block)
-#   (b)  git worktree prune --expire              -> exit 2 (block)
+#   (b)  git worktree prune (all forms)              -> exit 2 (block)
 #   (c)  git branch -d/-D of a worktree-* branch  -> exit 2 (block)
 #   (d)  rm -rf a .claude/worktrees/agent-* path  -> exit 2 (block)
 #   (d2) rm -rf a REAL linked worktree top level  -> exit 2 (block)
 #   (e)  helper invocation (marker present)       -> exit 0 (allow)
 #   (f)  worktree-remove-ack: override            -> exit 0 (allow) + one log line
 #   NO FALSE FIRE:
-#   (g)  git worktree list / plain prune / non-worktree branch -D / rm -rf of an
+#   (g)  git worktree list / non-worktree branch -D / rm -rf of an
 #        ordinary dir / non-Bash tool / ordinary reads / garbage payload
 #   (g7) *** `git rm -r <dir>` is NOT a filesystem removal ***  -> exit 0
 #   (g8) *** a plain directory merely NAMED `*-wt` ***          -> exit 0
@@ -162,7 +162,15 @@ run_case "f  worktree-remove-ack override -> allow" 0 \
 
 echo "  -- precision (must NOT fire) --"
 run_case "g1 git worktree list -> allow" 0 "$(bash_payload 'git worktree list --porcelain')"
-run_case "g2 plain git worktree prune (no --expire) -> allow" 0 "$(bash_payload 'git worktree prune')"
+run_case "g2 plain git worktree prune (no --expire) -> block" 2 "$(bash_payload 'git worktree prune')"
+run_case "b2 dry-run prune is conservatively blocked" 2 "$(bash_payload 'git worktree prune --dry-run')"
+run_case "b3 negated dry-run override cannot bypass" 2 "$(bash_payload 'git worktree prune --dry-run --no-dry-run')"
+run_case "b4 absolute Git prune cannot bypass" 2 "$(bash_payload '/usr/bin/git worktree prune')"
+run_case "b5 quoted Git and prune cannot bypass" 2 "$(bash_payload "'/usr/bin/git' 'worktree' 'prune'")"
+run_case "b6 relative Git prune cannot bypass" 2 "$(bash_payload './bin/git -C /repo worktree prune')"
+run_case "b8 helper cannot authorize a later prune" 2 "$(bash_payload 'scripts/remove-agent-worktree.sh --help; git worktree prune')"
+run_case "b7 cross-repo quoted-path prune cannot bypass" 2 "$(bash_payload "git -C '/repo with spaces' worktree prune")"
+run_case "g2b absolute read-only worktree list -> allow" 0 "$(bash_payload '/usr/bin/git worktree list --porcelain -z')"
 run_case "g3 git branch -D non-worktree branch -> allow" 0 "$(bash_payload 'git branch -D feature-login')"
 run_case "g4 rm -rf node_modules -> allow" 0 "$(bash_payload 'rm -rf node_modules')"
 run_case "g5 non-Bash tool -> allow" 0 '{"tool_name":"Write","tool_input":{"file_path":"x"}}'

@@ -16,19 +16,17 @@
 # disabled, so this fires ONLY on genuine worktree-destroying ops):
 #   BLOCK a Bash command that is a worktree-destroying op:
 #     - git worktree remove            (incl. `git -C <repo> worktree remove`)
-#     - git worktree prune --expire    (plain prune is harmless -> allowed)
+#     - git worktree prune             (all forms; use worktree list to inspect)
 #     - git branch -d / -D of a `worktree-*` branch
 #     - a FILESYSTEM `rm -r`/`-rf` whose target is a `.claude/worktrees/agent-*`
 #       path OR the top level of a real linked git worktree (see below)
-#   UNLESS one of:
-#     (a) HELPER: the command invokes remove-agent-worktree.sh (its name is the
-#         marker) — the ONLY blessed removal path, which performs its OWN
-#         authoritative entity-lock + live-pid liveness check first.
-#     (b) ACK: the command carries an explicit
+#   Helper invocations pass when they contain no separate destructive command.
+#   The helper performs its own authoritative lifecycle checks.
+#   A detected raw destructive command requires an explicit
 #           worktree-remove-ack:<reason>
 #         override token (mirrors resume-ack: / main-checkout-run:) — logged to
 #         the ENTITY's .claude/state/worktree-remove-acks.log.
-#   Everything else Bash-related (git worktree list, plain git worktree prune,
+#   Everything else Bash-related (git worktree list,
 #   rm of non-worktree paths, ordinary git/rm) passes untouched.
 #
 # THREE FALSE POSITIVES THIS VERSION REMOVES, every one of them measured:
@@ -178,7 +176,7 @@ HOOK_TAG="(hook: scripts/hooks/guard-worktree-removal.sh)"
 # lines further down, pointing at innocent code. A heredoc assignment is
 # scanned once, as text, so the class is impossible.
 read -r -d '' _WTR_CLASSIFIER <<'PYEOF' || true
-import json, os, re, sys
+import json, os, re, shlex, sys
 
 try:
     d = json.loads(sys.stdin.read() or "{}")
@@ -363,7 +361,7 @@ GIT_READ_ONLY_SUBCOMMANDS = {
 # separator, whitespace or a quote (so `bash -c "git worktree remove x"` is
 # still seen, exactly as before); the argument run stops at the next separator
 # so a later, unrelated command cannot lend this one its flags.
-GIT_INVOCATION = re.compile(r"(?:^|[;&|(\n\"'`]|\s)git\b(?P<args>[^\n;|&)]*)")
+GIT_INVOCATION = re.compile(r"(?:^|[;&|(\n\"'`]|\s)(?:[^\s;|&()\"'`]+/)?git\b[\"']?(?P<args>[^\n;|&)]*)")
 
 
 def _git_subcommand(tokens):
@@ -383,7 +381,13 @@ def _git_subcommand(tokens):
 
 def collect_git(text):
   for m in GIT_INVOCATION.finditer(text):
-    sub, rest = _git_subcommand(m.group("args").split())
+    try:
+        tokens = shlex.split(m.group("args"))
+    except ValueError:
+        # The clause may be inside an enclosing shell quote. Preserve the
+        # conservative executable scan instead of treating parse failure as safe.
+        tokens = [word.strip("\"'") for word in m.group("args").split()]
+    sub, rest = _git_subcommand(tokens)
     if sub is None or sub in GIT_READ_ONLY_SUBCOMMANDS:
         continue
 
@@ -391,11 +395,11 @@ def collect_git(text):
         sub2 = next((t for t in rest if not t.startswith("-")), None)
         if sub2 == "remove":
             reasons.append("git worktree remove")
-        elif sub2 == "prune" and any(
-                t == "--expire" or t.startswith("--expire=") for t in rest):
-            # Plain prune is harmless -> allowed. So are list/add/lock/unlock/
-            # move/repair.
-            reasons.append("git worktree prune --expire")
+        elif sub2 == "prune":
+            # Even default pruning deletes Git metadata for absent worktrees,
+            # including unique indexes. Block dry-run forms too: later options
+            # can override them. The supported inspection command is list.
+            reasons.append("git worktree prune")
 
     elif sub == "branch":
         # -d, -D, a short bundle containing either, or --delete. A bare delete
@@ -460,15 +464,15 @@ for _sub in _SUBST.finditer(scan):
     collect_git(_sub.group(0))
     collect_rm(_sub.group(0))
 
-# Sanctioned helper invocation? (its name is the marker). Checked BEFORE the
-# verdict so a helper call is allowed even when it also looks destructive.
+# A helper cannot authorize a separate raw destructive command in the same
+# shell payload. Its own operations run behind its independent lifecycle checks.
 helper = bool(re.search(r"(?:^|[\s;&|(])(?:\S*/)?remove-agent-worktree\.sh\b", scan))
 ack = re.search(r"worktree-remove-ack:[ \t]*(.+)", scan)
 
+if helper and not reasons and not candidates:
+    print("HELPER"); raise SystemExit
 if not reasons and not candidates:
     print("PASS"); raise SystemExit
-if helper:
-    print("HELPER"); raise SystemExit
 if ack:
     print("ACK\t" + ack.group(1).strip()); raise SystemExit
 if reasons:
