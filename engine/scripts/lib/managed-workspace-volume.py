@@ -204,18 +204,20 @@ class VolumeStore:
                 raise
             return dict(record, attachment=self._attached(image))
 
-    def attach(self, ident, *, readonly=False):
+    def attach(self, ident, *, readonly=False, owner_readable=False):
         with self._locked(ident):
-            return self._attach_locked(ident, readonly=readonly)
+            return self._attach_locked(ident, readonly=readonly, owner_readable=owner_readable)
 
-    def _attach_locked(self, ident, *, readonly=False):
+    def _attach_locked(self, ident, *, readonly=False, owner_readable=False):
+        if owner_readable and not readonly:
+            raise VolumeError('owner-readable capture must be readonly')
         record = self._load(ident)
         base, image, active, private = self._paths(ident)
         if self._attached(image):
             raise VolumeError('detach required before attach')
         if record.get('state') != 'detached' or record.get('operation') is not None:
             raise VolumeError('verified clean detach required before attach')
-        mount = private if readonly else active
+        mount = private if readonly and not owner_readable else active
         self._check_directory(mount)
         if any(mount.iterdir()):
             raise VolumeError('mountpoint is not empty')

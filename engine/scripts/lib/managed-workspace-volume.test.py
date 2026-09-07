@@ -116,6 +116,10 @@ class ProviderSafety(unittest.TestCase):
             self.store.attach(self.ident, readonly=True)
         run.assert_not_called()
 
+    def test_owner_readable_capture_still_requires_readonly_mode(self):
+        with self.assertRaises(volumes.VolumeError):
+            self.store.attach(self.ident, owner_readable=True)
+
     def test_root_git_is_rejected(self):
         with self.assertRaises(volumes.VolumeError):
             self.store._git(['version'], (0, 0))
@@ -213,6 +217,15 @@ class ActualMacOSVolume(unittest.TestCase):
             self.assertEqual(staged, b'staged-only\n')
             with self.assertRaises(OSError):
                 (readonly / 'file').write_text('must fail')
+            store.detach(ident)
+            public = Path(store.attach(ident, readonly=True, owner_readable=True)['mountpoint'])
+            self.assertEqual(public, store._paths(ident)[2])
+            self.assertEqual((public / 'repo/file').read_bytes(), working)
+            with self.assertRaises(OSError):
+                (public / 'repo/file').write_text('still readonly')
+            bundle = store._git(['-C', str(public / 'repo'), 'bundle', 'create', '-', '--all', 'HEAD'],
+                                (os.getuid(), os.getgid()))
+            self.assertTrue(bundle.startswith(b'# v2 git bundle') or bundle.startswith(b'# v3 git bundle'))
             store.detach(ident)
             shallow = root / 'shallow-source'
             subprocess.run(['/usr/bin/git', 'clone', '-q', '--depth', '1',

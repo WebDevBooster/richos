@@ -36,6 +36,14 @@ recorded device and verifies the image is absent afterwards. It never uses
 private root. The provider verifies the reported mountpoint and read-only mode.
 The broker must prevent writable reactivation once retirement begins.
 
+`attach(id, readonly=True, owner_readable=True)` instead uses the active mount
+namespace for an unprivileged Git export. Its backing image remains private and
+the filesystem remains kernel read-only. The assigned owner can traverse their
+existing mode-0700 filesystem root. This avoids invoking Git inside an
+inaccessible private ancestor: changing cwd before dropping privilege does not
+make Git's subsequent absolute-path lookups succeed. Other users do not gain
+workspace read access. The flag is invalid without `readonly=True`.
+
 No provider method accepts an arbitrary device or deletes an image. Capture,
 archive verification, handoff refs, expiry, quota policy and image deletion
 belong to the broker. A retained or mounted image does not count as reclaimed
