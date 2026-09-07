@@ -306,15 +306,44 @@ class BrokerSafety(unittest.TestCase):
             left.close(); right.close()
 
     def test_real_serve_startup_request_and_signal_shutdown(self):
+        self._serve_shutdown()
+
+    @unittest.skipUnless(hasattr(__import__("signal"), "pthread_sigmask"), "POSIX signal masks required")
+    def test_serve_shutdown_unblocks_inherited_termination_mask(self):
+        self._serve_shutdown(block_termination=True)
+
+    def test_shutdown_handler_does_not_reenter_stop_event_lock(self):
+        self._serve_shutdown(interrupt_stop=True)
+
+    def _serve_shutdown(self, block_termination=False, interrupt_stop=False):
         socket_path = self.root / "runtime" / "served.sock"
         script = """
-import importlib.util, json, pathlib, sys, types, threading
+import importlib.util, json, pathlib, sys, types, threading, signal
+if sys.argv[4] == "blocked":
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
 spec=importlib.util.spec_from_file_location('server',sys.argv[1])
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 # Only host privilege boundaries are substituted for this disposable fixture.
 m.protected_path=lambda path, **kw: pathlib.Path(path).resolve()
 m.peer_uid=lambda connection: 501
 policy=json.loads(sys.argv[3])
+if sys.argv[5] == 'interrupt-stop':
+    # Replace only the broker module's Event constructor, not threading's
+    # internal worker-start events. Interrupt its notify while Event.set holds
+    # the condition lock, reproducing a second signal during final shutdown.
+    runtime_threading=types.SimpleNamespace(**vars(threading))
+    def broker_stop_event():
+        event=threading.Event();notify=event._cond.notify_all;fired=[]
+        def interrupted_notify():
+            if not fired:
+                fired.append(True)
+                pathlib.Path(sys.argv[2]+'.second-signal').write_text('stop lock held')
+                signal.raise_signal(signal.SIGTERM)
+            return notify()
+        event._cond.notify_all=interrupted_notify
+        return event
+    runtime_threading.Event=broker_stop_event
+    m.threading=runtime_threading
 manager=types.SimpleNamespace(sweep=lambda: [], owner_uid=lambda ident:501, inspect=lambda ident: {'id':ident,'owner_uid':501,'state':'active'})
 def long_legacy_capture():
     pathlib.Path(sys.argv[2]+'.busy').write_text('capture started')
@@ -324,7 +353,8 @@ legacy=types.SimpleNamespace(sweep=long_legacy_capture,status=lambda uid:{'inven
 m.serve(m.Broker(manager,policy,legacy),sys.argv[2],interval=0.05)
 """
         child = subprocess.Popen([sys.executable, "-c", script, str(HERE / "managed-workspace-broker.py"),
-                                  str(socket_path), json.dumps(self.policy)],
+                                  str(socket_path), json.dumps(self.policy), "blocked" if block_termination else "normal",
+                                  "interrupt-stop" if interrupt_stop else "normal"],
                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             deadline = time.monotonic() + 5
@@ -345,6 +375,8 @@ m.serve(m.Broker(manager,policy,legacy),sys.argv[2],interval=0.05)
             _, stderr = child.communicate(timeout=5)
             self.assertEqual(child.returncode, 0, stderr.decode())
             self.assertFalse(socket_path.exists(), "shutdown retained stale socket")
+            if interrupt_stop:
+                self.assertTrue(Path(str(socket_path)+".second-signal").exists(), "second signal was not injected while stop lock was held")
         finally:
             if child.poll() is None:
                 child.kill()
