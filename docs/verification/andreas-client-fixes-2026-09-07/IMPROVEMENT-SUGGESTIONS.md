@@ -1,19 +1,17 @@
 # CEO experience improvement suggestions
 
-This list records useful ideas found while fixing Andreas's onboarding and waiting defects. They are outside this repair's scope and are not claims about completed features.
+These are observed opportunities outside the onboarding and waiting repairs. They are proposals, not completed features.
 
-| Priority | Suggestion | User benefit | Evidence or trigger |
-| --- | --- | --- | --- |
-| High | Give each independent conversation its own compute lease or schedule requests across a pool. | A CEO could start a separate conversation while another is waiting on long model work. | The current shell shares one long-held spine and one conversation lease across threads. Moving IPC off the main thread restores responsiveness but does not create independent compute capacity. |
-| High | Add an opt-in, privacy-preserving latency dashboard and regression budget. | Identify whether delays come from launch, context preparation, provider response or rendering before a client has to report them. | Existing evidence measured isolated model operations and UI states rather than end-to-end response distributions. Store durations and phase names without prompts or company content. |
-| Medium | Offer a shorter initial business introduction followed by optional deeper onboarding. | A new CEO could get value without committing to twenty minutes before using the product. | The current invitation offers a single twenty-minute interview. |
-| Medium | Review saved company notes with the CEO when they become old. | Keep decisions grounded in the current business as roles, customers and priorities change. | Notes have a date but no review reminder or freshness workflow. |
-| Medium | Add a visible distinction between company setup and actual team staffing. | Make it easy to see which desired roles exist as working agents and which are only recorded wishes. | The interview correctly refuses to claim that recorded roles have been hired. Completing staffing is a separate product capability. |
-
-New suggestions should describe the actual user benefit, the observed trigger and why they do not belong in this repair. Do not turn this list into an unprioritized feature backlog.
-
-- **Medium: notes history and restoration.** Keep a recoverable revision history of company notes so a CEO can inspect or undo a mistaken summary.
-- **Medium: one clear location for company information.** Consolidate configuration for company notes and the separate memory corpus, with an explicit migration.
-- **Medium: shorter interview acknowledgements.** The live model repeated staffing limitations in multiple answers. Keep the necessary boundary clear once and focus subsequent replies on the next useful question or outcome.
-- **Low: avoid false plugin diagnostics for the registrar.** The intentionally tool-free registrar logs a missing-skills warning even though it was not launched with a skills plugin. Scope that diagnostic to leases that requested the plugin.
-- **High: investigate the extra model round trip used for priming.** Measure whether context can safely be installed with the visible request while preserving company isolation and continuity. Provider response speed remains variable even when local feedback and Stop are immediate.
+| Priority | Improvement | CEO benefit and observed reason |
+| --- | --- | --- |
+| High | Reduce the extra model round trip used for context preparation. | Real interview responses took seconds to tens of seconds. Investigate combining context installation with the visible request while preserving company isolation, memory retrieval and cancellation. Benchmark before changing the lifecycle again. |
+| High | Independent conversation sessions or a bounded session pool. | A separate conversation could progress while another waits on the model. Async IPC fixes the main-loop stall but the current spine and conversation session remain shared. |
+| High | Opt-in latency measurements and regression budgets. | Detect slow launch, context preparation, model responses and rendering before a customer reports them. Record phase durations without prompts or company content. |
+| Medium | A shorter introduction with optional deeper onboarding. | The current twenty-minute invitation is a substantial commitment before a CEO sees value. |
+| Medium | Review old company notes. | Notes have a date but no freshness workflow. A brief review would keep decisions grounded as the business changes. |
+| Medium | Recoverable company-note history. | A CEO could inspect or undo a mistaken summary. Atomic writes prevent torn files but do not provide revision history. |
+| Medium | One clear company-data location. | Company notes and the separate memory corpus have different locations. A unified setting and explicit migration would reduce confusion. |
+| Medium | Distinguish desired roles from staffed roles. | The interview records staffing wishes honestly. A visible status would clarify which roles actually exist as working agents. |
+| Medium | Shorter interview acknowledgements. | The live model repeated the same staffing limitations across multiple replies. State the boundary clearly and keep later replies focused on the next useful question. |
+| Medium | Reduce empty assignment-panel copy during conversation. | The waiting screenshot shows “No assignment yet” and a full explanation while Rich is already answering. A compact empty state would leave more room for the conversation and its progress. |
+| Low | Scope missing-plugin diagnostics to sessions that requested plugins. | The intentionally tool-free registrar prints a missing-skills warning. The primary chat tools work, but this false warning makes support logs harder to interpret. |

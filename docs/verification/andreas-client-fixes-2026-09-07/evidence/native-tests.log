@@ -1,0 +1,7 @@
+Evidence: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-native-regression-y2jgsmyx
+{"scenario": "slow-reply", "working_ms": 6.999999999999972, "terminal": {"t": 6606, "status": "completed"}, "mainloop_ms": 0, "stop_ipc_ms": 0}
+{"scenario": "prime-stop", "working_ms": 25, "terminal": {"t": 1043, "status": "stopped"}, "mainloop_ms": 0, "stop_ipc_ms": 19.999999999999773}
+{"scenario": "handshake-stop", "working_ms": 13, "terminal": {"t": 1031, "status": "stopped"}, "mainloop_ms": 0, "stop_ipc_ms": 7}
+{"scenario": "prime-failure", "working_ms": 8.000000000000028, "terminal": {"t": 197, "status": "failed"}, "mainloop_ms": 0, "stop_ipc_ms": 0.9999999999997726}
+{"scenario": "child-exit", "working_ms": 10.000000000000028, "terminal": {"t": 92, "status": "failed"}, "mainloop_ms": 0, "stop_ipc_ms": 0}
+PASS: all native responsiveness scenarios

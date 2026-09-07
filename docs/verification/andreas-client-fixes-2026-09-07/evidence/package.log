@@ -1,0 +1,56 @@
+note: discovered the one Developer ID Application identity on this machine:
+        Developer ID Application: Alex Booster (TZ33A4QCZJ)
+      (set RICHOS_SIGNING_IDENTITY to pin a different one.)
+RichOS packaging entrypoint
+  repository app dir : /Users/alex/ab/richos-worktrees/andreas-client-audit/app
+  signing mode       : developer-id
+  bundle targets     : app
+
+checking the app icons before building (the build gate re-checks independently)...
+OK: every artefact declared in tauri.conf.json bundle.icon is present, correctly sized, and distinct.
+
+SIGNING: Developer ID — Developer ID Application: Alex Booster (TZ33A4QCZJ)
+  hardened runtime + secure timestamp + /Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/Entitlements.plist
+  notarization: OFF — set RICHOS_NOTARIZE=1 with RICHOS_NOTARY_KEY /
+  RICHOS_NOTARY_KEY_ID / RICHOS_NOTARY_ISSUER, or RICHOS_NOTARY_PROFILE.
+  Without it this bundle is SIGNED BUT NOT NOTARIZED: Gatekeeper still blocks
+  it on a machine that downloaded it.
+
+building (release) with RICHOS_REQUIRE_REAL_ICONS=1 — the icon gate is FATAL for this build...
+  build paths remapped out of the binary ($HOME, $CARGO_HOME, /Users/alex/ab/richos-worktrees/andreas-client-audit/app);
+  the produced bundle is checked for leftovers before it is signed.
+
+        Warn --no-sign flag detected: Signing will be skipped.
+        Info Looking up installed tauri packages to check mismatched versions...
+        Warn The bundle identifier "com.richos.app" set in `"tauri.conf.json" identifier` ends with `.app`. This is not recommended because it conflicts with the application bundle extension on macOS.
+   Compiling richos-tauri v1.0.3 (/Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri)
+    Finished `release` profile [optimized] target(s) in 28.81s
+       Built application at: /Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/richos-tauri
+    Bundling RichOS.app (/Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app)
+        Warn Skipping signing due to --no-sign flag.
+    Bundling /Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (/Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz)
+    Finished 1 bundle at:
+        /Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app
+        /Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (updater)
+
+        Warn Updater signing is skipped due to --no-sign flag.
+
+checking the bundle for build-machine paths...
+no-host-paths: clean — no home-directory path in /Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app
+
+re-signing the bundle with the full argv (adds --timestamp, which the bundler omits)...
+/Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app: replacing existing signature
+
+  the designated requirement macOS will store against every grant:
+    identifier "com.richos.app" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TZ33A4QCZJ
+  — an identifier and a team, not a hash. THIS is what every future build
+    satisfies, and it is the whole reason the certificate exists.
+
+verifying the artefact that was produced (not the builder's exit code)...
+
+  removed the bundler's own RichOS.app.tar.gz: it was made from the
+  bundle BEFORE this script signed it, so it packaged an unsigned application.
+
+  Gatekeeper assessment (spctl): rejected
+
+OK: RichOS.app is bundled, Developer ID signed and verified but NOT NOTARIZED — real icons, cdhash 6c7956d057a533d39ac2146dc88a4593c5e75f50, hardened runtime, secure timestamp, microphone entitlement and usage string present, designated requirement identifier "com.richos.app" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TZ33A4QCZJ; Gatekeeper will still block a downloaded copy. Path: /Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app

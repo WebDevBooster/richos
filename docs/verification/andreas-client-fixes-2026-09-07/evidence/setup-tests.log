@@ -1,0 +1,36 @@
+
+== first-run setup — the consent step a customer's Mac gets, and what happens when it fails ==
+  PASS  1  a customer's Mac asks, first, and one dialog at a time
+          asked first; the memory and company questions both survive being deferred
+  PASS  2  no terminal, no path, no version number reaches his screen
+          no path, no tilde, no shell, no version, no Terminal, no input field
+  PASS  3  the sheet says he still needs his own Anthropic account
+          BYO-Anthropic stated, in his words, above the button
+  PASS  4  each missing piece is named and explained, in his language
+          two rows and a plural title and note, one row and a singular title and note
+  PASS  5  a build that cannot install EXPLAINS instead of offering a button
+          explained, with the party named, and no button he could press in vain
+  PASS  6  a failure reaches the screen verbatim, and the sheet stays usable
+          the failure is his to read, and the sheet offers the next move
+  PASS  7  progress is driven by the backend's events, not by the return value
+          each step announced as it started; the ending came from the backend
+  PASS  8  a machine that has everything is never asked
+          read, and silent
+  PASS  9  the button cannot be pressed twice
+          one press, one run
+  PASS  10  there is exactly one run_setup call site in the shipped source
+          one call site (main.js:3949) across 13 shipped UI file(s); the ordering is explicit in the source
+  PASS  12  a customer's Mac is not offered voice, and is not invited to it
+          voice_readiness asked; ◉ absent; the greeting names only the composer
+  PASS  13  a machine that can transcribe keeps the invitation
+          ◉ present and the greeting invites it
+  PASS  14  a mis-aimed click cannot skip the engine
+          backdrop, Escape and the panel body are all inert; only the two buttons dismiss it — and the re-add is refused across all 13 shipped UI file(s)
+  PASS  15  a send with no engine names the engine and offers the install
+          named, offered, his words kept, and the install runs from the offer
+  PASS  16  the preview rehearses the product's own refusal, byte for byte
+          three sentences, one wording, no stray spaces
+  PASS  11  this suite actually checked something
+          98 assertions against the real DOM under WebKit
+
+a customer's Mac is asked once, in his language, and told the truth when it fails.

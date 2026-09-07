@@ -230,6 +230,7 @@ app/
                               — so it cannot silently start passing for the wrong reason.
                               Also: a turn the CEO stopped is never crash-replayed, and a
                               stop request that outlived the process is applied at startup
+    tests/native_onboarding_grant_tests.rs 6 real-child checks for scoped visible-turn grants and safe revocation.
     tests/native_cancel_tests.rs 8 interrupt tests against a REAL CHILD PROCESS over real
                               stdio (a POSIX-sh fake `claude` the test writes itself), in two
                               variants: compliant, and deliberately deaf to the interrupt
@@ -874,10 +875,10 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1028 tests + 5 doc-tests; 1024 direct, 4 child-only
+cargo test -p richos-core                       # 1034 tests + 5 doc-tests; 1030 direct, 4 ignored
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
-#     ONE OF THE THREE NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
+#     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
 #     every repository and is on no clean checkout. `home_field::tests::
 #     against_a_real_corpus_when_one_is_configured` compiles one into the home screen's
 #     picture and prints its counts; run it by hand with

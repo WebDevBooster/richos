@@ -1,0 +1,61 @@
+{
+  "runtime_commit": "fc656e9",
+  "version": "1.0.3",
+  "core": {
+    "ordinary_passed": 1030,
+    "doc_passed": 5,
+    "top_level_ignored": 4,
+    "exit_code": 0
+  },
+  "shell": {
+    "passed": 68,
+    "exit_code": 0
+  },
+  "ui": {
+    "suites": 32,
+    "checks": 596,
+    "skipped": 0,
+    "exit_code": 0
+  },
+  "native": {
+    "scenarios": 5,
+    "exit_code": 0
+  },
+  "gui_boot": {
+    "checks": 21,
+    "exit_code": 0
+  },
+  "frontend_payload": {
+    "checks": 10,
+    "exit_code": 0
+  },
+  "live_interview": {
+    "passed": true,
+    "exit_code": 0
+  },
+  "live_doctrine": {
+    "passed": 1,
+    "exit_code": 0
+  },
+  "package": {
+    "exit_code": 0,
+    "developer_id_signed": true,
+    "notarized": false,
+    "published": false
+  },
+  "packaged_onboarding": {
+    "result": "PASS",
+    "checks": [
+      "packaged MCP initialization",
+      "exact tool inventory",
+      "default-denied writes",
+      "granted partial save and verified readback",
+      "decline preserves notes",
+      "revoked grant refuses writes",
+      "clean protocol-only exit"
+    ],
+    "binary": "/Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app/Contents/MacOS/richos-tauri",
+    "sha256": "e2e865ec14e5aa5214b950535ad304c143ca8ba8fc5558a0676b4a32d5f6a19c",
+    "scratch": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-packaged-onboarding-dv0p47kh"
+  }
+}

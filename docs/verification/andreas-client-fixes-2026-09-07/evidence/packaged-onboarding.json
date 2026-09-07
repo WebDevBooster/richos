@@ -1,0 +1,15 @@
+{
+  "result": "PASS",
+  "checks": [
+    "packaged MCP initialization",
+    "exact tool inventory",
+    "default-denied writes",
+    "granted partial save and verified readback",
+    "decline preserves notes",
+    "revoked grant refuses writes",
+    "clean protocol-only exit"
+  ],
+  "binary": "/Users/alex/ab/richos-worktrees/andreas-client-audit/app/src-tauri/target/release/bundle/macos/RichOS.app/Contents/MacOS/richos-tauri",
+  "sha256": "e2e865ec14e5aa5214b950535ad304c143ca8ba8fc5558a0676b4a32d5f6a19c",
+  "scratch": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-packaged-onboarding-dv0p47kh"
+}

@@ -212,7 +212,7 @@ async function main() {
       const ignored = files.reduce((n, f) => n + (read(f).match(/^\s*#\[ignore(?:\s*=.*?)?\]/gm) || []).length, 0);
       if (ignored) {
         const line = c.line;
-        assert(line.includes(`${total - ignored} direct, ${ignored} child-only`), "README must distinguish direct passes from child-only fixtures");
+        assert(line.includes(`${total - ignored} direct, ${ignored} ignored`), "README must distinguish direct tests from ignored checks");
       }
       const docs = rustFiles(path.join(crateDir, "src")).reduce((n, f) => n + docTestCount(f), 0);
       if (total !== c.tests) wrong.push(`${c.crate}: README says ${c.tests} tests, the tree has ${total}`);

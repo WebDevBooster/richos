@@ -1,0 +1,14 @@
+
+=== P. what ships as the frontend ===
+  PASS  P1 tauri.conf.json sets build.frontendDist (../ui-dist)
+  PASS  P2 frontendDist is not the source tree app/ui
+  PASS  P3 the staged frontend directory is git-ignored
+  PASS  P4 build.rs stages the frontend, so a plain cargo build cannot bypass it
+  PASS  P5 the exclusion list names tests
+  PASS  P6 the exclusion list names node_modules
+  PASS  P7 the staging refuses rather than warns
+  PASS  P8 the screenshots are still in the repository (12 shots-* directories)
+  PASS  P9 the staged tree on this machine carries no excluded directory
+  PASS  P10 the staged tree carries the product (index.html)
+
+=== frontend-payload tests: all 10 passed ===
