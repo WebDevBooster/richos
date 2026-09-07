@@ -44,7 +44,10 @@ def _scope(selection, approved):
             or not selection['candidates'] and not selection['branches']):raise JobError('bounded nonempty job scope required')
     seen=set()
     for row in selection['candidates']:
-        if not isinstance(row,dict) or set(row)!={'repo_alias','path','identity','git_admin_path','head'}:raise JobError('exact candidate identity required')
+        fields={'repo_alias','path','identity','git_admin_path','head'}
+        if not isinstance(row,dict) or set(row) not in (fields,fields|{'kind'}):raise JobError('exact candidate identity required')
+        if row.get('kind','registered-linked-worktree') not in ('registered-linked-worktree','orphan-registration'):
+            raise JobError('explicit supported candidate kind required')
         for key in ('repo_alias','path','git_admin_path','head'):
             if not isinstance(row[key],str) or not 0<len(row[key])<=4096:raise JobError('bounded candidate fields required')
         if not isinstance(row['identity'],dict) or len(row['identity'])>16:raise JobError('bounded candidate inode identity required')
@@ -75,7 +78,7 @@ def _candidate(plan, chosen):
     if not candidates or len(targets)!=1 or any(row.get('contained_registered_targets') for row in candidates):raise JobError('exact independent terminal candidate required')
     target=targets[0]
     if (target['identity']!=chosen['identity'] or target['git_directory']['path']!=chosen['git_admin_path']
-            or target['kind']!='registered-linked-worktree'):raise JobError('candidate identity differs from approved gate')
+            or target['kind']!=chosen.get('kind','registered-linked-worktree')):raise JobError('candidate identity differs from approved gate')
     return repo,target
 
 
@@ -215,7 +218,7 @@ def _capture_step(gate,base,record,binary):
     complete=[];partial=[]
     with gate.frozen_view(record['gate_id'],approved_sha256=record['selection']['gate_sha256']) as view:
         _candidate(view['plan'],chosen)
-        roots=[('worktree',chosen['path']),('git-admin',chosen['git_admin_path'])]
+        roots=capture.source_roots(view,chosen['path'],chosen['git_admin_path'])
         manifest,_=capture._inventory(view,roots);current=shadow.digest(manifest)
         if pin['manifest_sha256'] is None:
             pin['manifest_sha256']=current;_save(base,record)

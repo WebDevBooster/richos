@@ -78,6 +78,68 @@ def terminal(tx):
             and sealed is not None and ended is not None and ended >= sealed)
 
 
+def absence_pin(path):
+    """Pin the existing namespace above an exactly absent logical checkout."""
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts or os.path.lexists(path):
+        raise ValueError('exact absent canonical worktree path required')
+    ancestor = path.parent
+    while not os.path.lexists(ancestor):
+        ancestor = ancestor.parent
+    anchor = pin(ancestor)
+    if os.path.lexists(path):
+        raise ValueError('absent worktree path reappeared')
+    return dict(path=str(path), state='absent', anchor_path=anchor['path'],
+                anchor_device=anchor['device'], anchor_inode=anchor['inode'],
+                suffix=str(path.relative_to(ancestor)))
+
+
+def _admin_file(path):
+    before = pin(path, directory=False)
+    if not stat.S_ISREG(path.lstat().st_mode) or before['contents']['size'] > 65536:
+        raise ValueError('bounded regular registration metadata required')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as stream:
+        value = stream.read(65537)
+    if pin(path, directory=False) != before:
+        raise ValueError('registration metadata changed during inventory')
+    return value, before
+
+
+def orphan_registration(repo, common, entry):
+    """Recover exact missing-path linkage from the surviving Git admin store."""
+    path = entry['worktree']; identity = absence_pin(path)
+    root = Path(common) / 'worktrees'; pin(root)
+    matches = []
+    for admin in sorted(root.iterdir()):
+        admin_pin = pin(admin)
+        linkage, link_pin = _admin_file(admin / 'gitdir')
+        text = linkage.decode('utf-8').removesuffix('\n')
+        target = Path(text)
+        if not target.is_absolute() or '..' in target.parts or '\n' in text or str(target) != text:
+            raise ValueError('noncanonical registration Git pointer')
+        if text != str(Path(path) / '.git'):
+            continue
+        relative, common_file = _admin_file(admin / 'commondir')
+        if relative != b'../..\n' or admin.parent != root:
+            raise ValueError('orphan registration has foreign common Git store')
+        head, head_file = _admin_file(admin / 'HEAD')
+        expected = ('ref: ' + entry['branch']).encode() if 'branch' in entry else entry['HEAD'].encode()
+        if head.removesuffix(b'\n') != expected:
+            raise ValueError('orphan registration HEAD differs from complete registry')
+        if 'branch' in entry and history._out(repo, 'rev-parse', '--verify', entry['branch']) != entry['HEAD']:
+            raise ValueError('orphan branch tip differs from complete registry')
+        files = dict(gitdir=link_pin, commondir=common_file, HEAD=head_file)
+        if os.path.lexists(admin / 'locked'):
+            _, files['locked'] = _admin_file(admin / 'locked')
+        matches.append(dict(identity=identity, git_directory=admin_pin,
+                            git_pointer=dict(state='absent', path=str(Path(path) / '.git')),
+                            registration_files=files))
+    if len(matches) != 1 or absence_pin(path) != identity:
+        raise ValueError('orphan registration linkage is missing, duplicated or changed')
+    return matches[0]
+
+
 def object_storage(repo, common):
     objects = Path(common) / 'objects'
     identity = pin(objects)
@@ -204,23 +266,26 @@ def plan(policy, transactions, records, *, active_paths=(), input_errors=()):
                         'registry_flags': {k: entry[k] for k in ('locked', 'prunable', 'detached') if k in entry}}
                 row['gate_paths'].append(gate);all_gates.append((alias, path))
                 try:
-                    gate['identity'] = pin(path)
-                    actual_common = history._out(path, 'rev-parse', '--git-common-dir')
-                    if not actual_common or os.path.normpath(os.path.join(path, actual_common)) != common_pin['path']:
-                        raise ValueError('registered worktree belongs to another Git repository: ' + path)
-                    gitdir = history._out(path, 'rev-parse', '--absolute-git-dir')
-                    gate['git_directory'] = pin(gitdir)
-                    gate['git_pointer'] = pin(Path(path) / '.git', directory=False)
-                    if history._out(path, 'rev-parse', '--verify', 'HEAD') != entry['HEAD']:
-                        raise ValueError('registered HEAD differs from workspace: ' + path)
-                    branch = history._git(path, 'symbolic-ref', '-q', 'HEAD')
-                    if branch is None or branch.returncode not in (0, 1) or (branch.stdout.strip() if branch.returncode == 0 else None) != entry.get('branch'):
-                        raise ValueError('registered branch differs from workspace: ' + path)
+                    if path != repo and not os.path.lexists(path):
+                        gate['kind'] = 'orphan-registration'
+                        gate.update(orphan_registration(repo, common_pin['path'], entry))
+                    else:
+                        gate['identity'] = pin(path)
+                        actual_common = history._out(path, 'rev-parse', '--git-common-dir')
+                        if not actual_common or os.path.normpath(os.path.join(path, actual_common)) != common_pin['path']:
+                            raise ValueError('registered worktree belongs to another Git repository: ' + path)
+                        gitdir = history._out(path, 'rev-parse', '--absolute-git-dir')
+                        gate['git_directory'] = pin(gitdir)
+                        gate['git_pointer'] = pin(Path(path) / '.git', directory=False)
+                        if history._out(path, 'rev-parse', '--verify', 'HEAD') != entry['HEAD']:
+                            raise ValueError('registered HEAD differs from workspace: ' + path)
+                        branch = history._git(path, 'symbolic-ref', '-q', 'HEAD')
+                        if branch is None or branch.returncode not in (0, 1) or (branch.stdout.strip() if branch.returncode == 0 else None) != entry.get('branch'):
+                            raise ValueError('registered branch differs from workspace: ' + path)
                     gate['ownership'] = ownership(path, transactions, records, active)
                     if gate['ownership']['state'] in ('live', 'unknown'):
                         row['blockers'].append(gate['ownership']['state'] + '-owner:' + path)
-                    if 'locked' in entry or 'prunable' in entry:
-                        row['blockers'].append('registered-worktree-needs-review:' + path)
+                    candidate_count = len(row['removal_candidates'])
                     if path == repo:
                         continue
                     for tx in transactions:
@@ -236,8 +301,10 @@ def plan(policy, transactions, records, *, active_paths=(), input_errors=()):
                                 continue
                             row['removal_candidates'].append(dict(path=path, session_id=tx['session_id'],
                                 agent_id=tx['agent_id'], head=entry['HEAD'], branch=entry.get('branch'),
-                                identity=gate['identity'], execution_authorized=False,
+                                identity=gate['identity'], kind=gate['kind'], execution_authorized=False,
                                 status='exact-terminal-member-requires-offline-revalidation'))
+                    if (gate['kind'] == 'orphan-registration' or 'locked' in entry or 'prunable' in entry) and len(row['removal_candidates']) == candidate_count:
+                        row['blockers'].append('registration-recovery-needs-exact-terminal-owner:' + path)
                 except (OSError, ValueError, TypeError) as error:
                     gate['inventory_error'] = str(error)
                     row['blockers'].append('inventory-unavailable:' + str(error))
@@ -249,6 +316,12 @@ def plan(policy, transactions, records, *, active_paths=(), input_errors=()):
                 raise ValueError('Git registry changed during inventory')
             for gate in row['gate_paths']:
                 if 'identity' in gate and 'inventory_error' not in gate:
+                    if gate['kind'] == 'orphan-registration':
+                        entry = next(item for item in rows if item['worktree'] == gate['path'])
+                        current = orphan_registration(repo, common_pin['path'], entry)
+                        if any(gate[key] != value for key, value in current.items()):
+                            raise ValueError('orphan registration changed during inventory')
+                        continue
                     if pin(gate['path']) != gate['identity'] or pin(gate['git_directory']['path']) != gate['git_directory']:
                         raise ValueError('workspace or Git identity changed during inventory')
                     if pin(Path(gate['path']) / '.git', directory=False) != gate['git_pointer']:
@@ -276,9 +349,18 @@ def plan(policy, transactions, records, *, active_paths=(), input_errors=()):
         # Native checkouts often live below the canonical checkout. Move that
         # ancestor once, while retaining every registered target's identity.
         gates = row['gate_paths']
-        roots = [gate for gate in gates if not any(Path(other['path']) in Path(gate['path']).parents
-                                                  for other in gates if other is not gate)]
+        physical = [gate for gate in gates if gate['kind'] != 'orphan-registration']
+        roots = [gate for gate in physical if not any(Path(other['path']) in Path(gate['path']).parents
+                                                     for other in physical if other is not gate)]
         for gate in gates:
+            if gate['kind'] == 'orphan-registration':
+                common_path = Path(row['common_git_directory']['path'])
+                containing = [root for root in roots if common_path == Path(root['path']) or Path(root['path']) in common_path.parents]
+                if len(containing) != 1:
+                    row['blockers'].append('orphan-admin-not-covered-by-common-gate:' + gate['path'])
+                else:
+                    gate.update(gate_root=containing[0]['path'], relative_path=None, gate_mapping='registration-only')
+                continue
             containing = [root for root in roots if gate['path'] == root['path']
                           or Path(root['path']) in Path(gate['path']).parents]
             if len(containing) != 1:

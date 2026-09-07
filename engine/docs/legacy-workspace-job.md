@@ -54,3 +54,5 @@ reported separately.
 The broker background worker and explicit admin commands supply installation,
 policy and scheduling integration. This module itself does not activate a
 service or arm jobs through an unprivileged socket.
+
+An orphan registration must be selected explicitly with `kind: orphan-registration` and its exact absent-namespace identity. Ordinary selections default to `registered-linked-worktree` for compatibility. The same journaled capture, handoff and retirement phases preserve its surviving administration and object dependencies, while removing no nonexistent working directory. A newly recreated logical path stops the job before retirement. Such captures remain retained and never receive a clean-worktree expiry proof.

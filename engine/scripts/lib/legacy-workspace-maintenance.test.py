@@ -144,14 +144,16 @@ class LegacyPlan(unittest.TestCase):
         self.policy['repositories']['approved']['path'] = str(alias)
         self.assertIn('symlink path component', self.plan()['repositories'][0]['blockers'][0])
 
-    def test_missing_registered_path_is_retained_as_review_blocker(self):
+    def test_missing_exact_terminal_registration_is_inventoried_without_touching_relocated_bytes(self):
         other = self.root / 'later-worker';self.git('worktree', 'add', '-qb', 'later', str(other))
         self.work.rename(self.root / 'preserved')
         row = self.plan()['repositories'][0]
-        self.assertTrue(any(b.startswith('inventory-unavailable:') for b in row['blockers']))
-        self.assertTrue(any(gate['path'] == str(self.work) for gate in row['gate_paths']))
+        orphan = next(gate for gate in row['gate_paths'] if gate['path'] == str(self.work))
+        self.assertEqual(orphan['kind'], 'orphan-registration')
+        self.assertEqual(orphan['identity']['state'], 'absent')
         self.assertTrue((self.root / 'preserved/file').exists())
-        self.assertFalse(row['inventory_complete'])
+        self.assertTrue(row['inventory_complete'])
+        self.assertTrue(any('unknown-owner:' + str(other) == reason for reason in row['blockers']))
         self.assertEqual(len(row['registered_worktrees']), 3)
         remaining = next(gate for gate in row['gate_paths'] if gate['path'] == str(other))
         self.assertEqual(remaining['identity']['inode'], other.stat().st_ino)

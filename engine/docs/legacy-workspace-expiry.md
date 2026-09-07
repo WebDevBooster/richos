@@ -28,6 +28,8 @@ recovery refs remain. The archive is never reported expired merely because its
 path is missing. Missing or altered metadata, moved references, unknown source
 identity and revoked repository policy prevent deletion.
 
+Admin-only orphan captures always retain their bulk archive. The absence of the original working checkout cannot prove that its working state was clean, even when the surviving index matches HEAD. Registration and branch retirement can still complete after their independent recovery checks.
+
 Historical jobs and standalone retirements have no saved clean proof and remain
 retained. New jobs save their expiry policy version at arming; retries cannot
 retrofit a missing proof after the original source has been removed. Dirty or

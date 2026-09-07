@@ -58,6 +58,42 @@ def _map(view, source):
     return Path(root['held_path'])/relative, (Path(root['held'])/relative).as_posix()
 
 
+def _verify_absence(view, identity):
+    """An orphan owns no working bytes. Never adopt a recreated namespace."""
+    if identity.get('state') != 'absent':
+        raise CaptureError('explicit orphan absence identity required')
+    logical = Path(identity['path']); anchor = Path(identity['anchor_path'])
+    suffix = logical.relative_to(anchor)
+    if str(suffix) != identity['suffix'] or not suffix.parts or '..' in suffix.parts:
+        raise CaptureError('orphan absence namespace changed')
+    matching = [root for root in view['roots'] if anchor == Path(root['source']) or Path(root['source']) in anchor.parents]
+    actual = _map(view, anchor)[0] if matching else anchor
+    info = actual.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or actual.is_symlink()
+            or (filesystem.filesystem_token(actual, info), info.st_ino) != (identity['anchor_device'], identity['anchor_inode'])):
+        raise CaptureError('orphan parent namespace identity changed')
+    # The first suffix component was absent at approval, not merely its leaf.
+    if os.path.lexists(actual / suffix.parts[0]) or os.path.lexists(anchor / suffix.parts[0]):
+        raise CaptureError('orphan working namespace reappeared; new bytes retained')
+
+
+def source_roots(view, candidate_path, admin_path, *, capture_kind=None):
+    targets = [target for repo in view['plan']['repositories'] for target in repo['gate_paths']
+               if target['path'] == candidate_path and target.get('git_directory', {}).get('path') == admin_path]
+    if len(targets) != 1:
+        raise CaptureError('exact captured source kind unavailable')
+    target = targets[0]
+    expected = 'orphan-admin-only' if target['kind'] == 'orphan-registration' else 'full-worktree'
+    if capture_kind is not None and capture_kind != expected:
+        raise CaptureError('capture kind differs from approved source')
+    if expected == 'orphan-admin-only':
+        _verify_absence(view, target['identity'])
+        return [('git-admin', admin_path)]
+    if target['kind'] != 'registered-linked-worktree':
+        raise CaptureError('unsupported captured source kind')
+    return [('worktree', candidate_path), ('git-admin', admin_path)]
+
+
 def _snapshot(path, key, name, metadata):
     before = path.lstat();original = metadata.get(key)
     if original is None or (filesystem.filesystem_token(path, info=before),before.st_ino) != (original['device'],original['inode']):
@@ -305,10 +341,12 @@ def validate_capture(view, artifact_path, scratch_directory, binary):
     workspace=next(row for row in repo['gate_paths'] if row['path']==receipt['candidate_path'])
     if (receipt['candidate_identity']!=workspace['identity'] or receipt['git_admin_path']!=workspace['git_directory']['path']
             or receipt['common_git_identity']!=repo['common_git_directory']):raise CaptureError('capture source identity changed')
-    if (workspace['kind']!='registered-linked-worktree'
+    if (workspace['kind'] not in ('registered-linked-worktree', 'orphan-registration')
             or Path(receipt['git_admin_path']).parent!=Path(repo['common_git_directory']['path'])/'worktrees'):
         raise CaptureError('distinct linked-worktree Git metadata required')
-    roots=[('worktree',receipt['candidate_path']),('git-admin',receipt['git_admin_path'])]
+    roots=source_roots(view,receipt['candidate_path'],receipt['git_admin_path'],capture_kind=receipt.get('capture_kind','full-worktree'))
+    if receipt.get('working_tree_bytes_present',True) is not (receipt.get('capture_kind','full-worktree')=='full-worktree'):
+        raise CaptureError('capture working-byte presence declaration changed')
     current,_=_inventory(view,roots)
     if current!=manifest:raise CaptureError('capture no longer matches frozen source')
     archive=directory/'recovery.tar.gz'
@@ -325,6 +363,7 @@ def validate_capture(view, artifact_path, scratch_directory, binary):
     if dependencies!=receipt['dependencies']:raise CaptureError('capture dependency set changed or omitted endpoints')
     again,_=_inventory(view,roots)
     if again!=manifest:raise CaptureError('frozen source changed during capture validation')
+    source_roots(view,receipt['candidate_path'],receipt['git_admin_path'],capture_kind=receipt.get('capture_kind','full-worktree'))
     if any(receipt.get(key) is not False for key in ('deletion_authorized','registration_removal_authorized','automatic_expiry_authorized','standalone_repository','shared_objects_included')):
         raise CaptureError('capture receipt claims unsupported authority')
     return receipt
@@ -343,11 +382,12 @@ def prepare(gate, ident, *, approved_gate_sha256, repo_alias, candidate_path, sc
             if any(row.get('contained_registered_targets') for row in candidates):raise CaptureError('selection contains another registered checkout')
             workspace=next(row for row in repo['gate_paths'] if row['path']==candidate_path)
             admin_source=workspace['git_directory']['path'];common_source=repo['common_git_directory']['path']
-            if workspace['kind']!='registered-linked-worktree' or admin_source==common_source:
+            if workspace['kind'] not in ('registered-linked-worktree', 'orphan-registration') or admin_source==common_source:
                 raise CaptureError('distinct linked-worktree Git metadata required')
             admin=Path(admin_source);common=Path(common_source)
             if admin.parent!=common/'worktrees':raise CaptureError('linked admin directory is outside expected shared registration namespace')
-            roots=[('worktree',candidate_path),('git-admin',admin_source)]
+            capture_kind='orphan-admin-only' if workspace['kind']=='orphan-registration' else 'full-worktree'
+            roots=source_roots(view,candidate_path,admin_source,capture_kind=capture_kind)
             manifest,sources=_inventory(view,roots)
             bytes_total=sum(row.get('size',0) for row in manifest.values())
             # Compression is a space-saving choice, never a correctness bound.
@@ -361,6 +401,7 @@ def prepare(gate, ident, *, approved_gate_sha256, repo_alias, candidate_path, sc
             archive=directory/'recovery.tar.gz';_write_archive(archive,manifest,sources);_verify_archive(archive,manifest)
             current,_=_inventory(view,roots)
             if current!=manifest:raise CaptureError('frozen source changed during archive preparation')
+            source_roots(view,candidate_path,admin_source,capture_kind=capture_kind)
             cache_hints=[]
             for name,path in sources.items():
                 if Path(name).name=='CACHEDIR.TAG' and manifest[name]['kind']=='file':
@@ -369,6 +410,7 @@ def prepare(gate, ident, *, approved_gate_sha256, repo_alias, candidate_path, sc
             with archive.open('rb') as stream:archive_hash=_hash(stream)
             receipt=dict(version=1,gate_id=ident,gate_sha256=approved_gate_sha256,repo_alias=repo_alias,
                 candidate_path=candidate_path,candidate_identity=workspace['identity'],git_admin_path=admin_source,
+                capture_kind=capture_kind,working_tree_bytes_present=capture_kind=='full-worktree',
                 common_git_identity=repo['common_git_directory'],
                 archive='recovery.tar.gz',archive_sha256=archive_hash,manifest_sha256=shadow.digest(manifest),
                 file_bytes=bytes_total,entry_count=len(manifest),cache_tag_hints=cache_hints,

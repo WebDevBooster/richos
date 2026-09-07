@@ -101,7 +101,7 @@ def retire(gate, selection, *, approved_selection_sha256, scratch_root, trusted_
             raise RetirementError('capture approval differs from selected recovery')
         _handoff(view,receipt,selection['capture_receipt_sha256'],scratch,binary)
         roots=[]
-        for source in (receipt['candidate_path'],receipt['git_admin_path']):
+        for _,source in capture.source_roots(view,receipt['candidate_path'],receipt['git_admin_path'],capture_kind=receipt.get('capture_kind','full-worktree')):
             held,key=capture._map(view,source)
             roots.append({'source':source,'relative':key})
         if any(Path(a['relative']) in Path(b['relative']).parents for a in roots for b in roots if a!=b):
@@ -147,7 +147,7 @@ def _replay_locked(gate,base,record,journal,scratch,binary):
     if (receipt['gate_id']!=base.name or receipt['gate_sha256']!=selection['gate_sha256']
             or receipt['repo_alias']!=selection['repo_alias']):raise RetirementError('retirement capture binding changed')
     expected_roots=[{'source':source,'relative':capture._map(view,source)[1]}
-                    for source in (receipt['candidate_path'],receipt['git_admin_path'])]
+                    for _,source in capture.source_roots(view,receipt['candidate_path'],receipt['git_admin_path'],capture_kind=receipt.get('capture_kind','full-worktree'))]
     if journal['roots']!=expected_roots:raise RetirementError('retirement subtree selection changed')
     if journal['phase']=='complete':
         _handoff(view,receipt,selection['capture_receipt_sha256'],scratch,binary)
@@ -189,7 +189,8 @@ def _replay_locked(gate,base,record,journal,scratch,binary):
     mutation._atomic(base/'metadata.jsonl',b''.join((json.dumps(row,sort_keys=True)+'\n').encode() for _,row in sorted(effective.items())))
     journal['phase']='complete'
     journal['result']={'gate_id':base.name,'phase':'complete','candidate_path':receipt['candidate_path'],
-                       'registration_removed':True,'working_directory_reclaimed':True,
+                       'registration_removed':True,'working_directory_reclaimed':receipt.get('capture_kind','full-worktree')=='full-worktree',
+                       'capture_kind':receipt.get('capture_kind','full-worktree'),
                        'recovery_path':str(directory),'recovery_retained':True,'automatic_expiry_authorized':False,
                        'free_change_since_retirement_intent_bytes':shutil.disk_usage(base).free-journal['free_bytes_before']}
     mutation._save(base/'retirement.json',journal)

@@ -18,6 +18,8 @@ authority, every required recovery ref and the transitive Git object closure.
 Missing objects, unparsed index/Git state and external submodule dependencies
 prevent removal. The shared Git database is retained in its canonical repository.
 
+An approved `orphan-registration` uses a distinct admin-only capture and retires only its exact surviving Git admin subtree. It reports `registration_removed: true` and `working_directory_reclaimed: false`; already absent working bytes are never counted as reclaimed. The original absent namespace must still be absent before removal and during partial replay. Recreating the logical path after capture or handoff blocks retirement and preserves the new bytes, old registration and branch. Readable locked terminal checkouts follow the full-worktree path with their lock bytes retained in recovery.
+
 A durable retirement marker blocks gate restoration until removal and the
 effective inode inventory are complete. Replay checks archive integrity, recovery
 refs and every remaining frozen inode before further unlinking. A partially

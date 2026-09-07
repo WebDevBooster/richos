@@ -55,6 +55,8 @@ def _file(directory,name,gate):
 
 
 def _clean(view,receipt,manifest,sources,scratch,binary):
+    if receipt.get('capture_kind','full-worktree')!='full-worktree':
+        raise ExpiryError('orphan administration capture retained; working bytes were absent before the gate')
     if any(receipt['dependencies'][key] for key in ('missing_objects','external_gitlinks','unparsed_git_state')):
         raise ExpiryError('unresolved Git state retains bulk recovery')
     repo=next(row for row in view['plan']['repositories'] if row['alias']==receipt['repo_alias'])
@@ -120,7 +122,7 @@ def prepare(gate,ident,*,approved_gate_sha256,repo_alias,capture_path,capture_re
         receipt=capture.validate_capture(view,directory,scratch,binary)
         if shadow.digest(receipt)!=capture_receipt_sha256 or receipt['repo_alias']!=repo_alias:
             raise ExpiryError('exact capture proof selection changed')
-        roots=[('worktree',receipt['candidate_path']),('git-admin',receipt['git_admin_path'])]
+        roots=capture.source_roots(view,receipt['candidate_path'],receipt['git_admin_path'],capture_kind=receipt.get('capture_kind','full-worktree'))
         manifest,sources=capture._inventory(view,roots)
         try:
             repo=_clean(view,receipt,manifest,sources,scratch,binary)
