@@ -1,0 +1,100 @@
+{
+  "installation_activated": false,
+  "report": {
+    "acceptance_id": "acceptance-cee44bef5e27485797fb90716291fee0",
+    "activated": false,
+    "checks": [
+      {
+        "detail": "",
+        "name": "owner-write-tracked",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-cannot-read-backing-image",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-cannot-change-backing-permissions",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-ready-within-deadline",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-started",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "busy-holder-blocks-reclamation",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-finished",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "root-to-owner-capture-succeeds",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "active-image-reclaimed",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "dirty-recovery-retained",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "latest-working-bytes-recovered",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "separate-index-bytes-recovered",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "dirty-expiry-refused",
+        "passed": true
+      },
+      {
+        "detail": "hdiutil: couldn't unmount \"disk9\" - Permission denied\n",
+        "name": "owner-cannot-force-unmount-hdiutil",
+        "passed": true
+      },
+      {
+        "detail": "Volume RichOS-760d54fc-f81f-439a-a5ec-58229d895525 on disk9s1 failed to unmount\n",
+        "name": "owner-cannot-force-unmount-diskutil",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "clean-recovery-created",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "clean-recovery-expires",
+        "passed": true
+      }
+    ],
+    "fixture_cleanup_complete": true,
+    "owner_uid": 501,
+    "passed": true,
+    "version": 1
+  },
+  "scope": "installed root-to-user disposable volume acceptance",
+  "source_commit": "c7580b3"
+}

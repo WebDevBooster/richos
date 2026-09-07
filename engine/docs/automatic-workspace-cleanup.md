@@ -1,6 +1,7 @@
 # Automatic workspace cleanup
 
-Status: candidate implementation, not installed or enabled. The complete
+Status: candidate implementation, service files staged on the acceptance host
+but not enabled. The complete
 worktree-cleanup objective is not finished. Existing active work must remain
 untouched.
 
@@ -84,9 +85,10 @@ execution is not enabled or claimed complete.
 
 ## Remaining acceptance and work
 
-- Run the installed root-to-user acceptance fixture and prove backing-image and
-  mount authority on the actual host. Same-user APFS tests do not establish that
-  privilege boundary.
+- The installed root-to-user acceptance fixture passed all 17 checks, including
+  backing-image protection and forced-unmount refusal. See the
+  [host receipt](verification/managed-workspace-host-acceptance-2026-09-07.md).
+  Actual reboot acceptance remains separate.
 - Validate the complete installed Claude spawn-to-retirement path before enabling
   the public configuration.
 - Run the integrated preparation recovery through the installed service. The
