@@ -215,13 +215,13 @@
       // for a compute-lease failure.
       case "stopped": {
         if (typeof t.activeMs !== "number") {
-          // He stopped it before it was ever handed to a lease: there is no span to
-          // report, and the sentence says only what is known.
+          // A queued stop or a restart without an observed end time has no measured
+          // span. Missing duration does not prove the work never started.
           return {
             label: "You stopped it",
             duration: null,
             tone: "ceo-stopped",
-            note: "You stopped this before it started running, so there is no time to report.",
+            note: "How long this took was not recorded.",
             live: false,
           };
         }

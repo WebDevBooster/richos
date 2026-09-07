@@ -607,11 +607,6 @@ module.exports = [
     c: "INFORMATIONAL",
     why: "The stopping row's description. In flight; nothing to press.",
   },
-  {
-    s: "You stopped this before it started running, so there is no time to report.",
-    c: "INFORMATIONAL",
-    why: "Explains an absent duration.",
-  },
   { s: "You stopped it", c: "INFORMATIONAL", why: "§6.1's attribution label." },
   { s: "You stopped it.", c: "INFORMATIONAL", why: "The §18 announcement of the same." },
   {
