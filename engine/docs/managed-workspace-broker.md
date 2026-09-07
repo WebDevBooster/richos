@@ -77,7 +77,7 @@ It writes these fixed artifacts:
 - Private policy: `/Library/Application Support/RichOS/workspace-broker/policy.json`
 - Pending public configuration: `/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json`
 - Socket directory: `/var/db/richos-workspace-sockets/`
-- LaunchDaemon: `/Library/LaunchDaemons/com.richos.managed-workspace-broker.plist`
+- Pending LaunchDaemon: `/Library/Application Support/RichOS/workspace-broker/com.richos.managed-workspace-broker.plist.pending`
 
 The pending configuration is root-owned mode 0644 and contains version 1,
 `socket`, `active_root` and `repositories: {alias: canonical_source_path}`.
@@ -88,9 +88,13 @@ an explicitly authorized activation can publish the reviewed pending file as
 silently create unmanaged workspaces. A health response alone does not establish
 the installed filesystem privilege boundary.
 
-Installation never loads or starts launchd. Activation is a separate authorized
-operation, after review of the exact policy and release. No installer or test
-runs `sudo`, `launchctl` or another activation workaround.
+Installation never writes into a launchd discovery directory or loads a job.
+It refuses existing published service files, public configuration or a broker
+socket before changing installed policy. Staging therefore cannot arrange a
+next-boot activation. Activation is a separate authorized operation after review
+of the exact policy and release: publish the reviewed pending plist into
+`/Library/LaunchDaemons/`, load that job and enable the public configuration only
+after the required acceptance. The installer does none of those operations.
 
 ## Root code execution and remaining acceptance
 

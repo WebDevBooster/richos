@@ -469,6 +469,9 @@ m.serve(m.Broker(manager,policy,legacy),sys.argv[2],interval=0.05)
         self.assertEqual(plist["ProgramArguments"][:4], ["/Library/Developer/CommandLineTools/usr/bin/python3", "-I", "-S", "-B"])
         self.assertNotIn(str(HERE), json.dumps(plist))
         self.assertEqual(plist["UserName"], "root")
+        self.assertEqual(installer.PLIST_PATH.parent, installer.INSTALL_ROOT)
+        self.assertEqual(installer.PLIST_PATH.suffix, '.pending')
+        self.assertNotIn(Path('/Library/LaunchDaemons'), installer.PLIST_PATH.parents)
         self.assertTrue((package / "install.py").is_file())
         self.assertTrue((package / "policy.example.json").is_file())
         example = json.loads((package / 'policy.example.json').read_text())
@@ -511,7 +514,8 @@ m.serve(m.Broker(manager,policy,legacy),sys.argv[2],interval=0.05)
         destination = self.root / "installed"
         overrides = {"INSTALL_ROOT": destination, "POLICY_PATH": destination / "policy.json",
                      "CLIENT_CONFIG_PATH": self.root / "public/client.pending.json",
-                     "SOCKET_ROOT": self.root / "sockets", "PLIST_PATH": launchd / "broker.plist",
+                     "SOCKET_ROOT": self.root / "sockets", "PLIST_PATH": destination / "broker.plist.pending",
+                     "ACTIVE_PLIST_PATH": launchd / "broker.plist",
                      "PRIVATE_ROOT": self.root / "vault", "ACTIVE_ROOT": self.root / "active"}
         # Simulate only the privileged checks. Every output path is a disposable
         # fixture; this proves packaging shape, not actual root ownership.
@@ -521,6 +525,18 @@ m.serve(m.Broker(manager,policy,legacy),sys.argv[2],interval=0.05)
                 mock.patch.object(installer.sys, "executable", installer.INTERPRETER), \
                 mock.patch.object(installer.sys, "flags", types.SimpleNamespace(isolated=1, no_site=1, utf8_mode=sys.flags.utf8_mode)), \
                 mock.patch.object(installer, "protected", side_effect=lambda p: Path(p).resolve()):
+            for published in (overrides['ACTIVE_PLIST_PATH'],
+                              overrides['CLIENT_CONFIG_PATH'].with_name('client.json'),
+                              overrides['SOCKET_ROOT'] / 'broker.sock'):
+                published.parent.mkdir(parents=True, exist_ok=True)
+                published.write_bytes(b'preexisting service artifact')
+                with self.assertRaisesRegex(ValueError, 'published service artifacts'):
+                    installer.install(package, policy_source)
+                self.assertEqual(published.read_bytes(), b'preexisting service artifact')
+                self.assertFalse(destination.exists())
+                published.unlink()
+                if published.parent != launchd:
+                    published.parent.rmdir()
             unrelated = self.root / "unrelated"
             unrelated.mkdir(mode=0o755)
             before = unrelated.stat().st_mode
@@ -540,6 +556,7 @@ m.serve(m.Broker(manager,policy,legacy),sys.argv[2],interval=0.05)
             policy_source.write_text(json.dumps(self.policy))
             first = installer.install(package, policy_source)
             second = installer.install(package, policy_source)
+        self.assertEqual(list(launchd.iterdir()), [], 'staging must not arrange next-boot activation')
         self.assertEqual(first["release"], second["release"])
         self.assertFalse(first["activated"])
         self.assertEqual(installer.payloads(Path(first["release"])), installer.payloads(package))

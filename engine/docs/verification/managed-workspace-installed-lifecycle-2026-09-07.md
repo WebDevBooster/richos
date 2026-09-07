@@ -2,7 +2,9 @@
 
 On 2026-09-07 the protected package at source `cd6205c` passed all 26
 installed macOS checks. All disposable storage was removed. Production
-`client.json` remained absent and launchd was not started.
+`client.json` remained absent and launchd was not started. A subsequent
+review identified and corrected deferred boot activation from the original
+plist location; see [staging correction](managed-workspace-pending-installation-2026-09-07.md).
 
 The original root-to-owner volume checks passed again: private backing storage,
 busy-file retention, preserved working and staged bytes, refused owner-forced

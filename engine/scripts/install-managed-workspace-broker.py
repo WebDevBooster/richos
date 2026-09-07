@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stage a reviewable broker package or install its fixed files as root.
 
-Installation writes protected files but does not load or start launchd.
+Installation writes protected pending files outside launchd discovery directories.
 """
 import argparse
 import hashlib
@@ -29,7 +29,8 @@ POLICY_PATH = INSTALL_ROOT / "policy.json"
 CLIENT_CONFIG_PATH = Path("/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json")
 SOCKET_ROOT = Path("/var/db/richos-workspace-sockets")
 LABEL = "com.richos.managed-workspace-broker"
-PLIST_PATH = Path("/Library/LaunchDaemons") / (LABEL + ".plist")
+PLIST_PATH = INSTALL_ROOT / (LABEL + ".plist.pending")
+ACTIVE_PLIST_PATH = Path("/Library/LaunchDaemons") / (LABEL + ".plist")
 INTERPRETER = "/Library/Developer/CommandLineTools/usr/bin/python3"
 PRIVATE_ROOT = Path("/var/db/richos-workspaces")
 ACTIVE_ROOT = Path("/var/db/richos-workspace-mounts")
@@ -166,6 +167,11 @@ def install(package, policy_source):
         while not ancestor.exists():
             ancestor = ancestor.parent
         protected(ancestor)
+    # A pending install must not mutate policy beneath a published or running
+    # service. Activation and upgrades need their own explicit workflow.
+    if any(os.path.lexists(path) for path in (ACTIVE_PLIST_PATH,
+            CLIENT_CONFIG_PATH.with_name('client.json'), SOCKET_ROOT / 'broker.sock')):
+        raise ValueError('published service artifacts exist; pending installation requires explicit migration')
     content, manifest = payloads(Path(package))
     # Execute exactly the reviewed, hashed broker bytes to share policy
     # validation. No manager or provider is imported during installation.
