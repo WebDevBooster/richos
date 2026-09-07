@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import pwd
+import stat
+import uuid
 import sys
 
 
@@ -17,6 +19,29 @@ def load(name, filename):
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
     module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     return module
+
+
+def persist_attestation(runtime, private_root, document):
+    private = runtime.protected_path(private_root, regular=False)
+    directory = private / 'legacy-authorizations'
+    if os.path.lexists(directory):
+        runtime.protected_path(directory, regular=False)
+        info = directory.lstat()
+        if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
+            raise ValueError('dedicated protected authorization directory required')
+    else:
+        directory.mkdir(mode=0o700)
+        fd = os.open(private, os.O_RDONLY | os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+    path = directory / (str(uuid.uuid4()) + '.json')
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        json.dump(document, stream, sort_keys=True);stream.write('\n');stream.flush();os.fsync(stream.fileno())
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:os.fsync(fd)
+    finally:os.close(fd)
+    return path
 
 
 def run(args):
@@ -34,10 +59,16 @@ def run(args):
     context = dict(version=1, owner_uid=args.owner_uid, owner_gid=owner['gid'],
                    owner_home=os.path.normpath(account.pw_dir), transactions=args.transactions, ledger=args.ledger)
     gate = load('legacy_admin_gate', 'legacy-workspace-gate.py')
+    descriptor_path = getattr(args, 'operator_attestation', None)
+    descriptor_hash = getattr(args, 'operator_attestation_sha256', None)
+    if descriptor_path or descriptor_hash:
+        if not descriptor_path or not descriptor_hash or args.operation == 'attest-maintenance':
+            raise ValueError('matching operator attestation path/hash required; no nested attestation')
+        context['operator_attestation'] = {'path': descriptor_path, 'sha256': descriptor_hash}
     context = gate.inspection.normalized_context(context)
-    if args.operation in ('plan', 'stage'):
+    if args.operation in ('plan', 'stage', 'attest-maintenance'):
         report = None
-        if args.operation == 'stage':
+        if args.operation in ('stage', 'attest-maintenance'):
             if not args.report or not args.approved_sha256:
                 raise ValueError('stage requires the reviewed report and explicit approved SHA256')
             report = json.loads(Path(args.report).read_text())
@@ -59,6 +90,22 @@ def run(args):
             return current
         if current != report:
             raise ValueError('current owner inventory differs from the approved report')
+        if args.operation == 'attest-maintenance':
+            if not getattr(args, 'decisions', None) or not getattr(args, 'authorization', None):
+                raise ValueError('explicit complete remove/retain decisions and operator authorization text required')
+            with Path(args.decisions).open('rb') as stream: raw = stream.read(1024*1024+1)
+            if len(raw) > 1024*1024:
+                raise ValueError('operator decision input exceeds byte limit')
+            operator = load('legacy_admin_operator', 'legacy-workspace-operator.py')
+            document = operator.build_attestation(current, json.loads(raw), args.authorization)
+            transformed = operator.validate_and_apply(current, document)
+            if transformed.get('errors') or any(row.get('blockers') or not row.get('inventory_complete') for row in transformed['repositories']):
+                raise ValueError('operator downtime does not override active or incomplete inventory')
+            path = persist_attestation(runtime, policy['private_root'], document)
+            descriptor = {'path': str(path), 'sha256': gate.planner.history._digest(document)}
+            context['operator_attestation'] = descriptor
+            return {'operator_attestation': descriptor, 'report': gate.owner_report({'repositories': repositories}, context),
+                    'staged': False, 'activated': False}
         if current.get('errors') or any(row.get('blockers') or not row.get('inventory_complete') for row in current['repositories']):
             raise ValueError('incomplete or active inventory cannot be gated')
         # No privileged directory is created until the approved report has been
@@ -160,7 +207,7 @@ def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('plan','stage','inspect','resume','restore','branches','publish-branches','replay-branches',
+    parser.add_argument('operation', choices=('plan','stage','attest-maintenance','inspect','resume','restore','branches','publish-branches','replay-branches',
                                              'capture','publish-recovery','retire','replay-retirement','arm-job','job-status','advance-job'))
     parser.add_argument('--owner-uid', type=int, required=True)
     parser.add_argument('--transactions', required=True)
@@ -171,6 +218,10 @@ def main():
     parser.add_argument('--approved-selection-sha256')
     parser.add_argument('--gate-id')
     parser.add_argument('--candidate-path')
+    parser.add_argument('--operator-attestation')
+    parser.add_argument('--operator-attestation-sha256')
+    parser.add_argument('--decisions')
+    parser.add_argument('--authorization')
     args = parser.parse_args()
     print(json.dumps(run(args), sort_keys=True))
 

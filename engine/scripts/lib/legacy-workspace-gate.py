@@ -37,9 +37,35 @@ def owner_report(policy, context, *, require_root=True):
         runtime.protected_path(helper, regular=True)
     elif os.geteuid() != 0 and (os.geteuid(), os.getegid()) != (context['owner_uid'], context['owner_gid']):
         raise GateError('disposable inspection must use its actual owner')
+    payload = {'policy': policy, 'inspection_context': context}
+    if 'operator_attestation' in context:
+        descriptor = context['operator_attestation']
+        path = Path(descriptor['path'])
+        if str(uuid.UUID(path.stem)) != path.stem or path.suffix != '.json':
+            raise GateError('minted operator attestation UUID path required')
+        if require_root:
+            installed_policy = runtime.validate_policy(json.loads(runtime.protected_path(
+                runtime.validate_runtime().parent.parent / 'policy.json', regular=True).read_text()))
+            if path.parent != Path(installed_policy['private_root']) / 'legacy-authorizations':
+                raise GateError('operator attestation is outside protected authorization namespace')
+            runtime.protected_path(path, regular=True)
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600):
+            raise GateError('operator attestation ownership or mode is invalid')
+        with path.open('rb') as stream: raw = stream.read(1024*1024+1)
+        if len(raw) > 1024*1024:
+            raise GateError('operator attestation exceeds byte limit')
+        document = json.loads(raw)
+        if planner.history._digest(document) != descriptor['sha256']:
+            raise GateError('protected operator attestation hash mismatch')
+        if (not isinstance(document, dict) or document.get('owner_uid') != context['owner_uid']
+                or document.get('owner_gid') != context['owner_gid']):
+            raise GateError('protected operator attestation belongs to another owner')
+        payload['operator_attestation'] = document
     credentials = dict(user=context['owner_uid'], group=context['owner_gid'], extra_groups=[]) if os.geteuid() == 0 else {}
     result = subprocess.run([INTERPRETER if require_root else sys.executable, '-I', '-S', '-B', str(helper)],
-        input=json.dumps({'policy': policy, 'inspection_context': context}).encode(),
+        input=json.dumps(payload).encode(),
         capture_output=True, cwd='/', timeout=120, **credentials,
         env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin', 'HOME':context['owner_home'], 'LC_ALL':'C', 'LANG':'C', 'TZ':'UTC0'})
     if result.returncode:
