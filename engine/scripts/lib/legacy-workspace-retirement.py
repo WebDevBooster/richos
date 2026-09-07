@@ -122,6 +122,7 @@ def retire(gate, selection, *, approved_selection_sha256, scratch_root, trusted_
         mutation._sync(data);mutation._sync(base)
         journal={'version':1,'phase':'removing','gate_id':ident,'selection':selection,
                  'approved_selection_sha256':approved_selection_sha256,'roots':roots,
+                 'original_metadata_snapshot':mutation._snapshot_digest(data/'original-metadata.jsonl'),
                  'free_bytes_before':shutil.disk_usage(base).free}
         mutation._save(base/'retirement.json',journal)
         return _replay_locked(gate,base,record,journal,scratch,binary)
@@ -151,7 +152,9 @@ def _replay_locked(gate,base,record,journal,scratch,binary):
     if journal['roots']!=expected_roots:raise RetirementError('retirement subtree selection changed')
     if journal['phase']=='complete':
         _handoff(view,receipt,selection['capture_receipt_sha256'],scratch,binary)
-        gate._verify_held(base,record,gate._entries(base));return journal['result']
+        gate._verify_held(base,record,gate._entries(base))
+        mutation._release_completed_snapshot(gate,base,'retirement.json',journal)
+        return journal['result']
     original={}
     for line in (base/'retirement-data/original-metadata.jsonl').read_bytes().splitlines():
         row=json.loads(line)
@@ -194,4 +197,5 @@ def _replay_locked(gate,base,record,journal,scratch,binary):
                        'recovery_path':str(directory),'recovery_retained':True,'automatic_expiry_authorized':False,
                        'free_change_since_retirement_intent_bytes':shutil.disk_usage(base).free-journal['free_bytes_before']}
     mutation._save(base/'retirement.json',journal)
+    mutation._release_completed_snapshot(gate,base,'retirement.json',journal)
     return journal['result']

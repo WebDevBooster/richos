@@ -17,7 +17,10 @@ planner = importlib.util.module_from_spec(spec);spec.loader.exec_module(planner)
 filesystem = planner.filesystem
 spec = importlib.util.spec_from_file_location('legacy_inspection', HERE / 'legacy-workspace-inspection.py')
 inspection = importlib.util.module_from_spec(spec);spec.loader.exec_module(inspection)
+spec = importlib.util.spec_from_file_location('legacy_acl', HERE / 'workspace-recovery-metadata.py')
+acl_metadata = importlib.util.module_from_spec(spec);spec.loader.exec_module(acl_metadata)
 INTERPRETER = '/Library/Developer/CommandLineTools/usr/bin/python3'
+BENIGN_FLAGS = 0x00000040 | 0x00008000  # Darwin UF_TRACKED | UF_HIDDEN.
 
 
 class GateError(RuntimeError):
@@ -106,10 +109,10 @@ class LegacyGate:
     def _no_acl(path):
         if sys.platform != 'darwin':
             return  # Only the non-root disposable test mode is portable.
-        result = subprocess.run(['/bin/ls', '-lde', str(path)], capture_output=True,
-                                timeout=5, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
-        if result.returncode or len(result.stdout.splitlines()) != 1:
-            raise GateError('extended ACL or unreadable ACL metadata: ' + str(path))
+        try:
+            acl_metadata._no_acl(Path(path), Path(path).lstat())
+        except (OSError, acl_metadata.MetadataError) as error:
+            raise GateError('extended ACL or unreadable ACL metadata: ' + str(path)) from error
 
     @staticmethod
     def _sync(path):
@@ -186,15 +189,17 @@ class LegacyGate:
     def _metadata(self, path, *, allow_hardlinks=False):
         info = path.lstat()
         kind = 'directory' if stat.S_ISDIR(info.st_mode) else 'file' if stat.S_ISREG(info.st_mode) else 'symlink' if stat.S_ISLNK(info.st_mode) else None
-        if kind is None or getattr(info, 'st_flags', 0) or info.st_mode & 0o6000:
+        flags = getattr(info, 'st_flags', 0)
+        if kind is None or flags & ~BENIGN_FLAGS or info.st_mode & 0o6000:
             raise GateError('unsupported file type, flags or set-ID mode: ' + str(path))
-        if kind != 'directory' and info.st_nlink != 1 and not allow_hardlinks:
+        if kind == 'symlink' and info.st_nlink != 1 and not allow_hardlinks:
             raise GateError('multiply linked object: ' + str(path))
         if info.st_dev != self.vault.stat().st_dev:
             raise GateError('cross-device object: ' + str(path))
         self._no_acl(path)
         value = dict(device=filesystem.filesystem_token(path, info=info), inode=info.st_ino, uid=info.st_uid, gid=info.st_gid,
-                     mode=stat.S_IMODE(info.st_mode), kind=kind)
+                     mode=stat.S_IMODE(info.st_mode), kind=kind, flags=flags,
+                     nlink=info.st_nlink if kind != 'directory' else 1)
         if kind == 'symlink':
             value['target'] = os.readlink(path)
         return value
@@ -208,13 +213,24 @@ class LegacyGate:
                 (filesystem.filesystem_token(self.vault, info=vault), info.st_ino) ==
                 (expected['device'], expected['inode']))
 
-    def _apply(self, path, original, *, restore=False):
+    def _apply(self, path, original, *, restore=False, protection_replay=True):
         current = self._metadata(path, allow_hardlinks=restore)
         if (current['device'], current['inode'], current['kind']) != (original['device'], original['inode'], original['kind']):
             raise GateError('metadata target identity changed: ' + str(path))
+        if current['flags'] != original.get('flags', 0):
+            raise GateError('filesystem flags changed: ' + str(path))
         uid, gid = (original['uid'], original['gid']) if restore else (self.uid, self.gid)
         mode = original['mode'] if restore else 0o700 if original['kind'] == 'directory' else 0o600
         fields = ('uid', 'gid', 'mode')
+        if not restore:
+            if current['nlink'] != original.get('nlink', 1):
+                raise GateError('hardlink count changed before protection')
+            observed = tuple(current[key] for key in fields)
+            preimage = tuple(original[key] for key in fields)
+            protected = (self.uid, self.gid, mode)
+            partial = (self.uid, self.gid, original['mode'])
+            if observed != preimage and (not protection_replay or observed not in (partial, protected)):
+                raise GateError('metadata preimage changed: ' + str(path))
         if current['uid'] != self.uid:
             if any(current[key] != original[key] for key in fields):
                 raise GateError('unprotected metadata changed; admin recovery required')
@@ -242,11 +258,18 @@ class LegacyGate:
     def _protect_tree(self, base, path, entries):
         relative = str(path.relative_to(base))
         if relative not in entries:
+            if getattr(self, '_snapshot_protection', False):
+                raise GateError('unrecorded object appeared after metadata snapshot')
             original = dict(self._metadata(path), relative=relative)
             self._append(base, original)  # Original metadata is durable before mutation.
             entries[relative] = original
         original = entries[relative]
-        self._apply(path, original)
+        identity = (original['device'], original['inode'], original['kind'])
+        applied = getattr(self, '_applied_inodes', set())
+        self._apply(path, original, protection_replay=(
+            not getattr(self, '_snapshot_protection', False)
+            or getattr(self, '_protection_replay', False) or identity in applied))
+        applied.add(identity)
         if original['kind'] == 'directory':
             # Revoke directory access before enumeration: old directory FDs
             # cannot create another child after this point without privilege.
@@ -258,6 +281,64 @@ class LegacyGate:
         if original['kind'] == 'directory':
             for child in sorted(path.iterdir()):
                 self._preflight_tree(child)
+
+    @staticmethod
+    def _closed_links(entries):
+        """All aliases of every regular inode must be inside this exact set."""
+        groups = {}
+        for name, row in entries.items():
+            if row['kind'] != 'file':
+                continue
+            key = (row['device'], row['inode'])
+            count, first = groups.get(key, (0, row))
+            if any(row.get(field, 0) != first.get(field, 0)
+                   for field in ('uid', 'gid', 'mode', 'flags', 'nlink')):
+                raise GateError('hardlink aliases have inconsistent metadata')
+            groups[key] = (count + 1, first)
+        if any(count != row.get('nlink', 1) for count, row in groups.values()):
+            raise GateError('hardlink set is not closed inside protected inventory')
+
+    def _snapshot(self, roots, report):
+        entries = {}
+        boundaries = set()
+        for repo in report['repositories']:
+            for target in repo['gate_paths']:
+                boundaries.add(target['path'])
+                if target.get('git_directory'):
+                    boundaries.add(target['git_directory']['path'])
+                if target.get('git_admin_path'):
+                    boundaries.add(target['git_admin_path'])
+        scopes = {}
+        def visit(path, relative, scope):
+            if relative in entries:
+                raise GateError('overlapping metadata snapshot roots')
+            if str(path) in boundaries:scope = str(path)
+            original = dict(self._metadata(path), relative=relative)
+            entries[relative] = original
+            if original['kind'] == 'file' and original['nlink'] > 1:
+                identity = (original['device'], original['inode'])
+                if scopes.setdefault(identity, scope) != scope:
+                    raise GateError('hardlink crosses a physical or logical maintenance target')
+            if original['kind'] == 'directory':
+                for child in sorted(path.iterdir()):
+                    visit(child, relative + '/' + child.name, scope)
+        for root in roots:
+            visit(Path(root['source']), root['held'], root['source'])
+            if entries[root['held']] != dict(root['metadata'], relative=root['held']):
+                raise GateError('source metadata changed during snapshot')
+        self._closed_links(entries)
+        return entries
+
+    def _write_snapshot(self, base, entries):
+        # A single durable preimage precedes every ownership mutation, including
+        # later aliases of an inode already protected through its first name.
+        path = base / 'metadata.next'
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'w') as stream:
+            for row in entries.values():
+                stream.write(json.dumps(row, sort_keys=True) + '\n')
+            stream.flush();os.fsync(stream.fileno())
+        os.replace(path, base / 'metadata.jsonl');self._sync(base)
 
     def _parent(self, row):
         path = Path(row['path'])
@@ -302,8 +383,7 @@ class LegacyGate:
                         raise GateError('temporary parent gate identity changed')
                     parents[parent] = dict(path=parent, metadata=original_parent, restored=False)
                 roots.append(dict(source=str(source), held='content/' + str(len(roots)), metadata=original, moved=False))
-        for root in roots:
-            self._preflight_tree(Path(root['source']))
+        entries = self._snapshot(roots, report)
         boot = self._boot()  # Do not create a reservation if kernel identity is unreadable.
         ident = str(uuid.uuid4());base = self._base(ident);base.mkdir(mode=0o700);(base / 'content').mkdir(mode=0o700)
         self._sync(self.vault)
@@ -312,7 +392,8 @@ class LegacyGate:
             json.dump(report, stream, sort_keys=True);stream.write('\n');stream.flush();os.fsync(stream.fileno())
         record = dict(version=1, id=ident, phase='staging', approved_sha256=approved_sha256,
                       roots=roots, parents=list(parents.values()), started_boot_id=boot,
-                      inspection_context=self.inspection_context)
+                      inspection_context=self.inspection_context, metadata_snapshot_version=1)
+        self._write_snapshot(base, entries)
         self._save(base, record)
         return self.resume(ident)
 
@@ -327,6 +408,11 @@ class LegacyGate:
                     continue
                 self._apply(Path(parent['path']), parent['metadata'])
             entries = self._entries(base)
+            self._snapshot_protection = record.get('metadata_snapshot_version') == 1
+            self._protection_replay = record.get('protection_started', False)
+            self._applied_inodes = set()
+            if self._snapshot_protection and not self._protection_replay:
+                record['protection_started'] = True;self._save(base, record)
             for root in record['roots']:
                 source, held = Path(root['source']), base / root['held']
                 parent = next(p for p in record['parents'] if p['path'] == str(source.parent))
@@ -357,6 +443,7 @@ class LegacyGate:
 
     def _verify_held(self, base, record, entries):
         found = set()
+        observed = {}
         def scan_error(error):
             raise error
         for root in record['roots']:
@@ -374,6 +461,7 @@ class LegacyGate:
                 if original is None:
                     raise GateError('unrecorded held object')
                 current = self._metadata(path)
+                observed[relative] = current
                 if (current['device'], current['inode'], current['kind']) != (original['device'], original['inode'], original['kind']):
                     raise GateError('held object identity changed')
                 if current['uid'] != self.uid or current['gid'] != self.gid:
@@ -382,8 +470,13 @@ class LegacyGate:
                     raise GateError('held mode is not protected')
                 if current['kind'] == 'symlink' and current['target'] != original['target']:
                     raise GateError('held symlink changed')
+                if current['flags'] != original.get('flags', 0):
+                    raise GateError('held filesystem flags changed')
         if found != set(entries):
             raise GateError('held object inventory changed')
+        # Use CURRENT counts, not original nlink: a completed journaled
+        # retirement may have removed some aliases. Any outside alias refuses.
+        self._closed_links(observed)
 
     def _status(self, base, record):
         self._require_completed_mutation(base)

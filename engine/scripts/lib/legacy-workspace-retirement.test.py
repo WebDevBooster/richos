@@ -63,12 +63,34 @@ class Retirement(unittest.TestCase):
     def test_verified_dirty_capture_reclaims_workspace_and_keeps_recovery(self):
         self.prepare();result=self.retire()
         self.assertTrue(result['working_directory_reclaimed']);self.assertTrue(Path(self.artifact['artifact_path']).is_dir())
+        journal=json.loads((self.base/'retirement.json').read_text())
+        self.assertEqual(journal['metadata_snapshot_release']['state'],'released')
+        self.assertFalse((self.base/'retirement-data/original-metadata.jsonl').exists())
+        self.assertEqual(self.replay()['phase'],'complete')
         self.manager.restore(self.ident,approved_sha256=self.digest)
         self.assertFalse(self.work.exists());self.assertNotIn(str(self.work),self.git('worktree','list','--porcelain'))
         self.assertEqual(self.git('rev-parse','worker'),self.head)
         receipt=json.loads((Path(self.artifact['artifact_path'])/'receipt.json').read_text())
         for dependency in receipt['dependencies']['required_objects']:
             self.assertTrue(self.git('cat-file','-t',dependency['oid']))
+
+    def test_completed_retirement_snapshot_release_intent_crash_preserves_replay(self):
+        self.prepare();real=mutation._save;fired=[]
+        def crash(path,data):
+            result=real(path,data)
+            if (path==self.base/'retirement.json' and
+                    data.get('metadata_snapshot_release',{}).get('state')=='authorized' and not fired):
+                fired.append(True);raise RuntimeError('snapshot release intent crash')
+            return result
+        with patch.object(mutation,'_save',side_effect=crash),self.assertRaisesRegex(RuntimeError,'release intent'):
+            self.retire()
+        self.assertTrue((self.base/'retirement-data/original-metadata.jsonl').exists())
+        self.assertEqual(json.loads((self.base/'retirement.json').read_text())['phase'],'complete')
+        self.assertEqual(self.replay()['phase'],'complete')
+        self.assertFalse((self.base/'retirement-data/original-metadata.jsonl').exists())
+        self.assertTrue((Path(self.artifact['artifact_path'])/'recovery.tar.gz').is_file())
+        self.manager.restore(self.ident,approved_sha256=self.digest)
+        self.assertFalse(self.work.exists())
 
     def test_recovery_refs_preserve_unique_index_and_resolve_undo_bytes_after_gc(self):
         self.prepare(resolve_undo=True);self.retire()

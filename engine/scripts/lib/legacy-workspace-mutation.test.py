@@ -62,6 +62,11 @@ class Publication(unittest.TestCase):
 
     def test_packed_ref_publication_and_replay_are_idempotent(self):
         self.prepare(packed=True);self.publish()
+        journal=json.loads((self.base/'mutation.json').read_text())
+        self.assertEqual(journal['metadata_snapshot_release']['state'],'released')
+        self.assertGreater(journal['metadata_snapshot_release']['size'],0)
+        self.assertFalse((self.base/'mutation-data/original-metadata.jsonl').exists())
+        self.assertTrue(list((self.base/'mutation-data/before').rglob('*')))
         self.assertEqual(mutation.replay(self.manager,self.ident,approved_selection_sha256=self.approved)['phase'],'complete')
         self.manager.restore(self.ident,approved_sha256=self.digest)
         self.assertEqual(self.git('branch','--list','finished'),'')
@@ -89,10 +94,30 @@ class Publication(unittest.TestCase):
         self.prepare(packed=True);self.publish();self.next_selection();self.publish()
         receipts=list((self.base/'mutation-history').glob('*/receipt.json'))
         self.assertEqual(len(receipts),1)
+        self.assertEqual(json.loads(receipts[0].read_text())['metadata_snapshot_release']['state'],'released')
+        self.assertFalse(list((self.base/'mutation-history').rglob('original-metadata.jsonl')))
         self.manager.restore(self.ident,approved_sha256=self.digest)
         for name in ('finished','finished-two'):
             self.assertEqual(self.git('branch','--list',name),'')
             self.assertEqual(self.git('rev-parse','refs/richos/retired/'+self.ident+'/refs/heads/'+name),self.head)
+
+    def test_completed_snapshot_unlink_crash_replays_without_losing_ref_recovery(self):
+        self.prepare(packed=True);real=Path.unlink;fired=[]
+        def crash(path,*args,**kwargs):
+            result=real(path,*args,**kwargs)
+            if path==self.base/'mutation-data/original-metadata.jsonl' and not fired:
+                fired.append(True);raise RuntimeError('snapshot unlink crash')
+            return result
+        with patch.object(Path,'unlink',crash),self.assertRaisesRegex(RuntimeError,'snapshot unlink'):
+            self.publish()
+        journal=json.loads((self.base/'mutation.json').read_text())
+        self.assertEqual(journal['phase'],'complete')
+        self.assertEqual(journal['metadata_snapshot_release']['state'],'authorized')
+        self.assertFalse((self.base/'mutation-data/original-metadata.jsonl').exists())
+        self.assertEqual(mutation.replay(self.manager,self.ident,approved_selection_sha256=self.approved)['phase'],'complete')
+        self.assertEqual(json.loads((self.base/'mutation.json').read_text())['metadata_snapshot_release']['state'],'released')
+        self.manager.restore(self.ident,approved_sha256=self.digest)
+        self.assertEqual(self.git('rev-parse','refs/richos/retired/'+self.ident+'/refs/heads/finished'),self.head)
 
     def test_crash_archiving_previous_complete_operation_can_retry(self):
         self.prepare();self.publish();self.next_selection();real=mutation.os.rename;fired=[]

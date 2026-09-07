@@ -94,37 +94,63 @@ def source_roots(view, candidate_path, admin_path, *, capture_kind=None):
     return [('worktree', candidate_path), ('git-admin', admin_path)]
 
 
-def _snapshot(path, key, name, metadata):
+def _snapshot(path, key, name, metadata, hashes=None):
     before = path.lstat();original = metadata.get(key)
     if original is None or (filesystem.filesystem_token(path, info=before),before.st_ino) != (original['device'],original['inode']):
         raise CaptureError('source is outside the exact frozen inode inventory')
     kind = original['kind']
     result = dict(name=name,kind=kind,uid=original['uid'],gid=original['gid'],mode=original['mode'],
                   mtime_ns=before.st_mtime_ns,xattrs=_attrs(path))
+    if original.get('flags', 0):
+        result['flags'] = original['flags']
+    if getattr(before, 'st_flags', 0) != original.get('flags', 0):
+        raise CaptureError('frozen source flags changed')
     if kind == 'file':
-        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:raise CaptureError('non-independent regular file')
+        if not stat.S_ISREG(before.st_mode):raise CaptureError('non-regular captured file')
+        if original.get('nlink', 1) > 1:
+            # The gate checks live whole-set closure. This original group ID
+            # also binds aliases captured in different recovery artifacts.
+            result['hardlink_group'] = dict(device=original['device'],inode=original['inode'],
+                                             original_nlink=original['nlink'])
+        elif before.st_nlink != 1:
+            raise CaptureError('unrecorded hardlink source')
         fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
         with os.fdopen(fd,'rb') as stream:
             opened=os.fstat(stream.fileno())
             if (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino):raise CaptureError('source file changed')
-            result.update(size=before.st_size,sha256=_hash(stream))
+            key=(opened.st_dev,opened.st_ino,opened.st_size,opened.st_mtime_ns,opened.st_ctime_ns,opened.st_nlink)
+            value=hashes.get(key) if hashes is not None and before.st_nlink>1 else None
+            if value is None:
+                value=_hash(stream)
+                if hashes is not None and before.st_nlink>1:hashes[key]=value
+            result.update(size=before.st_size,sha256=value)
     elif kind == 'symlink':result['target']=os.readlink(path)
     elif kind != 'directory':raise CaptureError('unsupported recovery object')
     after=path.lstat()
-    stamp=lambda info:(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+    stamp=lambda info:(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns,info.st_nlink,getattr(info,'st_flags',0))
     if stamp(before)!=stamp(after) or result['xattrs']!=_attrs(path):raise CaptureError('source changed during snapshot')
     return result
 
 
 def _inventory(view, roots):
-    result={};sources={}
+    result={};sources={};hashes={}
     def visit(path,key,name):
         if name in result:raise CaptureError('overlapping archive namespaces')
-        row=_snapshot(path,key,name,view['metadata']);result[name]=row;sources[name]=path
+        row=_snapshot(path,key,name,view['metadata'],hashes);result[name]=row;sources[name]=path
         if row['kind']=='directory':
             for child in sorted(path.iterdir()):visit(child,key+'/'+child.name,name+'/'+child.name)
     for namespace,source in roots:
         held,key=_map(view,source);visit(held,key,namespace)
+    groups = {}
+    for name, row in sorted(result.items()):
+        if 'hardlink_group' not in row:continue
+        key = (row['hardlink_group']['device'], row['hardlink_group']['inode'])
+        if key in groups:
+            target = groups[key];first = result[target]
+            if any(row.get(k) != first.get(k) for k in ('uid','gid','mode','mtime_ns','xattrs','flags','size','sha256','hardlink_group')):
+                raise CaptureError('captured hardlink aliases differ')
+            row['hardlink_to'] = target
+        else:groups[key] = name
     return result,sources
 
 
@@ -294,8 +320,11 @@ def _write_archive(path, manifest, sources):
             item=tarfile.TarInfo(name);item.uid=row['uid'];item.gid=row['gid'];item.mode=row['mode']
             item.mtime=row['mtime_ns']/1000000000
             item.pax_headers={'RICHOS.xattrs':json.dumps(row['xattrs'],sort_keys=True),'RICHOS.mtime_ns':str(row['mtime_ns'])}
+            if 'flags' in row:item.pax_headers['RICHOS.flags']=str(row['flags'])
+            if 'hardlink_group' in row:item.pax_headers['RICHOS.hardlink_group']=json.dumps(row['hardlink_group'],sort_keys=True)
             if row['kind']=='directory':item.type=tarfile.DIRTYPE;archive.addfile(item)
             elif row['kind']=='symlink':item.type=tarfile.SYMTYPE;item.linkname=row['target'];archive.addfile(item)
+            elif 'hardlink_to' in row:item.type=tarfile.LNKTYPE;item.linkname=row['hardlink_to'];archive.addfile(item)
             else:
                 item.size=row['size'];fd=os.open(sources[name],os.O_RDONLY|os.O_NOFOLLOW)
                 with os.fdopen(fd,'rb') as stream:archive.addfile(item,stream)
@@ -309,12 +338,26 @@ def _verify_archive(path, manifest):
             name=item.name
             if name in seen or name not in manifest:raise CaptureError('archive has unexpected or duplicate paths')
             seen.add(name);row=manifest[name]
-            kind='file' if item.isfile() else 'directory' if item.isdir() else 'symlink' if item.issym() else None
+            kind='file' if item.isfile() or item.islnk() else 'directory' if item.isdir() else 'symlink' if item.issym() else None
             if (kind,item.uid,item.gid,item.mode)!=(row['kind'],row['uid'],row['gid'],row['mode']):raise CaptureError('archive metadata differs from frozen source')
             if json.loads(item.pax_headers.get('RICHOS.xattrs','null'))!=row['xattrs'] or item.pax_headers.get('RICHOS.mtime_ns')!=str(row['mtime_ns']):raise CaptureError('archive extended metadata differs')
+            if item.pax_headers.get('RICHOS.flags') != (str(row['flags']) if 'flags' in row else None):raise CaptureError('archive flags differ')
+            if json.loads(item.pax_headers.get('RICHOS.hardlink_group','null')) != row.get('hardlink_group'):raise CaptureError('archive hardlink group differs')
             if kind=='file':
+                if item.islnk() != ('hardlink_to' in row):raise CaptureError('archive hardlink topology differs')
+                if item.islnk():
+                    target=row['hardlink_to']
+                    if (item.linkname!=target or target not in seen or target==name
+                            or target not in manifest or 'hardlink_to' in manifest[target]
+                            or manifest[target].get('hardlink_group')!=row.get('hardlink_group')):
+                        raise CaptureError('archive hardlink target differs')
+                    if any(manifest[target].get(k)!=row.get(k) for k in ('uid','gid','mode','mtime_ns','xattrs','flags','size','sha256')):
+                        raise CaptureError('archive hardlink metadata differs')
+                    # The target's regular bytes were already verified. Seeking
+                    # backwards through gzip for every alias is quadratic.
+                    continue
                 with archive.extractfile(item) as stream:actual=_hash(stream)
-                if item.size!=row['size'] or actual!=row['sha256']:raise CaptureError('archive file bytes differ from frozen source')
+                if (not item.islnk() and item.size!=row['size']) or actual!=row['sha256']:raise CaptureError('archive file bytes differ from frozen source')
             elif kind=='symlink' and item.linkname!=row['target']:raise CaptureError('archive symlink differs')
     if seen!=set(manifest):raise CaptureError('archive omitted frozen source entries')
 
@@ -389,7 +432,7 @@ def prepare(gate, ident, *, approved_gate_sha256, repo_alias, candidate_path, sc
             capture_kind='orphan-admin-only' if workspace['kind']=='orphan-registration' else 'full-worktree'
             roots=source_roots(view,candidate_path,admin_source,capture_kind=capture_kind)
             manifest,sources=_inventory(view,roots)
-            bytes_total=sum(row.get('size',0) for row in manifest.values())
+            bytes_total=sum(row.get('size',0) for row in manifest.values() if 'hardlink_to' not in row)
             # Compression is a space-saving choice, never a correctness bound.
             # Require room even for incompressible bytes plus a safety margin.
             if shutil.disk_usage(scratch).free < bytes_total+max(64*1024*1024,len(manifest)*2048):

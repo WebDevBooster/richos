@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import tempfile
@@ -47,6 +48,80 @@ def _atomic(path, data, *, staging_directory=None):
 
 def _save(path, value):
     _atomic(path, (json.dumps(value, sort_keys=True) + '\n').encode())
+
+
+def _snapshot_digest(path):
+    """Hash an independent private replay snapshot without loading it in RAM."""
+    before = path.lstat()
+    if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+            or before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) != 0o600):
+        raise MutationError('replay snapshot is not an independent private file')
+    stamp = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    digest = hashlib.sha256()
+    with os.fdopen(fd, 'rb') as stream:
+        if stamp(os.fstat(stream.fileno())) != stamp(before):
+            raise MutationError('replay snapshot changed while opening')
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+        if stamp(os.fstat(stream.fileno())) != stamp(before):
+            raise MutationError('replay snapshot changed while reading')
+    if stamp(path.lstat()) != stamp(before):
+        raise MutationError('replay snapshot changed after reading')
+    return dict(size=before.st_size, sha256=digest.hexdigest())
+
+
+def _release_completed_snapshot(gate, base, marker_name, journal):
+    """Release only an opted-in completed operation's duplicate whole-gate copy.
+
+    Callers first verify the effective held inventory and their completed result.
+    Ref before/after bytes, captures and the effective gate metadata stay intact.
+    A durable exact release intent precedes unlink so interrupted cleanup replays.
+    Historical journals without the creation-time digest remain untouched.
+    """
+    descriptor = journal.get('original_metadata_snapshot')
+    if descriptor is None:
+        return
+    if (marker_name not in ('mutation.json', 'retirement.json')
+            or journal.get('version') != 1 or journal.get('phase') != 'complete'
+            or journal.get('gate_id') != base.name
+            or not isinstance(descriptor, dict) or set(descriptor) != {'size', 'sha256'}
+            or type(descriptor['size']) is not int or descriptor['size'] < 0
+            or not isinstance(descriptor['sha256'], str)
+            or not re.fullmatch('[0-9a-f]{64}', descriptor['sha256'])):
+        raise MutationError('completed replay snapshot release binding is invalid')
+    marker = base / marker_name
+    if json.loads(marker.read_text()) != journal:
+        raise MutationError('completed replay snapshot journal changed')
+    directory = base / ('mutation-data' if marker_name == 'mutation.json' else 'retirement-data')
+    info = directory.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != gate.uid
+            or stat.S_IMODE(info.st_mode) != 0o700):
+        raise MutationError('replay snapshot directory is not private')
+    gate._no_acl(directory)
+    path = directory / 'original-metadata.jsonl'
+    release = journal.get('metadata_snapshot_release')
+    if release is not None and release not in (
+            dict(descriptor, state='authorized'), dict(descriptor, state='released')):
+        raise MutationError('replay snapshot release intent changed')
+    if os.path.lexists(path):
+        if release == dict(descriptor, state='released'):
+            raise MutationError('released replay snapshot unexpectedly reappeared')
+        gate._no_acl(path)
+        if _snapshot_digest(path) != descriptor:
+            raise MutationError('replay snapshot differs from creation-time digest')
+        if release is None:
+            journal['metadata_snapshot_release'] = dict(descriptor, state='authorized')
+            _save(marker, journal)
+        path.unlink()
+    elif release is None:
+        raise MutationError('replay snapshot missing without durable release intent')
+    if release != dict(descriptor, state='released'):
+        # Replay may observe an unlink that happened before its directory was
+        # synced. Commit that absence before declaring the release durable.
+        _sync(directory)
+        journal['metadata_snapshot_release'] = dict(descriptor, state='released')
+        _save(marker, journal)
 
 
 def _manifest(path):
@@ -159,7 +234,8 @@ def _publish_prepared(gate, selection, artifact):
             _sync(base)
             journal = {'version': 1, 'phase': 'applying', 'gate_id': ident,
                        'artifact': {k:v for k,v in artifact.items() if k != 'artifact_path'},
-                       'common_relative': common.relative_to(base).as_posix(), 'created_directories': {}}
+                       'common_relative': common.relative_to(base).as_posix(), 'created_directories': {},
+                       'original_metadata_snapshot': _snapshot_digest(directory / 'original-metadata.jsonl')}
             _save(base / 'mutation.json', journal)
             return _replay_locked(gate, base, record, journal)
     finally:
@@ -191,6 +267,7 @@ def _replay_locked(gate, base, record, journal):
         gate._verify_held(base, record, gate._entries(base))
         if shadow.digest(shadow._file_manifest(shadow._metadata(common))) != artifact['expected_ref_snapshot_sha256']:
             raise MutationError('completed mutation snapshot changed')
+        _release_completed_snapshot(gate, base, 'mutation.json', journal)
         return {'gate_id': base.name, 'phase': 'complete', 'retired_branches': artifact['retired_branches'],
                 'preserved_objects': artifact.get('preserved_objects', []),
                 'held_storage_modified': True, 'working_directories_deleted': False}
@@ -263,6 +340,7 @@ def _replay_locked(gate, base, record, journal):
     _atomic(base / 'metadata.jsonl', b''.join((json.dumps(row,sort_keys=True)+'\n').encode() for _,row in sorted(effective.items())))
     journal['phase'] = 'complete'
     _save(base / 'mutation.json', journal)
+    _release_completed_snapshot(gate, base, 'mutation.json', journal)
     return {'gate_id': base.name, 'phase': 'complete', 'retired_branches': artifact['retired_branches'],
             'preserved_objects': artifact.get('preserved_objects', []),
             'held_storage_modified': True, 'working_directories_deleted': False}

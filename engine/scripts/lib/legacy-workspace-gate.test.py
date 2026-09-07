@@ -263,7 +263,6 @@ class GateWorkflow(unittest.TestCase):
     @unittest.skipUnless(gate.sys.platform=='darwin','actual macOS ACL control')
     def test_production_constructor_checks_vault_ancestor_acl(self):
         import pwd
-        from types import SimpleNamespace
         subprocess.run(['/bin/chmod','+a','user:'+pwd.getpwuid(os.getuid()).pw_name+' allow write',str(self.root)],check=True)
         account=pwd.getpwuid(os.getuid())
         context=dict(version=1,owner_uid=os.getuid(),owner_gid=account.pw_gid,
@@ -272,7 +271,11 @@ class GateWorkflow(unittest.TestCase):
         original=Path.lstat
         def ownership_only(path):
             info=original(path)
-            return SimpleNamespace(st_mode=info.st_mode & ~0o022,st_uid=0)
+            class Ownership:
+                st_mode=info.st_mode & ~0o022
+                st_uid=0
+                def __getattr__(self, name):return getattr(info,name)
+            return Ownership()
         try:
             # Root ownership is simulated only to reach the production ancestry
             # check. ACL bytes and its rejection are actual macOS behavior.
