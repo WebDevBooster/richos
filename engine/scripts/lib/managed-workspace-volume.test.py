@@ -205,6 +205,24 @@ class ProviderSafety(unittest.TestCase):
         with patch.object(self.store, '_run', return_value=output), self.assertRaises(volumes.VolumeError):
             self.store.inspect(self.ident)
 
+    def test_incomplete_attachment_inventory_cannot_authorize_boot_cutoff(self):
+        malformed = ({}, [], {'images': {}}, {'images': [{}]}, {'images': ['bad']},
+                     {'images': [{'image-path': ''}]}, {'images': [{'image-path': 'relative'}]},
+                     {'images': [{'image-path': 42}]})
+        for value in malformed:
+            with self.subTest(value=value), patch.object(self.store, '_run', return_value=plistlib.dumps(value)), \
+                    patch.object(self.store, '_boot_id', return_value=str(uuid.uuid4())), \
+                    self.assertRaises(volumes.VolumeError):
+                self.store.detach(self.ident)
+            self.assertEqual(self.store._load(self.ident), self.record)
+
+    def test_explicit_empty_inventory_still_allows_verified_reboot_cutoff(self):
+        with patch.object(self.store, '_run', return_value=plistlib.dumps({'images': []})), \
+                patch.object(self.store, '_boot_id', return_value=str(uuid.uuid4())):
+            result = self.store.detach(self.ident)
+        self.assertEqual(result['state'], 'detached')
+        self.assertEqual(result['cutoff']['kind'], 'new-boot')
+
 
 @unittest.skipUnless(sys.platform == 'darwin' and os.environ.get('RICHOS_VOLUME_INTEGRATION') == '1',
                      'requires opt-in disposable macOS disk image test')

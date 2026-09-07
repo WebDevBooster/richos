@@ -173,10 +173,22 @@ class VolumeStore:
         self._save(ident, record)
         return True
 
-    def _attached(self, image):
+    def attachment_inventory(self):
+        """Return a complete validated inventory, never infer absent on error."""
         info = plistlib.loads(self._run(['/usr/bin/hdiutil', 'info', '-plist']))
-        found = [item for item in info.get('images', [])
-                 if os.path.realpath(item.get('image-path', '')) == str(image.resolve())]
+        # Absence is a safety receipt, so a successful but incomplete inventory
+        # cannot stand in for the explicit empty images array.
+        if not isinstance(info, dict) or not isinstance(info.get('images'), list):
+            raise VolumeError('complete image attachment inventory unavailable')
+        for item in info['images']:
+            if (not isinstance(item, dict) or not isinstance(item.get('image-path'), str)
+                    or not os.path.isabs(item['image-path']) or '\0' in item['image-path']):
+                raise VolumeError('image attachment identity unavailable')
+        return info['images']
+
+    def _attached(self, image):
+        found = [item for item in self.attachment_inventory()
+                 if os.path.realpath(item['image-path']) == str(image.resolve())]
         if len(found) > 1:
             raise VolumeError('image has ambiguous attachments')
         return found[0] if found else None
