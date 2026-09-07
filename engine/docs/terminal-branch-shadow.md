@@ -1,0 +1,24 @@
+# Preparing branch retirement inside a frozen gate
+
+`terminal-branch-shadow.py` prepares a reviewable ref-file delta. It never publishes that delta, deletes a branch in held storage or restores a gate. A later publisher needs a separately reviewed gate mutation journal. The current module leaves `execution_authorized`, `held_storage_modified` and `publication_implemented` false.
+
+The module enters `LegacyGate.frozen_view` itself. This requires the actual gate lock and a verified later machine boot. It resolves the approved canonical common Git directory through the gate's held-root mapping. A new attachment, changed ref snapshot, malformed registration, unresolved symbolic HEAD, symbolic branch, unmerged tip, changed integration tip or existing backup prevents preparation. Main and every registered linked-worktree HEAD are checked directly, including symbolic chains. A checked-out branch remains ineligible until its terminal workspace has been captured and unregistered by a separately authorized operation.
+
+`observe(gate, id, approved_gate_sha256=..., repo_alias=..., scratch_root=...)` produces the current frozen ref and attachment snapshot. `prepare(gate, selection, approved_selection_sha256=..., scratch_root=...)` accepts an exact separately approved selection containing:
+
+- `version: 1`, `gate_id`, `gate_sha256` and `repo_alias`.
+- The observation's `ref_snapshot_sha256` and `registry_sha256`.
+- `approval_kind: exact-frozen-selection`.
+- `branches`, each with `ref`, `tip`, `integration_ref` and `integration_tip`.
+
+The selection hash is `digest(selection)`. This is an integrity check, not a substitute for obtaining the user's explicit approval. Existing terminal-planner `eligible: true` and an observed reflog cannot prove historical ownership generation. Upstream orchestration must retain its terminal ownership checks and present the exact frozen legacy branch selection for approval. The module does not independently infer branch ownership from a name. Future controller-created branches can use durable creation-generation evidence, but that protocol is not implemented here.
+
+The default executable is the verified root-owned Command Line Tools Git binary. The `/usr/bin/git` developer-selection shim is refused on macOS. Production also verifies executable and scratch-directory ancestry through the gate's strict ownership and ACL checks. Tests use the explicit unprivileged gate substitute and make no installed privilege claim.
+
+Git runs in an empty-template bare shadow with a new controlled config and fresh environment. Source repository configuration, hooks, aliases, filters, replacements and grafts are not loaded. Only refs, packed refs and reflogs are copied. Ref metadata is capped at 16 MiB and 10,000 files. The immutable frozen object directory is supplied through `GIT_OBJECT_DIRECTORY`; object bytes are not copied. External object dependencies, shallow/grafted storage and reftable storage are refused. This design is also suitable for read-only ancestry and tree inspection. An index reader would additionally need a private index copy and explicit handling of split-index dependencies.
+
+In the shadow, Git atomically verifies each integration ref, creates a unique `refs/richos/retired/<gate-id>/<full-branch-ref>` backup and compare-and-deletes each selected branch. The module then verifies that logical refs changed only by the selected deletions and backups. It checks held metadata again and writes `delta.json` plus the exact old/new changed file bytes. Packed-ref rewriting and target reflog removal are included. Every loose and packed declaration must appear with the expected object identity in Git’s inventory. Malformed, missing-object, dangling or cyclic refs are refused even if Git would silently skip them. Selections are limited to 128 branches and 128 KiB, with scalar bounds checked before hashing. Source held storage remains byte-for-byte unchanged.
+
+A future publisher must reenter the same frozen gate, verify all source hashes and persist old/new file payloads and restoration metadata before any write. It must prevent restoration while publication is incomplete, replay or roll back interrupted changes and update the gate's inode inventory for legitimate replaced or newly created ref files. The file-level delta does not authorize removing existing empty directories; required new backup directories need explicit journaled restoration metadata. The existing gate deliberately rejects changed held inodes, so copying these files into the gate without that journal is unsupported.
+
+For managed workspaces, detaching the worker image freezes only that image. It does not freeze the live canonical repository or its attachment registry. Automatic deletion of published canonical branches still requires the canonical gate or enforceable coordination of every canonical writer. A tip CAS alone does not close branch attachment or same-tip reuse races.
