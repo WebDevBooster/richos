@@ -1637,7 +1637,7 @@ elif when == "before-rename":
 elif when == "branch-moves":
     real_git = m._git
     def moving_git(cwd, *args, **kw):
-        if len(args) >= 2 and args[0] == "update-ref" and args[1] == "-d":
+        if len(args) >= 2 and args[0] == "update-ref" and args[1] in ("-d", "--stdin"):
             # A REAL move of the branch, by git, between the tip read and the delete.
             other = subprocess.run(["git", "-C", repo, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
             subprocess.run(["git", "-C", repo, "branch", "-f", branch, other], check=True)

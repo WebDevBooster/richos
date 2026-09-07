@@ -339,7 +339,8 @@ def _run(cwd, *args, **kw):
     timeout = kw.pop("timeout", 30)
     try:
         return subprocess.run(list(args), cwd=cwd if cwd else None,
-                              capture_output=True, text=True, timeout=timeout)
+                              capture_output=True, text=True, timeout=timeout,
+                              input=kw.pop("input", None))
     except Exception:
         return None
 
@@ -1372,15 +1373,63 @@ def _verify_backup_ref(repo, ref, head):
     return None
 
 
-def _delete_branch_at(repo, branch, expected_tip, backup_ref):
-    """Delete refs/heads/<branch> ONLY IF it still points at `expected_tip`
-    and `backup_ref` still holds that tip — by `git update-ref -d <ref>
-    <old>`, a COMPARE-AND-DELETE, so the read and the delete cannot be
-    separated by a move.
+def _branch_registry_gate(repo, branch):
+    """Read the Git registry itself, including missing/inaccessible worktrees.
 
-    `git branch -D` deletes whatever the ref points at NOW on the strength of
-    a tip read a few lines earlier. That is the same shape as every finding
-    in both reviews: a destructive step trusting a fact established earlier.
+    None means the branch is unattached. A failed or malformed listing is
+    never interpreted as an empty registry. NUL records preserve path bytes
+    such as newlines that the line-oriented porcelain format quotes.
+    This snapshot does not exclude an attachment racing after the read.
+    """
+    result = _git(repo, "worktree", "list", "--porcelain", "-z")
+    invalid = {"reason_code": "worktree-registry-unreadable",
+               "note": "Git's worktree registry could not be read completely; branch retained."}
+    if result is None or result.returncode != 0:
+        return invalid
+    raw = result.stdout
+    if not raw or not raw.endswith("\0\0"):
+        return invalid
+    seen_paths = set()
+    attached = None
+    for record in raw[:-2].split("\0\0"):
+        fields = record.split("\0")
+        values = {}
+        for field in fields:
+            key, _, value = field.partition(" ")
+            if key not in ("worktree", "HEAD", "branch", "detached", "bare", "locked", "prunable") or key in values:
+                return invalid
+            values[key] = value
+        path = values.get("worktree", "")
+        if not path or not os.path.isabs(path) or path in seen_paths or not fields[0].startswith("worktree "):
+            return invalid
+        seen_paths.add(path)
+        if "bare" in values:
+            if values["bare"] or any(k in values for k in ("HEAD", "branch", "detached")):
+                return invalid
+        else:
+            if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", values.get("HEAD", "")):
+                return invalid
+            if ("branch" in values) == ("detached" in values):
+                return invalid
+            if "detached" in values and values["detached"]:
+                return invalid
+            if "branch" in values:
+                if not values["branch"].startswith("refs/heads/"):
+                    return invalid
+                valid_ref = _git(repo, "check-ref-format", values["branch"])
+                if valid_ref is None or valid_ref.returncode != 0:
+                    return invalid
+        if values.get("branch") == "refs/heads/" + branch:
+            attached = {"reason_code": "branch-checked-out",
+                        "note": "%s is checked out at %s; left in place." % (branch, path)}
+    return attached
+
+
+def _delete_branch_at(repo, branch, expected_tip, backup_ref):
+    """Compare-and-delete the exact tip while verifying its backup in the
+    SAME Git ref transaction. Registry checks are fail closed but remain a
+    snapshot: this does not solve concurrent worktree attachment or branch
+    name reuse at the same tip by writers outside lifecycle coordination.
     Returns a dict for the record: `deleted`, `tip`, `reason_code`, `note`.
     """
     ref = "refs/heads/" + branch
@@ -1405,21 +1454,36 @@ def _delete_branch_at(repo, branch, expected_tip, backup_ref):
                    note=("the backup ref %s does not hold %s, so the branch is the only reference "
                          "to its tip. Left in place." % (backup_ref or "<none>", expected_tip)))
         return out
-    for wt in (registered_worktree_paths(repo) or []):
-        if _git_out(wt, "symbolic-ref", "--short", "HEAD") == branch:
-            out.update(reason_code="branch-checked-out",
-                       note="%s is checked out at %s; left in place." % (branch, wt))
+    gate = _branch_registry_gate(repo, branch)
+    if gate:
+        out.update(gate)
+        return out
+    # Validate every value interpolated into the line-based ref protocol.
+    # no-deref prevents a symbolic ref from redirecting the deletion.
+    # Compare-and-preserve writes a DIRECT backup ref even if it became
+    # symbolic: merely verifying its resolved tip would leave recovery
+    # dependent on an unlocked symbolic target.
+    for candidate in (ref, backup_ref):
+        checked = _git(repo, "check-ref-format", candidate)
+        if checked is None or checked.returncode != 0:
+            out.update(reason_code="invalid-ref", note="Invalid or unreadable branch/backup reference; retained.")
             return out
-    d = _git(repo, "update-ref", "-d", ref, expected_tip)
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", expected_tip):
+        out.update(reason_code="invalid-tip", note="Expected tip is not a full object ID; retained.")
+        return out
+    commands = ("start\nupdate %s %s %s\ndelete %s %s\nprepare\ncommit\n"
+                % (backup_ref, expected_tip, expected_tip, ref, expected_tip))
+    d = _git(repo, "update-ref", "--stdin", "--no-deref", input=commands)
     if d is None or d.returncode != 0:
         out.update(reason_code="branch-moved",
-                   note=("git refused the compare-and-delete of %s at %s (%s): the ref changed "
+                   note=("git refused the compare-and-delete of %s at %s (%s): the branch or backup changed "
                          "between the read and the delete. Left in place."
                          % (ref, expected_tip, d.stderr.strip() if d else "git could not run")))
         return out
-    if _git_out(repo, "rev-parse", "--verify", "--quiet", ref):
+    absent = _git(repo, "show-ref", "--verify", "--quiet", ref)
+    if absent is None or absent.returncode != 1:
         out.update(reason_code="delete-unverified",
-                   note=("git reported the deletion of %s and the ref still resolves; it is not "
+                   note=("git reported the deletion of %s but its absence could not be verified; it is not "
                          "counted as deleted." % ref))
         return out
     out.update(deleted=True, reason_code="branch-deleted",
@@ -2255,21 +2319,19 @@ def retire_branch(ws_id, retention=None, dry_run=False):
                     "reason": "the branch tip %s is not the head recorded at retirement (%s)."
                               % (tip, head)})
         return out
-    for wt in (registered_worktree_paths(repo) or []):
-        if _git_out(wt, "symbolic-ref", "--short", "HEAD") == branch:
-            out.update({"outcome": OUTCOME_REFUSED, "reason_code": "branch-checked-out",
-                        "reason": "%s is checked out at %s." % (branch, wt)})
-            return out
+    gate = _branch_registry_gate(repo, branch)
+    if gate:
+        out.update({"outcome": OUTCOME_REFUSED, "reason_code": gate["reason_code"],
+                    "reason": gate["note"]})
+        return out
 
     if dry_run:
         out.update({"outcome": OUTCOME_OK, "dry_run": True, "reason_code": "would-delete",
                     "reason": "every gate passed; nothing was deleted because --dry-run was given."})
         return out
 
-    # COMPARE-AND-DELETE against the tip read above. `git branch -D` would
-    # delete whatever the ref points at by the time it runs; `update-ref -d
-    # <ref> <old>` refuses if the ref moved in between, so the check and the
-    # deletion are one operation and not two.
+    # The transaction compares both refs against the recorded tip, pins
+    # the backup as a direct ref and deletes only the expected branch tip.
     d = _delete_branch_at(repo, branch, tip, backup_ref)
     if not d.get("deleted"):
         kind = OUTCOME_FAILED if d.get("reason_code") in ("delete-unverified",) else OUTCOME_REFUSED
