@@ -82,6 +82,17 @@ class Tests(unittest.TestCase):
             with self.assertRaises(RuntimeError):a.verify_event_join(changed,'session','agent','/fixed/wrapper')
         changed=copy.deepcopy(events);changed[2]['returncode']=2
         with self.assertRaises(RuntimeError):a.verify_event_join(changed,'session','agent','/fixed/wrapper')
+    def test_blocked_spawn_retry_is_allowed_only_if_the_blocked_call_never_bound(self):
+        events=self.events()
+        blocked=copy.deepcopy(events[0]);blocked['returncode']=2;blocked['input']['tool_use_id']='blocked-call'
+        events.insert(0,blocked)
+        self.assertEqual(a.verify_event_join(events,'session','agent','/fixed/wrapper'),'call')
+        wrong=copy.deepcopy(events);wrong[2]['input']['tool_use_id']='blocked-call'
+        with self.assertRaises(RuntimeError):a.verify_event_join(wrong,'session','agent','/fixed/wrapper')
+        duplicate=copy.deepcopy(events);duplicate.append(copy.deepcopy(events[2]))
+        with self.assertRaises(RuntimeError):a.verify_event_join(duplicate,'session','agent','/fixed/wrapper')
+        error=copy.deepcopy(events);error[0]['returncode']=1
+        with self.assertRaises(RuntimeError):a.verify_event_join(error,'session','agent','/fixed/wrapper')
     def test_event_join_refuses_missing_postspawn_record(self):
         events=self.events();events.pop(1)
         with self.assertRaises(RuntimeError):a.verify_event_join(events,'session','agent','/fixed/wrapper')

@@ -161,13 +161,18 @@ def verify_event_join(events, sid, aid, wrapper):
     require(all(event['input'].get('session_id')==sid for event in events),'foreign session hook event')
     before=[e for e in events if e['hook']=='guard-worktree-isolation.sh' and e['input'].get('tool_name')=='Agent']
     after=[e for e in events if e['hook']=='detect-nonnative-worktree.sh' and e['input'].get('tool_name')=='Agent']
-    require(len(before)==len(after)==1 and before[0]['returncode']==after[0]['returncode']==0
-            and before[0]['input'].get('tool_use_id')
-            and before[0]['input']['tool_use_id']==after[0]['input'].get('tool_use_id'),'actual Agent intent/binding join missing')
+    admitted=[event for event in before if event['returncode']==0]
+    blocked=[event for event in before if event['returncode']==2]
+    before_ids=[event['input'].get('tool_use_id') for event in before]
+    require(len(admitted)==len(after)==1 and len(admitted)+len(blocked)==len(before)
+            and all(isinstance(value,str) and value for value in before_ids)
+            and len(set(before_ids))==len(before_ids) and after[0]['returncode']==0
+            and admitted[0]['input']['tool_use_id']==after[0]['input'].get('tool_use_id'),
+            'actual Agent intent/binding join missing or blocked call bound')
     writing=[e for e in events if e['hook']=='guard-sealed-worktree.sh' and e['input'].get('agent_id')==aid
              and e['input'].get('tool_name')=='Bash' and shlex.split(e['input'].get('tool_input',{}).get('command',''))==[wrapper,'work']]
     require(writing and all(e['returncode']==0 for e in writing),'actual worker write did not pass the seal barrier')
-    return before[0]['input']['tool_use_id']
+    return admitted[0]['input']['tool_use_id']
 
 
 def process_identity(pid):
@@ -250,6 +255,14 @@ def operation(args):
                 require(len(managed) == 1, 'managed membership missing')
                 try:
                     delivery = bridge.delivery_for(managed[0]['manager_id'],config['source_repo'])
+                    # A delivered image can precede the transaction's ordinary
+                    # retry window. Do not finish until that unforced pass has
+                    # persisted the exact receipt before marking storage removed.
+                    current=tx.load_tx(sid,record['agent_id'])
+                    completed=[m for m in (current or {}).get('members',[]) if m.get('class')=='managed-image']
+                    require(len(completed)==1 and completed[0].get('state')=='removed'
+                            and completed[0].get('delivery')==delivery,
+                            'waiting for normal reconciliation to persist managed delivery')
                     git(config['source_repo'],'merge','--ff-only',delivery['tip'])
                     require((Path(config['source_repo'])/'canary-delivered').read_text() == CONTENT, 'delivered content mismatch')
                     print(json.dumps(delivery)); return 0
@@ -367,6 +380,9 @@ def execute(args, support, release, policy, owner):
         before_heads=child(['/usr/bin/git','-C',str(active/'source'),'for-each-ref','--format=%(refname)','refs/heads/'])
         require(before_heads.returncode==0,'source branch inventory unavailable')
         report['initial_source_branches']=before_heads.stdout.decode().splitlines()
+        native_heads=child(['/usr/bin/git','-C',str(session),'for-each-ref','--format=%(refname)','refs/heads/'])
+        require(native_heads.returncode==0,'native branch inventory unavailable')
+        report['initial_native_branches']=native_heads.stdout.decode().splitlines()
         support.save(active/'canary.json',config);(active/'canary.json').chmod(0o644)
         runtime_copy=active/'canary-runtime.py';runtime_copy.write_bytes(Path(__file__).read_bytes());runtime_copy.chmod(0o644)
         wrapper=Path(config['wrapper'])
@@ -428,6 +444,12 @@ def execute(args, support, release, policy, owner):
         check('actual-agent-binding-and-worker-write-events-match',True)
         tx_path=active/'state/transactions'/report['session_id']/(aid+'.json')
         transaction=json.loads(tx_path.read_text())
+        bindings=[json.loads(path.read_text()) for path in (tx_path.parent/'bound').glob('*.json')]
+        report['blocked_agent_calls']=[dict(tool_use_id=e['input']['tool_use_id'],reason=e.get('stderr',''))
+            for e in events if e['hook']=='guard-worktree-isolation.sh' and e['input'].get('tool_name')=='Agent' and e['returncode']==2]
+        check('only-admitted-agent-call-bound',len(bindings)==1 and bindings[0].get('tool_use_id')==report['agent_tool_use_id']
+              and bindings[0].get('agent_id')==aid and bindings[0].get('session_id')==report['session_id']
+              and transaction.get('tool_use_id')==report['agent_tool_use_id'])
         managed=[m for m in transaction['members'] if m['class']=='managed-image']
         native=[m for m in transaction['members'] if m['class']=='native']
         check('real-hooks-sealed-native-and-managed-membership',transaction.get('sealed') and len(managed)==len(native)==1 and
@@ -450,6 +472,8 @@ def execute(args, support, release, policy, owner):
                   for key in ('quarantine','quarantine_path') if native[0].get(key)))
         after_heads=child(['/usr/bin/git','-C',str(active/'source'),'for-each-ref','--format=%(refname)','refs/heads/'])
         check('managed-delivery-created-no-ordinary-source-branches',after_heads.returncode==0 and after_heads.stdout.decode().splitlines()==report['initial_source_branches'])
+        native_heads=child(['/usr/bin/git','-C',str(session),'for-each-ref','--format=%(refname)','refs/heads/'])
+        check('native-platform-ordinary-branches-returned-to-baseline',native_heads.returncode==0 and native_heads.stdout.decode().splitlines()==report['initial_native_branches'])
         check('transaction-persisted-managed-delivery',managed[0].get('state')=='removed' and managed[0].get('delivery')==delivery)
         server.terminate();server.wait(timeout=15);check('fixture-broker-stops-cleanly',server.returncode==0);server=None
         report['passed']=True
