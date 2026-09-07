@@ -2802,4 +2802,10 @@ module.exports = [
   { s: "Missing onboarding scope", c: "NOT-RENDERED", why: "The standalone onboarding MCP process reports this on stderr when launched without its required scope argument. It is not displayed in the app." },
   { s: "The company changed. Please use the offer for the company now open.", c: "INFORMATIONAL", why: "An obsolete company-specific action was refused. The onboarding context guard refreshes the current offer and retains its controls." },
   { s: "The conversation changed before your message was sent. Open the original conversation to try again.", c: "ACTIONABLE", control: ".nav-thread", fixture: "rail-mark", why: "The rejected message stays with its original conversation. Its navigation row lets the CEO reopen that conversation and retry." },
+  { s: "Waiting for its saved messages", c: "INFORMATIONAL", why: "The selected conversation has not finished loading." },
+  { s: "The previous conversation is still working. Press Stop to stop that work.", c: "ACTIONABLE", control: "#stop", fixture: "opening-conversation", why: "The previous live model keeps its actual Stop control while navigation waits for its lock." },
+  { s: "I couldn't stop the previous conversation. Press Stop again.", c: "ACTIONABLE", control: "#stop", fixture: "opening-stop-failed", why: "A failed stop remains visible in the opening band beside the retryable Stop control." },
+
+  { s: "Stopping work in the previous conversation", c: "INFORMATIONAL", why: "A durable Stop receipt disables repeat Stop while awaiting its terminal event." },
+
 ];

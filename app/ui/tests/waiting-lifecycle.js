@@ -26,6 +26,63 @@ async function main() {
   const run = createRun("waiting lifecycle: acceptance, failure, evidence and accessibility");
   const browser = await loadPlaywright().webkit.launch();
   try {
+    await run.check("opening another company hides old messages, fences Send and keeps Stop usable", async () => {
+      for (const theme of ["dark", "light"]) {
+        const page = await openApp(browser, theme);
+        const fence = await startTurn(page, "opening_previous");
+        await goWorking(page, fence, "opening_previous");
+        await page.evaluate(() => {
+          const original = window.RichBridge.invoke.bind(window.RichBridge);
+          window.__openingCalls = [];
+          window.RichBridge.invoke = (cmd, args) => {
+            window.__openingCalls.push({ cmd, args });
+            if (cmd === "switch_thread") return new Promise(resolve => {
+              window.__finishOpeningSwitch = () => original(cmd, args).then(resolve);
+            });
+            if (cmd === "get_timeline") return new Promise(resolve => {
+              window.__finishOpeningSnapshot = () => original(cmd, args).then(resolve);
+            });
+            if (cmd === "stop_turn") return Promise.reject("temporary disk error");
+            return original(cmd, args);
+          };
+        });
+        await page.click('.nav-thread[data-thread-id="acme"]');
+        await page.waitForFunction(() => !!window.__finishOpeningSwitch);
+        assert(await page.isHidden("#conversation"), "previous company's messages are hidden immediately");
+        assertEqual((await band(page)).head, "Opening conversation");
+        assert((await band(page)).detail.includes("previous conversation"));
+        assert(await page.isDisabled("#send"));
+        assert(await page.isVisible("#stop"));
+        await page.fill("#input", "New company's draft");
+        await page.press("#input", "Enter");
+        assertEqual(await page.evaluate(() => window.__openingCalls.filter(c => c.cmd === "send_message" || c.cmd === "steer_turn").length), 0);
+        await page.click("#stop");
+        assertEqual((await band(page)).detail, "I couldn't stop the previous conversation. Press Stop again.");
+        assertEqual(await page.evaluate(() => window.__openingCalls.find(c => c.cmd === "stop_turn").args.expectedTurnId), "opening_previous");
+        assert(!(await page.isDisabled("#stop")), "failed Stop is actionable while navigation waits");
+        await page.evaluate(() => {
+          const original = window.RichBridge.invoke.bind(window.RichBridge);
+          window.RichBridge.invoke = (cmd, args) => cmd === "stop_turn"
+            ? Promise.resolve({ stopped: true, turnId: "opening_previous", reachedLease: true }) : original(cmd, args);
+        });
+        await page.click("#stop");
+        assertEqual((await band(page)).detail, "Stopping work in the previous conversation");
+        assert(await page.isDisabled("#stop"));
+        await page.evaluate(fence => window.__emit("rich://turn-status", { ...fence, turnId: "opening_previous", status: "stopped", at: Date.now(), visibility: "ceo" }), fence);
+        assert(await page.isHidden("#stop"), "previous terminal event removes its Stop");
+        await page.evaluate(() => window.__finishOpeningSwitch());
+        await page.waitForFunction(() => !!window.__finishOpeningSnapshot);
+        assert(await page.isDisabled("#send"), "binding alone does not enable Send before saved messages arrive");
+        await page.evaluate(() => window.__finishOpeningSnapshot());
+        await page.waitForSelector('#conversation:not([hidden])');
+        assertEqual(await page.inputValue("#input"), "New company's draft");
+        assert(!(await page.isDisabled("#send")));
+        assertEqual(await band(page), null);
+        assertEqual(await page.evaluate(() => window.__RICHOS_TIMELINE__().threadId), "acme");
+        await page.close();
+      }
+    });
+
     await run.check("a slow invocation is visible before acceptance and queued silence ages honestly", async () => {
       const page = await openApp(browser);
       await page.evaluate(() => { window.__TAP.hang = true; });

@@ -757,6 +757,24 @@ const FIXTURES = {
 
   /// A live turn, from the mock's own `simulateSlowTurn`, with words in the composer — the
   /// §9.2 mode where Stop and Send are both up.
+  async "opening-conversation"(browser) {
+    const page = await FIXTURES["working-turn"](browser);
+    await page.evaluate(() => {
+      const invoke = window.RichBridge.invoke.bind(window.RichBridge);
+      window.RichBridge.invoke = (cmd, args) => cmd === "switch_thread" ? new Promise(() => {}) : invoke(cmd, args);
+    });
+    await page.click('.nav-thread[data-thread-id="acme"]');
+    await page.waitForSelector('#composer-row[data-mode="opening"]');
+    return page;
+  },
+  async "opening-stop-failed"(browser) {
+    const page = await FIXTURES["opening-conversation"](browser);
+    await page.evaluate(() => { window.__overrides.stop_turn = { reject: true, value: "temporary disk error" }; });
+    await page.click("#stop");
+    await page.waitForFunction(() => document.querySelector(".wait-detail").textContent.includes("couldn't stop"));
+    return page;
+  },
+
   async "working-turn"(browser) {
     const page = await openApp(browser);
     await page.evaluate(() => window.__RICHOS_MOCK__.simulateSlowTurn(null, "run the numbers", 200));
@@ -1155,6 +1173,8 @@ const TEXT_RENDERING_FIXTURES = new Set([
   // assertion there would be nothing to prove about it.
   "first-run-offer",
   "first-run-partial",
+  "opening-conversation",
+  "opening-stop-failed",
   "first-run-unusable",
   "first-run-decline-refused",
   // The first-run setup sheet renders the BACKEND's words — `Component::why`,

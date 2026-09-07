@@ -159,6 +159,7 @@ let entityChoice = null;
 // looks pressable and is not, which is the same family of defect one level along, and it would
 // cost the CEO the fastest path into his own work on every launch. §21's rule is the argument
 // as well: a REMEMBERED selection must never overwrite a CHOSEN one.
+let openingThread = null;
 let navTicket = 0; // every openThread takes one, synchronously, before its first await
 let handNavigations = 0; // how many threads the CEO has asked for himself this launch
 
@@ -282,7 +283,7 @@ function parkViewStateNow() {
     budget -= text.length;
     out[key] = text;
   };
-  if (mainView === "conversation" && activeThreadId) put(activeThreadId, inputEl.value);
+  if ((mainView === "conversation" || mainView === "opening") && activeThreadId) put(activeThreadId, inputEl.value);
   else if (mainView === "entity" && viewEntityId) put(ENTITY_DRAFT_PREFIX + viewEntityId, inputEl.value);
   for (const [key, text] of drafts) if (!(key in out)) put(key, text);
   writeJsonLocal(KEY_DRAFTS, out);
@@ -670,6 +671,7 @@ function renderRail() {
 
 function setMainView(view) {
   mainView = view;
+  if (view !== "opening") openingThread = null;
   conversationEl.hidden = view !== "conversation";
   entityViewEl.hidden = view !== "entity";
   unboundViewEl.hidden = view !== "unbound";
@@ -860,9 +862,9 @@ function renderScopeHeader() {
 /// means one Enter files it in the wrong company. So the composer is emptied on every
 /// move and only ever re-filled from the draft belonging to what is now on screen.
 function stashThreadViewState() {
-  if (mainView === "conversation" && activeThreadId) {
+  if ((mainView === "conversation" || mainView === "opening") && activeThreadId) {
     drafts.set(activeThreadId, inputEl.value);
-    scrollTops.set(activeThreadId, conversationEl.scrollTop);
+    if (mainView === "conversation") scrollTops.set(activeThreadId, conversationEl.scrollTop);
   } else if (mainView === "entity" && viewEntityId) {
     drafts.set(ENTITY_DRAFT_PREFIX + viewEntityId, inputEl.value);
   }
@@ -930,6 +932,7 @@ async function openThread(threadId, opts) {
   const ticket = ++navTicket;
   const stale = () => ticket !== navTicket;
 
+  const previousModel = openingThread ? openingThread.previousModel : timelineModel;
   stashThreadViewState();
   clearLiveMark(threadId);
   activeThreadId = threadId;
@@ -961,6 +964,18 @@ async function openThread(threadId, opts) {
     return;
   }
 
+  openingThread = { threadId, previousModel, startedAt: Date.now(), quietAnnounced: false };
+  inputEl.value = drafts.get(threadId) || "";
+  inputEl.disabled = false;
+  autoGrow();
+  composerBlockedEl.hidden = true;
+  composerScopeEl.hidden = true;
+  window.RichRuns.show(null);
+  setMainView("opening");
+  syncComposerMode();
+  renderRail();
+  startOrStopWaitTimer();
+  announce("Opening conversation.");
   try {
     await switchThreadInOrder(threadId);
   } catch (e) {
@@ -977,9 +992,6 @@ async function openThread(threadId, opts) {
   await refreshActiveContext();
   if (stale()) return;
   window.RichRuns.show(threadId);
-  showConversationView();
-  inputEl.placeholder = "Talk to Rich…";
-  renderRail();
   // The fence comes from the AUTHORITATIVE binding, not from this file's idea of what is
   // selected: `bindingRevision` is the activation revision, and every live event is measured
   // against it as a STALENESS floor (never an equality key — see `accepts()` in timeline.js).
@@ -995,8 +1007,13 @@ async function openThread(threadId, opts) {
   if (stale()) return;
   await loadTimeline();
   if (stale()) return;
-  if (mainView !== "conversation") return; // loadTimeline fell into the unbound state
+  if (mainView !== "opening") return; // loadTimeline fell into the unbound state
+  drafts.set(threadId, inputEl.value); // typing while opening belongs to this destination
+  showConversationView();
+  renderRail();
   restoreThreadViewState(threadId);
+  resetWaitBandForThread();
+  scheduleRender();
   // WHERE ONBOARDING STANDS FOR THIS THREAD'S COMPANY. Re-derived on every thread open
   // rather than once at boot, because a thread's company is immutable and moving between
   // threads can move between companies — a notice left over from the last one would be a
@@ -1378,11 +1395,15 @@ function renderFirstRun() {
 /// it got; it draws a technical row for any item that carries `detail`, and only the
 /// technical view supplies one (§3.3: the calm view is untouched because it cannot match).
 async function loadTimeline() {
+  const loadedModel = timelineModel;
+  const loadedThread = activeThreadId;
+  const stale = () => loadedModel !== timelineModel || loadedThread !== activeThreadId;
   const techy = techyOn();
   let snapshot;
   try {
     if (techy) {
       const machinery = await Bridge.invoke("get_machinery", { threadId: activeThreadId });
+      if (stale()) return;
       renderTechyState(machinery);
       renderBetweenTurns(machinery);
       snapshot = machinery.timeline;
@@ -1397,6 +1418,7 @@ async function loadTimeline() {
       snapshot = await Bridge.invoke("get_timeline", { threadId: activeThreadId });
     }
   } catch (e) {
+    if (stale()) return;
     const msg = String(e);
     // The mock harness leaves some commands unwired; a genuine scope refusal is a different
     // statement and gets the §21 screen.
@@ -1412,6 +1434,7 @@ async function loadTimeline() {
     showUnboundView(threadRow(activeThreadId), msg);
     return;
   }
+  if (stale()) return;
   window.RichTimeline.applySnapshot(timelineModel, snapshot);
   reviveLiveTurns();
   scheduleRender();
@@ -1441,6 +1464,7 @@ function restoreUnsentText(text, threadId) {
 }
 
 async function send(explicitText) {
+  if (mainView === "opening") return;
   // Start/Resume sends its own acceptance without silently submitting or deleting a draft.
   const preserveDraft = typeof explicitText === "string";
   const text = preserveDraft ? explicitText.trim() : inputEl.value.trim();
@@ -1699,10 +1723,16 @@ async function steer(text, preserveDraft) {
 async function stopTurn() {
   if (stopBtn.disabled) return;
   stopBtn.disabled = true;
+  const stoppedOpening = openingThread;
+  const stoppedModel = stoppedOpening ? stoppedOpening.previousModel : timelineModel;
   try {
-    const report = await Bridge.invoke("stop_turn");
+    const live = [...stoppedModel.turns.entries()].filter(([, turn]) => turn.live);
+    const target = live.find(([, turn]) => turn.status !== "queued") || live[0];
+    if (!target) return;
+    const report = await Bridge.invoke("stop_turn", { expectedTurnId: target[0] });
     if (!report || !report.stopped) return;
-    if (window.RichTimeline.markStopping(timelineModel, report.turnId)) scheduleRender();
+    if (openingThread === stoppedOpening && stoppedOpening) openingThread.stopError = null;
+    if (window.RichTimeline.markStopping(stoppedModel, report.turnId)) scheduleRender();
     markWaitStopping(report.turnId);
     announce("Stopping.");
     // REPORTED, NOT HIDDEN. The request is durable and the turn will be recorded as
@@ -1711,7 +1741,7 @@ async function stopTurn() {
     // this app cannot make.
     if (report.reachedLease === false) {
       window.RichTimeline.addLocalNotice(
-        timelineModel,
+        stoppedModel,
         "I've noted that you stopped this. I couldn't interrupt the work already in flight, " +
           "so it may finish on its own — nothing new will start.",
         Date.now()
@@ -1719,13 +1749,18 @@ async function stopTurn() {
       scheduleRender();
     }
   } catch (e) {
+    if (openingThread === stoppedOpening && stoppedOpening) {
+      openingThread.stopError = "I couldn't stop the previous conversation. Press Stop again.";
+      renderWaitBand();
+      announce(openingThread.stopError);
+    }
     // NAMES THE CONTROL. The old sentence stopped at "so I haven't acted on it" — true,
     // and it left the CEO with a fact and no instruction while the button that would fix
     // it sat three inches below, unmentioned. `syncComposerMode()` in the `finally` below
     // re-enables Stop before this is read, and Stop is visible for as long as the turn is
     // live, so the sentence names something that is on screen at the moment it is read.
     window.RichTimeline.addLocalNotice(
-      timelineModel,
+      stoppedModel,
       typeof e === "string"
         ? e + " Press Stop again and I'll have another go."
         : "I couldn't record that stop, so I haven't acted on it. Press Stop again and I'll have another go.",
@@ -1758,6 +1793,18 @@ function anyStoppingTurn() {
 ///           field stays editable, because taking the keyboard away mid-sentence would lose
 ///           whatever he was in the middle of typing.
 function syncComposerMode() {
+  if (mainView === "opening" && openingThread) {
+    const turns = [...openingThread.previousModel.turns.values()];
+    const working = turns.some(t => t.live);
+    const stopping = turns.some(t => t.live && t.status === "stopping");
+    inputEl.placeholder = idlePlaceholder;
+    stopBtn.hidden = !working;
+    stopBtn.disabled = stopping;
+    sendBtn.hidden = false;
+    sendBtn.disabled = true;
+    el("composer-row").dataset.mode = "opening";
+    return;
+  }
   if (mainView !== "conversation" || sendBlockedReason) {
     stopBtn.hidden = true;
     return;
@@ -2263,7 +2310,8 @@ function renderWaitPace(band, copy) {
 
 function renderWaitBand() {
   const pending = visiblePendingSend();
-  if (mainView !== "conversation" || (!waitTurn && !pending)) {
+  const opening = mainView === "opening" && openingThread;
+  if ((!opening && mainView !== "conversation") || (!opening && !waitTurn && !pending)) {
     removeWaitBand();
     return;
   }
@@ -2271,7 +2319,17 @@ function renderWaitBand() {
   if (!band) return;
   waitLastPaintAt = Date.now();
   const pendingMs = pending ? waitLastPaintAt - pending.startedAt : 0;
-  const copy = waitTurn ? waitBandCopy(waitTurn, waitLastPaintAt) : {
+  const copy = opening ? {
+    head: "Opening conversation",
+    time: window.RichTimeline.formatDuration(waitLastPaintAt - opening.startedAt) || "",
+    detail: opening.stopError || ([...opening.previousModel.turns.values()].some(t => t.live && t.status === "stopping")
+      ? "Stopping work in the previous conversation"
+      : [...opening.previousModel.turns.values()].some(t => t.live)
+      ? "The previous conversation is still working. Press Stop to stop that work."
+      : "Waiting for its saved messages"),
+    tone: waitLastPaintAt - opening.startedAt >= QUIET_AFTER_MS ? "quiet" : "queued",
+    pace: null,
+  } : waitTurn ? waitBandCopy(waitTurn, waitLastPaintAt) : {
     head: "Sending your message",
     time: window.RichTimeline.formatDuration(pendingMs) || "",
     detail: "Waiting for Rich to accept it",
@@ -2283,8 +2341,8 @@ function renderWaitBand() {
   band.querySelector(".wait-time").textContent = copy.time;
   band.querySelector(".wait-detail").textContent = copy.detail;
   renderWaitPace(band, copy);
-  if (copy.tone === "quiet" && !(waitTurn || pending).quietAnnounced) {
-    (waitTurn || pending).quietAnnounced = true;
+  if (copy.tone === "quiet" && !(opening || waitTurn || pending).quietAnnounced) {
+    (opening || waitTurn || pending).quietAnnounced = true;
     announce(copy.head + ". " + copy.detail + ".");
   }
 }
@@ -2293,7 +2351,7 @@ function renderWaitBand() {
 /// same rule and the same reason as the timeline's own timer (§6.2: recompute from
 /// timestamps on return, never accumulate).
 function startOrStopWaitTimer() {
-  const active = waitTurn || visiblePendingSend();
+  const active = openingThread || waitTurn || visiblePendingSend();
   if (active && !waitTimer && !document.hidden) {
     waitTimer = window.setInterval(renderWaitBand, WAIT_TICK_MS);
   } else if ((!active || document.hidden) && waitTimer) {
@@ -2403,7 +2461,7 @@ function resetWaitBandForThread() {
 /// The band is a live-turn surface and belongs only to the conversation. Leaving that view
 /// (the entity screen, the unbound screen) takes it with it.
 function hideWaitBandOffConversation() {
-  if (mainView !== "conversation") removeWaitBand();
+  if (mainView !== "conversation" && mainView !== "opening") removeWaitBand();
   else renderWaitBand();
 }
 
@@ -2515,6 +2573,12 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
   }
   if (!["queued", "working", "recovering"].includes(payload.status)) waitHistory.delete(payload.turnId);
 
+  if (openingThread && window.RichTimeline.accepts(openingThread.previousModel, payload)) {
+    window.RichTimeline.onTurnStatus(openingThread.previousModel, payload);
+    if (![...openingThread.previousModel.turns.values()].some(t => t.live)) openingThread.stopError = null;
+    syncComposerMode();
+    renderWaitBand();
+  }
   const pendingId = timelineModel.pendingUser[0];
   const r = window.RichTimeline.onTurnStatus(timelineModel, payload);
   if (r.rejected) return;
