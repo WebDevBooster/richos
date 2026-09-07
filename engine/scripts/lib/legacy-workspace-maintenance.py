@@ -169,11 +169,34 @@ def object_storage(repo, common):
     return {'identity': identity, 'external_dependencies': sorted(dependencies)}
 
 
+def member_paths(member):
+    """Recorded names only, used to join every relevant ownership witness."""
+    return {value for key in ('path', 'quarantine', 'quarantine_path')
+            if (value := history._path(member.get(key))) is not None}
+
+
+def member_location(member, path):
+    original = history._path(member.get('path'))
+    if original == path:
+        return {'recorded_original_path': original}
+    if path not in member_paths(member):
+        return None
+    quarantines = {member[key] for key in ('quarantine', 'quarantine_path') if member.get(key)}
+    if (len(quarantines) != 1 or original is None or member.get('path') != original
+            or quarantines != {path} or not Path(original).is_absolute()
+            or not path.startswith(original + '.richos-terminal-') or os.path.lexists(original)):
+        raise ValueError('recorded quarantine identity is ambiguous or original path reappeared: ' + path)
+    return {'recorded_original_path': original, 'recorded_quarantine_path': path}
+
+
 def ownership(path, transactions, records, active_paths):
     statuses, witnesses = [], []
-    if path in active_paths:
+    txs = [tx for tx in transactions if any(path in member_paths(m) for m in tx['members'])]
+    aliases = {path} | {alias for tx in txs for m in tx['members'] if path in member_paths(m) for alias in member_paths(m)}
+    txs = [tx for tx in transactions if any(member_paths(m) & aliases for m in tx['members'])]
+    if aliases & active_paths:
         statuses.append('live');witnesses.append({'kind': 'explicit-user-active-path'})
-    matching = [r for r in records if history._path(r.get('worktree') or r.get('cwd')) == path]
+    matching = [r for r in records if history._path(r.get('worktree') or r.get('cwd')) in aliases]
     sessions = {r.get('session_id') for r in matching if r.get('session_id')}
     identities = {(str(r.get('session_pid')), repr(r.get('pid_start'))): r for r in records
                   if r.get('session_pid') and (r in matching or r.get('session_id') in sessions)}
@@ -182,7 +205,6 @@ def ownership(path, transactions, records, active_paths):
         statuses.append('live' if status == 'alive' else 'unknown' if status == 'unknown' else 'gone')
         witnesses.append({'kind': 'process', 'session_id': record.get('session_id'),
                           'pid': record['session_pid'], 'status': status})
-    txs = [tx for tx in transactions if any(history._path(m.get('path')) == path for m in tx['members'])]
     for tx in txs:
         state = 'terminal' if terminal(tx) else 'unknown'
         statuses.append(state)
@@ -292,7 +314,8 @@ def plan(policy, transactions, records, *, active_paths=(), input_errors=()):
                         if not terminal(tx):
                             continue
                         for member in tx['members']:
-                            if history._path(member.get('path')) != path:
+                            location = member_location(member, path)
+                            if location is None:
                                 continue
                             ref = history._ref(member.get('branch'))
                             if (history._path(member.get('repo')) != repo or member.get('head') != entry['HEAD']
@@ -301,7 +324,7 @@ def plan(policy, transactions, records, *, active_paths=(), input_errors=()):
                                 continue
                             row['removal_candidates'].append(dict(path=path, session_id=tx['session_id'],
                                 agent_id=tx['agent_id'], head=entry['HEAD'], branch=entry.get('branch'),
-                                identity=gate['identity'], kind=gate['kind'], execution_authorized=False,
+                                identity=gate['identity'], kind=gate['kind'], **location, execution_authorized=False,
                                 status='exact-terminal-member-requires-offline-revalidation'))
                     if (gate['kind'] == 'orphan-registration' or 'locked' in entry or 'prunable' in entry) and len(row['removal_candidates']) == candidate_count:
                         row['blockers'].append('registration-recovery-needs-exact-terminal-owner:' + path)

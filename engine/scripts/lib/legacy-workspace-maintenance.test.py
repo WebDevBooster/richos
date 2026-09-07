@@ -35,6 +35,46 @@ class LegacyPlan(unittest.TestCase):
     def plan(self, transactions=None, records=(), **kwargs):
         return planner.plan(self.policy, [self.tx] if transactions is None else transactions, records, **kwargs)
 
+    def quarantine(self):
+        original=self.work;quarantine=Path(str(original)+'.richos-terminal-session-agent')
+        original.rename(quarantine);self.git('worktree','repair',str(quarantine))
+        self.tx['members'][0]['quarantine']=str(quarantine)
+        return original,quarantine
+
+    def test_recorded_terminal_quarantine_is_candidate_without_rewriting_history(self):
+        original,path=self.quarantine();before=copy.deepcopy(self.tx)
+        row=self.plan()['repositories'][0]
+        self.assertEqual([c['path'] for c in row['removal_candidates']],[str(path)])
+        candidate=row['removal_candidates'][0]
+        self.assertEqual(candidate['recorded_original_path'],str(original))
+        self.assertEqual(candidate['recorded_quarantine_path'],str(path))
+        self.assertNotIn('unknown-owner:'+str(path),row['blockers']);self.assertEqual(self.tx,before)
+
+    def test_quarantine_refuses_wrong_head_conflicting_alias_and_recreated_original(self):
+        original,path=self.quarantine();before=copy.deepcopy(self.tx)
+        for fields in ({'head':'a'*40},{'quarantine_path':str(self.root/'different')}):
+            tx=copy.deepcopy(before);tx['members'][0].update(fields)
+            self.assertEqual(self.plan([tx])['repositories'][0]['removal_candidates'],[])
+        original.mkdir();(original/'new-owner').write_bytes(b'new owner data')
+        row=self.plan()['repositories'][0]
+        self.assertEqual(row['removal_candidates'],[]);self.assertTrue(any('reappeared' in b for b in row['blockers']))
+        self.assertEqual((original/'new-owner').read_bytes(),b'new owner data')
+        self.assertEqual((path/'file').read_text(),'base')
+
+    def test_quarantine_joins_live_and_unknown_ownership_over_both_names(self):
+        original,path=self.quarantine()
+        for name in (original,path):
+            record=dict(event='registered',worktree=str(name),repo=str(self.repo),session_id='competing',
+                        session_pid=os.getpid(),pid_start=planner.ledger.pid_start(os.getpid()))
+            self.assertIn('live-owner:'+str(path),self.plan(records=[record])['repositories'][0]['blockers'])
+            record.pop('session_pid');record.pop('pid_start')
+            self.assertIn('unknown-owner:'+str(path),self.plan(records=[record])['repositories'][0]['blockers'])
+        other=copy.deepcopy(self.tx);other['agent_id']='competing';other['terminal']=None;other['members'][0].pop('quarantine')
+        self.assertIn('unknown-owner:'+str(path),self.plan([self.tx,other])['repositories'][0]['blockers'])
+        self.tx['terminal']=None
+        row=self.plan()['repositories'][0];self.assertEqual(row['removal_candidates'],[])
+        self.assertIn('unknown-owner:'+str(path),row['blockers'])
+
     def test_every_registered_workspace_gated_but_only_exact_terminal_is_candidate(self):
         other = self.root / 'active-other';self.git('worktree', 'add', '-qb', 'active-other', str(other))
         before = (self.git('worktree', 'list', '--porcelain'), self.git('show-ref'))
