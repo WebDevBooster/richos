@@ -34,9 +34,10 @@ def _git(repo, *args):
     # Invocation state from a caller's own Git command must not retarget this
     # read to another repository or substitute an alternate object graph.
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_TERMINAL_PROMPT="0")
+    env.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_TERMINAL_PROMPT="0",
+               GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null")
     try:
-        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+        return subprocess.run(["/usr/bin/git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", str(repo), *args], capture_output=True,
                               text=True, timeout=30, env=env)
     except (OSError, subprocess.SubprocessError, UnicodeError):
         return None

@@ -24,7 +24,9 @@ import threading
 import time
 import uuid
 
-CODE_FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py", "managed-workspace-volume.py", "managed-workspace-client.py", "managed-workspace-acceptance.py", "managed-workspace-failed-creation.py")
+CODE_FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py", "managed-workspace-volume.py", "managed-workspace-client.py", "managed-workspace-acceptance.py", "managed-workspace-failed-creation.py",
+              "legacy-workspace-admin.py", "legacy-workspace-gate.py", "legacy-workspace-inspection.py", "legacy-workspace-maintenance.py",
+              "terminal-branch-cleanup.py", "worktree-ledger.py", "worktree-transactions.py")
 MAX_REQUEST = 65536
 MAX_RESPONSE = 1048576
 

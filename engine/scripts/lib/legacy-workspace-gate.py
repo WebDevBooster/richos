@@ -14,18 +14,50 @@ import uuid
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('legacy_planner', HERE / 'legacy-workspace-maintenance.py')
 planner = importlib.util.module_from_spec(spec);spec.loader.exec_module(planner)
+spec = importlib.util.spec_from_file_location('legacy_inspection', HERE / 'legacy-workspace-inspection.py')
+inspection = importlib.util.module_from_spec(spec);spec.loader.exec_module(inspection)
+INTERPRETER = '/Library/Developer/CommandLineTools/usr/bin/python3'
 
 
 class GateError(RuntimeError):
     pass
 
 
+def owner_report(policy, context, *, require_root=True):
+    """Run repository and history inspection only after dropping root authority."""
+    context = inspection.normalized_context(context)
+    helper = HERE / 'legacy-workspace-inspection.py'
+    if require_root:
+        spec = importlib.util.spec_from_file_location('legacy_runtime', HERE / 'managed-workspace-broker.py')
+        runtime = importlib.util.module_from_spec(spec);spec.loader.exec_module(runtime)
+        runtime.validate_runtime()
+        if Path(sys.executable).resolve() != Path(INTERPRETER).resolve():
+            raise GateError('fixed Command Line Tools interpreter required')
+        runtime.protected_path(helper, regular=True)
+    elif os.geteuid() != 0 and (os.geteuid(), os.getegid()) != (context['owner_uid'], context['owner_gid']):
+        raise GateError('disposable inspection must use its actual owner')
+    credentials = dict(user=context['owner_uid'], group=context['owner_gid'], extra_groups=[]) if os.geteuid() == 0 else {}
+    result = subprocess.run([INTERPRETER if require_root else sys.executable, '-I', '-S', '-B', str(helper)],
+        input=json.dumps({'policy': policy, 'inspection_context': context}).encode(),
+        capture_output=True, cwd='/', timeout=120, **credentials,
+        env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin', 'HOME':context['owner_home'], 'LC_ALL':'C', 'LANG':'C', 'TZ':'UTC0'})
+    if result.returncode:
+        raise GateError('unprivileged inspection failed: ' + result.stderr.decode(errors='replace')[:1024])
+    report = json.loads(result.stdout)
+    if not isinstance(report, dict) or report.get('inspection_context') != context:
+        raise GateError('inspection returned a different owner context')
+    return report
+
+
 class LegacyGate:
-    def __init__(self, vault, *, require_root=True):
+    def __init__(self, vault, *, require_root=True, inspection_context=None):
         self.require_root = require_root
         self.uid, self.gid = os.geteuid(), os.getegid()
         if require_root and (self.uid != 0 or sys.platform != 'darwin'):
             raise GateError('macOS root authority required')
+        if require_root and inspection_context is None:
+            raise GateError('explicit approved owner inspection context required')
+        self.inspection_context = inspection.normalized_context(inspection_context) if inspection_context is not None else None
         self.vault = Path(vault).resolve(strict=True)
         for path in (self.vault, *self.vault.parents) if require_root else (self.vault,):
             info = path.lstat()
@@ -86,6 +118,8 @@ class LegacyGate:
         record = json.loads((base / 'state.json').read_text())
         if record.get('version') != 1 or record.get('id') != base.name:
             raise GateError('invalid gate journal')
+        if self.inspection_context is not None and record.get('inspection_context') != self.inspection_context:
+            raise GateError('gate belongs to another owner inspection context')
         return record
 
     def _append(self, base, value):
@@ -196,9 +230,15 @@ class LegacyGate:
             raise GateError('complete reviewed maintenance plan required')
         if any(not row.get('inventory_complete') or row.get('blockers') for row in report['repositories']):
             raise GateError('live, unknown or incomplete maintenance plan cannot be gated')
-        txs, rows, errors = planner.history.load_history()
         policy = {'repositories': {row['alias']: {'path': row['canonical_repository']['path']} for row in report['repositories']}}
-        current = planner.plan(policy, txs, rows, input_errors=errors)
+        if self.inspection_context is not None:
+            if report.get('inspection_context') != self.inspection_context:
+                raise GateError('approved report has a different inspection owner or history')
+            current = owner_report(policy, self.inspection_context, require_root=self.require_root)
+        else:
+            # Compatibility for disposable, non-production state-machine tests.
+            txs, rows, errors = planner.history.load_history()
+            current = planner.plan(policy, txs, rows, input_errors=errors)
         if planner.history._digest(current) != approved_sha256:
             raise GateError('maintenance evidence changed; new review required')
 
@@ -228,7 +268,8 @@ class LegacyGate:
             os.chmod(base / 'plan.json', 0o600)
             json.dump(report, stream, sort_keys=True);stream.write('\n');stream.flush();os.fsync(stream.fileno())
         record = dict(version=1, id=ident, phase='staging', approved_sha256=approved_sha256,
-                      roots=roots, parents=list(parents.values()), started_boot_id=boot)
+                      roots=roots, parents=list(parents.values()), started_boot_id=boot,
+                      inspection_context=self.inspection_context)
         self._save(base, record)
         return self.resume(ident)
 

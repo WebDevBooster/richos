@@ -198,6 +198,10 @@ class GateWorkflow(unittest.TestCase):
         import pwd
         from types import SimpleNamespace
         subprocess.run(['/bin/chmod','+a','user:'+pwd.getpwuid(os.getuid()).pw_name+' allow write',str(self.root)],check=True)
+        account=pwd.getpwuid(os.getuid())
+        context=dict(version=1,owner_uid=os.getuid(),owner_gid=account.pw_gid,
+                     owner_home=os.path.normpath(account.pw_dir),
+                     transactions=str(self.root/'transactions'),ledger=str(self.root/'ledger.jsonl'))
         original=Path.lstat
         def ownership_only(path):
             info=original(path)
@@ -206,7 +210,7 @@ class GateWorkflow(unittest.TestCase):
             # Root ownership is simulated only to reach the production ancestry
             # check. ACL bytes and its rejection are actual macOS behavior.
             with patch.object(gate.os,'geteuid',return_value=0),patch.object(Path,'lstat',ownership_only),self.assertRaisesRegex(gate.GateError,'ACL'):
-                gate.LegacyGate(self.vault)
+                gate.LegacyGate(self.vault,inspection_context=context)
         finally:
             subprocess.run(['/bin/chmod','-N',str(self.root)],check=True)
 
