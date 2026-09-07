@@ -72,6 +72,7 @@
 #   B4  corpus pointer removed          -> RED              each proving that the detector
 #   B5  loro tools removed              -> RED              for one seam is alive on this
 #   B6  the claude stand-in removed     -> RED              run and not a corpse
+#   B6a missing Claude fails first-run setup specifically, even with deferred connection
 #   B7  the saved company removed       -> RED
 #   B8  the company registry corrupted  -> RED
 #   Y1  gui_kill ends an ordinary process, verified by pid and not by signal
@@ -176,7 +177,7 @@ declare_rules() {
   GAP_ID=();      GAP_RE=();      GAP_WHY=()
   REFUSED_ID=();  REFUSED_LINE=(); REFUSED_WHY=()
 
-  # -- the five things a launch has to find ----------------------------------------------
+  # -- the configuration and startup policy a launch must report -------------------------
   # Each regex demands the RESOLVED shape and not merely the topic word: `engine directory:`
   # is printed on both paths, and the failing one reads `NOT FOUND - N place(s) tried`
   # (engine.rs::describe), which this does not match and which nothing else matches either.
@@ -198,9 +199,13 @@ declare_rules() {
     '^\[richos\] activation: (regular|accessory) — (an installed launch|no Dock icon, no window on screen, no focus taken, because this is not an installed launch:|RICHOS_ACTIVATION=)' \
     'whether this launch may activate, and why (activation.rs, 2026-09-06)'
 
-  resolved 'compute lease' \
-    '^\[richos\] compute lease attached over .+$' \
-    'a claude binary was found AND answered the initialize handshake (native.rs)'
+  # The connection starts inside the first accepted request so preparation has Working,
+  # progress and Stop ownership. This line proves the selected startup policy and command,
+  # not an initialize handshake. Executable readiness remains the separate first-run setup
+  # proof below, with B6 requiring that detector specifically when Claude is removed.
+  resolved 'compute startup policy' \
+    '^\[richos\] compute connection: starts with the first cancellable request over .+$' \
+    'the selected compute command is deferred to the first cancellable request (main.rs)'
 
   resolved 'loro read half' \
     '^\[richos\] loro Tier C: compiling from .+ \(via .+\), node .+$' \
@@ -247,8 +252,8 @@ declare_rules() {
   # A CLAIM ABOUT THE MACHINE, HELD TO. `setup_view::detect` looks for Claude Code and for
   # the engine and this sentence asserts it found both — it is the boot checking the world
   # and reporting a verdict, not reporting a setting. Held as a proof, B3 (engine pointer
-  # removed) and B6 (claude removed) each turn it red on top of their own detector, which is
-  # the redundancy a claim of this shape has earned.
+  # removed) and B6 (claude removed) each turn it red. B6 checks this specific proof, because
+  # boot deliberately does not attempt a compute handshake any more.
   resolved 'first-run setup' \
     '^\[richos\] first-run setup: nothing missing\.$' \
     'Claude Code and the engine are both installed where setup.rs looks (main.rs:1147, 57cd903)'
@@ -640,6 +645,8 @@ trap cleanup EXIT INT TERM
 # interview` forms both refused below were captured on the same binary in
 # `raw/C3-boot-first-run-no-central-folder.log`, so the refused declarations are transcripts
 # too rather than sentences somebody imagined the boot might say.
+# On 2026-09-07 compute attachment moved into the first cancellable request. Its boot
+# diagnostic records that policy; the separate first-run setup line still checks installation.
 healthy_log() {
   cat <<'LOG'
 [richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: /m/Applications/RichOS.app/Contents/Info.plist carries no readable CFBundleIdentifier; a program is holding this process (parent pid 60123), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
@@ -652,7 +659,7 @@ healthy_log() {
 [richos] loro Tier C: compiling from /m/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
 [richos] loro correction desk: writing to /m/corpus via /m/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
 [richos] engine directory: /m/.claude/richos-engine (via engine install pointer)
-[richos] compute lease attached over /m/.local/bin/claude
+[richos] compute connection: starts with the first cancellable request over /m/.local/bin/claude
 [richos] first-run setup: nothing missing.
 [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked
 [richos] boot complete — every line above is what this launch resolved
@@ -822,6 +829,15 @@ break_and_boot "the engine pointer is removed -> caught"      B3 rm -f  .claude/
 break_and_boot "the corpus pointer is removed -> caught"      B4 rm -rf "Library/Application Support/RichOS/corpus" RichOS
 break_and_boot "the loro tools are removed -> caught"         B5 rm -rf "Library/Application Support/RichOS/loro-tools"
 break_and_boot "the claude stand-in is removed -> caught"     B6 rm -f  .local/bin/claude
+# Require the intended readiness detector, not an unrelated boot failure. The deferred
+# compute-policy line alone must never certify a machine with no executable to connect to.
+if grep -Fq 'NOT RESOLVED  first-run setup' "$TMP/broken-B6.report" \
+  && grep -Fq '[richos] first-run setup: Claude Code is NOT installed' "$TMP/broken-B6.log"; then
+  ok "B6a missing Claude is rejected specifically by first-run setup"
+else
+  bad "B6a missing Claude is rejected specifically by first-run setup" \
+      "the executable-readiness proof did not detect the missing Claude stand-in"
+fi
 break_and_boot "the saved company is removed -> caught"       B7 rm -f  "Library/Application Support/com.richos.app/config.json"
 
 # B8 — the seam the entity registry added, and the break is a CORRUPTION rather than a
