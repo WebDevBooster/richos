@@ -110,6 +110,35 @@ class Jobs(unittest.TestCase):
     def test_retirement_lost_response_replays_after_sources_are_gone(self):
         self.lost_operation('retirement',job.retirement,'retire','replay')
 
+    def test_expiry_classification_is_durable_before_retirement_and_never_rebuilt_afterward(self):
+        self.ready();self.next_boot();self.until('retirement');real=job.retirement.retire
+        def lose(*args,**kwargs):
+            saved=job._read(self.base)['captures'][0]
+            self.assertEqual(saved['expiry']['capture_receipt_sha256'],saved['receipt_sha256'])
+            self.assertEqual(saved['expiry']['state'],'retained')  # Unique working bytes.
+            real(*args,**kwargs)
+            raise RuntimeError('lost retirement response')
+        with patch.object(job.retirement,'retire',side_effect=lose):
+            self.assertEqual(self.advance()['state'],'failed')
+        with patch.object(job,'load',side_effect=AssertionError('must use durable pre-retirement proof')):
+            self.assertNotEqual(self.advance()['state'],'failed')
+        self.until('complete')
+        capture_path=Path(job._read(self.base)['captures'][0]['path'])
+        with patch.object(job,'load',side_effect=AssertionError('dirty recovery must stay retained')):
+            result=job.expire_completed(self.manager,self.ident,repositories={})
+        self.assertEqual(result['recovery_expiry']['states'],{'retained':1})
+        self.assertTrue((capture_path/'recovery.tar.gz').is_file())
+
+    def test_historical_job_never_acquires_archive_expiry_authority(self):
+        self.ready();record=job._read(self.base);record.pop('expiry_policy_version');job._save(self.base,record)
+        self.next_boot();self.until('complete')
+        record=job._read(self.base)
+        self.assertNotIn('expiry',record['captures'][0])
+        with patch.object(job,'load',side_effect=AssertionError('historical archive must not be reclassified')):
+            result=job.expire_completed(self.manager,self.ident,repositories={})
+        self.assertFalse(result['recovery_expiry']['enabled'])
+        self.assertTrue((Path(record['captures'][0]['path'])/'recovery.tar.gz').is_file())
+
     def test_branch_lost_response_replays_after_ref_is_gone(self):
         self.lost_operation('branches',job.mutation,'publish','replay')
 

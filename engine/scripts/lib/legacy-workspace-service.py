@@ -73,7 +73,10 @@ class LegacyMaintenanceService:
     def _progress(value):
         # Ignore observation timestamps and repeated error text when deciding
         # whether another immediate advancement could make useful progress.
-        return {key:value.get(key) for key in ('phase','state','candidate_index','branch_group_index','step','complete')}
+        result = {key:value.get(key) for key in ('phase','state','candidate_index','branch_group_index','step','complete')}
+        expiry = value.get('recovery_expiry') or {}
+        result['recovery_expiry'] = {key:expiry.get(key) for key in ('enabled','states')}
+        return result
 
     def sweep(self):
         started=time.time();rows=[];progress=False;error=None
@@ -106,6 +109,9 @@ class LegacyMaintenanceService:
                         with self.lock:self.cache['records']=list(rows)
                         self.job.advance(gate,ident,scratch_root=scratch)
                     after=self.job.status(gate,ident)
+                    if after.get('phase') == 'complete':
+                        self.job.expire_completed(gate, ident, repositories=self.policy['repositories'])
+                        after=self.job.status(gate,ident)
                     progress |= self._progress(before)!=self._progress(after)
                     updated=self._compact(after,ident,owner)
                 except Exception as exc:
@@ -121,7 +127,7 @@ class LegacyMaintenanceService:
 
     @staticmethod
     def _compact(value,ident,owner):
-        compact={key:value.get(key) for key in ('phase','state','candidate_index','candidate_count','branch_group_index','branch_group_count','last_error') if key in value}
+        compact={key:value.get(key) for key in ('phase','state','candidate_index','candidate_count','branch_group_index','branch_group_count','last_error','recovery_expiry') if key in value}
         if compact.get('last_error'):compact['last_error']=str(compact['last_error'])[:512]
         return dict(compact,gate_id=ident,owner_uid=owner)
 

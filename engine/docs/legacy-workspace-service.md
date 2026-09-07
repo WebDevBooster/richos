@@ -28,6 +28,13 @@ step promptly. Unchanged waiting or failed states back off to the normal sweep
 interval. The broker logs changes in actionable failures without repeating
 unchanged warnings on every pass.
 
+Completed jobs are not retired again. The worker separately advances their
+saved clean recovery proofs under the current approved alias retention policy.
+After the retention interval, verified bulk archives can be removed while
+compact metadata and Git recovery refs remain. Historical, dirty or uncertain
+archives stay retained. Expiry progress and bounded failure reasons appear in
+the same owner-filtered status, independently of the completed retirement phase.
+
 The complete disposable test drives the actual archive, recovery refs,
 retirement journal, branch publication and gate restoration through this worker.
 The broker socket test deliberately blocks a legacy capture and verifies that

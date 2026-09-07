@@ -25,6 +25,10 @@ scratch inodes and changed original data stop the job.
 `advance(gate, gate_id, scratch_root=..., trusted_git=...)` performs at most one
 durable step. For each candidate it captures recovery bytes, publishes additive
 object recovery refs and retires the old registration and working directory.
+New jobs record their recovery-expiry policy version at arming. Before retiring
+a candidate, they durably save its exact clean/retained classification and any
+compact metadata proof. A retirement retry uses that saved result after the
+original directory is gone. Older jobs are never reclassified retroactively.
 It then publishes the exact approved branch selections, grouped by repository,
 and restores access to surviving gate roots. Every primitive selection is saved
 before invocation. Matching publication or retirement journals are replayed
@@ -39,6 +43,14 @@ bounded failure reason. Failures before restoration keep the gate closed. If
 restore completes but its response is lost, the next advance recognizes the
 restored receipt and finishes the job. Retries keep the approved scope fixed.
 
+`expire_completed` separately processes saved clean proofs after restoration.
+It checks the selected alias, canonical path, owner and current approved
+retention policy before invoking the [expiry executor](legacy-workspace-expiry.md).
+It never reruns retirement or expands the candidate list. Status includes
+recovery-expiry state counts and up to three bounded retention/failure details.
+Completion of directory retirement and completion of recovery expiry are
+reported separately.
+
 The broker background worker and explicit admin commands supply installation,
 policy and scheduling integration. This module itself does not activate a
-service, arm jobs through an unprivileged socket or expire recovery archives.
+service or arm jobs through an unprivileged socket.

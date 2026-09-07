@@ -75,6 +75,22 @@ class Service(unittest.TestCase):
     def test_completed_jobs_are_not_reexecuted(self):
         self.add();self.job.status.return_value={'phase':'complete'}
         self.assertFalse(self.instance.sweep());self.job.advance.assert_not_called()
+        self.job.expire_completed.assert_called_once()
+        self.assertEqual(self.job.expire_completed.call_args.kwargs['repositories'],self.policy['repositories'])
+
+    def test_incomplete_or_revoked_jobs_never_enter_archive_expiry(self):
+        self.add();self.instance.sweep();self.job.expire_completed.assert_not_called()
+        self.job.status.return_value={'phase':'complete'}
+        self.policy['repositories']['repo']['owners']=[]
+        self.instance.sweep();self.job.expire_completed.assert_not_called()
+
+    def test_completed_archive_progress_is_visible_without_replaying_retirement(self):
+        self.add()
+        self.job.status.side_effect=[{'phase':'complete','recovery_expiry':{'states':{'clean-prepared':1}}},
+            {'phase':'complete','recovery_expiry':{'states':{'clean-prepared':1}}},
+            {'phase':'complete','recovery_expiry':{'states':{'expired':1}}}]
+        self.assertTrue(self.instance.sweep());self.job.advance.assert_not_called()
+        self.assertEqual(self.instance.status(self.owner)['records'][0]['recovery_expiry']['states'],{'expired':1})
 
     def test_only_durable_phase_progress_requests_immediate_followup(self):
         self.add();self.job.status.side_effect=[{'phase':'capture','last_attempt_at':1},{'phase':'handoff','last_attempt_at':2}]
@@ -111,7 +127,8 @@ class CompleteService(unittest.TestCase):
     def test_service_drives_real_armed_job_through_reclamation_and_restore(self):
         self.ready();owner=os.getuid()
         adapter=SimpleNamespace(status=job_fixture.job.status,
-            advance=lambda gate,ident,**kwargs:job_fixture.job.advance(gate,ident,trusted_git=self.binary,**kwargs))
+            advance=lambda gate,ident,**kwargs:job_fixture.job.advance(gate,ident,trusted_git=self.binary,**kwargs),
+            expire_completed=lambda gate,ident,**kwargs:job_fixture.job.expire_completed(gate,ident,trusted_git=self.binary,**kwargs))
         worker=service.LegacyMaintenanceService({'private_root':str(self.root),'owners':{str(owner):{'gid':os.getgid()}},
             'repositories':{}},require_root=False,job_module=adapter,gate_module=job_fixture.fixtures.gate)
         worker.root=self.vault

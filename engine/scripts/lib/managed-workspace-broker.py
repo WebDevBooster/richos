@@ -28,7 +28,8 @@ CODE_FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py", "ma
               "legacy-workspace-admin.py", "legacy-workspace-gate.py", "legacy-workspace-inspection.py", "legacy-workspace-maintenance.py",
               "terminal-branch-cleanup.py", "worktree-ledger.py", "worktree-transactions.py",
               "terminal-branch-shadow.py", "legacy-workspace-mutation.py", "legacy-workspace-capture.py",
-              "terminal-recovery-shadow.py", "legacy-workspace-retirement.py", "legacy-workspace-job.py", "legacy-workspace-service.py", "legacy-workspace-acceptance.py", "durable-filesystem-identity.py")
+              "terminal-recovery-shadow.py", "legacy-workspace-retirement.py", "legacy-workspace-job.py", "legacy-workspace-service.py", "legacy-workspace-acceptance.py", "durable-filesystem-identity.py",
+              "workspace-recovery-metadata.py", "legacy-workspace-expiry.py")
 MAX_REQUEST = 65536
 MAX_RESPONSE = 1048576
 

@@ -6,6 +6,7 @@ Run from a reviewed root-owned release with the root-owned Command Line Tools
 Python using -I -S -B.
 """
 import argparse
+import base64
 import importlib.util
 import json
 import os
@@ -87,6 +88,24 @@ def main():
         write(source, 'tracked', 'original')
         git(source, 'add', '.'); git(source, 'commit', '-qm', 'fixture')
         commit = git(source, 'rev-parse', 'HEAD')
+        # Test the new late-expiry Git boundary with actual owner credentials.
+        # This is separate from the previously completed real reboot test.
+        expiry = load('installed_expiry', 'legacy-workspace-expiry.py')
+        context = dict(owner_uid=owner[0], owner_gid=owner[1])
+        observed = expiry._user_git(expiry.shadow.TRUSTED_GIT, context, source, 'rev-parse', '--verify', 'HEAD')
+        expiry._user_git(expiry.shadow.TRUSTED_GIT, context, source, 'rev-list', '--objects',
+            '--no-object-names', '--missing=error', '--stdin', input=(commit+'\n').encode(), discard=True)
+        check('installed-legacy-expiry-verifies-git-as-owner', observed.decode().strip() == commit)
+        private_config = private/'owner-boundary.config'
+        private_config.write_text('[acceptance]\nmarker = protected-fixture-only\n')
+        private_config.chmod(0o600)
+        refused = False
+        try:
+            expiry._user_git(expiry.shadow.TRUSTED_GIT, context, source, 'config', '--file',
+                             str(private_config), '--get', 'acceptance.marker')
+        except expiry.ExpiryError:
+            refused = True
+        check('installed-legacy-expiry-cannot-read-root-private-metadata', refused)
         record, work = create(source, commit, 'cutoff')
         ident = record['id']; image = private / ident / 'image.sparsebundle'
         denied = child(['/usr/bin/python3', '-I', '-S', '-c',
@@ -126,6 +145,13 @@ def main():
         # force-unmount invalidates acceptance and does not enable production.
         record2, work2 = create(source, commit, 'authority')
         ident2 = record2['id']
+        attribute_name = 'org.richos.acceptance.metadata'
+        attribute_bytes = b'\x00exact attribute bytes\xff\n'
+        attribute_write = child(['/usr/bin/xattr', '-wx', attribute_name,
+                                 attribute_bytes.hex(), str(work2/'tracked')])
+        check('owner-writes-binary-extended-attribute', attribute_write.returncode == 0)
+        metadata_bytes = 'unique Git administration state\n'
+        write(work2, '.git/canary-private-state', metadata_bytes)
         for command in ('hdiutil', 'diskutil'):
             current = manager.provider.inspect(ident2)
             device = manager.provider._device(current['attachment'])
@@ -139,8 +165,41 @@ def main():
         manager.terminal(ident2, session_id=run_id, agent_id='agent-clean')
         clean = manager.reconcile(ident2)
         check('clean-recovery-created', clean['state'] == 'retained', clean.get('last_error', ''))
+        attributes_path = private/ident2/'extended-attributes.json'
+        metadata_path = private/ident2/'compact-metadata.json'
+        attributes_bytes = attributes_path.read_bytes()
+        compact_bytes = metadata_path.read_bytes()
+        attributes = json.loads(attributes_bytes)
+        compact = json.loads(compact_bytes)
+        preserved = next(row for row in attributes['entries'] if row['path'] == 'tracked')
+        check('clean-proof-preserves-exact-attribute-and-git-metadata-bytes',
+              clean.get('cleanliness_proof_version') == 4 and clean.get('has_uncommitted_data') is False
+              and base64.b64decode(preserved['attributes'][attribute_name]) == attribute_bytes
+              and base64.b64decode(compact['contents']['.git/canary-private-state']).decode() == metadata_bytes)
+        for path, original in ((attributes_path, attributes_bytes), (metadata_path, compact_bytes)):
+            held = path.with_name(path.name + '.acceptance-held')
+            if held.exists() or held.is_symlink():
+                raise RuntimeError('unexpected fixture metadata test path')
+            path.rename(held)
+            try:
+                refused = manager.reconcile(ident2, now=clean['expires_at']+1)
+                check('missing-' + path.name + '-blocks-expiry', refused['state'] == 'retained'
+                      and (private/ident2/'recovery.dmg').is_file())
+            finally:
+                held.rename(path)
+            path.write_bytes(original + b'\n')
+            try:
+                refused = manager.reconcile(ident2, now=clean['expires_at']+1)
+                check('altered-' + path.name + '-blocks-expiry', refused['state'] == 'retained'
+                      and (private/ident2/'recovery.dmg').is_file())
+            finally:
+                path.write_bytes(original)
         expired = manager.reconcile(ident2, now=clean['expires_at']+1)
         check('clean-recovery-expires', expired['state'] == 'expired', expired.get('last_error', ''))
+        check('compact-recovery-survives-bulk-image-expiry',
+              not (private/ident2/'recovery.dmg').exists()
+              and attributes_path.read_bytes() == attributes_bytes
+              and metadata_path.read_bytes() == compact_bytes)
         # Run the actual protected broker and its legacy worker against ONLY
         # this run's disposable roots/source. No launchd or public config change.
         fixture_policy = dict(version=1, private_root=str(private), active_root=str(active),

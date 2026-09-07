@@ -103,11 +103,23 @@ def _lock(gate, ident):
 
 
 def _summary(record, *, progressed=False):
+    expiry = {'enabled': record.get('expiry_policy_version') == 1, 'states': {}, 'details': []}
+    detail_count = 0
+    for index, item in enumerate(record['captures']):
+        result = item.get('expiry_result') or item.get('expiry') or {}
+        state = result.get('state', 'unclassified')
+        expiry['states'][state] = expiry['states'].get(state, 0) + 1
+        reason = result.get('last_error') or result.get('reason')
+        if reason:
+            detail_count += 1
+            if len(expiry['details']) < 3:
+                expiry['details'].append(dict(candidate_index=index, state=state, reason=str(reason)[:512]))
+    expiry['details_truncated'] = detail_count > len(expiry['details'])
     return dict(gate_id=record['gate_id'],owner_uid=(record.get('inspection_context') or {}).get('owner_uid'),
         state=record['state'],phase=record['phase'],candidate_index=record['candidate_index'],
         candidate_count=len(record['selection']['candidates']),branch_group_index=record['branch_group_index'],
         branch_group_count=len(record['branch_groups']),last_error=record.get('last_error'),
-        progressed=progressed,approved_selection_sha256=record['approved_selection_sha256'])
+        progressed=progressed,approved_selection_sha256=record['approved_selection_sha256'], recovery_expiry=expiry)
 
 
 def status(gate, ident):
@@ -147,7 +159,8 @@ def arm(gate, selection, *, approved_selection_sha256, scratch_root):
                 approved_selection_sha256=approved_selection_sha256,inspection_context=gated.get('inspection_context'),
                 scratch_root=str(scratch),scratch_nonce=str(uuid.uuid4()),scratch={},
                 state='waiting-for-boot',phase='capture' if selection['candidates'] else 'branches',
-                candidate_index=0,branch_group_index=0,branch_groups=groups,captures=[],pending=None,last_error=None)
+                candidate_index=0,branch_group_index=0,branch_groups=groups,captures=[],pending=None,last_error=None,
+                expiry_policy_version=1)
             _save(base,record)
             return _summary(record,progressed=True)
 
@@ -282,6 +295,25 @@ def _step(gate,base,record,scratch,binary):
             else:mutation.publish_recovery(gate,pending['selection'],approved_selection_sha256=pending['sha256'],scratch_root=scratch,trusted_git=binary)
             record['phase']='retirement'
         else:
+            # Proof and compact recovery metadata must be durable while the
+            # original source is still behind the frozen gate. A replay after
+            # retirement uses this exact saved proof, never reclassifies an
+            # absent source or retrofits an older job's approval.
+            if record.get('expiry_policy_version') == 1 and 'expiry' not in item:
+                if _marker(base,'retirement.json',pending):
+                    raise JobError('retirement started without durable expiry classification')
+                prepared = load('legacy-workspace-expiry').prepare(gate, ident,
+                    approved_gate_sha256=scope['gate_sha256'], repo_alias=chosen['repo_alias'],
+                    capture_path=item['path'], capture_receipt_sha256=item['receipt_sha256'],
+                    scratch_root=scratch, trusted_git=binary)
+                if (prepared.get('version') != 1 or prepared.get('state') not in ('clean-prepared','retained')
+                        or prepared.get('capture_path') != item['path']
+                        or prepared.get('capture_receipt_sha256') != item['receipt_sha256']
+                        or prepared.get('state') == 'clean-prepared' and
+                           not re.fullmatch(r'[0-9a-f]{64}', prepared.get('proof_sha256') or '')):
+                    raise JobError('expiry classification does not bind the selected capture')
+                item['expiry'] = prepared
+                _save(base, record)
             if _marker(base,'retirement.json',pending):retirement.replay(gate,ident,approved_selection_sha256=pending['sha256'],scratch_root=scratch,trusted_git=binary)
             else:retirement.retire(gate,pending['selection'],approved_selection_sha256=pending['sha256'],scratch_root=scratch,trusted_git=binary)
             record['candidate_index']+=1
@@ -304,6 +336,51 @@ def _step(gate,base,record,scratch,binary):
     if phase=='restore':
         gate.restore(ident,approved_sha256=scope['gate_sha256']);record['phase']='complete';record['state']='complete';return
     raise JobError('unknown job phase')
+
+
+def expire_completed(gate, ident, *, repositories, now=None, trusted_git=shadow.TRUSTED_GIT):
+    """Reclaim only proven-clean captures of an already completed exact job."""
+    with _lock(gate, ident) as base:
+        record = _read(base)
+        if gate.inspection_context is not None and record['inspection_context'] != gate.inspection_context:
+            raise JobError('job belongs to another owner context')
+        if record['phase'] != 'complete' or record['state'] != 'complete':
+            raise JobError('legacy recovery expiry requires a completed job')
+        if record.get('expiry_policy_version') != 1:
+            return _summary(record)
+        scope = record['selection']
+        if len(record['captures']) != len(scope['candidates']):
+            raise JobError('completed job capture inventory differs from selection')
+        plan = json.loads(shadow._bytes(base/'plan.json', 16*1024*1024))
+        if shadow.digest(plan) != scope['gate_sha256']:
+            raise JobError('expiry gate plan identity changed')
+        owner = (record.get('inspection_context') or {}).get('owner_uid')
+        for chosen, item in zip(scope['candidates'], record['captures']):
+            proof = item.get('expiry')
+            # Missing and dirty proofs stay retained, including historical
+            # records. Expiry never reads current working files to upgrade one.
+            if not isinstance(proof, dict) or proof.get('state') != 'clean-prepared':
+                continue
+            try:
+                if (proof.get('capture_path') != item['path']
+                        or proof.get('capture_receipt_sha256') != item['receipt_sha256']):
+                    raise JobError('saved expiry proof capture binding changed')
+                approved_repo, _ = _candidate(plan, chosen)
+                policy = repositories.get(chosen['repo_alias'])
+                if (not isinstance(policy, dict) or owner not in policy.get('owners', [])
+                        or policy.get('path') != approved_repo['canonical_repository']['path']
+                        or type(policy.get('retention_days')) is not int
+                        or not 1 <= policy['retention_days'] <= 365):
+                    raise JobError('current owner/repository retention policy differs from approved scope')
+                item['expiry_result'] = load('legacy-workspace-expiry').expire(gate, ident,
+                    approved_gate_sha256=scope['gate_sha256'], repo_alias=chosen['repo_alias'],
+                    capture_path=item['path'], capture_receipt_sha256=item['receipt_sha256'],
+                    proof_sha256=proof['proof_sha256'], retention_days=policy['retention_days'],
+                    now=now, trusted_git=trusted_git)
+            except Exception as error:
+                item['expiry_result'] = dict(state='failed', last_error=str(error)[:512])
+            _save(base, record)
+        return _summary(record)
 
 
 def advance(gate, ident, *, scratch_root, trusted_git=shadow.TRUSTED_GIT):

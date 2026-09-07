@@ -30,11 +30,16 @@ retired. Restoration does not recreate them or overwrite a newly created user
 directory at that old path. Nested retirement removes only the selected subtree.
 The canonical checkout and unrelated workspaces retain their original metadata.
 
-Recovery remains unclassified and retained. The archive contains working files,
+Standalone retirements and historical jobs retain their recovery archives. The archive contains working files,
 the index and per-worktree Git metadata, including custom PAX attributes for
 original filesystem metadata. It depends on the preserved common Git objects
 and is not a standalone repository. See [capture](legacy-workspace-capture.md)
 and [object recovery refs](terminal-recovery-shadow.md).
+
+New armed jobs also prepare a [clean recovery expiry proof](legacy-workspace-expiry.md)
+before retirement. Only a completed job with that exact saved proof can later
+expire its bulk archive. Compact metadata and verified Git recovery refs remain.
+Dirty or uncertain captures retain the complete archive.
 
 Tiny real-Git tests exercise dirty working/staged bytes, missing handoff and
 corrupted archive refusal, interrupted unlink and inventory updates, partial

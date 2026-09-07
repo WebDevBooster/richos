@@ -93,10 +93,11 @@ Ordinary existing branches are retired only through that frozen selection.
 Future managed workers avoid this source-branch backlog by delivering through
 UUID refs. Removing a workspace is not evidence of a completed merge.
 
-Legacy recovery archives currently remain retained without automatic expiry.
-The executor reclaims the selected active directories and registrations while
-preserving a compressed recovery copy and Git recovery refs. Managed clean
-images have the configured expiry policy; unique or unclassified working data,
-raw failed-creation recovery and legacy archives do not yet have permission or
-an implemented proof-based path for automatic archive deletion. Report those
-retained bytes separately from bytes actually reclaimed.
+New armed legacy jobs can expire proven-clean bulk recovery after the approved
+repository retention interval. They must save the clean proof and compact
+metadata before retirement. Managed clean images also require verified compact
+metadata before expiry, including extended attributes and non-object Git bytes.
+Historical archives without such proofs, unique working data, unclassified
+captures and raw failed-creation recovery remain retained. Report those retained
+bytes separately from bytes actually reclaimed. See the
+[legacy expiry contract](legacy-workspace-expiry.md).
