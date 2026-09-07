@@ -464,6 +464,8 @@ fn a_stop_request_that_outlived_the_process_is_applied_at_startup_not_replayed()
     spine.reconcile_intake().unwrap();
 
     assert_eq!(spine.ledger().turn(&turn_id).unwrap().state, TurnState::Stopped);
+    assert_eq!(spine.ledger().turn(&turn_id).unwrap().active_ms(), None,
+        "a replayed Stop must not count the closed-app interval as active work");
     assert!(control.pending_intake().is_empty(), "the request was applied and marked drained");
 }
 

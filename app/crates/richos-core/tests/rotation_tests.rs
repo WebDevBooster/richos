@@ -103,14 +103,15 @@ fn explicit_rotation_swaps_the_lease_and_the_conversation_survives_it() {
 
     assert_eq!(spine.rotation_count(), 0, "no rotation triggered yet");
 
-    // Force the rotation NOW, at the current (clear) turn boundary.
+    // Schedule it without doing invisible model work after the terminal event.
     spine.request_rotation("test-forced").unwrap();
-    assert_eq!(spine.rotation_count(), 1);
-    assert_eq!(spine.last_rotation_reason(), Some("test-forced"));
+    assert_eq!(spine.rotation_count(), 0);
 
     // Turn 2, on the SUCCESSOR lease — the CEO just keeps talking.
     let turn2 = spine.submit_prompt("and what's still open from before?", Source::Text).unwrap();
     let session_after_turn2 = spine.ledger().turn(&turn2).unwrap().session_id.clone();
+    assert_eq!(spine.rotation_count(), 1);
+    assert_eq!(spine.last_rotation_reason(), Some("test-forced"));
 
     // Different backing sessions...
     assert_ne!(session_after_turn1, session_after_turn2, "rotation actually swapped the lease");
@@ -187,6 +188,8 @@ fn the_watermark_is_driven_by_the_measured_usage_not_by_the_char_estimate() {
 
     assert_eq!(spine.context_source(), ContextSource::Estimated, "nothing reported yet");
     spine.submit_prompt("hello", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "rotation waits for a cancellable request");
+    spine.submit_prompt("next request", Source::Text).unwrap();
 
     // 700_000 / 1_000_000 = 0.70, and the default ratio is 0.70 -> reached (>=, not >).
     assert_eq!(spine.rotation_count(), 1, "the MEASURED watermark rotated at the boundary");
@@ -232,6 +235,8 @@ fn a_lease_that_has_not_reported_yet_still_rotates_sensibly() {
     spine.set_context_budget(1000, 0.001); // threshold = 1 token
 
     spine.submit_prompt("hello", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "rotation waits for a cancellable request");
+    spine.submit_prompt("next request", Source::Text).unwrap();
 
     assert_eq!(spine.rotation_count(), 1, "the ESTIMATE still triggers rotation when it is all we have");
     assert_eq!(spine.last_rotation_reason(), Some("context-watermark"));
@@ -278,6 +283,7 @@ fn removing_the_measurement_brings_the_defect_back_the_lease_runs_to_the_wall_un
     measured.attach_lease(Box::new(ReportingCognition::new("sess-m", vec![(990_000, 1_000_000)], "ok")));
     measured.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["successor"])));
     measured.submit_prompt("hello", Source::Text).unwrap();
+    measured.submit_prompt("next request", Source::Text).unwrap();
 
     let (path_b, ledger_b) = tmp_ledger("negctl-blind");
     let mut blind = support::spine(ledger_b);
@@ -285,6 +291,7 @@ fn removing_the_measurement_brings_the_defect_back_the_lease_runs_to_the_wall_un
     blind.attach_lease(Box::new(MockCognition::new("sess-b", vec!["ok"])));
     blind.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["successor"])));
     blind.submit_prompt("hello", Source::Text).unwrap();
+    blind.submit_prompt("next request", Source::Text).unwrap();
 
     assert!(measured.rotation_count() >= 1, "with the measurement, it rotates");
     assert_eq!(
@@ -318,6 +325,8 @@ fn a_successor_never_inherits_its_predecessors_measurement() {
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["successor reply", "another"])));
 
     spine.submit_prompt("hello", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "rotation waits for a cancellable request");
+    spine.submit_prompt("next request", Source::Text).unwrap();
     assert_eq!(spine.rotation_count(), 1, "the measured watermark rotated once");
     assert_eq!(spine.last_rotation_reason(), Some("context-watermark"));
 
@@ -364,7 +373,9 @@ fn a_mid_turn_crossing_of_the_hard_limit_is_recorded_and_settled_at_the_boundary
     let turn_id = msgs.last().unwrap().turn_id.clone();
     assert_eq!(spine.ledger().turn(&turn_id).unwrap().state, TurnState::Completed);
 
-    // 2. It rotated at the boundary, under the reason that names WHY.
+    // 2. It waits until the next request owns its progress and Stop control.
+    assert_eq!(spine.rotation_count(), 0);
+    spine.submit_prompt("next request", Source::Text).unwrap();
     assert_eq!(spine.rotation_count(), 1);
     assert_eq!(spine.last_rotation_reason(), Some("context-critical"));
 
@@ -486,6 +497,8 @@ fn watermark_triggers_rotation_automatically_at_the_next_turn_boundary() {
     assert!(!spine.watermark_reached(), "0 tokens is below a 1-token threshold");
 
     spine.submit_prompt("hello", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "rotation waits for a cancellable request");
+    spine.submit_prompt("next request", Source::Text).unwrap();
 
     assert_eq!(spine.rotation_count(), 1, "watermark crossing scheduled a rotation automatically");
     assert_eq!(spine.last_rotation_reason(), Some("context-watermark"));
@@ -562,6 +575,7 @@ fn rotation_re_primes_the_successor_with_identity_and_the_action_ledger() {
     spine.set_lease_factory(Box::new(factory));
 
     spine.request_rotation("test").unwrap();
+    spine.submit_prompt("continue", Source::Text).unwrap();
     assert_eq!(spine.rotation_count(), 1);
 
     let per_spawn_reprimes = spawned_reprimes.lock().unwrap();
@@ -604,6 +618,7 @@ fn clean_rotation_asks_the_outgoing_lease_for_a_self_authored_handoff_summary() 
 
     spine.submit_prompt("what's the Acme status?", Source::Text).unwrap();
     spine.request_rotation("test").unwrap();
+    spine.submit_prompt("continue", Source::Text).unwrap();
 
     // The outgoing lease was asked TWO things: the CEO's real turn, then the internal
     // handoff-summary request (in that order).

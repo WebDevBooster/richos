@@ -323,11 +323,14 @@ pub struct CancellableMockCognition {
 pub struct CancelFlag {
     flag: AtomicBool,
     /// Whether a cancel was ever requested — separate from `flag`, which the lease clears
-    /// at the start of each turn, so a test can tell "never asked" from "asked and acted on".
+    /// at the start of each accepted operation, so tests can distinguish asking from acting.
     pub requested: AtomicBool,
 }
 
 impl TurnCancel for CancelFlag {
+    fn begin_operation(&self) { self.flag.store(false, Ordering::SeqCst); }
+    fn end_operation(&self) { self.flag.store(false, Ordering::SeqCst); }
+
     fn cancel(&self) -> bool {
         self.requested.store(true, Ordering::SeqCst);
         self.flag.store(true, Ordering::SeqCst);
@@ -363,7 +366,6 @@ impl Cognition for CancellableMockCognition {
 
     fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
         self.prompts.lock().unwrap().push(text.to_string());
-        self.cancel.flag.store(false, Ordering::SeqCst);
         let mut seq = 0u64;
         for chunk in &self.chunks {
             if self.cancel.flag.load(Ordering::SeqCst) {

@@ -1170,16 +1170,13 @@ impl Spine {
         self.last_rotation_reason.as_deref()
     }
 
-    /// The explicit rotation trigger (continuity §3.2 "Explicit (!rotate equivalent)").
-    /// If a turn is currently in flight, the request is honored at the NEXT turn
-    /// boundary instead — rotation NEVER happens mid-turn (§3.1).
+    /// Schedule a fresh lease for the next accepted request. Its preparation then
+    /// owns the wait, Stop and any error, before the user prompt reaches a model.
     pub fn request_rotation(&mut self, reason: &str) -> Result<(), SpineError> {
-        if self.turn_in_progress {
-            self.pending_rotation_reason = Some(reason.to_string());
-            return Ok(());
-        }
-        let binding = self.ensure_active_thread()?;
-        self.rotate_lease(&binding, reason)
+        if self.lease_factory.is_none() { return Err(SpineError::NoLeaseFactory); }
+        self.ensure_active_thread()?;
+        self.pending_rotation_reason = Some(reason.to_string());
+        Ok(())
     }
 
     /// Raise a proactive message (the attention seam's persistence + UI half — UX §5).
@@ -2361,6 +2358,11 @@ impl Spine {
         let interrupted: Vec<String> = self.ledger.pending_turns().iter()
             .filter(|turn| turn.source != Source::Internal)
             .map(|turn| turn.id.clone()).collect();
+        for record in self.control.pending_intake() {
+            if let IntakeRecord::Stop { turn_id, at, .. } = record {
+                self.ledger.stop_turn_after_restart(&turn_id, at)?;
+            }
+        }
         self.drain_intake()?;
         for id in interrupted {
             let Some(turn) = self.ledger.turn(&id) else { continue };
@@ -2368,7 +2370,7 @@ impl Spine {
                 continue;
             }
             let binding = self.ledger.thread_binding(&turn.thread_id)?;
-            self.ledger.interrupt_turn(&id, "RichOS closed before this request finished. Your message is saved; send it again to retry.")?;
+            self.ledger.interrupt_turn_after_restart(&id, "RichOS closed before this request finished. Your message is saved; send it again to retry.")?;
             self.emit_live(self.turn_status_event(&binding, &id, TurnStatus::Failed, None));
             self.emit_live(self.thread_summary_event(&binding, &id, ThreadStatus::Failed));
         }
@@ -2408,10 +2410,10 @@ impl Spine {
         self.drain_intake()?;
         self.settle_stop_claim(binding)?;
         self.settle_context_pressure()?;
-        if let Some(reason) = self.pending_rotation_reason.take() {
-            self.rotate_lease(binding, &reason)?;
-        } else if self.lease_factory.is_some() && self.watermark_reached() {
-            self.rotate_lease(binding, "context-watermark")?;
+        // Never start hidden model roundtrips after telling the user the request
+        // finished. The next request performs this work under Working and Stop.
+        if self.pending_rotation_reason.is_none() && self.lease_factory.is_some() && self.watermark_reached() {
+            self.pending_rotation_reason = Some("context-watermark".to_string());
         }
         Ok(())
     }
@@ -2427,7 +2429,7 @@ impl Spine {
     ///    visibility, so it never reaches the CEO's view and is excluded from the re-prime
     ///    digest (`reprime.rs`) — the standing order is that Rich never reveals rotation,
     ///    and this is rotation's cause.
-    /// 2. **The next boundary rotates, whatever the configured ratio says.** An operator
+    /// 2. **The next boundary schedules rotation, whatever the configured ratio says.** An operator
     ///    who set `watermark_ratio` to 0.99 has, at 0.95 measured, already been overtaken
     ///    by events; `context-critical` outranks the policy that let it get here.
     /// 3. **Nothing rotates now.** `after_turn_boundary` is only ever reached with
@@ -2688,9 +2690,8 @@ impl Spine {
         outcome
     }
 
-    /// App-owned CLEAN rotation at a turn boundary (continuity §3.3). Only ever called
-    /// from `after_turn_boundary`, which only runs once `turn_in_progress` is false —
-    /// rotation NEVER happens mid-turn (§3.1).
+    /// Rotate during the next request's preparation, before its user prompt is sent.
+    /// The request owns cancellation while all handoff/priming text stays internal.
     fn rotate_lease(&mut self, binding: &ThreadBinding, reason: &str) -> Result<(), SpineError> {
         if self.lease_factory.is_none() {
             return Err(SpineError::NoLeaseFactory);
@@ -2699,10 +2700,9 @@ impl Spine {
 
         // CLAIM-THEN-EXECUTE (§6.4), Internal visibility. Claimed at the very TOP so the
         // claim covers the whole operation (handoff-summary ask -> spawn -> re-prime ->
-        // swap); a crash anywhere inside leaves a durable `claimed` rotation rather than
-        // silence, and a rotation that FAILS to spawn is now a recorded fact instead of
-        // an error that vanishes on return. `turn_id: None` — rotation happens AT a turn
-        // boundary, between turns; there is no turn it honestly belongs to.
+        // swap); a crash anywhere inside leaves a durable claim. These internal
+        // actions retain no CEO-turn association even though the accepted request
+        // owns their progress and cancellation during preparation.
         let rotation_action = self.ledger.record_action_with(
             None,
             "session_rotation",
@@ -2715,18 +2715,31 @@ impl Spine {
         // cheap internal turn, never rendered (§2.4). Best-effort: a failure here is NOT
         // fatal to rotation (the deterministic structured digest in reprime.rs is the
         // crash-safe floor either way), so errors are swallowed, not propagated.
-        if self.lease.is_some() {
-            if let Ok(summary) = self.request_handoff_summary(binding) {
-                if !summary.trim().is_empty() {
-                    self.ledger.record_handoff_summary(thread_id, &summary)?;
+        // A pending rotation can be consumed after switching companies. Summarize
+        // only the outgoing lease's last primed thread, never the new target's thread.
+        let outgoing = self.lease_primed_thread.as_ref()
+            .and_then(|id| self.ledger.thread_binding(id).ok());
+        if let Some(outgoing) = outgoing {
+            match self.request_handoff_summary(&outgoing) {
+                Ok(summary) if !summary.trim().is_empty() => {
+                    self.ledger.record_handoff_summary(outgoing.thread_id(), &summary)?;
                 }
+                Err(error) if self.control.stop_claim().is_some() => {
+                    self.ledger.update_action(&rotation_action, ActionStatus::Failed)?;
+                    return Err(error);
+                }
+                _ => {}
             }
+        }
+        if self.control.stop_claim().is_some() {
+            self.ledger.update_action(&rotation_action, ActionStatus::Failed)?;
+            return Err(CognitionError::PrimingStopped(crate::native::STOP_REASON_CANCELLED.into()).into());
         }
 
         // Step 4: spawn the fresh child BEFORE tearing down the old one, so a spawn
         // failure leaves the CEO on the still-working outgoing lease instead of
         // stranding the conversation lease-less.
-        let spawned = self.lease_factory.as_ref().unwrap().spawn();
+        let spawned = self.lease_factory.as_ref().unwrap().spawn_cancellable(&self.control);
         let mut fresh = match spawned {
             Ok(f) => f,
             Err(e) => {
@@ -2787,8 +2800,15 @@ impl Spine {
             Some(scope) => fresh.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
             None => Ok(()),
         };
-        let primed = scoped.and_then(|_| fresh.reprime(&priming, &mut on_item));
+        // Publish the successor's Stop handle before any priming request.
+        self.control.set_cancel(fresh.cancel_handle());
+        let primed = if self.control.stop_claim().is_some() {
+            Err(CognitionError::PrimingStopped(crate::native::STOP_REASON_CANCELLED.into()))
+        } else {
+            scoped.and_then(|_| fresh.reprime(&priming, &mut on_item))
+        };
         if let Err(e) = primed {
+            self.control.set_cancel(self.lease.as_ref().and_then(|lease| lease.cancel_handle()));
             self.ledger.update_action(&reprime_action, ActionStatus::Failed)?;
             self.ledger.update_action(&rotation_action, ActionStatus::Failed)?;
             return Err(e.into());
@@ -2804,6 +2824,9 @@ impl Spine {
         // lease, and a stop in that window would be written to a child that no longer
         // exists while the worker path read the retired session's team directory.
         self.install_lease(fresh);
+        if let Some(active) = self.control.active_turn() {
+            self.ledger.mark_turn_started(&active.turn_id, &to_session)?;
+        }
         // The SUCCESSOR's own session-start and post-priming traffic, drained off the newly
         // installed lease and stamped `internal: true`. A fresh `NativeClient` starts with an
         // empty `last_session_meta` slot, so it re-announces its commands — and that
@@ -2856,8 +2879,12 @@ impl Spine {
         };
 
         match result {
-            Ok(stop_reason) => {
+            Ok(stop_reason) if stop_reason == "end_turn" => {
                 self.ledger.complete_turn(&turn_id, &stop_reason)?;
+            }
+            Ok(stop_reason) => {
+                self.ledger.interrupt_turn(&turn_id, &stop_reason)?;
+                return Err(CognitionError::PrimingStopped(stop_reason).into());
             }
             Err(e) => {
                 self.ledger.interrupt_turn(&turn_id, &e.to_string())?;
@@ -2872,6 +2899,11 @@ impl Spine {
     }
 
     fn prepare_request(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        if let Some(reason) = self.pending_rotation_reason.take() {
+            if self.lease.is_some() {
+                self.rotate_lease(binding, &reason)?;
+            }
+        }
         if self.lease.is_none() {
             let factory = self.lease_factory.as_ref().ok_or(SpineError::NoLease)?;
             let fresh = factory.spawn_cancellable(&self.control)?;
