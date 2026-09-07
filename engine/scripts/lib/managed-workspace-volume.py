@@ -7,6 +7,7 @@ exists for disposable provider tests and provides NO privilege boundary.
 import contextlib
 import fcntl
 import json
+import importlib.util
 import os
 from pathlib import Path
 import plistlib
@@ -15,6 +16,16 @@ import stat
 import subprocess
 import sys
 import uuid
+
+
+def _filesystem_module():
+    spec = importlib.util.spec_from_file_location('durable_filesystem_identity', Path(__file__).with_name('durable-filesystem-identity.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+fs_identity = _filesystem_module()
 
 
 class VolumeError(RuntimeError):
@@ -119,7 +130,7 @@ class VolumeStore:
         if record.get('id') != ident or record.get('version') != 1:
             raise VolumeError('invalid journal identity')
         st = image.lstat()
-        if not stat.S_ISDIR(st.st_mode) or [st.st_dev, st.st_ino] != record.get('image_identity'):
+        if not stat.S_ISDIR(st.st_mode) or [fs_identity.filesystem_token(image, st), st.st_ino] != record.get('image_identity'):
             raise VolumeError('image identity changed or creation incomplete')
         if st.st_uid != os.geteuid() or st.st_mode & 0o077:
             raise VolumeError('image is not private to manager')
@@ -233,7 +244,7 @@ class VolumeStore:
                        '-type', 'SPARSEBUNDLE', '-volname', 'RichOS-' + ident, str(image)])
             os.chmod(image, 0o700)
             st = image.lstat()
-            record.update(image_identity=[st.st_dev, st.st_ino], state='detached', operation=None)
+            record.update(image_identity=[fs_identity.filesystem_token(image, st), st.st_ino], state='detached', operation=None)
             mount.mkdir(mode=0o700)
             readonly.mkdir(mode=0o700)
             self._save(ident, record)

@@ -63,6 +63,16 @@ from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+
+def _durable_fsid(path, info):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('retirement_filesystem_identity',
+        os.path.join(HERE, 'durable-filesystem-identity.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return '%s:%d' % (module.filesystem_token(path, info), info.st_ino)
+
+
 OUTCOME_REFUSED = "refused"
 OUTCOME_ALREADY = "already-retired"
 OUTCOME_QUARANTINED = "quarantined"
@@ -580,7 +590,7 @@ class FsTarget(object):
     def fsid(self):
         if self.st is None:
             return ""
-        return "%d:%d" % (self.st.st_dev, self.st.st_ino)
+        return _durable_fsid(self.path, self.st)
 
     def still_the_same(self):
         """Re-stat through the held descriptor AND by name, and require both to
@@ -1693,11 +1703,13 @@ def _transact(op, ws, target, fsid, mod, live_mod, lock_entity, owner_assert="",
                          extra, stage="quarantine")
             append_record(rec)
             return rec
+        identity_error = None
         try:
             qst = os.lstat(qpath)
-            qfsid = "%d:%d" % (qst.st_dev, qst.st_ino)
-        except OSError:
+            qfsid = _durable_fsid(qpath, qst)
+        except OSError as exc:
             qfsid = ""
+            identity_error = str(exc)
         qinfo = {"path": qpath, "source_path": ws["path"], "source_fsid": fsid, "fsid": qfsid}
 
         # --- LAYER 2: re-read AGAIN after the rename. A worker that acquired
@@ -1705,7 +1717,10 @@ def _transact(op, ws, target, fsid, mod, live_mod, lock_entity, owner_assert="",
         # and the rename is undone through the same descriptors. Its cwd
         # followed the inode both ways; its files are where it put them.
         chk = _reacquired_since(ws, mod, live_mod, lock_entity, owner_assert)
-        if not chk["code"] and qfsid and qfsid != fsid:
+        if not chk["code"] and not qfsid:
+            chk["code"], chk["why"] = "identity-unavailable", (
+                "the quarantine identity could not be verified: %s." % identity_error)
+        if not chk["code"] and qfsid != fsid:
             chk["code"], chk["why"] = "identity-changed", (
                 "the object at the quarantine path (%s) is not the one renamed (%s)." % (qfsid, fsid))
         if chk["code"]:
@@ -2418,7 +2433,7 @@ def sweep(retention=None, execute=False):
             continue
         try:
             st = os.lstat(qpath)
-            live = "%d:%d" % (st.st_dev, st.st_ino)
+            live = _durable_fsid(qpath, st)
         except OSError as e:
             item.update({"action": "skip", "reason_code": "unstatable", "reason": str(e)})
             results.append(item)

@@ -8,6 +8,7 @@ import plistlib
 import subprocess
 import sys
 import tempfile
+import types
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -46,6 +47,35 @@ class Lifecycle(unittest.TestCase):
         self.attached = patch.object(self.m.provider, '_attached', return_value=None)
         self.attached.start()
         self.addCleanup(self.attached.stop)
+
+    def test_archive_reclamation_survives_device_renumber_with_stable_filesystem(self):
+        original = Path.lstat
+        def renumber(path):
+            info = original(path)
+            if path in (self.image, self.archive):
+                return types.SimpleNamespace(st_mode=info.st_mode, st_uid=info.st_uid,
+                    st_dev=info.st_dev+42, st_ino=info.st_ino)
+            return info
+        token = self.record['image_identity'][0]
+        with patch.object(Path, 'lstat', renumber), patch.object(manager.volumes.fs_identity,
+                'filesystem_token', return_value=token):
+            result = self.m.reconcile(self.ident)
+        self.assertEqual(result['state'], 'retained', result)
+        self.assertFalse(self.image.exists())
+        self.assertTrue(self.archive.exists())
+
+    def test_different_filesystem_or_old_numeric_pin_cannot_authorize_reclamation(self):
+        with patch.object(manager.volumes.fs_identity, 'filesystem_token', return_value='different-volume'):
+            result = self.m.reconcile(self.ident)
+        self.assertIn('identity changed', result['last_error'])
+        self.assertTrue(self.image.exists())
+        info = self.archive.stat()
+        self.record['archive_identity'] = [info.st_dev, info.st_ino]
+        self.m._save(self.ident, self.record)
+        result = self.m.reconcile(self.ident)
+        self.assertIn('identity changed', result['last_error'])
+        self.assertTrue(self.image.exists())
+        self.assertTrue(self.archive.exists())
 
     def test_mismatched_terminal_owner_cannot_claim(self):
         self.record['state'] = 'active'

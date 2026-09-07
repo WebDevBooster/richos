@@ -9,6 +9,7 @@ import base64
 import ctypes
 import hashlib
 import json
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -16,6 +17,16 @@ import stat
 import sys
 import tarfile
 import uuid
+
+
+def _filesystem_module():
+    spec = importlib.util.spec_from_file_location('durable_filesystem_identity', Path(__file__).with_name('durable-filesystem-identity.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+fs_identity = _filesystem_module()
 
 
 class RecoveryError(RuntimeError):
@@ -57,7 +68,7 @@ def _identity(path, directory=False):
         raise RecoveryError('private recovery asset type, owner or permissions changed')
     if not directory and info.st_nlink != 1:
         raise RecoveryError('recovery file has external hardlinks')
-    return [info.st_dev, info.st_ino]
+    return [fs_identity.filesystem_token(path, info), info.st_ino]
 
 
 def _hash(path):
@@ -120,10 +131,11 @@ def _xattrs(path):
 def _tree(image):
     """Pin raw bundle entries without following links or crossing devices."""
     root = _identity(image, True)
+    live_device = image.lstat().st_dev
     rows = []
     def visit(path):
         info = path.lstat()
-        if info.st_dev != root[0] or info.st_uid != os.geteuid():
+        if info.st_dev != live_device or info.st_uid != os.geteuid():
             raise RecoveryError('raw image contains an external filesystem or owner')
         if stat.S_ISDIR(info.st_mode):
             kind = 'directory'
@@ -132,7 +144,7 @@ def _tree(image):
         else:
             raise RecoveryError('raw image contains unsupported links or special files')
         relative = path.relative_to(image).as_posix()
-        row = dict(path=relative, kind=kind, device=info.st_dev, inode=info.st_ino,
+        row = dict(path=relative, kind=kind, device=fs_identity.filesystem_token(path, info), inode=info.st_ino,
                    mode=stat.S_IMODE(info.st_mode), uid=info.st_uid, gid=info.st_gid,
                    mtime_ns=info.st_mtime_ns,
                    xattrs=_xattrs(path))

@@ -11,6 +11,7 @@ import subprocess
 import socket
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 import uuid
@@ -34,13 +35,34 @@ class ProviderSafety(unittest.TestCase):
         for p in (base, image, active, readonly):
             p.mkdir(mode=0o700)
         st = image.stat()
-        self.record = dict(version=1, id=self.ident, image_identity=[st.st_dev, st.st_ino],
+        self.record = dict(version=1, id=self.ident, image_identity=[volumes.fs_identity.filesystem_token(image, st), st.st_ino],
                            state='attached_writable', operation=None, device='/dev/disk999',
                            owner_uid=os.getuid(), owner_gid=os.getgid(), boot_id=self.boot)
         self.store._save(self.ident, self.record)
         self.attachment = {'image-path': str(image), 'writeable': True, 'system-entities': [
             {'dev-entry': '/dev/disk999', 'content-hint': 'GUID_partition_scheme'},
             {'dev-entry': '/dev/disk1000s1', 'mount-point': str(active)}]}
+
+    def test_durable_image_pin_survives_device_renumber_but_not_replacement(self):
+        image = self.store._paths(self.ident)[1]
+        original = Path.lstat
+        info = original(image)
+        def observed(path):
+            if path == image:
+                return types.SimpleNamespace(st_mode=info.st_mode, st_uid=info.st_uid,
+                    st_dev=info.st_dev+42, st_ino=info.st_ino)
+            return original(path)
+        with patch.object(Path, 'lstat', observed), patch.object(volumes.fs_identity, 'filesystem_token',
+                return_value=self.record['image_identity'][0]):
+            self.assertEqual(self.store._load(self.ident)['id'], self.ident)
+        with patch.object(volumes.fs_identity, 'filesystem_token', return_value='different-filesystem'):
+            with self.assertRaisesRegex(volumes.VolumeError, 'identity changed'):
+                self.store._load(self.ident)
+        legacy = dict(self.record, image_identity=[info.st_dev, info.st_ino])
+        self.store._save(self.ident, legacy)
+        with self.assertRaisesRegex(volumes.VolumeError, 'identity changed'):
+            self.store._load(self.ident)
+        self.assertTrue(image.is_dir())
 
     def test_arbitrary_identifiers_cannot_select_images(self):
         for ident in ('../outside', '/dev/disk4', 'bad', None):

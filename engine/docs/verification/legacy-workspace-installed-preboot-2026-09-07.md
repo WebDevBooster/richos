@@ -1,4 +1,8 @@
-# Installed legacy fixture: ready for the reboot test
+# First installed legacy fixture: historical preboot evidence
+
+**Superseded:** its first real reboot exposed numeric device-ID persistence and
+resume was refused before cleanup. Preserve this original fixture; do not use
+the command below as the next test. See [the failure record](workspace-reboot-findings-2026-09-07.md).
 
 The isolated installed driver at source `e24368f` prepared and gated one tiny
 generated repository and linked worktree on 2026-09-07. No real repository was

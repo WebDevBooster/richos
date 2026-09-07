@@ -20,6 +20,7 @@ def load(name):
     spec=importlib.util.spec_from_file_location(name,Path(__file__).with_name(name+'.py'))
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
+fs_identity=load('durable-filesystem-identity')
 capture=load('legacy-workspace-capture')
 retirement=load('legacy-workspace-retirement')
 mutation=retirement.mutation
@@ -153,7 +154,7 @@ def arm(gate, selection, *, approved_selection_sha256, scratch_root):
 
 def _identity(path):
     info=path.lstat()
-    return {'device':info.st_dev,'inode':info.st_ino}
+    return {'device':fs_identity.filesystem_token(path,info),'inode':info.st_ino}
 
 
 def _scratch(gate, base, record):

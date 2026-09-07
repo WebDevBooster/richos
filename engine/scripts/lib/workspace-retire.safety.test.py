@@ -67,6 +67,28 @@ class RecoverySafety(unittest.TestCase):
                                "show", revision], check=True, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE).stdout
 
+    def test_missing_post_rename_identity_restores_workspace_without_pruning(self):
+        (self.work / "unique").write_text("preserve this write\n")
+        real_identity = retire._durable_fsid
+        failures = []
+
+        def identity(path, info):
+            if ".richos-retired" in Path(path).parts:
+                failures.append(str(path))
+                raise OSError("native UUID query failed")
+            return real_identity(path, info)
+
+        with patch.object(retire, "_durable_fsid", identity):
+            result = retire.retire(self.wsid, entity=str(self.repo), retention=0)
+        self.assertTrue(failures, "must exercise identity failure after rename")
+        self.assertEqual("refused", result["outcome"], result)
+        self.assertEqual("identity-unavailable-after-quarantine", result["reason_code"])
+        self.assertIsNone(result["quarantine"])
+        self.assertEqual("preserve this write\n", (self.work / "unique").read_text())
+        self.assertIn(str(self.work).encode(), self.git(self.repo, "worktree", "list", "--porcelain"))
+        records = [json.loads(line) for line in Path(retire.records_path()).read_text().splitlines()]
+        self.assertFalse(any(row.get("outcome") == "quarantined" for row in records))
+
     def test_distinct_staged_version_survives_original_object_cleanup(self):
         (self.work / "draft").write_text("staged version A\n")
         self.git(self.work, "add", "draft")

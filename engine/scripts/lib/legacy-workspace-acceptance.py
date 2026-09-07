@@ -37,6 +37,9 @@ def load(name):
     return module
 
 
+fs_identity = load('durable-filesystem-identity')
+
+
 def sync(path):
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:os.fsync(fd)
@@ -56,12 +59,12 @@ def save(path, value):
 def pin(path):
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode):raise ValueError('exact fixture directory required')
-    return dict(device=info.st_dev, inode=info.st_ino)
+    return dict(device=fs_identity.filesystem_token(path,info), inode=info.st_ino)
 
 
 def restored_pin(path, expected):
     info=path.lstat()
-    observed=dict(device=info.st_dev,inode=info.st_ino,uid=info.st_uid,gid=info.st_gid,mode=stat.S_IMODE(info.st_mode))
+    observed=dict(device=fs_identity.filesystem_token(path,info),inode=info.st_ino,uid=info.st_uid,gid=info.st_gid,mode=stat.S_IMODE(info.st_mode))
     require(stat.S_ISDIR(info.st_mode) and observed=={key:expected[key] for key in observed},
             'restored fixture identity or access metadata differs: '+str(path))
 
@@ -173,6 +176,8 @@ class Acceptance:
             record = json.loads(path.read_text())
             require(record.get('version') == 1 and record.get('id') == ident, 'fixture receipt identity mismatch')
             require(record.get('private') == str(private) and record.get('active') == str(active), 'fixture namespace mismatch')
+            require(all(isinstance(record[key].get('device'),str) for key in ('private_identity','active_identity')),
+                    'legacy fixture has no durable filesystem UUID; retain evidence and prepare a new fixture')
             require(record['private_identity'] == pin(private) and record['active_identity'] == pin(active), 'fixture root was replaced')
             require(record['release'] == str(self.release) and record['release_identity'] == self.release_identity,
                     'resume requires the exact protected acceptance release')

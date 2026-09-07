@@ -1,0 +1,15 @@
+{
+  "before_reboot_free_GB_rounded": 31.6,
+  "after_reboot_free_bytes": 93758607360,
+  "additional_free_GB_approx": 62.16,
+  "measured_cache_cleanup_before_reboot_bytes": 17646563328,
+  "after_reboot_swap_used_MB": 0,
+  "attribution": "No pre-reboot swap, complete temporary directory or deleted-open-file inventory. Additional space cannot be assigned precisely to these causes. Production cleanup was inactive.",
+  "before_boot_uuid": "d8ff1b41-fe97-4df4-aac2-3f40f0b105ce",
+  "after_boot_uuid": "c6f84dc3-a79a-4506-8759-d2de887ea19a",
+  "old_data_st_dev": 16777232,
+  "new_data_st_dev": 16777230,
+  "legacy_acceptance_result": "Stopped before cleanup: fixture root was replaced",
+  "affected_fixture": "legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+  "old_fixture_policy": "Retain original evidence; do not rewrite old numeric identities as UUID pins."
+}

@@ -83,7 +83,7 @@ class WorkspaceManager:
         st = path.lstat()
         if not kind(st.st_mode) or st.st_uid != os.geteuid():
             raise ManagerError('manager asset has unexpected type or owner')
-        return [st.st_dev, st.st_ino]
+        return [volumes.fs_identity.filesystem_token(path, st), st.st_ino]
 
     @staticmethod
     def _digest(path):
@@ -460,7 +460,7 @@ class WorkspaceManager:
             info = path.lstat()
             if not stat.S_ISDIR(info.st_mode):
                 raise ManagerError('source repository identity is not a directory')
-            result[key] = [info.st_dev, info.st_ino]
+            result[key] = [volumes.fs_identity.filesystem_token(path, info), info.st_ino]
         return result
 
     def _verify_source(self, record):
