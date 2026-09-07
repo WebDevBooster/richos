@@ -1,4 +1,8 @@
-# Corrected UUID fixture: ready for real reboot
+# Corrected UUID fixture: completed preboot record
+
+**Completed:** the real reboot continuation passed. See the
+[postboot receipt](legacy-workspace-uuid-installed-postboot-2026-09-07.md).
+The next-step instructions below are retained as historical procedure.
 
 The package from source `1e3e499` was installed successfully on 2026-09-07.
 All 26 installed managed lifecycle checks passed, including normal timer-driven

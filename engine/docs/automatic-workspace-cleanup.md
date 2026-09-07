@@ -74,12 +74,14 @@ protected release. The isolated installed gate passed its owner-access and same-
 The first real reboot exposed unstable numeric filesystem identities and refused
 cleanup before any job action. Durable native UUID identities now cover all
 persistent pins; see the [reboot finding and correction](verification/workspace-reboot-findings-2026-09-07.md).
-A fresh real post-reboot acceptance is still outstanding. Selective capture and reclamation now have
+The corrected fixture subsequently passed actual installed post-reboot
+acceptance, including native device renumbering, unattended retirement and
+recovery after immediate Git garbage collection. Selective capture and reclamation now have
 disposable real-Git coverage, including recovery after interrupted deletion and
 survival of staged/conflict blobs after reflog expiry and Git garbage collection.
 Explicitly armed jobs now run automatically through the broker's separate
-[maintenance worker](legacy-workspace-service.md). Installed legacy gate and
-actual reboot acceptance remain required before migration.
+[maintenance worker](legacy-workspace-service.md). The [installed real-reboot acceptance](verification/legacy-workspace-uuid-installed-postboot-2026-09-07.md)
+passed. Real repository migration still requires an exact reviewed scope and downtime.
 
 ## Branches
 
@@ -103,7 +105,7 @@ or discover and approve a broader selection during a retry.
   including backing-image protection, forced-unmount refusal, actual owner socket
   lifecycle, unattended terminal and unused-preparation reclamation and clean
   broker shutdown. The corrected UUID package passed all 26 again; see the [current receipt](verification/managed-workspace-uuid-installed-lifecycle-2026-09-07.json).
-  Actual reboot acceptance remains separate.
+  The isolated legacy real-reboot acceptance also passed.
 - Validate the complete installed Claude spawn-to-retirement path before enabling
   the public configuration.
 - Unused preparation cancellation and automatic reclamation passed through the
@@ -115,11 +117,10 @@ or discover and approve a broader selection during a retry.
   Raw recovery has no automatic expiry because unique data cannot be classified.
 - The legacy executor, coordinated branch publication and armed-job background
   worker have passed disposable integration tests and independent review.
-  Validate the installed legacy gate across a real reboot before migration.
-  Actual repository downtime requires explicit authorization.
-  The fresh UUID fixture passed installed preboot checks and is ready for a
-  user-controlled Mac reboot. Its [exact continuation and receipts](verification/legacy-workspace-uuid-installed-preboot-2026-09-07.md)
-  are saved in this branch. The first failed fixture remains historical evidence.
+  The installed UUID fixture passed across a real reboot; its
+  [result and receipts](verification/legacy-workspace-uuid-installed-postboot-2026-09-07.md)
+  are saved in this branch. Actual repository downtime still requires explicit
+  authorization. The first failed fixture remains historical evidence.
 
 The package's health endpoint reports listener availability, sweep progress and
 owned unresolved records separately. It explicitly does not certify the complete
