@@ -28,11 +28,15 @@ their exact repaired registration until offline cleanup.
 
 This follows [Claude Code's documented Git worktree cleanup](https://code.claude.com/docs/en/hooks#worktreeremove).
 The real canary exposed that the previous RichOS terminal rename intercepted
-native cleanup and left a locked quarantine behind. The updated canary requires
-an actual matching WorktreeRemove event, registration/path absence and native
-ordinary branches returning to their initial baseline. A model retry blocked
-before admission is allowed only when it never produces a binding. Installed
-end-to-end validation of this native correction remains pending.
+native cleanup and left a locked quarantine behind. The corrected native
+ownership path then removed the checkout, registration and ordinary branch in
+an actual Claude run. That run captured no WorktreeRemove record, so acceptance
+now reports event observation separately and requires complete registry/path
+absence, exact removed platform ownership and native ordinary branches returning
+to their initial baseline. A model retry blocked before admission is allowed
+only when it never produces a binding. The original failed event assertion and
+independent cleanup evidence are [preserved together](verification/claude-native-cleanup-event-assumption-2026-09-07.md).
+The corrected complete canary still requires a passing installed run.
 
 New external workspaces can use root-managed APFS sparse images containing an
 independent Git clone. Working files, indexes and objects share the same
@@ -153,7 +157,7 @@ or discover and approve a broader selection during a retry.
   and native-ownership changes require their own installed acceptance; these
   historical receipts do not certify newer bytes.
 - Validate the complete real Claude spawn-to-retirement path before enabling
-  the public configuration. The isolated actual-Claude canary is being prepared;
+  the public configuration. The isolated actual-Claude canary is being rerun;
   it substitutes only the copied bridge's config location and does not activate
   production.
 - Installed interrupted-creation acceptance passed all 24 checks with actual
