@@ -33,7 +33,25 @@ export RICHOS_WORKTREE_CAPTURE_DIR="$SANDBOX/captures"
 export RICHOS_RECONCILE_SETTLE=0.2
 export RICHOS_RECONCILE_BACKOFF_BASE=0   # C42 proves the backoff; every other case retries at once
 SID="deadbeef-0000-4000-8000-000000000000"
-T() { python3 "$TX_PY" "$@"; }
+# These quarantine/capture regressions replay records from the pre-platform-owner
+# format. New native ownership is covered by native-platform-cleanup.test.py.
+# Convert only fixture records after a successful explicit seal, never production code.
+T() {
+    python3 "$TX_PY" "$@"
+    local rc=$?
+    if [ "$rc" -eq 0 ] && [ "${1:-}" = seal ]; then
+        python3 - "$RICHOS_WORKTREE_TX_DIR" <<'HISTORICAL'
+import json, pathlib, sys
+for path in pathlib.Path(sys.argv[1]).glob('*/*.json'):
+    record=json.loads(path.read_text())
+    if record.get('record')=='transaction' and not record.get('terminal'):
+        for member in record.get('members',[]):
+            member.pop('cleanup_owner',None)
+        path.write_text(json.dumps(record))
+HISTORICAL
+    fi
+    return "$rc"
+}
 R() { python3 "$REC" "$@"; }
 
 seed_repo() { mkdir -p "$1"; git -C "$1" init -q -b main; printf 'seed\n' >"$1/seed.txt"; printf 'node_modules/\n*.log\n' >"$1/.gitignore"; git -C "$1" add -A; git -C "$1" commit -q -m seed; }
@@ -445,11 +463,11 @@ T claim --session-id "$SID" --agent-id "$A18" --ingress SubagentStop >/dev/null 
 [ -f "$SANDBOX/tx/$SID/pending-terminal/$A18.json" ] || bad "C28b-setup  no pending record"
 OUT="$(RICHOS_PENDING_TERMINAL_GRACE=0 R 2>&1)"
 FB18="$(T show --session-id "$SID" --agent-id "$A18" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print(d.get("sealed_by"), d.get("bound_record"), len(m), m[0]["class"], m[0]["state"], d.get("state"))')"
-if [ "$FB18" = "pending-terminal-fallback False 1 native verified terminal" ] && [ ! -e "$NAT18" ] && [ -d "$(q "$NAT18" "$A18")" ] \
+if [ "$FB18" = "pending-terminal-fallback False 1 native platform-pending terminal" ] && [ -d "$NAT18" ] && [ ! -e "$(q "$NAT18" "$A18")" ] \
    && [ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A18/worktree-agent-$A18")" = "$HEAD18" ] \
-   && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A18/member-0/tree.tar" unbound.txt)" = "work the binder never bound" ] \
+   && [ "$(cat "$NAT18/unbound.txt")" = "work the binder never bound" ] \
    && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A18.json" ] && printf '%s' "$OUT" | grep -q 'no bound record: the native member came from the start fact'; then
-    ok "C28b a start-only EXACT native worktree (no bound record) is verified from the start fact, terminalized as a one-member fallback and RETIRED: backup ref saved, evidence captured, worktree retained (INVERTED: it used to leak forever)"
+    ok "C28b a start-only EXACT native worktree (no bound record) is verified from the start fact, terminalized as a one-member fallback with platform cleanup pending: backup ref saved and original bytes retained"
 else
     bad "C28b fallback=[$FB18] native=$([ -e "$NAT18" ] && echo present || echo gone) quar=$([ -e "$(q "$NAT18" "$A18")" ] && echo present || echo gone) out=${OUT:0:200}"
 fi
@@ -462,8 +480,8 @@ T start --session-id "$SID" --agent-id "$A19" --cwd "$ENTITY" >/dev/null
 T claim --session-id "$SID" --agent-id "$A19" --ingress WorktreeRemove --detail "$NAT19" >/dev/null 2>&1
 RICHOS_PENDING_TERMINAL_GRACE=0 R >/dev/null 2>&1
 FB19="$(T show --session-id "$SID" --agent-id "$A19" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print(len(m), m[0]["path"] if m else "-", d.get("state"), (d.get("terminal") or {}).get("ingress"))')"
-[ "$FB19" = "1 $NAT19 terminal WorktreeRemove" ] && [ ! -e "$NAT19" ] \
-    && ok "C28c the exact native path a WorktreeRemove named (first_path) is verified and retired even though the start fact named the main checkout" || bad "C28c fallback=[$FB19] native=$([ -e "$NAT19" ] && echo present || echo gone)"
+[ "$FB19" = "1 $NAT19 terminal WorktreeRemove" ] && [ -d "$NAT19" ] \
+    && ok "C28c the exact native path a WorktreeRemove named (first_path) is verified and left for Claude cleanup even though the start fact named the main checkout" || bad "C28c fallback=[$FB19] native=$([ -e "$NAT19" ] && echo present || echo gone)"
 
 # --- 12. index capture must SUCCEED, or the member is not captured -------------
 # (review 2026-09-03, blocker 2). A failed `git ls-files -s` used to be
@@ -779,6 +797,13 @@ FULL_KB="$(du -sk "$ENTITY/qa-audits" | cut -f1)"
 A35="a00000000000rc35"
 EXT35="$SANDBOX/other-wt/dev-opus-r35"
 seal "$A35" dev-opus-r35 "$OTHER:$EXT35:dev-opus-r35"
+# Exercise the historical sparse member fixture explicitly. New Claude-owned
+# seals skip this optimization, as native-platform-cleanup.test.py proves.
+python3 - "$TX_PY" "$SID" "$A35" <<'HISTORICAL_SPARSE'
+import importlib.util,sys
+spec=importlib.util.spec_from_file_location('tx',sys.argv[1]);tx=importlib.util.module_from_spec(spec);spec.loader.exec_module(tx)
+tx._sparsify_shell(sys.argv[2],sys.argv[3],tx.load_tx(sys.argv[2],sys.argv[3]))
+HISTORICAL_SPARSE
 NAT35="$ENTITY/.claude/worktrees/agent-$A35"
 SHELL_KB="$(du -sk "$NAT35" | cut -f1)"
 SPARSE35="$(T show --session-id "$SID" --agent-id "$A35" | python3 -c 'import json,sys; print(json.load(sys.stdin)["members"][0].get("sparse"))')"

@@ -14,6 +14,26 @@ it into permanent archives.
 
 ## Implemented candidate
 
+New native bindings record `cleanup_owner: claude-code`. Terminal hooks save a
+compare-checked recovery ref and leave the native path, lock, Git registration
+and working/index bytes untouched. Seal-time sparsification also skips these
+platform-owned checkouts. The reconciler reports `platform-pending` until a
+fresh complete NUL Git registry and filesystem check both show the exact
+checkout absent. It never prunes, unlocks or removes that checkout. Historical
+quarantines keep their offline recovery path; they are not reclassified.
+The reaper and direct remover also refuse recorded platform-owned paths.
+Automatic helpers never bulk-prune Git worktree registrations. Missing legacy
+registrations retain their index, and newly quarantined legacy checkouts keep
+their exact repaired registration until offline cleanup.
+
+This follows [Claude Code's documented Git worktree cleanup](https://code.claude.com/docs/en/hooks#worktreeremove).
+The real canary exposed that the previous RichOS terminal rename intercepted
+native cleanup and left a locked quarantine behind. The updated canary requires
+an actual matching WorktreeRemove event, registration/path absence and native
+ordinary branches returning to their initial baseline. A model retry blocked
+before admission is allowed only when it never produces a binding. Installed
+end-to-end validation of this native correction remains pending.
+
 New external workspaces can use root-managed APFS sparse images containing an
 independent Git clone. Working files, indexes and objects share the same
 filesystem boundary; mutable alternates and partial clones are refused. The

@@ -88,8 +88,9 @@
 #   ignored; verified by re-reading), re-check ownership after preservation,
 #   RENAME to quarantine under <parent>/.richos-retired/, re-check again after
 #   the rename and undo on any change, record before and after, unlock and
-#   prune the git registration. NOTHING IS DELETED. The directory is gone from
-#   its path and from git, which is all the reaper ever relied on; the bytes
+#   repair the exact quarantine registration without unlocking or bulk prune.
+#   Claude-owned native members refuse this route. The directory is gone from
+#   its original path but remains registered; the bytes
 #   remain in quarantine indefinitely and in a verified archive
 #   after it.
 #

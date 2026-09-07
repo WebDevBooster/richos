@@ -178,6 +178,7 @@ new_fixture() { # [--alive] [--indeterminate]
     LEDGER="$FX/ledger.jsonl"
     export RICHOS_WORKTREE_LEDGER="$LEDGER"
     export RICHOS_WORKSPACE_RETIRE_DIR="$FX/retire-state"
+    export RICHOS_WORKTREE_TX_DIR="$FX/transactions"
     unset RICHOS_WORKSPACE_RETENTION_DAYS
 
     seed_repo "$OWNER_REPO"
@@ -946,6 +947,11 @@ assert_eq "0" "$?" "retirement succeeds" || rc=1
 ALPHA_TIP="$(git -C "$OWNER_REPO" rev-parse refs/heads/alpha)"
 assert_ne "" "$ALPHA_TIP" "the branch still exists after workspace retirement" || rc=1
 assert_contains "$OUT" '"deleted": false' "the retirement record says the branch was not deleted" || rc=1
+# The offline/platform cleanup phase owns registration removal. This disposable
+# fixture explicitly removes its already-preserved quarantine to isolate the
+# subsequent unattached-branch retention/CAS contract.
+BR_QPATH="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["quarantine"]["path"])')"
+git -C "$OWNER_REPO" worktree remove --force "$BR_QPATH"
 
 BOUT="$(R retire-branch "$WS_ALPHA")"
 assert_eq "3" "$?" "branch deletion inside its retention refuses" || rc=1
@@ -1044,10 +1050,10 @@ assert_contains "$OUT" "removed agent worktree" "legacy success message" || rc=1
 assert_absent "$CONTAINER/alpha" "the registered worktree was removed" || rc=1
 assert_eq "$BEFORE_BETA" "$(snapshot "$CONTAINER/beta")" "the sibling is untouched" || rc=1
 a
-git -C "$OWNER_REPO" show-ref --verify --quiet refs/heads/alpha && {
-    printf '        ASSERT FAILED: --branch did not delete the branch\n'; rc=1; }
+git -C "$OWNER_REPO" show-ref --verify --quiet refs/heads/alpha || {
+    printf '        ASSERT FAILED: retained registration lost its branch\n'; rc=1; }
 if [ "$rc" -eq 0 ]; then
-    ok "LEG  the legacy route the reaper calls still removes a genuinely registered worktree and its branch — the repair refuses the unknown, not the known"
+    ok "LEG  the legacy route the reaper calls quarantines a genuinely registered worktree while retaining its registration and branch — the repair refuses the unknown, not the known"
 else
     bad "LEG  the legacy route stopped working for a registered worktree"
 fi
@@ -1885,9 +1891,9 @@ rc=0
 OUT="$(H --repo "$OWNER_REPO" --owner "$ALPHA_AGENT" --branch alpha --force "$CONTAINER/alpha")"
 assert_eq "0" "$?" "exit 0" || rc=1
 JSON="$(printf '%s\n' "$OUT" | python3 -c 'import sys; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
-assert_eq "true" "$(jf "$JSON" branch.deleted)" "the workspace's own branch was deleted" || rc=1
-assert_eq "branch-deleted" "$(jf "$JSON" branch.reason_code)" "by name" || rc=1
-a; git -C "$OWNER_REPO" show-ref --verify --quiet refs/heads/alpha && { printf '        ASSERT FAILED: refs/heads/alpha still exists\n'; rc=1; }
+assert_eq "false" "$(jf "$JSON" branch.deleted)" "the workspace's own branch remains attached" || rc=1
+assert_eq "branch-checked-out" "$(jf "$JSON" branch.reason_code)" "retained quarantine registration vetoes branch deletion" || rc=1
+a; git -C "$OWNER_REPO" show-ref --verify --quiet refs/heads/alpha || { printf '        ASSERT FAILED: refs/heads/alpha disappeared\n'; rc=1; }
 assert_eq "$ALPHA_TIP" "$(git -C "$OWNER_REPO" rev-parse --verify --quiet "refs/richos/retired/$WS_ALPHA/alpha")" "the tip stays reachable from the backup ref" || rc=1
 a; git -C "$OWNER_REPO" cat-file -e "$ALPHA_TIP^{commit}" 2>/dev/null || { printf '        ASSERT FAILED: the commit object is gone\n'; rc=1; }
 # The load-bearing half.
@@ -1896,11 +1902,11 @@ ALPHA_TIP="$(git -C "$CONTAINER/alpha" rev-parse HEAD)"
 DRV="$(legacy_driver "$LIB" branch-moves "$ALPHA_AGENT" 1 alpha 7777aaaa8888bbbb)"
 assert_eq "quarantined" "$(jf "$DRV" outcome)" "the workspace itself is quarantined" || rc=1
 assert_eq "false" "$(jf "$DRV" branch.deleted)" "the branch was NOT deleted" || rc=1
-assert_eq "branch-moved" "$(jf "$DRV" branch.reason_code)" "because it moved between the read and the delete" || rc=1
-assert_eq "$(jf "$DRV" moved_to)" "$(git -C "$OWNER_REPO" rev-parse --verify --quiet refs/heads/alpha)" "refs/heads/alpha exists at the tip it was moved to" || rc=1
-assert_ne "" "$(jf "$DRV" moved_to)" "the move really happened (the driver recorded it)" || rc=1
+assert_eq "branch-checked-out" "$(jf "$DRV" branch.reason_code)" "registration veto runs before any delete transaction" || rc=1
+assert_eq "$ALPHA_TIP" "$(git -C "$OWNER_REPO" rev-parse --verify --quiet refs/heads/alpha)" "refs/heads/alpha retains the original tip" || rc=1
+assert_eq "" "$(jf "$DRV" moved_to)" "delete transaction was never reached" || rc=1
 if [ "$rc" -eq 0 ]; then
-    ok "G3b   the asserted branch, when it IS the workspace's, is deleted by compare-and-delete with its tip reachable from the backup ref — and a branch that moves between the tip read and the delete is LEFT IN PLACE (branch-moved), so the check and the destruction are one operation"
+    ok "G3b   the retained quarantine registration blocks branch deletion before its ref transaction; the branch and backup tip remain intact"
 else
     bad "G3b   branch deletion is not bound to the tip it read — driver: $(printf '%s' "$DRV" | tr '\n' ' ' | cut -c1-600)"
 fi
@@ -1925,8 +1931,8 @@ assert_eq "0" "$?" "legacy: a stale-locked native worktree is retired" || rc=1
 assert_contains "$OUT" "observed-isolation-worktree" "on the observation of its stale lock" || rc=1
 assert_absent "$ENTITY/.claude/worktrees/agent-1a1a1a1a1b1b1b1b" "the path is vacated" || rc=1
 a; git -C "$ENTITY" worktree list --porcelain | grep -qxF "worktree $ENTITY/.claude/worktrees/agent-1a1a1a1a1b1b1b1b" && { printf '        ASSERT FAILED: git still registers the stale-locked worktree\n'; rc=1; }
-assert_contains "$OUT" '"git_registration": "gone"' "and the outcome READ BACK that the registration is gone" || rc=1
-a; git -C "$ENTITY" branch -d worktree-agent-1a1a1a1a1b1b1b1b >/dev/null 2>&1 || { printf '        ASSERT FAILED: the reaper'"'"'s follow-up `git branch -d` would fail\n'; rc=1; }
+assert_contains "$OUT" '"git_registration": "present"' "and the outcome records retained registration" || rc=1
+a; git -C "$ENTITY" branch -d worktree-agent-1a1a1a1a1b1b1b1b >/dev/null 2>&1 && { printf '        ASSERT FAILED: branch deleted despite retained registration\n'; rc=1; }
 # Retirement mode, same shape, with an ownership record.
 DP="$(dead_pid)"
 git -C "$ENTITY" worktree add -q -b worktree-agent-2c2c2c2c2d2d2d2d "$ENTITY/.claude/worktrees/agent-2c2c2c2c2d2d2d2d"
@@ -1938,9 +1944,9 @@ WS_STALE="$(python3 "$LIB" workspace-id "$ENTITY" "$ENTITY/.claude/worktrees/age
 OUT="$(H --workspace "$WS_STALE")"
 assert_eq "0" "$?" "retirement: a stale-locked native worktree is retired" || rc=1
 a; git -C "$ENTITY" worktree list --porcelain | grep -qxF "worktree $ENTITY/.claude/worktrees/agent-2c2c2c2c2d2d2d2d" && { printf '        ASSERT FAILED: retirement left the stale-locked registration behind\n'; rc=1; }
-a; git -C "$ENTITY" branch -d worktree-agent-2c2c2c2c2d2d2d2d >/dev/null 2>&1 || { printf '        ASSERT FAILED: the branch is still held by a registration\n'; rc=1; }
+a; git -C "$ENTITY" branch -d worktree-agent-2c2c2c2c2d2d2d2d >/dev/null 2>&1 && { printf '        ASSERT FAILED: branch deleted despite retained registration\n'; rc=1; }
 if [ "$rc" -eq 0 ]; then
-    ok "LOCK  a stale-locked native worktree (dead pid) is retired on BOTH routes with its git registration gone and its branch deletable — the sequence unlocks before it prunes and reads the registry back"
+    ok "LOCK  historical stale-locked worktrees quarantine on both routes with repaired registrations, unchanged locks and branches retained for offline cleanup"
 else
     bad "LOCK  a stale lock survived retirement, or the registration did — raw: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-600)"
 fi

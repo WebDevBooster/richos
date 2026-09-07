@@ -50,15 +50,12 @@
 #        refs/richos/handoffs/<session_id>/<agent_id>/<branch>
 #      — BEFORE the rename, because the harness deletes worktree AND branch
 #      silently on some paths (PF11) and the backup ref is what survives;
-#   5. quarantines each member by a same-filesystem atomic rename beside it:
-#        <path>.richos-terminal-<session-id-prefix>-<agent_id>
-#      the WorktreeRemove ingress quarantines the exact path it was handed
-#      first; otherwise the native member first; then every external member;
-#      and re-points git at the quarantine so a prune cannot orphan it;
+#   5. leaves newly bound Claude-owned native paths and registrations intact,
+#      recording platform-pending until Claude removes both; delegates managed
+#      images to their daemon; quarantines historical linked-worktree members;
 #   6. returns and lets the worker stop.
-# Capture, verification, unregistering and deletion are the reconciler's
-# (scripts/reconcile-terminal-worktrees.py), driven by launchd and by
-# SessionStart as crash recovery — never by this hook, whose budget is seconds.
+# The reconciler observes platform cleanup and captures historical quarantines.
+# Existing quarantines remain protected by the explicit erasure refusal.
 #
 # NEVER BLOCKS. Exit 0 always: a terminal event must never be prevented, and
 # a worker must never be kept alive by this hook's own failure. Every failure

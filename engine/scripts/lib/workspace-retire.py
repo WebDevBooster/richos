@@ -10,6 +10,8 @@ Both identity retirement and the legacy remover use the same transaction:
 validate identity and witnessed termination, lock, preserve, recheck ownership,
 rename to quarantine, recheck again and journal the outcome. A reacquisition
 attempt rolls the rename back. A backup ref protects the committed tip.
+Claude-owned native members refuse this route. Historical quarantine registration
+and index remain intact; only the exact relocated worktree path is repaired.
 
 Preservation includes working files (including ignored files), the worktree
 Git administration files and a self-contained pack of HEAD history and every
@@ -1209,6 +1211,16 @@ def termination_authority(entity, repo, path, owner="", records=None, ledger_mod
     """
     out = {"authorized": False, "verdict": "", "basis": "", "binding": "",
            "reason_code": "", "reason": "", "owner": owner or "", "liveness": None}
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("retirement_platform_owner", os.path.join(HERE, "worktree-transactions.py"))
+        transactions = importlib.util.module_from_spec(spec); spec.loader.exec_module(transactions)
+        if transactions.platform_owns_path(path):
+            out.update(reason_code="platform-owned", reason="Claude Code owns this exact native checkout; automatic retirement must leave its path, lock and registration intact.")
+            return out
+    except Exception as error:
+        out.update(reason_code="platform-ownership-unavailable", reason="Platform ownership could not be read completely: " + str(error))
+        return out
     if ledger_mod is None:
         out.update(reason_code="ledger-missing",
                    reason="scripts/lib/worktree-ledger.py could not be loaded; without the "
@@ -1772,21 +1784,18 @@ def _transact(op, ws, target, fsid, mod, live_mod, lock_entity, owner_assert="",
             return fail
         rec["journal"] = "complete"
 
-        # --- git forgets the worktree. A LOCKED registration is never pruned
-        # (a stale lock from a dead pid is exactly what the authority just
-        # accepted as evidence), so unlock first — by the old path, which git
-        # still resolves after the directory has moved — then prune, then
-        # READ BACK whether the registration is gone rather than assume it.
-        unl = _git(ws["repo"], "worktree", "unlock", ws["path"])
-        prune = _git(ws["repo"], "worktree", "prune")
+        # Keep the exact Git admin/index instead of bulk-pruning this repository.
+        # Repair this known relocated checkout only; offline frozen retirement
+        # owns registration removal. Never unlock an unrelated platform checkout.
+        repaired = _git(ws["repo"], "worktree", "repair", qpath)
         still = registered_worktree_paths(ws["repo"])
-        rec["git_worktree_unlock"] = "ok" if (unl is not None and unl.returncode == 0) else "not-locked"
-        rec["git_worktree_prune"] = "ok" if (prune is not None and prune.returncode == 0) else "failed"
-        rec["git_registration"] = ("gone" if (still is not None
-                                              and not any(same_path(ws["path"], x) for x in still))
-                                   else "present")
+        rec["git_worktree_unlock"] = "not-attempted"
+        rec["git_worktree_prune"] = "not-attempted"
+        rec["git_registration"] = "present"
+        rec["git_worktree_repair"] = "ok" if (repaired is not None and repaired.returncode == 0
+            and still is not None and any(same_path(qpath, x) for x in still)) else "pending"
         note = dict(base)
-        note.update({"outcome": "note", "stage": "prune", "ts": now_iso(),
+        note.update({"outcome": "note", "stage": "registration-retained", "ts": now_iso(),
                      "workspace": _public_ws(ws), "quarantine": qinfo,
                      "git_worktree_unlock": rec["git_worktree_unlock"],
                      "git_worktree_prune": rec["git_worktree_prune"],
@@ -2575,7 +2584,7 @@ def _report_remove(res):
             return
         # The wording "removed agent worktree" is kept because the reaper and
         # the operators read it; what it means is stated in the same line: the
-        # directory is gone from its path and from git and lives in quarantine.
+        # directory is gone from its original path and remains registered in quarantine.
         _say("✓ removed agent worktree: %s%s — agent '%s' %s; quarantined at %s (retained until %s), "
              "preserved and verified first."
              % (res.get("path"),
@@ -2585,9 +2594,8 @@ def _report_remove(res):
         if b.get("asserted") and not b.get("deleted") and b.get("note"):
             _say("note: --branch %s was NOT deleted: %s" % (b.get("asserted"), b["note"]))
         if res.get("git_registration") == "present":
-            _say("note: git still registers %s after prune (unlock: %s, prune: %s); `git worktree "
-                 "list` will show it until that is resolved by hand."
-                 % (res.get("path"), res.get("git_worktree_unlock"), res.get("git_worktree_prune")))
+            _say("note: Git registration/index retained for %s (exact repair: %s); offline cleanup owns registration and branch removal."
+                 % (q.get("path"), res.get("git_worktree_repair")))
         if res.get("journal") == "incomplete":
             _say("note: the completion record did NOT land in the retirement journal; the intent "
                  "record did. `workspace-retire.py reconcile` lists it.")

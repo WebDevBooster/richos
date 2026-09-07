@@ -39,7 +39,25 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 SID="deadbeef-0000-4000-8000-000000000000"
-T() { python3 "$TX_PY" "$@"; }
+# These quarantine/capture regressions replay records from the pre-platform-owner
+# format. New native ownership is covered by native-platform-cleanup.test.py.
+# Convert only fixture records after a successful explicit seal, never production code.
+T() {
+    python3 "$TX_PY" "$@"
+    local rc=$?
+    if [ "$rc" -eq 0 ] && [ "${1:-}" = seal ]; then
+        python3 - "$RICHOS_WORKTREE_TX_DIR" <<'HISTORICAL'
+import json, pathlib, sys
+for path in pathlib.Path(sys.argv[1]).glob('*/*.json'):
+    record=json.loads(path.read_text())
+    if record.get('record')=='transaction' and not record.get('terminal'):
+        for member in record.get('members',[]):
+            member.pop('cleanup_owner',None)
+        path.write_text(json.dumps(record))
+HISTORICAL
+    fi
+    return "$rc"
+}
 
 seed_repo() { mkdir -p "$1"; git -C "$1" init -q -b main; printf 'seed\n' >"$1/seed.txt"; git -C "$1" add -A; git -C "$1" commit -q -m seed; }
 ENTITY="$SANDBOX/entity"; seed_repo "$ENTITY"; mkdir -p "$ENTITY/.claude/worktrees"
@@ -154,9 +172,9 @@ fi
 T start --session-id "$SID" --agent-id "$A3" --cwd "$ENTITY/.claude/worktrees/agent-$A3" >/dev/null
 T seal --session-id "$SID" --agent-id "$A3" >/dev/null 2>&1
 ING3="$(T show --session-id "$SID" --agent-id "$A3" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); t=d.get("terminal") or {}; print(t.get("ingress",""), "via" if t.get("via_pending") else "direct")')"
-if [ "$ING3" = "SubagentStop via" ] && [ ! -d "$ENTITY/.claude/worktrees/agent-$A3" ] && [ -d "$(q "$ENTITY/.claude/worktrees/agent-$A3" "$A3")" ] \
+if [ "$ING3" = "SubagentStop via" ] && [ -d "$ENTITY/.claude/worktrees/agent-$A3" ] && [ ! -e "$(q "$ENTITY/.claude/worktrees/agent-$A3" "$A3")" ] \
    && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ]; then
-    ok "R21b ...and when the manifest later SEALS, the pending event claims it (ingress SubagentStop, via pending), quarantines the worktree and is consumed"
+    ok "R21b ...and when the manifest later SEALS, the pending event claims it (ingress SubagentStop, via pending), preserves Claude-owned native cleanup and is consumed"
 else
     bad "R21b ingress=[$ING3] orig=$([ -d "$ENTITY/.claude/worktrees/agent-$A3" ] && echo present || echo gone) pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ] && echo kept || echo consumed)"
 fi

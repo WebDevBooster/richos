@@ -99,7 +99,7 @@ class RecoverySafety(unittest.TestCase):
         self.git(self.repo, "prune", "--expire=now")
         missing = subprocess.run(["git", "-C", str(self.repo), "cat-file", "-e", blob],
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        self.assertNotEqual(0, missing.returncode, "fixture must lose the unprotected original blob")
+        self.assertEqual(0, missing.returncode, "retained registration/index must protect the original staged blob from GC")
         # A recovery must also work with the original repository unavailable.
         self.repo.rename(self.root / "unavailable-original")
         result = retire.restore(self.wsid, str(self.root / "restored"))

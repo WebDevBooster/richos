@@ -490,6 +490,8 @@ def eligible(tx):
     for i, m in enumerate(tx.get("members") or []):
         if m.get("class") != "native":
             continue
+        if "cleanup_owner" in m:
+            return None, None, "native checkout is managed by Claude Code"
         if m.get("sparse") is not None:
             return None, None, "already decided"
         if m.get("state") != "bound":

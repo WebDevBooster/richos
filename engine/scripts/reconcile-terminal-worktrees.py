@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Capture and verify terminal worktrees while retaining their quarantines.
+"""Observe Claude-owned cleanup and preserve historical terminal quarantines.
+
+New native members retain their platform-owned path and Git registration; only
+Claude removes them. Managed images delegate to their privileged daemon.
 
 Terminal ingress quarantines an exact registered workspace. The reconciler
 captures its working files and index blobs and verifies the archive. It then
@@ -871,6 +874,16 @@ def reconcile_transaction(t, deadline=None):
                 if base > 0 and float(m.get("retry_after_epoch") or 0) > time.time():
                     log("member %s of %s/%s: in backoff until %s after %s attempt(s) — skipped this run"
                         % (m.get("path"), sid[:8], aid, m.get("retry_after") or "?", m.get("attempts") or "?"))
+                    break
+                if tx.platform_native(m):
+                    try:
+                        observed = tx.observe_platform_native(sid, aid, i)
+                        current = observed['members'][i]
+                        if current.get('state') != 'removed':
+                            raise RuntimeError(current.get('last_error') or 'Claude Code cleanup pending')
+                    except Exception as error:
+                        _record_soft_failure(sid, aid, i, int(m.get('attempts') or 0) + 1,
+                                             str(error), base, cap)
                     break
                 if m.get('class') == 'managed-image':
                     try:

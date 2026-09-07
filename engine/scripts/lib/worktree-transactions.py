@@ -42,6 +42,11 @@ read of what exists on disk plus the ONE idempotent transition that follows.
 ===========================================================================
 THE STATE MACHINE, PER MEMBER
 ===========================================================================
+New Claude-owned native members use bound -> platform-pending -> removed.
+Their original worktree, index, registration and lock remain platform-owned.
+Removal is observed only after both exact path and complete registry absence.
+The following quarantine state machine applies to historical linked members:
+
     bound -> ref_saved -> quarantined -> captured -> verified -> unregistered -> removed
 
     ref_saved     refs/richos/handoffs/<session_id>/<agent_id>/<branch> = HEAD
@@ -89,7 +94,7 @@ import time
 from datetime import datetime, timezone
 
 MEMBER_STATES = ("bound", "ref_saved", "quarantined", "captured", "verified",
-                 "unregistered", "removed")
+                 "unregistered", "platform-pending", "removed")
 TERMINAL_STATES = ("failed", "missing")
 
 AGENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
@@ -469,7 +474,7 @@ def _verify_native_member(cwd_real, agent_id):
     reg = registered_worktrees(repo) if repo else None
     if not reg or cwd_real not in reg:
         return None, "git does not list %s as a worktree of %s" % (cwd_real, repo or "?")
-    return {"class": "native", "repo": repo, "path": cwd_real,
+    return {"class": "native", "cleanup_owner": "claude-code", "repo": repo, "path": cwd_real,
             "branch": reg[cwd_real].get("branch") or branch_of(cwd_real),
             "head_at_seal": reg[cwd_real].get("head") or head_of(cwd_real),
             "state": "bound"}, ""
@@ -1025,9 +1030,8 @@ def close_absent(session_id, agent_id, index, reason):
         save_ref read, else head_at_seal) when that commit object still
         exists in the repository — the platform can delete a native
         worktree and its branch, but the objects outlive both;
-      - a registration git still holds for the vanished path is pruned
-        (`git worktree prune` drops only registrations whose directory is
-        gone);
+      - any exact registration still present retains this member pending,
+        because its index may hold unique objects; no bulk prune is permitted;
       - the absence, its reason and what was preserved are recorded on the
         member, and it is `removed`.
     A backup-ref write that FAILS while the object exists is a transient
@@ -1035,6 +1039,8 @@ def close_absent(session_id, agent_id, index, reason):
     a lost ref that could still be saved."""
     tx = load_tx(session_id, agent_id)
     m = tx["members"][index]
+    if platform_native(m):
+        return observe_platform_native(session_id, agent_id, index)
     repo = m.get("repo") or ""
     ref = m.get("backup_ref") or backup_ref(session_id, agent_id, m.get("branch"))
     head = m.get("head") or m.get("head_at_seal") or ""
@@ -1052,11 +1058,148 @@ def close_absent(session_id, agent_id, index, reason):
     elif head and not repo_present:
         preserved = "repository-not-present"
     if repo_present:
-        _git(repo, "worktree", "prune")
+        registered = strict_registered_worktrees(repo)
+        retained = [p for p in (m.get("path"), m.get("quarantine")) if p and norm_path(p) in registered]
+        if retained:
+            return _soft_failure(session_id, agent_id, index,
+                                 "missing workspace retains Git registration/index; exact offline cleanup required: " + retained[0])
     return update_member(session_id, agent_id, index, state="removed", closed="absent",
                          absence_reason=reason, absence_recorded_ts=now_iso(), removed_ts=now_iso(),
                          head=head or m.get("head") or "", head_preserved=preserved,
                          backup_ref=(ref if preserved == "backup-ref" else m.get("backup_ref")))
+
+
+def platform_native(member):
+    return member.get("class") == "native" and "cleanup_owner" in member
+
+
+def platform_owns_path(path):
+    """Exact active platform ownership, with strict transaction-store reads.
+
+    False requires complete inventory. Missing stores mean no recorded owner;
+    unreadable, replaced or malformed stores refuse automatic mutation.
+    """
+    root = tx_root()
+    if not os.path.lexists(root):
+        return False
+    if os.path.islink(root) or not os.path.isdir(root):
+        raise RuntimeError("platform ownership store is not a directory")
+    def entries(directory):
+        with os.scandir(directory) as listing:
+            return list(listing)
+    found = False
+    for session in entries(root):
+        if session.name in ("terminal", "terminal-names"):
+            continue
+        if session.is_symlink():
+            raise RuntimeError("platform ownership session is a symlink")
+        if not session.is_dir(follow_symlinks=False):
+            continue
+        for entry in entries(session.path):
+            if not entry.name.endswith(".json"):
+                continue
+            if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                raise RuntimeError("platform ownership record is not a regular file")
+            with open(entry.path, encoding="utf-8") as stream:
+                record = json.load(stream)
+            if not isinstance(record, dict):
+                raise RuntimeError("platform ownership record malformed")
+            if record.get("record") != "transaction":
+                raise RuntimeError("platform ownership record kind unknown")
+            members = record.get("members")
+            if not isinstance(members, list) or not all(isinstance(m, dict) for m in members):
+                raise RuntimeError("platform ownership members malformed")
+            for member in members:
+                if platform_native(member) and member.get("state") != "removed":
+                    if not isinstance(member.get("path"), str) or not os.path.isabs(member["path"]):
+                        raise RuntimeError("platform ownership path malformed")
+                    if norm_path(member["path"]) == norm_path(path):
+                        found = True
+    return found
+
+
+def strict_registered_worktrees(repo):
+    """Complete NUL registry used for observational platform cleanup only.
+
+    A failed, empty or malformed read is unknown, never proof of removal.
+    """
+    rc, raw, err = _git(repo, "worktree", "list", "--porcelain", "-z")
+    if rc or not raw or not raw.endswith("\0\0"):
+        raise RuntimeError("platform cleanup registry unavailable: " + err[:200])
+    entries = {}
+    for record in raw[:-2].split("\0\0"):
+        values = {}
+        fields = record.split("\0")
+        for field in fields:
+            key, _, value = field.partition(" ")
+            if key not in ("worktree", "HEAD", "branch", "detached", "bare", "locked", "prunable") or key in values:
+                raise RuntimeError("platform cleanup registry malformed")
+            values[key] = value
+        path = values.get("worktree", "")
+        if not fields[0].startswith("worktree ") or not os.path.isabs(path) or norm_path(path) in entries:
+            raise RuntimeError("platform cleanup registry path malformed")
+        if "bare" in values:
+            if values["bare"] or any(key in values for key in ("HEAD", "branch", "detached")):
+                raise RuntimeError("platform cleanup bare registry malformed")
+        elif (not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", values.get("HEAD", ""))
+              or ("branch" in values) == ("detached" in values)
+              or ("detached" in values and values["detached"])
+              or ("branch" in values and (not values["branch"].startswith("refs/heads/")
+                  or _git(repo, "check-ref-format", values["branch"])[0]))):
+            raise RuntimeError("platform cleanup registry identity malformed")
+        entries[norm_path(path)] = values
+    return entries
+
+
+def observe_platform_native(session_id, agent_id, index):
+    """Preserve a terminal commit and observe Claude's own worktree removal.
+
+    Never rename, sparsify, prune registrations, unlock or remove a platform
+    checkout. Historical records lack this ownership marker and keep their
+    recovery path. A retained platform checkout stays explicitly pending.
+    """
+    t = load_tx(session_id, agent_id)
+    m = t["members"][index]
+    if not platform_native(m) or m.get("cleanup_owner") != "claude-code" or not t.get("terminal"):
+        raise RuntimeError("not a terminal Claude-owned native member; unknown owner retained")
+    if m.get("state") == "removed":
+        return t
+    if m.get("quarantine") or m.get("quarantine_path"):
+        raise RuntimeError("platform-owned native member has historical quarantine; retained")
+    repo, path = m.get("repo") or "", m.get("path") or ""
+    if not repo or not path or not os.path.isdir(repo):
+        raise RuntimeError("platform cleanup repository/path unavailable")
+    reg = strict_registered_worktrees(repo)
+    entry = reg.get(norm_path(path))
+    if entry is not None and entry.get("branch", "") != ("refs/heads/" + m["branch"] if m.get("branch") else ""):
+        raise RuntimeError("platform cleanup registration branch changed; retained")
+    head = m.get("head") or (entry or {}).get("HEAD") or m.get("head_at_seal") or ""
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
+        raise RuntimeError("platform cleanup has no valid recovery commit")
+    ref = backup_ref(session_id, agent_id, m.get("branch"))
+    if _git(repo, "cat-file", "-e", head + "^{commit}")[0]:
+        raise RuntimeError("platform cleanup recovery commit unavailable")
+    symbolic, _, _ = _git(repo, "symbolic-ref", "-q", ref)
+    if symbolic == 0:
+        raise RuntimeError("platform cleanup recovery ref is symbolic; retained")
+    previous_rc, previous, _ = _git(repo, "rev-parse", "--verify", "--quiet", ref)
+    if previous_rc not in (0, 1) or (previous_rc == 0 and previous.strip() != head):
+        raise RuntimeError("platform cleanup recovery ref changed; retained")
+    expected = head if previous_rc == 0 else "0" * len(head)
+    rc, _, err = _git(repo, "update-ref", "--no-deref", ref, head, expected)
+    if rc:
+        raise RuntimeError("platform cleanup recovery ref failed: " + err[:200])
+    # A fresh complete registry read plus lexists, including dangling links,
+    # must both prove absence. No filesystem mutation follows this observation.
+    remaining = strict_registered_worktrees(repo)
+    absent = norm_path(path) not in remaining and not os.path.lexists(path)
+    fields = dict(head=head, backup_ref=ref, head_preserved="backup-ref",
+                  state="removed" if absent else "platform-pending",
+                  last_error=None if absent else "Claude Code cleanup pending: native path or registration remains",
+                  blocked=False, blocked_reason=None, retry_after_epoch=0)
+    if absent:
+        fields.update(closed="platform-removed", removed_ts=now_iso())
+    return update_member(session_id, agent_id, index, **fields)
 
 
 def save_ref(session_id, agent_id, index):
@@ -1065,6 +1208,8 @@ def save_ref(session_id, agent_id, index):
     absent (close_absent)."""
     tx = load_tx(session_id, agent_id)
     m = tx["members"][index]
+    if platform_native(m):
+        return observe_platform_native(session_id, agent_id, index)
     if m.get("state") != "bound":
         return tx
     orig = m["path"]
@@ -1131,6 +1276,8 @@ def quarantine(session_id, agent_id, index):
     original. Both present -> failed; neither -> missing; never a search."""
     tx = load_tx(session_id, agent_id)
     m = tx["members"][index]
+    if platform_native(m):
+        return observe_platform_native(session_id, agent_id, index)
     if m.get("state") != "ref_saved":
         return tx
     orig = m["path"]
@@ -1195,25 +1342,12 @@ def quarantine(session_id, agent_id, index):
 
 
 def terminalize(session_id, agent_id, first_path=None):
-    """ONE MEMBER AT A TIME, the named native path first: save its ref,
-    quarantine it, persist — and only then touch the next member.
+    """Persist terminal progress for the exact bound members, native first.
 
-    The path the ingress named (a WorktreeRemove's exact native path) ranks
-    first, else the native member, then every external member. Called by the
-    winner AND the loser: every step is idempotent on the persisted state.
-
-    WHY PER-MEMBER AND NOT TWO PASSES (review 2026-09-03, blocker 1): the
-    WorktreeRemove hook has a 20-second budget and any git subprocess may take
-    up to its 30-second timeout. Two passes — save every ref, THEN quarantine
-    every member — put an external repository's `rev-parse`/`update-ref`
-    BEFORE the native rename. A stalled external repository then exhausted
-    the hook budget with the native path still at its original name, and
-    Claude Code deleted that path, with every unstaged and untracked byte in
-    it, on the strength of a hook that had merely run out of time. The
-    native member is the one the platform is about to destroy, so nothing
-    from any other repository runs until it is renamed and its transition is
-    on disk. worktree-transactions.test.sh T51 stalls an external repository
-    past a simulated hook kill and asserts the native quarantine survived."""
+    New native members preserve their commit and await Claude-owned removal.
+    Managed images delegate to their daemon. Historical linked worktrees keep
+    the quarantine/capture route and its explicit erasure refusal.
+    """
     tx = load_tx(session_id, agent_id)
     if not tx or not tx.get("terminal"):
         return tx
@@ -1233,6 +1367,12 @@ def terminalize(session_id, agent_id, first_path=None):
     with tx_lock(session_id, agent_id):
         for i in order:
             member = tx['members'][i]
+            if platform_native(member):
+                try:
+                    observe_platform_native(session_id, agent_id, i)
+                except Exception as error:
+                    _soft_failure(session_id, agent_id, i, str(error))
+                continue
             if member.get('class') == 'managed-image':
                 if member.get('state') == 'removed':
                     continue
@@ -1542,8 +1682,16 @@ def _main(argv):
     p = sub.add_parser("list")
     p = sub.add_parser("native-roles", help="<path>\\t<shell|workspace> per native member")
     p = sub.add_parser("member-paths", help="every member path AND quarantine any transaction owns")
+    p = sub.add_parser("platform-owned", help="exact active Claude-owned path: exit 0 owned, 1 absent, 2 unknown")
+    p.add_argument("--path", required=True)
 
     a = ap.parse_args(argv)
+    if a.cmd == "platform-owned":
+        try:
+            return 0 if platform_owns_path(a.path) else 1
+        except Exception as error:
+            print("platform ownership unavailable: " + str(error), file=sys.stderr)
+            return 2
     if a.cmd == "root":
         print(tx_root()); return 0
     if a.cmd == "intent":

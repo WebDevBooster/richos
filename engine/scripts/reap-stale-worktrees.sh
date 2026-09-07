@@ -1097,6 +1097,7 @@ ERROR_COUNT=0
 SKIP_LOCKED=0
 SKIP_LOCKED_LIVE=0
 SKIP_QUARANTINED=0
+SKIP_PLATFORM=0
 SKIP_UNMERGED=0
 SKIP_DIRTY=0
 SKIP_LIVE_PROCESS=0
@@ -1206,6 +1207,16 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
         esac
         CLAIMED_PATHS="$CLAIMED_PATHS|$path|"
 
+        # Native cleanup remains Claude-owned even after terminality. Read the
+        # exact record before stale-lock breaking, missing-dir handling or removal.
+        _platform_rc=0
+        python3 "$LIB_DIR/worktree-transactions.py" platform-owned --path "$path" >/dev/null 2>&1 || _platform_rc=$?
+        if [ "$_platform_rc" -ne 1 ]; then
+            skip "$id" "platform-cleanup-pending($disp_class) — exact native owner or incomplete ownership inventory; path, lock and registration retained"
+            SKIP_PLATFORM=$((SKIP_PLATFORM + 1))
+            continue
+        fi
+
         # --- Gate 0b: a QUARANTINE belongs to the reconciler, not to this ---
         # `<path>.richos-terminal-<session8>-<agentid>` is the name a terminal
         # ingress gives a worktree it has claimed (lib/worktree-transactions.py
@@ -1221,16 +1232,16 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
         # system has already decided to destroy and has not finished
         # destroying, so it is counted by itself and it is not allowed to sit
         # inside a CLEAN verdict.
-        case "$(basename "$path")" in
-            *.richos-terminal-*)
-                skip "$id" "quarantined($disp_class) — claimed by a terminal transaction; reconcile-terminal-worktrees.py owns its removal and this inventory never touches it. Its state (and whether it is BLOCKED) is that tool's --status, not this line"
+        case "$path" in
+            *.richos-terminal-*|*/.richos-retired/*)
+                skip "$id" "quarantined($disp_class) — recovery quarantine namespace retained; this inventory never touches its path, lock or registration. Inspect its transaction or retirement journal for exact offline cleanup"
                 SKIP_QUARANTINED=$((SKIP_QUARANTINED + 1))
                 continue
                 ;;
         esac
 
-        # Directory gone but still registered -> report + let `worktree prune`
-        # (execute-only, end of run) clear the registration. No further gate.
+        # Missing directory still retains its registration/index. Only exact
+        # offline cleanup may remove it; no bulk prune follows this inventory.
         if [ ! -d "$path" ]; then
             skip "$id" "missing-dir($disp_class)"
             SKIP_MISSING_DIR=$((SKIP_MISSING_DIR + 1))
@@ -1424,6 +1435,7 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
                 echo "REAP $id"
                 echo "RETAIN-BRANCH $branch_name requires-frozen-branch-selection"
                 REAP_COUNT=$((REAP_COUNT + 1))
+                SKIP_QUARANTINED=$((SKIP_QUARANTINED + 1))
             elif [ "$_rm_rc" -eq 3 ]; then
                 # THE TWO AUTHORITIES DISAGREE. Every gate above said this
                 # tree's owner is not alive; the sanctioned remover, reading
@@ -1514,19 +1526,9 @@ BRANCHES_EOF
     done
 fi
 
-# --- After the loop: prune ---------------------------------------------------
-if [ "$EXECUTE" -eq 1 ]; then
-    if [ "${#REPOS[@]}" -gt 0 ]; then
-        for _i in $(seq 0 $(( ${#REPOS[@]} - 1 ))); do
-            [ "${REPO_ELIGIBLE[$_i]}" = "1" ] || continue
-            [ "${REPO_REACHABLE[$_i]}" = "1" ] || continue
-            git -C "${REPOS[$_i]}" worktree prune || true
-        done
-    fi
-    echo "(ran: git worktree prune in every reap-eligible repository)"
-else
-    echo "(DRY-RUN: would run 'git worktree prune' in every reap-eligible repository)"
-fi
+# No bulk worktree prune: it could erase a missing platform checkout's index
+# or an unrelated legacy registration. Exact frozen cleanup owns registration removal.
+echo "(Git registrations retained; automatic bulk worktree prune is disabled)"
 
 # --- Which containers is it honest to call a WORKTREE CONTAINER? ------------
 # A linked worktree's parent directory is not automatically one. The first run
@@ -1821,6 +1823,12 @@ fi
 # not own them and cannot say why they are outstanding — the reconciler's
 # --status does, and the session banner prints it — so the verdict names the
 # count and points at the tool that knows.
+if [ "$SKIP_PLATFORM" -gt 0 ]; then
+    PENDING_CLAUSES+=("platform-cleanup-pending=$SKIP_PLATFORM registered worktree(s) retain Claude ownership or incomplete ownership evidence; no path, lock or registration was changed")
+fi
+if [ "$SKIP_MISSING_DIR" -gt 0 ]; then
+    PENDING_CLAUSES+=("missing-registrations=$SKIP_MISSING_DIR retained with their Git indexes until exact offline cleanup")
+fi
 if [ "$SKIP_QUARANTINED" -gt 0 ]; then
     PENDING_CLAUSES+=("quarantined=$SKIP_QUARANTINED worktree(s) are claimed by a terminal transaction and not yet removed. This inventory does not own them and never touches them; run 'reconcile-terminal-worktrees.py --status' for WHY (a BLOCKED count there is a condition waiting cannot clear)")
 fi

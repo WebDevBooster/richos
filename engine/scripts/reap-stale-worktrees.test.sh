@@ -67,6 +67,8 @@ FAIL=0
 # cases would pass for the wrong reason.
 SANDBOX="$(cd "$(mktemp -d -t reap-scope-test.XXXXXX)" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
+# Direct invocations outside run_reaper also need isolated ownership reads.
+export RICHOS_WORKTREE_TX_DIR="$SANDBOX/default-transactions"
 
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
@@ -778,7 +780,7 @@ if [ "$RC" -eq 0 ] && [ "$B1" -eq 0 ] && [ "$B2" -eq 0 ] && [ "$K" -eq 1 ] && [ 
    && printf '%s' "$OUT" | grep -q '^SKIP-BRANCH zach-opus-orphan2 requires-frozen-branch-selection$' \
    && printf '%s' "$OUT" | grep -q '^SKIP-BRANCH worktree-agent-keep unmerged(+1)$' \
    && ! printf '%s' "$OUT" | grep -q 'feature-topic' \
-   && printf '%s' "$OUT" | grep -q 'branches-swept=0 branches-skipped=1 branches-pending=3'; then
+   && printf '%s' "$OUT" | grep -q 'branches-swept=0 branches-skipped=1 branches-pending=2'; then
     ok "orphan branches: --execute retains merged candidates for a frozen selection, unmerged and operator branches also survive"
 else
     bad "branch sweep (rc=$RC orphan1_gone=$B1 orphan2_gone=$B2 keep_present=$K topic_present=$F): $(printf '%s' "$OUT" | grep -E 'BRANCH|branches-' | tr '\n' ' ')"
@@ -808,7 +810,7 @@ DIR="$(make_world clean-verdict)"
 add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING.*branches-pending=' \
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING.*quarantined=' \
    && printf '%s' "$OUT" | grep -q 'undecidable=0 unresolved=0 indeterminate=0' \
    && [ ! -d "$DIR/other-wt/done-owner" ] && [ -d "$DIR/other-wt/live-owner" ]; then
     ok "verdict PENDING after quarantine while ordinary branches still need a frozen selection"
@@ -914,7 +916,7 @@ fi
 # 20c. NEGATIVE: same record, but the running process is UNACCOUNTED (no
 #      registry row) -> INDETERMINATE, PENDING, tree kept.
 rm -f "$DIR/sessions/$$.json"
-git -C "$DIR/other" worktree add -q "$DIR/other-wt/art-opus-old1" art-opus-old1 2>/dev/null \
+git -C "$DIR/other" worktree add -q --force "$DIR/other-wt/art-opus-old1" art-opus-old1 2>/dev/null \
     || git -C "$DIR/other" worktree add -q -b art-opus-old1 "$DIR/other-wt/art-opus-old1"
 OUT="$(REAP_DISCOVERY_SOURCES="primary,neighborhood" REAP_TEAM_DIR="$DIR/teams" \
        REAP_LEDGER="$DIR/ledger.txt" REAP_WORKTREE_LEDGER="$DIR/wt-ledger.jsonl" REAP_PROJECTS_DIR="$DIR/projects" \
@@ -946,7 +948,7 @@ OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/ci-base" ] \
    && printf '%s' "$OUT" | grep -q '^SKIP ci-base operator-worktree(' \
    && printf '%s' "$OUT" | grep -q 'unresolved=0 indeterminate=0 operator=1' \
-   && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING.*branches-pending='; then
+   && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING.*quarantined='; then
     ok "operator worktree stays separate and untouched; retained teammate branches keep the run PENDING"
 else
     bad "operator worktree (rc=$RC): $(printf '%s' "$OUT" | grep -E 'ci-base|^=== (verdict|coverage)' | tr '\n' ' ' | cut -c1-300)"
@@ -994,7 +996,7 @@ mv "$DIR/entity/.claude/worktrees/agent-done" "$QP"
 git -C "$DIR/entity" worktree repair "$QP" >/dev/null 2>&1
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -d "$QP" ] \
-   && printf '%s' "$OUT" | grep -q 'quarantined(native) — claimed by a terminal transaction' \
+   && printf '%s' "$OUT" | grep -q 'quarantined(native) — recovery quarantine namespace retained' \
    && printf '%s' "$OUT" | grep -q 'skip breakdown: quarantined=1' \
    && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING — quarantined=1' \
    && ! printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN'; then
@@ -1170,6 +1172,35 @@ if [ -d "$DIR/entity/.claude/worktrees/agent-live" ]; then
     fi
 else
     bad "shell not decisive: fixture missing before the case ran"
+fi
+
+# Platform ownership is stronger than stale-lock or absent-directory cleanup.
+DIR="$(make_world platform-owned)"
+NATIVE="$DIR/entity/.claude/worktrees/agent-done"
+add_native "$DIR/entity" missing-platform
+MISSING="$DIR/entity/.claude/worktrees/agent-missing-platform"
+git -C "$DIR/entity" worktree lock --reason 'claude agent agent-done (pid 99999999 start old)' "$NATIVE"
+python3 - "$DIR/tx" "$DIR/entity" "$NATIVE" "$MISSING" <<'PLATFORM_RECORD'
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1])/'session';root.mkdir(parents=True)
+for number,path in enumerate(sys.argv[3:]):
+    (root/(str(number)+'.json')).write_text(json.dumps(dict(record='transaction',members=[dict(
+        **{'class':'native'},cleanup_owner='claude-code',repo=sys.argv[2],path=path,state='platform-pending')])))
+PLATFORM_RECORD
+mv "$MISSING" "$DIR/missing-platform-held"
+add_native "$DIR/entity" missing-legacy
+LEGACY_MISSING="$DIR/entity/.claude/worktrees/agent-missing-legacy"
+mv "$LEGACY_MISSING" "$DIR/missing-legacy-held"
+BEFORE_REGISTRY="$(git -C "$DIR/entity" worktree list --porcelain)"
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute --unlock-stale)"; RC=$?
+if [ "$RC" -eq 0 ] && [ -d "$NATIVE" ] \
+   && [ "$(git -C "$DIR/entity" worktree list --porcelain)" = "$BEFORE_REGISTRY" ] \
+   && printf '%s' "$OUT" | grep -q 'platform-cleanup-pending=2' \
+   && printf '%s' "$OUT" | grep -q 'missing-registrations=1' \
+   && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING'; then
+    ok "platform-owned native paths and locks survive execute/unlock-stale; absent native and unrelated legacy registrations are never bulk-pruned"
+else
+    bad "platform owner exclusion (rc=$RC): $(printf '%s' "$OUT" | tail -4)"
 fi
 
 if [ "$FAIL" -eq 0 ] && [ -f "$SCRIPT_DIR/reap-stale-worktrees.mutation.sh" ]; then

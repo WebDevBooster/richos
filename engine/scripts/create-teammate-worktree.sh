@@ -233,7 +233,7 @@ rollback() { # <why>
         exit 5
     fi
     git -C "$MAIN" worktree remove --force "$DIR" >/dev/null 2>&1 || rm -rf "$DIR"
-    git -C "$MAIN" worktree prune >/dev/null 2>&1 || true
+    # Never bulk-prune unrelated native/legacy registrations during rollback.
     git -C "$MAIN" branch -D "$NAME" >/dev/null 2>&1 || true
     {
         echo "create-teammate-worktree.sh: created $DIR on branch $NAME but $1"

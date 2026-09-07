@@ -37,7 +37,25 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
-T() { python3 "$TX_PY" "$@"; }
+# These quarantine/capture regressions replay records from the pre-platform-owner
+# format. New native ownership is covered by native-platform-cleanup.test.py.
+# Convert only fixture records after a successful explicit seal, never production code.
+T() {
+    python3 "$TX_PY" "$@"
+    local rc=$?
+    if [ "$rc" -eq 0 ] && [ "${1:-}" = seal ]; then
+        python3 - "$RICHOS_WORKTREE_TX_DIR" <<'HISTORICAL'
+import json, pathlib, sys
+for path in pathlib.Path(sys.argv[1]).glob('*/*.json'):
+    record=json.loads(path.read_text())
+    if record.get('record')=='transaction' and not record.get('terminal'):
+        for member in record.get('members',[]):
+            member.pop('cleanup_owner',None)
+        path.write_text(json.dumps(record))
+HISTORICAL
+    fi
+    return "$rc"
+}
 # py <code> — run a snippet with the module loaded as `tx`.
 py() {
     TXPY="$TX_PY" python3 -c "
