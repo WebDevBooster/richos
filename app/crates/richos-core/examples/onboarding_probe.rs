@@ -74,11 +74,11 @@ fn main() {
     for id in &ids {
         let layer = central.as_ref().map(|root| CompanyLayer::read(root, id));
         if block_only {
-            if let Some(block) = priming_block(id, layer.as_ref(), &record) {
+            if let Some(block) = priming_block(id, layer.as_ref(), &record.for_entity(id)) {
                 print!("{block}");
             }
         } else {
-            println!("{}", describe(id, layer.as_ref(), &record));
+            println!("{}", describe(id, layer.as_ref(), &record.for_entity(id)));
             if let Some(l) = &layer {
                 println!("    {}", l.describe());
             }

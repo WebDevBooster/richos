@@ -373,6 +373,8 @@ pub struct Spine {
     /// `None` behaves as "no declination on file", which leans toward asking — see
     /// `OnboardingRecord::load` on why the failure leans that way and only that way.
     onboarding_record: Option<std::path::PathBuf>,
+    /// Last successfully primed onboarding content. External MCP saves/declines invalidate it.
+    onboarding_primed_block: Option<String>,
     /// Where [`Spine::timeline`] reads the engine's worker-lifecycle stream from, so a
     /// `Task` tool call can be joined to the worker it spawned (UX §7).
     ///
@@ -457,6 +459,7 @@ impl Spine {
             owned_work_enabled: false,
             central_root: None,
             onboarding_record: None,
+            onboarding_primed_block: None,
             queue: VecDeque::new(),
             lease_primed: false,
             lease_primed_thread: None,
@@ -834,9 +837,9 @@ impl Spine {
     ///
     /// Re-read at every prime rather than cached, so a declination recorded during a
     /// conversation takes effect at the next prime instead of at the next launch.
-    fn onboarding_record(&self) -> crate::onboarding::OnboardingRecord {
+    fn onboarding_record(&self, binding: &ThreadBinding) -> crate::onboarding::OnboardingRecord {
         match self.onboarding_record.as_ref() {
-            Some(p) => crate::onboarding::OnboardingRecord::load(p),
+            Some(p) => crate::onboarding::OnboardingRecord::load(p).for_entity(binding.entity_id()),
             None => crate::onboarding::OnboardingRecord::default(),
         }
     }
@@ -845,14 +848,14 @@ impl Spine {
     /// interview, or the honest note that says why there is neither (`onboarding.rs`).
     fn company_block(&self, binding: &ThreadBinding) -> Option<String> {
         let layer = self.company_layer(binding);
-        crate::onboarding::priming_block(binding.entity_id(), layer.as_ref(), &self.onboarding_record())
+        crate::onboarding::priming_block(binding.entity_id(), layer.as_ref(), &self.onboarding_record(binding))
     }
 
     /// One line per company for the boot log — what this launch will actually do about
     /// onboarding, said out loud because the failure being fixed was silence.
     pub fn describe_onboarding(&self, binding: &ThreadBinding) -> String {
         let layer = self.company_layer(binding);
-        crate::onboarding::describe(binding.entity_id(), layer.as_ref(), &self.onboarding_record())
+        crate::onboarding::describe(binding.entity_id(), layer.as_ref(), &self.onboarding_record(binding))
     }
 
     /// WHERE THIS INSTALL STANDS ON ONBOARDING, for the WINDOW rather than for the log.
@@ -871,7 +874,7 @@ impl Spine {
     /// [`OnboardingRecord`]: crate::onboarding::OnboardingRecord
     pub fn onboarding_state(&self, binding: &ThreadBinding) -> crate::onboarding::OnboardingState {
         let layer = self.company_layer(binding);
-        crate::onboarding::state(layer.as_ref(), &self.onboarding_record())
+        crate::onboarding::state(layer.as_ref(), &self.onboarding_record(binding))
     }
 
     /// HE WAS ASKED AND SAID NOT NOW — the write half of the one fact the company file
@@ -890,16 +893,33 @@ impl Spine {
     /// default" the corpus provisioner enforces at the only door that can create a corpus.
     ///
     /// [`OnboardingState::Declined`]: crate::onboarding::OnboardingState::Declined
-    pub fn record_onboarding_declination(&self, now_millis: u64) -> Result<(), crate::doctrine::DoctrineError> {
-        let path = self.onboarding_record.as_ref().ok_or_else(|| {
-            crate::doctrine::DoctrineError::Unwritable {
-                path: "<no onboarding record configured>".to_string(),
-                why: "nobody told this spine where the declination record lives, so there is \
-                      nowhere to write that you were asked and said not now"
-                    .to_string(),
-            }
+    pub fn record_onboarding_declination(&mut self, now_millis: u64) -> Result<(), crate::doctrine::DoctrineError> {
+        let path = self.onboarding_record.as_ref().ok_or_else(|| crate::doctrine::DoctrineError::Unwritable {
+            path: "<no onboarding record configured>".into(),
+            why: "nobody told this spine where the declination record lives, so there is nowhere to write".into(),
         })?;
-        crate::onboarding::OnboardingRecord::record_declination(path, now_millis)
+        let binding = self.active_binding().ok_or_else(|| crate::doctrine::DoctrineError::Unwritable {
+            path: path.display().to_string(), why: "no company is selected; no answer was recorded".into(),
+        })?;
+        crate::onboarding::OnboardingRecord::record_declination_for_entity(path, binding.entity_id(), now_millis)?;
+        self.lease_primed = false;
+        Ok(())
+    }
+
+    /// Run after restoring the active company (or its first explicit selection). Legacy
+    /// records cannot identify a company, so this is a one-time, explicit compatibility step.
+    pub fn migrate_legacy_onboarding_declination(&mut self) -> Result<bool, crate::doctrine::DoctrineError> {
+        let (Some(path), Some(binding)) = (self.onboarding_record.as_ref(), self.active_binding()) else { return Ok(false); };
+        let changed = crate::onboarding::OnboardingRecord::migrate_legacy(path, binding.entity_id())?;
+        if changed { self.lease_primed = false; }
+        Ok(changed)
+    }
+
+    /// Only the app's bound company and configured paths become tool authority.
+    pub fn onboarding_tool_scope(&self, binding: &ThreadBinding) -> Option<crate::onboarding_tools::OnboardingToolScope> {
+        Some(crate::onboarding_tools::OnboardingToolScope::new(
+            binding.entity_id(), self.central_root.as_ref()?, self.onboarding_record.as_ref()?,
+        ))
     }
 
     pub fn owned_worker_context(&mut self, binding: &ThreadBinding) -> Result<String, SpineError> {
@@ -2726,7 +2746,8 @@ impl Spine {
         // Onboarding, BEFORE the owned-work contract: this is either the CEO's own material
         // or an offer to collect it, and the contract is an instruction, so the instruction
         // stays last (`onboarding.rs`, `company.rs`).
-        if let Some(block) = self.company_block(binding) { priming.push_str(&block); }
+        let onboarding_block = self.company_block(binding);
+        if let Some(block) = &onboarding_block { priming.push_str(block); }
         if self.owned_work_enabled { priming.push_str(OWNED_WORK_CONTRACT); }
         // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime:rotation]", Source::Internal);
@@ -2757,7 +2778,11 @@ impl Spine {
                 Self::retain_and_emit_machinery(journal, machinery_observer, record);
             }
         };
-        let primed = fresh.reprime(&priming, &mut on_item);
+        let scoped = match self.onboarding_tool_scope(binding) {
+            Some(scope) => fresh.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+            None => Ok(()),
+        };
+        let primed = scoped.and_then(|_| fresh.reprime(&priming, &mut on_item));
         if let Err(e) = primed {
             self.ledger.update_action(&reprime_action, ActionStatus::Failed)?;
             self.ledger.update_action(&rotation_action, ActionStatus::Failed)?;
@@ -2781,6 +2806,7 @@ impl Spine {
         // tell. It never renders.
         self.pump_between_turn_stamped(binding, true);
         self.lease_primed_thread = Some(binding.thread_id().to_string());
+        self.onboarding_primed_block = onboarding_block;
         self.lease_primed = true; // already primed above — deliver() won't re-prime redundantly
         self.context_chars = priming.len(); // reset the watermark baseline to the new payload
 
@@ -2842,6 +2868,8 @@ impl Spine {
 
     /// Assemble + inject the re-prime payload once per lease (before its first turn).
     fn prime_lease_if_needed(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        let onboarding_block = self.company_block(binding);
+        if onboarding_block != self.onboarding_primed_block { self.lease_primed = false; }
         if (self.lease_primed && self.lease_primed_thread.as_deref() == Some(binding.thread_id())) || self.lease.is_none() {
             return Ok(());
         }
@@ -2856,7 +2884,7 @@ impl Spine {
         // Onboarding, BEFORE the owned-work contract: this is either the CEO's own material
         // or an offer to collect it, and the contract is an instruction, so the instruction
         // stays last (`onboarding.rs`, `company.rs`).
-        if let Some(block) = self.company_block(binding) { priming.push_str(&block); }
+        if let Some(block) = &onboarding_block { priming.push_str(block); }
         if self.owned_work_enabled { priming.push_str(OWNED_WORK_CONTRACT); }
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime]", Source::Internal);
@@ -2879,6 +2907,13 @@ impl Spine {
         // `turn_id: None` — attached to the THREAD, not to a turn, because there is no
         // CEO turn here to attach it to (§1.4 G4: `turn_id: None` is a first-class state,
         // not a bug). Retained for debugging; never rendered.
+        let scoped = match self.onboarding_tool_scope(binding) {
+            Some(scope) => match self.lease.as_mut() {
+                Some(lease) => lease.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+                None => Ok(()),
+            },
+            None => Ok(()),
+        };
         let journal = self.machinery_journal.as_ref();
         let machinery_observer = self.machinery_observer.as_deref();
         let primed = match self.lease.as_mut() {
@@ -2890,7 +2925,7 @@ impl Spine {
                     }
                     // Priming TEXT is discarded exactly as before — never rendered.
                 };
-                lease.reprime(&priming, &mut on_item)
+                scoped.and_then(|_| lease.reprime(&priming, &mut on_item))
             }
             None => Ok(()),
         };
@@ -2905,6 +2940,7 @@ impl Spine {
         // as unrenderable as the turn itself (§1.5, and the standing order that Rich never
         // reveals or references session rotation).
         self.pump_between_turn_stamped(binding, true);
+        self.onboarding_primed_block = onboarding_block;
         self.lease_primed_thread = Some(binding.thread_id().to_string());
         self.lease_primed = true;
         self.context_chars = priming.len(); // baseline the watermark measurement

@@ -15,9 +15,10 @@ enough to work with. Short is fine.
 
 ## Before the first question
 
-**Check what you already have.** Read the company file for this company — the ONBOARDING note
-in your instructions names the company; the file lives in his central folder under
-`companies/<company>/company.md`. Three cases:
+**Check what you already have.** Use the saved company material in your instructions. The COMPANY NOTES DESTINATION
+names the bound company and exact absolute file under `companies/<company>/company.md`.
+If you need to inspect that file, use that exact path. Never guess a central folder or use
+the engine working directory as one. Three cases:
 
 1. **It is not there, or it is empty.** Start at Stage 1.
 2. **It is there and thin — some stages covered, some not.** Tell him plainly what you already
@@ -72,7 +73,13 @@ does not have to be exhaustive — you are capturing his examples, not writing a
 
 ## Writing it down
 
-**One file, and only this file:** `companies/<company>/company.md` in his central folder.
+**One destination:** the exact company file in COMPANY NOTES DESTINATION.
+**One way to save:** call `mcp__richos_onboarding__save_company_notes` with `notes` and
+`progress`. The app chooses the company and path. You never supply either as a tool argument.
+The app creates the destination when needed, checks the byte limit, writes atomically and
+reads the file back before returning `status: saved`. Do not use Write, Edit or a shell to
+save interview answers. If the tool is unavailable or refuses, say the notes have not been
+saved and help resolve that; never claim persistence based on a proposed write.
 
 Nothing else. You do not edit a `CLAUDE.md`, you do not edit any configuration file, you do not
 run any setup or verification script, and you do not create anyone. Those belong to a different
@@ -80,8 +87,12 @@ copy of this system, run by somebody sitting at a terminal, and doing them here 
 files nothing in this app ever reads. If you find yourself about to write outside that one
 file, stop and ask him instead.
 
-**Before you write, say what you are about to write.** One short paragraph: here is what I
-heard, here is what I am about to put down. Get a nod. Then write.
+**Keep answers safe as you go.** His acceptance of the interview includes writing down
+his answers. Tell him in the first minute that you will keep notes as you go. After each
+substantive answer, save a partial checkpoint before asking the next question. Use his actual
+answer; ask him to confirm a summary only when its meaning is uncertain or disputed.
+Include all previously saved answers in every replacement. Never discard an earlier answer
+because you have moved on to a later stage.
 
 **How to write it.**
 
@@ -94,13 +105,19 @@ heard, here is what I am about to put down. Get a nod. Then write.
 - **Date it, and say it came from a conversation with him on that date.** The file has no other
   source. Something in it will go out of date and nothing will announce that, so it has to
   carry when it was true.
-- **Keep it short — comfortably under eight thousand characters.** It is re-read every time you
-  start on this company, and past that size the app declines to use it at all rather than
-  sending you half of it. If he has more to say than fits, summarize and tell him you did.
+- **Keep it short — comfortably under eight thousand UTF-8 bytes, not characters.** The app
+  enforces 8192 bytes including its progress header. Accents and other non-ASCII characters
+  can occupy multiple bytes. A size refusal leaves the previous saved answers intact: shorten
+  the notes without inventing or dropping a decision, then retry the same save tool.
+- Use `progress: "partial"` while any stages are still unasked. Use `progress: "complete"`
+  only once every stage has an answer or an explicit deferral from him. The app records this
+  progress with the notes, so he can resume after closing the application.
 
 ## When you are done
 
-Tell him three things, in plain words, in this order:
+First save with the correct progress and wait for the tool's verified success. If it returns
+a warning about the reminder, say what was saved and what still needs fixing separately.
+Then tell him three things, in plain words, in this order:
 
 1. **What you wrote down.** A sentence or two, not a recital of the file.
 2. **What is still open.** Every stage he deferred, named. Not buried, not softened.
@@ -114,7 +131,15 @@ conversation exists to avoid.
 
 ## If he stops partway
 
-Write what you have so far into the file, with the covered stages filled in and the rest
-marked as not discussed. Tell him where you stopped and that picking it up later costs him
+Save what you have so far with `progress: "partial"`, with the covered stages filled in and
+the rest marked as not discussed. Tell him where you stopped and that picking it up later costs him
 nothing. Do not hold the answers in the conversation hoping to finish later — a conversation
 ends and a file does not.
+
+## If he declines the interview or its resumption
+
+If he explicitly says "not now" to this interview offer, call
+`mcp__richos_onboarding__decline_onboarding` with no arguments. Do this only for an answer to
+the interview offer, never for an unrelated "not now" in ordinary work. Wait for confirmation
+before saying the reminder is off. His existing notes remain saved and usable. He can ask to
+resume any time; the next successful checkpoint clears the old decline for this company.

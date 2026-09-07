@@ -167,12 +167,18 @@ impl CompanyLayer {
     /// Read the company layer for one entity. Never creates anything, never guesses.
     pub fn read(central_root: &Path, entity: &EntityId) -> CompanyLayer {
         let dir = company_home(central_root, entity);
-        if !dir.is_dir() {
-            return CompanyLayer::NoHome { dir };
+        match std::fs::metadata(&dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return CompanyLayer::NoHome { dir },
+            Err(e) => return CompanyLayer::Unreadable { path: dir, why: e.to_string() },
+            Ok(m) if !m.is_dir() => return CompanyLayer::Unreadable {
+                path: dir, why: "the company folder is not a directory".into(),
+            },
+            Ok(_) => {}
         }
         let path = dir.join(COMPANY_FILENAME);
         match std::fs::metadata(&path) {
-            Err(_) => CompanyLayer::Absent { path },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => CompanyLayer::Absent { path },
+            Err(e) => CompanyLayer::Unreadable { path, why: e.to_string() },
             Ok(m) if !m.is_file() => CompanyLayer::Unreadable {
                 path,
                 why: "it is not a file".to_string(),
@@ -182,7 +188,7 @@ impl CompanyLayer {
             }
             Ok(_) => match std::fs::read_to_string(&path) {
                 Err(e) => CompanyLayer::Unreadable { path, why: e.to_string() },
-                Ok(text) if text.trim().is_empty() => CompanyLayer::Empty { path },
+                Ok(text) if notes_without_progress(&text).trim().is_empty() => CompanyLayer::Empty { path },
                 // Re-checked after reading rather than trusted from `metadata`: the two are
                 // separate syscalls and a file can grow between them. The budget is a promise
                 // about what reaches the model, so it is enforced where that is decided.
@@ -269,6 +275,58 @@ impl CompanyLayer {
              so follow him and say plainly that your note disagrees.\n{}\n\n",
             text.trim_end()
         ))
+    }
+}
+
+/// Progress is stored with the answers, never inferred from whether an offer was displayed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InterviewProgress { Partial, Complete }
+
+pub const PARTIAL_MARKER: &str = "<!-- richos-interview:partial -->";
+pub const COMPLETE_MARKER: &str = "<!-- richos-interview:complete -->";
+
+fn notes_without_progress(text: &str) -> &str {
+    for marker in [PARTIAL_MARKER, COMPLETE_MARKER] {
+        if text == marker { return ""; }
+        if let Some(rest) = text.strip_prefix(marker).and_then(|rest| rest.strip_prefix('\n')) { return rest; }
+    }
+    text
+}
+
+pub fn interview_is_partial(layer: &CompanyLayer) -> bool {
+    matches!(layer, CompanyLayer::Present { text, .. } if text.lines().next() == Some(PARTIAL_MARKER))
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CompanyWriteError {
+    #[error("The notes are empty. Nothing was saved.")]
+    Empty,
+    #[error("The notes need shortening: {bytes} UTF-8 bytes including progress, maximum {COMPANY_BUDGET_BYTES}. Nothing was saved.")]
+    TooLarge { bytes: usize },
+    #[error("The notes could not be saved and verified: {0}")]
+    Storage(String),
+}
+
+/// Persist a complete replacement only after checking the actual reader's UTF-8 byte limit.
+/// The tool supplies no path: only the app's bound company determines the destination.
+/// Success includes a read through CompanyLayer, the same reader used on the next launch.
+pub fn save_company_notes(
+    central_root: &Path, entity: &EntityId, notes: &str, progress: InterviewProgress,
+) -> Result<usize, CompanyWriteError> {
+    let notes = notes.trim();
+    if notes.is_empty() { return Err(CompanyWriteError::Empty); }
+    let marker = match progress { InterviewProgress::Partial => PARTIAL_MARKER, InterviewProgress::Complete => COMPLETE_MARKER };
+    let body = format!("{marker}\n{notes}\n");
+    if body.len() > COMPANY_BUDGET_BYTES { return Err(CompanyWriteError::TooLarge { bytes: body.len() }); }
+    let path = company_file(central_root, entity);
+    std::fs::create_dir_all(company_home(central_root, entity))
+        .map_err(|e| CompanyWriteError::Storage(e.to_string()))?;
+    crate::doctrine::write_verified(&path, &body)
+        .map_err(|e| CompanyWriteError::Storage(e.to_string()))?;
+    match CompanyLayer::read(central_root, entity) {
+        CompanyLayer::Present { text, .. } if text == body => Ok(body.len()),
+        other => Err(CompanyWriteError::Storage(other.describe())),
     }
 }
 

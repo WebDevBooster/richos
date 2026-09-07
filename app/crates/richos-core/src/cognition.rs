@@ -63,6 +63,13 @@ pub trait Cognition: Send {
     /// A stable identifier for the backing session (for the ledger's rotation record).
     fn session_id(&self) -> &str;
 
+    /// Bind app-owned onboarding tools before a priming turn. Adapters without these tools
+    /// keep the default no-op; the native chat lease atomically updates its private scope.
+    fn set_onboarding_scope(
+        &mut self, _entity: &crate::entity::EntityId, _central_root: &std::path::Path,
+        _record_path: &std::path::Path,
+    ) -> Result<(), CognitionError> { Ok(()) }
+
     /// Inject the re-prime payload as an INTERNAL, non-rendered priming turn.
     /// Called once when the lease is (re)spawned, before any CEO-visible turn.
     ///

@@ -56,9 +56,9 @@
 //! | this company has been described | `<central>/companies/<id>/company.md` has substance | he said those things |
 //! | he was asked and said not now | [`OnboardingRecord`] | "not now" is an answer, and the only one the file cannot hold |
 //!
-//! [`OnboardingRecord`] holds a declination and **nothing else**. There is no counter, no
-//! timestamp of an offer, no "shown" boolean — [`the_record_holds_only_a_declination`] pins
-//! that, because the second field is how this becomes a flag store.
+//! [`OnboardingRecord`] holds company-scoped explicit declines. There is no counter,
+//! timestamp of an offer or "shown" boolean. The version and company id describe whose
+//! answer was persisted, not whether a screen was shown.
 //!
 //! # THE DECLINATION EXISTS BECAUSE OF A FAILURE THIS PRODUCT ALREADY HAD
 //!
@@ -118,67 +118,88 @@ pub fn record_path(config_dir: &Path) -> PathBuf {
     config_dir.join(RECORD_FILENAME)
 }
 
-/// The one durable fact the company file cannot hold: he was asked, and he said not now.
-///
-/// **One field.** See the module doc — a second field is how a record of answers becomes a
-/// store of flags, and there is a test whose only job is to refuse the second field.
+/// A strictly parsed record of explicit declines. Legacy records are not applied to every
+/// company: the shell migrates them once to the restored company before showing onboarding.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OnboardingRecord {
     declined_at_millis: Option<u64>,
+    declined_by_entity: std::collections::BTreeMap<String, u64>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyRecord { declined_at_millis: u64 }
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct EntityRecords {
+    version: u32,
+    declined_by_entity: std::collections::BTreeMap<String, u64>,
 }
 
 impl OnboardingRecord {
-    /// Read the record, treating every failure as "no declination on file".
-    ///
-    /// **Absent, unreadable and malformed all mean the same thing here, and that is safe in
-    /// this one direction only.** The consequence of failing to read a declination is that the
-    /// CEO is offered the interview again — a question, once. The consequence of inventing one
-    /// would be that he is never asked at all, silently, which is the defect this whole module
-    /// exists to remove. So the failure leans toward asking.
-    pub fn load(path: &Path) -> OnboardingRecord {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return OnboardingRecord::default();
-        };
-        // Hand-parsed rather than serde-derived: the file has exactly one key, and a shape this
-        // small is cheaper to read here than to reason about through a derive.
-        let declined_at_millis = text
-            .split("\"declined_at_millis\"")
-            .nth(1)
-            .and_then(|rest| rest.split(':').nth(1))
-            .map(|rest| rest.trim_start())
-            .and_then(|rest| {
-                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-                digits.parse::<u64>().ok()
-            });
-        OnboardingRecord { declined_at_millis }
-    }
-
-    /// The record for this install, or a blank one when there is no home directory.
-    pub fn load_for_install() -> OnboardingRecord {
-        match crate::doctrine::install_config_dir() {
-            Ok(dir) => OnboardingRecord::load(&record_path(&dir)),
-            Err(_) => OnboardingRecord::default(),
+    /// Missing, malformed, unknown-version and unreadable records never invent a decline.
+    pub fn load(path: &Path) -> Self {
+        let Ok(text) = std::fs::read_to_string(path) else { return Self::default(); };
+        if let Ok(stored) = serde_json::from_str::<EntityRecords>(&text) {
+            if stored.version == 1 && stored.declined_by_entity.keys().all(|id| EntityId::parse(id).is_ok()) {
+                return Self { declined_at_millis: None, declined_by_entity: stored.declined_by_entity };
+            }
+        } else if let Ok(legacy) = serde_json::from_str::<LegacyRecord>(&text) {
+            return Self { declined_at_millis: Some(legacy.declined_at_millis), ..Self::default() };
         }
+        Self::default()
     }
 
-    pub fn declined_at_millis(&self) -> Option<u64> {
-        self.declined_at_millis
+    pub fn load_for_install() -> Self {
+        crate::doctrine::install_config_dir().ok()
+            .map(|dir| Self::load(&record_path(&dir))).unwrap_or_default()
     }
 
-    pub fn is_declined(&self) -> bool {
-        self.declined_at_millis.is_some()
+    /// Select only this company's explicit answer. An unbound legacy record is never global.
+    pub fn for_entity(&self, entity: &EntityId) -> Self {
+        Self { declined_at_millis: self.declined_by_entity.get(entity.as_str()).copied(),
+               declined_by_entity: self.declined_by_entity.clone() }
     }
 
-    /// Record that he was asked and said not now.
-    ///
-    /// Written through `doctrine::write_verified`, which stages and renames and then reads back
-    /// — the same discipline the doctrine and the skills use, for the same reason: a half-written
-    /// record here would either nag a CEO who declined or silence one who never did.
+    pub fn declined_at_millis(&self) -> Option<u64> { self.declined_at_millis }
+    pub fn is_declined(&self) -> bool { self.declined_at_millis.is_some() }
+
+    /// Import the old install-wide answer into the restored active company exactly once.
+    /// The old file contains no company identity; this explicit migration preserves that
+    /// user's answer without applying it to unrelated companies added later.
+    pub fn migrate_legacy(path: &Path, entity: &EntityId) -> Result<bool, crate::doctrine::DoctrineError> {
+        let mut record = Self::load(path);
+        let Some(at) = record.declined_at_millis.take() else { return Ok(false); };
+        record.declined_by_entity.insert(entity.to_string(), at);
+        record.write(path)?;
+        Ok(true)
+    }
+
+    pub fn record_declination_for_entity(path: &Path, entity: &EntityId, now_millis: u64)
+        -> Result<(), crate::doctrine::DoctrineError> {
+        let mut record = Self::load(path);
+        record.declined_by_entity.insert(entity.to_string(), now_millis);
+        record.write(path)
+    }
+
+    pub fn clear_declination_for_entity(path: &Path, entity: &EntityId) -> Result<(), crate::doctrine::DoctrineError> {
+        let mut record = Self::load(path);
+        if record.declined_by_entity.remove(entity.as_str()).is_some() { record.write(path)?; }
+        Ok(())
+    }
+
+    fn write(&self, path: &Path) -> Result<(), crate::doctrine::DoctrineError> {
+        let body = serde_json::to_string_pretty(&EntityRecords {
+            version: 1, declined_by_entity: self.declined_by_entity.clone(),
+        }).expect("string-keyed decline records serialize");
+        crate::doctrine::write_verified(path, &format!("{body}\n"))
+    }
+
+    /// Legacy import helper retained for older callers and migration fixtures. Product UI
+    /// and tools use record_declination_for_entity, which never writes the global format.
     pub fn record_declination(path: &Path, now_millis: u64) -> Result<(), crate::doctrine::DoctrineError> {
-        let body = format!(
-            "{{\n  \"declined_at_millis\": {now_millis}\n}}\n"
-        );
-        crate::doctrine::write_verified(path, &body)
+        crate::doctrine::write_verified(path, &format!("{{\n  \"declined_at_millis\": {now_millis}\n}}\n"))
     }
 }
 
@@ -199,6 +220,8 @@ pub enum OnboardingState {
     /// wrote the file himself is not a distinction the product needs, and inventing one would
     /// mean trusting a marker over the file.
     Described,
+    /// Real answers were saved and the remaining interview stages are explicitly open.
+    Partial,
     /// The file is there and cannot be used — over budget, unreadable, or not a file. Kept
     /// apart from every other state because it is the only one that needs somebody to act.
     Unusable { why: String },
@@ -210,6 +233,12 @@ pub fn state(layer: Option<&CompanyLayer>, record: &OnboardingRecord) -> Onboard
         return OnboardingState::NoCentralFolder;
     };
     match layer {
+        CompanyLayer::Present { .. } if crate::company::interview_is_partial(layer) => {
+            match record.declined_at_millis() {
+                Some(at_millis) => OnboardingState::Declined { at_millis },
+                None => OnboardingState::Partial,
+            }
+        }
         CompanyLayer::Present { .. } => OnboardingState::Described,
         CompanyLayer::TooLarge { .. } | CompanyLayer::Unreadable { .. } => {
             OnboardingState::Unusable { why: layer.describe() }
@@ -261,7 +290,9 @@ is staffed.\n\
   - Answering questions will not make his own data appear on the home screen. What is there is a \
 worked example. Say so if he asks, and do not imply otherwise if he does not.\n\
   - If he would rather not do this now, say that is fine and let it go. Do not raise it again \
-in this conversation.\n\n";
+in this conversation. Call mcp__richos_onboarding__decline_onboarding only when he explicitly \
+says he does not want this interview now in response to this offer. Never infer that from an \
+unrelated 'not now'. Report a declined state only after the tool confirms it.\n\n";
 
 /// What Rich is told when he was already asked and said no.
 ///
@@ -273,6 +304,13 @@ minutes of questions and said not now. That was a real answer and it stands. Do 
 again unless he brings it up; if he does, the skill named 'bootstrap-interview' is still there. \
 Meanwhile, do not guess at facts about his business — ask him, the way you would ask about \
 anything you were not told.\n\n";
+
+/// A resumption offers the remaining questions without pretending the saved answers are absent.
+pub const RESUME_BLOCK: &str = "ONBOARDING — this company's interview is partly complete. \
+The notes above contain answers already saved. Offer to pick up the remaining questions once \
+at a natural moment, using rich-skills:bootstrap-interview if he agrees. Never re-ask questions \
+already answered. If he explicitly declines this offer, use mcp__richos_onboarding__decline_onboarding \
+and leave the saved answers intact.\n\n";
 
 /// What Rich is told when the file exists and cannot be used.
 ///
@@ -294,13 +332,31 @@ pub fn priming_block(
     layer: Option<&CompanyLayer>,
     record: &OnboardingRecord,
 ) -> Option<String> {
-    match state(layer, record) {
-        OnboardingState::NoCentralFolder => None,
-        OnboardingState::Described => layer?.render_for_priming(entity),
-        OnboardingState::NotYet => Some(OFFER_BLOCK.to_string()),
-        OnboardingState::Declined { .. } => Some(DECLINED_BLOCK.to_string()),
-        OnboardingState::Unusable { .. } => Some(UNUSABLE_BLOCK.to_string()),
-    }
+    let state = state(layer, record);
+    if state == OnboardingState::NoCentralFolder { return None; }
+    let layer = layer?;
+    let path = match layer {
+        CompanyLayer::NoHome { dir } => dir.join(crate::company::COMPANY_FILENAME),
+        _ => layer.path().to_path_buf(),
+    };
+    let destination = serde_json::to_string(&path.to_string_lossy()).expect("path serializes");
+    let mut block = format!(
+        "COMPANY NOTES DESTINATION: entity={entity}; file={destination}. \
+         This absolute path is supplied by RichOS. Never guess a different folder. \
+         Use mcp__richos_onboarding__save_company_notes for interview notes and \
+         mcp__richos_onboarding__decline_onboarding for an explicit decline of the interview. \
+         Those tools are bound to this company by the app; do not write the notes with general \
+         file or shell tools. A successful save means RichOS read the file back and verified it.\n\n"
+    );
+    if let Some(material) = layer.render_for_priming(entity) { block.push_str(&material); }
+    block.push_str(match state {
+        OnboardingState::NotYet => OFFER_BLOCK,
+        OnboardingState::Declined { .. } => DECLINED_BLOCK,
+        OnboardingState::Partial => RESUME_BLOCK,
+        OnboardingState::Unusable { .. } => UNUSABLE_BLOCK,
+        OnboardingState::Described | OnboardingState::NoCentralFolder => "",
+    });
+    Some(block)
 }
 
 /// One line for the boot log, naming what this launch will actually do about onboarding.
@@ -320,6 +376,7 @@ pub fn describe(entity: &EntityId, layer: Option<&CompanyLayer>, record: &Onboar
         OnboardingState::Declined { at_millis } => {
             format!("onboarding {entity}: offered and declined at {at_millis} — Rich will not offer again")
         }
+        OnboardingState::Partial => format!("onboarding {entity}: partial — saved answers are in the priming turn; offer to resume"),
         OnboardingState::Described => {
             format!("onboarding {entity}: described — the company layer is in the priming turn")
         }
@@ -575,10 +632,10 @@ mod tests {
     #[test]
     fn the_interview_tells_the_writer_about_the_budget_the_reader_enforces() {
         let s = interview_skill();
-        assert!(s.contains("under eight thousand characters"));
+        assert!(s.contains("under eight thousand UTF-8 bytes"));
         assert!(
             COMPANY_BUDGET_BYTES == 8192,
-            "the skill says eight thousand characters because the reader's budget is 8192 bytes; \
+            "the skill says eight thousand UTF-8 bytes because the reader's budget is 8192 bytes; \
              change one and this test makes you change the other"
         );
     }
