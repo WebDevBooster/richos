@@ -157,6 +157,40 @@ def read_config(path):
 
 
 
+def verify_native_cleanup(transaction, native, session, registry, heads, baseline, events):
+    """Prove fixture cleanup independently of optional hook-delivery observation."""
+    require(transaction.get('state') == 'removed' and transaction.get('terminal') and
+            transaction.get('sealed') and native in transaction.get('members', []) and
+            native.get('class') == 'native' and native.get('cleanup_owner') == 'claude-code' and
+            native.get('state') == 'removed' and native.get('closed') == 'platform-removed',
+            'native transaction does not prove platform removal')
+    require(registry.returncode == 0 and isinstance(registry.stdout, bytes) and
+            registry.stdout.endswith(b'\0\0'), 'native registry failed, empty or incomplete')
+    # This fixture starts with one canonical checkout. No extra registration,
+    # ignored record or unknown porcelain field can count as restored baseline.
+    records = registry.stdout[:-2].split(b'\0\0')
+    require(len(records) == 1, 'native registry has additional registrations')
+    fields = records[0].split(b'\0')
+    require(len(fields) == 3 and fields[0] == b'worktree ' + os.fsencode(session) and
+            re.fullmatch(rb'HEAD (?:[0-9a-f]{40}|[0-9a-f]{64})', fields[1]) and
+            fields[2].startswith(b'branch refs/heads/'), 'malformed native registry baseline')
+    require(isinstance(baseline, list) and baseline and len(set(baseline)) == len(baseline) and
+            all(isinstance(ref, str) and re.fullmatch(r'refs/heads/[^\s\x00]+', ref) for ref in baseline),
+            'native branch baseline unavailable')
+    require(heads.returncode == 0 and isinstance(heads.stdout, bytes) and
+            heads.stdout == ''.join(ref + '\n' for ref in baseline).encode() and
+            fields[2][7:] in [ref.encode() for ref in baseline], 'native branches differ from baseline')
+    paths = [native.get('path')] + [native[key] for key in ('quarantine', 'quarantine_path') if native.get(key)]
+    require(all(isinstance(path, str) and Path(path).is_absolute() and not os.path.lexists(path)
+                for path in paths), 'native original or quarantine path remains')
+    observed = [event for event in events if event.get('input', {}).get('hook_event_name') == 'WorktreeRemove'
+                and event['input'].get('worktree_path') == native['path']]
+    return dict(worktree_remove_event_observed=bool(observed), worktree_remove_event_count=len(observed),
+                worktree_remove_observation_source='persisted fixture hook-wrapper records; absence does not prove non-invocation',
+                cleanup_evidence=['complete NUL registry equals canonical baseline', 'original and quarantine paths absent including symlinks',
+                                  'Claude-owned native transaction removed/platform-removed', 'ordinary branches equal recorded baseline'])
+
+
 def verify_event_join(events, sid, aid, wrapper):
     require(all(event['input'].get('session_id')==sid for event in events),'foreign session hook event')
     before=[e for e in events if e['hook']=='guard-worktree-isolation.sh' and e['input'].get('tool_name')=='Agent']
@@ -463,17 +497,14 @@ def execute(args, support, release, policy, owner):
         result=child(['/usr/bin/git','-C',str(active/'source'),'rev-parse','HEAD'])
         check('exact-delivery-merged-into-generated-source',result.returncode==0 and result.stdout.decode().strip()==delivery['tip'] and
               (active/'source/canary-delivered').read_text()==CONTENT)
-        native_path=native[0]['path']
-        removed_events=[e for e in events if e['input'].get('hook_event_name')=='WorktreeRemove' and e['input'].get('worktree_path')==native_path]
         registry=child(['/usr/bin/git','-C',str(session),'worktree','list','--porcelain','-z'])
-        check('native-platform-checkout-and-registration-are-gone',bool(removed_events) and registry.returncode==0 and
-              not Path(native_path).exists() and ('worktree '+native_path).encode() not in registry.stdout.split(b'\0') and
-              all(not Path(native[0][key]).exists() and ('worktree '+native[0][key]).encode() not in registry.stdout.split(b'\0')
-                  for key in ('quarantine','quarantine_path') if native[0].get(key)))
+        native_heads=child(['/usr/bin/git','-C',str(session),'for-each-ref','--format=%(refname)','refs/heads/'])
+        report['native_cleanup']=verify_native_cleanup(transaction,native[0],session,registry,native_heads,
+                                                       report['initial_native_branches'],events)
+        check('native-platform-checkout-and-registration-are-gone',True)
         after_heads=child(['/usr/bin/git','-C',str(active/'source'),'for-each-ref','--format=%(refname)','refs/heads/'])
         check('managed-delivery-created-no-ordinary-source-branches',after_heads.returncode==0 and after_heads.stdout.decode().splitlines()==report['initial_source_branches'])
-        native_heads=child(['/usr/bin/git','-C',str(session),'for-each-ref','--format=%(refname)','refs/heads/'])
-        check('native-platform-ordinary-branches-returned-to-baseline',native_heads.returncode==0 and native_heads.stdout.decode().splitlines()==report['initial_native_branches'])
+        check('native-platform-ordinary-branches-returned-to-baseline',True)
         check('transaction-persisted-managed-delivery',managed[0].get('state')=='removed' and managed[0].get('delivery')==delivery)
         server.terminate();server.wait(timeout=15);check('fixture-broker-stops-cleanly',server.returncode==0);server=None
         report['passed']=True

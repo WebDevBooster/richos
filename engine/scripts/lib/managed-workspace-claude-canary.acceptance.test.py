@@ -16,8 +16,56 @@ a=importlib.util.module_from_spec(spec);spec.loader.exec_module(a)
 
 class Tests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(prefix='richos-canary-test-');self.root=Path(self.temp.name)
+        self.temp=tempfile.TemporaryDirectory(prefix='richos-canary-test-');self.root=Path(self.temp.name).resolve()
     def tearDown(self):self.temp.cleanup()
+    def cleanup_fixture(self):
+        native=dict(path=str(self.root/'native-gone'),class_='native',cleanup_owner='claude-code',state='removed',closed='platform-removed')
+        native['class']=native.pop('class_')
+        transaction=dict(state='removed',terminal={'kind':'SubagentStop'},sealed=True,members=[native])
+        registry=mock.Mock(returncode=0,stdout=b'worktree '+os.fsencode(self.root)+b'\0HEAD '+b'1'*40+b'\0branch refs/heads/master\0\0')
+        heads=mock.Mock(returncode=0,stdout=b'refs/heads/master\n')
+        return transaction,native,self.root,registry,heads,['refs/heads/master'],[]
+    def test_native_cleanup_without_hook_record_is_explicitly_observed_not_fabricated(self):
+        args=self.cleanup_fixture();result=a.verify_native_cleanup(*args)
+        self.assertFalse(result['worktree_remove_event_observed']);self.assertEqual(result['worktree_remove_event_count'],0)
+        args[-1].append(dict(input=dict(hook_event_name='WorktreeRemove',worktree_path=args[1]['path']),returncode=0))
+        self.assertTrue(a.verify_native_cleanup(*args)['worktree_remove_event_observed'])
+    def test_native_cleanup_refuses_failed_empty_truncated_or_malformed_registry(self):
+        args=self.cleanup_fixture();valid=args[3].stdout
+        for raw in (b'',valid[:-1],valid.replace(b'HEAD ',b'HEAD nope '),valid+valid,
+                    valid.replace(b'branch refs/heads/master',b'detached'),valid.replace(b'\0HEAD',b'\0unknown value\0HEAD')):
+            with self.subTest(raw=raw):
+                args[3].stdout=raw
+                with self.assertRaises(RuntimeError):a.verify_native_cleanup(*args)
+        args[3].stdout=valid;args[3].returncode=1
+        with self.assertRaises(RuntimeError):a.verify_native_cleanup(*args)
+    def test_native_cleanup_refuses_original_quarantine_and_dangling_paths(self):
+        args=self.cleanup_fixture()
+        for key in ('path','quarantine','quarantine_path'):
+            target=self.root/key
+            args[1][key]=str(target)
+            target.symlink_to(self.root/'missing-target')
+            with self.subTest(key=key),self.assertRaisesRegex(RuntimeError,'path remains'):a.verify_native_cleanup(*args)
+            target.unlink()
+        self.assertFalse(a.verify_native_cleanup(*args)['worktree_remove_event_observed'])
+    def test_native_cleanup_requires_exact_platform_transaction_and_branch_baseline(self):
+        for key,value in (('cleanup_owner',None),('cleanup_owner','future-platform'),('closed','absent'),('state','platform-pending')):
+            args=self.cleanup_fixture();args[1][key]=value
+            with self.subTest(key=key,value=value),self.assertRaises(RuntimeError):a.verify_native_cleanup(*args)
+        args=self.cleanup_fixture();args[0]['state']='pending'
+        with self.assertRaises(RuntimeError):a.verify_native_cleanup(*args)
+        for raw in (b'',b'refs/heads/master\nrefs/heads/native-leftover\n',b'refs/heads/master'):
+            args=self.cleanup_fixture();args[4].stdout=raw
+            with self.assertRaises(RuntimeError):a.verify_native_cleanup(*args)
+        args=self.cleanup_fixture();args[4].returncode=1
+        with self.assertRaises(RuntimeError):a.verify_native_cleanup(*args)
+    def test_native_cleanup_accepts_actual_git_porcelain_and_branch_inventory(self):
+        import subprocess
+        def git(*argv):return subprocess.run(['/usr/bin/git','-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false','-C',str(self.root),*argv],env={**os.environ,'GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'},capture_output=True,check=True)
+        git('init','-b','master');git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','fixture')
+        args=list(self.cleanup_fixture());args[3]=git('worktree','list','--porcelain','-z');args[4]=git('for-each-ref','--format=%(refname)','refs/heads/')
+        self.assertFalse(a.verify_native_cleanup(*args)['worktree_remove_event_observed'])
+
     def test_owner_context_restores_audit_session_then_credentials_then_exact_environment(self):
         argv=a.owner_context_argv((501,20),{'HOME':'/Users/example','RICHOS_WORKTREE_TX_DIR':'/fixture/tx'},['/fixed/claude','auth','status'])
         self.assertEqual(argv[:11],['/bin/launchctl','asuser','501','/usr/bin/sudo','-n','-u','#501','-g','#20','--','/usr/bin/env'])
