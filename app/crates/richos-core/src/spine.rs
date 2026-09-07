@@ -1043,9 +1043,17 @@ impl Spine {
     /// rotation the CEO is not supposed to be able to see.
     fn fill_loro_tier(&self, payload: &mut RePrimePayload, binding: &ThreadBinding) {
         let Some(compiler) = self.loro_compiler.as_ref() else { return };
-        // Owned before the mutable borrow below: the topic is borrowed OUT of the payload
-        // we are about to write to.
-        let Some(topic) = payload.topic().map(str::to_string) else {
+        // Acceptance is journaled before priming. Use the newest pending request only as
+        // the read-only retrieval query; do not put it back in the model's context transcript
+        // or current_intent, where it would be consumed before visible delivery.
+        let pending_topic = self.ledger.thread_turns_scoped(binding).ok().and_then(|turns| {
+            turns.into_iter().rev().find(|turn| {
+                turn.source != Source::Internal && turn.superseded_by.is_none()
+                    && matches!(turn.state, crate::ledger::TurnState::Received | crate::ledger::TurnState::InFlight)
+                    && !turn.user_text.trim().is_empty()
+            }).map(|turn| turn.user_text.clone())
+        });
+        let Some(topic) = pending_topic.or_else(|| payload.topic().map(str::to_string)) else {
             payload.loro = LoroTier::Unavailable(
                 "no topic — this thread holds nothing the CEO has said, and there is no such thing                  as a topic-less slice"
                     .into(),

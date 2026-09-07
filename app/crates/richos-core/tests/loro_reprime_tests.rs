@@ -258,3 +258,34 @@ fn a_rotation_recompiles_rather_than_reusing_the_slice_the_previous_lease_was_gi
     assert!(topics.contains(&"first question about signing"), "{topics:?}");
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn pending_question_selects_memory_without_becoming_a_hidden_model_request() {
+    let (path, ledger) = tmp_ledger("pending-query-only");
+    let mut spine = support::spine(ledger);
+    let b = binding(&mut spine);
+    // The compiler returns facts, not an echo of the pending request.
+    let fake = FakeCompiler::new(LoroTier::Slice("COMPANY MEMORY: verified relevant facts".into()));
+    let asked = fake.asked.clone();
+    spine.set_loro_context_compiler(Box::new(fake));
+    let first = "Current question about notebook pricing, unique 901.";
+    let second = "Changed question about late shipments, unique 902.";
+    let first_mock = MockCognition::new("initial", vec!["Pricing answer"]);
+    let first_primes = first_mock.reprimes.clone();
+    spine.attach_lease(Box::new(first_mock));
+    spine.submit_prompt(first, Source::Text).unwrap();
+    assert!(!first_primes.lock().unwrap()[0].contains(first));
+    assert!(first_primes.lock().unwrap()[0].contains("verified relevant facts"));
+    let second_mock = MockCognition::new("fresh", vec!["Shipping answer"]);
+    let second_primes = second_mock.reprimes.clone();
+    spine.attach_lease(Box::new(second_mock));
+    spine.submit_prompt(second, Source::Text).unwrap();
+    let primed = second_primes.lock().unwrap();
+    assert!(primed[0].contains(first), "completed conversation is preserved");
+    assert!(!primed[0].contains(second), "new request is not secretly delivered");
+    assert!(!primed[0].contains("CURRENT INTENT (what we are doing right now)"));
+    let queries = asked.lock().unwrap();
+    assert_eq!(queries.iter().map(|q| q.2.as_str()).collect::<Vec<_>>(), [first, second]);
+    assert!(queries.iter().all(|q| q.0 == b.thread_id() && q.1 == "femcboost"));
+    let _ = std::fs::remove_file(&path);
+}
