@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Bounded compact recovery metadata. No source mutation or deletion authority."""
 import base64
+import ctypes
+import errno
 import hashlib
 import importlib.util
 import json
@@ -8,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 
 spec = importlib.util.spec_from_file_location('metadata_attrs', Path(__file__).with_name('managed-workspace-failed-creation.py'))
 attrs = importlib.util.module_from_spec(spec); spec.loader.exec_module(attrs)
@@ -66,6 +69,34 @@ def _object_storage(relative):
                 or re.fullmatch(r'objects/pack/pack-(?:[0-9a-f]{40}|[0-9a-f]{64})\.(?:pack|idx)', relative))
 
 
+_ACL_LIB = None
+
+
+def _no_acl(path, before):
+    """Darwin ACLs are separate from listxattr. Query the link itself."""
+    if sys.platform != 'darwin': return
+    global _ACL_LIB
+    if _ACL_LIB is None:
+        library = ctypes.CDLL(None, use_errno=True)
+        library.acl_get_link_np.argtypes = [ctypes.c_char_p, ctypes.c_int]
+        library.acl_get_link_np.restype = ctypes.c_void_p
+        library.acl_free.argtypes = [ctypes.c_void_p]
+        library.acl_free.restype = ctypes.c_int
+        _ACL_LIB = library
+    ctypes.set_errno(0)
+    acl = _ACL_LIB.acl_get_link_np(os.fsencode(path), 0x00000100)  # ACL_TYPE_EXTENDED
+    error = ctypes.get_errno()
+    if acl:
+        _ACL_LIB.acl_free(acl)
+        raise MetadataError('extended ACL requires full recovery retention')
+    # Darwin reports ENOENT for absent extended ACLs as well as absent paths.
+    # The exact frozen path must still exist and retain its inode/stamp.
+    after = path.lstat()
+    stamp = lambda x: (x.st_dev,x.st_ino,x.st_mode,x.st_nlink,x.st_ctime_ns,x.st_mtime_ns)
+    if error != errno.ENOENT or stamp(before) != stamp(after):
+        raise MetadataError('extended ACL inventory unavailable or changed')
+
+
 def from_managed_tree(root, *, object_storage_verified=False):
     """Preserve filesystem metadata and non-object Git bytes from a frozen image.
 
@@ -84,12 +115,17 @@ def from_managed_tree(root, *, object_storage_verified=False):
         info = path.lstat(); name = path.relative_to(root).as_posix()
         kind = ('directory' if stat.S_ISDIR(info.st_mode) else 'file' if stat.S_ISREG(info.st_mode)
                 else 'symlink' if stat.S_ISLNK(info.st_mode) else None)
-        if kind is None:
-            raise MetadataError('unsupported compact metadata object')
+        if kind is None or getattr(info, 'st_flags', 0):
+            raise MetadataError('unsupported compact metadata object or filesystem flags')
+        if kind in ('file', 'symlink') and info.st_nlink != 1:
+            raise MetadataError('hardlinked file topology requires full recovery retention')
+        _no_acl(path, info)
         try:
             attributes = attrs._xattrs(path, max_bytes=max(0, MAX_BYTES-used))
         except (attrs.RecoveryError, OSError) as error:
             raise MetadataError('attribute inventory unavailable or over budget: ' + str(error)) from error
+        if any(name in attributes for name in ('system.posix_acl_access', 'system.posix_acl_default')):
+            raise MetadataError('POSIX ACL requires full recovery retention')
         row = dict(kind=kind, uid=info.st_uid, gid=info.st_gid, mode=stat.S_IMODE(info.st_mode),
                    mtime_ns=info.st_mtime_ns, xattrs=attributes)
         if kind == 'symlink': row['target'] = os.readlink(path)

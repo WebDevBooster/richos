@@ -177,6 +177,9 @@ owner-credential `git fsck --full` verifies object storage. Unknown files under
 Git history; unreachable Git object garbage is not a separate retention promise.
 The compact sidecar is limited to 64 MiB and 100,000 paths. Exceeding either
 limit or encountering unsupported/unreadable metadata retains the full image.
+Multiply-linked files or symlinks, nonzero BSD filesystem flags and extended
+ACLs also retain the image. Unknown ACL reads fail closed. The compact format
+does not claim to reconstruct link topology, flags or ACLs.
 Its exact file identity and hash must also verify before bulk image expiry.
 
 Cleanliness proof version 4 records both requirements. Older classifications do
