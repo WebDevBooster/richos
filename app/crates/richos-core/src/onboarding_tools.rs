@@ -39,6 +39,53 @@ pub fn verdict_from_init(init: &Value) -> OnboardingToolsVerdict {
     }
 }
 
+/// A host-observed terminal result of an exact onboarding tool in this same visible turn.
+/// This is evidence for the registrar's narrow inline-action disposition, never a blanket
+/// exemption for unrelated work in the same CEO message. Uses retained summary fields, so
+/// raw payload eviction cannot turn a completed interview operation into a new assignment.
+pub fn handled_in_turn(records: Vec<crate::machinery::MachineryRecord>, turn_id: &str) -> bool {
+    use crate::machinery::{MachineryKind, ToolStatus};
+    let records: Vec<_> = records
+        .iter()
+        .filter(|r| {
+            !r.internal
+                && r.turn_id.as_deref() == Some(turn_id)
+                && r.kind == MachineryKind::ToolCall
+        })
+        .collect();
+    let known: std::collections::HashSet<_> = records
+        .iter()
+        .filter_map(|r| {
+            let name = r
+                .payload
+                .as_ref()
+                .and_then(|p| p.get("name"))
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    if r.status == Some(ToolStatus::Pending) {
+                        Some(r.title.as_str())
+                    } else {
+                        None
+                    }
+                });
+            if ![Some(QUALIFIED_SAVE_TOOL), Some(QUALIFIED_DECLINE_TOOL)].contains(&name) {
+                return None;
+            }
+            Some((r.session_id.as_str(), r.tool_call_id.as_deref()?))
+        })
+        .collect();
+    records.iter().any(|r| {
+        r.status
+            .as_ref()
+            .map(ToolStatus::is_terminal)
+            .unwrap_or(false)
+            && r.tool_call_id
+                .as_deref()
+                .map(|id| known.contains(&(r.session_id.as_str(), id)))
+                .unwrap_or(false)
+    })
+}
+
 const MAX_FRAME_BYTES: usize = 128 * 1024;
 const MAX_SCOPE_BYTES: u64 = 16 * 1024;
 

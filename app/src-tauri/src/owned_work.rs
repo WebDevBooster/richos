@@ -29,6 +29,8 @@ struct Request {
     workspace: PathBuf,
     text: String,
     conversation: String,
+    #[serde(default)]
+    onboarding_tool_result: bool,
     done: bool,
     retry_at: u64,
     #[serde(default)]
@@ -232,6 +234,9 @@ fn discover_cached(state: &AppState, index: &mut IntakeIndex) -> Result<(), Stri
                 workspace,
                 text: turn.user_text.clone(),
                 conversation: turn.assistant_text.clone(),
+                onboarding_tool_result: spine.machinery_journal().map(|journal|
+                    richos_core::onboarding_tools::handled_in_turn(journal.read_thread(&turn.thread_id), &turn.id)
+                ).unwrap_or(false),
                 done: false,
                 retry_at: 0,
                 created_at: turn.created_at,
@@ -365,12 +370,13 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
         return Ok(true);
     }
     if request.directive.is_none() {
-        let (directive, target) = richos_core::registration::register(
+        let (directive, target) = richos_core::registration::register_with_onboarding(
             &request.text,
             &request.conversation,
             &request.tail,
             &current,
             &request.error,
+            request.onboarding_tool_result,
         )?;
         request.directive = Some(directive);
         request.target_run_id = target;

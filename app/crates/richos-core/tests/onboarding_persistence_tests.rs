@@ -424,3 +424,44 @@ fn malformed_and_incomplete_tool_inventories_are_refused() {
         OnboardingToolsVerdict::Loaded
     );
 }
+
+#[test]
+fn onboarding_intake_evidence_requires_a_real_terminal_tool_in_the_same_turn() {
+    use richos_core::machinery::MachineryRecord;
+    let open = json!({"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","id":"tool-1","name":onboarding_tools::QUALIFIED_SAVE_TOOL,"input":{}}}});
+    let call = json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":onboarding_tools::QUALIFIED_SAVE_TOOL,"input":{"notes":"My answer","progress":"partial"}}]}});
+    let done = json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"saved","is_error":false}]}});
+    let rows = |frame: &Value, seq| {
+        MachineryRecord::from_native_event(frame, "lease", seq)
+            .into_iter()
+            .map(|r| r.stamp("thread", Some("turn"), false))
+            .collect::<Vec<_>>()
+    };
+    let mut records = rows(&open, 1);
+    records.extend(rows(&call, 2));
+    assert!(!onboarding_tools::handled_in_turn(records.clone(), "turn"));
+    records.extend(rows(&done, 3));
+    assert!(onboarding_tools::handled_in_turn(records.clone(), "turn"));
+    assert!(!onboarding_tools::handled_in_turn(
+        records.clone(),
+        "other-turn"
+    ));
+    for record in &mut records {
+        record.payload = None;
+    }
+    assert!(
+        onboarding_tools::handled_in_turn(records.clone(), "turn"),
+        "survives raw payload eviction"
+    );
+    for record in &mut records {
+        record.internal = true;
+    }
+    assert!(!onboarding_tools::handled_in_turn(records, "turn"));
+    let spoof = json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":onboarding_tools::QUALIFIED_SAVE_TOOL}}]}});
+    let mut records = rows(&spoof, 1);
+    records.extend(rows(&done, 2));
+    assert!(
+        !onboarding_tools::handled_in_turn(records, "turn"),
+        "a shell command's text is not a tool identity"
+    );
+}

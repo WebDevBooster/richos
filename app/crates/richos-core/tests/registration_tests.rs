@@ -122,3 +122,61 @@ fn quotes_cannot_stitch_passages_change_negation_or_borrow_another_message() {
         "reply evidence cannot stand in for the CEO's request"
     );
 }
+
+#[test]
+fn onboarding_disposition_requires_host_tool_evidence_and_does_not_drop_other_work() {
+    assert!(validate_with_onboarding(
+        value(Intent::Onboarding, false),
+        "CEO",
+        "Rich",
+        "",
+        &[],
+        false
+    )
+    .is_err());
+    assert!(matches!(
+        validate_with_onboarding(
+            value(Intent::Onboarding, false),
+            "CEO",
+            "Rich",
+            "",
+            &[],
+            true
+        )
+        .unwrap()
+        .0,
+        Handoff::None
+    ));
+    assert!(validate_with_onboarding(
+        value(Intent::Onboarding, true),
+        "CEO",
+        "Rich",
+        "",
+        &[],
+        true
+    )
+    .is_err());
+    let mut targeted = value(Intent::Onboarding, false);
+    targeted.target_run_id = Some("assignment".into());
+    assert!(validate_with_onboarding(targeted, "CEO", "Rich", "", &[], true).is_err());
+    assert!(matches!(
+        validate_with_onboarding(value(Intent::Work, true), "CEO", "Rich", "", &[], true)
+            .unwrap()
+            .0,
+        Handoff::Work { .. }
+    ));
+}
+
+#[test]
+fn production_work_contract_keeps_only_the_two_onboarding_operations_inline() {
+    let contract = richos_core::spine::OWNED_WORK_CONTRACT;
+    assert!(contract.contains("mcp__richos_onboarding__save_company_notes"));
+    assert!(contract.contains("mcp__richos_onboarding__decline_onboarding"));
+    assert!(contract.contains(
+        "For every other action request, including a single file edit, do not execute it"
+    ));
+    assert!(contract.contains(
+        "An unrelated action requested alongside the interview still follows the work rule"
+    ));
+    assert!(ONBOARDING_REGISTRATION_RULE.contains("DATA.onboarding_tool_result is true"));
+}
