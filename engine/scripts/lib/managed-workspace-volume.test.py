@@ -22,6 +22,48 @@ spec.loader.exec_module(volumes)
 
 
 class ProviderSafety(unittest.TestCase):
+    def test_active_namespace_remains_traversable_under_daemon_umask(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            previous = os.umask(0o077)
+            try:
+                store = volumes.VolumeStore(Path(tmp) / 'private', Path(tmp) / 'active', require_root=False)
+            finally:
+                os.umask(previous)
+            self.assertEqual(store.active_root.stat().st_mode & 0o777, 0o711)
+            self.assertEqual(store.root.stat().st_mode & 0o777, 0o700)
+
+    def test_existing_masked_export_namespace_is_repaired_without_exposing_private_root(self):
+        exports = self.store.active_root / 'handoffs'; exports.mkdir(mode=0o700)
+        inode = exports.stat().st_ino
+        self.store._ensure_traversable_directory(exports)
+        self.assertEqual(exports.stat().st_mode & 0o777, 0o711)
+        self.assertEqual(exports.stat().st_ino, inode)
+        self.assertEqual(self.store.root.stat().st_mode & 0o777, 0o700)
+        with self.assertRaises(volumes.VolumeError):
+            self.store._ensure_traversable_directory(self.store.root)
+        self.assertEqual(self.store.root.stat().st_mode & 0o777, 0o700)
+
+    def test_unsafe_export_namespace_or_parent_is_never_chmodded(self):
+        exports = self.store.active_root / 'handoffs'
+        outside = self.root / 'outside'; outside.mkdir(mode=0o700)
+        exports.symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(volumes.VolumeError):
+            self.store._ensure_traversable_directory(exports)
+        self.assertEqual(outside.stat().st_mode & 0o777, 0o700)
+        exports.unlink(); exports.mkdir(); exports.chmod(0o777)
+        with self.assertRaises(volumes.VolumeError):
+            self.store._ensure_traversable_directory(exports)
+        self.assertEqual(exports.stat().st_mode & 0o777, 0o777)
+        exports.chmod(0o700); self.store.active_root.chmod(0o777)
+        with self.assertRaises(volumes.VolumeError):
+            self.store._ensure_traversable_directory(exports)
+        self.assertEqual(exports.stat().st_mode & 0o777, 0o700)
+
+    def test_overlapping_private_root_is_refused_before_permission_change(self):
+        with self.assertRaises(volumes.VolumeError):
+            volumes.VolumeStore(self.store.root, self.store.root, require_root=False)
+        self.assertEqual(self.store.root.stat().st_mode & 0o777, 0o700)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='richos-volume-test-')
         self.addCleanup(self.temp.cleanup)

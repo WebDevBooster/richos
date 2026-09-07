@@ -20,6 +20,47 @@ manager = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(manager)
 
 
+class AcceptanceUmask(unittest.TestCase):
+    def test_installed_acceptance_uses_daemon_mask_before_fixture_creation(self):
+        acceptance = manager._module('umask_acceptance', 'managed-workspace-acceptance.py')
+        with tempfile.TemporaryDirectory() as tmp:
+            release = Path(tmp); (release / 'manifest.json').write_text('{}')
+            policy = release / 'policy.json'; policy.write_text('{}')
+            broker = types.SimpleNamespace(validate_runtime=lambda: release,
+                protected_path=lambda *a, **k: policy, validate_policy=lambda _: {
+                    'owners': {'501': {'gid': 20}}, 'private_root': str(release / 'private'),
+                    'active_root': str(release / 'active')})
+            class ReachedCreation(RuntimeError): pass
+            def observe(*args, **kwargs):
+                observed = os.umask(0o077)
+                self.assertEqual(observed, 0o077)
+                raise ReachedCreation()
+            mod = types.SimpleNamespace(WorkspaceManager=observe)
+            previous = os.umask(0o022)
+            try:
+                with patch.object(acceptance, 'load', side_effect=[broker, mod]), \
+                        patch.object(sys, 'argv', ['acceptance', '--owner-uid', '501', '--release', str(release),
+                            '--manifest-sha256', acceptance.hashlib.sha256(b'{}').hexdigest()]), \
+                        self.assertRaises(ReachedCreation):
+                    acceptance.main()
+            finally:
+                os.umask(previous)
+
+    def test_installed_acceptance_rejects_wrong_or_incomplete_pins_before_creation(self):
+        acceptance = manager._module('umask_acceptance_pins', 'managed-workspace-acceptance.py')
+        with tempfile.TemporaryDirectory() as tmp:
+            release = Path(tmp); (release / 'manifest.json').write_text('{}')
+            broker = types.SimpleNamespace(validate_runtime=lambda: release)
+            for pins in (['--release', str(release)], ['--manifest-sha256', 'a'*64],
+                         ['--release', str(release), '--manifest-sha256', 'a'*64],
+                         ['--release', str(release / 'other'), '--manifest-sha256', acceptance.hashlib.sha256(b'{}').hexdigest()]):
+                with self.subTest(pins=pins), patch.object(acceptance, 'load', return_value=broker) as loader, \
+                        patch.object(sys, 'argv', ['acceptance', '--owner-uid', '501', *pins]), \
+                        self.assertRaisesRegex(RuntimeError, 'pins'):
+                    acceptance.main()
+                self.assertEqual(loader.call_count, 1)
+
+
 class Lifecycle(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='richos-manager-test-')
@@ -303,6 +344,30 @@ class Lifecycle(unittest.TestCase):
 
 
 class FrozenContent(unittest.TestCase):
+    def test_handoff_export_namespace_is_traversable_under_daemon_umask(self):
+        record = self.delivery_record()
+        record['handoff_verified'] = False
+        exports = self.m.provider.active_root / 'handoffs'
+        class ReachedBundle(RuntimeError): pass
+        real_git = self.m._user_git
+        def inspect_export(*args, **kwargs):
+            if args[0][:2] != ['bundle', 'create']:
+                return real_git(*args, **kwargs)
+            self.assertEqual(exports.stat().st_mode & 0o777, 0o711)
+            self.assertEqual(list(exports.iterdir())[0].stat().st_mode & 0o777, 0o600)
+            raise ReachedBundle()
+        previous = os.umask(0o077)
+        try:
+            with patch.object(self.m.provider, 'attach', return_value={'mountpoint': str(self.root)}), \
+                    patch.object(self.m.provider, 'detach'), patch.object(self.m, '_preserve_attributes', return_value=True), \
+                    patch.object(self.m, '_preserve_metadata', return_value=True), \
+                    patch.object(self.m, '_has_uncommitted_data', return_value=False), \
+                    patch.object(self.m, '_user_git', side_effect=inspect_export), self.assertRaises(ReachedBundle):
+                self.m._handoff(record['id'], record)
+        finally:
+            os.umask(previous)
+        self.assertEqual(list(exports.iterdir()), [])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='richos-frozen-check-')
         self.addCleanup(self.temp.cleanup)

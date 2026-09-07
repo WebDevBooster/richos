@@ -510,9 +510,7 @@ class WorkspaceManager:
         self._save(ident, record)
         # Export is owner-readable under a protected ancestor. The user cannot
         # replace it or grant themselves write access to the manager-owned file.
-        exports = self.provider.active_root / 'handoffs'
-        exports.mkdir(mode=0o711, exist_ok=True)
-        self.provider._check_directory(exports, private=False)
+        exports = self.provider._ensure_traversable_directory(self.provider.active_root / 'handoffs')
         export = exports / (ident + '-' + uuid.uuid4().hex + '.bundle')
         try:
             with export.open('xb') as stream:

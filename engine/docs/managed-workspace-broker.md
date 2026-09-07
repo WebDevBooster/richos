@@ -104,6 +104,13 @@ hooks, helpers or running sessions.
 
 ## Root code execution and remaining acceptance
 
+The LaunchDaemon uses umask `077`. The provider explicitly validates and sets
+`0711` on its fixed active mount root and handoff export directory so the
+workspace owner can traverse them. Image storage stays private and bundle read
+access remains restricted to its owner. The installed acceptance runner uses
+the same restrictive mask before creating fixtures and when starting its broker;
+optional `--release` and `--manifest-sha256` arguments pin the tested release.
+
 The launchd plist uses `/Library/Developer/CommandLineTools/usr/bin/python3 -I -S -B`, an absolute installed release
 path and a fixed working directory. Before loading the manager, the broker
 requires root ownership and non-writable resolved ancestors for its executable,

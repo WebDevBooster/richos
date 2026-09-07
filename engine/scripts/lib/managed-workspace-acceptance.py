@@ -7,6 +7,7 @@ Python using -I -S -B.
 """
 import argparse
 import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -30,25 +31,37 @@ def load(name, filename):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--owner-uid', required=True, type=int)
+    parser.add_argument('--release')
+    parser.add_argument('--manifest-sha256')
     args = parser.parse_args()
     # Import only a sibling in the root-owned installed release. validate_runtime
     # verifies every bundled file, interpreter path and isolation flags before
     # any fixture creation or manager import.
     broker = load('installed_broker', 'managed-workspace-broker.py')
     release = broker.validate_runtime()
+    manifest_sha256 = hashlib.sha256((release / 'manifest.json').read_bytes()).hexdigest()
+    if bool(args.release) != bool(args.manifest_sha256):
+        raise RuntimeError('release and manifest pins must be supplied together')
+    if args.release is not None and (str(release) != args.release or manifest_sha256 != args.manifest_sha256):
+        raise RuntimeError('installed acceptance release pins differ')
     policy_file = broker.protected_path(release.parent.parent / 'policy.json', regular=True)
     policy = broker.validate_policy(json.loads(policy_file.read_text()))
     if str(args.owner_uid) not in policy['owners']:
         raise RuntimeError('acceptance owner must be approved in installed policy')
     owner = (args.owner_uid, policy['owners'][str(args.owner_uid)]['gid'])
     mod = load('installed_manager', 'managed-workspace-manager.py')
+    # Match the installed LaunchDaemon, including namespaces created before the
+    # socket starts. An administrator shell commonly supplies a looser mask.
+    os.umask(0o077)
     # Dedicated child namespaces cannot select production UUID directories.
     run_id = 'acceptance-' + uuid.uuid4().hex
     private = Path(policy['private_root']) / run_id
     active = Path(policy['active_root']) / run_id
     manager = mod.WorkspaceManager(private, active, require_root=True)
     report = dict(version=1, acceptance_id=run_id, owner_uid=owner[0], checks=[],
-                  passed=False, activated=False, fixture_root=str(private))
+                  passed=False, activated=False, fixture_root=str(private),
+                  source_release=str(release), manifest_sha256=manifest_sha256,
+                  tests_cutoff=False, daemon_umask='077')
     identifiers = []
     holder = None
     server = None
@@ -212,7 +225,7 @@ def main():
             server = subprocess.Popen(['/Library/Developer/CommandLineTools/usr/bin/python3', '-I', '-S', '-B',
                 str(release / 'managed-workspace-broker.py'), '--policy', str(fixture_policy_path),
                 '--socket', str(fixture_socket)], env=env, stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL, stderr=error_log)
+                stdout=subprocess.DEVNULL, stderr=error_log, umask=0o077)
             deadline = time.monotonic()+15
             health = None
             while time.monotonic() < deadline and server.poll() is None:

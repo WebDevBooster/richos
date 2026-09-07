@@ -60,13 +60,16 @@ class VolumeStore:
         self.require_root = require_root
         if require_root and os.geteuid() != 0:
             raise VolumeError('root broker required')
+        if self.root == self.active_root or self.root in self.active_root.parents:
+            raise VolumeError('active mount root must be outside private image root')
         for path, mode in ((self.root, 0o700), (self.active_root, 0o711)):
             if not path.is_absolute():
                 raise VolumeError('absolute managed roots required')
-            path.mkdir(mode=mode, parents=False, exist_ok=True)
-            self._check_directory(path, private=(mode == 0o700))
-        if self.root == self.active_root or self.root in self.active_root.parents:
-            raise VolumeError('active mount root must be outside private image root')
+            if mode == 0o711:
+                self._ensure_traversable_directory(path)
+            else:
+                path.mkdir(mode=mode, parents=False, exist_ok=True)
+                self._check_directory(path)
 
     def _check_directory(self, path, *, private=True):
         st = path.lstat()
@@ -82,6 +85,38 @@ class VolumeStore:
                 if not stat.S_ISDIR(ps.st_mode) or ps.st_uid != 0 or ps.st_mode & 0o022:
                     raise VolumeError('managed ancestor is not root protected')
                 reject_unsafe_acl(parent)
+
+    def _ensure_traversable_directory(self, path):
+        """Set exact access on the two fixed owner-traversable namespaces.
+
+        mkdir's requested mode is filtered by launchd's 077 umask. Validate
+        authority before changing an existing namespace, then operate on its
+        pinned no-follow descriptor. Never change the process-wide umask.
+        """
+        path = Path(path)
+        if path not in (self.active_root, self.active_root / 'handoffs'):
+            raise VolumeError('unsupported traversable managed namespace')
+        self._check_directory(path.parent, private=False)
+        path.mkdir(mode=0o700, exist_ok=True)
+        self._check_directory(path, private=False)
+        before = path.lstat()
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            opened = os.fstat(fd)
+            if (opened.st_dev, opened.st_ino, opened.st_uid, opened.st_mode) != (
+                    before.st_dev, before.st_ino, before.st_uid, before.st_mode):
+                raise VolumeError('managed namespace changed while opening')
+            os.fchmod(fd, 0o711)
+            os.fsync(fd)
+            after = path.lstat()
+            if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
+                raise VolumeError('managed namespace was replaced')
+            if stat.S_IMODE(after.st_mode) != 0o711:
+                raise VolumeError('managed namespace is not traversable')
+        finally:
+            os.close(fd)
+        self._sync_dir(path.parent)
+        return path
 
     def _paths(self, ident):
         try:
