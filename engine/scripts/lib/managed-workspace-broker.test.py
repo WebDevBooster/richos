@@ -179,6 +179,27 @@ class BrokerSafety(unittest.TestCase):
             self.broker.dispatch(999, {"operation": "health"})
         self.assertEqual(self.manager.calls, [])
 
+    def test_legacy_status_is_cached_and_peer_scoped_without_arming_operations(self):
+        service=mock.Mock()
+        service.status.return_value={'inventory_complete':True,'records':[],'total':0,'error':None}
+        self.broker.legacy_service=service
+        result=self.broker.dispatch(501,{'operation':'health'})
+        self.assertTrue(result['legacy_maintenance']['enabled'])
+        self.assertTrue(all(call.args==(501,) for call in service.status.call_args_list))
+        service.sweep.assert_not_called()
+        with self.assertRaises(broker.BrokerError):self.broker.dispatch(501,{'operation':'arm-job'})
+        service.arm.assert_not_called()
+
+    def test_waiting_boot_is_quiet_and_repeated_legacy_error_is_not_spammed(self):
+        service=mock.Mock();service.sweep.return_value=False
+        service.status.return_value={'inventory_complete':True,'records':[{'phase':'capture','state':'waiting-for-boot'}]}
+        self.broker.legacy_service=service
+        with mock.patch('builtins.print') as emit:
+            self.assertFalse(self.broker.run_legacy_sweep());emit.assert_not_called()
+            service.status.return_value={'inventory_complete':True,'records':[{'gate_id':'one','phase':'failed','last_error':'archive missing'}]}
+            self.broker.run_legacy_sweep();self.broker.run_legacy_sweep()
+            self.assertEqual(emit.call_count,1)
+
     def test_status_is_owner_filtered_bounded_and_health_reports_unknown(self):
         for index in range(105):
             ident = str(uuid.uuid4())
@@ -287,7 +308,7 @@ class BrokerSafety(unittest.TestCase):
     def test_real_serve_startup_request_and_signal_shutdown(self):
         socket_path = self.root / "runtime" / "served.sock"
         script = """
-import importlib.util, json, pathlib, sys, types
+import importlib.util, json, pathlib, sys, types, threading
 spec=importlib.util.spec_from_file_location('server',sys.argv[1])
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 # Only host privilege boundaries are substituted for this disposable fixture.
@@ -295,17 +316,23 @@ m.protected_path=lambda path, **kw: pathlib.Path(path).resolve()
 m.peer_uid=lambda connection: 501
 policy=json.loads(sys.argv[3])
 manager=types.SimpleNamespace(sweep=lambda: [], owner_uid=lambda ident:501, inspect=lambda ident: {'id':ident,'owner_uid':501,'state':'active'})
-m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
+def long_legacy_capture():
+    pathlib.Path(sys.argv[2]+'.busy').write_text('capture started')
+    threading.Event().wait(30)
+    return False
+legacy=types.SimpleNamespace(sweep=long_legacy_capture,status=lambda uid:{'inventory_complete':True,'records':[]})
+m.serve(m.Broker(manager,policy,legacy),sys.argv[2],interval=0.05)
 """
         child = subprocess.Popen([sys.executable, "-c", script, str(HERE / "managed-workspace-broker.py"),
                                   str(socket_path), json.dumps(self.policy)],
                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             deadline = time.monotonic() + 5
-            while not socket_path.exists() and child.poll() is None and time.monotonic() < deadline:
+            while (not socket_path.exists() or not Path(str(socket_path)+'.busy').exists()) and child.poll() is None and time.monotonic() < deadline:
                 time.sleep(0.02)
             self.assertIsNone(child.poll(), "real broker startup exited before binding")
             self.assertTrue(socket_path.exists(), "real broker never bound its socket")
+            self.assertTrue(Path(str(socket_path)+'.busy').exists(), 'legacy capture never started')
             ident = str(uuid.uuid4())
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                 connection.settimeout(5)
@@ -435,7 +462,7 @@ m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
     def test_install_refuses_a_different_actual_interpreter_before_writes(self):
         with mock.patch.object(installer.os, 'geteuid', return_value=0), \
                 mock.patch.object(installer.sys, 'platform', 'darwin'), \
-                mock.patch.object(installer.sys, 'flags', types.SimpleNamespace(isolated=1, no_site=1)), \
+                mock.patch.object(installer.sys, 'flags', types.SimpleNamespace(isolated=1, no_site=1, utf8_mode=sys.flags.utf8_mode)), \
                 mock.patch.object(installer.sys, 'executable', '/Applications/Untrusted.app/python3'), \
                 mock.patch.object(installer, 'protected'), mock.patch.object(installer, 'payloads') as payload:
             with self.assertRaisesRegex(ValueError, 'fixed root-owned'):
@@ -460,7 +487,7 @@ m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
                 mock.patch.object(installer.os, "geteuid", return_value=0), \
                 mock.patch.object(installer.sys, "platform", "darwin"), \
                 mock.patch.object(installer.sys, "executable", installer.INTERPRETER), \
-                mock.patch.object(installer.sys, "flags", types.SimpleNamespace(isolated=1, no_site=1)), \
+                mock.patch.object(installer.sys, "flags", types.SimpleNamespace(isolated=1, no_site=1, utf8_mode=sys.flags.utf8_mode)), \
                 mock.patch.object(installer, "protected", side_effect=lambda p: Path(p).resolve()):
             unrelated = self.root / "unrelated"
             unrelated.mkdir(mode=0o755)
@@ -495,7 +522,7 @@ m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
 
     def test_runtime_manifest_and_relative_import_paths_cannot_be_bypassed(self):
         package = installer.stage(self.root / "package")
-        flags = types.SimpleNamespace(isolated=1, no_site=1)
+        flags = types.SimpleNamespace(isolated=1, no_site=1, utf8_mode=sys.flags.utf8_mode)
         with mock.patch.object(broker.os, "geteuid", return_value=0), \
                 mock.patch.object(broker.sys, "flags", flags), \
                 mock.patch.object(broker.sys, "path", ["relative/user/imports"]), \

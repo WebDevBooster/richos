@@ -15,6 +15,7 @@ import select
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 
 
@@ -49,6 +50,7 @@ def main():
                   passed=False, activated=False, fixture_root=str(private))
     identifiers = []
     holder = None
+    server = None
     env = dict(PATH='/usr/bin:/bin:/usr/sbin:/sbin', HOME='/var/empty', LC_ALL='C',
                GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null')
 
@@ -139,10 +141,46 @@ def main():
         check('clean-recovery-created', clean['state'] == 'retained', clean.get('last_error', ''))
         expired = manager.reconcile(ident2, now=clean['expires_at']+1)
         check('clean-recovery-expires', expired['state'] == 'expired', expired.get('last_error', ''))
+        # Run the actual protected broker and its legacy worker against ONLY
+        # this run's disposable roots/source. No launchd or public config change.
+        fixture_policy = dict(version=1, private_root=str(private), active_root=str(active),
+            owners={str(owner[0]): {'gid': owner[1]}}, repositories={'fixture': dict(
+                path=str(source), owners=[owner[0]], retention_days=14, size='128m')})
+        fixture_policy_path = private / 'broker-policy.json'
+        fixture_policy_path.write_text(json.dumps(fixture_policy));fixture_policy_path.chmod(0o600)
+        fixture_socket = active / 'broker.sock'
+        with (private / 'broker-stderr.log').open('wb') as error_log:
+            server = subprocess.Popen(['/Library/Developer/CommandLineTools/usr/bin/python3', '-I', '-S', '-B',
+                str(release / 'managed-workspace-broker.py'), '--policy', str(fixture_policy_path),
+                '--socket', str(fixture_socket)], env=env, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=error_log)
+            deadline = time.monotonic()+15
+            health = None
+            while time.monotonic() < deadline and server.poll() is None:
+                if fixture_socket.exists():
+                    response = child(['/Library/Developer/CommandLineTools/usr/bin/python3', '-I', '-S', '-B',
+                        str(release / 'managed-workspace-client.py'), '--socket', str(fixture_socket), 'health'])
+                    if response.returncode == 0:
+                        health=json.loads(response.stdout)
+                        if health.get('legacy_maintenance',{}).get('inventory_complete'):break
+                time.sleep(0.05)
+            check('installed-root-broker-starts', server.poll() is None and health is not None)
+            check('owner-client-authenticates-installed-root-broker', health.get('server_uid') == 0
+                  and health.get('peer_uid') == owner[0] and health.get('repositories') == ['fixture'])
+            check('installed-legacy-worker-reports-empty-fixture-inventory',
+                  health.get('legacy_maintenance',{}).get('enabled') is True
+                  and health['legacy_maintenance'].get('inventory_complete') is True
+                  and health['legacy_maintenance'].get('total') == 0)
+            server.terminate();server.wait(timeout=15);server=None
         report['passed'] = True
     except Exception as error:
         report['error'] = str(error)
     finally:
+        if server is not None:
+            server.terminate()
+            try:server.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                server.kill();server.wait(timeout=15)
         if holder is not None:
             try:
                 holder.communicate('\n', timeout=30)

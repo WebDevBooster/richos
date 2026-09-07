@@ -73,7 +73,9 @@ and protected administrator command are implemented. It is not installed or
 accepted on the privileged host. Selective capture and reclamation now have
 disposable real-Git coverage, including recovery after interrupted deletion and
 survival of staged/conflict blobs after reflog expiry and Git garbage collection.
-Automatic execution and installed acceptance remain required before migration.
+Explicitly armed jobs now run automatically through the broker's separate
+[maintenance worker](legacy-workspace-service.md). Installed legacy gate and
+actual reboot acceptance remain required before migration.
 
 ## Branches
 
@@ -87,8 +89,9 @@ checkouts across repositories. It retains attached, live, unknown, unmerged,
 moved or reused branches. It is read-only. An explicit frozen selection can now
 use the [journaled publisher](legacy-workspace-mutation.md) under the later-boot
 gate. It preserves backup refs and blocks reopening until interrupted publication
-has been replayed and verified. Automatic branch selection and scheduling are
-not enabled or claimed complete.
+has been replayed and verified. Armed jobs automatically execute their fixed
+approved branch selections. This does not grant arbitrary live-branch deletion
+or discover and approve a broader selection during a retry.
 
 ## Remaining acceptance and work
 
@@ -105,9 +108,10 @@ not enabled or claimed complete.
   archives preserve malformed images, including outer extended attributes.
   Requests that never reserved storage close without a disk-reclamation claim.
   Raw recovery has no automatic expiry because unique data cannot be classified.
-- Build and validate the legacy maintenance executor against the reviewed gate boundary. Actual repository downtime
-  requires separate authorization. The user's active worktree remains outside any cleanup.
-- Finish coordinated dead-branch execution and its startup/scheduled wiring.
+- The legacy executor, coordinated branch publication and armed-job background
+  worker have passed disposable integration tests and independent review.
+  Validate the installed legacy gate across a real reboot before migration.
+  Actual repository downtime requires explicit authorization.
 
 The package's health endpoint reports listener availability, sweep progress and
 owned unresolved records separately. It explicitly does not certify the complete

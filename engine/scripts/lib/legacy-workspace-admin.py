@@ -74,6 +74,34 @@ def run(args):
         raise ValueError('existing gate UUID required')
     private = runtime.protected_path(policy['private_root'], regular=False)
     store = gate.LegacyGate(private / 'legacy-gates', inspection_context=context)
+    if args.operation in ('arm-job','job-status','advance-job'):
+        job = load('legacy_admin_job','legacy-workspace-job.py')
+        if args.operation == 'job-status':
+            # state.json is atomically replaced and its owner context is
+            # immutable. A read-only status request must not wait for capture.
+            base=runtime.protected_path(store._base(args.gate_id),regular=False)
+            store._load(base)
+            return job.status(store,args.gate_id)
+        # Validate the recorded owner context without demanding a frozen view:
+        # an armed job must be able to replay an incomplete primitive journal.
+        with store._lock(args.gate_id) as base:
+            store._load(base)
+        selection=None
+        if args.operation == 'arm-job':
+            if not args.report or not args.approved_sha256 or not args.approved_selection_sha256:
+                raise ValueError('arming requires approved gate and exact job selection hashes')
+            with Path(args.report).open('rb') as stream:raw=stream.read(256*1024+1)
+            if len(raw)>256*1024:raise ValueError('job selection exceeds bounded input size')
+            selection=json.loads(raw)
+            if selection.get('gate_id')!=args.gate_id or selection.get('gate_sha256')!=args.approved_sha256:
+                raise ValueError('job selection targets a different gate')
+            job._scope(selection,args.approved_selection_sha256)
+        scratch=base/'job-scratch'
+        if scratch.is_symlink():raise ValueError('legacy job scratch must not be a symlink')
+        scratch.mkdir(mode=0o700,exist_ok=True)
+        if args.operation == 'arm-job':
+            return job.arm(store,selection,approved_selection_sha256=args.approved_selection_sha256,scratch_root=scratch)
+        return job.advance(store,args.gate_id,scratch_root=scratch)
     if args.operation == 'restore':
         if not args.approved_sha256:
             raise ValueError('restore requires explicit approved gate SHA256')
@@ -133,7 +161,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('plan','stage','inspect','resume','restore','branches','publish-branches','replay-branches',
-                                             'capture','publish-recovery','retire','replay-retirement'))
+                                             'capture','publish-recovery','retire','replay-retirement','arm-job','job-status','advance-job'))
     parser.add_argument('--owner-uid', type=int, required=True)
     parser.add_argument('--transactions', required=True)
     parser.add_argument('--ledger', required=True)

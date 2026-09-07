@@ -8,8 +8,9 @@ refs. It does not delete the canonical repository or authorize archive expiry.
 The administrator flow is `capture`, `publish-recovery`, `retire`, then gate
 `restore`. Each destructive selection names the exact gate and capture receipt
 with its separately approved hash. Interrupted publication uses `replay-branches`;
-interrupted directory reclamation uses `replay-retirement`. Automatic execution
-of an explicitly armed maintenance job is separate integration work.
+interrupted directory reclamation uses `replay-retirement`. An explicitly armed
+[maintenance job](legacy-workspace-job.md) executes these steps automatically
+through the broker's background worker.
 
 Before recording removal intent, the executor revalidates the entire archive
 against frozen working and per-worktree Git metadata. It checks protected archive

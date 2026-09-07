@@ -28,7 +28,7 @@ CODE_FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py", "ma
               "legacy-workspace-admin.py", "legacy-workspace-gate.py", "legacy-workspace-inspection.py", "legacy-workspace-maintenance.py",
               "terminal-branch-cleanup.py", "worktree-ledger.py", "worktree-transactions.py",
               "terminal-branch-shadow.py", "legacy-workspace-mutation.py", "legacy-workspace-capture.py",
-              "terminal-recovery-shadow.py", "legacy-workspace-retirement.py")
+              "terminal-recovery-shadow.py", "legacy-workspace-retirement.py", "legacy-workspace-job.py", "legacy-workspace-service.py")
 MAX_REQUEST = 65536
 MAX_RESPONSE = 1048576
 
@@ -143,9 +143,11 @@ def peer_uid(connection):
 
 
 class Broker:
-    def __init__(self, manager, policy):
+    def __init__(self, manager, policy, legacy_service=None):
         self.manager = manager
         self.policy = validate_policy(policy)
+        self.legacy_service = legacy_service
+        self._legacy_issue_digest = None
         self._status_lock = threading.Lock()
         self._sweep = {"last_attempt_at": None, "last_completed_at": None, "last_success_at": None,
                        "error": None}
@@ -181,6 +183,36 @@ class Broker:
                   file=sys.stderr, flush=True)
         self._issue_digest = digest
 
+    def _legacy_status(self, uid):
+        if self.legacy_service is None:
+            return {'enabled': False, 'inventory_complete': False, 'error': 'legacy-worker-not-configured'}
+        try:
+            return dict(self.legacy_service.status(uid), enabled=True)
+        except Exception:
+            return {'enabled': True, 'inventory_complete': False, 'error': 'legacy-status-unavailable'}
+
+    def run_legacy_sweep(self):
+        if self.legacy_service is None:
+            return False
+        issues=[]
+        try:
+            progress=self.legacy_service.sweep()
+            for uid in self.policy['owners']:
+                status=self._legacy_status(int(uid))
+                if not status.get('inventory_complete'):
+                    issues.append({'owner_uid':int(uid),'reason':str(status.get('error','unknown'))[:512]})
+                for row in status.get('records',[]):
+                    if row.get('last_error') or row.get('phase') in ('failed','blocked'):
+                        issues.append({'owner_uid':int(uid),'gate_id':row.get('gate_id'),
+                                       'reason':str(row.get('last_error') or row.get('phase'))[:512]})
+        except Exception as exc:
+            progress=False;issues=[{'reason':str(exc)[:512]}]
+        digest=hashlib.sha256(json.dumps(issues,sort_keys=True).encode()).hexdigest()
+        if digest!=self._legacy_issue_digest and (issues or self._legacy_issue_digest is not None):
+            print(json.dumps({'event':'legacy-maintenance-issues','issues':issues},sort_keys=True),file=sys.stderr,flush=True)
+        self._legacy_issue_digest=digest
+        return bool(progress)
+
     def _inventory(self, uid):
         records = self.manager.status(uid)
         if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
@@ -191,7 +223,7 @@ class Broker:
         return {"inventory_complete": True, "inventory_scope": "durable-records", "total": len(owned),
                 "unresolved_count": sum(self._issue(record) for record in owned),
                 "records": [self._summary(record) for record in owned[:100]],
-                "truncated": len(owned) > 100}
+                "truncated": len(owned) > 100, "legacy_maintenance":self._legacy_status(uid)}
 
     def _record(self, record):
         result = dict(record)
@@ -240,6 +272,7 @@ class Broker:
                          "inventory_error": "owner-inventory-unavailable"}
             return dict(owned, protocol=1, service="managed-workspace-broker", server_uid=os.geteuid(),
                         peer_uid=uid, latest_sweep=latest, installed_feature_acceptance="not-assessed",
+                        legacy_maintenance=self._legacy_status(uid),
                         repositories=sorted(alias for alias, entry in self.policy["repositories"].items()
                                             if uid in entry["owners"]))
         if op == "create":
@@ -345,6 +378,12 @@ def serve(broker, socket_path, *, interval=60):
             slots.release()
 
     threading.Thread(target=sweep, daemon=True).start()
+    if broker.legacy_service is not None:
+        def legacy_sweep():
+            while not stop.is_set():
+                progress=broker.run_legacy_sweep()
+                stop.wait(min(1,interval) if progress else interval)
+        threading.Thread(target=legacy_sweep,daemon=True).start()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     try:
@@ -377,7 +416,9 @@ def main():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     manager = module.WorkspaceManager(policy["private_root"], policy["active_root"], require_root=True)
-    serve(Broker(manager, policy), args.socket)
+    spec = importlib.util.spec_from_file_location('installed_legacy_service',release/'legacy-workspace-service.py')
+    legacy = importlib.util.module_from_spec(spec);spec.loader.exec_module(legacy)
+    serve(Broker(manager, policy, legacy.LegacyMaintenanceService(policy,policy_path=policy_path)), args.socket)
 
 
 if __name__ == "__main__":

@@ -27,12 +27,17 @@ class Commands(unittest.TestCase):
         policy={'owners':{str(self.uid):{'gid':pwd.getpwuid(self.uid).pw_gid}},'private_root':str(self.private)}
         (self.root/'policy.json').write_text(json.dumps(policy))
         runtime=SimpleNamespace(validate_runtime=lambda:self.release,protected_path=lambda p,**kw:Path(p),validate_policy=lambda v:v)
-        self.store=Mock();self.store.frozen_view.side_effect=lambda *a,**kw:contextlib.nullcontext({})
+        self.store=SimpleNamespace(frozen_view=Mock(side_effect=lambda *a,**kw:contextlib.nullcontext({})),
+                                   _lock=Mock(),_base=Mock(),_load=Mock(),stage=Mock())
         self.mutation=Mock();self.shadow=Mock()
         self.retirement=Mock();self.capture=Mock()
+        self.job=Mock();self.gate_base=self.root/'gate-base';self.gate_base.mkdir(mode=0o700)
+        self.store._lock.side_effect=lambda ident:contextlib.nullcontext(self.gate_base)
+        self.store._base.return_value=self.gate_base
         modules={'managed-workspace-broker.py':runtime,'legacy-workspace-gate.py':gate,
                  'legacy-workspace-mutation.py':self.mutation,'terminal-branch-shadow.py':self.shadow,
-                 'legacy-workspace-retirement.py':self.retirement,'legacy-workspace-capture.py':self.capture}
+                 'legacy-workspace-retirement.py':self.retirement,'legacy-workspace-capture.py':self.capture,
+                 'legacy-workspace-job.py':self.job}
         for p in (patch.object(admin,'load',side_effect=lambda name,file:modules[file]),
                   patch.object(admin.sys,'executable',gate.INTERPRETER),patch.object(gate,'LegacyGate',return_value=self.store)):
             p.start();self.addCleanup(p.stop)
@@ -96,5 +101,31 @@ class Commands(unittest.TestCase):
         self.retirement.replay.assert_called_once_with(self.store,'gate',approved_selection_sha256='retirement-hash',
                                                       scratch_root=self.private/'legacy-scratch')
         self.store.frozen_view.assert_not_called()
+
+    def test_job_status_does_not_acquire_the_gate_lock(self):
+        self.args.operation='job-status';admin.run(self.args)
+        self.store._lock.assert_not_called();self.store._load.assert_called_once_with(self.gate_base)
+        self.job.status.assert_called_once_with(self.store,'gate');self.job.advance.assert_not_called()
+
+    def test_arm_job_pins_gate_and_selection_and_uses_per_gate_scratch(self):
+        self.args.operation='arm-job';admin.run(self.args)
+        self.job.arm.assert_called_once_with(self.store,self.selection,approved_selection_sha256='selection-hash',
+                                            scratch_root=self.gate_base/'job-scratch')
+        self.store.stage.assert_not_called();self.job.advance.assert_not_called()
+
+    def test_wrong_job_gate_is_refused_before_scratch_creation(self):
+        self.args.operation='arm-job';self.selection['gate_id']='another';Path(self.args.report).write_text(json.dumps(self.selection))
+        with self.assertRaisesRegex(ValueError,'different gate'):admin.run(self.args)
+        self.job.arm.assert_not_called();self.assertFalse((self.gate_base/'job-scratch').exists())
+
+    def test_wrong_job_selection_hash_is_refused_before_scratch_creation(self):
+        self.args.operation='arm-job';self.job._scope.side_effect=ValueError('matching selection approval required')
+        with self.assertRaisesRegex(ValueError,'approval'):admin.run(self.args)
+        self.job.arm.assert_not_called();self.assertFalse((self.gate_base/'job-scratch').exists())
+
+    def test_advance_existing_job_does_not_require_frozen_view_or_arm_another(self):
+        self.args.operation='advance-job';admin.run(self.args)
+        self.job.advance.assert_called_once_with(self.store,'gate',scratch_root=self.gate_base/'job-scratch')
+        self.job.arm.assert_not_called();self.store.frozen_view.assert_not_called()
 
 if __name__=='__main__':unittest.main()
