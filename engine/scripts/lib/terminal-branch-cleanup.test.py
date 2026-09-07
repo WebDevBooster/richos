@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -62,6 +63,15 @@ class TerminalBranchPlans(unittest.TestCase):
     def reason(self, result):
         self.assertEqual(result["eligible"], 0, result)
         return result["members"][0]["reason"]
+
+    @unittest.skipUnless(sys.platform=='darwin','cross-boot UUID contract is macOS only')
+    def test_reflog_file_snapshot_survives_kernel_device_renumbering(self):
+        spec=importlib.util.spec_from_file_location('renumber_fixture',HERE/'legacy-workspace-gate.test.py')
+        fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+        path=self.repo/'.git/logs/HEAD';before=planner._file_snapshot(path)
+        with fixture.renumbered_device():after=planner._file_snapshot(path)
+        self.assertEqual(after,before)
+        self.assertIsInstance(after['device'],str)
 
     def test_three_repositories_include_native_gone_and_cross_repo_members(self):
         second, tip2 = self.new_repo("engine")

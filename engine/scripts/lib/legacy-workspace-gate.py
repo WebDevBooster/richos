@@ -14,6 +14,7 @@ import uuid
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('legacy_planner', HERE / 'legacy-workspace-maintenance.py')
 planner = importlib.util.module_from_spec(spec);spec.loader.exec_module(planner)
+filesystem = planner.filesystem
 spec = importlib.util.spec_from_file_location('legacy_inspection', HERE / 'legacy-workspace-inspection.py')
 inspection = importlib.util.module_from_spec(spec);spec.loader.exec_module(inspection)
 INTERPRETER = '/Library/Developer/CommandLineTools/usr/bin/python3'
@@ -166,15 +167,20 @@ class LegacyGate:
         if info.st_dev != self.vault.stat().st_dev:
             raise GateError('cross-device object: ' + str(path))
         self._no_acl(path)
-        value = dict(device=info.st_dev, inode=info.st_ino, uid=info.st_uid, gid=info.st_gid,
+        value = dict(device=filesystem.filesystem_token(path, info=info), inode=info.st_ino, uid=info.st_uid, gid=info.st_gid,
                      mode=stat.S_IMODE(info.st_mode), kind=kind)
         if kind == 'symlink':
             value['target'] = os.readlink(path)
         return value
 
-    @staticmethod
-    def _same(info, expected):
-        return (info.st_dev, info.st_ino) == (expected['device'], expected['inode'])
+    def _same(self, info, expected):
+        # A live descriptor must still belong to the current vault filesystem.
+        # Its persistent identity uses that filesystem's UUID, never a saved
+        # mount number that the kernel can renumber during reboot.
+        vault = self.vault.lstat()
+        return (info.st_dev == vault.st_dev and
+                (filesystem.filesystem_token(self.vault, info=vault), info.st_ino) ==
+                (expected['device'], expected['inode']))
 
     def _apply(self, path, original, *, restore=False):
         current = self._metadata(path, allow_hardlinks=restore)

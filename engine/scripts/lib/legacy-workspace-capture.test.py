@@ -73,6 +73,17 @@ class Recovery(unittest.TestCase):
         self.assertEqual((self.work/'file').read_bytes(),b'different working bytes\0')
         self.assertEqual(self.git('-C',str(self.work),'rev-parse',':file'),self.staged_oid)
 
+    @unittest.skipUnless(sys.platform=='darwin','cross-boot UUID contract is macOS only')
+    def test_capture_and_validation_survive_kernel_device_renumbering(self):
+        self.staged();self.ready()
+        with fixtures.renumbered_device():
+            result=self.prepare();directory=Path(result['artifact_path'])
+            with self.manager.frozen_view(self.ident,approved_sha256=self.digest) as view:
+                checked=capture.validate_capture(view,directory,self.scratch,self.binary)
+            self.assertEqual(checked['manifest_sha256'],result['manifest_sha256'])
+            with tarfile.open(directory/'recovery.tar.gz','r:gz') as archive:
+                self.assertEqual(archive.extractfile('worktree/file').read(),b'different working bytes\0')
+
     def test_xattrs_are_preserved_in_manifest_and_pax(self):
         name='com.richos.capture-test' if sys.platform=='darwin' else 'user.richos.capture-test'
         if sys.platform=='darwin':subprocess.run(['/usr/bin/xattr','-wx',name,'007072697661746520617474726962757465',str(self.work/'file')],check=True)

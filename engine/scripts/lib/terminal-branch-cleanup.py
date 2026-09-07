@@ -30,6 +30,9 @@ def _module(name):
     return mod
 
 
+filesystem = _module('durable-filesystem-identity')
+
+
 def _git(repo, *args):
     # Invocation state from a caller's own Git command must not retarget this
     # read to another repository or substitute an alternate object graph.
@@ -87,7 +90,7 @@ def _file_snapshot(path):
         identity = lambda st: (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
         if identity(before) != identity(after) or identity(after) != identity(os.lstat(path)):
             raise ValueError("file changed while being read")
-        return {"path": str(path), "device": after.st_dev, "inode": after.st_ino,
+        return {"path": str(path), "device": filesystem.filesystem_token(path, info=after), "inode": after.st_ino,
                 "size": after.st_size, "mtime_ns": after.st_mtime_ns,
                 "ctime_ns": after.st_ctime_ns, "sha256": digest.hexdigest()}
     finally:

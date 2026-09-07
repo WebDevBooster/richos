@@ -19,6 +19,8 @@ spec = importlib.util.spec_from_file_location('capture_shadow', Path(__file__).w
 shadow = importlib.util.module_from_spec(spec);spec.loader.exec_module(shadow)
 spec = importlib.util.spec_from_file_location('capture_attributes', Path(__file__).with_name('managed-workspace-failed-creation.py'))
 attributes = importlib.util.module_from_spec(spec);spec.loader.exec_module(attributes)
+spec = importlib.util.spec_from_file_location('capture_filesystem', Path(__file__).with_name('durable-filesystem-identity.py'))
+filesystem = importlib.util.module_from_spec(spec);spec.loader.exec_module(filesystem)
 OID = re.compile(r'(?:[0-9a-f]{40}|[0-9a-f]{64})\Z')
 CACHE_SIGNATURE = b'Signature: 8a477f597d28d172789f06886806bc55'
 
@@ -58,7 +60,7 @@ def _map(view, source):
 
 def _snapshot(path, key, name, metadata):
     before = path.lstat();original = metadata.get(key)
-    if original is None or (before.st_dev,before.st_ino) != (original['device'],original['inode']):
+    if original is None or (filesystem.filesystem_token(path, info=before),before.st_ino) != (original['device'],original['inode']):
         raise CaptureError('source is outside the exact frozen inode inventory')
     kind = original['kind']
     result = dict(name=name,kind=kind,uid=original['uid'],gid=original['gid'],mode=original['mode'],

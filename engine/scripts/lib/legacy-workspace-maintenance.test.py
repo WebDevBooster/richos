@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -51,6 +52,17 @@ class LegacyPlan(unittest.TestCase):
                       pid_start=planner.ledger.pid_start(os.getpid()))
         row = self.plan(records=[record])['repositories'][0]
         self.assertIn('live-owner:' + str(self.repo), row['blockers'])
+
+    @unittest.skipUnless(sys.platform=='darwin','cross-boot UUID contract is macOS only')
+    def test_complete_report_is_unchanged_by_kernel_device_renumbering(self):
+        spec=importlib.util.spec_from_file_location('renumber_fixture',Path(__file__).with_name('legacy-workspace-gate.test.py'))
+        fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+        before=self.plan()
+        with fixture.renumbered_device():after=self.plan()
+        self.assertEqual(after,before)
+        row=after['repositories'][0]
+        self.assertIsInstance(row['common_git_directory']['device'],str)
+        self.assertEqual(row['object_storage']['external_dependencies'],[])
 
     def test_resumed_session_elsewhere_cannot_hide_live_owner(self):
         records = [dict(event='registered', worktree=str(self.work), repo=str(self.repo), session_id='same',

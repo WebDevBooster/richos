@@ -20,6 +20,7 @@ def module(name):
 
 history = module('terminal-branch-cleanup')
 ledger = module('worktree-ledger')
+filesystem = history.filesystem
 
 
 def pin(path, *, directory=True):
@@ -32,11 +33,11 @@ def pin(path, *, directory=True):
     info = path.lstat()
     if directory and not stat.S_ISDIR(info.st_mode):
         raise ValueError('directory required: ' + str(path))
-    result = dict(path=str(path), device=info.st_dev, inode=info.st_ino,
+    result = dict(path=str(path), device=filesystem.filesystem_token(path, info=info), inode=info.st_ino,
                   mode=stat.S_IMODE(info.st_mode), uid=info.st_uid, gid=info.st_gid)
     if not directory and stat.S_ISREG(info.st_mode):
         result['contents'] = history._file_snapshot(path)
-        if (result['contents']['device'], result['contents']['inode']) != (info.st_dev, info.st_ino):
+        if (result['contents']['device'], result['contents']['inode']) != (result['device'], info.st_ino):
             raise ValueError('path changed while being pinned: ' + str(path))
     return result
 
@@ -80,6 +81,7 @@ def terminal(tx):
 def object_storage(repo, common):
     objects = Path(common) / 'objects'
     identity = pin(objects)
+    live_device = objects.lstat().st_dev
     dependencies = []
     # Git follows symlinked loose buckets, individual objects and pack paths.
     # A gate on the common directory cannot revoke access to those targets.
@@ -89,7 +91,7 @@ def object_storage(repo, common):
         for name in dirs + files:
             path = Path(directory) / name
             entry = path.lstat()
-            if stat.S_ISLNK(entry.st_mode) or entry.st_dev != identity['device']:
+            if stat.S_ISLNK(entry.st_mode) or entry.st_dev != live_device:
                 dependencies.append('external-object-path:' + str(path))
                 if name in dirs:
                     dirs.remove(name)

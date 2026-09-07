@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Disposable gate state-machine tests; not privileged boundary acceptance."""
 import importlib.util
+import contextlib
+import json
 import os
 from pathlib import Path
 import stat
@@ -12,6 +14,37 @@ from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('gate', Path(__file__).with_name('legacy-workspace-gate.py'))
 gate = importlib.util.module_from_spec(spec);spec.loader.exec_module(gate)
+
+
+@contextlib.contextmanager
+def renumbered_device():
+    """Model the kernel changing mount numbers, leaving filesystem bytes intact."""
+    class Observed:
+        def __init__(self, value):self.value=value;self.st_dev=value.st_dev+29
+        def __getattr__(self, name):return getattr(self.value,name)
+        def __getitem__(self, key):return self.st_dev if key==stat.ST_DEV else self.value[key]
+    def observed(value):return value if isinstance(value,Observed) else Observed(value)
+    class Entry:
+        def __init__(self, value):self.value=value
+        def __getattr__(self, name):return getattr(self.value,name)
+        def stat(self, **kwargs):return observed(self.value.stat(**kwargs))
+    class Scan:
+        def __init__(self, value):self.value=value
+        def __iter__(self):return self
+        def __next__(self):return Entry(next(self.value))
+        def __enter__(self):self.value.__enter__();return self
+        def __exit__(self, *args):return self.value.__exit__(*args)
+        def close(self):self.value.close()
+    originals={name:getattr(os,name) for name in ('stat','lstat','fstat')}
+    paths={name:getattr(Path,name) for name in ('stat','lstat')}
+    scandir=os.scandir
+    with contextlib.ExitStack() as stack:
+        for name,original in originals.items():
+            stack.enter_context(patch.object(os,name,side_effect=lambda *a,_call=original,**kw:observed(_call(*a,**kw))))
+        for name,original in paths.items():
+            stack.enter_context(patch.object(Path,name,lambda *a,_call=original,**kw:observed(_call(*a,**kw))))
+        stack.enter_context(patch.object(os,'scandir',side_effect=lambda *a,**kw:Scan(scandir(*a,**kw))))
+        yield
 
 
 class GateWorkflow(unittest.TestCase):
@@ -69,6 +102,40 @@ class GateWorkflow(unittest.TestCase):
         with self.assertRaises(gate.GateError):
             self.manager.stage(active, approved_sha256=gate.planner.history._digest(active))
         self.assertEqual(list(self.vault.iterdir()), []);self.assertTrue(self.repo.exists())
+
+    @unittest.skipUnless(gate.sys.platform=='darwin','cross-boot UUID contract is macOS only')
+    def test_kernel_device_renumber_preserves_real_uuid_gate_and_restore(self):
+        (self.work/'file').write_bytes(b'unique pre-reboot bytes')
+        ident=self.stage()['id'];base=self.manager._base(ident)
+        before=(base/'metadata.jsonl').read_bytes()
+        self.current_boot=str(uuid.uuid4())
+        with renumbered_device():
+            self.assertTrue(self.manager.inspect(ident)['boot_cutoff_verified'])
+            with self.manager.frozen_view(ident,approved_sha256=self.digest):pass
+            self.assertEqual(self.manager.restore(ident,approved_sha256=self.digest)['phase'],'restored')
+        self.assertEqual((base/'metadata.jsonl').read_bytes(),before,'original approval evidence is never rewritten')
+        self.assertEqual((self.work/'file').read_bytes(),b'unique pre-reboot bytes')
+
+    def test_different_filesystem_uuid_and_old_integer_pins_cannot_restore(self):
+        ident=self.stage()['id'];base=self.manager._base(ident);self.current_boot=str(uuid.uuid4())
+        state=(base/'state.json').read_bytes()
+        with patch.object(gate.filesystem,'filesystem_token',return_value='darwin-volume-uuid-v1:'+str(uuid.uuid4())):
+            with self.assertRaisesRegex(gate.GateError,'identity changed'):
+                self.manager.restore(ident,approved_sha256=self.digest)
+        self.assertEqual((base/'state.json').read_bytes(),state)
+        entries=[json.loads(line) for line in (base/'metadata.jsonl').read_text().splitlines()]
+        for entry in entries:entry['device']=self.vault.stat().st_dev
+        (base/'metadata.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in entries))
+        with self.assertRaisesRegex(gate.GateError,'identity changed'):
+            self.manager.restore(ident,approved_sha256=self.digest)
+        self.assertEqual((base/'state.json').read_bytes(),state)
+
+    def test_live_descriptor_on_other_device_or_replaced_inode_is_still_refused(self):
+        from types import SimpleNamespace
+        info=self.repo.lstat();expected=self.manager._metadata(self.repo)
+        self.assertTrue(self.manager._same(info,expected))
+        self.assertFalse(self.manager._same(SimpleNamespace(st_dev=info.st_dev+1,st_ino=info.st_ino),expected))
+        self.assertFalse(self.manager._same(SimpleNamespace(st_dev=info.st_dev,st_ino=info.st_ino+1),expected))
 
     def test_production_authority_and_unreadable_boot_fail_before_reservation(self):
         with patch.object(gate.os,'geteuid',return_value=501),self.assertRaises(gate.GateError):
