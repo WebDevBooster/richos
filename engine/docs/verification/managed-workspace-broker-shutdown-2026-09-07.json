@@ -1,0 +1,172 @@
+{
+  "source_commit": "56a2805",
+  "installation": {
+    "activated": false,
+    "client_config": "/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json",
+    "plist": "/Library/LaunchDaemons/com.richos.managed-workspace-broker.plist",
+    "policy": "/Library/Application Support/RichOS/workspace-broker/policy.json",
+    "release": "/Library/Application Support/RichOS/workspace-broker/releases/e44443d14e9e58d80dde1efbe2927bfb2fac22417cd7a9498bd74f6539cf0986"
+  },
+  "acceptance": {
+    "acceptance_id": "acceptance-d9bbe5d2ed4e44b098b06c0f15a0320a",
+    "activated": false,
+    "checks": [
+      {
+        "detail": "",
+        "name": "owner-write-tracked",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-cannot-read-backing-image",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-cannot-change-backing-permissions",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-ready-within-deadline",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-started",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "busy-holder-blocks-reclamation",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-finished",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "root-to-owner-capture-succeeds",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "active-image-reclaimed",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "dirty-recovery-retained",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "latest-working-bytes-recovered",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "separate-index-bytes-recovered",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "dirty-expiry-refused",
+        "passed": true
+      },
+      {
+        "detail": "hdiutil: couldn't unmount \"disk9\" - Permission denied\n",
+        "name": "owner-cannot-force-unmount-hdiutil",
+        "passed": true
+      },
+      {
+        "detail": "Volume RichOS-9caf5b07-52ea-4292-bd7c-e6a0c6fd5c99 on disk9s1 failed to unmount\n",
+        "name": "owner-cannot-force-unmount-diskutil",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "clean-recovery-created",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "clean-recovery-expires",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "installed-root-broker-starts",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "owner-client-authenticates-installed-root-broker",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "installed-legacy-worker-reports-empty-fixture-inventory",
+        "passed": true
+      }
+    ],
+    "error": "Command '['/Library/Developer/CommandLineTools/usr/bin/python3', '-I', '-S', '-B', '/Library/Application Support/RichOS/workspace-broker/releases/e44443d14e9e58d80dde1efbe2927bfb2fac22417cd7a9498bd74f6539cf0986/managed-workspace-broker.py', '--policy', '/private/var/db/richos-workspaces/acceptance-d9bbe5d2ed4e44b098b06c0f15a0320a/broker-policy.json', '--socket', '/private/var/db/richos-workspace-mounts/acceptance-d9bbe5d2ed4e44b098b06c0f15a0320a/broker.sock']' timed out after 15 seconds",
+    "fixture_cleanup_complete": true,
+    "fixture_root": "/private/var/db/richos-workspaces/acceptance-d9bbe5d2ed4e44b098b06c0f15a0320a",
+    "owner_uid": 501,
+    "passed": false,
+    "version": 1
+  },
+  "inherited_signal_masks": [
+    {
+      "root_parent_mask": [
+        1,
+        2,
+        3,
+        6,
+        14,
+        15,
+        16,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        28,
+        29,
+        30,
+        31
+      ]
+    },
+    {
+      "child_mask": [
+        1,
+        2,
+        3,
+        6,
+        14,
+        15,
+        16,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        28,
+        29,
+        30,
+        31
+      ]
+    }
+  ]
+}

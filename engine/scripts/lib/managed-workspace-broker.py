@@ -377,6 +377,19 @@ def serve(broker, socket_path, *, interval=60):
         finally:
             slots.release()
 
+    # Administrator launchers can pass a blocked termination mask through
+    # exec. Install handlers before unblocking, then let all worker threads
+    # inherit the corrected mask. Preserve unrelated inherited signal policy.
+    controls = {signal.SIGTERM, signal.SIGINT}
+    shutdown_requested = False
+    def request_shutdown(*_):
+        # A signal can interrupt Event.set while its condition lock is held.
+        # Keep handlers lock-free; the main loop wakes workers in finally.
+        nonlocal shutdown_requested
+        shutdown_requested = True
+    for sig in controls:
+        signal.signal(sig, request_shutdown)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, controls)
     threading.Thread(target=sweep, daemon=True).start()
     if broker.legacy_service is not None:
         def legacy_sweep():
@@ -384,10 +397,8 @@ def serve(broker, socket_path, *, interval=60):
                 progress=broker.run_legacy_sweep()
                 stop.wait(min(1,interval) if progress else interval)
         threading.Thread(target=legacy_sweep,daemon=True).start()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: stop.set())
     try:
-        while not stop.is_set():
+        while not shutdown_requested:
             try:
                 connection, _ = listener.accept()
             except socket.timeout:
