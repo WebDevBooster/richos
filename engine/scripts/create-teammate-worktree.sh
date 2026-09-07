@@ -60,6 +60,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEDGER_PY="$SCRIPT_DIR/lib/worktree-ledger.py"
+MANAGED_PY="$SCRIPT_DIR/lib/managed-workspace-integration.py"
 
 usage() {
     sed -n '/^# USAGE/,/^# Environment/p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -104,8 +105,25 @@ MAIN="$(git -C "$REPO_ARG" worktree list --porcelain 2>/dev/null | sed -n '1s|^w
 [ -n "$MAIN" ] || refuse "'$REPO_ARG' is not inside a git repository"
 MAIN="$(cd "$MAIN" && pwd -P)"
 
-[ -n "$DIR" ] || DIR="$(dirname "$MAIN")/$(basename "$MAIN")-wt/$NAME"
-[ ! -e "$DIR" ] || refuse "'$DIR' already exists"
+MANAGED=0
+if [ -f "$MANAGED_PY" ]; then
+    python3 "$MANAGED_PY" configured --repo "$MAIN" >/dev/null
+    _managed_rc=$?
+    case "$_managed_rc" in
+        0) MANAGED=1 ;;
+        3) : ;;
+        *) refuse "managed workspace policy could not be read; creation was not attempted" ;;
+    esac
+elif [ -e '/Library/Application Support/RichOS/ManagedWorkspaces/client.json' ] || \
+     [ -L '/Library/Application Support/RichOS/ManagedWorkspaces/client.json' ]; then
+    refuse "managed workspace configuration exists but its integration module is missing"
+fi
+if [ "$MANAGED" -eq 0 ]; then
+    [ -n "$DIR" ] || DIR="$(dirname "$MAIN")/$(basename "$MAIN")-wt/$NAME"
+    [ ! -e "$DIR" ] || refuse "'$DIR' already exists"
+else
+    [ -z "$DIR" ] || refuse "managed workspaces use the manager's assigned path; omit --dir"
+fi
 if git -C "$MAIN" rev-parse --verify --quiet "refs/heads/$NAME" >/dev/null; then
     refuse "branch '$NAME' already exists in $MAIN — a teammate name is used once; pick a fresh identifier"
 fi
@@ -114,10 +132,28 @@ git -C "$MAIN" rev-parse --verify --quiet "$BASE^{commit}" >/dev/null \
     || refuse "base ref '$BASE' does not resolve in $MAIN"
 
 # --- 2. create -------------------------------------------------------------
+MANAGED_ID=""
+if [ "$MANAGED" -eq 1 ]; then
+    SESSION_PID="$PID_ARG"
+    [ -n "$SESSION_PID" ] || SESSION_PID="$(python3 "$LEDGER_PY" session-pid 2>/dev/null || true)"
+    if [ -z "$SESSION" ] && [ -n "$SESSION_PID" ]; then
+        _sdir="${RICHOS_SESSIONS_DIR:-$HOME/.claude/sessions}"
+        if [ -f "$_sdir/$SESSION_PID.json" ]; then
+            SESSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("sessionId",""))' "$_sdir/$SESSION_PID.json" 2>/dev/null || true)"
+        fi
+    fi
+    [ -n "$SESSION" ] || refuse "managed creation requires the owning session ID"
+    _commit="$(git -C "$MAIN" rev-parse --verify "$BASE^{commit}")" || exit 4
+    _managed_record="$(python3 "$MANAGED_PY" create --repo "$MAIN" --commit "$_commit" \
+        --session-id "$SESSION" --agent-name "$NAME" --request-id "$SESSION:$NAME")" || exit 4
+    DIR="$(printf '%s' "$_managed_record" | python3 -c 'import json,sys; print(json.load(sys.stdin)["path"])')" || exit 4
+    MANAGED_ID="$(printf '%s' "$_managed_record" | python3 -c 'import json,sys; print(json.load(sys.stdin)["manager_id"])')" || exit 4
+else
 mkdir -p "$(dirname "$DIR")" || { echo "create-teammate-worktree.sh: cannot create $(dirname "$DIR")" >&2; exit 4; }
 if ! git -C "$MAIN" worktree add -q "$DIR" -b "$NAME" "$BASE"; then
     echo "create-teammate-worktree.sh: git worktree add failed for $DIR" >&2
     exit 4
+fi
 fi
 DIR="$(cd "$DIR" && pwd -P)"
 
@@ -127,7 +163,7 @@ DIR="$(cd "$DIR" && pwd -P)"
 # relative paths. Done in python so `**/` means what .gitignore means by it.
 SEEDED=0
 if [ -f "$MAIN/.worktreeinclude" ]; then
-    SEEDED="$(MAIN="$MAIN" DIR="$DIR" python3 - <<'PY' 2>/dev/null || echo 0
+    SEEDED="$(MAIN="$MAIN" DIR="$DIR" MANAGED="$MANAGED" python3 - <<'PY' 2>/dev/null || echo 0
 import fnmatch, os, re, shutil, subprocess, sys
 main = os.environ["MAIN"]; dest = os.environ["DIR"]
 pats = []
@@ -166,6 +202,8 @@ for rel in res.stdout.split("\0"):
     if not os.path.isfile(src):
         continue
     dst = os.path.join(dest, rel)
+    if os.environ.get('MANAGED') == '1' and os.path.lexists(dst):
+        continue  # Idempotent preparation must not overwrite existing bytes.
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.copy2(src, dst)
     n += 1
@@ -190,6 +228,10 @@ fi
 #     worktree and branch are ROLLED BACK. A tree that exists without its
 #     record is worse than no tree.
 rollback() { # <why>
+    if [ "$MANAGED" -eq 1 ]; then
+        echo "create-teammate-worktree.sh: preparation failed: $1. Managed workspace $MANAGED_ID is retained; retry this same session/name to resume preparation." >&2
+        exit 5
+    fi
     git -C "$MAIN" worktree remove --force "$DIR" >/dev/null 2>&1 || rm -rf "$DIR"
     git -C "$MAIN" worktree prune >/dev/null 2>&1 || true
     git -C "$MAIN" branch -D "$NAME" >/dev/null 2>&1 || true
@@ -202,7 +244,9 @@ rollback() { # <why>
     exit 5
 }
 
-if ! git -C "$MAIN" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' \
+if [ "$MANAGED" -eq 1 ]; then
+    python3 "$MANAGED_PY" inspect --path "$DIR" >/dev/null || rollback "manager membership could not be verified"
+elif ! git -C "$MAIN" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' \
      | while IFS= read -r _p; do [ "$(cd "$_p" 2>/dev/null && pwd -P)" = "$DIR" ] && exit 0; done; then
     rollback "git does not list it as a worktree of $MAIN"
 fi
@@ -218,7 +262,12 @@ fi
 [ -n "$SESSION" ] || rollback "no session id could be resolved (pass --session <id>, or run this from inside the session whose ~/.claude/sessions/<pid>.json names it)"
 
 REG_ARGS=(record prepared --teammate "$NAME" --session-id "$SESSION" --repo "$MAIN" --worktree "$DIR" \
-          --branch "$NAME" --class hand-rolled --source create-teammate-worktree.sh)
+          --branch "$NAME" --source create-teammate-worktree.sh)
+if [ "$MANAGED" -eq 1 ]; then
+    REG_ARGS+=(--class managed-image --extra "manager_id=$MANAGED_ID")
+else
+    REG_ARGS+=(--class hand-rolled)
+fi
 [ -n "$SESSION_PID" ] && REG_ARGS+=(--session-pid "$SESSION_PID" --pid-start-of-session)
 if ! python3 "$LEDGER_PY" "${REG_ARGS[@]}" >/dev/null 2>&1; then
     rollback "could NOT write its prepared record to the ownership ledger ($(python3 "$LEDGER_PY" path 2>/dev/null || echo '<ledger path unknown>'))"

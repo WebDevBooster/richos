@@ -1,4 +1,9 @@
-# The worktree transaction lifecycle — runbook
+# The worktree transaction lifecycle: runbook
+
+Current limitation: existing directory-based worktrees are captured and retained.
+Automatic erasure is disabled until an enforced write cutoff exists. A retry
+cannot clear that architectural block. See [retirement safety](workspace-retirement-safety.md).
+The [managed-image cleanup candidate](automatic-workspace-cleanup.md) is not installed.
 
 Specification: the private femcboost record `worktree-real-fix-2026-09-03.md`,
 under that repository's docs/plans directory. The
@@ -32,7 +37,7 @@ agent might return. It is forbidden to return."*
 | native-gone backstop | `scripts/reconcile-terminal-worktrees.py orphan_backstop_pass` (every reconciler pass) | the claim (ingress `NativeMemberGone`) on a sealed transaction whose exact native member is absent or no longer registered in its recorded repository; the native member closed absent with its backup ref from `head_at_seal`; every hand-rolled member quarantined and retired by the normal state machine | git that cannot be read decides nothing; a present, registered native member is never claimed |
 | TeammateIdle (not an ingress) | `teammate-idle-handoff.sh` (log-only) | each payload's top-level key names and identity/type/task fields in `idle-events.jsonl` — the measurement fixture | it never fired live on this machine; it holds no destructive authority until an observed field is proven to join to the ownership id |
 | resume refusal | `guard-resume-isolation.sh` (PreToolUse[SendMessage]) | nothing | the recipient's agent id or session-scoped name is terminal — before `resume-ack:`, before protocol bodies |
-| capture → removal | `scripts/reconcile-terminal-worktrees.py` (launchd every `RECONCILE_INTERVAL_SECONDS`; SessionStart with a budget) | member states `captured → verified → unregistered → removed`; the archive | never permanently: a transient failure is recorded on the member and retried with persistent backoff (`RECONCILE_RETRY_BACKOFF_SECONDS`, doubling to `RECONCILE_RETRY_BACKOFF_MAX_SECONDS`), reported once after repeated failures and retried on; both-present, a vanished path, a drifted HEAD, a lost backup ref, an unreadable git state and a legacy `failed` record each have an automatic close (below) |
+| capture and retirement | `scripts/reconcile-terminal-worktrees.py` (scheduled and budgeted SessionStart) | Legacy members are captured and verified, then retained with an explicit blocked reason. Enabled managed-image members delegate to the privileged manager and advance only after verified active-image reclamation. | Transient failures retry with persistent backoff. Legacy directory erasure remains blocked by the missing write cutoff; neither elapsed time nor successful capture permits removal. |
 
 ## The never-read shell, and why it is not a full checkout
 

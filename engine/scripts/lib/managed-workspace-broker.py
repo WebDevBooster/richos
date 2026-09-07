@@ -202,7 +202,9 @@ class Broker:
         if not isinstance(request, dict) or not isinstance(request.get("operation"), str):
             raise BrokerError("object request with operation required")
         op = request["operation"]
-        fields = {"health": {"operation"}, "status": {"operation"}, "create": {"operation", "repository", "commit", "session_id", "agent_name", "request_id"},
+        fields = {"health": {"operation"}, "status": {"operation"}, "preparations": {"operation", "after"},
+                  "cancel_preparation": {"operation", "id", "session_id"},
+                  "create": {"operation", "repository", "commit", "session_id", "agent_name", "request_id"},
                   "bind": {"operation", "id", "session_id", "agent_id"},
                   "terminal": {"operation", "id", "session_id", "agent_id"},
                   "inspect": {"operation", "id"}, "reconcile": {"operation", "id"}}
@@ -210,6 +212,18 @@ class Broker:
             raise BrokerError("unsupported operation or request fields")
         if op == "status":
             return self._inventory(uid)
+        if op == "preparations":
+            records = self.manager.status(uid)
+            if not isinstance(records, list) or any(not isinstance(row, dict) for row in records):
+                raise BrokerError("invalid owner inventory")
+            after = request['after']
+            if not isinstance(after, str) or (after and not re.fullmatch(r'[0-9a-f-]{36}', after)):
+                raise BrokerError('invalid preparation inventory cursor')
+            unused = [row for row in records if row.get('owner_uid') == uid and row['id'] > after
+                      and row.get('state') == 'active' and row.get('agent_id', 'unknown') is None]
+            unused.sort(key=lambda row: row['id'])
+            return {"records": [{key: row.get(key) for key in ('id', 'session_id', 'created_at')}
+                                for row in unused[:100]], "next_cursor": unused[99]["id"] if len(unused) > 100 else None}
         if op == "health":
             with self._status_lock:
                 latest = dict(self._sweep)
@@ -250,6 +264,8 @@ class Broker:
             return self._record(self.manager.inspect(ident))
         if op == "reconcile":
             return self._record(self.manager.reconcile(ident))
+        if op == "cancel_preparation":
+            return self._record(self.manager.cancel_preparation(ident, session_id=request['session_id']))
         return self._record(getattr(self.manager, op)(ident, session_id=request["session_id"], agent_id=request["agent_id"]))
 
     def handle(self, connection):

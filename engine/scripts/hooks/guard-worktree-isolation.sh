@@ -585,6 +585,10 @@ registered_teammate_worktree() {
   common="$(git -C "$p" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
   gitdir="$(git -C "$p" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
   if [ -z "$common" ] || [ "$common" = "$gitdir" ]; then
+    if [ -f "$SCRIPT_DIR/../lib/managed-workspace-integration.py" ] && \
+       python3 "$SCRIPT_DIR/../lib/managed-workspace-integration.py" inspect --path "$p" >/dev/null 2>&1; then
+      return 0
+    fi
     printf "'%s' is a MAIN checkout, not a linked worktree — a teammate never works in the main checkout" "$p"; return 1
   fi
   if [ ! -f "$LEDGER_PY" ]; then
@@ -1021,6 +1025,19 @@ for p in paths:
         problem("no PREPARED record for %s in THIS session (%s) for teammate %s%s. A cross-repository worktree is spawned into only by the teammate it was prepared for, in the session that prepared it: create it with scripts/create-teammate-worktree.sh <repo> %s from inside this session." % (real, sid[:8], name, (" — it was prepared for: " + who) if who else " (it was never prepared at all)", name))
         continue
     rec = prepared[-1]
+    if rec.get('class') == 'managed-image':
+        try:
+            managed = tx._managed_workspaces().inspect_path(real, session_id=sid, agent_name=name)
+            if rec.get('manager_id') != managed['manager_id'] or wl.norm_path(rec.get('repo')) != managed['source_repo']:
+                raise RuntimeError('prepared manager identity changed')
+            if (rec.get('branch') or '') != tx.branch_of(real):
+                raise RuntimeError('prepared managed branch changed')
+            externals.append({'repo': managed['source_repo'], 'path': real, 'branch': tx.branch_of(real),
+                              'prepared_ts': rec.get('ts'), 'class': 'managed-image',
+                              'manager_id': managed['manager_id'], 'session_id': sid, 'agent_name': name})
+        except Exception as error:
+            problem('managed workspace verification failed: ' + str(error))
+        continue
     repo_now = tx.main_checkout_of(real)
     branch_now = tx.branch_of(real)
     if wl.norm_path(rec.get("repo")) != repo_now:

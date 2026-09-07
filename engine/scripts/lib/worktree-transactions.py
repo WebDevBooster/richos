@@ -477,6 +477,14 @@ def _verify_native_member(cwd_real, agent_id):
 
 def _verify_external_member(m):
     """A prepared external member must STILL be what the prepared record said."""
+    if m.get('class') == 'managed-image':
+        try:
+            record = _managed_workspaces().verify_member(m)
+            if branch_of(m['path']) != (m.get('branch') or ''):
+                return None, 'managed workspace branch changed after preparation'
+            return dict(m, head_at_seal=head_of(m['path']), state='bound'), ''
+        except Exception as error:
+            return None, 'managed workspace verification failed: ' + str(error)
     p = norm_path(m.get("path"))
     if not os.path.isdir(p):
         return None, "external member %s does not exist" % p
@@ -492,6 +500,15 @@ def _verify_external_member(m):
                       % (p, br, m.get("branch")))
     return {"class": "hand-rolled", "repo": repo, "path": p, "branch": br,
             "head_at_seal": head_of(p), "state": "bound"}, ""
+
+
+def _managed_workspaces():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'managed-workspace-integration.py')
+    spec = importlib.util.spec_from_file_location('managed_workspaces', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def try_seal(session_id, agent_id):
@@ -634,6 +651,11 @@ def _try_seal_locked(session_id, agent_id):
                 ext, why = _verify_external_member(e)
                 if ext is None:
                     return False, why
+                if ext.get('class') == 'managed-image':
+                    try:
+                        _managed_workspaces().bind_member(ext, session_id, agent_id)
+                    except Exception as error:
+                        return False, 'managed workspace binding failed: ' + str(error)
                 members.append(ext)
         # main-checkout-run and remote: no local member is owned by this worker.
 
@@ -1210,6 +1232,17 @@ def terminalize(session_id, agent_id, first_path=None):
     order.sort(key=rank)
     with tx_lock(session_id, agent_id):
         for i in order:
+            member = tx['members'][i]
+            if member.get('class') == 'managed-image':
+                if member.get('state') == 'removed':
+                    continue
+                try:
+                    record = _managed_workspaces().terminal_member(member, session_id, agent_id)
+                    update_member(session_id, agent_id, i, state='managed-terminal',
+                                  manager_state=record['state'], last_error=None)
+                except Exception as error:
+                    update_member(session_id, agent_id, i, last_error=str(error), last_attempt=now_iso())
+                continue
             save_ref(session_id, agent_id, i)
             quarantine(session_id, agent_id, i)
         return load_tx(session_id, agent_id)

@@ -1109,7 +1109,7 @@ def main(argv=None):
                 "worktree", "branch", "source", "signal", "reason", "witness", "cwd",
                 "task-id", "lock-line"):
         p.add_argument("--" + key, dest=key.replace("-", "_"), default="")
-    p.add_argument("--class", dest="cls", default="", choices=("", "native", "hand-rolled"))
+    p.add_argument("--class", dest="cls", default="", choices=("", "native", "hand-rolled", "managed-image"))
     p.add_argument("--pid-start-of-session", action="store_true",
                    help="fill pid_start from ps for --session-pid")
     p.add_argument("--once", action="store_true",

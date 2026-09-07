@@ -70,6 +70,10 @@ class FakeManager:
         self.calls.append(("reconcile", ident))
         return self.records[ident]
 
+    def cancel_preparation(self, ident, **kwargs):
+        self.calls.append(('cancel_preparation', ident, kwargs))
+        return self.records[ident]
+
 
 class BrokerSafety(unittest.TestCase):
     def setUp(self):
@@ -84,6 +88,32 @@ class BrokerSafety(unittest.TestCase):
         self.broker = broker.Broker(self.manager, self.policy)
         self.create = {"operation": "create", "repository": "repo", "commit": "a" * 40,
                        "session_id": "session", "agent_name": "worker", "request_id": "stable-attempt"}
+
+    def test_unused_preparation_inventory_and_cancellation_are_owner_scoped(self):
+        own = self.broker.dispatch(501, self.create)['id']
+        self.manager.records[own].update(agent_id=None)
+        other = str(uuid.uuid4())
+        self.manager.records[other] = dict(id=other, owner_uid=502, agent_id=None, state='active', session_id='secret')
+        inventory = self.broker.dispatch(501, {'operation': 'preparations', 'after': ''})
+        self.assertEqual([row['id'] for row in inventory['records']], [own])
+        self.broker.dispatch(501, dict(operation='cancel_preparation', id=own, session_id='session'))
+        self.assertEqual(self.manager.calls[-1], ('cancel_preparation', own, {'session_id': 'session'}))
+        with self.assertRaises(broker.BrokerError):
+            self.broker.dispatch(501, dict(operation='cancel_preparation', id=other, session_id='secret'))
+        self.manager.records[own]['agent_id'] = 'worker'
+        self.assertEqual(self.broker.dispatch(501, {'operation': 'preparations', 'after': ''})['records'], [])
+
+    def test_preparations_after_first_page_are_reachable(self):
+        for number in range(105):
+            ident = str(uuid.UUID(int=number+1))
+            self.manager.records[ident] = dict(id=ident, owner_uid=501, agent_id=None,
+                                               state='active', session_id='session'+str(number))
+        first = self.broker.dispatch(501, {'operation': 'preparations', 'after': ''})
+        second = self.broker.dispatch(501, {'operation': 'preparations', 'after': first['next_cursor']})
+        self.assertEqual(len(first['records']), 100)
+        self.assertEqual(len(second['records']), 5)
+        self.assertIsNone(second['next_cursor'])
+        self.assertFalse({row['id'] for row in first['records']} & {row['id'] for row in second['records']})
 
     def test_create_uses_only_root_policy_owner_path_size_and_retention(self):
         result = self.broker.dispatch(501, self.create)

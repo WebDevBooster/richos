@@ -100,8 +100,8 @@ mutant second-stop-mutates "T37" "$F" \
     "a repeated terminal event would move the quarantine again; every re-fire changes the record and the reconciler chases it."
 
 mutant refs-before-any-rename "T51" "$F" \
-    '        for i in order:{NL}            save_ref(session_id, agent_id, i){NL}            quarantine(session_id, agent_id, i)' \
-    '        for i in order:{NL}            save_ref(session_id, agent_id, i){NL}        for i in order:{NL}            quarantine(session_id, agent_id, i)' \
+    '            save_ref(session_id, agent_id, i){NL}            quarantine(session_id, agent_id, i)' \
+    '            save_ref(session_id, agent_id, i){NL}        for i in order:{NL}            quarantine(session_id, agent_id, i)' \
     "every repository's ref would be saved before the first rename; a stalled external repository would exhaust the hook budget with the native path still at its original name, and the harness would delete it with its uncommitted bytes (review 2026-09-03, blocker 1)."
 
 mutant repair-result-ignored "T53" "$F" \

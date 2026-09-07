@@ -868,13 +868,29 @@ def reconcile_transaction(t, deadline=None):
                 st = m.get("state")
                 if st == "removed":
                     break
-                # PERSISTENT BACKOFF (blocker 3): a member that failed keeps
-                # its retry time on disk; it is skipped until then and never
-                # abandoned. base 0 (tests) disables the wait.
                 if base > 0 and float(m.get("retry_after_epoch") or 0) > time.time():
                     log("member %s of %s/%s: in backoff until %s after %s attempt(s) — skipped this run"
                         % (m.get("path"), sid[:8], aid, m.get("retry_after") or "?", m.get("attempts") or "?"))
                     break
+                if m.get('class') == 'managed-image':
+                    try:
+                        # The privileged daemon owns slow capture and expiry.
+                        # Hook-budget reconciliation only records terminality
+                        # and observes its durable result on a later sweep.
+                        record = tx._managed_workspaces().terminal_member(m, sid, aid)
+                        if record['state'] in ('retained', 'expired'):
+                            tx.update_member(sid, aid, i, state='removed', manager_state=record['state'],
+                                             recovery_id=record['id'], last_error=record.get('last_error'),
+                                             blocked=False, retry_after_epoch=0)
+                        else:
+                            raise RuntimeError(record.get('last_error') or 'managed retirement pending: ' + record['state'])
+                    except Exception as error:
+                        _record_soft_failure(sid, aid, i, int(m.get('attempts') or 0) + 1,
+                                             str(error), base, cap)
+                    break
+                # PERSISTENT BACKOFF (blocker 3): a member that failed keeps
+                # its retry time on disk; it is skipped until then and never
+                # abandoned. base 0 (tests) disables the wait.
                 steps_this_run += 1
                 if steps_this_run > MAX_STEPS_PER_MEMBER_PER_RUN:
                     log("member %s of %s/%s: %d transitions in one run without reaching removed — the rest waits for the next run"
@@ -1104,6 +1120,11 @@ def run(max_seconds=None, only=None):
             n += adoption_pass()
         except Exception as e:
             log("adoption pass: %s" % e)
+        if not deadline or time.time() < deadline:
+            try:
+                tx._managed_workspaces().recover_preparations(deadline=deadline)
+            except Exception as e:
+                log("managed preparation recovery: %s" % e)
     try:
         n += process_pending_terminals(only)
     except Exception as e:

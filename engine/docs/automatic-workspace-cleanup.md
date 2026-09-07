@@ -1,0 +1,103 @@
+# Automatic workspace cleanup
+
+Status: candidate implementation, not installed or enabled. The complete
+worktree-cleanup objective is not finished. Existing active work must remain
+untouched.
+
+## Scope
+
+Claude Code normally removes its native worktrees. RichOS must clean its external
+workspaces, recover positively identified native leftovers and remove delivered
+dead branches. Cleanup must reclaim disk space automatically rather than move
+it into permanent archives.
+
+## Implemented candidate
+
+New external workspaces can use root-managed APFS sparse images containing an
+independent Git clone. Working files, indexes and objects share the same
+filesystem boundary; mutable alternates and partial clones are refused. The
+broker authenticates operating-system UIDs and restricts creation to an explicit
+repository policy. It does not run repository Git commands as root.
+
+The existing creation helper, preparation ledger, spawn guard, seal, terminal
+routing and reconciler recognize exact `managed-image` membership. A managed
+workspace is identified by its manager-issued UUID, source identity, owning
+session and worker. It is never presented as a linked Git worktree in the
+canonical repository. Stable creation requests cannot allocate duplicate images
+when the response is lost. Repeated preparation does not overwrite existing
+seeded files.
+
+Only a normal successful detach, or positively verified absence after a different
+kernel boot identity, supplies a write cutoff. Busy filesystems remain intact.
+Unknown, incomplete or malformed attachment inventories refuse reclamation.
+The manager preserves terminal refs and both endpoints of reflog history in the
+canonical Git store, publishes the worker branch without overwriting a different
+tip and verifies a readonly recovery image before deleting the active image.
+Slow capture and expiry run in the manager's sweep, outside Claude hook budgets.
+
+Clean recovery images expire after the configured retention, subject to verified
+canonical source identity and handoff refs. Recovery with unique working, staged,
+untracked or ignored data is retained. An index lock, hidden index flags,
+submodule or uncertain cleanliness also prevents expiry. Finite deletion of that
+unique data has not been authorized. Committed history is preserved in Git after
+recovery-image expiry.
+
+The installed public `client.json` enables managed creation. An enabled but
+unavailable broker, unreadable policy or missing integration module refuses
+creation. Installation writes `client.pending.json` only. It does not enable
+managed creation or start the service.
+
+## Existing worktrees and current activity
+
+A process scan cannot revoke writes through already-open files. Descriptors
+queued through a Unix socket and writable mappings survive ordinary permission
+changes. Copying an arbitrary directory into an archive does not fix that race.
+
+Existing directory-based worktrees therefore remain captured and retained under
+the current safety rule. They are not erased by this candidate. The read-only
+legacy maintenance planner describes the complete repository gate needed for a
+future migration. Shared Git objects mean the gate must cover the canonical Git
+store and every registered checkout, including checkouts that are not removal
+candidates. It cannot run while another worktree has active or unknown work.
+
+A defensible migration gate must be established before reboot and remain closed
+until post-reboot capture completes. LaunchDaemon startup order alone is not a
+proof that writers have stopped. A Claude session restart is insufficient.
+No legacy maintenance executor or repository gate is installed or implemented
+here. Implementing and validating that migration remains required work.
+
+## Branches
+
+The existing branch-retirement helper now refuses unreadable worktree registries
+and preserves a recovery ref together with exact-tip deletion in one Git ref
+transaction. Focused races and symbolic-ref cases have regression coverage.
+
+The new terminal-branch planner checks exact terminal ownership, recorded tips,
+explicit main/master integration refs, merge ancestry and all registered
+checkouts across repositories. It retains attached, live, unknown, unmerged,
+moved or reused branches. It is read-only. Concurrent attachment and historical
+same-tip name reuse still require an executor-side boundary, so automatic branch
+execution is not enabled or claimed complete.
+
+## Remaining acceptance and work
+
+- Run the installed root-to-user acceptance fixture and prove backing-image and
+  mount authority on the actual host. Same-user APFS tests do not establish that
+  privilege boundary.
+- Validate the complete installed Claude spawn-to-retirement path before enabling
+  the public configuration.
+- Finish recovery for abandoned or incomplete preparation within the same boot.
+  Completed but unbound preparations now close after conservative session-death
+  evidence in the existing startup/scheduled reconciler. Binding and cancellation
+  share a lock, live or unknown sessions are retained and paginated inventory
+  prevents a large live prefix hiding later abandoned preparations. Incomplete
+  provider initialization still requires raw recovery. A later boot closes
+  active/unpublished old-boot owners when identity is known.
+- Build and validate the legacy maintenance executor once its required downtime
+  can be authorized. The user's active worktree remains outside any cleanup.
+- Finish coordinated dead-branch execution and its startup/scheduled wiring.
+
+The package's health endpoint reports listener availability, sweep progress and
+owned unresolved records separately. It explicitly does not certify the complete
+feature as accepted. See [broker installation](managed-workspace-broker.md) and
+[volume boundary](managed-workspace-volume.md).
