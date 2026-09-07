@@ -1,0 +1,10 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `/tmp/richos-audit-20260907/frank/target/debug/prime_failure`
+CONFIRMED: while first prime is actively running, Stop returns NothingRunning and never reaches attached cancel handler
+CONFIRMED: prime failure leaves CEO turn Received, no started_at or ended_at, queued-only live events
+invoke_error=cognition io: synthetic upstream disconnect during first prime
+event=rich://turn-status {"activeDurationMs":null,"at":1788763539693,"bindingRevision":3,"entityId":"alpha","startedAt":null,"status":"queued","threadId":"thr_4a02dc23337d4a33a0673c7c8dcfb4ee","turnId":"turn_e24433aeee3d4d968a4cec5f7415e4f1","visibility":"ceo"}
+event=rich://thread-summary-updated {"at":1788763539693,"bindingRevision":3,"entityId":"alpha","lastActivity":1788763539683,"messageCount":1,"status":"queued","threadId":"thr_4a02dc23337d4a33a0673c7c8dcfb4ee","title":"Running","turnId":"turn_e24433aeee3d4d968a4cec5f7415e4f1","visibility":"ceo"}
+CONFIRMED: actual in-memory queue depth=0, turn_in_progress=false, control_active=None
+after_reopen_state=Received
+evidence=/tmp/richos-audit-20260907/frank/prime-56084

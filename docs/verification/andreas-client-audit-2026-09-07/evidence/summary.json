@@ -1,0 +1,44 @@
+{
+  "date": "2026-09-07",
+  "head": "8c777abce6caee4ba86ca1583061a0b3613e39e4",
+  "baseline_tag": "v1.0.2",
+  "baseline_sha": "704b4596d6bacf1757db99ffec2ba17e7b1530e4",
+  "host": {
+    "os": "macOS 15.6 (24G84)",
+    "architecture": "arm64",
+    "model": "Mac16,10",
+    "ram_bytes": 25769803776
+  },
+  "user_reported_device": "MacBook Air 2026, 32 GB RAM, macOS, Claude Code already installed",
+  "core": {
+    "passed_including_doctests": 982,
+    "ignored": 4,
+    "failed": 0,
+    "exit": 0
+  },
+  "tauri_tests": {
+    "passed": 66,
+    "failed": 0,
+    "exit": 0
+  },
+  "ui": {
+    "suites": 30,
+    "unique_checks": 578,
+    "skipped_suites": 0,
+    "initial_exit": 1,
+    "initial_failure": "runs.js missing scratch app/Cargo.toml",
+    "corrected_suite": "runs.js",
+    "corrected_suite_checks": 29,
+    "corrected_suite_exit": 0
+  },
+  "native": {
+    "model": "synthetic eight-second streaming peer",
+    "baseline_main_thread_delay_ms": 7720,
+    "control_main_thread_delay_ms": 0,
+    "baseline_working_event_ms": 8105,
+    "control_working_event_ms": 17,
+    "control_change": "Only navigation_tree Tauri command changes from sync to threadpool dispatch; applied in scratch copy only"
+  },
+  "published_latest": "1.0.2",
+  "product_source_modified": false
+}

@@ -1,0 +1,11 @@
+{
+  "version": "1.0.2",
+  "notes": "The setup sheet can no longer be dismissed into a dead app; your first sentence appears immediately; answers render as prose.",
+  "pub_date": "2026-09-04T17:09:32Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSy9TakprWWtoTHdJY21wbTU0UVBDK2RZZmRTcEg3eFE3ZTNuSk5NVmhreko2WEZRNEF3TW5QWUltc0E2RkY0RkxOR1lJSTg3Slh1eHVVVENNcWpFRWp1R2kzUXNXR2drPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NTQxNzY3CWZpbGU6UmljaE9TLmFwcC50YXIuZ3oKRkEvaEkxb0duSzhIaE9BMTlWcWlNc240UFd0MFo2aU1DVzVxemY5NWhXblRhaGFGS1VPSHNkT0h1WnBRSVp6ZExOYTZuREFXWEZmOHZudUZ1TVdqRFE9PQo=",
+      "url": "https://github.com/WebDevBooster/richos/releases/download/v1.0.2/RichOS.app.tar.gz"
+    }
+  }
+}

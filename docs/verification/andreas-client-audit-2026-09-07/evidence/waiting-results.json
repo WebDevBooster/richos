@@ -1,0 +1,246 @@
+[
+  {
+    "name": "queued after 60s",
+    "band": {
+      "tone": "queued",
+      "head": "Rich has your message",
+      "time": "1m 0s",
+      "detail": "He hasn't started on it yet",
+      "role": "status",
+      "ariaLive": "off",
+      "onScreen": true,
+      "markFlashing": true,
+      "markAnimation": "1",
+      "markIsIndicator": true
+    },
+    "ui": {
+      "stop": {
+        "hidden": false,
+        "disabled": false
+      },
+      "input": "",
+      "messages": "You said\nDraft the Q4 board memo from the numbers in the folder.\n7:43 AM\nCopy\nWorking",
+      "wait": {
+        "turnId": "audit_prime",
+        "status": "queued",
+        "startedAt": null,
+        "acceptedAt": 1788763439426,
+        "lastAt": 1788763439426,
+        "lastWhat": null,
+        "signals": 0,
+        "pace": null,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich has your message",
+          "time": "1m 0s",
+          "detail": "He hasn't started on it yet",
+          "pace": null,
+          "tone": "queued"
+        },
+        "quietAfterMs": 35000,
+        "paceAlmost": 0.92,
+        "paceLandFullMs": 700,
+        "paceLandMinMs": 180
+      },
+      "errors": []
+    }
+  },
+  {
+    "name": "Stop while priming returns stopped:false",
+    "band": {
+      "tone": "queued",
+      "head": "Rich has your message",
+      "time": "1m 0s",
+      "detail": "He hasn't started on it yet",
+      "role": "status",
+      "ariaLive": "off",
+      "onScreen": true,
+      "markFlashing": true,
+      "markAnimation": "1",
+      "markIsIndicator": true
+    },
+    "ui": {
+      "stop": {
+        "hidden": false,
+        "disabled": false
+      },
+      "input": "",
+      "messages": "You said\nDraft the Q4 board memo from the numbers in the folder.\n7:43 AM\nCopy\nWorking",
+      "wait": {
+        "turnId": "audit_prime",
+        "status": "queued",
+        "startedAt": null,
+        "acceptedAt": 1788763439426,
+        "lastAt": 1788763439426,
+        "lastWhat": null,
+        "signals": 0,
+        "pace": null,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich has your message",
+          "time": "1m 0s",
+          "detail": "He hasn't started on it yet",
+          "pace": null,
+          "tone": "queued"
+        },
+        "quietAfterMs": 35000,
+        "paceAlmost": 0.92,
+        "paceLandFullMs": 700,
+        "paceLandMinMs": 180
+      },
+      "errors": []
+    }
+  },
+  {
+    "name": "priming rejected; after total 5m",
+    "band": {
+      "tone": "queued",
+      "head": "Rich has your message",
+      "time": "5m 0s",
+      "detail": "He hasn't started on it yet",
+      "role": "status",
+      "ariaLive": "off",
+      "onScreen": true,
+      "markFlashing": true,
+      "markAnimation": "1",
+      "markIsIndicator": true
+    },
+    "ui": {
+      "stop": {
+        "hidden": false,
+        "disabled": false
+      },
+      "input": "",
+      "messages": "You said\nDraft the Q4 board memo from the numbers in the folder.\n7:43 AM\nCopy\nWorking",
+      "wait": {
+        "turnId": "audit_prime",
+        "status": "queued",
+        "startedAt": null,
+        "acceptedAt": 1788763439426,
+        "lastAt": 1788763439426,
+        "lastWhat": null,
+        "signals": 0,
+        "pace": null,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich has your message",
+          "time": "5m 0s",
+          "detail": "He hasn't started on it yet",
+          "pace": null,
+          "tone": "queued"
+        },
+        "quietAfterMs": 35000,
+        "paceAlmost": 0.92,
+        "paceLandFullMs": 700,
+        "paceLandMinMs": 180
+      },
+      "errors": []
+    }
+  },
+  {
+    "name": "send pending 60s without queued event",
+    "band": null,
+    "ui": {
+      "stop": {
+        "hidden": true,
+        "disabled": false
+      },
+      "input": "",
+      "messages": "You said\nHello Rich, can you help?\n7:44 AM\nCopy",
+      "wait": null,
+      "errors": []
+    }
+  },
+  {
+    "name": "last described activity 23s old before new event",
+    "band": {
+      "tone": "working",
+      "head": "Rich is working",
+      "time": "23s",
+      "detail": "Read the Q3 board pack · 23s ago",
+      "role": "status",
+      "ariaLive": "off",
+      "onScreen": true,
+      "markFlashing": true,
+      "markAnimation": "1",
+      "markIsIndicator": true
+    },
+    "ui": {
+      "stop": {
+        "hidden": false,
+        "disabled": false
+      },
+      "input": "",
+      "messages": "You said\nDraft the Q4 board memo from the numbers in the folder.\n7:44 AM\nCopy\n⌄\nWorking for 23s\n✓\nRead the Q3 board pack\ndone",
+      "wait": {
+        "turnId": "audit_age",
+        "status": "working",
+        "startedAt": 1788763444390,
+        "acceptedAt": 1788763444390,
+        "lastAt": 1788763444390,
+        "lastWhat": "Read the Q3 board pack",
+        "signals": 1,
+        "pace": null,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "23s",
+          "detail": "Read the Q3 board pack · 23s ago",
+          "pace": null,
+          "tone": "working"
+        },
+        "quietAfterMs": 35000,
+        "paceAlmost": 0.92,
+        "paceLandFullMs": 700,
+        "paceLandMinMs": 180
+      },
+      "errors": []
+    }
+  },
+  {
+    "name": "26s-old completed activity now described as 3s ago",
+    "band": {
+      "tone": "working",
+      "head": "Rich is working",
+      "time": "26s",
+      "detail": "Read the Q3 board pack · 3s ago",
+      "role": "status",
+      "ariaLive": "off",
+      "onScreen": true,
+      "markFlashing": true,
+      "markAnimation": "1",
+      "markIsIndicator": true
+    },
+    "ui": {
+      "stop": {
+        "hidden": false,
+        "disabled": false
+      },
+      "input": "",
+      "messages": "You said\nDraft the Q4 board memo from the numbers in the folder.\n7:44 AM\nCopy\n⌄\nWorking for 26s\n✓\nRead the Q3 board pack\ndone\n◐\nrunning",
+      "wait": {
+        "turnId": "audit_age",
+        "status": "working",
+        "startedAt": 1788763444390,
+        "acceptedAt": 1788763444390,
+        "lastAt": 1788763467390,
+        "lastWhat": "Read the Q3 board pack",
+        "signals": 2,
+        "pace": null,
+        "fromStart": true,
+        "copy": {
+          "head": "Rich is working",
+          "time": "26s",
+          "detail": "Read the Q3 board pack · 3s ago",
+          "pace": null,
+          "tone": "working"
+        },
+        "quietAfterMs": 35000,
+        "paceAlmost": 0.92,
+        "paceLandFullMs": 700,
+        "paceLandMinMs": 180
+      },
+      "errors": []
+    }
+  }
+]

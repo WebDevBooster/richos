@@ -1,0 +1,8 @@
+diff --git a/app/src-tauri/src/main.rs b/app/src-tauri/src/main.rs
+--- a/app/src-tauri/src/main.rs
++++ b/app/src-tauri/src/main.rs
+@@ -2522,3 +2522,3 @@
+-#[tauri::command]
++#[tauri::command(async)]
+ fn navigation_tree(state: State<AppState>) -> NavigationTree {
+     let spine = state.spine.lock().unwrap();

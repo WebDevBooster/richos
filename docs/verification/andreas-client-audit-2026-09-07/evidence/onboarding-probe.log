@@ -1,0 +1,12 @@
+   Compiling onboarding-audit v0.1.0 (/tmp/richos-audit-20260907/echo/probe)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running `/tmp/richos-audit-20260907/echo/target/debug/onboarding-audit`
+Fresh company: NotYet
+Fresh prime has central root? false / filename? false / company id? false
+Declined A: Declined { at_millis: 42 }; newly registered B: Declined { at_millis: 42 }
+Partial interview with only stage 1: Described
+Under 8000 characters: 3000 chars / 9000 bytes -> Unusable { why: "/tmp/richos-audit-20260907/echo/fixtures/run-55711/home/myrichos/companies/harborline/company.md is 9000 bytes, over the 8192-byte budget — NOT sent, and not truncated" }
+Malformed record accepted as declined: true
+Fixture doctrine=/tmp/richos-audit-20260907/echo/fixtures/run-55711/config/inner-doctrine.md plugin=/tmp/richos-audit-20260907/echo/fixtures/run-55711/config/rich-skills
+FULL production spine prime contains central root? false / filename? false
+After same-session decline: backend Declined { at_millis: 99 }, prime count 1 (first prime still tells model to offer)
