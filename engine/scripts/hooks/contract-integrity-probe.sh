@@ -3342,6 +3342,24 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
             RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" bind --session-id "$Q_SID" --tool-use-id tu-q3 --agent-id "$Q_AID" >/dev/null 2>&1 || Q_SANDBOX_OK=0
             RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" start --session-id "$Q_SID" --agent-id "$Q_AID" --cwd "$Q_TERMINAL" >/dev/null 2>&1 || Q_SANDBOX_OK=0
             RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" seal --session-id "$Q_SID" --agent-id "$Q_AID" >/dev/null 2>&1 || Q_SANDBOX_OK=0
+            # This arm tests recovery of a historical quarantine. New native
+            # seals explicitly belong to Claude and must never be renamed by
+            # RichOS. Model the old record format only inside this disposable
+            # store, rather than asking current platform-owned code to violate
+            # its ownership contract just to manufacture a quarantine.
+            if [ "$Q_SANDBOX_OK" -eq 1 ]; then
+                RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 - "$Q_TX_PY" "$Q_SID" "$Q_AID" <<'PY' >/dev/null 2>&1 || Q_SANDBOX_OK=0
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('historical_probe_fixture', sys.argv[1])
+tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
+record = tx.load_tx(sys.argv[2], sys.argv[3])
+assert record['sealed'] and len(record['members']) == 1
+member = record['members'][0]
+assert member['class'] == 'native' and member['cleanup_owner'] == 'claude-code'
+del member['cleanup_owner']
+tx.atomic_write_json(tx.tx_path(sys.argv[2], sys.argv[3]), record)
+PY
+            fi
             RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" claim --session-id "$Q_SID" --agent-id "$Q_AID" --ingress SubagentStop >/dev/null 2>&1 || Q_SANDBOX_OK=0
         fi
         Q_QUAR="$Q_TERMINAL.richos-terminal-${Q_SID:0:8}-$Q_AID"
@@ -3427,7 +3445,8 @@ print("%s\t%s\t%s" % (m.get("verified_ts") or "", m.get("verified_files") or 0,
                 emit_pass "Q. worktree lifecycle at session start: the wrapper REMOVES NOTHING on its own (a merged/clean/unlocked tree survives) + carries a quarantined terminal transaction forward quarantined->verified with a non-empty archive and verified_ts/verified_files set (negative control: it was at '''quarantined''' with no archive beforehand) + RETAINS the quarantine, its git registration and a blocked_reason naming the disabled-erasure policy + inventory is DRY-RUN — path-confined, manifest-matched"
             fi
         else
-            emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — the throwaway sandbox could not be built (transaction seal or claim failed), so nothing here proves the wrapper removes nothing or recovers a transaction. Wiring and hashes are verified; BEHAVIOR IS NOT."
+            emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — the throwaway historical-recovery fixture could not be built (transaction seal, fixture classification or claim failed). Wiring and hashes alone do not prove recovery; this probe is incomplete."
+            Q_OK=0
         fi
         rm -rf "$Q_DIR" 2>/dev/null || true
     else

@@ -51,6 +51,23 @@ export RICHOS_RECONCILE_SETTLE=0.2
 SID="deadbeef-0000-4000-8000-000000000000"
 T() { python3 "$TX_PY" "$@"; }
 
+# Build the old sealed-record format explicitly for historical crash recovery.
+# Current native records belong to Claude Code and must not be quarantined.
+historical_seal() {
+    T seal --session-id "$SID" --agent-id "$1" >/dev/null || return
+    python3 - "$TX_PY" "$SID" "$1" <<'PYH'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tx", sys.argv[1])
+tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
+record = tx.load_tx(sys.argv[2], sys.argv[3])
+assert record["sealed"] and len(record["members"]) == 1
+member = record["members"][0]
+assert member["class"] == "native" and member["cleanup_owner"] == "claude-code"
+del member["cleanup_owner"]
+tx.atomic_write_json(tx.tx_path(sys.argv[2], sys.argv[3]), record)
+PYH
+}
+
 make_repo() { # <name>
     local repo="$SANDBOX/$1"
     mkdir -p "$repo/.claude/worktrees"
@@ -136,7 +153,7 @@ add_tree "$REPO" "$AID"
 printf '{"kind":"native","teammate":"dev-opus-ssr1","externals":[]}' | T intent --session-id "$SID" --tool-use-id tu-ssr1 >/dev/null
 T bind --session-id "$SID" --tool-use-id tu-ssr1 --agent-id "$AID" >/dev/null
 T start --session-id "$SID" --agent-id "$AID" --cwd "$REPO/.claude/worktrees/agent-$AID" >/dev/null
-T seal --session-id "$SID" --agent-id "$AID" >/dev/null
+historical_seal "$AID"
 printf 'evidence\n' >"$REPO/.claude/worktrees/agent-$AID/evidence.txt"
 T claim --session-id "$SID" --agent-id "$AID" --ingress SubagentStop >/dev/null   # quarantined; the reconciler never ran
 Q="$REPO/.claude/worktrees/agent-$AID.richos-terminal-${SID:0:8}-$AID"
@@ -177,7 +194,7 @@ add_tree "$REPO" "$AID2"
 printf '{"kind":"native","teammate":"dev-opus-ssr2","externals":[]}' | T intent --session-id "$SID" --tool-use-id tu-ssr2 >/dev/null
 T bind --session-id "$SID" --tool-use-id tu-ssr2 --agent-id "$AID2" >/dev/null
 T start --session-id "$SID" --agent-id "$AID2" --cwd "$REPO/.claude/worktrees/agent-$AID2" >/dev/null
-T seal --session-id "$SID" --agent-id "$AID2" >/dev/null
+historical_seal "$AID2"
 T claim --session-id "$SID" --agent-id "$AID2" --ingress SubagentStop >/dev/null
 mkdir -p "$REPO/.claude/worktrees/agent-$AID2"; printf 'ghost\n' >"$REPO/.claude/worktrees/agent-$AID2/ghost.txt"   # both present: residue reappeared
 python3 - "$TX_PY" "$SID" "$AID2" <<'PY'
@@ -225,7 +242,7 @@ git -C "$REPO" worktree lock --reason "claude agent agent-a0000000000FOREIGN (pi
 printf '{"kind":"native","teammate":"dev-opus-ssr2b","externals":[]}' | T intent --session-id "$SID" --tool-use-id tu-ssr2b >/dev/null
 T bind --session-id "$SID" --tool-use-id tu-ssr2b --agent-id "$AID2B" >/dev/null
 T start --session-id "$SID" --agent-id "$AID2B" --cwd "$REPO/.claude/worktrees/agent-$AID2B" >/dev/null
-T seal --session-id "$SID" --agent-id "$AID2B" >/dev/null
+historical_seal "$AID2B"
 T claim --session-id "$SID" --agent-id "$AID2B" --ingress SubagentStop >/dev/null
 run_hook "$REPO"; CTX="$(json_context "$OUT_HOOK")"
 W10B_WHY="$(blocked_why "$AID2B")"
@@ -244,14 +261,14 @@ add_tree "$REPO" "$AID3"
 printf '{"kind":"native","teammate":"dev-opus-ssr3","externals":[]}' | T intent --session-id "$SID" --tool-use-id tu-ssr3 >/dev/null
 T bind --session-id "$SID" --tool-use-id tu-ssr3 --agent-id "$AID3" >/dev/null
 T start --session-id "$SID" --agent-id "$AID3" --cwd "$REPO/.claude/worktrees/agent-$AID3" >/dev/null
-T seal --session-id "$SID" --agent-id "$AID3" >/dev/null
+historical_seal "$AID3"
 T claim --session-id "$SID" --agent-id "$AID3" --ingress SubagentStop >/dev/null
 AID4="a0000000000ssr04"
 add_tree "$REPO" "$AID4"
 printf '{"kind":"native","teammate":"dev-opus-ssr4","externals":[]}' | T intent --session-id "$SID" --tool-use-id tu-ssr4 >/dev/null
 T bind --session-id "$SID" --tool-use-id tu-ssr4 --agent-id "$AID4" >/dev/null
 T start --session-id "$SID" --agent-id "$AID4" --cwd "$REPO/.claude/worktrees/agent-$AID4" >/dev/null
-T seal --session-id "$SID" --agent-id "$AID4" >/dev/null
+historical_seal "$AID4"
 T claim --session-id "$SID" --agent-id "$AID4" --ingress SubagentStop >/dev/null
 # A budget of one microsecond cannot cover two captures: at least one of the two
 # must be left for the next run, and the context must say the budget was hit.

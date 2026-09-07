@@ -1883,6 +1883,25 @@ else
 fi
 rm -rf "$ROOT"
 
+# A broken lifecycle fixture cannot leave a green overall probe. The former
+# warning-only path concealed the native ownership migration's stale fixture.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/scripts/hooks/contract-integrity-probe.sh" <<'PY'
+import sys
+p = sys.argv[1]
+text = open(p).read()
+assert text.count('Q_SANDBOX_OK=1') == 1
+open(p, 'w').write(text.replace('Q_SANDBOX_OK=1', 'Q_SANDBOX_OK=0'))
+PY
+set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
+emit_case "41c.broken-recovery-fixture-fails-probe" 2 "$rc"
+if printf '%s\n' "$PROBE_OUT" | grep -F 'Q. FUNCTIONAL CANARY DID NOT RUN' >/dev/null; then
+    PASS=$((PASS+1)); printf '  PASS  41d.broken-recovery-fixture-is-explained\n'
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("41d.broken-recovery-fixture-is-explained"); printf '  FAIL  41d.broken-recovery-fixture-is-explained\n'
+fi
+rm -rf "$ROOT"
+
 # Case 42 — the SessionStart wrapper unwired -> Layer Q fails and names it. No
 # other layer looks at this stanza, so this is the isolation case.
 ROOT="$(make_sandbox)"
