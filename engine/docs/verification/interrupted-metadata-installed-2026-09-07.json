@@ -1,0 +1,172 @@
+{
+  "exit_code": 0,
+  "phase": "interrupted-creation",
+  "result": {
+    "acceptance_id": "interrupted-acceptance-c847c7a95d374b338acc10248ada3887",
+    "activated": false,
+    "active_root": "/private/var/db/richos-workspace-mounts/interrupted-acceptance-c847c7a95d374b338acc10248ada3887",
+    "checks": [
+      {
+        "detail": "",
+        "name": "creator-reached-real-attached-clone-boundary",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "uninitialized-image-is-actually-attached",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "actual-owner-holds-writable-descriptor",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "creator-really-exits-without-provider-cleanup",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "fault-boundary-malformed-detached",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "fault-boundary-unreserved",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "ordinary-provider-exception-cleanly-detached",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "unreserved-request-has-no-provider-directory",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "actual-owner-authenticates-root-broker",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "same-boot-sweep-does-not-invent-cancellation",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "wrong-session-cancellation-refused",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "unforced-cutoff-retains-busy-owner-storage",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "holder-final-write-is-fsynced-and-closed",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "normal-unattended-sweeps-finish-all-cancelled-requests",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "permanent-request-retry-crashed-attached",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "permanent-request-retry-malformed-detached",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "permanent-request-retry-unreserved",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "installed-broker-shuts-down-cleanly",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "verified-lossless-raw-archive-crashed-attached",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "verified-lossless-raw-archive-malformed-detached",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "malformed-image-bytes-preserved",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "outer-image-xattr-preserved",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "empty-reservation-has-no-archive-or-byte-reclamation-claim",
+        "passed": true
+      },
+      {
+        "detail": "",
+        "name": "actual-readonly-restoration-preserves-final-owner-write",
+        "passed": true
+      }
+    ],
+    "cleanup": {
+      "remaining_fixture_attachments": 0,
+      "roots_match": true,
+      "strict_inventory_complete": true,
+      "unforced_detached_paths": []
+    },
+    "commit": "2bdaaf64c682cb1abdb4b32b18cd9dd8e69afa0a",
+    "expected": {
+      "malformed_sha256": "d5bc67671ff0f728fca187d936646874c31785d522871f3b12a739ff5d0325d6",
+      "outer_xattr_base64": "cmF3IG91dGVyIGltYWdlIGF0dHJpYnV0ZQD/",
+      "working_sha256": "fccb72394022114cdabe6a9d0580727e5a0647529a4a1f061d2665d0e1b5cbb9"
+    },
+    "fault_injection": "isolated creator process only",
+    "fixture_cleanup_complete": true,
+    "identifiers": {
+      "crashed-attached": "1527e424-7906-4457-a21b-9105274e73e2",
+      "malformed-detached": "11a43162-16d1-44dd-9c4e-763904fefd4a",
+      "unreserved": "2a8c1182-d9b7-4321-8136-2c86fc7e3f18"
+    },
+    "manifest_sha256": "f44019f55b5643e7b9cc4fa3edf0c0c602bd9e6cc78c2c2eb6ad74c54f1800ad",
+    "ordinary_sweep_interval_seconds": 60,
+    "owner_gid": 20,
+    "owner_uid": 501,
+    "passed": true,
+    "private_root": "/private/var/db/richos-workspaces/interrupted-acceptance-c847c7a95d374b338acc10248ada3887",
+    "release": "/Library/Application Support/RichOS/workspace-broker/releases/a5bd44263ad8b54b7a4579cb854fe7004b13ef78b5f816e6afab682a8ed31a2b",
+    "root_pins": [
+      [
+        16777233,
+        203881180,
+        0,
+        448
+      ],
+      [
+        16777233,
+        203881182,
+        0,
+        457
+      ]
+    ],
+    "version": 1
+  }
+}
