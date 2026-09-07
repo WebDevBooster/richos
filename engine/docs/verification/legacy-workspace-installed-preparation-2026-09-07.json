@@ -1,0 +1,147 @@
+{
+  "id": "legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+  "phase": "prepared",
+  "release": "/Library/Application Support/RichOS/workspace-broker/releases/62d59b86da85476123cfb5afc726795b871c26ecbeebd6e8376ea0155efa3880",
+  "private": "/private/var/db/richos-workspaces/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+  "active": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+  "plan_sha256": "df236cd25b5534be581d156b1a1b111c8ddb870ad198f5602780ce7b22210eda",
+  "prepared_boot": "d8ff1b41-fe97-4df4-aac2-3f40f0b105ce",
+  "owner_uid": 501,
+  "expected": {
+    "head": "5f0908df4db97a85ae15c179b8c39614264004b2",
+    "index_sha256": "0ff4afd384d4c6abc66a541cd30cbf705b9ef7cef59ad0b0ac666c6a66aa1f85",
+    "staged_oid": "5aa4f818c730e4a7b27d430d344358f8014aaf2a"
+  },
+  "scope": [
+    {
+      "alias": "fixture",
+      "blockers": [],
+      "inventory_complete": true,
+      "gate_paths": [
+        {
+          "branch": "refs/heads/main",
+          "gate_root": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/repo",
+          "git_directory": {
+            "device": 16777232,
+            "gid": 20,
+            "inode": 203232334,
+            "mode": 493,
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/repo/.git",
+            "uid": 501
+          },
+          "git_pointer": {
+            "device": 16777232,
+            "gid": 20,
+            "inode": 203232334,
+            "mode": 493,
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/repo/.git",
+            "uid": 501
+          },
+          "head": "5f0908df4db97a85ae15c179b8c39614264004b2",
+          "identity": {
+            "device": 16777232,
+            "gid": 20,
+            "inode": 203232333,
+            "mode": 448,
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/repo",
+            "uid": 501
+          },
+          "kind": "canonical-checkout",
+          "ownership": {
+            "caveat": "Recorded worker evidence does not exclude editors or other unrecorded writers.",
+            "evidence": [
+              {
+                "kind": "process",
+                "pid": 71446,
+                "session_id": "legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+                "status": "gone"
+              }
+            ],
+            "state": "gone"
+          },
+          "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/repo",
+          "registry_flags": {},
+          "relative_path": "."
+        },
+        {
+          "branch": "refs/heads/worker",
+          "gate_root": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/worker",
+          "git_directory": {
+            "device": 16777232,
+            "gid": 20,
+            "inode": 203232380,
+            "mode": 493,
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/repo/.git/worktrees/worker",
+            "uid": 501
+          },
+          "git_pointer": {
+            "contents": {
+              "ctime_ns": 1788776728559115708,
+              "device": 16777232,
+              "inode": 203232384,
+              "mtime_ns": 1788776728559115708,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/worker/.git",
+              "sha256": "b1f08068b3cccf183547fdde47c2ff0d10c62e8cf25a2e4a312567b0d4b2d224",
+              "size": 134
+            },
+            "device": 16777232,
+            "gid": 20,
+            "inode": 203232384,
+            "mode": 420,
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/worker/.git",
+            "uid": 501
+          },
+          "head": "5f0908df4db97a85ae15c179b8c39614264004b2",
+          "identity": {
+            "device": 16777232,
+            "gid": 20,
+            "inode": 203232382,
+            "mode": 493,
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/worker",
+            "uid": 501
+          },
+          "kind": "registered-linked-worktree",
+          "ownership": {
+            "caveat": "Recorded worker evidence does not exclude editors or other unrecorded writers.",
+            "evidence": [
+              {
+                "kind": "process",
+                "pid": 71446,
+                "session_id": "legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+                "status": "gone"
+              },
+              {
+                "agent_id": "fixture-worker",
+                "kind": "transaction",
+                "session_id": "legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+                "status": "terminal"
+              }
+            ],
+            "state": "terminal"
+          },
+          "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/worker",
+          "registry_flags": {},
+          "relative_path": "."
+        }
+      ],
+      "temporary_parent_gates": [
+        {
+          "affected_entries": [
+            "repo",
+            "worker"
+          ],
+          "identity": {
+            "device": 16777232,
+            "gid": 20,
+            "inode": 203232331,
+            "mode": 448,
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources",
+            "uid": 501
+          },
+          "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources",
+          "scope": "Briefly denies access through this parent to every listed child, including unrelated repositories."
+        }
+      ]
+    }
+  ]
+}

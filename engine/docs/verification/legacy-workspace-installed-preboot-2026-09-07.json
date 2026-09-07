@@ -1,0 +1,60 @@
+{
+  "id": "legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+  "phase": "waiting-for-reboot",
+  "release": "/Library/Application Support/RichOS/workspace-broker/releases/62d59b86da85476123cfb5afc726795b871c26ecbeebd6e8376ea0155efa3880",
+  "private": "/private/var/db/richos-workspaces/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+  "active": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4",
+  "plan_sha256": "df236cd25b5534be581d156b1a1b111c8ddb870ad198f5602780ce7b22210eda",
+  "prepared_boot": "d8ff1b41-fe97-4df4-aac2-3f40f0b105ce",
+  "staged_boot": "d8ff1b41-fe97-4df4-aac2-3f40f0b105ce",
+  "owner_uid": 501,
+  "expected": {
+    "head": "5f0908df4db97a85ae15c179b8c39614264004b2",
+    "index_sha256": "0ff4afd384d4c6abc66a541cd30cbf705b9ef7cef59ad0b0ac666c6a66aa1f85",
+    "staged_oid": "5aa4f818c730e4a7b27d430d344358f8014aaf2a"
+  },
+  "gate_id": "75226780-e048-4827-a74c-fbd3f7123a65",
+  "selection": {
+    "approval_kind": "exact-legacy-job",
+    "branches": [
+      {
+        "integration_ref": "refs/heads/main",
+        "integration_tip": "5f0908df4db97a85ae15c179b8c39614264004b2",
+        "ref": "refs/heads/worker",
+        "repo_alias": "fixture",
+        "tip": "5f0908df4db97a85ae15c179b8c39614264004b2"
+      }
+    ],
+    "candidates": [
+      {
+        "git_admin_path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/repo/.git/worktrees/worker",
+        "head": "5f0908df4db97a85ae15c179b8c39614264004b2",
+        "identity": {
+          "device": 16777232,
+          "gid": 20,
+          "inode": 203232382,
+          "mode": 493,
+          "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/worker",
+          "uid": 501
+        },
+        "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-a821a7a3498c40258dcc22e1a36c72b4/sources/worker",
+        "repo_alias": "fixture"
+      }
+    ],
+    "gate_id": "75226780-e048-4827-a74c-fbd3f7123a65",
+    "gate_sha256": "df236cd25b5534be581d156b1a1b111c8ddb870ad198f5602780ce7b22210eda",
+    "restore": true,
+    "version": 1
+  },
+  "selection_sha256": "992c85b3039b60802e364701e98637f7e2690a974de0da2277463ce9e8331fe6",
+  "checks": [
+    "owner-access-revoked",
+    "old-fd-late-bytes-preserved",
+    "same-boot-job-held"
+  ],
+  "holder": {
+    "boot": "d8ff1b41-fe97-4df4-aac2-3f40f0b105ce",
+    "pid": 72324,
+    "pid_start": "ps-lstart-utc-v1:Mon Sep 7 10:27:09 2026"
+  }
+}
