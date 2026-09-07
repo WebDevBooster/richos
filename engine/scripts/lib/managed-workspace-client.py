@@ -8,7 +8,7 @@ import socket
 import struct
 import sys
 
-DEFAULT_SOCKET = "/var/run/richos-workspaces/broker.sock"
+DEFAULT_SOCKET = "/var/db/richos-workspace-sockets/broker.sock"
 MAX_REQUEST = 65536
 MAX_RESPONSE = 1048576
 

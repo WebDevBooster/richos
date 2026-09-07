@@ -275,7 +275,7 @@ class VolumeStore:
         if record.get('state') != 'detached' or record.get('operation') is not None:
             raise VolumeError('verified clean detach required before attach')
         mount = private if readonly and not owner_readable else active
-        # /var/run is cleared at reboot. The namespace parent is protected;
+        # A missing mountpoint may need recreation. The namespace parent is protected;
         # only recreate this exact manager-issued mountpoint, never contents.
         self._check_directory(self.active_root, private=False)
         mount.mkdir(mode=0o700, exist_ok=True)

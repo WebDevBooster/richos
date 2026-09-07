@@ -412,6 +412,15 @@ m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
         self.assertEqual(plist["UserName"], "root")
         self.assertTrue((package / "install.py").is_file())
         self.assertTrue((package / "policy.example.json").is_file())
+        example = json.loads((package / 'policy.example.json').read_text())
+        self.assertEqual(example['active_root'], '/var/db/richos-workspace-mounts')
+        self.assertEqual(client.DEFAULT_SOCKET, '/var/db/richos-workspace-sockets/broker.sock')
+        self.assertEqual(plist['ProgramArguments'][-1], client.DEFAULT_SOCKET)
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'actual macOS runtime ancestors')
+    def test_default_runtime_roots_have_protected_host_ancestors(self):
+        for location in (installer.PRIVATE_ROOT, installer.ACTIVE_ROOT, installer.SOCKET_ROOT):
+            installer.protected(location.parent)
 
     def test_tampered_package_fails_hash_validation(self):
         package = installer.stage(self.root / "package")
@@ -452,6 +461,12 @@ m.serve(m.Broker(manager,policy),sys.argv[2],interval=0.05)
                     installer.install(package, policy_source)
                 self.assertEqual(unrelated.stat().st_mode, before)
                 self.assertFalse(destination.exists(), "refusal must precede installation writes")
+            policy_source.write_text(json.dumps(self.policy))
+            wrong = dict(self.policy, active_root='/var/run/richos-workspace-mounts')
+            policy_source.write_text(json.dumps(wrong))
+            with self.assertRaisesRegex(ValueError, 'dedicated'):
+                installer.install(package, policy_source)
+            self.assertFalse(destination.exists())
             policy_source.write_text(json.dumps(self.policy))
             first = installer.install(package, policy_source)
             second = installer.install(package, policy_source)

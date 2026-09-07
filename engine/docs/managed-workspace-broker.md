@@ -69,14 +69,14 @@ not an approved policy.
 A reviewed package can later be installed by an administrator using the system
 Python with `-I -S`. The installer requires root, checks the package hashes and
 uses only the dedicated `/var/db/richos-workspaces` and
-`/var/run/richos-workspace-mounts` storage namespaces. It refuses to repurpose
+`/var/db/richos-workspace-mounts` storage namespaces. It refuses to repurpose
 other policy paths or change permissions on mismatched existing directories.
 It writes these fixed artifacts:
 
 - Code: `/Library/Application Support/RichOS/workspace-broker/releases/<hash>/`
 - Private policy: `/Library/Application Support/RichOS/workspace-broker/policy.json`
 - Pending public configuration: `/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json`
-- Socket directory: `/var/run/richos-workspaces/`
+- Socket directory: `/var/db/richos-workspace-sockets/`
 - LaunchDaemon: `/Library/LaunchDaemons/com.richos.managed-workspace-broker.plist`
 
 The pending configuration is root-owned mode 0644 and contains version 1,

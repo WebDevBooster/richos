@@ -23,12 +23,12 @@ FILES = ("managed-workspace-broker.py", "managed-workspace-manager.py",
 INSTALL_ROOT = Path("/Library/Application Support/RichOS/workspace-broker")
 POLICY_PATH = INSTALL_ROOT / "policy.json"
 CLIENT_CONFIG_PATH = Path("/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json")
-SOCKET_ROOT = Path("/var/run/richos-workspaces")
+SOCKET_ROOT = Path("/var/db/richos-workspace-sockets")
 LABEL = "com.richos.managed-workspace-broker"
 PLIST_PATH = Path("/Library/LaunchDaemons") / (LABEL + ".plist")
 INTERPRETER = "/usr/bin/python3"
 PRIVATE_ROOT = Path("/var/db/richos-workspaces")
-ACTIVE_ROOT = Path("/var/run/richos-workspace-mounts")
+ACTIVE_ROOT = Path("/var/db/richos-workspace-mounts")
 
 
 def payloads(package):
@@ -73,7 +73,7 @@ def stage(output, source=None):
     release = INSTALL_ROOT / "releases" / hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
     (output / (LABEL + ".plist")).write_bytes(plistlib.dumps(launchd_plist(release)))
     (output / "policy.example.json").write_text(json.dumps({"version": 1,
-        "private_root": "/var/db/richos-workspaces", "active_root": "/var/run/richos-workspace-mounts",
+        "private_root": "/var/db/richos-workspaces", "active_root": "/var/db/richos-workspace-mounts",
         "owners": {"501": {"gid": 20}}, "repositories": {"approved-repo": {
             "path": "/absolute/path/to/approved/repository", "owners": [501],
             "retention_days": 14, "size": "32g"}}}, indent=2) + "\n")

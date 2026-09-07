@@ -299,7 +299,7 @@ class ActualMacOSVolume(unittest.TestCase):
             with self.assertRaises(OSError):
                 (readonly / 'file').write_text('must fail')
             store.detach(ident)
-            # Reboot clears /var/run: constructor recreates its protected root,
+            # A missing namespace root can be recreated after maintenance,
             # and attach recreates only the exact missing UUID mountpoint.
             store._paths(ident)[2].rmdir()
             store.active_root.rmdir()

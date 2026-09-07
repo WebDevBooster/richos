@@ -80,7 +80,7 @@ image is absent, the provider records a `new-boot` cutoff: old descriptors,
 queued rights and mappings cannot survive that reboot. A missing or malformed
 recorded boot identity never grants this recovery. An image still attached must
 undergo normal unforced detach even after reboot. Missing UUID mountpoints under
-the protected active root are recreated, including after `/var/run` is cleared.
+the protected active root are recreated when absent.
 
 ## Trust boundary and verification
 

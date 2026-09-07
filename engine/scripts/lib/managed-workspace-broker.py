@@ -302,7 +302,7 @@ class Broker:
 def serve(broker, socket_path, *, interval=60):
     supplied = Path(socket_path)
     path = supplied.parent.resolve() / supplied.name
-    # /var/run may be recreated on boot. Recreate only this final directory
+    # Recreate a missing runtime directory only under a protected parent.
     # under an already protected parent, never an arbitrary ancestor chain.
     if not path.parent.exists():
         protected_path(path.parent.parent, regular=False)
