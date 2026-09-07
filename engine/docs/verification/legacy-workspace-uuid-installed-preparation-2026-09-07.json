@@ -1,0 +1,405 @@
+{
+  "activated": false,
+  "active": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+  "active_identity": {
+    "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+    "inode": 203318592
+  },
+  "checks": [],
+  "cleanup_authorized": false,
+  "expected": {
+    "head": "2fe30e33ee8d3e122849f7fed618ce4d03387f4d",
+    "index_sha256": "4dd7733d29c12397a7d1c3c64b75c293940d469e343048283c87920ac45007ac",
+    "staged_oid": "5aa4f818c730e4a7b27d430d344358f8014aaf2a"
+  },
+  "fixture_policy": {
+    "active_root": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+    "owners": {
+      "501": {
+        "gid": 20
+      }
+    },
+    "private_root": "/private/var/db/richos-workspaces/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+    "repositories": {
+      "fixture": {
+        "owners": [
+          501
+        ],
+        "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo",
+        "retention_days": 14,
+        "size": "128m"
+      }
+    },
+    "version": 1
+  },
+  "id": "legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+  "inspection_context": {
+    "ledger": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/history/ledger.jsonl",
+    "owner_gid": 20,
+    "owner_home": "/Users/alex",
+    "owner_uid": 501,
+    "transactions": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/history/transactions",
+    "version": 1
+  },
+  "owner_uid": 501,
+  "passed": false,
+  "phase": "prepared",
+  "plan_sha256": "e2c31acf89116bc841e4578dfdbe9280f982536dd411a99b2aa0ca9c9aaed290",
+  "prepared_boot": "c6f84dc3-a79a-4506-8759-d2de887ea19a",
+  "private": "/private/var/db/richos-workspaces/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+  "private_identity": {
+    "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+    "inode": 203318591
+  },
+  "release": "/Library/Application Support/RichOS/workspace-broker/releases/bd03b3b3bbfffdf74cdf3d61730fddc1297ece1a5fbd54d718444120289ced7a",
+  "release_identity": {
+    "durable-filesystem-identity.py": "e819901bf418f1f80e636f80d0cf880b414963689a0422f0a5fc95096853eaf8",
+    "legacy-workspace-acceptance.py": "3334815f03266545a97fa729b900809b7c03a8ef3a4638add7a7ca7ef7a12369",
+    "legacy-workspace-admin.py": "c36aea5be412ebb3d266b6e8c7b8fdfaf82167099b96599024556f1bb72f42a6",
+    "legacy-workspace-capture.py": "81e91db1193f683f1d70bff509fec21a8d6516dacb0b08316b630e08c61fbe2a",
+    "legacy-workspace-gate.py": "9b6d68dbb382fc63b56aca23ec992f3c79fac69155aad8fd8522257af8834b65",
+    "legacy-workspace-inspection.py": "cb895ad204a7a4a0bab88720368ae848ba09060987b777758f5e4d263e802a52",
+    "legacy-workspace-job.py": "9f282aacd82c9d5476d98d051d5d28866bfc847f62450ac354b7df024e783fc0",
+    "legacy-workspace-maintenance.py": "b43938e630fadf0cb8dc2f7597f2c0622f5d3e56e77121450638d857828df72a",
+    "legacy-workspace-mutation.py": "e2ff564e6c421be9ae1c7f9f7e9b834005c67f00b8fd867102a392041572c435",
+    "legacy-workspace-retirement.py": "5903f0fe9261755d76f8608fd697de0ecaff7d76ef77a817a43a9b33ddcbd747",
+    "legacy-workspace-service.py": "c112298bce0f38792ce00dac819e257cfc2ca0b12eaded87fec0978243179f46",
+    "managed-workspace-acceptance.py": "9916f2c9b3a2f062ea6cd42e2e15bfa0f10086b01e149fd1dc135471afa05021",
+    "managed-workspace-broker.py": "ac58480619bbec910586d18d3d002023675a0a64a19ba5837ab902fd251f6fa2",
+    "managed-workspace-client.py": "700a023fef4d774992f8a7613d13a56ed444f126d811b489045350276ad2f985",
+    "managed-workspace-failed-creation.py": "42e701488b4c377a99dc78e4b39d96c5f5dedb83ccb91490f8162c45b4f7a1ad",
+    "managed-workspace-manager.py": "6eac99945f59ff8d389d4984bbcc865cdf25a52c0d4c6ffde7ffd1205ba536fe",
+    "managed-workspace-volume.py": "ce38a4b19576a24eae1dbf3ff8c0a99733446f7b988153bf69c37a4ef12ab522",
+    "terminal-branch-cleanup.py": "f90c9e2bcaf4c7d082f42da127976950d6e97bc4be63fe9aa3790eeaff2a18dd",
+    "terminal-branch-shadow.py": "3a924d72763e8f4f89b0566d72bb91989cdaaf0d896454ced946b794e138bcfe",
+    "terminal-recovery-shadow.py": "b1afb4ec35c31b0b7f3d4206422d6568016c9dc6748b8f4d185d09dd73093f59",
+    "worktree-ledger.py": "91d0a6d1d0436e023d0a38a34dd5d23ffc3dc1ceb3d7c4334b576b5231608ee9",
+    "worktree-transactions.py": "056e8c06caa9ea0e75dcf9c033b57ac765daa16c2ebf46b30cc798ba65063573"
+  },
+  "report": {
+    "errors": [],
+    "execution_authorized": false,
+    "execution_ready": false,
+    "history_sha256": "45b4f63c8ec3b5b43ef63a7565b64f2f582a71d5035429854c64be3e6b85a59a",
+    "inspection_context": {
+      "ledger": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/history/ledger.jsonl",
+      "owner_gid": 20,
+      "owner_home": "/Users/alex",
+      "owner_uid": 501,
+      "transactions": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/history/transactions",
+      "version": 1
+    },
+    "limits": [
+      "No gating, permission changes, process termination, Git mutations or deletion is implemented.",
+      "A pre-reboot protected gate and a subsequent verified boot are required; daemon startup order is not a cutoff.",
+      "Active or unknown workers veto maintenance. Finish all work and obtain separate explicit downtime authorization.",
+      "Directory and Git snapshots are review evidence, not an exclusive-access or approval token."
+    ],
+    "mode": "planning-only",
+    "repositories": [
+      {
+        "alias": "fixture",
+        "blockers": [],
+        "canonical_repository": {
+          "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+          "gid": 20,
+          "inode": 203318597,
+          "mode": 448,
+          "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo",
+          "uid": 501
+        },
+        "common_git_directory": {
+          "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+          "gid": 20,
+          "inode": 203318598,
+          "mode": 493,
+          "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo/.git",
+          "uid": 501
+        },
+        "gate_paths": [
+          {
+            "branch": "refs/heads/main",
+            "gate_root": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo",
+            "git_directory": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318598,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo/.git",
+              "uid": 501
+            },
+            "git_pointer": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318598,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo/.git",
+              "uid": 501
+            },
+            "head": "2fe30e33ee8d3e122849f7fed618ce4d03387f4d",
+            "identity": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318597,
+              "mode": 448,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo",
+              "uid": 501
+            },
+            "kind": "canonical-checkout",
+            "ownership": {
+              "caveat": "Recorded worker evidence does not exclude editors or other unrecorded writers.",
+              "evidence": [
+                {
+                  "kind": "process",
+                  "pid": 60059,
+                  "session_id": "legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+                  "status": "gone"
+                }
+              ],
+              "state": "gone"
+            },
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo",
+            "registry_flags": {},
+            "relative_path": "."
+          },
+          {
+            "branch": "refs/heads/worker",
+            "gate_root": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+            "git_directory": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318644,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo/.git/worktrees/worker",
+              "uid": 501
+            },
+            "git_pointer": {
+              "contents": {
+                "ctime_ns": 1788779032701888282,
+                "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+                "inode": 203318648,
+                "mtime_ns": 1788779032701888282,
+                "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker/.git",
+                "sha256": "89c37135836cf37739f0dbd58f13e702f5d82e8f48cb15888c5306a5d7ac7d68",
+                "size": 134
+              },
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318648,
+              "mode": 420,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker/.git",
+              "uid": 501
+            },
+            "head": "2fe30e33ee8d3e122849f7fed618ce4d03387f4d",
+            "identity": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318646,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+              "uid": 501
+            },
+            "kind": "registered-linked-worktree",
+            "ownership": {
+              "caveat": "Recorded worker evidence does not exclude editors or other unrecorded writers.",
+              "evidence": [
+                {
+                  "kind": "process",
+                  "pid": 60059,
+                  "session_id": "legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+                  "status": "gone"
+                },
+                {
+                  "agent_id": "fixture-worker",
+                  "kind": "transaction",
+                  "session_id": "legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+                  "status": "terminal"
+                }
+              ],
+              "state": "terminal"
+            },
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+            "registry_flags": {},
+            "relative_path": "."
+          }
+        ],
+        "gate_roots": [
+          {
+            "branch": "refs/heads/main",
+            "gate_root": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo",
+            "git_directory": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318598,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo/.git",
+              "uid": 501
+            },
+            "git_pointer": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318598,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo/.git",
+              "uid": 501
+            },
+            "head": "2fe30e33ee8d3e122849f7fed618ce4d03387f4d",
+            "identity": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318597,
+              "mode": 448,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo",
+              "uid": 501
+            },
+            "kind": "canonical-checkout",
+            "ownership": {
+              "caveat": "Recorded worker evidence does not exclude editors or other unrecorded writers.",
+              "evidence": [
+                {
+                  "kind": "process",
+                  "pid": 60059,
+                  "session_id": "legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+                  "status": "gone"
+                }
+              ],
+              "state": "gone"
+            },
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo",
+            "registry_flags": {},
+            "relative_path": "."
+          },
+          {
+            "branch": "refs/heads/worker",
+            "gate_root": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+            "git_directory": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318644,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo/.git/worktrees/worker",
+              "uid": 501
+            },
+            "git_pointer": {
+              "contents": {
+                "ctime_ns": 1788779032701888282,
+                "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+                "inode": 203318648,
+                "mtime_ns": 1788779032701888282,
+                "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker/.git",
+                "sha256": "89c37135836cf37739f0dbd58f13e702f5d82e8f48cb15888c5306a5d7ac7d68",
+                "size": 134
+              },
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318648,
+              "mode": 420,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker/.git",
+              "uid": 501
+            },
+            "head": "2fe30e33ee8d3e122849f7fed618ce4d03387f4d",
+            "identity": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318646,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+              "uid": 501
+            },
+            "kind": "registered-linked-worktree",
+            "ownership": {
+              "caveat": "Recorded worker evidence does not exclude editors or other unrecorded writers.",
+              "evidence": [
+                {
+                  "kind": "process",
+                  "pid": 60059,
+                  "session_id": "legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+                  "status": "gone"
+                },
+                {
+                  "agent_id": "fixture-worker",
+                  "kind": "transaction",
+                  "session_id": "legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+                  "status": "terminal"
+                }
+              ],
+              "state": "terminal"
+            },
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+            "registry_flags": {},
+            "relative_path": "."
+          }
+        ],
+        "inventory_complete": true,
+        "maintenance_ready": false,
+        "object_storage": {
+          "external_dependencies": [],
+          "identity": {
+            "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+            "gid": 20,
+            "inode": 203318612,
+            "mode": 493,
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo/.git/objects",
+            "uid": 501
+          }
+        },
+        "registered_worktrees": [
+          {
+            "HEAD": "2fe30e33ee8d3e122849f7fed618ce4d03387f4d",
+            "branch": "refs/heads/main",
+            "worktree": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/repo"
+          },
+          {
+            "HEAD": "2fe30e33ee8d3e122849f7fed618ce4d03387f4d",
+            "branch": "refs/heads/worker",
+            "worktree": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker"
+          }
+        ],
+        "registry_sha256": "12533d5958708e224b431c7db274f4e50640f2c8abaf20e521dc5e0f73dd6c56",
+        "removal_candidates": [
+          {
+            "agent_id": "fixture-worker",
+            "branch": "refs/heads/worker",
+            "contained_registered_targets": [],
+            "execution_authorized": false,
+            "gate_root": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+            "head": "2fe30e33ee8d3e122849f7fed618ce4d03387f4d",
+            "identity": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318646,
+              "mode": 493,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+              "uid": 501
+            },
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources/worker",
+            "relative_path": ".",
+            "session_id": "legacy-acceptance-dd90b50171b64dc1961f9112b12147c0",
+            "status": "exact-terminal-member-requires-offline-revalidation"
+          }
+        ],
+        "required_downtime": "Entire canonical repository, shared Git objects/admin and every listed workspace must be offline together. Temporary parent gates also interrupt access to all listed sibling entries; explicit offline approval must cover that shared-parent scope.",
+        "temporary_parent_gates": [
+          {
+            "affected_entries": [
+              "repo",
+              "worker"
+            ],
+            "identity": {
+              "device": "darwin-volume-uuid-v1:5ea1c9ee-1746-48ed-a168-6f7cdd0b564f",
+              "gid": 20,
+              "inode": 203318595,
+              "mode": 448,
+              "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources",
+              "uid": 501
+            },
+            "path": "/private/var/db/richos-workspace-mounts/legacy-acceptance-dd90b50171b64dc1961f9112b12147c0/sources",
+            "scope": "Briefly denies access through this parent to every listed child, including unrelated repositories."
+          }
+        ]
+      }
+    ],
+    "version": 1
+  },
+  "version": 1
+}

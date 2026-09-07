@@ -1,4 +1,9 @@
-# Corrected package: administrator test pending
+# Corrected package: historical pending checkpoint
+
+**Completed:** the password was accepted, installation succeeded, all 26 managed
+checks passed and the fresh legacy fixture is ready for reboot. See the
+[current continuation](legacy-workspace-uuid-installed-preboot-2026-09-07.md).
+The pending status below is historical.
 
 Source `1e3e49902d76c49f48a00844c9c738aa83d71c9f` passed final Sage and Frank review.
 The full retirement suite passed 52 scenarios and 402 assertions, with its two

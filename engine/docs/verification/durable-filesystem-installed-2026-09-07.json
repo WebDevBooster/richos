@@ -1,0 +1,7 @@
+{
+  "activated": false,
+  "client_config": "/Library/Application Support/RichOS/ManagedWorkspaces/client.pending.json",
+  "plist": "/Library/Application Support/RichOS/workspace-broker/com.richos.managed-workspace-broker.plist.pending",
+  "policy": "/Library/Application Support/RichOS/workspace-broker/policy.json",
+  "release": "/Library/Application Support/RichOS/workspace-broker/releases/bd03b3b3bbfffdf74cdf3d61730fddc1297ece1a5fbd54d718444120289ced7a"
+}

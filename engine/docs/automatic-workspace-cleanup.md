@@ -102,7 +102,7 @@ or discover and approve a broader selection during a retry.
 - The final installed root-to-user acceptance fixture passed all 26 checks,
   including backing-image protection, forced-unmount refusal, actual owner socket
   lifecycle, unattended terminal and unused-preparation reclamation and clean
-  broker shutdown. See the [installed lifecycle receipt](verification/managed-workspace-installed-lifecycle-2026-09-07.md).
+  broker shutdown. The corrected UUID package passed all 26 again; see the [current receipt](verification/managed-workspace-uuid-installed-lifecycle-2026-09-07.json).
   Actual reboot acceptance remains separate.
 - Validate the complete installed Claude spawn-to-retirement path before enabling
   the public configuration.
@@ -117,9 +117,9 @@ or discover and approve a broader selection during a retry.
   worker have passed disposable integration tests and independent review.
   Validate the installed legacy gate across a real reboot before migration.
   Actual repository downtime requires explicit authorization.
-  The first disposable fixture is retained as failure evidence. A fresh fixture
-  using durable UUID pins is required. The [historical receipt](verification/legacy-workspace-installed-preboot-2026-09-07.md)
-  is superseded and must not be reused as the next test.
+  The fresh UUID fixture passed installed preboot checks and is ready for a
+  user-controlled Mac reboot. Its [exact continuation and receipts](verification/legacy-workspace-uuid-installed-preboot-2026-09-07.md)
+  are saved in this branch. The first failed fixture remains historical evidence.
 
 The package's health endpoint reports listener availability, sweep progress and
 owned unresolved records separately. It explicitly does not certify the complete
