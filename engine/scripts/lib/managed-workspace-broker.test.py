@@ -66,6 +66,10 @@ class FakeManager:
         self.records[ident]["state"] = "terminal"
         return self.records[ident]
 
+    def delivery(self, ident):
+        self.calls.append(("delivery", ident))
+        return self.records[ident]["delivery"]
+
     def reconcile(self, ident):
         self.calls.append(("reconcile", ident))
         return self.records[ident]
@@ -88,6 +92,18 @@ class BrokerSafety(unittest.TestCase):
         self.broker = broker.Broker(self.manager, self.policy)
         self.create = {"operation": "create", "repository": "repo", "commit": "a" * 40,
                        "session_id": "session", "agent_name": "worker", "request_id": "stable-attempt"}
+
+    def test_exact_delivery_is_owner_authenticated_and_survives_terminal_responses(self):
+        ident = self.broker.dispatch(501, self.create)['id']
+        delivery = dict(manager_id=ident, source_repo=self.policy['repositories']['repo']['path'],
+                        ref='refs/richos/handoffs/managed/'+ident+'/HEAD', tip='b'*40)
+        self.manager.records[ident]['delivery'] = delivery
+        self.assertEqual(self.broker.dispatch(501, dict(operation='delivery', id=ident)), delivery)
+        with self.assertRaises(broker.BrokerError):
+            self.broker.dispatch(502, dict(operation='delivery', id=ident))
+        self.assertEqual(self.broker.dispatch(501, dict(operation='terminal', id=ident,
+                         session_id='session', agent_id='agent'))['delivery'], delivery)
+        self.assertEqual(self.broker.dispatch(501, dict(operation='reconcile', id=ident))['delivery'], delivery)
 
     def test_unused_preparation_inventory_and_cancellation_are_owner_scoped(self):
         own = self.broker.dispatch(501, self.create)['id']

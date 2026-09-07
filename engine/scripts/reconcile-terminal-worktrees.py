@@ -880,7 +880,8 @@ def reconcile_transaction(t, deadline=None):
                         record = tx._managed_workspaces().terminal_member(m, sid, aid)
                         if record['state'] in ('retained', 'expired'):
                             tx.update_member(sid, aid, i, state='removed', manager_state=record['state'],
-                                             recovery_id=record['id'], last_error=record.get('last_error'),
+                                             recovery_id=record['id'], delivery=record.get('delivery'),
+                                             last_error=record.get('last_error'),
                                              blocked=False, retry_after_epoch=0)
                         else:
                             raise RuntimeError(record.get('last_error') or 'managed retirement pending: ' + record['state'])

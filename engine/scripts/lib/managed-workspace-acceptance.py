@@ -181,6 +181,9 @@ def main():
 
             creation = dict(operation='create', repository='fixture', commit=commit,
                 session_id=run_id, agent_name='dev-opus-socket', request_id='socket-lifecycle')
+            # Existing same-name source work belongs to someone else. The new
+            # managed worker must deliver only through its UUID namespace.
+            git(source, 'branch', creation['agent_name'], commit)
             socket_record = request(creation)
             socket_id = socket_record['id']
             check('owner-socket-creation-is-idempotent', request(creation)['id'] == socket_id
@@ -189,6 +192,12 @@ def main():
             binding = dict(id=socket_id, session_id=run_id, agent_id='agent-socket')
             bound = request(dict(operation='bind', **binding))
             check('owner-socket-binding-acknowledged', bound['agent_id'] == binding['agent_id'])
+            socket_work = active / socket_id / 'repo'
+            git(socket_work, 'config', 'user.name', 'RichOS fixture')
+            git(socket_work, 'config', 'user.email', 'fixture@example.invalid')
+            write(socket_work, 'socket-delivered', 'exact owner delivery')
+            git(socket_work, 'add', '.'); git(socket_work, 'commit', '-qm', 'owner delivered work')
+            delivered_tip = git(socket_work, 'rev-parse', 'HEAD')
             terminal = request(dict(operation='terminal', **binding))
             check('owner-socket-terminal-acknowledged', terminal['state'] == 'terminal')
             unused = request(dict(creation, request_id='socket-unused', agent_name='dev-opus-unused'))
@@ -207,6 +216,20 @@ def main():
                   {socket_id,unused['id']} <= retired_ids
                   and all(not (private / ident / 'image.sparsebundle').exists()
                           and (private / ident / 'recovery.dmg').is_file() for ident in (socket_id,unused['id'])))
+            delivery = request(dict(operation='delivery', id=socket_id))
+            check('owner-delivery-ref-binds-exact-source-and-commit', delivery == dict(
+                manager_id=socket_id, source_repo=str(source),
+                ref='refs/richos/handoffs/managed/'+socket_id+'/HEAD', tip=delivered_tip)
+                and delivered_tip != commit and git(source, 'rev-parse', delivery['ref']) == delivered_tip)
+            check('new-managed-workers-create-no-ordinary-source-branches', all(
+                not git(source, 'for-each-ref', '--format=%(refname)', 'refs/heads/'+name)
+                for name in ('dev-opus-cutoff', 'dev-opus-authority', 'dev-opus-unused')))
+            check('preexisting-same-name-source-branch-is-preserved',
+                  git(source, 'rev-parse', 'refs/heads/'+creation['agent_name']) == commit)
+            git(source, 'merge', '--ff-only', delivery['tip'])
+            check('owner-merges-exact-delivery-after-image-reclamation',
+                  git(source, 'rev-parse', 'HEAD') == delivered_tip
+                  and (source / 'socket-delivered').read_text() == 'exact owner delivery')
             server.terminate();server.wait(timeout=15)
             check('installed-root-broker-shuts-down-cleanly', server.returncode == 0)
             server=None

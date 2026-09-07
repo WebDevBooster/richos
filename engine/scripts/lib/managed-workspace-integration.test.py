@@ -45,6 +45,26 @@ class Membership(unittest.TestCase):
         for p in self.patches:
             p.start(); self.addCleanup(p.stop)
 
+    def test_delivery_query_binds_exact_repo_manager_ref_and_tip(self):
+        delivery = dict(manager_id=self.ident, source_repo=self.member['repo'],
+                        ref='refs/richos/handoffs/managed/'+self.ident+'/HEAD', tip='a'*40)
+        bridge.request.side_effect = lambda *a, **k: copy.deepcopy(delivery)
+        self.assertEqual(bridge.delivery_for(self.ident, self.member['repo']), delivery)
+        for key, wrong in [('manager_id', str(uuid.uuid4())), ('source_repo', '/wrong'),
+                           ('ref', 'refs/heads/reused'), ('tip', 'HEAD')]:
+            altered = dict(delivery); altered[key] = wrong
+            bridge.request.side_effect = lambda *a, **k: copy.deepcopy(altered)
+            with self.assertRaisesRegex(RuntimeError, 'delivery identity'):
+                bridge.delivery_for(self.ident, self.member['repo'])
+
+    def test_new_reclaimed_record_requires_exact_delivery(self):
+        self.record.update(state='retained', agent_id='agent-one', delivery_mode='handoff-ref-v1')
+        with self.assertRaisesRegex(RuntimeError, 'no delivery'):
+            bridge.terminal_member(self.member, 'session', 'agent-one')
+        self.record['delivery'] = dict(manager_id=self.ident, source_repo=self.member['repo'],
+                        ref='refs/richos/handoffs/managed/'+self.ident+'/HEAD', tip='a'*40)
+        self.assertEqual(bridge.terminal_member(self.member, 'session', 'agent-one')['delivery'], self.record['delivery'])
+
     def test_exact_prepared_identity_is_accepted(self):
         self.assertEqual(bridge.verify_member(self.member)['manager_id'], self.ident)
 
@@ -161,10 +181,13 @@ class LifecycleRouting(unittest.TestCase):
         self.assertNotIn('reconcile', self.service.terminal_member.call_args.kwargs)
 
     def test_reconciler_acknowledges_verified_reclamation(self):
-        self.service.terminal_member.return_value = dict(id=self.member['manager_id'], state='retained')
+        delivery = dict(manager_id=self.member['manager_id'], source_repo=self.member['repo'],
+                        ref='refs/richos/handoffs/managed/'+self.member['manager_id']+'/HEAD', tip='a'*40)
+        self.service.terminal_member.return_value = dict(id=self.member['manager_id'], state='retained', delivery=delivery)
         with patch.object(reconciler.tx, '_managed_workspaces', return_value=self.service):
             reconciler.reconcile_transaction(self.record)
         self.assertEqual(tx.load_tx(self.sid, self.aid)['members'][0]['state'], 'removed')
+        self.assertEqual(tx.load_tx(self.sid, self.aid)['members'][0]['delivery'], delivery)
 
     def test_seal_refuses_branch_drift(self):
         self.service.verify_member.return_value = dict(id=self.member['manager_id'])
@@ -226,6 +249,34 @@ class Preparation(unittest.TestCase):
                 patch.object(reconciler, 'retention_pass'), patch.object(reconciler.tx, 'atomic_write_json'):
             reconciler.run(only='session/worker')
         service.recover_preparations.assert_not_called()
+
+    def test_creation_helper_keeps_existing_source_branch_and_reports_delivery_query(self):
+        with tempfile.TemporaryDirectory(prefix='richos-delivery-helper-') as directory:
+            root = Path(directory).resolve()
+            repo = root / 'repo'; repo.mkdir()
+            scripts = root / 'scripts'; (scripts / 'lib').mkdir(parents=True)
+            env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null')
+            def git(*args):
+                return subprocess.check_output(['/usr/bin/git', '-C', str(repo), *args], env=env,
+                                               stderr=subprocess.PIPE).decode().strip()
+            git('init', '-q'); git('-c', 'user.name=fixture', '-c', 'user.email=x@example.invalid',
+                                  'commit', '--allow-empty', '-qm', 'initial')
+            name = 'dev-opus-fixture'; git('branch', name)
+            original = git('rev-parse', 'refs/heads/'+name)
+            ident = str(uuid.uuid4()); work = root / 'active' / ident / 'repo'; work.mkdir(parents=True)
+            record = dict(manager_id=ident, path=str(work))
+            (scripts / 'lib' / 'managed-workspace-integration.py').write_text(
+                'import json,sys\nprint('+repr(__import__('json').dumps(record))+')\n')
+            (scripts / 'lib' / 'worktree-ledger.py').write_text('import sys\nprint("fixture")\n')
+            helper = scripts / 'create-teammate-worktree.sh'
+            helper.write_bytes((HERE.parent / helper.name).read_bytes())
+            result = subprocess.run(['bash', str(helper), str(repo), name, '--session', 'session', '--pid', '123'],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('delivery --id '+ident, result.stdout)
+            self.assertIn('Merge the returned exact tip', result.stdout)
+            self.assertEqual(git('rev-parse', 'refs/heads/'+name), original)
+            self.assertEqual(git('worktree', 'list', '--porcelain').count('worktree '), 1)
 
     def test_missing_bridge_cannot_fall_back_when_managed_mode_is_enabled(self):
         with tempfile.TemporaryDirectory(prefix='richos-preparation-refusal-') as directory:

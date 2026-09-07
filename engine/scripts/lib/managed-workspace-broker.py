@@ -243,7 +243,7 @@ class Broker:
                   "create": {"operation", "repository", "commit", "session_id", "agent_name", "request_id"},
                   "bind": {"operation", "id", "session_id", "agent_id"},
                   "terminal": {"operation", "id", "session_id", "agent_id"},
-                  "inspect": {"operation", "id"}, "reconcile": {"operation", "id"}}
+                  "inspect": {"operation", "id"}, "delivery": {"operation", "id"}, "reconcile": {"operation", "id"}}
         if op not in fields or set(request) != fields[op]:
             raise BrokerError("unsupported operation or request fields")
         if op == "status":
@@ -298,6 +298,8 @@ class Broker:
         # for operations that require it, including inspect and bind.
         if self.manager.owner_uid(ident) != uid:
             raise BrokerError("workspace is not owned by this peer")
+        if op == "delivery":
+            return self.manager.delivery(ident)
         if op == "inspect":
             return self._record(self.manager.inspect(ident))
         if op == "reconcile":

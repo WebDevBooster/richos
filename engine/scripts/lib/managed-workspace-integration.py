@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import sys
@@ -93,6 +94,25 @@ def bind_member(member, session_id, agent_id):
     return bound
 
 
+
+def validate_delivery(delivery, ident, repo):
+    if (not isinstance(delivery, dict) or set(delivery) != {'manager_id', 'source_repo', 'ref', 'tip'}
+            or delivery.get('manager_id') != ident
+            or delivery.get('source_repo') != str(Path(repo).resolve())
+            or delivery.get('ref') != 'refs/richos/handoffs/managed/' + ident + '/HEAD'
+            or not isinstance(delivery.get('tip'), str)
+            or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', delivery['tip'])):
+        raise RuntimeError('managed delivery identity mismatch')
+    return delivery
+
+
+def delivery_for(ident, repo):
+    # The broker verifies current canonical identity and every recovery ref.
+    # Merge the exact returned tip, never a reused teammate branch name.
+    result = request(dict(operation='delivery', id=ident))
+    return validate_delivery(result, ident, repo)
+
+
 def terminal_member(member, session_id, agent_id, *, reconcile=False):
     ident = member['manager_id']
     record = request(dict(operation='terminal', id=ident, session_id=session_id, agent_id=agent_id))
@@ -104,6 +124,11 @@ def terminal_member(member, session_id, agent_id, *, reconcile=False):
         record = request(dict(operation='reconcile', id=ident), timeout=330)
         if record.get('id') != ident or record.get('manager_id') != ident:
             raise RuntimeError('managed reconciliation receipt identity mismatch')
+    if record.get('delivery') is not None:
+        validate_delivery(record['delivery'], ident, member['repo'])
+    if record.get('delivery_mode') == 'handoff-ref-v1' and record.get('state') in ('retained', 'expired'):
+        if record.get('delivery') is None:
+            raise RuntimeError('reclaimed managed workspace has no delivery receipt')
     return record
 
 
@@ -165,6 +190,7 @@ def main():
     sub = parser.add_subparsers(dest='op', required=True)
     p = sub.add_parser('configured'); p.add_argument('--repo', required=True)
     p = sub.add_parser('inspect'); p.add_argument('--path', required=True)
+    p = sub.add_parser('delivery'); p.add_argument('--id', required=True); p.add_argument('--repo', required=True)
     p = sub.add_parser('create')
     for name in ('repo', 'commit', 'session-id', 'agent-name', 'request-id'):
         p.add_argument('--'+name, required=True)
@@ -175,6 +201,8 @@ def main():
             if alias is None:
                 return 3
             print(alias)
+        elif args.op == 'delivery':
+            print(json.dumps(delivery_for(args.id, args.repo), sort_keys=True))
         elif args.op == 'inspect':
             print(json.dumps(inspect_path(args.path), sort_keys=True))
         else:

@@ -101,6 +101,18 @@ class CreationReplay(unittest.TestCase):
         self.assertNotEqual(first['id'], second['id'])
         self.assertEqual(len(self.created), 2)
 
+    def test_delivery_mode_is_pinned_to_new_request_and_replay_preserves_old_contract(self):
+        first = self.m.create(**self.args)
+        self.assertEqual(first['delivery_mode'], 'handoff-ref-v1')
+        self.assertEqual(self.m.create(**self.args)['delivery_mode'], 'handoff-ref-v1')
+        key = first['request_key']
+        pending = self.m.root / (key + '.request.json')
+        request = json.loads(pending.read_text()); request.pop('delivery_mode')
+        pending.write_text(json.dumps(request))
+        first.pop('delivery_mode'); self.m._save(first['id'], first)
+        self.assertNotIn('delivery_mode', self.m.create(**self.args))
+        self.assertEqual(len(self.created), 1)
+
     def test_invalid_request_ids_fail_before_provider_side_effects(self):
         for token in ('', None, 42, 'x' * 129):
             with self.subTest(token=token), self.assertRaises(manager.ManagerError):

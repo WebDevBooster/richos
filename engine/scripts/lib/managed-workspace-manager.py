@@ -258,7 +258,7 @@ class WorkspaceManager:
                                payload=payload, state='creating', owner_uid=owner_uid, owner_gid=owner_gid,
                                source_repo=payload['source_repo'], source_commit=commit, session_id=session_id,
                                agent_name=agent_name, retention_days=retention_days,
-                               created_at=time.time(), agent_id=None)
+                               created_at=time.time(), agent_id=None, delivery_mode='handoff-ref-v1')
                 request['source_identity'] = self._source_fingerprint(request)
                 # The permanent tiny mapping is published before provider side
                 # effects. It survives success, reclamation and expiry so retries
@@ -650,7 +650,31 @@ class WorkspaceManager:
                 raise ManagerError('handoff reference does not preserve exported tip')
             self._user_git(['cat-file', '-e', ref['oid']], owner, cwd=record['source_repo'])
 
+    def _delivery(self, record):
+        rows = [row for row in record.get('handoff_refs', []) if row.get('source') == 'HEAD']
+        expected = 'refs/richos/handoffs/managed/' + record['id'] + '/HEAD'
+        if len(rows) != 1 or rows[0].get('destination') != expected:
+            raise ManagerError('exact managed delivery reference is unavailable')
+        return dict(manager_id=record['id'], source_repo=record['source_repo'],
+                    ref=expected, tip=rows[0]['oid'])
+
+    def delivery(self, ident):
+        with self._lock(ident):
+            record = self._load(ident)
+            if not record.get('handoff_verified'):
+                raise ManagerError('managed delivery is not ready; terminal capture is pending')
+            self._verify_handoff(record)
+            return self._delivery(record)
+
     def _publish_terminal_branch(self, record):
+        # UUID-scoped delivery already exists and is verified before this call.
+        # New requests never create ordinary canonical branches. Existing
+        # records retain their publication contract without deleting any name.
+        record['delivery'] = self._delivery(record)
+        if record.get('delivery_mode') == 'handoff-ref-v1':
+            return
+        if record.get('delivery_mode') is not None:
+            raise ManagerError('unknown managed delivery mode')
         if record.get('branch_published'):
             return
         owner = (record['owner_uid'], record['owner_gid'])

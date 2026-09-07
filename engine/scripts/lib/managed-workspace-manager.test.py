@@ -277,6 +277,78 @@ class FrozenContent(unittest.TestCase):
     def dirty(self):
         return self.m._has_uncommitted_data(self.repo, self.owner)
 
+    def delivery_record(self, *, modern=True):
+        ident = str(uuid.uuid4())
+        tip = self.git('rev-parse', 'HEAD').decode().strip()
+        ref = 'refs/richos/handoffs/managed/' + ident + '/HEAD'
+        self.git('update-ref', ref, tip)
+        record = dict(version=1, id=ident, state='retained', source_repo=str(self.repo),
+                      owner_uid=self.owner[0], owner_gid=self.owner[1], agent_name='same-worker',
+                      handoff_verified=True, handoff_refs=[dict(source='HEAD', destination=ref, oid=tip)])
+        record['source_identity'] = self.m._source_fingerprint(record)
+        if modern:
+            record['delivery_mode'] = 'handoff-ref-v1'
+        self.m._base(ident).mkdir(mode=0o700)
+        self.m._save(ident, record)
+        return record
+
+    def test_delivery_refs_allow_same_name_and_exact_merge_without_source_branches(self):
+        first = self.delivery_record()
+        self.git('checkout', '--detach', '-q')
+        (self.repo / 'delivered').write_text('unique committed work')
+        self.git('add', '.'); self.git('commit', '-qm', 'worker commit')
+        second = self.delivery_record()
+        self.git('checkout', '-q', '-')
+        before = self.git('for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/')
+        for record in (first, second):
+            self.m._verify_handoff(record)
+            self.m._publish_terminal_branch(record)
+            self.m._save(record['id'], record)
+            result = self.m.delivery(record['id'])
+            self.assertEqual(result, record['delivery'])
+            self.assertNotIn('branch_published', record)
+        self.assertNotEqual(first['delivery']['ref'], second['delivery']['ref'])
+        self.assertNotEqual(first['delivery']['tip'], second['delivery']['tip'])
+        self.assertEqual(self.git('for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/'), before)
+        self.git('merge', '--ff-only', second['delivery']['tip'])
+        self.assertEqual((self.repo / 'delivered').read_text(), 'unique committed work')
+        self.assertEqual(self.git('for-each-ref', '--format=%(refname)', 'refs/heads/same-worker'), b'')
+
+    def test_delivery_rechecks_current_ref_and_source_identity(self):
+        record = self.delivery_record()
+        self.m._publish_terminal_branch(record); self.m._save(record['id'], record)
+        self.git('update-ref', '-d', record['delivery']['ref'])
+        with self.assertRaises(manager.ManagerError):
+            self.m.delivery(record['id'])
+        self.assertEqual(self.m._load(record['id'])['delivery'], record['delivery'])
+
+    def test_legacy_publication_and_reused_name_are_preserved(self):
+        old = self.delivery_record(modern=False)
+        self.m._publish_terminal_branch(old)
+        self.assertTrue(old['branch_published'])
+        self.assertEqual(self.git('rev-parse', old['published_ref']).decode().strip(), old['published_tip'])
+        (self.repo / 'new').write_text('other owner')
+        self.git('add', '.'); self.git('commit', '-qm', 'other work')
+        tip = self.git('rev-parse', 'HEAD').decode().strip()
+        self.git('update-ref', old['published_ref'], tip)
+        self.m._publish_terminal_branch(old)
+        new = self.delivery_record()
+        self.m._publish_terminal_branch(new)
+        self.assertEqual(self.git('rev-parse', old['published_ref']).decode().strip(), tip)
+        self.assertEqual(old['published_tip'], old['delivery']['tip'])
+
+    def test_pending_or_malformed_delivery_is_not_returned(self):
+        record = self.delivery_record()
+        record['handoff_verified'] = False; self.m._save(record['id'], record)
+        with self.assertRaisesRegex(manager.ManagerError, 'pending'):
+            self.m.delivery(record['id'])
+        record['handoff_verified'] = True
+        record['handoff_refs'][0]['destination'] = 'refs/heads/' + record['agent_name']
+        self.git('update-ref', record['handoff_refs'][0]['destination'], record['handoff_refs'][0]['oid'])
+        self.m._save(record['id'], record)
+        with self.assertRaisesRegex(manager.ManagerError, 'exact managed'):
+            self.m.delivery(record['id'])
+
     def test_clean_checkout_is_proved(self):
         self.assertFalse(self.dirty())
 
@@ -375,7 +447,9 @@ class ActualFilesystem(unittest.TestCase):
         self.assertEqual(git(source, 'rev-parse', 'refs/richos/handoffs/managed/'+ident+'/HEAD'), terminal)
         self.assertEqual(git(source, 'rev-parse', 'refs/richos/handoffs/managed/'+ident+'/reflog/'+abandoned), abandoned)
         self.assertEqual(git(source, 'show', abandoned+':abandoned'), 'reflog-only work')
-        self.assertEqual(git(source, 'rev-parse', 'refs/heads/dev-opus-fixture'), terminal)
+        self.assertEqual(git(source, 'for-each-ref', '--format=%(refname)', 'refs/heads/dev-opus-fixture'), '')
+        self.assertEqual(m.delivery(ident)['tip'], terminal)
+        self.assertEqual(result['delivery_mode'], 'handoff-ref-v1')
         recovery = m._base(ident) / 'recovery.dmg'
         mount = root / 'inspect'
         mount.mkdir()

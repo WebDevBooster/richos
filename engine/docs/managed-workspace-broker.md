@@ -26,7 +26,8 @@ Supported requests have exactly these fields:
   retries must preserve the request ID and payload.
 - `bind` and `terminal`: `operation`, manager-issued `id`, `session_id`
   and `agent_id`.
-- `inspect` and `reconcile`: `operation` and manager-issued `id`.
+- `inspect`, `reconcile` and `delivery`: `operation` and manager-issued `id`.
+  `delivery` returns the freshly verified exact source/ref/tip receipt once ready.
 - `preparations`: `operation` and `after` (empty string for the first page),
   returning up to 100 owned unused or incomplete preparations and `next_cursor`.
 - `cancel_preparation`: `operation`, manager-issued `id` and exact `session_id`.
@@ -41,7 +42,7 @@ Supported requests have exactly these fields:
 
 Every existing-ID operation checks the manager record's owner against the peer
 UID. Clients cannot choose arbitrary paths, devices, owner identities, expiry
-timestamps or deletion operations. The returned record includes `manager_id`,
+timestamps or deletion operations. Lifecycle responses include `manager_id`,
 `workspace_class: managed-image` and the exact `active_root/id/repo` path.
 The manager's internal sweep runs periodically regardless of new sessions.
 Changed unresolved sweep summaries are logged with UUID, state and reason;
@@ -119,3 +120,37 @@ The system `/usr/bin/python3` shim can select a user-owned Xcode installation.
 Installation refuses that interpreter and checks its actual executable and
 import paths before writing files. Apple Command Line Tools must be installed;
 the installer never changes Xcode ownership or weakens runtime protection.
+
+## Delivering managed work
+
+New creation requests use `delivery_mode: handoff-ref-v1`. The teammate branch
+exists inside the independent image. Terminal capture preserves its exact HEAD
+at `refs/richos/handoffs/managed/<manager-id>/HEAD` in the approved source
+repository without creating an ordinary source branch. Reusing a teammate name
+in another session cannot collide with or overwrite that delivery.
+
+After capture, terminal and reconcile responses include `delivery` with
+`manager_id`, `source_repo`, `ref` and `tip`. The reconciler persists that object
+in the transaction member before marking storage removed. Storage retirement is
+not evidence that the work was merged. Integration obligations still require
+landing the exact delivered commit.
+
+The creation helper prints this owner-authenticated query:
+
+```sh
+python3 'scripts/lib/managed-workspace-integration.py' delivery --id '<manager-id>' --repo '/absolute/canonical/repo'
+```
+
+It refuses while capture is pending and rechecks canonical identity, object
+presence and every handoff ref before returning a receipt. Verify the returned
+source repository and review its exact `tip`; merge that commit into the intended
+integration branch. For example, from the canonical repository, use
+`git merge --ff-only '<returned-tip>'` when a fast-forward is appropriate. Follow
+the normal reviewed merge procedure otherwise. Never infer the delivery from a
+teammate branch name, a current checkout or an arbitrary latest commit.
+
+Creation requests recorded before this delivery mode retain their existing
+ordinary-branch publication behavior. This upgrade neither deletes those
+branches nor converts their historical receipts. Existing branches require the
+explicit frozen maintenance selection. UUID handoff refs remain recovery roots
+after image expiry and are not automatically pruned.

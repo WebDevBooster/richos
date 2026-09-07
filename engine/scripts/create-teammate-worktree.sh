@@ -124,7 +124,7 @@ if [ "$MANAGED" -eq 0 ]; then
 else
     [ -z "$DIR" ] || refuse "managed workspaces use the manager's assigned path; omit --dir"
 fi
-if git -C "$MAIN" rev-parse --verify --quiet "refs/heads/$NAME" >/dev/null; then
+if [ "$MANAGED" -eq 0 ] && git -C "$MAIN" rev-parse --verify --quiet "refs/heads/$NAME" >/dev/null; then
     refuse "branch '$NAME' already exists in $MAIN — a teammate name is used once; pick a fresh identifier"
 fi
 [ -n "$BASE" ] || BASE="HEAD"
@@ -281,6 +281,11 @@ fi
 # --- 5. report --------------------------------------------------------------
 echo "created:    $DIR"
 echo "branch:     $NAME  (from $BASE in $MAIN)"
+if [ "$MANAGED" -eq 1 ]; then
+    echo "delivery:   worker branch is image-local; after terminal capture query:"
+    printf '  python3 %q delivery --id %q --repo %q\n' "$MANAGED_PY" "$MANAGED_ID" "$MAIN"
+    echo "Merge the returned exact tip in source_repo; the returned ref preserves it. Do not look for a canonical teammate branch."
+fi
 echo "seeded:     $SEEDED file(s) from .worktreeinclude"
 echo "prepared:   teammate=$NAME session=$SESSION pid=${SESSION_PID:-<unknown>} ($(python3 "$LEDGER_PY" path 2>/dev/null))"
 echo ""
