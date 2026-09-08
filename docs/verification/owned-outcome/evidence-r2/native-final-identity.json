@@ -1,0 +1,30 @@
+{
+  "claude_version": "2.1.263 (Claude Code)",
+  "head": "b80f9978507a1dd63b7baa86fff4181c362ce70d",
+  "sources": {
+    "app/scripts/test-owned-wake-native.py": "4f91add43806dce5b5add4539e15595c2a6c6a523236f6e894ed80fdc886774b",
+    "engine/scripts/install-owned-work.py": "1af736dd3bd304006ba248f22d1f4c080c00db63b98425cfa48fcfde923faf8e",
+    "engine/scripts/lib/owned-session.py": "1394a17449a5b85cc34a9ad07ca4bc3c7acc4edb7a28ddbc0caeaf0a05e75dd0",
+    "app/crates/richos-core/src/bin/richos-run.rs": "c7624c883509cd82ea49c9d7ed3036511adf8f29cae17d515dee61c4fbb45e59",
+    "app/crates/richos-core/src/autonomy.rs": "d2a810f391d0b5b67e9cfccb43383ce8e2ddd6f5c81687fa934699d90b991456",
+    "app/crates/richos-core/src/native.rs": "3dffcc10a1cd914b0708c179f8f01c09d1dda27f357303f26af1698b1efad2b0",
+    "app/crates/richos-core/doctrine/owned-outcome.md": "42e2d5a72b8c0afb98a63f43ee6768b15296e925eee7a11388c7603a2cffc426",
+    "engine/scripts/hooks/session-start-ceo-ask.sh": "348552c5a7eb55b9caeb34a0121bf4ccd7669fe43070951c93a1354105e344cb",
+    "engine/scripts/hooks/guard-ceo-ask-first.sh": "02b50879883709b76c1ecfd244e44db36cac127d7648f7ee1088eabcfd3d2e4d",
+    "engine/scripts/hooks/notice-ceo-asks.sh": "5412d6176fa38e5b08de7795dee6e1d5a6ac40dc8471016d3d91e00fb493f0a5",
+    "engine/scripts/hooks/notice-ceo-unasked.sh": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+    "engine/scripts/lib/owned-work-policy.sh": "823788184f16b822fc9c1de176eb3b0fe6df2889863c87c1c20d0c9d09e1f611",
+    "engine/scripts/lib/resolve-roots.sh": "553218b5d7fe87755326f1988c6c725002ff7715e9a6164f4b029a2151bc4d8c",
+    "engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+    "engine/scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+    "engine/scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+    "engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+    "engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+    "engine/scripts/lib/stop-hook-notice.sh": "a8eab32467521b2819f7a2d8aa1b2244d63fdd471347b73b212d48859b853d20"
+  },
+  "runner": {
+    "source_path": "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/target/debug/richos-run",
+    "path": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-1cxli909/richos-run-snapshot",
+    "sha256": "3361900a156fe5eb8a08a1aa569ed831c4e1dff426ed81b7ae39cd5571174357"
+  }
+}

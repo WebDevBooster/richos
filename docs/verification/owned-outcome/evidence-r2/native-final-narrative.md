@@ -1,0 +1,15 @@
+# Assignment-only native trial
+
+PASS: all 18 declared checks passed and the harness exited 0. The request assigned an engineer repair and leader review without injected stops, continuation coaching or operational follow-up. Only the initial disposable workspace trust selection and confirmation were sent.
+
+The same native leader (c97b3d0a-eb75-4352-a04c-a978a4b5460b) completed the repair after four real auditor verdicts (three incomplete, one complete) and two observed native async wake notifications. The leader delegated the repair, reviewed both distinct diagnoses, ran the two retained tests and ultimately executed `python3 -m json.tool diagnosis.json`. The successful native parser call/result is toolu_016pvSYjWWohDYT7dk5w77M1 in native-parser-receipts.json. Outside-model checks verified contract behavior, both retained tests, both regression mutants and the scope boundary.
+
+The revised permission hook was actually exercised in a native child. A compound unittest/echo/python-c call was denied with actual runtime suggestions retained and explicitly identified as ungranted diagnostics. The child separated commands; denied calls returned control without a permission-dialog wedge. No permissions were changed after launch and no bypass flag was used.
+
+There was a visible behavioral regression before recovery: the leader emitted a routine decision in ordinary response prose asking for approval of python-c, approval of equivalent json.tool or acceptance of inspection-only validation. It explicitly feared that json.tool would route around the denied python-c command. The auditor rejected completion, identified this as incomplete permission/tool work rather than a CEO decision and pointed to an equivalent parser path. An earlier incomplete audit had independently read the exact json.tool allow entry in project settings. The leader then executed that already permitted command and completed without a CEO response. This sample proves eventual automatic recovery; it does not prove that routine prose questions are never emitted. Raw question and correction are preserved in routine-question-and-correction.json and the full transcripts/audits remain authoritative.
+
+The unrelated D-7 business decision remained visible with options and a recommendation while the repair continued independently. The fixture integrates the real engine decision-policy wrappers only, not every guard in a fully adopted production repository.
+
+Identity: the immutable runner SHA256 is 3361900a156fe5eb8a08a1aa569ed831c4e1dff426ed81b7ae39cd5571174357. Adapter SHA256 is 1394a17449a5b85cc34a9ad07ca4bc3c7acc4edb7a28ddbc0caeaf0a05e75dd0. Full identities and matching end-of-run source snapshots are recorded in source-identity.json and source-snapshot-result.json. Claude Code version was 2.1.263. Seeded CLAUDECODE and CLAUDE_CODE_CHILD_SESSION were removed before launch; only names were recorded.
+
+This is one successful composed model sample, not a universal reliability claim. Earlier failures and corrected measurement mistakes remain separate evidence. No additional live run is necessary absent another implementation change or unresolved concern.

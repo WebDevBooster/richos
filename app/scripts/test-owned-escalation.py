@@ -23,7 +23,9 @@ for line in sys.stdin:
   text=m['message']['content']
   if not isinstance(text,str): text=''.join(c.get('text','') for c in text)
   with Path(os.environ['TEST_LOG']).open('a') as f: f.write(json.dumps(text)+'\\n')
-  if 'Independently challenge this proposed CEO escalation.' in text:
+  if 'Independently review this proposed CEO question' in text:
+   r=json.loads(os.environ['TEST_QUESTION'])
+  elif 'Independently challenge this proposed CEO escalation.' in text:
    r=json.loads(os.environ['TEST_CHALLENGE'])
   else:
    r={'kind':'decision','question':'Which filename should I use?','why_ceo':'The CEO must pick the filename.','recommendation':'Use report.txt','options':['report.txt','other.txt']}
@@ -60,3 +62,23 @@ for name, challenge, valid in cases:
  assert 'Independently challenge' in calls[1], name
  print('PASS:',name,flush=True)
 print(f'PASS: {len(cases)} real native-protocol challenge cases. Routine questions return next work; only validated final authority questions can escalate; original prohibitions reach both reviews.')
+
+question_data = dict(data, proposed_question={'questions':[{'question':'Which filename should I use?', 'header':'Filename', 'options':[{'label':'report.txt','description':'Use the authorized name'},{'label':'other.txt','description':'Change the name'}], 'multiSelect':False}]})
+question_cases = [
+ ('routine', {'allow':False,'reason':'The CEO already authorized report.txt. Finish it.'}, True),
+ ('material', {'allow':True,'reason':'New spending needs CEO authority; independent local work is complete.'}, True),
+ ('empty-reason', {'allow':True,'reason':' '}, False),
+ ('wrong-boolean', {'allow':'yes','reason':'Bad schema'}, False),
+ ('extra-field', {'allow':True,'reason':'No authority proof','grant_permission':True}, False),
+]
+for name, verdict, valid in question_cases:
+ log=root/('question-'+name+'-calls.jsonl')
+ env=dict(os.environ,RICHOS_CLAUDE_BIN=str(fake),TEST_LOG=str(log),TEST_QUESTION=json.dumps(verdict))
+ r=subprocess.run([str(runner),'audit-question',str(root),'30'], input=json.dumps(question_data),text=True,capture_output=True,env=env,timeout=40)
+ (root/('question-'+name+'-result.json')).write_text(json.dumps({'exit':r.returncode,'stdout':r.stdout,'stderr':r.stderr},indent=2))
+ assert (r.returncode==0)==valid, (name,r.stdout,r.stderr)
+ if valid: assert json.loads(r.stdout)==verdict, (name,r.stdout)
+ calls=[json.loads(line) for line in log.read_text().splitlines()]
+ assert len(calls)==1 and 'Do not publish.' in calls[0] and 'Which filename' in calls[0], (name,calls)
+ print('PASS: question-'+name,flush=True)
+print(f'PASS: {len(question_cases)} native question-review protocol cases; verdicts never grant tool permission or fabricate an answer.')

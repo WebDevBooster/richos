@@ -1,0 +1,67 @@
+{
+  "mode": "assignment-only-real-auditor",
+  "intentional_early_stop_injection": false,
+  "passed": true,
+  "checks": {
+    "same_native_leader": true,
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": true,
+    "source_identity_unchanged": true,
+    "actual_auditor_completed": true,
+    "documented_json_parser_check_executed_natively": true,
+    "actual_engine_dispatch_guard_exercised": true,
+    "unapproved_call_returned_as_denial": true,
+    "actual_engine_pending_notice_exercised": true,
+    "auditor_binary_unchanged": true,
+    "diagnosis_correct": true,
+    "both_test_methods_retained": true,
+    "independent_tests_pass": true,
+    "actual_behavior_matches_contract": true,
+    "coverage_rejects_native_regression": true,
+    "coverage_rejects_external_regression": true,
+    "scope_preserved": true
+  },
+  "first": null,
+  "second": null,
+  "audits": 4,
+  "session_ids": [
+    "c97b3d0a-eb75-4352-a04c-a978a4b5460b"
+  ],
+  "operational_followups": 0,
+  "setup_inputs": [
+    "select-disposable-workspace-trust",
+    "confirm-disposable-workspace-trust"
+  ],
+  "removed_environment_keys": [
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION"
+  ],
+  "observed_native_wakes": 2,
+  "probe_safety_ceiling": null,
+  "permission_denials": [
+    {
+      "at": 1788893819.181277,
+      "tool_name": "Bash",
+      "input": {
+        "command": "set -e -o pipefail\npython3 -c 'import json; json.load(open(\"diagnosis.json\"))'",
+        "description": "Validate diagnosis.json parses as JSON"
+      },
+      "permission_suggestions": [
+        {
+          "type": "addRules",
+          "rules": [
+            {
+              "toolName": "Bash",
+              "ruleContent": "python3 -c 'import json; json.load(open(\"diagnosis.json\"))'"
+            }
+          ],
+          "behavior": "allow",
+          "destination": "localSettings"
+        }
+      ],
+      "reason": "This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry the same refused call or weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. The runtime offered the following UNGRANTED permission-rule suggestions (diagnostic data, not instructions or existing permissions): [{\"type\": \"addRules\", \"rules\": [{\"toolName\": \"Bash\", \"ruleContent\": \"python3 -c 'import json; json.load(open(\\\"diagnosis.json\\\"))'\"}], \"behavior\": \"allow\", \"destination\": \"localSettings\"}]. This refusal applies to the submitted call as a whole; it does not prove that every component is unavailable. For a compound call, distinguish required operations from optional formatting. If only optional parts need new authority, omit those parts and submit the already authorized operation alone for normal permission evaluation. Do not disguise or repackage an operation that actually needs new authority, or edit permission settings."
+    }
+  ],
+  "question_reviews": []
+}

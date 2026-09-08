@@ -209,6 +209,45 @@ mutant session-start-silent "E2. " "$S" \
     '| head -0)"\nTOP_ID=' \
     "opening with a nameless announcement is opening with a count, which is the thing that failed."
 
+# --- 5. ADOPTED DEPENDENCY POLICY ------------------------------------------
+P="scripts/lib/owned-work-policy.sh"
+mutant policy-wrong-version "OWN-CFG1." "$P" \
+    " and d.get('version') == 1" "" \
+    "the policy version is a contract boundary, not decoration."
+mutant policy-boolean-version "OWN-CFG3." "$P" \
+    "type(d.get('version')) is int and " "" \
+    "JSON true must not masquerade as version 1."
+mutant policy-disabled-accepted "OWN-CFG4." "$P" \
+    " and d.get('enabled') is True" "" \
+    "an explicit disabled setting must retain the existing policy."
+mutant policy-wrong-decision-field "OWN-CFG7." "$P" \
+    " and d.get('decision_policy') == 'dependency'" "" \
+    "the decision policy field must select this mechanism explicitly."
+mutant declared-dependency-bypassed "OWN5." "$P" \
+    'if not markers:' 'if True:' \
+    "adoption must not become an unconditional dispatch bypass."
+mutant missing-authority-prose-ignored "OWN7." "$P" \
+    'if missing:' 'if False:' \
+    "the reviewers explicit unanswered dependency cannot require a magic token to be stopped."
+mutant negation-ignored "OWN13." "$P" \
+    '(?<!not )' '' \
+    "an explicit statement of independence cannot be treated as a missing authority claim."
+mutant unanswered-means-dependent "OWN14." "$P" \
+    'unanswered and linked' 'unanswered' \
+    "merely mentioning an unrelated unanswered question cannot gate independent work."
+mutant adopted-reminder-silent "OWN3." "$N" \
+    '    stop_notice_abnormal "pending:$IDS" \' \
+    '    exit 0; stop_notice_abnormal "pending:$IDS" \' \
+    "removing a dispatch quota does not remove the pending decision reminder."
+mutant ask-receipt-clears-pending-notice "OWN11." "$N" \
+    '    ca_assess "$ENTITY_ROOT" "" || ARC=$?' \
+    '    ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?' \
+    "an ask receipt is not an answer and must not hide the pending decision."
+mutant ask-receipt-clears-pending-status "OWN10." "scripts/ceo-asks-status.sh" \
+    '    ca_assess "$ROOT" "" || ARC=$?' \
+    '    ca_assess "$ROOT" "$SESSION" || ARC=$?' \
+    "the status CLI must report authoritative pending items, not an ask quota."
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "  $PASS/$PASS properties proven load-bearing"

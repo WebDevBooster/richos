@@ -1,0 +1,14 @@
+..E...........................
+======================================================================
+ERROR: test_compound_refusal_preserves_actual_ungranted_suggestions_for_worker_and_auditor (__main__.Owned.test_compound_refusal_preserves_actual_ungranted_suggestions_for_worker_and_auditor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 288, in test_compound_refusal_preserves_actual_ungranted_suggestions_for_worker_and_auditor
+    self.assertEqual(state['messages'][0]['text'], self.payload['prompt'])
+                     ~~~~~~~~~~~~~~~~~^^^
+IndexError: list index out of range
+
+----------------------------------------------------------------------
+Ran 30 tests in 0.571s
+
+FAILED (errors=1)

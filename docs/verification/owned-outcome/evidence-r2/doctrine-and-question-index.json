@@ -1,0 +1,37 @@
+{
+  "prior_doctrine_gate_summary": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-doctrine-gates-5vf4hr0u/summary.json",
+  "revised_doctrine_gate_summary": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-doctrine-gates-r2-m9bvuk06/summary.json",
+  "prior_question_probes": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-question-native-p5hvzprq/results.json",
+  "revised_question_probes": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-question-native-5kny12v1/results.json",
+  "final_question_runner_identity": {
+    "runner": "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/target/debug/richos-run",
+    "runner_sha256": "3361900a156fe5eb8a08a1aa569ed831c4e1dff426ed81b7ae39cd5571174357",
+    "provider": "/Users/alex/.local/bin/claude",
+    "provider_realpath": "/Users/alex/.local/share/claude/versions/2.1.263",
+    "provider_version_exit": 0,
+    "provider_version": "2.1.263 (Claude Code)",
+    "owned_doctrine_sha256": "42e2d5a72b8c0afb98a63f43ee6768b15296e925eee7a11388c7603a2cffc426"
+  },
+  "runner_unchanged_through_probe": true,
+  "revised_question_case_results": [
+    {
+      "case": "routine-start",
+      "expected_allow": false,
+      "passed": true,
+      "elapsed_seconds": 11.135
+    },
+    {
+      "case": "material-ready",
+      "expected_allow": true,
+      "passed": true,
+      "elapsed_seconds": 27.244
+    },
+    {
+      "case": "material-premature",
+      "expected_allow": false,
+      "passed": true,
+      "elapsed_seconds": 28.381
+    }
+  ],
+  "scope": "Doctrine-only unmanaged gates and semantic question endpoint; neither is the interactive hook deployment trial."
+}

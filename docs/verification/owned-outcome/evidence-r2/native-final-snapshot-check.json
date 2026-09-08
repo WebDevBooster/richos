@@ -1,0 +1,21 @@
+{
+  "app/scripts/test-owned-wake-native.py": true,
+  "engine/scripts/install-owned-work.py": true,
+  "engine/scripts/lib/owned-session.py": true,
+  "app/crates/richos-core/src/bin/richos-run.rs": true,
+  "app/crates/richos-core/src/autonomy.rs": true,
+  "app/crates/richos-core/src/native.rs": true,
+  "app/crates/richos-core/doctrine/owned-outcome.md": true,
+  "engine/scripts/hooks/session-start-ceo-ask.sh": true,
+  "engine/scripts/hooks/guard-ceo-ask-first.sh": true,
+  "engine/scripts/hooks/notice-ceo-asks.sh": true,
+  "engine/scripts/hooks/notice-ceo-unasked.sh": true,
+  "engine/scripts/lib/owned-work-policy.sh": true,
+  "engine/scripts/lib/resolve-roots.sh": true,
+  "engine/scripts/lib/resolve-main-checkout.sh": true,
+  "engine/scripts/lib/ceo-asks.sh": true,
+  "engine/scripts/lib/ceo-asks.py": true,
+  "engine/scripts/lib/ceo-todos.sh": true,
+  "engine/scripts/lib/ceo-todos.py": true,
+  "engine/scripts/lib/stop-hook-notice.sh": true
+}

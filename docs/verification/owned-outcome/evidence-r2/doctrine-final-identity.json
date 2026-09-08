@@ -1,0 +1,28 @@
+{
+  "surface": "doctrine-only headless unmanaged assignment, not interactive hook trial",
+  "gate_sources": {
+    "gate.sh": "bf971142f412b4b67290f8229f63d27ab2707b2525504fc62bab11f1b3939b9c",
+    "scenarios/shipping-units.json": "f6f3f5efdcaa4c0087fee755ef6c769910ff8ab2ea6ad35343b4f112837b0696",
+    "scenarios/rate-limits.json": "a453801176337aaf0594586231a7430496c441a5f4a0711ac98c1c4ad891749e",
+    "lib/controls.py": "d93c9f144b209f4e77e9f4884ef3725e90f0d98b2d49403de294ff53ac0bfcbf",
+    "lib/model_judge.py": "acaa1cda2ccabe9ea514cb2b84717b16c721cfe9eda415edc33f0ef29ec0d511",
+    "lib/live_run.py": "b3575d4c9598d54556862b18f639c00e5e6ae15d3edca0c97b638c8083ac7d85",
+    "lib/prove_records.py": "905d7549fda6fab739189f77ee0c15e8750fdb277bc8c0f6fbb9fc86584c93a9",
+    "lib/records.py": "bb1689b9a47e5ebd30a58759f88436cf03f90faf2a47bf3d5e582e4389128ced",
+    "lib/harness.test.sh": "e9711584fc8586181e2a1bbf8e6185993956e58a25e6f3eed67e52c381b1c1a5",
+    "lib/gate.py": "44146eb96ad7da451f985a1e2525ded416e53f895f0db53b92519bd2763b9eb0",
+    "lib/judge.py": "98a492cafece93198f36f559ef30224e45f9efac99f81bc5811c929b9c6a56a8",
+    "lib/build_sandbox.py": "812566bc9a6129b0160c4e17fc3f2c9226635875b25a65a5770b7ba20313d201",
+    "lib/run_suite.py": "07e4a77c56d35ef41acb2d43aadf97bee7284ad9b3c6ab163d55bd1258cdf33e",
+    "evidence/2026-09-08/raw/run-1-shipping-units.meta.json": "236bf70352677bf491f9f8bca9927897dc6d288b8d73f7b414b39527f5ec698b",
+    "evidence/2026-09-08/raw/run-2-rate-limits-restart.meta.json": "2fd25c8367166ac7f9a54b70e14494670b173ca89a438df11004cea7e59462e6"
+  },
+  "gate_sources_changed_from_prior": [],
+  "prior_evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-doctrine-gates-5vf4hr0u",
+  "doctrine": "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/doctrine/owned-outcome.md",
+  "doctrine_sha256": "42e2d5a72b8c0afb98a63f43ee6768b15296e925eee7a11388c7603a2cffc426",
+  "gate_git_head": "e457eab6826c108bd1dc300f6569e5dcce6501d0",
+  "runs_per_scenario": 1,
+  "votes": 3,
+  "model": "opus"
+}

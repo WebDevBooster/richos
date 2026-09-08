@@ -60,7 +60,7 @@ no background OS service is installed. Workers are serial. The desktop does not
 adopt interactive Claude Code teams. A separate, explicitly installed native
 adapter can instead continue their existing leader using Claude's wake events.
 It uses the same outcome policy and reviewer without creating another leader.
-See the [implementation and activation review](../docs/verification/owned-outcome/REVIEW.md).
+See the [implementation and activation review](../docs/verification/owned-outcome/REVISION-2.md).
 
 ## Permissions
 

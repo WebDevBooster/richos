@@ -1,0 +1,49 @@
+{
+  "mode": "assignment-only-real-auditor",
+  "intentional_early_stop_injection": false,
+  "passed": true,
+  "checks": {
+    "same_native_leader": true,
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": true,
+    "source_identity_unchanged": true,
+    "actual_auditor_completed": true,
+    "actual_engine_dispatch_guard_exercised": true,
+    "unapproved_call_returned_as_denial": true,
+    "actual_engine_pending_notice_exercised": true,
+    "auditor_binary_unchanged": true,
+    "diagnosis_correct": true,
+    "both_test_methods_retained": true,
+    "independent_tests_pass": true,
+    "actual_behavior_matches_contract": true,
+    "coverage_rejects_native_regression": true,
+    "coverage_rejects_external_regression": true,
+    "scope_preserved": true
+  },
+  "first": null,
+  "second": null,
+  "audits": 2,
+  "session_ids": [
+    "083f7cdb-6cb6-43a0-b474-1e6ac8f0aa0b"
+  ],
+  "operational_followups": 0,
+  "setup_inputs": [
+    "select-disposable-workspace-trust",
+    "confirm-disposable-workspace-trust"
+  ],
+  "removed_environment_keys": [
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION"
+  ],
+  "observed_native_wakes": 1,
+  "probe_safety_ceiling": null,
+  "permission_denials": [
+    {
+      "at": 1788891936.160634,
+      "tool_name": "Bash",
+      "reason": "This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry the same refused call or weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation."
+    }
+  ],
+  "question_reviews": []
+}

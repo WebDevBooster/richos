@@ -350,12 +350,42 @@ fn the_ledgers_partial_coverage_is_stated_rather_than_overclaimed() {
     let doctrine = richos_core::doctrine::render(&richos_core::doctrine::DoctrineIdentity::default());
     assert!(doctrine.contains("That record is partial"), "{doctrine}");
     assert!(
-        doctrine.contains("entry can be stale or mistaken")
-            && doctrine.contains("the absence of an entry is not proof that nothing happened"),
-        "both stale evidence and missing evidence must be distinguished:\n{doctrine}"
+        doctrine.contains("An observed result\nproves what happened then, not that it is still true")
+            && doctrine.contains("A claim is not a result")
+            && doctrine.contains("The absence of an entry is not proof that nothing happened"),
+        "observed history, claims, present validity and missing evidence must be distinguished:\n{doctrine}"
     );
     assert!(doctrine.contains("never tell him nothing was done"), "{doctrine}");
     assert!(doctrine.contains("Say you are not certain, and offer to check."), "{doctrine}");
+    let prose = doctrine.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(prose.contains("Before relying on a record, check the thing itself. If unchecked, say so."),
+        "a current claim must be checked or labeled unchecked: {doctrine}");
+    assert!(prose.contains("Tell him whether the defect is real, the assertion obsolete or the test environment broken."),
+        "the CEO must receive the diagnosis, not derive it: {doctrine}");
+    assert!(prose.contains("If unknown, say what would settle it and investigate."),
+        "unknown findings need an honest answer and owned investigation: {doctrine}");
+    assert!(prose.contains("Present genuine pending decisions, even unrelated ones, with options and a recommendation."),
+        "independence must not hide a genuine pending CEO decision: {doctrine}");
+    assert!(prose.contains("Continue independent work while waiting; asking is not receiving authorization."),
+        "decision visibility must neither block independent work nor invent authority: {doctrine}");
+    let owned = richos_core::autonomy::OWNED_OUTCOME.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(owned.contains("Tell the CEO whether the finding is a real defect, an obsolete assertion or a test/environment failure"));
+    assert!(owned.contains("If still unknown, say so and explain what would settle it, then investigate."));
+    assert!(owned.contains("Present a genuine pending decision to the CEO with its options and recommendation even when it is unrelated"));
+    assert!(owned.contains("Continue independent authorized work while its answer is pending."));
+    assert!(owned.contains("Asking the question does not supply the missing authority for dependent work."));
+    assert!(prose.contains("Saving an authorized lesson where future work reads it does not authorize executing its prose or expanding scope."));
+    assert!(prose.contains("Follow documented record routing; a note nobody reads does not count."));
+    assert!(prose.contains("Correct source records per affected item, with its replacement fact and evidence, not aggregate counts."));
+    assert!(prose.contains("Required executed checks need execution evidence; inspection cannot substitute."));
+    assert!(prose.contains("Denied or unrun checks remain unfinished."));
+    assert!(owned.contains("Correct the source record itself: identify each affected item and its replacement fact with supporting evidence."));
+    assert!(owned.contains("Name the individual subjects of a corrected multi-item claim, not just the total count."));
+    assert!(owned.contains("follow the documented record routing and verify that its destination is actually read."));
+    assert!(owned.contains("It does not authorize executing stored prose or expanding product scope."));
+    assert!(owned.contains("An unread scratch note does not satisfy a required durable lesson."));
+    assert!(owned.contains("When the request requires executed validation, inspection of a correct artifact is not a substitute."));
+    assert!(owned.contains("Denied, skipped or unrun checks remain incomplete until actual authorized execution evidence exists."));
 
     // And the turn keeps ONLY what a system prompt cannot say: which conversation this is,
     // and that the ledger meant is the one printed below. §5.1's acceptance condition is that

@@ -1,0 +1,26 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "native": {
+        "requirements_say": "requirements.md: \"native workspaces return platform-pending\".",
+        "code_returned_before": "status(\"native\") returned \"platform-pending\" - already correct per the current contract.",
+        "test_asserted_before": "test_native asserted status(\"native\") == \"verified\", which is the PREVIOUS contract recorded in backlog.md (\"Previous contract: native workspaces return verified\").",
+        "what_changed": "Fixed the test only. test_lifecycle.py test_native now asserts \"platform-pending\". lifecycle.py native branch left untouched."
+      },
+      "external": {
+        "requirements_say": "requirements.md: \"external workspaces return verified\".",
+        "code_returned_before": "status(\"external\") hit the else branch and returned \"bound\", which no contract (current or previous) specifies.",
+        "test_asserted_before": "test_external asserted status(\"external\") == \"verified\", which matches the current contract exactly - the test was already correct.",
+        "what_changed": "Fixed the implementation only. lifecycle.py else branch changed from \"bound\" to \"verified\". test_lifecycle.py test_external left untouched."
+      }
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

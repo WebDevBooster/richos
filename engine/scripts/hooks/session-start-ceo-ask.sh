@@ -133,7 +133,7 @@ fi
 
 . "$SCRIPT_DIR/../lib/owned-work-policy.sh"
 if owned_work_policy "$ENTITY_ROOT"; then
-    emit "Prepared CEO decision remains pending: ${TOP_ID}: ${TOP_ASK}. Check whether it is an actual dependency. Continue independent authorized work. Never ask a question merely to unlock dispatch." ""
+    emit "Prepared CEO decision remains pending: ${TOP_ID}: ${TOP_ASK}. Check whether it is an actual dependency. Keep the decision visible and continue independent authorized work. Declare dependent dispatches with depends-on-ceo: <TODO id>; an ask receipt is not an answer. Never ask a question merely to unlock dispatch." "CEO DECISION PENDING: ${TOP_ID}: ${TOP_ASK}${REST} Independent authorized work continues."
     exit 0
 fi
 

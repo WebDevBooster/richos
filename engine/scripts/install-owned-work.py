@@ -8,6 +8,30 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
+
+
+def ignore_local_config(root):
+    # Machine paths do not belong in an adopter's commits. Keep the exclusion
+    # local to Git; do not add another entry to the repository root.
+    result = subprocess.run(['git', '-C', str(root), 'rev-parse', '--git-path', 'info/exclude'],
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        path = Path(result.stdout.strip())
+        if not path.is_absolute():
+            path = root / path
+        rules = ['/.claude/owned-work.json', '/.claude/settings.local.owned-lock']
+    else:
+        path = root / '.claude/.gitignore'
+        rules = ['owned-work.json', 'settings.local.owned-lock']
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prior = path.read_text() if path.exists() else ''
+    additions = [rule for rule in rules if rule not in prior.splitlines()]
+    if additions:
+        with path.open('a') as f:
+            f.write(('\n' if prior and not prior.endswith('\n') else '') + '\n'.join(additions) + '\n')
+            f.flush()
+            os.fsync(f.fileno())
 
 script = Path(__file__).resolve().parent / 'lib/owned-session.py'
 spec = importlib.util.spec_from_file_location('owned', script)
@@ -25,11 +49,11 @@ def install(workspace, runner):
         original = json.loads(target.read_text()) if target.exists() else {}
         # Preserve user/local permissions and unrelated hooks byte-semantically.
         hooks = original.setdefault('hooks', {})
-        for event, mode in [('UserPromptSubmit', 'capture'), ('SessionStart', 'capture'), ('SessionStart', 'audit'), ('Stop', 'audit'), ('StopFailure', 'audit')]:
+        for event, mode in [('UserPromptSubmit', 'capture'), ('SessionStart', 'capture'), ('SessionStart', 'audit'), ('Stop', 'audit'), ('StopFailure', 'audit'), ('PermissionRequest', 'permission'), ('PreToolUse', 'question'), ('Notification', 'observe')]:
             command = 'python3 ' + shlex.quote(str(script)) + ' ' + mode
             groups = hooks.setdefault(event, [])
             found = [h for group in groups for h in group.get('hooks', []) if 'lib/owned-session.py' in h.get('command', '') and h['command'].endswith(' ' + mode)]
-            config = {'type': 'command', 'command': command, 'timeout': 3900 if mode == 'audit' else 15}
+            config = {'type': 'command', 'command': command, 'timeout': 3900 if mode == 'audit' else 180 if mode == 'question' else 15}
             if mode == 'audit':
                 config['asyncRewake'] = True
             if found:
@@ -37,7 +61,11 @@ def install(workspace, runner):
                     h.clear()
                     h.update(config)
             else:
-                groups.append({'hooks': [config]})
+                group = {'hooks': [config]}
+                if mode == 'question': group['matcher'] = 'AskUserQuestion'
+                if mode == 'observe': group['matcher'] = 'permission_prompt'
+                groups.append(group)
+        ignore_local_config(root)
         owned.atomic(target, original)
         owned.atomic(root / owned.CONFIG, {'version': 1, 'enabled': True, 'runner': str(binary), 'decision_policy': 'dependency'})
     return target

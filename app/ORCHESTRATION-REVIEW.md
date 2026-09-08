@@ -1,7 +1,7 @@
 # RichOS durable work: architecture and review history
 
 The September 8 continuation correction is documented in
-[Owned outcome completion](../docs/verification/owned-outcome/REVIEW.md).
+[Owned outcome completion](../docs/verification/owned-outcome/REVISION-2.md).
 That report covers the separate native Claude adapter, recovery corrections,
 current verification and activation limits. Earlier audit observations below are
 historical measurements; the current behavior is stated explicitly here.

@@ -608,7 +608,7 @@ for h in notice-ceo-asks.sh guard-ceo-ask-first.sh notice-ceo-unasked.sh session
     fi
 done
 
-for f in scripts/lib/ceo-asks.sh scripts/lib/ceo-asks.py; do
+for f in scripts/lib/ceo-asks.sh scripts/lib/ceo-asks.py scripts/lib/owned-work-policy.sh; do
     if grep -q "$(basename "$f")" "$SRC_DIR/install.sh" 2>/dev/null; then
         ok "G4. $f is sidecar-hashed by install.sh"
     else
@@ -616,27 +616,90 @@ for f in scripts/lib/ceo-asks.sh scripts/lib/ceo-asks.py; do
     fi
 done
 
-# Dependency-based adoption must not fabricate CEO answers to unblock work.
+# Dependency adoption preserves pending decisions without inventing authority.
 write_record
 write_seat_config "$TODOREPO"
-rm -f "$LEDGER" "$DEFERS"
-printf '%s\n' '{"version":1,"enabled":true,"decision_policy":"dependency"}' > "$SEAT/.richos-owned-work.json"
-run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation defect")"
-if [ "$RC" -eq 0 ] && [ ! -s "$LEDGER" ]; then
-    ok "OWN1. independent dispatch proceeds without fabricating a CEO answer"
+reset_ledger
+rm -f "$DEFERS"
+OWN_CONFIG="$SEAT/.claude/owned-work.json"
+write_owned_config() { printf '%s\n' '{"version":1,"enabled":true,"decision_policy":"dependency"}' > "$OWN_CONFIG"; }
+write_owned_config
+run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation defect. The unrelated CEO decision remains pending; this work does not depend on it.")"
+if [ "$RC" -eq 0 ] && [ ! -s "$LEDGER" ] && [ ! -s "$DEFERS" ]; then
+    ok "OWN1. independent dispatch proceeds without fabricating an answer or deferral"
 else bad "OWN1. dependency policy wrongly gated independent work" "rc=$RC $ERR"; fi
 run_hook "$SSTART" '{}'
-if [[ "$OUT" == *"actual dependency"* ]] && [[ "$OUT" != *"BEFORE DISPATCHING ANYONE"* ]]; then
+if [[ "$OUT" == *"actual dependency"* ]] && [[ "$OUT" == *"CEO DECISION PENDING"* ]] && [[ "$OUT" != *"BEFORE DISPATCHING ANYONE"* ]]; then
     ok "OWN2. pending decision stays visible without a question quota"
-else bad "OWN2. startup still demands an unrelated CEO question" "$OUT $ERR"; fi
+else bad "OWN2. startup suppressed the pending decision or retained the quota" "$OUT $ERR"; fi
 run_hook "$STOPN" "$(stop_payload OWNED)"
-if [[ "$OUT" != *"AskUserQuestion"* ]]; then
-    ok "OWN3. Stop notice does not resurrect the unrelated question quota"
-else bad "OWN3. Stop resurrected the unrelated question quota" "$OUT"; fi
-rm -f "$SEAT/.richos-owned-work.json"
+if [ "$RC" -eq 0 ] && [[ "$OUT" == *"CEO DECISION PENDING"* ]] && [[ "$OUT" == *"1.1"* ]] && [[ "$OUT" != *"AskUserQuestion"* ]]; then
+    ok "OWN3. Stop retains a named nonblocking pending-decision reminder"
+else bad "OWN3. Stop suppressed the pending decision or resurrected the quota" "$OUT"; fi
+rm -f "$OWN_CONFIG"
 run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation defect")"
 if [ "$RC" -eq 2 ]; then ok "OWN4. unadopted repositories retain their existing policy";
 else bad "OWN4. adoption change leaked into an unadopted repository" "rc=$RC $ERR"; fi
+write_owned_config
+run_hook "$GATE" "$(agent_payload OWNED $'Implement the signing choice.\ndepends-on-ceo: 1.1')"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"1.1 remains pending"* ]]; then
+    ok "OWN5. a declared pending dependency blocks only its dispatch"
+else bad "OWN5. a pending dependency was bypassed" "rc=$RC $ERR"; fi
+run_hook "$WITNESS" "$(ask_payload OWNED - "$Q_SIGNING" "$L_SIGNING" "$D_SIGNING")"
+run_hook "$GATE" "$(agent_payload OWNED $'Implement signing.\ndepends-on-ceo: 1.1\nceo-todos-deferred: keep moving')"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"Asking it this session does not authorize"* ]]; then
+    ok "OWN6. an ask receipt and deferral do not authorize dependent work"
+else bad "OWN6. asking or deferring was misread as authority" "rc=$RC $ERR"; fi
+run_hook "$GATE" "$(agent_payload OWNED "Implement the CEO answer to his prepared decision. He has NOT answered it. This dispatch DEPENDS on that answer and cannot proceed without it.")"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"explicitly declares missing CEO authority"* ]]; then
+    ok "OWN7. the reviewers explicit unanswered-dependency prose blocks without a marker"
+else bad "OWN7. the reviewers dependent dispatch was permitted" "rc=$RC $ERR"; fi
+run_hook "$GATE" "$(agent_payload OWNED $'Implement signing.\ndepends-on-ceo: nonexistent')"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"unknown or ambiguous"* ]]; then
+    ok "OWN8. an unknown TODO id cannot manufacture approval"
+else bad "OWN8. unknown authority reference was accepted" "rc=$RC $ERR"; fi
+run_hook "$GATE" "$(agent_payload OWNED $'Implement signing.\ndepends-on-ceo:')"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"needs a concrete TODO id"* ]]; then
+    ok "OWN9. empty dependency declaration is rejected"
+else bad "OWN9. empty declaration bypassed verification" "rc=$RC $ERR"; fi
+OUT="$(bash "$STATUS" "$SEAT" --session OWNED 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && [[ "$OUT" == *"PENDING / OPEN"* ]] && [[ "$OUT" == *"1.1"* ]]; then
+    ok "OWN10. asked but unresolved decisions remain OPEN in the status CLI"
+else bad "OWN10. pending status was falsely cleared" "rc=$RC $OUT"; fi
+rm -rf "$SEAT/.claude/state/stop-hook-notices"
+run_hook "$STOPN" "$(stop_payload OWNED)"
+if [ "$RC" -eq 0 ] && [[ "$OUT" == *"CEO DECISION PENDING: 1.1"* ]]; then
+    ok "OWN11. an ask receipt cannot hide a pending decision reminder"
+else bad "OWN11. the unanswered item disappeared after an ask" "$OUT $ERR"; fi
+run_hook "$STOPN" "$(stop_payload OWNED)"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+    ok "OWN12. an unchanged pending reminder is deduplicated without blocking"
+else bad "OWN12. unchanged pending reminder repeated or blocked" "$OUT $ERR"; fi
+run_hook "$GATE" "$(agent_payload OWNED "Repair the local tests. This work does not depend on the CEO answer about transcription.")"
+if [ "$RC" -eq 0 ]; then
+    ok "OWN13. explicitly independent work is not mistaken for a dependency"
+else bad "OWN13. negated dependency statement wrongly blocked work" "rc=$RC $ERR"; fi
+run_hook "$GATE" "$(agent_payload OWNED "CEO has not answered the unrelated webinar question. Repair the independent local defect.")"
+if [ "$RC" -eq 0 ]; then
+    ok "OWN14. mentioning an unrelated unanswered question does not create a dependency"
+else bad "OWN14. unrelated unanswered question wrongly blocked independent work" "rc=$RC $ERR"; fi
+reset_ledger
+policy_rejected() {
+    printf '%s\n' "$2" > "$OWN_CONFIG"
+    run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation defect")"
+    if [ "$RC" -eq 2 ]; then ok "$1. invalid adoption does not disable the existing gate";
+    else bad "$1. invalid adoption enabled the new policy" "rc=$RC $ERR"; fi
+}
+policy_rejected OWN-CFG1 '{"version":2,"enabled":true,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG2 '{"enabled":true,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG3 '{"version":true,"enabled":true,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG4 '{"version":1,"enabled":false,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG5 '{"version":1,"enabled":"true","decision_policy":"dependency"}'
+policy_rejected OWN-CFG6 '{"version":1,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG7 '{"version":1,"enabled":true,"decision_policy":"quota"}'
+policy_rejected OWN-CFG8 '{"version":1,"enabled":true}'
+policy_rejected OWN-CFG9 '[]'
+rm -f "$OWN_CONFIG"
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # Until 2026-09-05 it ran from NOTHING. run-all-tests.sh discovers *.test.sh;

@@ -1,5 +1,9 @@
 # Owned outcome completion: implementation and review handoff
 
+Historical report for `b80f9978`. The external review found deficiencies in the
+adopted guard and trial interpretation. Current corrections and evidence are in
+[REVISION-2.md](REVISION-2.md); its behavior supersedes this report where stated.
+
 Date: 2026-09-08. Branch: `codex/owned-outcome-completion`.
 Base: `28f07ab5`. Worktree: `/Users/alex/ab/richos-wt/codex-owned-outcome-completion`.
 The implementation and acceptance work are isolated here. No production session

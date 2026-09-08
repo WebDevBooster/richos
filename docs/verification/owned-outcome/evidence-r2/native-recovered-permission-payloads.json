@@ -1,0 +1,39 @@
+[
+  {
+    "mode": "permission",
+    "input": {
+      "session_id": "af4b88d9-7ce6-44f2-b5f9-d2369a17f49d",
+      "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-lokegetc-workspace/af4b88d9-7ce6-44f2-b5f9-d2369a17f49d.jsonl",
+      "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-lokegetc/workspace",
+      "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-lokegetc-workspace/af4b88d9-7ce6-44f2-b5f9-d2369a17f49d/scratchpad",
+      "prompt_id": "cb1e7a5d-ed5c-4ab8-ac3c-8029041b9f48",
+      "permission_mode": "acceptEdits",
+      "effort": {
+        "level": "high"
+      },
+      "hook_event_name": "PermissionRequest",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "set -e -o pipefail\npython3 -m json.tool diagnosis.json > /dev/null && echo \"PARSE_OK exit=$?\"",
+        "description": "Parse-validate diagnosis.json via json.tool"
+      },
+      "permission_suggestions": [
+        {
+          "type": "addRules",
+          "rules": [
+            {
+              "toolName": "Bash",
+              "ruleContent": "echo \"PARSE_OK exit=$?\""
+            }
+          ],
+          "behavior": "allow",
+          "destination": "localSettings"
+        }
+      ]
+    },
+    "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry the same refused call or weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation.\", \"interrupt\": false}}}\n",
+    "stderr": "",
+    "exit": 0,
+    "time": 1788893124.369387
+  }
+]
