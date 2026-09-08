@@ -69,10 +69,22 @@ class Completion(unittest.TestCase):
                 if kind=='assume':self.git(self.worker,'update-index','--no-assume-unchanged','tracked')
                 if target.name=='tracked':self.git(self.worker,'reset','--hard','HEAD')
                 else:target.unlink()
-    def test_unmerged_commit_refuses_then_actual_merge_accepts(self):
+    def test_unmerged_commit_completes_and_is_reclaimable_only_after_merge(self):
+        # This case used to be test_unmerged_commit_refuses_then_actual_merge_
+        # accepts, and it pinned the wrong contract: it required the lead's
+        # merge BEFORE the worker could finish, while the lead merges only
+        # after the worker reports. The worker's evidence is its own branch;
+        # main's ancestry is the RECLAMATION question and is pinned below on
+        # the same fixture, so neither half is dropped.
         (self.worker/'tracked').write_text('deliverable\n');self.commit()
-        with self.assertRaisesRegex(proof.CompletionError,'Merge'):proof.complete(self.payload)
-        self.merge();self.assertEqual(proof.complete(self.payload)['members'][0]['head'],self.git(self.repo,'rev-parse','main'))
+        head=self.git(self.worker,'rev-parse','HEAD')
+        self.assertNotEqual(head,self.git(self.repo,'rev-parse','main'))
+        member=proof.complete(self.payload)['members'][0]
+        self.assertEqual(member['head'],head)
+        with self.assertRaisesRegex(proof.CompletionError,'no longer contains the delivery'):
+            proof.verify_member_proof(member)
+        self.merge();proof.verify_member_proof(member)
+        self.assertEqual(proof.complete(self.payload)['members'][0]['head'],self.git(self.repo,'rev-parse','main'))
     def test_actual_unfinished_merge_and_operation_markers_refuse(self):
         self.git(self.repo,'branch','side')
         self.git(self.repo,'commit','--allow-empty','-m','main advance')
@@ -186,16 +198,28 @@ class Completion(unittest.TestCase):
             result=self.hook()
         self.assertEqual(result.returncode,2)
         self.assertFalse(proof.receipt_root().exists())
-    def test_actual_hook_refuses_missing_null_empty_and_nonstring_event_names(self):
-        for payload in ({}, {'hook_event_name':None}, {'hook_event_name':42},
-                        {'hook_event_name':[]}, {'hook_event_name':''}, {'hook_event_name':'   '}):
+    def test_actual_hook_records_unreadable_events_without_side_effects_or_blocking(self):
+        # An unreadable event is not a refusal to complete: it is the hook
+        # saying it could not read the message. It must therefore take NO
+        # advisory action and must not hold the task open on the strength of
+        # evidence it never saw -- but it must stay visible, so the refusal is
+        # written to the durable event log.
+        unreadable=self.profile/'teammate-task-events.jsonl'
+        payloads=({}, {'hook_event_name':None}, {'hook_event_name':42},
+                  {'hook_event_name':[]}, {'hook_event_name':''}, {'hook_event_name':'   '})
+        for index,payload in enumerate(payloads,start=1):
             with self.subTest(payload=payload):
                 result=self.hook(payload)
-                self.assertEqual(result.returncode,2,result.stderr)
+                self.assertEqual(result.returncode,0,result.stderr)
                 self.assertFalse(proof.receipt_root().exists())
                 self.assertFalse((self.root/'ledger.jsonl').exists())
+                rows=[json.loads(x) for x in unreadable.read_text().splitlines()]
+                self.assertEqual(len(rows),index)
+                self.assertEqual(rows[-1]['decision'],'unreadable')
+                self.assertEqual(rows[-1]['session_id'],'')
         result=self.hook({'hook_event_name':'TaskCreated'})
         self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(len(unreadable.read_text().splitlines()),len(payloads))
 
     def test_actual_hook_records_only_verified_completions_and_fails_closed(self):
         teams=self.profile/'teams'/('session-'+self.sid[:8]);teams.mkdir(parents=True)
@@ -206,8 +230,15 @@ class Completion(unittest.TestCase):
         self.assertEqual(rows[0]['signal'],'TaskCompleted')
         before=(teams/'task-events.jsonl').read_bytes();self.task_path.unlink()
         result=self.hook();self.assertEqual(result.returncode,2,result.stderr);self.assertEqual((teams/'task-events.jsonl').read_bytes(),before)
-        result=subprocess.run(['/bin/bash',str(HOOK)],input='not-json',capture_output=True,text=True)
-        self.assertEqual(result.returncode,2)
+        # Unparseable bytes: no block, no ledger row, and the refusal is on the
+        # record beside the completion it is not.
+        ledger=(self.root/'ledger.jsonl').read_bytes()
+        result=subprocess.run(['/bin/bash',str(HOOK)],input='not-json',capture_output=True,text=True,env=dict(os.environ))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((self.root/'ledger.jsonl').read_bytes(),ledger)
+        events=[json.loads(x) for x in (teams/'task-events.jsonl').read_text().splitlines()]
+        self.assertEqual([row['decision'] for row in events],['verified','unreadable'])
         result=self.hook(dict(self.payload,hook_event_name='TaskCreated'));self.assertEqual(result.returncode,0)
+        self.assertEqual(len((teams/'task-events.jsonl').read_text().splitlines()),2)
 
 if __name__=='__main__':unittest.main()
