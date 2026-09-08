@@ -47,6 +47,7 @@ for path in pathlib.Path(sys.argv[1]).glob('*/*.json'):
     if record.get('record')=='transaction' and not record.get('terminal'):
         for member in record.get('members',[]):
             member.pop('cleanup_owner',None)
+            member.pop('cleanup_policy',None)
         path.write_text(json.dumps(record))
 HISTORICAL
     fi

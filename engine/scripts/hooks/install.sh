@@ -434,6 +434,7 @@ HOOK_FILES+=(
     # The helper is hashed because it WRITES that record.
     "$REPO_ROOT/scripts/lib/worktree-ledger.py"
     "$REPO_ROOT/scripts/lib/completion-proof.py"
+    "$REPO_ROOT/scripts/lib/daily-workspace-cleanup.py"
     "$REPO_ROOT/scripts/create-teammate-worktree.sh"
     # The worktree TRANSACTION store — the file that now decides the exact
     # member set a terminal ingress quarantines and the reconciler removes.

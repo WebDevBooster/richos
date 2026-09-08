@@ -108,7 +108,7 @@ mutant backoff-ignored "C42" "$R" \
     "a failing member would be hammered on every pass with no backoff — the persistent schedule the landed review requires (blocker 3) would be prose."
 
 mutant legacy-failed-parked "C46" "$R" \
-    '                if st == "removed":{NL}                    break' \
+    '                if st == "removed" and not daily_pending:{NL}                    break' \
     '                if st in ("removed", "failed", "missing"):{NL}                    break' \
     "a member an earlier revision left FAILED or MISSING would never be re-derived: the permanent manual queue, back."
 

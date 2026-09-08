@@ -679,6 +679,9 @@ def _try_seal_locked(session_id, agent_id):
             "start_cwd": cwd_real,
             "terminal": None,
         }
+        for member in tx["members"]:
+            if member.get("class") != "managed-image":
+                member["cleanup_policy"] = "integrated-daily"
         atomic_write_json(tx_path(session_id, agent_id), tx)
         return True, tx
 
@@ -1369,6 +1372,19 @@ def terminalize(session_id, agent_id, first_path=None):
             member = tx['members'][i]
             if platform_native(member):
                 try:
+                    if member.get("cleanup_policy") != "integrated-daily":
+                        raise ValueError("historical native member")
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("daily_workspace_cleanup", os.path.join(os.path.dirname(__file__), "daily-workspace-cleanup.py"))
+                    daily = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(daily)
+                    proof = daily.remember_native(member)
+                    update_member(session_id, agent_id, i, daily_cleanup=proof)
+                except Exception:
+                    # A failed clean proof cannot prevent Claude-owned cleanup
+                    # and cannot authorize later deletion of an unproved ref.
+                    pass
+                try:
                     observe_platform_native(session_id, agent_id, i)
                 except Exception as error:
                     _soft_failure(session_id, agent_id, i, str(error))
@@ -1383,8 +1399,13 @@ def terminalize(session_id, agent_id, first_path=None):
                 except Exception as error:
                     update_member(session_id, agent_id, i, last_error=str(error), last_attempt=now_iso())
                 continue
-            save_ref(session_id, agent_id, i)
-            quarantine(session_id, agent_id, i)
+            # Ordinary terminal ingress records ownership only. The daily
+            # reconciler rechecks clean integration before non-force removal.
+            # Dirty or unfinished bytes stay at their original path.
+            if member.get("cleanup_policy") != "integrated-daily":
+                # Historical records retain their original recovery protocol.
+                save_ref(session_id, agent_id, i)
+                quarantine(session_id, agent_id, i)
         return load_tx(session_id, agent_id)
 
 
@@ -1588,12 +1609,15 @@ def metrics():
                 out["sealed_native_present"] += 1
             continue
         out["terminal"] += 1
-        if tx.get("state") == "removed":
+        daily_pending = any(m.get("cleanup_policy") == "integrated-daily"
+                            and (m.get("daily_cleanup") or {}).get("phase") != "complete" for m in members)
+        if tx.get("state") == "removed" and not daily_pending:
             out["removed"] += 1
         for m in members:
             out["terminal_members"] += 1
             st = m.get("state")
-            if st == "removed":
+            if st == "removed" and not (m.get("cleanup_policy") == "integrated-daily"
+                    and (m.get("daily_cleanup") or {}).get("phase") != "complete"):
                 continue
             present = member_present(m)
             if present:

@@ -1,30 +1,15 @@
 #!/usr/bin/env python3
-"""Observe Claude-owned cleanup and preserve historical terminal quarantines.
+"""Reconcile terminal work without treating a stop as completed delivery.
 
-New native members retain their platform-owned path and Git registration; only
-Claude removes them. Managed images delegate to their privileged daemon.
+New sealed ordinary members use the daily clean/integrated proof lane. RichOS
+removes only its own unlocked linked worktrees with non-force Git, then exact
+unreserved branch tips. Native checkout removal remains Claude's operation.
+Dirty, unintegrated, live and uncertain work stays present and visibly pending.
+This is a cooperative workflow, not a hostile-writer security boundary.
 
-Terminal ingress quarantines an exact registered workspace. The reconciler
-captures its working files and index blobs and verifies the archive. It then
-records a blocked condition instead of unregistering or erasing the directory.
-Previously unregistered quarantines are retained too. A recreated original
-path of unknown ownership refuses capture and is left intact.
-
-No process scan or settle interval grants exclusive access against late
-writes. Automatic quarantine deletion and recovery-artifact expiry are
-therefore disabled. --status reports the blocked members and does not claim
-cleanup is complete. Existing captures, backup refs and records are retained
-indefinitely. See docs/workspace-retirement-safety.md.
-
-Since 2026-09-06 the run also opens with an ADOPTION pass (adoption_pass
-below, scripts/lib/worktree-adoption.py, docs/worktree-adoption.md). It closes
-the coverage hole between the sweep, which can identify a worktree that should
-go and removes nothing, and this reconciler, which can act and owned only what
-a terminal transaction had claimed. Adoption claims on positive identity
-evidence through nine gates and hands the tree to the same state machine, so
-it inherits the erasure refusal above rather than working around it: an
-adopted worktree gains a backup ref, a quarantine, a captured and verified
-archive, and loses nothing.
+Historical quarantine records retain their existing capture/retention protocol.
+They are not retroactively authorized for ordinary deletion. Exceptional dirty
+backlog discard is a separate explicit operator operation.
 """
 
 import argparse
@@ -869,11 +854,26 @@ def reconcile_transaction(t, deadline=None):
                 t = tx.load_tx(sid, aid)
                 m = t["members"][i]
                 st = m.get("state")
-                if st == "removed":
+                daily_pending = (m.get("cleanup_policy") == "integrated-daily"
+                                 and (m.get("daily_cleanup") or {}).get("phase") != "complete")
+                if st == "removed" and not daily_pending:
                     break
                 if base > 0 and float(m.get("retry_after_epoch") or 0) > time.time():
                     log("member %s of %s/%s: in backoff until %s after %s attempt(s) — skipped this run"
                         % (m.get("path"), sid[:8], aid, m.get("retry_after") or "?", m.get("attempts") or "?"))
+                    break
+                if (m.get("cleanup_policy") == "integrated-daily" or m.get("daily_cleanup")
+                        or (tx.platform_native(m) and os.path.lexists(m.get("path") or ""))):
+                    try:
+                        daily = _load("daily_workspace_cleanup", os.path.join(HERE, "lib", "daily-workspace-cleanup.py"))
+                        daily.reconcile(tx, t, i)
+                    except Exception as error:
+                        # Cleanup failure never invents finished work. Native
+                        # checkout retirement remains Claude's operation.
+                        if tx.platform_native(m):
+                            tx.observe_platform_native(sid, aid, i)
+                        _record_soft_failure(sid, aid, i, int(m.get("attempts") or 0) + 1,
+                                             str(error), base, cap, blocked=True)
                     break
                 if tx.platform_native(m):
                     try:
@@ -1155,7 +1155,10 @@ def run(max_seconds=None, only=None):
         # transaction write and an index write (blocker 5) must not leave a
         # guard reading "live" from a marker that was never written.
         tx._repair_terminal_indexes(t)
-        if t.get("state") == "removed":
+        if t.get("state") == "removed" and not any(
+                m.get("cleanup_policy") == "integrated-daily"
+                and (m.get("daily_cleanup") or {}).get("phase") != "complete"
+                for m in t.get("members") or []):
             continue
         if only and "%s/%s" % (t["session_id"], t["agent_id"]) != only:
             continue
