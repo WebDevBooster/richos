@@ -69,10 +69,22 @@ class Completion(unittest.TestCase):
                 if kind=='assume':self.git(self.worker,'update-index','--no-assume-unchanged','tracked')
                 if target.name=='tracked':self.git(self.worker,'reset','--hard','HEAD')
                 else:target.unlink()
-    def test_unmerged_commit_refuses_then_actual_merge_accepts(self):
+    def test_unmerged_commit_completes_and_is_reclaimable_only_after_merge(self):
+        # This case used to be test_unmerged_commit_refuses_then_actual_merge_
+        # accepts, and it pinned the wrong contract: it required the lead's
+        # merge BEFORE the worker could finish, while the lead merges only
+        # after the worker reports. The worker's evidence is its own branch;
+        # main's ancestry is the RECLAMATION question and is pinned below on
+        # the same fixture, so neither half is dropped.
         (self.worker/'tracked').write_text('deliverable\n');self.commit()
-        with self.assertRaisesRegex(proof.CompletionError,'Merge'):proof.complete(self.payload)
-        self.merge();self.assertEqual(proof.complete(self.payload)['members'][0]['head'],self.git(self.repo,'rev-parse','main'))
+        head=self.git(self.worker,'rev-parse','HEAD')
+        self.assertNotEqual(head,self.git(self.repo,'rev-parse','main'))
+        member=proof.complete(self.payload)['members'][0]
+        self.assertEqual(member['head'],head)
+        with self.assertRaisesRegex(proof.CompletionError,'no longer contains the delivery'):
+            proof.verify_member_proof(member)
+        self.merge();proof.verify_member_proof(member)
+        self.assertEqual(proof.complete(self.payload)['members'][0]['head'],self.git(self.repo,'rev-parse','main'))
     def test_actual_unfinished_merge_and_operation_markers_refuse(self):
         self.git(self.repo,'branch','side')
         self.git(self.repo,'commit','--allow-empty','-m','main advance')

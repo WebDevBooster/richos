@@ -183,9 +183,27 @@ def prove_member(member):
     if branch!=expected:raise CompletionError('Member branch differs from its bound ownership')
     head=text(path,'rev-parse','--verify','HEAD')
     if row.get('HEAD')!=head:raise CompletionError('Registered member tip changed')
+    # COMPLETION AND RECLAMATION ARE DIFFERENT QUESTIONS, AND THIS IS WHERE THEY
+    # WERE ONE. A refusal used to sit on the next line: head had to be an
+    # ancestor of refs/heads/main before a task could be marked complete
+    # ("Merge the committed deliverable into canonical main before completing").
+    #
+    # That inverts the documented handoff order. A teammate commits on its own
+    # branch and marks its task complete as its final step; only the lead merges,
+    # and the lead merges AFTER the teammate reports. Requiring the merge first
+    # means the merge waits for a completion that waits for the merge, so no
+    # teammate can ever finish. The gate's evidence for a WORKER's delivery is
+    # its commits on its OWN branch being clean, real and byte-identical to the
+    # tree — which is everything else in this function, all of it retained.
+    #
+    # The integration fact is still established and still recorded, because the
+    # question it answers is real; it is just a different question, asked by a
+    # different caller at a different time. verify_member_proof() — the replay
+    # path that daily-workspace-cleanup.py runs before it removes a worktree or
+    # deletes a branch — re-derives it against the CURRENT tip and refuses with
+    # 'Current canonical main no longer contains the delivery'. So reclaiming a
+    # workspace still requires integration; finishing a task does not.
     integration='refs/heads/main';main=direct(repo,integration)
-    if git(repo,'merge-base','--is-ancestor',head,main,allowed=(0,1)).returncode:
-        raise CompletionError('Merge the committed deliverable into canonical main before completing')
     proof={'version':1,'original_path':str(path),'repo':str(repo),'common':str(common),'admin':str(admin),
            'identities':pins,'branch':branch,'head':head,'integration_ref':integration,'integration_tip':main,
            'working_tree_sha256':clean_tree(path,head,reclaimable),'reclaimable':reclaimable}
