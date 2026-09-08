@@ -330,6 +330,40 @@ case "$AFTER" in
     *) bad "3g. the detail survives verbatim" "$AFTER" ;;
 esac
 
+# --- 3h: THE QUARANTINE IS NOT A TEAMMATE ---------------------------------
+# Removal stopped meaning deregistration on 2026-09-07 (6472bb60, "Preserve
+# Claude-owned native cleanup and prohibit bulk registration pruning"): the
+# remover now RENAMES the workspace to <parent>/.richos-retired/<base>
+# .richos-retired-ws-<16 hex>-<stamp>Z and runs `git worktree repair` on the new
+# path instead of unlocking and pruning. So a finished teammate's workspace is
+# still in `git worktree list`, at a new path, holding a copy of its ack.
+#
+# Nothing above notices, because 3d asks only whether the OLD path is gone. But
+# every loop in this operation is driven by that list, and a hand-rolled
+# worktree is presumed live — so the quarantine reads as a live teammate that
+# is owed a notice it can never be sent and can never ack, and the Stop hook
+# chases the operator about it forever. That is 8b's false chase arriving
+# through a new door, and 9a caught it only as a substring.
+#
+# The first two clauses make the case NON-VACUOUS: it asserts the new world
+# really is the new world (quarantine present AND registered) before asserting
+# that the sweep does not mistake it for a teammate.
+QPATH="$(ls -d "$SANDBOX/wt/.richos-retired/zach-opus-gone1.richos-retired-ws-"* 2>/dev/null | head -1)"
+QSTATUS="$(bash "$RUNNER" status --repo "$REPO" 2>&1)"
+say "3h status after removal" "$QSTATUS"
+if [ -z "$QPATH" ]; then
+    bad "3h. the retired quarantine is not read as a live teammate" \
+        "not asserted: no quarantine was produced under $SANDBOX/wt/.richos-retired/, so this case would pass over a remover that had simply deleted the workspace"
+elif ! git -C "$REPO" worktree list --porcelain | grep -qF "$QPATH"; then
+    bad "3h. the retired quarantine is not read as a live teammate" \
+        "not asserted: git does not register $QPATH, so the sweep could never have seen it and this case proves nothing"
+elif printf '%s' "$QSTATUS" | grep -qF "$QPATH"; then
+    bad "3h. the retired quarantine is not read as a live teammate" \
+        "the sweep lists the quarantine as a worktree, so a finished teammate is owed a notice forever: $QSTATUS"
+else
+    ok "3h. the retired quarantine is registered with git but is NOT read as a teammate — no notice is owed to a workspace nobody is standing in"
+fi
+
 # ==========================================================================
 # 4. NEGATIVE CONTROL — the teammate that never acked
 # ==========================================================================
