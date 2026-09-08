@@ -14,9 +14,20 @@ mutation_begin "create-teammate-worktree" "scripts/create-teammate-worktree.test
 
 F="scripts/create-teammate-worktree.sh"
 
+# NAMED ONE EXECUTABLE LINE AT A TIME, NOT AS A CONTIGUOUS BLOCK. This mutant
+# used to quote the whole rollback body verbatim, including the
+# `git worktree prune` line in the middle. 6472bb60 replaced that line with a
+# comment (correctly — a BULK prune during rollback also drops unrelated
+# native/legacy registrations whose directories are merely absent), and the
+# block no longer matched anything: the harness reported MUTATION TARGET
+# ABSENT and the rollback property went unproven from 6472bb60 until this fix.
+# A mutation that cannot apply is indistinguishable from coverage, which is the
+# trap this whole harness exists to close. So the two edits below name the two
+# statements that DO the rolling back and nothing between them; a reworded
+# comment, or a third statement added later, cannot silently unhook them again.
 mutant no-rollback "C17" "$F" \
-    '    git -C "$MAIN" worktree remove --force "$DIR" >/dev/null 2>&1 || rm -rf "$DIR"{NL}    git -C "$MAIN" worktree prune >/dev/null 2>&1 || true{NL}    git -C "$MAIN" branch -D "$NAME" >/dev/null 2>&1 || true' \
-    '    :' \
+    '    git -C "$MAIN" worktree remove --force "$DIR" >/dev/null 2>&1 || rm -rf "$DIR"{AND}    git -C "$MAIN" branch -D "$NAME" >/dev/null 2>&1 || true' \
+    '    :{AND}    :' \
     "a tree whose record could not be written would be left on disk — unbindable, unsealable, and never cleaned up: the object the helper exists to prevent."
 
 mutant session-optional "C19" "$F" \
