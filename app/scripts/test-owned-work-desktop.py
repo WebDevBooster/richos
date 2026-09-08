@@ -12,7 +12,8 @@ import tempfile
 app = Path(__file__).resolve().parents[1]
 native = "--native" in sys.argv[1:]
 panel_only = "--panel-only" in sys.argv[1:]
-args = [arg for arg in sys.argv[1:] if arg not in ("--native", "--panel-only")]
+pending_only = "--pending-only" in sys.argv[1:]
+args = [arg for arg in sys.argv[1:] if arg not in ("--native", "--panel-only", "--pending-only")]
 binary = Path(args[0]) if args else app / "src-tauri/target/debug/richos-tauri"
 if not binary.is_file():
     sys.exit("Build the debug desktop binary first: cargo build --manifest-path app/src-tauri/Cargo.toml")
@@ -36,6 +37,7 @@ for line in sys.stdin:
     if msg.get('type') == 'control_request':
         print(json.dumps({'type':'control_response','response':{'subtype':'success','request_id':msg['request_id'],'response':{}}}), flush=True)
     elif msg.get('type') == 'user':
+        print(json.dumps({'type':'system','subtype':'init','tools':['mcp__richos_onboarding__save_company_notes','mcp__richos_onboarding__decline_onboarding'],'plugins':[{'name':'rich-skills'}]}), flush=True)
         content = msg.get('message', {}).get('content', '')
         text = content if isinstance(content, str) else ''.join(item.get('text', '') for item in content if item.get('type') == 'text')
         structured = None
@@ -43,21 +45,21 @@ for line in sys.stdin:
             data = json.loads(text.split('DATA:\n',1)[1]); ceo = data['ceo_message']; reply = data['rich_reply']
             base = Path(os.environ['RICHOS_FIXTURE_ROOT'])
             with (base / 'registration-calls.jsonl').open('a') as log: log.write(json.dumps({'ceo':ceo,'args':sys.argv[1:],'cwd':str(Path.cwd())})+'\n')
-            intent = 'amend' if ceo.startswith('Revise the assignment:') else 'work' if ceo.startswith('Handle') else 'discussion'
-            target = data['assignments'][0]['id'] if intent == 'amend' else None
+            intent = 'cancel' if ceo.startswith('Cancel pending assignment.') else 'amend' if ceo.startswith('Revise the assignment:') else 'work' if ceo.startswith('Handle') else 'discussion'
+            target = data['assignments'][0]['id'] if intent in ('amend','cancel') else None
             if ceo.startswith('Handle slow registration:'):
                 (base / 'registration-started').write_text('started'); time.sleep(8)
             structured = {'intent':intent,'rich_committed':intent!='discussion','request_quote':ceo,'reply_quote':' '.join(reply.split()),'scope_complete':True,'target_run_id':target}
-            if ceo.startswith('Handle malformed:'): structured = None
-            if ceo.startswith('Question inconsistent:'): structured.update(intent='work',rich_committed=False)
-        elif text.startswith(('Handle', 'Revise the assignment:', 'How is work going?', 'Question inconsistent:')):
+            if ceo.startswith('Handle malformed:') and not (base/'registration-recovered').exists(): structured = None
+            if ceo.startswith('Question inconsistent:') and not (base/'registration-recovered').exists(): structured.update(intent='discussion',rich_committed=True)
+        elif text.startswith(('Handle', 'Revise the assignment:', 'How is work going?', 'Question inconsistent:', 'Cancel pending assignment.')):
             reply = 'There is no action requested.' if text.startswith(('How','Question')) else 'I will deliver this.\n\n**Deliverable:**\n- '+text
             print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':reply}]}}), flush=True)
         elif text.startswith('Report this durable work update'):
-            failed = 'Automatic attempts have stopped.' in text
+            failed = 'Automatic recovery remains scheduled' in text
             if failed:
                 assert 'Registration failed after' not in text and 'must quote' not in text and 'previous_error' not in text
-            response = "I couldn't start the work. Your request is saved and unfinished. You can send it again if you want another attempt." if failed else 'Finished and checked: the deliverable is ready.'
+            response = "I couldn't start the work. Your request is saved and unfinished. Recovery remains scheduled; you do not need to resend it." if failed else 'Finished and checked: the deliverable is ready.'
             print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':response}]}}), flush=True)
         elif text.startswith('Independently audit'):
             exists = (Path('revised.txt').exists() and not Path('original.txt').exists()) if 'revised.txt' in text else Path('original.txt').exists() if 'original.txt' in text else (Path('deliverable.txt').exists() and Path('deliverable.txt').read_text() == 'Finished.\n')
@@ -81,8 +83,18 @@ fake.chmod(0o700)
 env = dict(os.environ, RICHOS_TEST_DATA_DIR=str(data), RICHOS_ENTITY="fixture",
            RICHOS_ENGINE_DIR=str(workspace), RICHOS_CLAUDE_BIN=str(fake), RICHOS_FIXTURE_ROOT=str(root))
 if native: env.pop("RICHOS_CLAUDE_BIN", None)
-phases = ("panel-decisions",) if panel_only else (("native-handoff",) if native else ("update-owned", "enqueue", "resume", "recover-notice", "correct-live", "slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live", "panel-decisions"))
+phases = ("pending-cancel",) if pending_only else ("panel-decisions",) if panel_only else (("native-handoff",) if native else ("update-owned", "enqueue", "resume", "recover-notice", "correct-live", "slow-registration", "pending-cancel", "independent-work", "registration-failures", "registration-failures-restart", "registration-recovery", "end-live", "panel-decisions"))
 for phase in phases:
+    if phase == "registration-recovery":
+        (root / 'registration-recovered').write_text('provider recovered')
+        # Advance only the test fixture's persisted due times. Attempt counters,
+        # requests and original user turns are unchanged across app restart.
+        for path in (data/'requests').glob('*.json'):
+            saved = json.loads(path.read_text())
+            if saved['text'].startswith(('Handle malformed:', 'Question inconsistent:')):
+                assert saved['attempts'] == 3 and not saved['done'] and saved['retry_at'] > 0
+                saved['retry_at'] = 0
+                path.write_text(json.dumps(saved))
     if phase == "recover-notice":
         # Simulate the crash window after verified completion was committed to
         # the job but before its conversation notice was written.
@@ -105,7 +117,7 @@ for phase in phases:
         assert any(m["turn_id"].startswith("finished-") for m in report["messages"])
     elif phase == "update-owned":
         assert report["updateOwned"] and report["checks"] == 12, report
-    elif phase in ("slow-registration", "independent-work", "registration-failures", "registration-failures-restart", "end-live"):
+    elif phase in ("slow-registration", "pending-cancel", "independent-work", "registration-failures", "registration-failures-restart", "registration-recovery", "end-live"):
         assert report["passed"], report
         calls = [json.loads(line) for line in (root / 'registration-calls.jsonl').read_text().splitlines()]
         for call in calls:

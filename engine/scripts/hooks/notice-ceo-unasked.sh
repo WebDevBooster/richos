@@ -96,6 +96,11 @@ _SHN_LIB="$SCRIPT_DIR/../lib/stop-hook-notice.sh"
 
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+    . "$SCRIPT_DIR/../lib/owned-work-policy.sh"
+    # SessionStart keeps prepared decisions visible. A Stop notice must not
+    # manufacture a dependency merely because a prepared question is unasked.
+    if owned_work_policy "$ENTITY_ROOT"; then exit 0; fi
+
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
     exit 0
 else

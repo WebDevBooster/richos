@@ -48,7 +48,7 @@ for h in notice-ceo-asks.sh guard-ceo-ask-first.sh notice-ceo-unasked.sh session
     chmod +x "$ENGINE/scripts/hooks/$h"
 done
 for l in ceo-asks.sh ceo-asks.py ceo-todos.sh ceo-todos.py resolve-roots.sh \
-         resolve-main-checkout.sh stop-hook-notice.sh cold-open-prompt.md; do
+         resolve-main-checkout.sh stop-hook-notice.sh cold-open-prompt.md owned-work-policy.sh; do
     cp "$SRC_DIR/../lib/$l" "$ENGINE/scripts/lib/$l" 2>/dev/null || true
 done
 cp "$ENGINE_SRC/scripts/ceo-asks-status.sh" "$ENGINE/scripts/"
@@ -615,6 +615,28 @@ for f in scripts/lib/ceo-asks.sh scripts/lib/ceo-asks.py; do
         bad "G4. $f is sidecar-hashed by install.sh" "install.sh does not name it, so the integrity probe cannot notice it changing"
     fi
 done
+
+# Dependency-based adoption must not fabricate CEO answers to unblock work.
+write_record
+write_seat_config "$TODOREPO"
+rm -f "$LEDGER" "$DEFERS"
+printf '%s\n' '{"version":1,"enabled":true,"decision_policy":"dependency"}' > "$SEAT/.richos-owned-work.json"
+run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation defect")"
+if [ "$RC" -eq 0 ] && [ ! -s "$LEDGER" ]; then
+    ok "OWN1. independent dispatch proceeds without fabricating a CEO answer"
+else bad "OWN1. dependency policy wrongly gated independent work" "rc=$RC $ERR"; fi
+run_hook "$SSTART" '{}'
+if [[ "$OUT" == *"actual dependency"* ]] && [[ "$OUT" != *"BEFORE DISPATCHING ANYONE"* ]]; then
+    ok "OWN2. pending decision stays visible without a question quota"
+else bad "OWN2. startup still demands an unrelated CEO question" "$OUT $ERR"; fi
+run_hook "$STOPN" "$(stop_payload OWNED)"
+if [[ "$OUT" != *"AskUserQuestion"* ]]; then
+    ok "OWN3. Stop notice does not resurrect the unrelated question quota"
+else bad "OWN3. Stop resurrected the unrelated question quota" "$OUT"; fi
+rm -f "$SEAT/.richos-owned-work.json"
+run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation defect")"
+if [ "$RC" -eq 2 ]; then ok "OWN4. unadopted repositories retain their existing policy";
+else bad "OWN4. adoption change leaked into an unadopted repository" "rc=$RC $ERR"; fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # Until 2026-09-05 it ran from NOTHING. run-all-tests.sh discovers *.test.sh;

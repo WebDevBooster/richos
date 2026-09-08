@@ -152,6 +152,13 @@ if ! resolve_entity_root "$INPUT"; then
 fi
 ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 
+# Owned-outcome adoption replaces the historical per-session question quota.
+# Prepared decisions remain visible, but only actual task dependencies may wait.
+# This changes no spending/publication/permission gate and records no CEO answer.
+. "$SCRIPT_DIR/../lib/owned-work-policy.sh"
+if owned_work_policy "$ENTITY_ROOT"; then exit 0; fi
+
+
 _CA_LIB="$SCRIPT_DIR/../lib/ceo-asks.sh"
 if [ ! -f "$_CA_LIB" ]; then
     announce_broken "CEO-ASK GATE IS OFF: scripts/lib/ceo-asks.sh is missing at $_CA_LIB, so its entire predicate is absent. Teammate dispatches are UNGATED — a clean run and an absent gate must never look the same."

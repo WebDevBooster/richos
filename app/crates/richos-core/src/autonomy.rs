@@ -11,6 +11,8 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+pub const OWNED_OUTCOME: &str = include_str!("../doctrine/owned-outcome.md");
+
 pub const REVIEW: &str = "richos:review";
 pub const DECISION: &str = "CEO_DECISION:";
 
@@ -20,7 +22,7 @@ pub enum Intake {
     Reply { text: String },
     Work { goal: String, tasks: Vec<WorkItem> },
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkItem {
     pub id: String,
@@ -249,6 +251,7 @@ or {{"kind":"decision","question":"one concrete CEO decision","why_ceo":"materia
 Only use decision when further work on THIS task truly requires CEO authority. Technical failures, missing tests, planning choices and unavailable tools are incomplete, not CEO decisions. Never ask the CEO to do an implementer's work. Continue independent work through other tasks."#,
         outcome.goal, outcome.task, outcome.criteria
     );
+    let prompt = format!("{prompt}\n{OWNED_OUTCOME}");
     let raw = inspect_schema(
         workspace,
         &prompt,
@@ -272,10 +275,29 @@ Only use decision when further work on THIS task truly requires CEO authority. T
             && options.len() >= 2
             && options.iter().all(|s| !s.trim().is_empty()) =>
         {
-            Err(format!(
-                "{DECISION}{}",
-                serde_json::to_string(&answer).unwrap()
-            ))
+            let challenge = format!("{OWNED_OUTCOME}\nIndependently challenge this proposed CEO escalation. Read the current evidence. Return complete only if the original outcome is actually complete. Return incomplete with actionable next work if any independent authorized work remains or the question is routine/already authorized. Return decision only if this task cannot proceed without the named missing authority.\nOriginal outcome: {}\nProposed escalation: {}\nUse the supplied review schema.", serde_json::to_string(&outcome).unwrap(), raw);
+            let checked = inspect_schema(workspace, &challenge, pause, check.timeout_seconds, review_schema())
+                .map_err(|e| format!("{REVIEW_RETRY}{e}"))?;
+            let challenged: Review = parse(&checked).map_err(|e| format!("{REVIEW_RETRY}{e}"))?;
+            match challenged {
+                Review::Incomplete { remaining } if !remaining.trim().is_empty() => return Err(remaining),
+                Review::Complete { evidence } if !evidence.trim().is_empty() => return Ok(evidence),
+                Review::Decision {
+                    ref question,
+                    ref why_ceo,
+                    ref recommendation,
+                    ref options,
+                } if !question.trim().is_empty()
+                    && !why_ceo.trim().is_empty()
+                    && !recommendation.trim().is_empty()
+                    && options.len() >= 2
+                    && options.iter().all(|option| !option.trim().is_empty()) => {
+                    // The challenge may narrow or correct the missing authority.
+                    // Escalate its supported decision, never the rejected proposal.
+                    return Err(format!("{DECISION}{}", serde_json::to_string(&challenged).unwrap()));
+                },
+                _ => return Err(format!("{REVIEW_RETRY}Escalation challenge returned no usable evidence.")),
+            }
         }
         _ => Err(format!(
             "{REVIEW_RETRY}Reviewer supplied no usable verdict."
@@ -317,7 +339,7 @@ pub fn review_schema() -> serde_json::Value {
 }
 
 /// Rich registers an assignment after answering in his normal conversation.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Handoff {
     None,

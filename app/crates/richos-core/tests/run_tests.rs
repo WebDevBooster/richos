@@ -1208,3 +1208,40 @@ fn answering_a_panel_decision_reconciles_interrupted_independent_work() {
     assert_eq!(ctl.snapshot().state(),RunState::Completed);
     assert_eq!(host.executions.len(),1,"the interrupted independent task was checked, not replayed");
 }
+
+#[test]
+fn correction_preserves_explicit_pause_in_its_only_durable_transition() {
+    let tmp = Temp::new();
+    let mut ctl = RunController::create(&tmp.journal(), autonomous_plan(&tmp.0)).unwrap();
+    ctl.pause(true).unwrap();
+    let prior_lines = std::fs::read_to_string(tmp.journal()).unwrap().lines().count();
+    let revised = autonomous_plan(&tmp.0);
+    ctl.amend_with_pause("paused-correction", revised.clone(), true).unwrap();
+    let journal = std::fs::read_to_string(tmp.journal()).unwrap();
+    assert_eq!(journal.lines().count(), prior_lines + 1, "correction and pause must share one durable append");
+    let last: RunSnapshot = serde_json::from_str(journal.lines().last().unwrap()).unwrap();
+    assert!(last.paused, "the correction must never persist an unpaused intermediate state");
+    assert!(last.decision_receipts.iter().any(|receipt| receipt == "paused-correction"));
+    drop(ctl);
+    let mut reopened = RunController::open(&tmp.journal()).unwrap();
+    assert!(reopened.snapshot().paused);
+    let mut host = Host::default();
+    reopened.tick(&mut host).unwrap();
+    assert!(host.executions.is_empty(), "restart must not execute explicitly paused corrected work");
+    reopened.amend_with_pause("paused-correction", revised, false).unwrap();
+    assert!(reopened.snapshot().paused, "replayed correction must not override durable pause");
+}
+
+#[test]
+fn correction_clears_only_a_transient_writer_pause_when_no_user_pause_exists() {
+    let tmp = Temp::new();
+    let mut ctl = RunController::create(&tmp.journal(), autonomous_plan(&tmp.0)).unwrap();
+    ctl.pause(true).unwrap(); // A worker interruption can leave this transient snapshot flag.
+    ctl.amend_with_pause("live-correction", autonomous_plan(&tmp.0), false).unwrap();
+    drop(ctl);
+    let mut reopened = RunController::open(&tmp.journal()).unwrap();
+    assert!(!reopened.snapshot().paused);
+    assert!(reopened.snapshot().tasks[0].review_pending, "resume must inspect existing effects first");
+    let mut host = Host::default();
+    assert_eq!(reopened.tick(&mut host).unwrap(), RunState::Completed);
+}

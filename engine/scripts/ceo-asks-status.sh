@@ -91,6 +91,14 @@ if [ "$ARC" -ge 2 ]; then
     exit 2
 fi
 
+. "$SCRIPT_DIR/lib/owned-work-policy.sh"
+if owned_work_policy "$ROOT"; then
+    echo "CEO decisions remain pending; independent authorized work may proceed."
+    echo "Only an actual dependency requires a CEO answer. Do not ask a question to satisfy a quota."
+    printf '%s\n' "$CA_ASK_LINES"
+    exit 0
+fi
+
 echo "=== CEO-ASK GATE ==="
 echo "  repository : $ROOT"
 printf '  lists     :'

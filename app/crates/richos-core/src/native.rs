@@ -449,7 +449,7 @@ pub fn managed_child_args(session_id: &str) -> Vec<String> {
     args.retain(|a| a != "--no-session-persistence");
     args.extend(["--permission-mode".into(), "acceptEdits".into(),
         "--settings".into(), serde_json::json!({
-            "env": {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "CLAUDE_AUTO_BACKGROUND_TASKS": "0", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"},
+            "env": {"RICHOS_OWNED_WORK_HOST": "controller", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "CLAUDE_AUTO_BACKGROUND_TASKS": "0", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"},
             "sandbox": {"enabled": true, "failIfUnavailable": true,
                 "autoAllowBashIfSandboxed": true, "allowUnsandboxedCommands": false,
                 "filesystem": {"disabled": false}, "excludedCommands": []},

@@ -1,0 +1,18 @@
+{
+  "claude_version": "2.1.263 (Claude Code)",
+  "head": "28f07ab53a3dc8835eab49c670584120560ab3b9",
+  "sources": {
+    "app/scripts/test-owned-wake-native.py": "0294f02c47af44e3ecd8e3d281b28d887f12c93d51c2c18db9a5fcc68a856d1c",
+    "engine/scripts/install-owned-work.py": "577215eda84cbb39d0525ba6137936909fde59b77c6116358dc122e168b17f87",
+    "engine/scripts/lib/owned-session.py": "14e07c2220f119de578cba89acbb0fb34b738d85ac2c86c9733413cf786da88b",
+    "app/crates/richos-core/src/bin/richos-run.rs": "3c81b79cdf45d5f2ed33f17be02205d059c76c38979c12fa29abda520f278447",
+    "app/crates/richos-core/src/autonomy.rs": "d2a810f391d0b5b67e9cfccb43383ce8e2ddd6f5c81687fa934699d90b991456",
+    "app/crates/richos-core/src/native.rs": "3dffcc10a1cd914b0708c179f8f01c09d1dda27f357303f26af1698b1efad2b0",
+    "app/crates/richos-core/doctrine/owned-outcome.md": "c91df9f79cc0b0091f9fc1db1184869bff43de435581f54f56a0336ceea3160d"
+  },
+  "runner": {
+    "source_path": "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/target/debug/richos-run",
+    "path": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-rxt0x6g1/richos-run-snapshot",
+    "sha256": "1c9b477e713bb6d26c8633019bd93b8291f2eac12bb75b8a7fb9f64226ba6fec"
+  }
+}

@@ -42,16 +42,25 @@ his recovery approach. Recovery at that checkpoint waits one hour instead of
 continually opening workers every few minutes. At ten cycles the task needs an
 explicit decision about authorizing more compute, changing scope or ending it.
 This persisted limit includes review-only failures and survives restart. It is a
-cycle budget, not a dollar cap. Registration stops and reports after three failed
-attempts. Work remains saved and unfinished; neither limit claims completion.
+cycle budget, not a dollar cap. Registration retries after 30 seconds for the
+first three failures, then hourly. It reports that recovery is scheduled and
+retains the original request without requiring resubmission. Attempts and retry
+deadlines are saved before inference. Neither mechanism claims completion.
+
+Pending requests can be corrected or canceled before they become executable jobs.
+An unresolved later instruction fences earlier unstarted work in that conversation.
+Corrections preserve the original constraints and an explicit user pause.
 
 Unrelated assignments in one conversation have separate journals and can proceed
 while another is paused or awaiting a decision. Select an assignment in the assignment
 panel to inspect or control it.
 
 The app must be open to run work. Closing it preserves work for the next launch;
-no background OS service is installed. Workers are serial. Existing interactive
-Claude Code teams are not adopted.
+no background OS service is installed. Workers are serial. The desktop does not
+adopt interactive Claude Code teams. A separate, explicitly installed native
+adapter can instead continue their existing leader using Claude's wake events.
+It uses the same outcome policy and reviewer without creating another leader.
+See the [implementation and activation review](../docs/verification/owned-outcome/REVIEW.md).
 
 ## Permissions
 
@@ -81,10 +90,11 @@ app/target/debug/richos-run drive /absolute/job.jsonl
 app/target/debug/richos-run end /absolute/job.jsonl
 ```
 
-The terminal `handle` command uses a separate intake inspector because it has no
-Rich conversation. Unlike the desktop, terminal intake is not persisted before
-planning. `status` and `drive` return 0 for completed work, 3 for unfinished work
-and 2 for errors.
+The terminal `handle` command is explicit authorization. It persists the complete
+request as one assignment before driving it. The worker discovers the required
+steps within that scope. `status` and `drive` return 0 for completed work, 3 for
+unfinished work and 2 for errors. `audit-session WORKSPACE SECONDS` accepts source
+conversation JSON on stdin and returns an outcome verdict without executing work.
 
 Trusted operators can still import explicit command plans. Those plans may run
 executable acceptance checks and retain finite attempt budgets and manual retry.

@@ -350,8 +350,9 @@ fn the_ledgers_partial_coverage_is_stated_rather_than_overclaimed() {
     let doctrine = richos_core::doctrine::render(&richos_core::doctrine::DoctrineIdentity::default());
     assert!(doctrine.contains("That record is partial"), "{doctrine}");
     assert!(
-        doctrine.contains("An\nentry in it is proof the thing happened; the absence of an entry is not proof that it did not."),
-        "the ledger's asymmetry must be stated, not implied:\n{doctrine}"
+        doctrine.contains("entry can be stale or mistaken")
+            && doctrine.contains("the absence of an entry is not proof that nothing happened"),
+        "both stale evidence and missing evidence must be distinguished:\n{doctrine}"
     );
     assert!(doctrine.contains("never tell him nothing was done"), "{doctrine}");
     assert!(doctrine.contains("Say you are not certain, and offer to check."), "{doctrine}");

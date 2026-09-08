@@ -621,7 +621,18 @@ impl RunController {
         check
     }
 
-    pub fn amend(&mut self, receipt: &str, mut plan: RunPlan) -> Result<(), RunError> {
+    pub fn amend(&mut self, receipt: &str, plan: RunPlan) -> Result<(), RunError> {
+        self.amend_with_pause(receipt, plan, false)
+    }
+
+    /// Persist the correction and explicit pause together. Saving the correction
+    /// first would allow restart recovery to run before a second pause write.
+    pub fn amend_with_pause(
+        &mut self,
+        receipt: &str,
+        mut plan: RunPlan,
+        paused: bool,
+    ) -> Result<(), RunError> {
         if self.snapshot.decision_receipts.iter().any(|r| r == receipt) {
             return Ok(());
         }
@@ -638,7 +649,7 @@ impl RunController {
         self.snapshot.plan = plan;
         self.snapshot.plan_revision += 1;
         self.snapshot.decision_receipts.push(receipt.into());
-        self.snapshot.paused = false;
+        self.snapshot.paused = paused;
         self.save()
     }
 

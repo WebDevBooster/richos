@@ -11,9 +11,9 @@ fn value(intent: Intent, committed: bool) -> Registration {
 }
 
 #[test]
-fn neither_false_none_nor_unaccepted_work_crosses_the_consistency_floor() {
+fn discussion_cannot_discard_commitment_but_rich_cannot_veto_authorized_work() {
     assert!(validate(value(Intent::Discussion, true), "CEO", "Rich", "", &[]).is_err());
-    assert!(validate(value(Intent::Work, false), "CEO", "Rich", "", &[]).is_err());
+    assert!(matches!(validate(value(Intent::Work, false), "CEO", "Rich", "", &[]).unwrap().0, Handoff::Work { .. }));
     assert!(matches!(
         validate(value(Intent::Discussion, false), "CEO", "Rich", "", &[])
             .unwrap()
@@ -56,12 +56,12 @@ fn the_contract_preserves_every_byte_including_negative_constraints_and_tail() {
     assert!(tasks[0].description.contains(request));
 }
 #[test]
-fn missing_scope_is_distinct_from_permission_and_schema_refuses_synthesized_tasks() {
+fn discovery_is_owned_without_model_generated_acceptance_criteria() {
     let mut v = value(Intent::Work, true);
     v.scope_complete = false;
-    assert!(validate(v, "CEO", "Rich", "", &[])
-        .unwrap_err()
-        .starts_with("MISSING_SCOPE:"));
+    let Handoff::Work { tasks, .. } = validate(v, "CEO", "Rich", "", &[]).unwrap().0 else { panic!() };
+    assert!(tasks[0].criteria.contains("CEO"));
+    assert!(tasks[0].criteria.contains("Rich"));
     let mut json = serde_json::to_value(value(Intent::Work, true)).unwrap();
     json["tasks"] = serde_json::json!([]);
     assert!(serde_json::from_value::<Registration>(json).is_err());
@@ -179,4 +179,37 @@ fn production_work_contract_keeps_only_the_two_onboarding_operations_inline() {
         "An unrelated action requested alongside the interview still follows the work rule"
     ));
     assert!(ONBOARDING_REGISTRATION_RULE.contains("DATA.onboarding_tool_result is true"));
+}
+
+#[test]
+fn interrupted_empty_reply_cannot_veto_work_or_fabricate_commitment() {
+    let mut v = value(Intent::Work, false);
+    v.reply_quote.clear();
+    assert!(matches!(validate(v, "CEO", "", "", &[]).unwrap().0, Handoff::Work { .. }));
+    let mut v = value(Intent::Work, true);
+    v.reply_quote.clear();
+    assert!(validate(v, "CEO", "", "", &[]).is_err());
+    let mut v = value(Intent::Work, false);
+    v.reply_quote.clear();
+    assert!(validate(v, "CEO", "Actual reply", "", &[]).is_err());
+}
+
+#[test]
+fn repeated_corrections_keep_original_constraints_after_context_eviction() {
+    use richos_core::{autonomy, run::RunController};
+    let temp = std::env::temp_dir().join(format!("richos-registration-review-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&temp).unwrap();
+    let goal = "Original CEO requirement: Do not publish. Preserve payroll.";
+    let task = autonomy::WorkItem { id: "deliver".into(), description: goal.into(), criteria: goal.into(), depends_on: vec![] };
+    let plan = autonomy::plan(temp.as_path(), goal, goal, vec![task]).unwrap();
+    let mut ctl = RunController::create(&temp.as_path().join("run.jsonl"), plan).unwrap();
+    for i in 0..3 {
+        let mut v = value(Intent::Amend, false);
+        v.target_run_id = Some(ctl.snapshot().id.clone());
+        let Handoff::Amend { goal, tasks } = validate(v, "CEO: Change the format", "Rich: Recorded", "", &[ctl.snapshot().clone()]).unwrap().0 else { panic!() };
+        assert!(goal.contains("Do not publish. Preserve payroll."));
+        assert!(tasks[0].criteria.contains("Do not publish. Preserve payroll."));
+        ctl.amend(&format!("correction-{i}"), autonomy::plan(temp.as_path(), "Change format", &goal, tasks).unwrap()).unwrap();
+    }
+    std::fs::remove_dir_all(temp).unwrap();
 }

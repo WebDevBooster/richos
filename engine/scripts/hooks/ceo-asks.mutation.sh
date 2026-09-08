@@ -76,7 +76,7 @@ mutant() {
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" \
-       "$ENGINE_ROOT/scripts/lib/cold-open-prompt.md" "$dir/scripts/lib/"
+       "$ENGINE_ROOT/scripts/lib/cold-open-prompt.md" "$ENGINE_ROOT/scripts/lib/owned-work-policy.sh" "$dir/scripts/lib/"
     cp "$ENGINE_ROOT/scripts/ceo-asks-status.sh" "$dir/scripts/"
     cp "$ENGINE_ROOT/hooks/hooks.json" "$dir/hooks/"
     chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/"*.sh
