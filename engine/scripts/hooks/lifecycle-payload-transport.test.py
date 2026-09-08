@@ -63,12 +63,35 @@ class PayloadTransport(unittest.TestCase):
         self.assertTrue(claim.exists(), 'large terminal event disappeared')
         self.assertIn('SubagentStop', claim.read_text())
 
+    def prepare_completed_task(self, aid, task_id, owner='dev-large'):
+        # task-completed-handoff.sh is a GATE, not a log: it refuses any
+        # completion without exact native task and sealed-worker evidence. The
+        # question here is whether an oversized payload survives that path, so
+        # the fixture supplies the evidence rather than the assertion dropping
+        # back to the log-only contract this hook had before it became a gate.
+        profile = self.root / 'home/.claude'
+        tx = self.root / 'tx' / SID
+        for path, body in (
+                (profile / 'tasks' / SID / (task_id + '.json'),
+                 {'id': task_id, 'subject': 'Large delivery', 'status': 'in_progress', 'owner': owner}),
+                (tx / (aid + '.json'),
+                 {'record': 'transaction', 'session_id': SID, 'agent_id': aid, 'tool_use_id': 'tool-large',
+                  'teammate': owner, 'kind': 'remote', 'members': [], 'sealed': True}),
+                (tx / 'bound' / (aid + '.json'),
+                 {'agent_id': aid, 'session_id': SID, 'teammate': owner, 'tool_use_id': 'tool-large'}),
+                (tx / 'starts' / (aid + '.json'),
+                 {'agent_id': aid, 'session_id': SID})):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(body))
+
     def test_large_handoffs_preserve_both_ledger_and_team_event(self):
         for hook, event, logfile in (
                 ('worker-ended-handoff.sh', 'SubagentStop', 'worker-events.jsonl'),
                 ('teammate-idle-handoff.sh', 'TeammateIdle', 'idle-events.jsonl'),
                 ('task-completed-handoff.sh', 'TaskCompleted', 'task-events.jsonl')):
             with self.subTest(hook=hook):
+                if event == 'TaskCompleted':
+                    self.prepare_completed_task(event, 'task-large')
                 self.run_hook(hook, self.payload(event, aid=event, task_id='task-large'))
                 rows = [json.loads(line) for line in (self.root / 'ledger.jsonl').read_text().splitlines()]
                 self.assertTrue(any(r.get('signal') == event and r.get('agent_id') == event for r in rows))
@@ -194,13 +217,25 @@ class PayloadTransport(unittest.TestCase):
 
     def test_malformed_lifecycle_payloads_keep_nonblocking_contract(self):
         for hook in ('record-subagent-start.sh', 'terminalize-agent-worktrees.sh',
-                     'worker-ended-handoff.sh', 'teammate-idle-handoff.sh', 'task-completed-handoff.sh',
+                     'worker-ended-handoff.sh', 'teammate-idle-handoff.sh',
                      'worker-created-handoff.sh', 'worker-started-handoff.sh', 'worker-updated-handoff.sh',
                      'notice-inflight-sends.sh'):
             with self.subTest(hook=hook):
                 self.run_hook(hook, '{"broken":')
         self.assertFalse((self.root / 'ledger.jsonl').exists())
         self.assertFalse(any(self.team.iterdir()))
+
+    def test_malformed_completion_payload_is_recorded_but_never_blocks(self):
+        # task-completed-handoff.sh keeps the same non-blocking contract as the
+        # eight above and takes the same absence of advisory side effects, but
+        # it is the one lifecycle hook that can hold a task open, so "I could
+        # not read this" is written down instead of passing silently. Two
+        # findings, two assertions, neither weakened to fit the other.
+        self.run_hook('task-completed-handoff.sh', '{"broken":')
+        self.assertFalse((self.root / 'ledger.jsonl').exists())
+        rows = [json.loads(line) for line in (self.team / 'task-events.jsonl').read_text().splitlines()]
+        self.assertEqual([row['decision'] for row in rows], ['unreadable'])
+        self.assertEqual([row['session_id'] for row in rows], [''])
 
 
 if __name__ == '__main__':
