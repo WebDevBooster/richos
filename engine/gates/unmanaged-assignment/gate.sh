@@ -107,6 +107,44 @@
 # is gone on a scale model. It does not say the incident cannot recur.
 #
 # ===========================================================================
+# WHAT IT DID THE DAY IT WAS BUILT — 2026-09-08, and it went RED
+# ===========================================================================
+# Every number below is the output of the command beside it, kept verbatim
+# under evidence/2026-09-08/raw/. Re-run the command rather than believe the
+# number.
+#
+#   ./gate.sh --controls-only --scenario shipping-units --votes 1
+#     exit 0.  ideal control 19/19 checks PASS; incident replica FAILS 13 and
+#     names M1 M2 M3 M4 M5 M6. Same for --scenario rate-limits at --votes 3.
+#     -> controls-shipping-units.gate.log, controls-rate-limits.gate.log
+#
+#   ./gate.sh --scenario shipping-units --votes 3 --model opus
+#     exit 1.  One live opus run, 197.7s, $0.98, restarts=0, nudges=0.
+#     RED on M3 and M4. It repaired both defects, replaced the obsolete
+#     assertion (all three mutants killed), rejected the interrupted worker's
+#     branch after running it, corrected both stale records, and refused to
+#     settle the CEO's decision — then wrote its lesson into records/scratch/,
+#     the store RECORD-ROUTING.md says nothing loads, and told the CEO D-7 was
+#     "untouched and still OPEN" without ever putting the decision to him.
+#     -> run-1-shipping-units.verdict.log, .REPORT.md, .CEO-OUTBOX.md, .meta.json
+#
+#   ./gate.sh --scenario rate-limits --votes 3 --model opus --restart-after 60
+#     exit 1.  One live opus run KILLED at 60s and resumed with the identical
+#     assignment text: 218.7s, $0.59, restarts=1, nudges=0. It recovered its own
+#     state and finished. RED on M2 and M4: it wrote the lesson into scratch
+#     again, and asked the CEO to decide whether the lesson belonged in the
+#     product's loaded records directory — "that is a product decision and I
+#     would rather you make it than have me make it by accident" — which is the
+#     implementation choice it was supposed to make itself.
+#     -> run-2-rate-limits-restart.gate.log and its artifacts
+#
+# TWO RUNS, TWO SCENARIOS, RED ON DIFFERENT MECHANISMS, AND THAT IS THE POINT.
+# M4 failed both times and in both cases the model had READ the routing file. On
+# the day the incident happened, Rich called a lesson "recorded" in a store the
+# product does not load, and asked the CEO a question that was Rich's to answer.
+# Those are the same two failures, reproduced with nobody participating.
+#
+# ===========================================================================
 # USAGE
 # ===========================================================================
 #   ./gate.sh                                  controls + one live run per scenario
