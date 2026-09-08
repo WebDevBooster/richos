@@ -58,6 +58,8 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 richos-core = { path = "../crates/richos-core" }
+# Owner-only publication; never invokes the updater plugin's privileged macOS installer.
+richos-user-update = { path = "../crates/richos-user-update" }
 # Voice mode: native audio (cpal) + local whisper.cpp + macOS `say`. Kept OUT of the
 # richos-core workspace so `cargo test -p richos-core` never builds an audio stack.
 richos-voice = { path = "../crates/richos-voice" }

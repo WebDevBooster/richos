@@ -1,114 +1,19 @@
-//! THE UPDATE PATH — check, download, verify, install, relaunch.
+//! Desktop update checks and verified staging.
 //!
-//! WHAT THIS REPLACES: nothing. Before this module there was no updater of any kind in
-//! RichOS — no `tauri-plugin-updater`, no Sparkle, no manifest, no signing key. The CEO's
-//! *"automatically download and install whatever the user needs"* rested on zero
-//! infrastructure, and so did every future signed release.
+//! The plugin verifies downloaded bytes with the configured minisign key. Its macOS
+//! installer is never called because it may request administrator access. The user-only
+//! installer stages under `~/Applications/.richos-updater` and the UI reports when the
+//! update is ready for the next normal launch.
 //!
-//! # Why the flow lives in Rust and not in the webview
-//!
-//! `tauri-plugin-updater` ships a JavaScript API, and the obvious wiring is to let the page
-//! call `plugin:updater|check` and `plugin:updater|download_and_install` directly. This
-//! module does NOT do that, for three reasons that are specific to this app:
-//!
-//!   1. `app/ui` has no bundler and no npm step — it is plain script tags — so the plugin's
-//!      JS package could only be reached through hand-rolled `invoke("plugin:updater|…")`
-//!      calls against an undocumented rid-passing protocol. A typo there is a runtime
-//!      failure in the one flow that must not fail quietly.
-//!   2. Every other capability in this shell is a Rust command behind `window.RichBridge`
-//!      (`main.rs`'s `invoke_handler`), which is what lets `mock.js` drive the whole UI in a
-//!      browser with no Tauri at all. An updater that broke that rule would be the only
-//!      surface the browser suites could not reach.
-//!   3. **It keeps the webview's authority at zero.** Because the page never calls a
-//!      `plugin:updater|*` command, `capabilities/default.json` does not grant one, and a
-//!      compromised or mistaken frontend cannot start a download or an install by itself.
-//!      That is a smaller attack surface than `updater:default`, not a larger one.
-//!
-//! # What is actually load-bearing here, and what is not
-//!
-//! **The signature check is not ours and we do not re-implement it.** `Update::download`
-//! calls `verify_signature(&buffer, &self.signature, &config.pubkey)` — minisign, via
-//! `minisign_verify` — BEFORE returning the bytes, and `download_and_install` cannot reach
-//! `install` if that fails (tauri-plugin-updater 2.11.0, `src/updater.rs:739`). So the only
-//! thing this file can get wrong about verification is to swallow the error, which is why
-//! `Failure::classify` gives minisign errors their own kind and their own headline, and why
-//! `app/scripts/updater-e2e.sh` case T proves the refusal end to end rather than asserting
-//! it.
-//!
-//! # The state machine
-//!
-//! ```text
-//!  Unconfigured ─── (no update server chosen yet; a stated fallback, not a failure)
-//!
-//!  Idle ──check──▶ Checking ──▶ UpToDate
-//!                           └─▶ Available ──install──▶ Downloading ──▶ Installing ──▶ Ready
-//!                                                              └────────┬───────────┘
-//!  any ──error──▶ Failed(kind)                                          │
-//!                                                       Ready ──relaunch──▶ (process replaced)
-//! ```
-//!
-//! Every transition is emitted to the webview as `rich://update`, and every transition is
-//! also readable on demand with the `update_state` command — a UI that missed an event is
-//! never left describing a state the app is not in.
-//!
-//! # Installing is DELIBERATELY not automatic, and this is the reason
-//!
-//! The check is automatic and silent-until-it-finds-something; the install is a button. On
-//! macOS `Update::install` deletes and replaces the running `.app` bundle in place
-//! (`updater.rs:1288`). RichOS holds a `claude-agent-acp` child process as a compute lease,
-//! and the session-continuity design's first structural invariant is that the lease is never
-//! swapped mid-turn (`docs/plans/richos-session-continuity-2026-08-24.md` §3.1). Replacing
-//! the bundle those processes were launched from, without asking, is that invariant broken
-//! by a background thread. So: RichOS finds the update on its own and says so; the CEO
-//! decides when the machine underneath him changes.
-//!
-//! **Mode 1 — install with no click at all — is still not built here, and §26 is why.** That
-//! ruling's own words: mode 1 is *"download and stage silently, then apply at a SAFE MOMENT
-//! ... Building the staging and the safe-moment policy IS the work; removing the button is
-//! the trivial part."* This file builds the SAFE-MOMENT half and nothing else. Nothing below
-//! ever installs something the CEO did not press.
-//!
-//! # THE WORK GATE — nothing about an update may get in the way of finishing work
-//!
-//! **The defect this closes, found by the CEO on 2026-09-05 and verified in this file rather
-//! than assumed.** He asked whether the updater could destroy work in flight. It could, and
-//! it was three missing checks: `install()` took the pending update and began downloading
-//! with no test of turn state; `ui/updates.js` wired the Install button straight to the
-//! command, so nothing was disabled and nothing warned; and `update_relaunch()` was
-//! `app.restart()` and nothing else — two lines, no condition. **Pressed mid-turn, the third
-//! one replaces the process while a `claude` child is mid-answer.**
-//!
-//! **His rulings, and each one is a line of code below rather than a sentiment.**
-//!
-//!   * *"Yes, offer to wait and install when all work is finished."* **ALL WORK**, not the
-//!     current turn — RichOS runs workers alongside the conversation, and a worker still
-//!     running is still work. [`richos_core::work_gate`] holds that decision.
-//!   * *"The update is not important enough to get in the way of finishing work."* So the
-//!     DOWNLOAD waits too, not only the restart. Even where staging is technically harmless
-//!     it competes for bandwidth and for attention, and a progress bar moving while he is
-//!     mid-thought is getting in the way.
-//!   * *"We don't even show the update button/notification if the RichOS app currently has
-//!     active things running."* Absent, not dimmed — the precedent is this product's own
-//!     `voice_readiness`, where a machine that cannot hear REMOVES the talk button rather
-//!     than disabling it, because *"the affordance appears only where it functions."*
-//!   * *"Instead of a regular update button, they'd get some other visual cue but not an
-//!     actionable thing."* [`UpdateView::busy`] plus [`UpdateView::busy_reason`] is what the
-//!     surface builds that cue from. Hiding the ACTION is the ruling; hiding the FACT would
-//!     be §26's *"an update nobody discovers is the same as no updater at all"*.
-//!
-//! **FAIL TOWARD WAITING.** If the gate cannot establish whether work is running, it waits.
-//! It never resolves ambiguity in favor of installing — a delayed update is a nuisance and
-//! destroyed work is the defect.
-//!
-//! **WHAT THE GATE CANNOT DO, said here rather than discovered later.** It stops an install
-//! and a restart from STARTING while work is live. It cannot ABORT a download already in
-//! flight: `Update::download_and_install` takes no cancellation token
-//! (tauri-plugin-updater 2.11.0), so once the bytes are moving they finish. A turn that
-//! begins mid-download therefore rides it out, and the protection that matters — the
-//! process is not replaced — still holds at the relaunch. Building a cancellable download
-//! means a vendor change and it is not quietly half-done here.
+//! A live update never replaces its running bundle, restarts the app or discards input.
+//! Startup activation uses an exclusive session lease before any runtime work starts;
+//! every participating app retains a shared lease for its full lifetime. The separate
+//! work verdict still hides the download action while a turn or worker is active.
 
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use std::time::{Duration, Instant};
 
 use richos_core::work_gate::{self, Liveness, WorkSources, WorkVerdict};
@@ -333,12 +238,40 @@ impl UpdateView {
 pub struct Updates {
     view: Mutex<UpdateView>,
     pending: Mutex<Option<tauri_plugin_updater::Update>>,
+    operation: AtomicBool,
 }
 
 impl Updates {
     pub fn snapshot(&self) -> UpdateView {
         self.view.lock().expect("update view lock").clone()
     }
+}
+
+/// Serialize checks and staging within this app instance. Activation belongs to startup
+/// and is separately excluded by the session lease and publication file lock.
+struct UpdateOperation<'a>(&'a AtomicBool);
+impl<'a> UpdateOperation<'a> {
+    fn acquire(active: &'a AtomicBool) -> Option<Self> {
+        active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| Self(active))
+    }
+}
+impl Drop for UpdateOperation<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+fn install_failure(app: &AppHandle, detail: String) -> UpdateView {
+    transition(app, |v| {
+        v.state = "failed";
+        v.failure = Some(Failure {
+            kind: "install",
+            headline: "RichOS could not prepare this update.".into(),
+            detail,
+        });
+    })
 }
 
 // ---------------------------------------------------------------------------------------
@@ -382,6 +315,7 @@ pub fn init(app: &AppHandle) {
     app.manage(Updates {
         view: Mutex::new(UpdateView::new(version, endpoint, placeholder)),
         pending: Mutex::new(None),
+        operation: AtomicBool::new(false),
     });
 }
 
@@ -410,6 +344,29 @@ fn now_millis() -> u64 {
 
 /// Ask the endpoint what it has. Never installs, never downloads a byte of payload.
 pub async fn check(app: &AppHandle) -> UpdateView {
+    let state = app.state::<Updates>();
+    let Some(_operation) = UpdateOperation::acquire(&state.operation) else {
+        return state.snapshot();
+    };
+    #[cfg(target_os = "macos")]
+    if let Ok(home) = app.path().home_dir() {
+        match richos_user_update::staged(&home) {
+            Ok(Some(p))
+                if p.is_newer_than(&app.package_info().version.to_string())
+                    .unwrap_or(false) =>
+            {
+                return transition(app, |v| {
+                    v.state = "ready";
+                    v.available_version = Some(p.version);
+                    v.percent = Some(100);
+                })
+            }
+            // A shared startup cannot retire an obsolete prepared receipt. It must
+            // still query the server for releases newer than its actual running build.
+            Ok(Some(_)) | Ok(None) => {}
+            Err(e) => return install_failure(app, e.to_string()),
+        }
+    }
     let (endpoint, placeholder) = resolve_endpoint(app);
 
     if placeholder {
@@ -507,14 +464,14 @@ pub async fn check(app: &AppHandle) -> UpdateView {
     }
 }
 
-/// Download the update the last check found, verify it, and put it in place.
-///
-/// Returns with `state == "ready"` — the new bundle is on disk and the OLD process is still
-/// running. On macOS that is not a limitation to work around, it is the contract:
-/// `Update::install`'s own doc says *"you need to relaunch the app to run the newly install
-/// version"*. `relaunch` below is that step, and it is a separate button because the CEO
-/// may be mid-conversation.
+/// Download and verify the offered update into private staging. Ready means activation
+/// will happen at a normal startup when no participating RichOS session is running.
+/// This command never replaces an application bundle or exits the live process.
 pub async fn install(app: &AppHandle) -> UpdateView {
+    let state = app.state::<Updates>();
+    let Some(_operation) = UpdateOperation::acquire(&state.operation) else {
+        return state.snapshot();
+    };
     // THE GATE, BEFORE THE PENDING UPDATE IS EVEN LOOKED AT.
     //
     // `updates.js` removes the Install control while `busy`, so on the shipping surface this
@@ -603,18 +560,43 @@ pub async fn install(app: &AppHandle) -> UpdateView {
         });
     };
 
-    match update.download_and_install(on_chunk, on_finish).await {
+    // Download returns only after the plugin verifies the signed payload. Its macOS
+    // install method has an administrator fallback, so it is never called here.
+    let bytes = match update.download(on_chunk, on_finish).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return transition(app, |v| {
+                v.state = "failed";
+                v.failure = Some(Failure::classify(&e));
+            })
+        }
+    };
+    // A turn or worker may have started during the download. Keep the offer available
+    // and let the user retry after work finishes, without publishing the bundle.
+    if refresh_work_verdict(app).busy {
+        return transition(app, |v| {
+            v.state = "available";
+        });
+    }
+    #[cfg(target_os = "macos")]
+    let result = app
+        .path()
+        .home_dir()
+        .map_err(|e| e.to_string())
+        .and_then(|home| {
+            richos_user_update::stage_verified(&home, &bytes, &update.version)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        });
+    #[cfg(not(target_os = "macos"))]
+    let result: Result<(), String> =
+        Err("Password-free application updates are not implemented on this platform.".into());
+    match result {
         Ok(()) => transition(app, |v| {
             v.state = "ready";
             v.percent = Some(100);
         }),
-        Err(e) => {
-            let failure = Failure::classify(&e);
-            transition(app, |v| {
-                v.state = "failed";
-                v.failure = Some(failure);
-            })
-        }
+        Err(detail) => install_failure(app, detail),
     }
 }
 
@@ -647,8 +629,11 @@ fn work_verdict(app: &AppHandle) -> WorkVerdict {
 
     // 1. THE ACTIVE TURN — the spine's own mirror, read without the spine's mutex. Never
     //    inferred from silence (continuity §5.2).
-    let turn =
-        if state.control.active_turn().is_some() { Liveness::Busy } else { Liveness::Clear };
+    let turn = if state.control.active_turn().is_some() {
+        Liveness::Busy
+    } else {
+        Liveness::Clear
+    };
 
     // 2. WHETHER THE SPINE IS BEING DRIVEN AT ALL. `try_lock`, never `lock`: `send_message`
     //    holds this mutex for the entire length of a turn, so blocking here would answer
@@ -663,11 +648,15 @@ fn work_verdict(app: &AppHandle) -> WorkVerdict {
     // 3. WORKERS — the "all work" half the composer cannot see. The session id comes from
     //    the same control, so this reads THIS session's directory and never the
     //    mtime-newest one on the machine (`worker_status`'s own first claim).
-    let view =
-        richos_core::worker_status::current_status(state.control.lease_session().as_deref());
+    let view = richos_core::worker_status::current_status(state.control.lease_session().as_deref());
     let (workers, worker_gap) = work_gate::workers(&view);
 
-    let mut verdict = work_gate::decide(&WorkSources { turn, spine, workers, worker_gap });
+    let mut verdict = work_gate::decide(&WorkSources {
+        turn,
+        spine,
+        workers,
+        worker_gap,
+    });
     let owned = crate::owned_work::update_liveness(&state);
     if owned != Liveness::Clear && !verdict.busy {
         verdict.busy = true;
@@ -737,7 +726,9 @@ pub fn spawn_work_watcher(app: AppHandle) {
         loop {
             tokio::time::sleep(WATCH_INTERVAL).await;
             let awaits = {
-                let Some(updates) = app.try_state::<Updates>() else { continue };
+                let Some(updates) = app.try_state::<Updates>() else {
+                    continue;
+                };
                 let guard = updates.view.lock().expect("update view lock");
                 state_awaits_the_ceo(guard.state)
             };
@@ -779,36 +770,11 @@ pub async fn update_install(app: AppHandle) -> UpdateView {
     install(&app).await
 }
 
-/// Restart into the version that was just put in place.
-///
-/// **THIS FUNCTION WAS `app.restart()` AND NOTHING ELSE — two lines, no condition — and that
-/// was the worst of the three defects the CEO found on 2026-09-05.** `restart` replaces the
-/// process, so pressing it mid-turn kills a live `claude` child mid-answer: the session
-/// continuity design's first structural invariant (§3.1) broken by a button that looked
-/// safe. The turn would be recorded afterwards as *Ended, outcome not recorded* — visible
-/// after the fact and not preventable, and he would have caused it himself.
-///
-/// It now returns the view instead of never returning, because refusing is a real outcome
-/// that the surface has to render. On the success path it still never returns.
+/// Compatibility endpoint for an older frontend. Updates never exit a live session;
+/// verified staging is activated automatically during the next normal app launch.
 #[tauri::command(async)]
 pub fn update_relaunch(app: AppHandle) -> UpdateView {
-    let verdict = refresh_work_verdict(&app);
-    if verdict.busy {
-        // Still `ready` — the new bundle IS on disk and installed. Only the swap of the
-        // running process is refused, which is exactly the dangerous half.
-        return app.state::<Updates>().snapshot();
-    }
-    // THE REPLACEMENT IS STILL HIS LAUNCH, AND IT HAS TO SAY SO.
-    //
-    // `restart` SPAWNS a replacement and then exits (`tauri-2.11.5/src/process.rs:74-88`),
-    // so for a short window the new process's parent is this dying one rather than launchd —
-    // and `activation.rs`'s condition P reads a held process as "a program started this, not
-    // macOS". Left to the race, an update would sometimes bring RichOS back with no Dock
-    // icon and no window in front, which reads as *the update deleted the app*. The marker
-    // is inherited by the spawned child (`Command` passes this process's environment
-    // through) and removes the race rather than narrowing it.
-    std::env::set_var(crate::activation::OVERRIDE_ENV, crate::activation::OVERRIDE_REGULAR);
-    app.restart();
+    app.state::<Updates>().snapshot()
 }
 
 // ---------------------------------------------------------------------------------------
@@ -906,6 +872,21 @@ pub fn spawn_selftest(app: AppHandle, mode: String) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn update_operation_excludes_another_thread_and_releases_on_failure() {
+        use std::sync::Arc;
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let guard = super::UpdateOperation::acquire(&active).unwrap();
+        let other = Arc::clone(&active);
+        assert!(
+            std::thread::spawn(move || super::UpdateOperation::acquire(&other).is_none())
+                .join()
+                .unwrap()
+        );
+        drop(guard);
+        assert!(super::UpdateOperation::acquire(&active).is_some());
+    }
+
     use super::*;
 
     /// The classifier is the only judgement this file makes about a vendor error, and the
@@ -956,7 +937,10 @@ mod tests {
         let v = UpdateView::new("0.1.0".into(), "https://example.com/u".into(), false);
         assert_eq!(v.state, "idle");
         assert!(!v.endpoint_is_placeholder);
-        assert!(v.checked_at.is_none(), "never checked is not the same as checked and clean");
+        assert!(
+            v.checked_at.is_none(),
+            "never checked is not the same as checked and clean"
+        );
         assert!(v.available_version.is_none());
     }
 }

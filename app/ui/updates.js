@@ -180,7 +180,7 @@ window.RichUpdates = (function () {
       // modes, and this sentence has to survive mode 1 landing without becoming a lie.
       out.push(
         v.state === "ready"
-          ? "I'll wait to restart until everything has finished — nothing will be interrupted."
+          ? "This update will activate next time RichOS opens. Your work will continue uninterrupted."
           : "I'll wait until everything has finished — nothing will be interrupted."
       );
     }
@@ -246,16 +246,16 @@ window.RichUpdates = (function () {
         };
       case "installing":
         return {
-          headline: "Checking the download and installing…",
-          sub: "RichOS is confirming this update was signed by us before it puts it in place.",
+          headline: "Checking and preparing the update…",
+          sub: "RichOS is confirming this update was signed by us before preparing it for the next launch.",
         };
       case "ready":
         return {
-          headline: "RichOS " + v.availableVersion + " is installed.",
+          headline: "RichOS " + v.availableVersion + " is ready for the next launch.",
           // The gate's own words come FIRST when it is busy: "nothing is lost" is true of the
           // install and says nothing about the turn he is watching, which is the thing he is
           // actually asking about.
-          sub: join(gateClauses(v), "Restart when you are ready — nothing is lost."),
+          sub: join(gateClauses(v), "It will activate automatically next time RichOS opens. Your work will continue uninterrupted."),
         };
       case "failed":
         return {
@@ -310,13 +310,9 @@ window.RichUpdates = (function () {
     var check = el("button", "update-btn", { id: "update-check", type: "button" });
     var install = el("button", "update-btn update-btn--go", { id: "update-install", type: "button" });
     install.hidden = true;
-    install.textContent = "Download and install";
-    var relaunch = el("button", "update-btn update-btn--go", { id: "update-relaunch", type: "button" });
-    relaunch.hidden = true;
-    relaunch.textContent = "Restart to finish";
+    install.textContent = "Download update";
     actions.appendChild(check);
     actions.appendChild(install);
-    actions.appendChild(relaunch);
 
     var why = el("button", "update-why", {
       id: "update-why",
@@ -346,10 +342,6 @@ window.RichUpdates = (function () {
     install.addEventListener("click", function () {
       call("update_install");
     });
-    relaunch.addEventListener("click", function () {
-      // Never returns on the real shell — the process is replaced.
-      call("update_relaunch");
-    });
     why.addEventListener("click", function () {
       var open = detail.hidden === false;
       detail.hidden = open;
@@ -365,7 +357,6 @@ window.RichUpdates = (function () {
       fill: fill,
       check: check,
       install: install,
-      relaunch: relaunch,
       why: why,
       detail: detail,
       endpoint: endpoint,
@@ -427,8 +418,6 @@ window.RichUpdates = (function () {
     nodes.install.hidden = v.state !== "available" || !!v.busy;
     nodes.install.disabled = !canAct;
 
-    nodes.relaunch.hidden = v.state !== "ready" || !!v.busy;
-    nodes.relaunch.disabled = !canAct;
 
     var detail = v.failure ? v.failure.detail : "";
     nodes.why.hidden = !detail;
@@ -572,12 +561,12 @@ window.RichUpdates = (function () {
     return svg;
   }
 
-  // An arrow coming down into a tray, and the restart arc. Two glyphs because the two states
+  // An arrow coming down into a tray and a readiness check. Two glyphs because the two states
   // ask for two different things — but the WORDS carry the difference as well, so a
   // monochrome display or a reader who does not parse iconography loses nothing.
   var GLYPH = {
     available: ["M12 3.5v10.5", "M7.5 10 12 14.5 16.5 10", "M4.5 19.5h15"],
-    ready: ["M20 12a8 8 0 1 1-2.35-5.66", "M20 3.5v5h-5"],
+    ready: ["M5 12l4 4L19 6"],
   };
 
   function cue(v) {
@@ -619,7 +608,7 @@ window.RichUpdates = (function () {
     // The ROW's own sentence, not a second one. "RichOS 0.1.2 is available." — the version is
     // named, which is the one place this is deliberately better than the reference, whose
     // button says only "Update" and never says which.
-    var said = sentences(v).headline;
+    var said = want === "ready" ? "RichOS " + v.availableVersion + " is ready." : sentences(v).headline;
     node.lastChild.textContent = said;
     // A BUTTON'S NAME SHOULD SAY WHAT PRESSING IT DOES, and the visible label is a statement
     // rather than an act — so the accessible name is the statement PLUS the act. It starts
@@ -682,7 +671,6 @@ window.RichUpdates = (function () {
     // in that state, which is why this cannot be reached from one.
     if (!nodes) return;
     var go = document.getElementById("update-install");
-    if (!go || go.hidden || go.disabled) go = document.getElementById("update-relaunch");
     if (go && !go.hidden && !go.disabled) {
       focusWanted = false;
       go.focus();
@@ -731,12 +719,12 @@ window.RichUpdates = (function () {
     var version = v.availableVersion ? "RichOS " + v.availableVersion : "An update";
     var head =
       v.state === "ready"
-        ? version + " is installed and needs a restart."
+        ? version + " is ready for the next launch."
         : version + " is ready to install.";
     var why = v.busyReason ? " " + String(v.busyReason) : "";
     var tail =
       v.state === "ready"
-        ? " I'll wait to restart until everything has finished — nothing will be interrupted."
+        ? " It will activate automatically next time RichOS opens. Your work will continue uninterrupted."
         : " I'll wait until everything has finished — nothing will be interrupted.";
     return head + why + tail;
   }

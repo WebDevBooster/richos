@@ -2820,6 +2820,7 @@ dependencies = [
  "base64 0.22.1",
  "minisign-verify",
  "richos-core",
+ "richos-user-update",
  "richos-voice",
  "semver",
  "serde",
@@ -2828,6 +2829,20 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-updater",
  "tokio",
+]
+
+[[package]]
+name = "richos-user-update"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "libc",
+ "plist",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
 ]
 
 [[package]]

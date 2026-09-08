@@ -1,0 +1,139 @@
+//! Update activation happens before the app owns a conversation or worker.
+//! A lifetime filesystem lease prevents another participating launch from
+//! replacing this bundle while the running app still needs its resources.
+#[cfg(target_os = "macos")]
+use richos_user_update::StartupLease;
+#[cfg(not(target_os = "macos"))]
+type StartupLease = ();
+
+const INHERITED_SESSION: &str = "RICHOS_UPDATE_SESSION_FD";
+
+/// This deliberately runs before home resolution, leases, Tauri or native workers.
+/// The installer invokes it inside a restricted process to detect a mismatched
+/// executable before changing the application the user opens.
+pub fn identity_probe(compiled_version: &str) -> bool {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(std::ffi::OsStr::new("--richos-internal-update-identity"))
+        || args.next().is_some()
+    {
+        return false;
+    }
+    println!("{}", serde_json::json!({
+        "identifier": "com.richos.app",
+        "version": compiled_version,
+        "protocol": 1
+    }));
+    true
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_lock<T>(mut action: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let start = std::time::Instant::now();
+    loop {
+        match action() {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+                && start.elapsed() < std::time::Duration::from_secs(10) => {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            result => return result,
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn prepare(compiled_version: &str) -> Result<Option<StartupLease>, String> {
+    use std::{fs, io, os::unix::fs::MetadataExt, path::PathBuf, process::Command};
+    let inherited = std::env::var_os(INHERITED_SESSION);
+    let redirected = inherited.is_some();
+    // Never forward the hint to Claude or any other ordinary child.
+    std::env::remove_var(INHERITED_SESSION);
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let Some(bundle) = crate::activation::bundle_root(&exe) else {
+        if inherited.is_some() { return Err("Update redirect did not enter an application bundle.".into()); }
+        return Ok(None);
+    };
+    let home = PathBuf::from(std::env::var_os("HOME").ok_or("Application home is unavailable.")?);
+    // Match setup's actual debug data override before creating any update files.
+    // A test of an isolated conversation must not activate this user's real app.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("RICHOS_TEST_DATA_DIR").map(PathBuf::from)
+        .is_some_and(|dir| dir != crate::activation::installed_data_dir(&home, "com.richos.app"))
+    {
+        if redirected { return Err("Redirected update changed application data scope.".into()); }
+        return Ok(None);
+    }
+    richos_user_update::bundle_version(&bundle).map_err(|e| e.to_string())?;
+    let before = fs::metadata(&bundle).map_err(|e| e.to_string())?;
+    let mut lease = match inherited {
+        Some(fd) => {
+            let fd = fd.to_str().and_then(|s| s.parse::<i32>().ok()).ok_or("Invalid update session descriptor.")?;
+            wait_for_lock(|| StartupLease::adopt(&home, fd))
+        }
+        None => wait_for_lock(|| StartupLease::acquire(&home)),
+    }.map_err(|e| format!("Could not establish application update exclusion: {e}"))?;
+    let current_bundle_matches = || -> bool {
+        fs::metadata(&bundle).map(|m| m.dev() == before.dev() && m.ino() == before.ino()).unwrap_or(false)
+            && richos_user_update::bundle_version(&bundle).ok().as_deref() == Some(compiled_version)
+    };
+    let loaded_bundle_changed = !current_bundle_matches();
+    if lease.can_activate() && !redirected && !loaded_bundle_changed {
+        match wait_for_lock(|| richos_user_update::collect_retired(&mut lease, &bundle)) {
+            Ok(0) => (),
+            Ok(count) => eprintln!("[richos] reclaimed {count} retired update payloads"),
+            Err(error) => eprintln!("[richos] update payload reclamation deferred: {error}"),
+        }
+    }
+    let activated = if lease.can_activate() && !redirected {
+        match wait_for_lock(|| richos_user_update::activate_prepared_above(&mut lease, compiled_version)) {
+            Ok(publication) => publication.is_some(),
+            Err(error) => {
+                // Publication is an atomic directory exchange. If that occurred,
+                // the already loaded process must not continue against new resources.
+                if !current_bundle_matches() { return Err(format!("Update activation needs recovery before the app can start: {error}")); }
+                eprintln!("[richos] update remains deferred: {error}");
+                wait_for_lock(|| lease.begin_session()).map_err(|e| e.to_string())?;
+                return Ok(Some(lease));
+            }
+        }
+    } else { false };
+    let result = wait_for_lock(|| richos_user_update::with_preferred(&home, |publication| {
+        if redirected {
+            if exe.canonicalize()? != publication.executable(&home).canonicalize()?
+                || publication.version != compiled_version
+            {
+                return Err(io::Error::new(io::ErrorKind::InvalidData,
+                    "redirected executable disagrees with its verified release"));
+            }
+            return Ok(());
+        }
+        let newer = publication.is_newer_than(compiled_version)?;
+        if loaded_bundle_changed && !newer && publication.version != compiled_version {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Changed application cannot redirect to an older release"));
+        }
+        if !activated && !loaded_bundle_changed && !newer {
+            return Ok(());
+        }
+        let mut command = Command::new(publication.executable(&home));
+        command.args(std::env::args_os().skip(1))
+            .env(INHERITED_SESSION, lease.session_fd().to_string());
+        // exec preserves the launch relationship. Carry explicit activation
+        // overrides unchanged; do not turn background harness boots into GUI boots.
+        let error = lease.exec(&mut command);
+        Err::<(), io::Error>(error)
+    }));
+    match result {
+        Ok(None) if redirected || loaded_bundle_changed => return Err("Changed application has no publication receipt.".into()),
+        Ok(_) => (),
+        Err(error) if !activated && !redirected && !loaded_bundle_changed => {
+            // A corrupt preferred receipt must not prevent the untouched old
+            // installation from opening. It keeps the session lease either way.
+            eprintln!("[richos] preferred update remains deferred: {error}");
+        }
+        Err(error) => return Err(format!("The activated application could not start: {error}")),
+    }
+    wait_for_lock(|| lease.begin_session()).map_err(|e| e.to_string())?;
+    Ok(Some(lease))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn prepare(_compiled_version: &str) -> Result<Option<StartupLease>, String> { Ok(None) }

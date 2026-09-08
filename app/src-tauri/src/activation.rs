@@ -73,13 +73,11 @@
 //! back. It is deliberately NOT what the guarantee rests on — a variable only ever helps
 //! someone who already knows about the problem — but two callers need it:
 //!
-//!   * `updates.rs::update_relaunch` sets `regular` before `app.restart()`. Tauri's restart
-//!     SPAWNS a replacement and exits (`tauri-2.11.5/src/process.rs:74-88`), so for a short
-//!     window the replacement's parent is the dying original rather than launchd, and P
-//!     would be read as false. Left to the race, an update would occasionally bring RichOS
-//!     back with no Dock icon and no window in front — which reads as "the update deleted
-//!     the app". The marker removes the race rather than narrowing it.
 //!   * an operator who wants the other answer for one run, in either direction.
+//!   * a harness explicitly exercising the regular installed presentation.
+//!
+//! Updates no longer restart a live session. Startup redirection uses exec before
+//! runtime initialization, preserving the parent relationship and any explicit override.
 //!
 //! =========================================================================================
 //! WHAT THIS FILE DOES NOT COVER, NAMED RATHER THAN LEFT TO BE FOUND

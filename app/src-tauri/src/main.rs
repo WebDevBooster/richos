@@ -10,6 +10,7 @@ mod activation;
 mod events;
 mod managed_runs;
 mod owned_work;
+mod update_startup;
 
 use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
@@ -876,6 +877,22 @@ fn install_correction_desk(
 }
 
 fn main() {
+    // This is compile-generated metadata, before any application runtime exists.
+    // Use the same merged build version for the probe, startup and final app.
+    let context = tauri::generate_context!();
+    let compiled_version = context.package_info().version.to_string();
+    if update_startup::identity_probe(&compiled_version) {
+        return;
+    }
+    // Keep the lease alive through all Tauri state and worker lifetimes. This
+    // runs before any runtime thread exists, so exec cannot abandon accepted work.
+    let _update_session = match update_startup::prepare(&compiled_version) {
+        Ok(session) => session,
+        Err(error) => {
+            eprintln!("[richos] application startup: {error}");
+            return;
+        }
+    };
     let mut args = std::env::args_os().skip(1);
     if args.next().as_deref() == Some(std::ffi::OsStr::new("--onboarding-mcp")) {
         let result = args.next().ok_or_else(|| "Missing onboarding scope".to_string())
@@ -1926,7 +1943,7 @@ fn main() {
             onboarding_view,
             decline_onboarding
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building RichOS")
         // THE CLEAN-EXIT MARKER, CLEARED HERE AND NOWHERE ELSE.
         //

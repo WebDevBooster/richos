@@ -4,40 +4,19 @@
 #   app/scripts/updater-e2e.sh                 # the whole thing
 #   app/scripts/updater-e2e.sh --keep          # ...and leave the workspace for inspection
 #
-# WHY THIS FILE IS THE DELIVERABLE AND THE CONFIGURATION IS NOT
-# -------------------------------------------------------------
-# RICH-TODOs row 12 said RichOS had "no updater of any kind" and that the CEO's *"automatically
-# download and install whatever the user needs"* rested on zero infrastructure. Wiring
-# `tauri-plugin-updater` into `Cargo.toml` and `tauri.conf.json` does not answer that: an
-# updater that has never applied an update is the same zero infrastructure with more files in
-# it. So this script builds 0.1.0, builds 0.1.1, serves a manifest, and makes the first
-# BECOME the second — then tampers with one byte and shows the refusal.
+# Builds isolated 0.1.0 and 0.1.1 fixture bundles, serves a local update manifest
+# and exercises the shipping download, staging and normal startup activation code.
 #
-# WHAT IT PROVES, in order, each as its own named case:
+# A: 0.1.0 discovers 0.1.1 through a real HTTP manifest fetch.
+# B: download verifies the minisign signature and stages the next launch.
+# C: the current bundle stays 0.1.0 with a durable prepared receipt.
+# D: the next ordinary launch activates and runs 0.1.1 before the fixture runtime.
+# T/K: tampering or a different signing key is refused as a signature failure,
+#      preserving the current bundle.
 #
-#   A  0.1.0 finds 0.1.1 through a real HTTP manifest fetch
-#   B  it downloads the archive, VERIFIES the minisign signature, and installs it
-#   C  the bundle on disk is now 0.1.1 — read from the INSTALLED Info.plist
-#   D  the replaced bundle RUNS, and reports itself as 0.1.1 against the same manifest
-#   T  a TAMPERED archive is REFUSED, with `failure.kind == "signature"`, and the installed
-#      bundle is untouched afterwards
-#   K  an archive signed with a DIFFERENT key is refused the same way
-#
-# T AND K ARE THE POINT AS MUCH AS A-D ARE. An updater that installs an unverified binary is
-# worse than no updater: it is a remote-code-execution channel with a progress bar. Case T
-# does not assert that the code contains a verification call; it flips a byte in the served
-# artifact, leaves the good signature in place, and requires the install to FAIL.
-#
-# HOW THE APP IS DRIVEN, and why it is not a scripted click
-# ---------------------------------------------------------
-# Only a process that IS the bundle can replace the bundle — the updater resolves what to
-# replace from `current_exe` (`tauri-plugin-updater-2.11.0/src/updater.rs:1424`). Driving the
-# real GUI would need an Accessibility grant, which an ad-hoc bundle loses on every build that
-# changes a byte — the exact failure this repository has already measured. So the app is
-# launched with `RICHOS_UPDATE_SELFTEST=install`, which runs the SAME `updates::check` and
-# `updates::install` functions the two Tauri commands run (`src-tauri/src/updates.rs`), after
-# the SAME full boot, and prints one machine-readable line per transition. It is not a
-# reimplementation with the verification left out; it is the same two calls.
+# RICHOS_UPDATE_SELFTEST invokes the same updates::check and updates::install
+# functions as the Tauri commands. HOME and the user application destination are
+# isolated. No vendor installation fallback or administrator authorization is used.
 #
 # WHAT IS DIFFERENT FROM A SHIPPING BUILD, stated rather than buried
 # ------------------------------------------------------------------
@@ -134,7 +113,8 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/richos-updater-e2e.XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 SERVE="$WORK/serve"
-INSTALLED="$WORK/installed"
+TEST_HOME="$WORK/home"
+INSTALLED="$TEST_HOME/Applications"
 LOGS="$WORK/logs"
 mkdir -p "$SERVE" "$INSTALLED" "$LOGS"
 
@@ -221,7 +201,7 @@ installed_version() {
 }
 
 reinstall_old() {
-  rm -rf "$INSTALLED/RichOS.app"
+  rm -rf "$INSTALLED/RichOS.app" "$INSTALLED/.richos-updater"
   cp -R "$WORK/pristine-0.1.0.app" "$INSTALLED/RichOS.app"
 }
 
@@ -250,6 +230,7 @@ python3 -m json.tool "$SERVE/latest.json" | sed 's/^/    /'
 run_selftest() { # run_selftest <check|install> <logname> -> exit code, output in $SELFTEST_OUT
   local mode="$1" name="$2"
   local log="$LOGS/$name.log"
+  HOME="$TEST_HOME" \
   RICHOS_UPDATE_SELFTEST="$mode" \
   RICHOS_UPDATE_ENDPOINT="$BASE/latest.json" \
   RICHOS_ENTITY="${RICHOS_ENTITY:-richos}" \
@@ -264,7 +245,7 @@ state_of() { printf '%s\n' "$SELFTEST_OUT" | sed -n "s/.*state=\([a-zA-Z]*\).*/\
 failure_of() { printf '%s\n' "$SELFTEST_OUT" | sed -n 's/.*failure=\([a-zA-Z-]*\).*/\1/p' | tail -1; }
 
 rule
-say "CASE A-D — 0.1.0 discovers 0.1.1, verifies it, installs it, and comes back as 0.1.1"
+say "CASE A-D — 0.1.0 discovers 0.1.1, verifies it, stages it, and opens next time as 0.1.1"
 say ""
 
 before="$(installed_version)"
@@ -285,26 +266,25 @@ else
 fi
 
 if [ "$apply_code" -eq 0 ] && printf '%s\n' "$SELFTEST_OUT" | grep -q 'state=ready'; then
-  ok "B  it downloaded the archive, the signature VERIFIED, and it installed"
+  ok "B  it downloaded the archive, the signature VERIFIED, and it staged the next launch"
 else
-  bad "B  it downloaded the archive, the signature VERIFIED, and it installed" \
+  bad "B  it downloaded the archive, the signature VERIFIED, and it staged the next launch" \
       "exit $apply_code; selftest said: $SELFTEST_OUT (log: $SELFTEST_LOG)"
 fi
 
 after="$(installed_version)"
-if [ "$after" = "0.1.1" ]; then
-  ok "C  the bundle ON DISK is now 0.1.1 (read from the installed Info.plist)"
+if [ "$after" = "0.1.0" ] && [ -f "$INSTALLED/.richos-updater/prepared.json" ]; then
+  ok "C  the current bundle stays 0.1.0 and a durable update is staged"
 else
-  bad "C  the bundle ON DISK is now 0.1.1 (read from the installed Info.plist)" "Info.plist says '$after'"
+  bad "C  the current bundle stays 0.1.0 and a durable update is staged" "Info.plist says '$after'"
 fi
 
-# D is the relaunch. The replaced bundle is STARTED AGAIN — a new process, from the bytes the
-# updater put there — and asked the same question. "upToDate" from a build that a moment ago
-# said "available" is the whole claim: it is running as 0.1.1, and it can say so.
+# D is the next ordinary launch. Startup activates the staged bundle under the
+# session lease and execs its exact verified executable before the selftest runtime.
 run_selftest check relaunch
 relaunch_code=$?
 printf '%s\n' "$SELFTEST_OUT" | sed 's/^/    /'
-if [ "$relaunch_code" -eq 10 ] && printf '%s\n' "$SELFTEST_OUT" | grep -q 'state=upToDate.*current=0.1.1'; then
+if [ "$relaunch_code" -eq 10 ] && [ "$(installed_version)" = "0.1.1" ] && printf '%s\n' "$SELFTEST_OUT" | grep -q 'state=upToDate.*current=0.1.1'; then
   ok "D  the replaced bundle RELAUNCHED, runs, and reports itself as 0.1.1 and up to date"
 else
   bad "D  the replaced bundle RELAUNCHED, runs, and reports itself as 0.1.1 and up to date" \

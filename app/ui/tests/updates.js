@@ -625,7 +625,7 @@ async function main() {
   });
 
   // ---- 9. the buttons issue the commands they claim to -----------------------------------
-  await run.check("9. Install installs and Restart restarts — asserted on the commands issued", async () => {
+  await run.check("9. Download stages the update without a restart action", async () => {
     const page = await openApp(browser);
     await openMenu(page);
     await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls()); // drain nothing; just prove it exists
@@ -636,7 +636,7 @@ async function main() {
       [view({ state: "ready", availableVersion: "0.1.1", percent: 100, endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" })]
     );
     let row = await readRow(page);
-    assertEqual(row.install, "Download and install", "the install button is offered");
+    assertEqual(row.install, "Download update", "the install button is offered");
     assertEqual(row.check, null, "and Check is not — the next act is not another check");
 
     await page.click("#update-install");
@@ -646,18 +646,13 @@ async function main() {
     await settledAfterCommand(page, "update_install");
     row = await readRow(page);
     assertEqual(row.state, "ready", "the scripted install landed");
-    assertEqual(row.relaunch, "Restart to finish", "and the restart is now the offer");
+    assertEqual(row.relaunch, null, "no update action can terminate the running session");
+    assert(row.sub.includes("automatically next time RichOS opens"), "activation is deferred and explained: " + row.sub);
     assertEqual(row.install, null, "the install button is gone");
 
-    await page.click("#update-relaunch");
-    await settledAfterCommand(page, "update_relaunch");
     const calls = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
-    assert(calls.indexOf("update_install") >= 0, "Install issued update_install: " + calls.join(","));
-    assert(calls.indexOf("update_relaunch") >= 0, "Restart issued update_relaunch: " + calls.join(","));
-    assert(
-      calls.indexOf("update_relaunch") > calls.indexOf("update_install"),
-      "and in that order: " + calls.join(",")
-    );
+    assert(calls.indexOf("update_install") >= 0, "Download issued update_install: " + calls.join(","));
+    assertEqual(calls.indexOf("update_relaunch"), -1, "no restart command was issued");
     await page.close();
     return calls.join(" -> ");
   });
@@ -747,7 +742,7 @@ async function main() {
     cue = await readCue(page);
     assertEqual(cue.count, 1, "still one for the other waiting state");
     assertEqual(cue.cueState, "ready", "and it changed meaning");
-    assert(/RichOS 0\.1\.2 is installed/.test(cue.text), "naming the version again: " + cue.text);
+    assert(/RichOS 0\.1\.2 is ready\./.test(cue.text), "naming the version again: " + cue.text);
     await settled(page);
     await shot(page, SHOTS + "/updates-cue-ready");
 
@@ -831,7 +826,7 @@ async function main() {
     // two reads a repaint could sit between.
     assertEqual(cue.text, cue.rowLine, "the cue's words ARE the row's words — one sentence, not two that agree today");
     assertEqual(row.headline, cue.text, "and the row agrees when read on its own terms");
-    assertEqual(row.install, "Download and install", "and the row's own control is the offer");
+    assertEqual(row.install, "Download update", "and the row's own control is the offer");
     await shot(page, SHOTS + "/updates-cue-opened-the-row");
 
     // NOTHING WAS INSTALLED BY PRESSING THE ANNOUNCEMENT. §26's mode 1 — install with no
@@ -917,7 +912,7 @@ async function main() {
     assertEqual(waiting.count, 0, "idle: and the waiting cue is not");
     await openMenu(page);
     let row = await readRow(page);
-    assertEqual(row.install, "Download and install", "idle: the control is offered");
+    assertEqual(row.install, "Download update", "idle: the control is offered");
     assertEqual(row.busy, null, "idle: nothing marks the row as blocked");
     assertEqual(row.mark, "available", "idle: and the settings button carries its mark");
     await page.click("#update-install");
@@ -995,7 +990,7 @@ async function main() {
     // painted note is never seen at all.
     assert(w.label.indexOf("RichOS 0.1.2") >= 0, "the name says WHICH version: " + w.label);
     assert(w.label.indexOf("1 worker is still running.") >= 0, "and what is running: " + w.label);
-    assert(w.label.indexOf("nothing will be interrupted") >= 0, "and that nothing is at risk: " + w.label);
+    assert(w.label.indexOf("work will continue uninterrupted") >= 0, "and that nothing is at risk: " + w.label);
     assertEqual(w.noteShown, false, "the note is closed until it is asked for");
 
     // FOCUS OPENS IT — the requirement a hover-only tooltip fails.

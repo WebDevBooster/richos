@@ -2436,13 +2436,9 @@
           return { available: true, reason: null };
 
         case "update_relaunch":
-          // The real command never returns ON THE SUCCESS PATH — the process is replaced.
-          // Recording the call is the only thing a browser can honestly do with that half.
-          // The REFUSAL half does return, and it returns the view, so the preview reports
-          // what the product reports.
+          // Compatibility endpoint is a read. No live update restarts a session.
           mockUpdate.calls.push("update_relaunch");
-          if (mockUpdate.view.busy) return { ...mockUpdate.view };
-          return null;
+          return { ...mockUpdate.view };
 
         default:
           // Unwired-yet commands (voice capture, worker status, assertiveness persistence)
