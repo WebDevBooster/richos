@@ -1,0 +1,16 @@
+  FAIL  C1. an unasked prepared item BLOCKS the dispatch and names the item
+  FAIL  C1b. the refusal says how to discharge it — with AskUserQuestion
+  FAIL  C3. A JUNK QUESTION DISCHARGES NOTHING — the gate is still closed after it
+  FAIL  C4. a WORKER's matching question does not open the gate for the lead
+  FAIL  C5. a question asked in ANOTHER session does not open this session's gate
+  FAIL  C6. the 'ceo-todos-deferred:' prompt line permits the dispatch and is logged
+  FAIL  C7. a bare 'ceo-todos-deferred:' with no reason does NOT permit the dispatch
+  FAIL  C10. BROKEN: a declared list that is not on disk FAILS OPEN and says so
+  FAIL  D1. an unasked item ends the turn with a named item on the operator channel
+  FAIL  D1b. it is rendered as a QUESTION, not as a count
+  FAIL  D3. asking one item changes the set, so the notice speaks again with the next one
+  FAIL  D4. a declared-but-unreadable list is announced LOUDLY at turn end, and never blocks
+  FAIL  E4. startup deferral contract
+  FAIL  F1. ceo-asks-status.sh exits 1 and reports OPEN when he has not been asked
+  FAIL  F2. ...and 0/SATISFIED for the session in which he was
+  FAIL  OWN4. adoption change leaked into an unadopted repository

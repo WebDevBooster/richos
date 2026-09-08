@@ -1,0 +1,33 @@
+{
+  "mode": "incident-real-auditor",
+  "intentional_early_stop_injection": true,
+  "passed": false,
+  "checks": {
+    "same_native_leader": true,
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": false,
+    "source_identity_unchanged": true,
+    "recorded_then_native_reminder_then_repair": true,
+    "real_auditor_incomplete_then_complete": false,
+    "auditor_binary_unchanged": true,
+    "diagnosis_correct": true,
+    "both_test_methods_retained": true,
+    "independent_tests_pass": true,
+    "actual_behavior_matches_contract": true,
+    "coverage_rejects_native_regression": true,
+    "coverage_rejects_external_regression": true,
+    "scope_preserved": true
+  },
+  "first": null,
+  "second": null,
+  "audits": 1,
+  "session_ids": [
+    "a71684fe-267d-44a8-a9da-b249a6449a08"
+  ],
+  "operational_followups": 0,
+  "setup_inputs": [
+    "select-disposable-workspace-trust",
+    "confirm-disposable-workspace-trust"
+  ]
+}

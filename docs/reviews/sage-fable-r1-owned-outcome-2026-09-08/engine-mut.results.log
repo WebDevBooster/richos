@@ -1,0 +1,16 @@
+== policy-always-on: suite rc=0; red cases:
+     (none)
+== policy-always-off: suite rc=1; red cases:
+       FAIL  C9. NOT-DECLARED: a seat with no CEO list stands down, silently
+       FAIL  OWN1. dependency policy wrongly gated independent work
+       FAIL  OWN2. startup still demands an unrelated CEO question
+       FAIL  OWN3. Stop resurrected the unrelated question quota
+== guard-ignores-policy: suite rc=1; red cases:
+       FAIL  OWN1. dependency policy wrongly gated independent work
+== session-start-ignores-policy: suite rc=1; red cases:
+       FAIL  OWN2. startup still demands an unrelated CEO question
+== stop-notice-ignores-policy: suite rc=1; red cases:
+       FAIL  OWN3. Stop resurrected the unrelated question quota
+== policy-accepts-any-json: suite rc=0; red cases:
+     (none)
+mutants exit=0

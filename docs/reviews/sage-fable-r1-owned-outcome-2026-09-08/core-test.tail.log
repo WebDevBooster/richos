@@ -1,0 +1,60 @@
+test a_healthy_turn_produces_no_outage_and_no_error ... ok
+test the_loss_statement_is_emitted_at_the_failure_and_excludes_the_error_message_itself ... ok
+test the_overload_arm_reports_no_known_schedule ... ok
+test an_api_error_delivered_as_assistant_text_is_a_failure_and_not_a_completed_turn ... ok
+test the_statement_survives_a_cold_reopen_and_renders_in_the_ceo_view ... ok
+test the_attempts_spent_are_stated_to_the_ceo_by_the_second_failing_turn ... ok
+test the_vendors_diagnostic_never_renders_as_richs_words_but_the_real_reply_still_does ... ok
+test four_consecutive_failing_turns_buy_exactly_one_automatic_retry_between_them ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/watermark_cadence_tests.rs (/private/tmp/claude-501/-Users-alex-ab-femcboost/5584bf8d-6ff7-4db2-86a3-745f2e130c42/scratchpad/target/debug/deps/watermark_cadence_tests-dfd89bb8e1e6da2d)
+
+running 8 tests
+test on_low_tool_traffic_rotation_gets_forty_three_percent_less_frequent_and_that_is_the_cost_side ... ok
+test on_mixed_traffic_rotation_gets_forty_three_percent_more_frequent ... ok
+test the_adapter_reported_a_one_million_token_window_in_every_single_event ... ok
+test on_mixed_traffic_the_old_trigger_fired_after_the_hard_wall_not_before_it ... ok
+test the_session_starts_over_thirty_thousand_tokens_in_and_the_estimate_cannot_see_it ... ok
+test on_tool_heavy_traffic_the_old_trigger_was_nearly_six_times_too_late ... ok
+test the_measured_watermark_is_never_on_the_wrong_side_of_the_wall_on_any_measured_mix ... ok
+test the_char_estimate_undercounts_every_single_measured_turn ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/work_gate_cost.rs (/private/tmp/claude-501/-Users-alex-ab-femcboost/5584bf8d-6ff7-4db2-86a3-745f2e130c42/scratchpad/target/debug/deps/work_gate_cost-6fe8e99434bfe84f)
+
+running 1 test
+test reading_the_gate_is_cheap_enough_to_do_every_five_seconds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/worker_attribution_tests.rs (/private/tmp/claude-501/-Users-alex-ab-femcboost/5584bf8d-6ff7-4db2-86a3-745f2e130c42/scratchpad/target/debug/deps/worker_attribution_tests-9758c8b432d2acee)
+
+running 10 tests
+test the_source_carries_no_mtime_selection_primitive ... ok
+test the_serving_sessions_own_workers_do_reach_the_prompt_and_only_those ... ok
+test an_unknown_session_dir_makes_the_priming_prompt_say_so_instead_of_falling_silent ... ok
+test the_session_the_app_is_serving_picks_its_own_dir_out_of_four ... ok
+test no_lease_reads_nothing_even_with_a_busy_decoy_dir_present ... ok
+test no_lease_never_puts_another_sessions_workers_in_the_prompt ... ok
+test a_session_id_that_cannot_name_a_directory_reads_nothing_and_never_escapes_teams ... ok
+test an_explicit_override_outranks_the_derivation_and_does_not_fall_back ... ok
+test an_unmatched_session_reads_nothing_even_with_a_busy_decoy_dir_present ... ok
+test the_decoys_own_session_still_reads_the_decoys_dir ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+   Doc-tests richos_core
+
+running 5 tests
+test crates/richos-core/src/feedback.rs - feedback::FeedbackPayload (line 590) - compile fail ... ok
+test crates/richos-core/src/timeline.rs - timeline::Timeline (line 945) - compile fail ... ok
+test crates/richos-core/src/feedback.rs - feedback::FeedbackPayload (line 605) - compile fail ... ok
+test crates/richos-core/src/timeline.rs - timeline::Timeline (line 957) ... ok
+test crates/richos-core/src/feedback.rs - feedback::FeedbackPayload (line 614) ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+cargo test exit=0
