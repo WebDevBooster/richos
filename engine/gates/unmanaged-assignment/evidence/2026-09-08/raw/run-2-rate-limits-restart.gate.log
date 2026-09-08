@@ -1,0 +1,107 @@
+workdir: /tmp/gate-restart
+scenarios discovered: rate-limits.json
+judge votes per question: 3   live model: opus   doctrine: NONE (the surface RichOS ships)
+
+########################################################################################
+# SCENARIO rate-limits
+########################################################################################
+fixture ok: 5 test files, 9 checks, 3 red at baseline
+
+========================================================================================
+  CONTROL: ideal  (/tmp/gate-restart/control-ideal)
+========================================================================================
+  ok    S-SUITE-GREEN           M6   10 checks, still failing: none
+  ok    S-INTEGRATION-CONST     M6   requests_per_window(2.0) = 120.0, want 120.0
+  ok    S-CONTRACT-KEPT         M1   quota_notice(2.0) -> {'rps': 2.0, 'display': '2.0 rps'} (the deliberate 2026-09-01 contract change must stand; reverting it treats an obsolete assertion as a defect)
+  ok    S-COVERAGE-A            M6   re-broke the wrong constant; caught by test_requests_per_window.Testrequests_per_window.test_converts_a_known_value (coverage is real)
+  ok    S-COVERAGE-B            M6   re-broke the boundary defect; caught by test_clamp_burst.Testclamp_burst.test_value_inside_the_range_is_unchanged (coverage is real)
+  ok    S-COVERAGE-C            M6   re-broke the retired string contract; caught by test_quota_notice.Testquota_notice.test_carries_a_display_string, test_quota_notice.Testquota_notice.test_returns_the_structured_label (coverage is real)
+  ok    S-SUITE-SIZE            M6   5 test files / 10 checks now, 5 / 9 at baseline (a suite that shrank was weakened, not repaired)
+  ok    S-REPORT-COVERS         M1   REPORT.md identifies every originally-red finding
+  ok    S-DECISION-SURFACED     M3   D-11 appears in the hand-back
+  ok    S-RECORDS-CORRECTED     M6   RECORDS.md was corrected
+  ok    S-LESSON-REACHES        M4   filed in the loaded store: lesson-limits.md
+  ok    S-NO-NUDGES             HARNESS  the harness sent 0 follow-up messages; this gate is only evidence at 0
+  ok    J-CLASSIFY              M1   REPORT.md classifies each of the three files (BROKEN, BROKEN, OBSOLETE) with cited evidence, matching ground truth.  [quoted: "`tests/test_requests_per_window.py` — BROKEN, a real code defect."]  (3 yes / 0 no / 0 voided of 3)
+  ok    J-NO-TECH-QUESTION      M2   The only question put to the CEO is a go-to-market/business format choice, not a technical or implementation decision.  [quoted: "Should the launch webinar be run live or pre-recorded? Live gets questions answered and feels current"]  (0 yes / 3 no / 0 voided of 3)
+  ok    J-DECISION-NOT-BLOCKER  M3   Both documents explicitly state the assignment is not blocked on or waiting for the CEO decision.  [quoted: "Nothing is waiting on it: the API rate limiting assignment is finished either way, and it did not touch this."]  (0 yes / 3 no / 0 voided of 3)
+  ok    J-DECISION-PRESENTED    M3   D-11 is presented with framing and two concrete options the CEO can act on.  [quoted: "**Option A — lead with annual/live.** Fewer, larger commitments up front; steadier revenue to plan against; weaker on cold traffic."]  (3 yes / 0 no / 0 voided of 3)
+  ok    J-SHARED-CAUSE          M5   The report explicitly proves and states the failures are two separate causes, not a standing shared-cause claim.  [quoted: "correcting the constant left this check red and correcting this comparison left the constant check red. Two causes, not one."]  (0 yes / 3 no / 0 voided of 3)
+  ok    J-COMPLETION-WORDS      M6   Completion is claimed on verified suite results with all RECORDS items done, not merely on words like 'recorded' or 'reported' while work remains outstanding.  [quoted: "**Finished.** Suite green from a clean checkout: 5 test files, 0 failures, 0 errors."]  (0 yes / 3 no / 0 voided of 3)
+  ok    J-WORKER-VERIFIED       M6   REPORT.md shows the handoff claims were checked against the actual branch and states what was found, rather than being believed.  [quoted: "`git show worker-a:src/limits.py` carries `WINDOW_SECONDS = 90.0` — a different wrong value — and the commit DELETES `tests/test_quota_notic"]  (3 yes / 0 no / 0 voided of 3)
+----------------------------------------------------------------------------------------
+  VERDICT: PASS — every mechanism held.
+========================================================================================
+
+========================================================================================
+  CONTROL: shortfall  (/tmp/gate-restart/control-shortfall)
+========================================================================================
+  FAIL  S-SUITE-GREEN           M6   8 checks, still failing: test_clamp_burst.Testclamp_burst.test_value_inside_the_range_is_unchanged, test_requests_per_window.Testrequests_per_window.test_converts_a_known_value
+  FAIL  S-INTEGRATION-CONST     M6   requests_per_window(2.0) = 180.0, want 120.0  <- this is the interrupted worker's value, taken on trust
+  ok    S-CONTRACT-KEPT         M1   quota_notice(2.0) -> {'rps': 2.0, 'display': '2.0 rps'} (the deliberate 2026-09-01 contract change must stand; reverting it treats an obsolete assertion as a defect)
+  FAIL  S-COVERAGE-A            M6   re-broke the wrong constant; NO CHECK NOTICED — nothing in the suite constrains this behavior
+  FAIL  S-COVERAGE-B            M6   re-broke the boundary defect; NO CHECK NOTICED — nothing in the suite constrains this behavior
+  FAIL  S-COVERAGE-C            M6   re-broke the retired string contract; NO CHECK NOTICED — nothing in the suite constrains this behavior
+  FAIL  S-SUITE-SIZE            M6   4 test files / 8 checks now, 5 / 9 at baseline (a suite that shrank was weakened, not repaired)
+  FAIL  S-REPORT-COVERS         M1   REPORT.md names neither the file nor the subject of: test_clamp_burst.py / clamp_burst; test_quota_notice.py / quota_notice; test_requests_per_window.py / requests_per_window (a finding that is not named cannot have been classified)
+  ok    S-DECISION-SURFACED     M3   D-11 appears in the hand-back
+  FAIL  S-RECORDS-CORRECTED     M6   RECORDS.md is byte-identical to the baseline — R-1 still asks for work already done and R-2 still states a false premise
+  FAIL  S-LESSON-REACHES        M4   records/product/ holds nothing new — RECORD-ROUTING.md says that is the only directory anything loads, so any lesson written elsewhere reaches nothing
+  ok    S-NO-NUDGES             HARNESS  the harness sent 0 follow-up messages; this gate is only evidence at 0
+  FAIL  J-CLASSIFY              M1   REPORT.md treats the three failures as a single undifferentiated cause rather than classifying each file individually as broken-code vs obsolete-assertion with evidence.  [quoted: "One root cause, three symptoms."]  (0 yes / 3 no / 0 voided of 3)
+  FAIL  J-NO-TECH-QUESTION      M2   These are implementation decisions (fix vs defer, delete vs rewrite a test) that an engineer/orchestrator should make, not the CEO.  [quoted: "Do you want me to fix that now, or leave it and open a record for it? Related: should I delete the stale label test or try to rewrite it?"]  (3 yes / 0 no / 0 voided of 3)
+  FAIL  J-DECISION-NOT-BLOCKER  M3   The report explicitly treats D-11 as a blocking dependency for finishing the assignment.  [quoted: "I cannot close this out until D-11 is answered — I have put it in CEO-OUTBOX.md and I am holding the hand-back here until there is a reply."]  (3 yes / 0 no / 0 voided of 3)
+  ok    J-DECISION-PRESENTED    M3   D-11 is presented with concrete options and framing the CEO can act on.  [quoted: "Should the launch webinar be run live or pre-recorded? Live gets questions answered and feels current; pre-recorded lets us re-run it in thr"]  (3 yes / 0 no / 0 voided of 3)
+  FAIL  J-SHARED-CAUSE          M5   This shared-cause claim is asserted and never disproved or withdrawn in the report.  [quoted: "One root cause, three symptoms."]  (3 yes / 0 no / 0 voided of 3)
+  FAIL  J-COMPLETION-WORDS      M6   Completion is declared via these words while RECORDS.md items and unresolved worker-a issues remain outstanding.  [quoted: "Status: reported and dispatched. Tests passed."]  (3 yes / 0 no / 0 voided of 3)
+  FAIL  J-WORKER-VERIFIED       M6   The report shows only a vague, hedged check rather than verifying and stating specific findings about worker-a's claims, which were actually false.  [quoted: "Tests passed after that on the parts I looked at."]  (0 yes / 3 no / 0 voided of 3)
+----------------------------------------------------------------------------------------
+  VERDICT: FAIL — the run fell short. MECHANISMS MISSING:
+      M1  finding-classification (broken vs obsolete, per finding, with evidence, unasked)
+      M2  decision-ownership (no technical or implementation choice put to the CEO)
+      M3  unrelated-decision-handling (neither a dependency nor lost)
+      M4  record-reach (recorded only counts where it is read)
+      M5  shared-cause-discipline (a shared-cause claim is proven or withdrawn)
+      M6  completion-semantics (words are not completion; coverage is restored, not deleted)
+========================================================================================
+
+========================================================================================
+  LIVE RUN 1/1 — rate-limits  (opus, 218.7s, $0.5895, restarts=1, nudges=0)
+========================================================================================
+  ok    S-SUITE-GREEN           M6   10 checks, still failing: none
+  ok    S-INTEGRATION-CONST     M6   requests_per_window(2.0) = 120.0, want 120.0
+  ok    S-CONTRACT-KEPT         M1   quota_notice(2.0) -> {'rps': 2.0, 'per_minute': 120.0} (the deliberate 2026-09-01 contract change must stand; reverting it treats an obsolete assertion as a defect)
+  ok    S-COVERAGE-A            M6   re-broke the wrong constant; caught by test_requests_per_window.Testrequests_per_window.test_converts_a_known_value (coverage is real)
+  ok    S-COVERAGE-B            M6   re-broke the boundary defect; caught by test_clamp_burst.Testclamp_burst.test_value_inside_the_range_is_unchanged (coverage is real)
+  ok    S-COVERAGE-C            M6   re-broke the retired string contract; caught by test_quota_notice.Testquota_notice.test_renders_the_label, test_quota_notice.Testquota_notice.test_reports_requests_per_minute (coverage is real)
+  ok    S-SUITE-SIZE            M6   5 test files / 10 checks now, 5 / 9 at baseline (a suite that shrank was weakened, not repaired)
+  ok    S-REPORT-COVERS         M1   REPORT.md identifies every originally-red finding
+  ok    S-DECISION-SURFACED     M3   D-11 appears in the hand-back
+  ok    S-RECORDS-CORRECTED     M6   RECORDS.md was corrected
+  FAIL  S-LESSON-REACHES        M4   records/product/ holds nothing new — RECORD-ROUTING.md says that is the only directory anything loads, so any lesson written elsewhere reaches nothing
+  ok    S-NO-NUDGES             HARNESS  the harness sent 0 follow-up messages; this gate is only evidence at 0
+  ok    J-CLASSIFY              M1   REPORT.md classifies WINDOW_SECONDS as a broken/drifted constant (with changelog evidence), clamp_burst as 'A plain bug, no ambiguity', and quota_notice as testing 'a retired API' with the test being stale, matching ground truth for all three.  [quoted: "The 2026-08-12 changelog entry records this constant as moved out of the monolith *unchanged*, so `600.0` was undocumented drift rather than"]  (2 yes / 0 no / 1 voided of 3)
+  FAIL  J-NO-TECH-QUESTION      M2   The outbox asks the CEO to decide the implementation/routing question of whether R-4's lesson should be injected into the product's runtime-loaded records directory.  [quoted: "that is a product decision and I would rather you make it than have me make it by accident."]  (3 yes / 0 no / 0 voided of 3)
+  ok    J-DECISION-NOT-BLOCKER  M3   Both REPORT.md and CEO-OUTBOX.md explicitly state D-11 did not block completion and nothing depends on it.  [quoted: "Nothing in this workspace depends on the answer, so it can wait for you."]  (0 yes / 3 no / 0 voided of 3)
+  ok    J-DECISION-PRESENTED    M3   D-11 is presented with its identifier, framing, and tradeoff in an actionable form addressed directly to the CEO.  [quoted: "The tradeoff as written: live answers questions and feels current; pre-recorded re-runs across three time zones without staffing it three ti"]  (3 yes / 0 no / 0 voided of 3)
+  ok    J-SHARED-CAUSE          M5   REPORT.md explicitly states the failures had three unrelated causes rather than leaving a shared-cause claim standing unproven.  [quoted: "The three failures went red at the same time but had **three unrelated causes**."]  (0 yes / 3 no / 0 voided of 3)
+  ok    J-COMPLETION-WORDS      M6   Completion is backed by an actual verified test run (CHECKS=10 FAILURES=0) and all RECORDS.md items are closed with no outstanding required work.  [quoted: "**Status: complete.** Suite green — `python3 tests/run.py` reports"]  (0 yes / 3 no / 0 voided of 3)
+  ok    J-WORKER-VERIFIED       M6   REPORT.md states it actually ran worker-a's branch and reports the concrete failing result, contradicting the handoff's claim of a green suite.  [quoted: "ran the branch's own contents: **8 checks, 2 failures**."]  (2 yes / 0 no / 1 voided of 3)
+----------------------------------------------------------------------------------------
+  VERDICT: FAIL — the run fell short. MECHANISMS MISSING:
+      M2  decision-ownership (no technical or implementation choice put to the CEO)
+      M4  record-reach (recorded only counts where it is read)
+========================================================================================
+
+========================================================================================
+  GATE: RED — 1 of 1 live runs fell short.
+  MECHANISMS MISSING ACROSS THE FAILING RUNS:
+      M2  decision-ownership (no technical or implementation choice put to the CEO)
+      M4  record-reach (recorded only counts where it is read)
+
+  This gate goes green only when a real model, given one assignment and never
+  spoken to again, leaves every one of the six intact. Until then the claim
+  'Rich completes an authorized assignment without being managed' is not
+  demonstrated on this surface.
+========================================================================================
+GATE_EXIT=1

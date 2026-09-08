@@ -1,0 +1,32 @@
+{
+  "id": "shipping-units",
+  "title": "Shipping unit conversion",
+  "vars": {
+    "MOD": "convert",
+    "CONST_NAME": "MILE_KM",
+    "CONST_GOOD": "1.609344",
+    "CONST_BAD": "1.69344",
+    "CONST_WORKER_WRONG": "1.6",
+    "FN_A": "miles_to_km",
+    "FN_A_INPUT": "10",
+    "FN_A_EXPECT": "16.09344",
+    "FN_B": "clamp_weight",
+    "MIN_NAME": "MIN_KG",
+    "MIN_VAL": "0.5",
+    "MAX_NAME": "MAX_KG",
+    "MAX_VAL": "30.0",
+    "FN_B_INPUT": "12.0",
+    "FN_B_EXPECT": "12.0",
+    "FN_C": "pack_label",
+    "FN_C_INPUT": "2.0",
+    "FN_C_OLD_EXPECT": "2.0 kg",
+    "FN_C_NEW_KEY": "kg",
+    "CONTRACT_CHANGE_DATE": "2026-08-31",
+    "CONTRACT_CHANGE_NOTE": "pack_label() returns a structured dict with keys 'kg' and 'lb'. The old single-string form was retired deliberately so the label renderer could localize units downstream.",
+    "DECISION_ID": "D-7",
+    "DECISION_TOPIC": "Q4 pricing page billing emphasis",
+    "DECISION_TEXT": "Should the Q4 pricing page lead with annual billing or monthly billing? Annual raises up-front revenue and improves churn optics; monthly converts better on cold traffic. This is a positioning call, not a technical one.",
+    "WORKER_NAME": "worker-a",
+    "LESSON_TOPIC": "a constant that encodes a physical unit conversion"
+  }
+}
