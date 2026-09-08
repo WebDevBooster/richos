@@ -30,6 +30,37 @@ if [ ! -f "$_ROOT_LIB" ]; then
     exit 2
 fi
 . "$_ROOT_LIB" || exit 2
+# STAND IN THE WORKSPACE THE EVENT NAMES BEFORE ASKING WHO GOVERNS IT.
+#
+# resolve_entity_root's last-resort candidate is $PWD — correct for a host that
+# offers no other signal, and WRONG here, because $PWD is wherever this hook
+# process happened to be launched and has nothing to do with the completion
+# being judged. When that cwd sits anywhere inside the engine's own checkout,
+# the engine root carries orchestration.config, so the pwd candidate ACCEPTS the
+# engine as the governing entity for a task completed in a repository that never
+# adopted the engine. The gate then refuses (exit 2) where the contract says it
+# must stand down (exit 0), and a task in an unadopted repository can never be
+# marked complete. Measured: CLAUDE_PROJECT_DIR and the payload cwd both naming
+# an unadopted repo still resolved status=governed source=pwd
+# root=<engine>, because the caller stood in <engine>.
+#
+# This is a hole straight through the engine-self clause, which refuses exactly
+# this substitution one branch further down (it requires the engine root to lie
+# under the session anchor). The pwd candidate reaches the same root with no
+# such check.
+#
+# A lifecycle event CARRIES its workspace, so this hook does not have to guess:
+# cd into the event's cwd and the last resort becomes the session's own
+# repository, which is what "stand down for unadopted repositories" means. When
+# the payload names no usable cwd, nothing changes — the existing precedence
+# stands. Both surviving absolute paths (_PROOF_PY, _ROOT_LIB) are resolved
+# above, and nothing below this line reads a relative path.
+_EVENT_CWD="$(printf '%s' "$PAYLOAD" | python3 -c 'import json,sys
+value=json.load(sys.stdin).get("cwd")
+print(value if isinstance(value,str) else "")' 2>/dev/null || true)"
+if [ -n "$_EVENT_CWD" ] && [ -d "$_EVENT_CWD" ]; then
+    cd "$_EVENT_CWD" || exit 2
+fi
 if ! resolve_entity_root "$PAYLOAD"; then
     case "$RICHOS_ROOT_STATUS" in
         not-adopted) exit 0 ;;
