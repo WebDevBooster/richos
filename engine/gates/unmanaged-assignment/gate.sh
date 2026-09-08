@@ -90,6 +90,15 @@
 # Use --runs N to sample the same scenario more than once; the banner reports
 # how many of N held. One green run is a sample, not a demonstration.
 #
+# WHY THE DEFAULT IS 3 VOTES AND NOT 1, measured on run 1's own artifacts:
+# at --votes 3, J-CLASSIFY scored "2 yes / 0 no / 1 voided" and decided. The
+# same artifacts at --votes 1 drew the voided ballot, so J-CLASSIFY had no
+# votes at all and the WHOLE grading came back UNDECIDABLE — correctly, and
+# uselessly. One ballot with a quote requirement is one coin toss away from
+# telling you nothing. Grading cost: $0.058 at one vote, so roughly $0.17 at
+# three, against ~$0.60-$1.00 for the live session it grades. Buying the
+# majority is the cheapest part of this gate.
+#
 # ===========================================================================
 # WHICH SURFACE IT SPEAKS FOR — the CEO's last clause, and it binds this file
 # ===========================================================================

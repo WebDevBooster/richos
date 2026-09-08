@@ -467,6 +467,10 @@ def render(result, title):
             "  %s  %-*s  %-3s  %s" % (mark, width, c["id"], c["mechanism"], c["evidence"])
         )
     lines.append("-" * 88)
+    # The banner prices the live session; without this line it never prices the GRADING, and
+    # gate.sh's cost paragraph would be quoting half the bill. Every model turn this gate
+    # spends is now visible in its own output.
+    lines.append("  model-judge cost for this grading: $%s" % result["model_cost_usd"])
     if result["overall"] == "PASS":
         lines.append("  VERDICT: PASS — every mechanism held.")
     elif result["overall"] == "UNDECIDABLE":
