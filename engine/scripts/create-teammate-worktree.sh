@@ -54,7 +54,17 @@
 #             prepared record could not be written (no session id, ledger
 #             unwritable, or the record did not read back). Nothing is left
 #             on disk in that case: an unrecorded cross-repository worktree
-#             is exactly the object this helper exists to prevent.
+#             is exactly the object this helper exists to prevent — and 5 is
+#             emitted only after the directory, the branch and the
+#             registration have each been CHECKED to be gone.
+#             6 created, rollback attempted, and something SURVIVED it. The
+#             message names exactly what is still there. 5 and 6 are separate
+#             codes because "cleaned up" and "tried to clean up" are separate
+#             facts, and collapsing them is what let a false success be
+#             reported for every failed creation between 6472bb60 and
+#             2026-09-08. On the managed-workspace path the workspace is
+#             deliberately RETAINED for retry and that is reported as 5, with
+#             the retention stated in the message.
 
 set -uo pipefail
 
@@ -232,14 +242,71 @@ rollback() { # <why>
         echo "create-teammate-worktree.sh: preparation failed: $1. Managed workspace $MANAGED_ID is retained; retry this same session/name to resume preparation." >&2
         exit 5
     fi
+    # Resolve THIS tree's admin registration BEFORE removing anything. The
+    # worktree's own .git file is a one-line `gitdir: <main>/.git/worktrees/<id>`
+    # pointer, and <id> is NOT always the basename — git disambiguates
+    # collisions with a numeric suffix. Once the directory is gone there is
+    # nothing left to read it from, so it is captured here or not at all.
+    _admin=""
+    if [ -f "$DIR/.git" ]; then
+        _admin="$(sed -n 's/^gitdir: *//p' "$DIR/.git" 2>/dev/null | head -1)"
+    fi
     git -C "$MAIN" worktree remove --force "$DIR" >/dev/null 2>&1 || rm -rf "$DIR"
-    # Never bulk-prune unrelated native/legacy registrations during rollback.
+    # NEVER bulk-prune (`git worktree prune`) here: it also drops registrations
+    # for UNRELATED native/legacy trees whose directory is merely absent, which
+    # is a live and separate harm. But the registration for THIS tree still has
+    # to go, and dropping the bulk prune without replacing it is what broke this
+    # function. When the removal above fails and the `rm -rf` fallback runs, the
+    # admin directory survives, and git then REFUSES the branch delete below
+    # with "cannot delete branch 'NAME' used by worktree at ..." — silently,
+    # because that line swallows its own status. Deleting only this tree's own
+    # admin directory frees the branch and touches no other registration.
+    # The path came out of a file, so it is checked before anything is deleted:
+    # it must live under THIS repository's own .git/worktrees/ (asked of git,
+    # never assembled from string arithmetic), and the directory it registers
+    # must already be gone.
+    _common="$(git -C "$MAIN" rev-parse --git-common-dir 2>/dev/null || true)"
+    case "$_common" in ""|/*) : ;; *) _common="$MAIN/$_common" ;; esac
+    if [ -n "$_admin" ] && [ -n "$_common" ] && [ ! -e "$DIR" ] && [ -d "$_admin" ] \
+       && [ "$_admin" != "${_admin#"$_common"/worktrees/}" ]; then
+        rm -rf "$_admin"
+    fi
     git -C "$MAIN" branch -D "$NAME" >/dev/null 2>&1 || true
+
+    # REPORT THE ARTIFACT, NEVER THE COMMAND. Every removal above is
+    # best-effort and each one swallows its own exit status, so "rolled back"
+    # is a claim that has to be CHECKED before it is printed. It was printed
+    # unconditionally until 2026-09-08, which meant a failed creation told the
+    # orchestrator it had cleaned up while the branch and the registration
+    # both survived — the one thing worse than not cleaning up is reporting
+    # that you did.
+    _left=""
+    [ -e "$DIR" ] && _left="$_left
+    directory:    $DIR"
+    if git -C "$MAIN" rev-parse --verify -q "refs/heads/$NAME" >/dev/null 2>&1; then
+        _left="$_left
+    branch:       $NAME"
+    fi
+    if git -C "$MAIN" worktree list --porcelain 2>/dev/null | grep -qxF "worktree $DIR"; then
+        _left="$_left
+    registration: $DIR"
+    fi
+    if [ -n "$_left" ]; then
+        {
+            echo "create-teammate-worktree.sh: created $DIR on branch $NAME but $1"
+            echo "  ROLLBACK INCOMPLETE — the cleanup was attempted and these SURVIVE:$_left"
+            echo "  They must be removed by hand before this name or path is reused. This is"
+            echo "  reported rather than swallowed: a rollback that claims a success it did not"
+            echo "  achieve leaves an unbindable tree behind AND hides it."
+        } >&2
+        exit 6
+    fi
     {
         echo "create-teammate-worktree.sh: created $DIR on branch $NAME but $1"
         echo "  ROLLED BACK: the worktree and the branch were removed again. A cross-repository"
         echo "  worktree without its prepared record can never be bound to the teammate that"
         echo "  works in it, never sealed, and never cleaned up — so it is not left behind."
+        echo "  (Verified on disk after the fact: directory, branch and registration are gone.)"
     } >&2
     exit 5
 }

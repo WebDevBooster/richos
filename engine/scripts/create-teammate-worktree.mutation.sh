@@ -48,4 +48,27 @@ mutant no-write-check-no-readback "C17" "$F" \
     'if ! python3 "$LEDGER_PY" "${REG_ARGS[@]}" >/dev/null 2>&1; then{NL}    :; fi; if false; then{NL}    rollback{AND}if ! python3 "$LEDGER_PY" prepared --session-id "$SESSION" --teammate "$NAME" --worktree "$DIR" >/dev/null 2>&1; then{NL}    :; fi; if false; then{NL}    rollback' \
     "a failed ledger write would be reported as success and the tree kept, unbindable and never cleaned up."
 
+# The rollback's FALLBACK arm, which the no-rollback mutant above cannot reach:
+# `<removal> || rm -rf "$DIR"` leaves this tree's admin registration behind when
+# the removal fails, and git then refuses the branch delete on the next line.
+# 6472bb60 removed the bulk `git worktree prune` that used to paper over this —
+# rightly, because a bulk prune also drops UNRELATED registrations — but put
+# nothing in its place, so the branch was stranded. C24 is the other side of the
+# same property and is deliberately NOT what this mutant kills: a mutant that
+# went red at C24 would prove only that something changed, not that the delete
+# is targeted.
+mutant no-targeted-registration-cleanup "C22" "$F" \
+    '        rm -rf "$_admin"' \
+    '        :' \
+    "when the worktree removal fails, this tree's registration would survive and git would then REFUSE to delete the branch — silently, since that line swallows its status. A stranded branch blocks the name forever."
+
+# The honesty half, and the reason exit 6 exists. Every removal in rollback() is
+# best-effort and swallows its own status, so "ROLLED BACK" is a CLAIM. Printing
+# it unconditionally is what made a failed creation report a cleanup that had
+# not happened — report the artifact, never the command.
+mutant rollback-claims-unverified-success "C25" "$F" \
+    '    if [ -n "$_left" ]; then' \
+    '    if false; then' \
+    "rollback would print ROLLED BACK and exit 5 without checking anything, so a cleanup that left the branch and the registration behind would be reported to the orchestrator as a complete one."
+
 mutation_end
