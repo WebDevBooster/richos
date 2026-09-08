@@ -450,6 +450,11 @@ def grade(workspace, scenario_path, meta, votes=3, skip_model=False):
             evidence += "  (%s)" % row["votes"]
             if row["split"]:
                 evidence += "  SPLIT VOTE"
+            # An UNDECIDABLE exits the gate at 2 and tells the operator to fix the harness.
+            # It has to say what to fix, or it is the Layer Q failure this gate was built not
+            # to repeat: a red whose cause is unreadable from the outside.
+            if row.get("void_reasons"):
+                evidence += "  [voided: %s]" % "; ".join(row["void_reasons"][:3])
             checks.append(
                 _check(cid, row["mechanism"].split()[0], row["verdict"], evidence.strip())
             )
