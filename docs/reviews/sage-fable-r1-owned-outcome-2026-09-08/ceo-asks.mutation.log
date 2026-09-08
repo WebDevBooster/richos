@@ -1,0 +1,17 @@
+=== the CEO-ask gate: every property, proven load-bearing by removing it ===
+  PASS  everything-matches — removing it turns C3.  red
+  PASS  worker-discharges — removing it turns C4.  red
+  PASS  no-session-filter — removing it turns C5.  red
+  PASS  blocked-counts-as-prepared — removing it turns A5.  red
+  PASS  gate-does-not-block — removing it turns C1.  red
+  PASS  no-escape-hatch — removing it turns C6.  red
+  PASS  bare-defer-permits — removing it turns C7.  red
+  PASS  broken-fails-closed — removing it turns C10.  red
+  PASS  no-ledger-write — removing it turns B1.  red
+  PASS  notice-counts-not-names — removing it turns D1.  red
+  PASS  notice-blocks-the-turn — removing it turns D1.  red
+  PASS  broken-list-is-quiet — removing it turns D4.  red
+  PASS  session-start-silent — removing it turns E2.  red
+
+  13/13 properties proven load-bearing
+ceo-asks.mutation.sh exit=0
