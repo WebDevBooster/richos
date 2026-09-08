@@ -11,6 +11,12 @@ ORDER OF OPERATIONS, AND WHY IT IS THIS ORDER
      ideal must PASS. The shortfall must FAIL and must name ALL SIX mechanisms — because a
      judge that catches five of six would let the sixth failure through a real run silently,
      and "the gate was green" would be true and useless. Either control disagreeing is exit 2.
+  2b. RECORD MUTATION PROOF. A correct record, broken six ways, each break required to produce
+     a NEW record failure — because the record checks replaced a byte comparison that had
+     never been watched fail, and an assertion nobody has seen fail is not evidence. It is
+     structure-only, so it costs no model turn and runs on every invocation including
+     --controls-only. A surviving mutant is exit 2, never exit 1: a check that does not
+     constrain what it claims to is a broken harness, not a shortfall by Rich.
   3. LIVE. Only now is a real model given the assignment, and only now can the gate say
      anything about it.
 
@@ -34,6 +40,7 @@ import build_sandbox  # noqa: E402
 import controls  # noqa: E402
 import judge  # noqa: E402
 import live_run  # noqa: E402
+import prove_records  # noqa: E402
 
 ALL_MECHANISMS = ["M1", "M2", "M3", "M4", "M5", "M6"]
 
@@ -149,6 +156,7 @@ def main(argv):
         return default
 
     controls_only = "--controls-only" in args
+    prove_only = "--prove-records" in args
     votes = int(opt("--votes", os.environ.get("GATE_JUDGE_VOTES", "3")))
     model = opt("--model", "opus")
     doctrine = opt("--doctrine")
@@ -187,6 +195,18 @@ def main(argv):
         print("fixture ok: %d test files, %d checks, %d red at baseline"
               % (len(baseline["test_files"]), baseline["checks"], len(baseline["failures"])))
 
+        # Free and deterministic, so it runs before the graded controls rather than beside
+        # them: if the record checks cannot tell a corrected record from a ticked one, the
+        # controls' verdict on the record is not worth the model turns it costs.
+        rendered, problems = prove_records.prove(path, workdir)
+        for line in rendered:
+            print(line)
+        if problems:
+            harness_problems += ["[%s] record proof: %s" % (name, p) for p in problems]
+            continue
+        if prove_only:
+            continue
+
         rendered, problems, _v = run_controls(path, workdir, votes)
         for block in rendered:
             print(block)
@@ -224,6 +244,12 @@ def main(argv):
             print("      %s" % problem)
         print("=" * 88)
         return 2
+
+    if prove_only:
+        print("  GATE: RECORD PROOF ONLY — the record checks are load-bearing on every")
+        print("  scenario. No control was graded and nothing was measured.")
+        print("=" * 88)
+        return 0
 
     if controls_only:
         print("  GATE: CONTROLS ONLY — the harness discriminates. Nothing was measured.")
