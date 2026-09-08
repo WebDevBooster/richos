@@ -12,6 +12,27 @@
 # A refused proof exits 2 so the native task remains open with remediation.
 # Idle and SubagentStop remain observations, not accepted delivery.
 # This cooperative hook is not a same-user security or writer-cutoff boundary.
+#
+# "COULD NOT READ THE MESSAGE" AND "THE WORK IS NOT DELIVERED" ARE DIFFERENT
+# FINDINGS, and until this was split the hook gave both the same answer: exit 2,
+# task stays open. A lifecycle payload IS a message; the agent<->lead channel is
+# measured at roughly 50% loss, and the standing rule is that no load-bearing
+# signal may depend on it. An unparseable payload could therefore WEDGE a
+# completion -- letting the lossy channel be decisive, which is the exact thing
+# that rule forbids -- and it would do so without the gate ever looking at the
+# evidence it actually judges, which is the COMMIT.
+#
+# So the two findings now get two answers:
+#
+#   unreadable payload        no advisory side effect, a refusal row in the
+#                             durable event log so it stays visible, exit 0. It
+#                             did not prove delivery; it also did not DISPROVE
+#                             it, and only a proof may hold a task open.
+#   readable payload whose
+#   delivery evidence fails   exit 2. That is the gate doing its job.
+#
+# The malformed-event check's original intent is kept whole: garbage still
+# triggers no ledger row, no receipt and no accepted completion.
 
 set -o pipefail
 
@@ -20,8 +41,100 @@ set -o pipefail
 PAYLOAD="$(cat)"
 
 _PROOF_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/completion-proof.py"
-# Reject malformed events. An explicitly different event is not a completion.
-_EVENT="$(printf '%s' "$PAYLOAD" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,dict); event=d.get("hook_event_name"); assert isinstance(event,str) and event.strip(); print(event)')" || exit 2
+
+# The durable event record, parameterized by decision. Defined up here because
+# the unreadable path below needs it too, and that path has to be able to say
+# so before anything else runs.
+_record_decision() {
+    TASK_COMPLETED_DECISION="$1" python3 - 3<<< "$PAYLOAD" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+def finish():
+    sys.exit(0)
+
+decision = os.environ.get("TASK_COMPLETED_DECISION") or "verified"
+
+try:
+    payload = json.load(os.fdopen(3))
+except Exception:
+    payload = None
+
+if not isinstance(payload, dict):
+    # An accepted completion is never written from a payload nobody could read;
+    # a refusal is exactly the case where there is nothing left to read.
+    if decision == "verified":
+        finish()
+    payload = {}
+
+if decision == "verified" and payload.get("hook_event_name") not in ("", None, "TaskCompleted"):
+    finish()
+
+session_id = payload.get("session_id") or ""
+home = os.path.expanduser("~")
+teams_dir = os.environ.get("TASK_COMPLETED_TEAMS_DIR") or os.path.join(home, ".claude", "teams")
+
+def resolve_team_dir():
+    team_name = payload.get("team_name") or ""
+    if isinstance(team_name, str) and team_name.startswith("session-"):
+        candidate = os.path.join(teams_dir, team_name)
+        if os.path.isdir(candidate):
+            return candidate
+    if session_id:
+        candidate = os.path.join(teams_dir, "session-%s" % session_id[:8])
+        if os.path.isdir(candidate):
+            return candidate
+    try:
+        sessions = [
+            os.path.join(teams_dir, name)
+            for name in os.listdir(teams_dir)
+            if name.startswith("session-") and os.path.isdir(os.path.join(teams_dir, name))
+        ]
+    except Exception:
+        sessions = []
+    return sessions[0] if len(sessions) == 1 else None
+
+def first(*keys):
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, ""):
+            return value
+    return ""
+
+team_dir = resolve_team_dir()
+log_path = os.path.join(team_dir, "task-events.jsonl") if team_dir else os.path.join(home, ".claude", "teammate-task-events.jsonl")
+
+record = {
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "event": "TaskCompleted",
+    "task_id": first("task_id", "taskId", "id"),
+    "task_subject": first("task_subject", "task_title", "subject", "title"),
+    "teammate": first("teammate_name", "agent_type", "agentType", "owner", "agent_id", "agentId"),
+    "session_id": session_id,
+    "decision": decision
+}
+
+try:
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+except Exception:
+    pass
+
+finish()
+PY
+}
+
+# An unreadable payload is recorded and waved through. An explicitly different
+# event is readable and is simply not a completion, so it is not this hook's
+# business and gets no row.
+_EVENT="$(printf '%s' "$PAYLOAD" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,dict); event=d.get("hook_event_name"); assert isinstance(event,str) and event.strip(); print(event)')" || _EVENT=""
+if [ -z "$_EVENT" ]; then
+    _record_decision unreadable
+    exit 0
+fi
 [ "$_EVENT" = "TaskCompleted" ] || exit 0
 # The plugin is global; the existing root contract limits enforcement to adopters.
 _ROOT_LIB="$(dirname "$_PROOF_PY")/resolve-roots.sh"
@@ -112,76 +225,4 @@ if agent_id or cwd or rec["teammate"] or rec["task_id"]:
 PY
 fi
 
-python3 - 3<<< "$PAYLOAD" <<'PY'
-import json
-import os
-import sys
-from datetime import datetime, timezone
-
-def finish():
-    sys.exit(0)
-
-try:
-    payload = json.load(os.fdopen(3))
-except Exception:
-    finish()
-
-if not isinstance(payload, dict):
-    finish()
-
-if payload.get("hook_event_name") not in ("", None, "TaskCompleted"):
-    finish()
-
-session_id = payload.get("session_id") or ""
-home = os.path.expanduser("~")
-teams_dir = os.environ.get("TASK_COMPLETED_TEAMS_DIR") or os.path.join(home, ".claude", "teams")
-
-def resolve_team_dir():
-    team_name = payload.get("team_name") or ""
-    if isinstance(team_name, str) and team_name.startswith("session-"):
-        candidate = os.path.join(teams_dir, team_name)
-        if os.path.isdir(candidate):
-            return candidate
-    if session_id:
-        candidate = os.path.join(teams_dir, "session-%s" % session_id[:8])
-        if os.path.isdir(candidate):
-            return candidate
-    try:
-        sessions = [
-            os.path.join(teams_dir, name)
-            for name in os.listdir(teams_dir)
-            if name.startswith("session-") and os.path.isdir(os.path.join(teams_dir, name))
-        ]
-    except Exception:
-        sessions = []
-    return sessions[0] if len(sessions) == 1 else None
-
-def first(*keys):
-    for key in keys:
-        value = payload.get(key)
-        if value not in (None, ""):
-            return value
-    return ""
-
-team_dir = resolve_team_dir()
-log_path = os.path.join(team_dir, "task-events.jsonl") if team_dir else os.path.join(home, ".claude", "teammate-task-events.jsonl")
-
-record = {
-    "timestamp": datetime.now(timezone.utc).isoformat(),
-    "event": "TaskCompleted",
-    "task_id": first("task_id", "taskId", "id"),
-    "task_subject": first("task_subject", "task_title", "subject", "title"),
-    "teammate": first("teammate_name", "agent_type", "agentType", "owner", "agent_id", "agentId"),
-    "session_id": session_id,
-    "decision": "verified"
-}
-
-try:
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
-except Exception:
-    pass
-
-finish()
-PY
+_record_decision verified
