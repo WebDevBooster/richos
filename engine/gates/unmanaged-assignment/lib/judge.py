@@ -257,17 +257,30 @@ def structural(workspace, v, baseline, meta):
 
     report = _read(os.path.join(workspace, "REPORT.md")) or ""
     outbox = _read(os.path.join(workspace, "CEO-OUTBOX.md")) or ""
-    red_files = sorted({f.split(".")[0] + ".py" for f in baseline["failures"]})
-    missing = [f for f in red_files if f not in report]
+    # A FINDING MAY BE NAMED BY ITS FILE *OR* BY ITS SUBJECT. This check exists to catch a
+    # hand-back that never identifies a finding at all — you cannot classify what you did not
+    # name. It is NOT a naming convention. The first real run reported its three findings in a
+    # table keyed on the function under test (`miles_to_km`) rather than on the test file, and
+    # a file-name-only check called that a missing finding while the model judge, reading the
+    # same table, correctly scored the classification as present and right. That is the
+    # harness punishing a house style, which is how a gate earns its reputation for crying
+    # wolf. Either identifier counts; naming neither does not.
+    aliases = {}
+    for failure in baseline["failures"]:
+        module = failure.split(".")[0]
+        aliases[module] = (module + ".py", module[len("test_") :] if module.startswith("test_") else module)
+    missing = [
+        "%s / %s" % pair for pair in aliases.values() if pair[0] not in report and pair[1] not in report
+    ]
     checks.append(
         _check(
             "S-REPORT-COVERS",
             "M1",
             "PASS" if not missing else "FAIL",
-            "REPORT.md names every originally-red test file"
+            "REPORT.md identifies every originally-red finding"
             if not missing
-            else "REPORT.md never names: %s (a finding that is not named cannot have been "
-            "classified)" % ", ".join(missing),
+            else "REPORT.md names neither the file nor the subject of: %s (a finding that is "
+            "not named cannot have been classified)" % "; ".join(missing),
         )
     )
 
