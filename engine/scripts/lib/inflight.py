@@ -236,6 +236,67 @@ def list_worktrees(repo):
     return entries
 
 
+# --------------------------------------------------------------------------
+# RETIRED WORKSPACES ARE NOT TEAMMATES
+# --------------------------------------------------------------------------
+# A worktree used to leave `git worktree list` when its teammate finished:
+# remove-agent-worktree.sh unlocked the registration and pruned it. Since
+# 6472bb60 ("Preserve Claude-owned native cleanup and prohibit bulk
+# registration pruning") it does not. Retirement now RENAMES the directory to
+# <parent>/.richos-retired/<base>.richos-retired-ws-<16 hex>-<stamp>Z and runs
+# `git worktree repair` on the new path instead of pruning, deliberately, so
+# that no automatic helper ever bulk-prunes a registration out from under a
+# checkout Claude Code owns. The bytes and the registration both survive.
+#
+# The consequence for THIS module is that a finished teammate's quarantine
+# keeps appearing in `git worktree list`, and everything here is driven by that
+# list. A hand-rolled worktree is PRESUMED LIVE (correctly — no lock is ever
+# taken on one, so quiet is not death), so a retired quarantine read as a
+# worktree is read as a LIVE TEAMMATE: it inflates live_count, it is owed a
+# notice it can never be sent, it can never ack, and the Stop hook chases the
+# operator about it forever. That is the false chase this whole row exists to
+# prevent, arriving through a new door.
+#
+# So a quarantine is skipped, exactly as every other scanner in this engine
+# already skips it — reap-stale-worktrees.sh (`*.richos-terminal-*` and
+# `*/.richos-retired/*`) and detect-nonnative-worktree.sh (`.*` and
+# `*.richos-retired-*`). This module was the consumer that convention was never
+# extended to.
+#
+# NOT a heuristic on a name: both forms are minted by the engine and carry
+# unforgeable material — 16 hex of workspace id plus a UTC stamp for the
+# retirement quarantine (workspace-retire.py QUARANTINE_RE), the session
+# prefix plus the agent id for the terminal quarantine
+# (worktree-transactions.quarantine_path). A teammate cannot accidentally be
+# named one.
+#
+# The teammate's ACK is not lost by skipping: the durable ledger row outside
+# every repository is the authority (see read_ack_ledger), and it is what
+# reports the teammate under ACKED, WORKTREE GONE. Crediting an ack read out of
+# a quarantine would resurrect exactly the destroyed-file evidence path the
+# ledger replaced, and would silently defeat the positive probe that proves the
+# ledger is doing the work.
+QUARANTINE_DIRNAME = ".richos-retired"
+RETIRED_QUARANTINE_RE = re.compile(
+    r"\.richos-retired-ws-[0-9a-f]{16}-\d{8}T\d{6}(\.\d{6})?Z$")
+TERMINAL_QUARANTINE_RE = re.compile(r"\.richos-terminal-[0-9a-f]{8}-[A-Za-z0-9_-]{6,64}$")
+
+
+def retired_workspace(path):
+    """True when `path` is a retired/terminal workspace quarantine rather than
+    a teammate's workspace. Returns the reason, or "" — never a bare bool, so
+    a caller can say WHY it skipped something."""
+    p = (path or "").rstrip("/")
+    base = os.path.basename(p)
+    if RETIRED_QUARANTINE_RE.search(base):
+        return "retirement quarantine (workspace-retire.py)"
+    if TERMINAL_QUARANTINE_RE.search(base):
+        return "terminal quarantine (worktree-transactions.py)"
+    if QUARANTINE_DIRNAME in p.split(os.sep):
+        return "inside %s/" % QUARANTINE_DIRNAME
+    return ""
+
+
 def pid_alive(pid):
     try:
         os.kill(int(pid), 0)
@@ -991,6 +1052,7 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
         "identity_sources_tried": index.get("tried", []),
         "identity_sources_found": index.get("found", []),
         "worktrees": [],
+        "retired_workspaces": [],
         "blocking": [],
         "unacked": [],
         "live_count": 0,
@@ -1003,6 +1065,13 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
         path = entry["path"]
         if norm(path) == norm(root):
             continue  # the main checkout is not a teammate
+        why_retired = retired_workspace(path)
+        if why_retired:
+            # A finished teammate's quarantine, still registered since 6472bb60.
+            # Recorded rather than dropped silently: a skip nobody can see is a
+            # teammate nobody can see.
+            result["retired_workspaces"].append({"path": path, "reason": why_retired})
+            continue
         kind, agent_id, name, role, how = resolve_worktree_identity(path, index)
         base = os.path.basename(path.rstrip("/"))
         # EVERY EXACT WAY THIS WORKTREE CAN BE ADDRESSED. A notice is credited
