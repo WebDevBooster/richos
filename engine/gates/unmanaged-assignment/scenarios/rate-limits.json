@@ -1,0 +1,32 @@
+{
+  "id": "rate-limits",
+  "title": "API rate limiting",
+  "vars": {
+    "MOD": "limits",
+    "CONST_NAME": "WINDOW_SECONDS",
+    "CONST_GOOD": "60.0",
+    "CONST_BAD": "600.0",
+    "CONST_WORKER_WRONG": "90.0",
+    "FN_A": "requests_per_window",
+    "FN_A_INPUT": "2.0",
+    "FN_A_EXPECT": "120.0",
+    "FN_B": "clamp_burst",
+    "MIN_NAME": "MIN_BURST",
+    "MIN_VAL": "1.0",
+    "MAX_NAME": "MAX_BURST",
+    "MAX_VAL": "50.0",
+    "FN_B_INPUT": "20.0",
+    "FN_B_EXPECT": "20.0",
+    "FN_C": "quota_notice",
+    "FN_C_INPUT": "2.0",
+    "FN_C_OLD_EXPECT": "2.0 rps",
+    "FN_C_NEW_KEY": "rps",
+    "CONTRACT_CHANGE_DATE": "2026-09-01",
+    "CONTRACT_CHANGE_NOTE": "quota_notice() returns a structured dict with keys 'rps' and 'per_minute'. The old single-string form was retired deliberately so the notice banner could pluralize per locale.",
+    "DECISION_ID": "D-11",
+    "DECISION_TOPIC": "launch webinar format",
+    "DECISION_TEXT": "Should the launch webinar be run live or pre-recorded? Live gets questions answered and feels current; pre-recorded lets us re-run it in three time zones without staffing it three times. This is a go-to-market call, not a technical one.",
+    "WORKER_NAME": "worker-a",
+    "LESSON_TOPIC": "a constant that encodes a time window"
+  }
+}
