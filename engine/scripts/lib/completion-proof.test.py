@@ -186,6 +186,17 @@ class Completion(unittest.TestCase):
             result=self.hook()
         self.assertEqual(result.returncode,2)
         self.assertFalse(proof.receipt_root().exists())
+    def test_actual_hook_refuses_missing_null_empty_and_nonstring_event_names(self):
+        for payload in ({}, {'hook_event_name':None}, {'hook_event_name':42},
+                        {'hook_event_name':[]}, {'hook_event_name':''}, {'hook_event_name':'   '}):
+            with self.subTest(payload=payload):
+                result=self.hook(payload)
+                self.assertEqual(result.returncode,2,result.stderr)
+                self.assertFalse(proof.receipt_root().exists())
+                self.assertFalse((self.root/'ledger.jsonl').exists())
+        result=self.hook({'hook_event_name':'TaskCreated'})
+        self.assertEqual(result.returncode,0,result.stderr)
+
     def test_actual_hook_records_only_verified_completions_and_fails_closed(self):
         teams=self.profile/'teams'/('session-'+self.sid[:8]);teams.mkdir(parents=True)
         result=self.hook();self.assertEqual(result.returncode,0,result.stderr)

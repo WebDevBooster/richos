@@ -21,7 +21,7 @@ PAYLOAD="$(cat)"
 
 _PROOF_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/completion-proof.py"
 # Reject malformed events. An explicitly different event is not a completion.
-_EVENT="$(printf '%s' "$PAYLOAD" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,dict); print(d.get("hook_event_name", ""))')" || exit 2
+_EVENT="$(printf '%s' "$PAYLOAD" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,dict); event=d.get("hook_event_name"); assert isinstance(event,str) and event.strip(); print(event)')" || exit 2
 [ "$_EVENT" = "TaskCompleted" ] || exit 0
 # The plugin is global; the existing root contract limits enforcement to adopters.
 _ROOT_LIB="$(dirname "$_PROOF_PY")/resolve-roots.sh"
