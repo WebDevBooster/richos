@@ -22,10 +22,19 @@
 #      branch — every mutant it builds is perfectly readable — so the branch
 #      that protects the gate from crying wolf over a house style is the branch
 #      nothing else covers.
+#   3. THE EVIDENCE ITSELF (case 6, added after a reviewer using the gate lost
+#      some of it). This gate's product is the evidence under --out, and it was
+#      losable without saying so: two scenarios wrote their artifacts to one set
+#      of role-named directories. It is not reachable by inspecting the source
+#      for a path expression — the property is what survives a SECOND scenario —
+#      so the case drives the real gate.main() and then looks at the disk.
 #
-# No model is called: _one_call is stubbed. The suite is deterministic and runs
-# in about a second, which is why it can live in scripts/run-all-tests.sh's
-# discovery without making the runner pay for the gate.
+# No model is called: _one_call is stubbed, and cases 6-7 stub the sandbox
+# builder, the live runner and the judge. The suite is deterministic and free,
+# which is why it can live in scripts/run-all-tests.sh's discovery without making
+# the runner pay for the gate. Cost, measured rather than claimed —
+# `/usr/bin/time -p lib/harness.test.sh` on 2026-09-08: real 0.11, three runs in
+# a row, 25 cases. Re-run it rather than believe the number.
 #
 # Exit codes: 0 all cases pass, 1 a case failed.
 
@@ -33,12 +42,17 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 python3 - "$HERE" <<'PY'
+import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 
 HERE = sys.argv[1]
 sys.path.insert(0, HERE)
 
+import gate  # noqa: E402
 import model_judge  # noqa: E402
 import records  # noqa: E402
 
@@ -244,6 +258,200 @@ check(
     and "R-4" in rows["S-RECORDS-NOT-OVERCORRECTED"]["evidence"],
     rows["S-RECORDS-NOT-OVERCORRECTED"]["evidence"],
 )
+
+# -----------------------------------------------------------------------------------
+# CASE 6 — TWO SCENARIOS, ONE --out, AND NEITHER ONE'S EVIDENCE IS LOST.
+#
+# Every per-scenario directory used to be named for its ROLE alone — live-0,
+# live-0-record, control-ideal, prove-records-clean — and every one of them is built with an
+# rmtree-then-write. So the second scenario overwrote the first's, under a single --out, while
+# the log went on truthfully reporting that both scenarios ran. Reproduced on the pre-fix code
+# with the gate's own free mode: `./gate.sh --prove-records --out DIR` logged the proof for
+# rate-limits AND shipping-units and left ONE set of seven prove-records-* directories, all of
+# them shipping-units'.
+#
+# WHAT WOULD BE LOST is not a scratch directory. It is the first scenario's graded end-state —
+# the workspace the verdict was computed from — its transcript.jsonl and meta.json, which
+# carry the cost, duration, restart count and every prompt sent, and its control and mutant
+# workspaces. A reader opening --out after a two-scenario run would find the second scenario's
+# artifacts under names that claim to be the run's, and nothing would say a measurement was
+# missing. That is this gate's own subject matter, so it is asserted, not commented.
+#
+# The check is on the PROPERTY (both scenarios' artifacts are on disk afterwards), not on the
+# directory naming, so it constrains any future scheme that keeps them apart.
+# -----------------------------------------------------------------------------------
+DRIVER = """import json, os, sys, contextlib, io
+LIB, OUT, RESULT = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, LIB)
+import gate
+
+SCENARIOS = ["/nowhere/alpha.json", "/nowhere/beta.json"]
+
+
+def who(path):
+    return os.path.basename(path)[:-5]
+
+
+def marker(scen_dir, role, name):
+    d = os.path.join(scen_dir, role)
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, "WHOSE.txt"), "w").write(name)
+
+
+def fake_prove(path, scen_dir):
+    marker(scen_dir, "prove-records-clean", who(path))
+    return [], []
+
+
+def fake_controls(path, scen_dir, votes):
+    marker(scen_dir, "control-ideal", who(path))
+    return [], [], {}
+
+
+def fake_build(path, dest):
+    os.makedirs(dest)
+    open(os.path.join(dest, "WHOSE.txt"), "w").write(who(path))
+    return {"test_files": [], "failures": [], "checks": 0}
+
+
+def fake_live(dest, record, model=None, doctrine=None, restart_after=None):
+    os.makedirs(record, exist_ok=True)
+    name = open(os.path.join(dest, "WHOSE.txt")).read()
+    open(os.path.join(record, "transcript.jsonl"), "w").write(name)
+    return {"model": "stub", "surface": "stub", "duration_s": 0.0, "cost_usd": 0.0,
+            "restarts": 0, "nudges_sent": 0}
+
+
+gate.scenarios = lambda: list(SCENARIOS)
+gate.fixture_integrity = lambda path, scen_dir: (
+    {"test_files": [0] * 5, "checks": 9, "failures": [0] * 3}, [])
+gate.prove_records.prove = fake_prove
+gate.run_controls = fake_controls
+gate.build_sandbox.build = fake_build
+gate.live_run.run = fake_live
+gate.judge.grade = lambda *a, **k: {"overall": "PASS", "missing_mechanisms": []}
+gate.judge.render = lambda result, title: "  " + title
+
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    rc = gate.main(["--out", OUT])
+
+
+def survivors(filename, within=None):
+    found = []
+    for dirpath, _dirs, files in os.walk(OUT):
+        if filename in files and (within is None or os.path.basename(dirpath) == within):
+            found.append(open(os.path.join(dirpath, filename)).read())
+    return sorted(found)
+
+
+json.dump({
+    "rc": rc,
+    "banners": buf.getvalue().count("# SCENARIO "),
+    "live": survivors("WHOSE.txt", "live-0"),
+    "transcripts": survivors("transcript.jsonl"),
+    "controls": survivors("WHOSE.txt", "control-ideal"),
+    "proofs": survivors("WHOSE.txt", "prove-records-clean"),
+}, open(RESULT, "w"))
+"""
+
+
+def drive_two_scenarios(lib):
+    """Run the REAL gate.main over two scenarios, against the lib directory `lib`, with
+    everything priced stubbed out. The stubs stand exactly where the expensive things stand
+    and write one file naming the scenario they were built for, which is all it takes to see
+    an overwrite. Out of process so that a MUTATED copy of the gate can be driven by the same
+    code as the real one — see case 8."""
+    tmp = tempfile.mkdtemp(prefix="gate-harness-scoping-")
+    script = os.path.join(tmp, "driver.py")
+    result = os.path.join(tmp, "result.json")
+    with open(script, "w") as handle:
+        handle.write(DRIVER)
+    proc = subprocess.run(
+        [sys.executable, script, lib, os.path.join(tmp, "out"), result],
+        capture_output=True, text=True,
+    )
+    if not os.path.exists(result):
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"rc": proc.returncode, "banners": 0, "live": [], "transcripts": [],
+                "controls": [], "proofs": [], "crash": proc.stderr.strip()[-400:]}
+    with open(result) as handle:
+        out = json.load(handle)
+    out["crash"] = ""
+    shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
+REAL = drive_two_scenarios(HERE)
+check(
+    "6a the stubbed two-scenario run completed (plumbing, not a finding)",
+    REAL["rc"] == 0 and REAL["banners"] == 2 and not REAL["crash"],
+    "rc=%s banners=%s %s" % (REAL["rc"], REAL["banners"], REAL["crash"]),
+)
+check(
+    "6b both scenarios' live workspaces survive one --out",
+    REAL["live"] == ["alpha", "beta"],
+    "live workspaces on disk: %s" % REAL["live"],
+)
+check(
+    "6c both scenarios' live records survive (transcript.jsonl, meta.json)",
+    REAL["transcripts"] == ["alpha", "beta"],
+    "transcripts on disk: %s" % REAL["transcripts"],
+)
+check(
+    "6d both scenarios' control workspaces survive",
+    REAL["controls"] == ["alpha", "beta"],
+    "control workspaces on disk: %s" % REAL["controls"],
+)
+check(
+    "6e both scenarios' record-proof workspaces survive",
+    REAL["proofs"] == ["alpha", "beta"],
+    "proof workspaces on disk: %s" % REAL["proofs"],
+)
+
+# -----------------------------------------------------------------------------------
+# CASE 7 — THE CHECKS ABOVE, PROVEN BY MUTATION RATHER THAN ASSERTED.
+#
+# This gate holds its record checks to mutation because what they replaced had never been
+# WATCHED fail, and that is how an inadequate check survives. Case 6 is a new check over
+# behavior nothing else constrained, so it gets the same bar: the gate is broken back the way
+# it was broken before, and the break must be caught by the case that claims it.
+#
+# A mutant that CANNOT BE APPLIED is reported as a harness fault in those words and never as a
+# finding — if the anchor line moves, this suite must say it could not do the experiment, not
+# quietly pass on an unmutated copy.
+# -----------------------------------------------------------------------------------
+def mutate(anchor, replacement):
+    """A copy of lib/ with one line of gate.py rewritten. Returns (libdir, applied)."""
+    tmp = tempfile.mkdtemp(prefix="gate-harness-mutant-")
+    lib = os.path.join(tmp, "lib")
+    shutil.copytree(HERE, lib)
+    path = os.path.join(lib, "gate.py")
+    with open(path) as handle:
+        src = handle.read()
+    applied = src.count(anchor) == 1
+    if applied:
+        with open(path, "w") as handle:
+            handle.write(src.replace(anchor, replacement))
+    return lib, applied
+
+
+shared_out_lib, applied = mutate(
+    "    dest = os.path.join(workdir, os.path.basename(scenario_path)[:-5])\n",
+    "    dest = workdir\n",
+)
+MUTANT = drive_two_scenarios(shared_out_lib) if applied else {}
+check(
+    "7a a gate that writes both scenarios to one --out is caught by 6b-6e",
+    applied and MUTANT["live"] == ["beta"] and MUTANT["transcripts"] == ["beta"]
+    and MUTANT["controls"] == ["beta"] and MUTANT["proofs"] == ["beta"],
+    ("MUTANT COULD NOT BE APPLIED — harness fault, not a finding"
+     if not applied else
+     "the mutant kept live=%s transcripts=%s controls=%s proofs=%s; alpha's are gone, and "
+     "beta's are wearing the names the run reported for both"
+     % (MUTANT["live"], MUTANT["transcripts"], MUTANT["controls"], MUTANT["proofs"])),
+)
+shutil.rmtree(os.path.dirname(shared_out_lib), ignore_errors=True)
 
 print("")
 print("  %d cases, %d failed" % (CASES, len(FAILURES)))

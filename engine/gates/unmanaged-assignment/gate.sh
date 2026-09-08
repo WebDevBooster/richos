@@ -334,6 +334,34 @@
 # Those are the same two failures, reproduced with nobody participating.
 #
 # ===========================================================================
+# THE EVIDENCE IT LEAVES BEHIND — read this before quoting an --out directory
+# ===========================================================================
+# The property below was absent until 2026-09-08, was found by a reviewer USING
+# this gate rather than reading it, and lost evidence without saying it had. It
+# is stated here because this gate's product is its evidence; its exit code is a
+# summary of it.
+#
+#   <out>/<scenario>/...   EVERY artifact is scoped to the scenario that made
+#                          it — live-N, live-N-record, control-ideal,
+#                          control-shortfall, prove-records-*. They used to be
+#                          named for their ROLE alone, directly under --out, and
+#                          each is built rmtree-then-write, so with two
+#                          scenarios the second silently destroyed the first's
+#                          and left its own wearing names the log attributed to
+#                          both. Reproduced free: `--prove-records --out DIR`
+#                          logged the proof for rate-limits AND shipping-units
+#                          and left ONE set of seven prove-records-* directories,
+#                          all of them shipping-units'.
+#
+# It is pinned by lib/harness.test.sh (case 6) against the real gate.main(), and
+# that check is proven load-bearing by mutation in case 7 — the same bar
+# --prove-records holds the record checks to.
+#
+# THE TWO-SCENARIO RUNS RECORDED BELOW PREDATE THE SCOPING FIX. Their logs are
+# unaffected and are the evidence quoted; but if an --out directory from one of
+# them is ever recovered, it holds only the LAST scenario's artifacts.
+#
+# ===========================================================================
 # USAGE
 # ===========================================================================
 #   ./gate.sh                                  controls + one live run per scenario

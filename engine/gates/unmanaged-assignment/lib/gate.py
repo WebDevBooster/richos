@@ -23,6 +23,18 @@ ORDER OF OPERATIONS, AND WHY IT IS THIS ORDER
 Steps 1 and 2 cost no model turns for production and a fixed handful for grading; step 3 is
 where the money goes. That ordering is not tidiness — it is so that a gate which cannot tell
 good from bad NEVER reaches the expensive step and never prints a verdict about a run.
+
+EVERY ARTIFACT IS SCOPED TO ITS SCENARIO — a property of the evidence, found by a reviewer
+=========================================================================================
+This gate's product is not its exit code, it is the evidence under --out. It was losable, and
+the loss did not announce itself. Every per-scenario directory was named for its ROLE and not
+for its scenario — live-0, control-ideal, prove-records-clean — so a second scenario silently
+rmtree'd and rewrote the first one's, under a single --out. The log
+still said both scenarios ran, and it was telling the truth; the directory held one scenario's
+artifacts wearing names that claimed to be both. That is this gate's own subject matter: a
+result that looks complete while a measurement is missing. Artifacts now live under
+<out>/<scenario>/, which closes the class rather than the three sites — a per-scenario
+artifact added later is scoped by construction, with nothing to remember.
 """
 
 import json
@@ -55,12 +67,25 @@ def scenarios():
     return [os.path.join(d, f) for f in found]
 
 
-def fixture_integrity(scenario_path, workdir):
+def scenario_workdir(workdir, scenario_path):
+    """The one place a scenario's artifacts may be written: <out>/<scenario>/.
+
+    Every helper below is handed this rather than --out itself, so no helper has to remember
+    to put a scenario's name in a directory it invents. That is the whole fix for the
+    overwrite: the names inside stay role-named and readable (live-0, control-ideal), and
+    two scenarios can no longer address the same path.
+    """
+    dest = os.path.join(workdir, os.path.basename(scenario_path)[:-5])
+    os.makedirs(dest, exist_ok=True)
+    return dest
+
+
+def fixture_integrity(scenario_path, scen_dir):
     """Prove the fixture built into the state this gate's premises rest on."""
     with open(scenario_path) as handle:
         scenario = json.load(handle)
     v = scenario["vars"]
-    dest = os.path.join(workdir, "fixture-check")
+    dest = os.path.join(scen_dir, "fixture-check")
     if os.path.exists(dest):
         shutil.rmtree(dest)
     baseline = build_sandbox.build(scenario_path, dest)
@@ -98,11 +123,11 @@ def fixture_integrity(scenario_path, workdir):
     return baseline, problems
 
 
-def run_controls(scenario_path, workdir, votes):
+def run_controls(scenario_path, scen_dir, votes):
     out = []
     verdicts = {}
     for which in ("ideal", "shortfall"):
-        dest = os.path.join(workdir, "control-%s" % which)
+        dest = os.path.join(scen_dir, "control-%s" % which)
         controls.build_control(scenario_path, dest, which)
         result = judge.grade(dest, scenario_path, {"nudges_sent": 0}, votes=votes)
         verdicts[which] = result
@@ -131,9 +156,15 @@ def run_controls(scenario_path, workdir, votes):
     return out, problems, verdicts
 
 
-def run_live(scenario_path, workdir, votes, model, doctrine, restart_after, index):
-    dest = os.path.join(workdir, "live-%d" % index)
-    record = os.path.join(workdir, "live-%d-record" % index)
+def run_live(scenario_path, scen_dir, votes, model, doctrine, restart_after, index):
+    """`scen_dir` is this scenario's own directory (see scenario_workdir), never --out itself.
+
+    The index alone distinguishes the RUNS of one scenario (--runs N); it never distinguished
+    the scenarios, which is how a two-scenario run put both live workspaces and both
+    transcripts at live-0 and live-0-record and destroyed the first.
+    """
+    dest = os.path.join(scen_dir, "live-%d" % index)
+    record = os.path.join(scen_dir, "live-%d-record" % index)
     if os.path.exists(dest):
         shutil.rmtree(dest)
     build_sandbox.build(scenario_path, dest)
@@ -184,11 +215,13 @@ def main(argv):
 
     for path in paths:
         name = os.path.basename(path)[:-5]
+        scen_dir = scenario_workdir(workdir, path)
         print("\n" + "#" * 88)
         print("# SCENARIO %s" % name)
+        print("# artifacts: %s" % scen_dir)
         print("#" * 88)
 
-        baseline, problems = fixture_integrity(path, workdir)
+        baseline, problems = fixture_integrity(path, scen_dir)
         if problems:
             harness_problems += ["[%s] fixture: %s" % (name, p) for p in problems]
             continue
@@ -198,7 +231,7 @@ def main(argv):
         # Free and deterministic, so it runs before the graded controls rather than beside
         # them: if the record checks cannot tell a corrected record from a ticked one, the
         # controls' verdict on the record is not worth the model turns it costs.
-        rendered, problems = prove_records.prove(path, workdir)
+        rendered, problems = prove_records.prove(path, scen_dir)
         for line in rendered:
             print(line)
         if problems:
@@ -207,7 +240,7 @@ def main(argv):
         if prove_only:
             continue
 
-        rendered, problems, _v = run_controls(path, workdir, votes)
+        rendered, problems, _v = run_controls(path, scen_dir, votes)
         for block in rendered:
             print(block)
         if problems:
@@ -218,7 +251,7 @@ def main(argv):
             continue
 
         for i in range(runs):
-            result = run_live(path, workdir, votes, model, doctrine, restart_after, i)
+            result = run_live(path, scen_dir, votes, model, doctrine, restart_after, i)
             print(
                 judge.render(
                     result,
