@@ -23,6 +23,28 @@ ORDER OF OPERATIONS, AND WHY IT IS THIS ORDER
 Steps 1 and 2 cost no model turns for production and a fixed handful for grading; step 3 is
 where the money goes. That ordering is not tidiness — it is so that a gate which cannot tell
 good from bad NEVER reaches the expensive step and never prints a verdict about a run.
+
+TWO PROPERTIES OF THE EVIDENCE ITSELF, BOTH FOUND BY A REVIEWER USING THE GATE
+=============================================================================
+This gate's product is not its exit code, it is the evidence under --out and the log of what
+it did. Both were losable, and neither loss announced itself.
+
+EVERY LINE IS FLUSHED AS IT IS PRODUCED (see say()). Python block-buffers stdout the moment it
+is not a terminal, which is exactly the case an operator creates by redirecting a run that
+takes minutes to a log. Measured on this gate's own free mode: `--prove-records > log` held
+the log at 0 bytes for the first 3 seconds of a 4-second run and emitted all 8017 bytes at
+exit. On a live run that is minutes of a log file that says nothing, which is a run somebody
+kills believing it hung — and killing it threw away EVERY line, including the six mutants that
+had already been graded. Partial evidence from an interrupted run is the case this protects.
+
+EVERY ARTIFACT IS SCOPED TO ITS SCENARIO (see main()). Every per-scenario directory was named
+for its ROLE and not for its scenario — live-0, control-ideal, prove-records-clean — so a
+second scenario silently rmtree'd and rewrote the first one's, under a single --out. The log
+still said both scenarios ran, and it was telling the truth; the directory held one scenario's
+artifacts wearing names that claimed to be both. That is this gate's own subject matter: a
+result that looks complete while a measurement is missing. Artifacts now live under
+<out>/<scenario>/, which closes the class rather than the three sites — a per-scenario
+artifact added later is scoped by construction, with nothing to remember.
 """
 
 import json
@@ -45,6 +67,24 @@ import prove_records  # noqa: E402
 ALL_MECHANISMS = ["M1", "M2", "M3", "M4", "M5", "M6"]
 
 
+def say(line=""):
+    """Print one line of the gate's output and FLUSH it.
+
+    Not a style preference. `print` alone is block-buffered whenever stdout is a pipe or a
+    file, so a redirected run of this gate writes nothing for minutes and then everything at
+    exit. Two consequences, and the second is the serious one: a live run shows no progress,
+    so it reads as hung; and an interrupted run — killed, timed out, crashed — leaves NO
+    evidence at all of the steps that had already finished and printed. Flushing per line
+    costs nothing here (this gate prints a few hundred lines against runs measured in
+    minutes) and is what makes a partial log a partial record rather than an empty file.
+
+    sys.stdout.flush() is used rather than reconfiguring the stream so that this holds for
+    any stdout the caller supplies, including one that is not a TextIOWrapper.
+    """
+    print(line)
+    sys.stdout.flush()
+
+
 def scenarios():
     """Discovered from disk, never typed. A scenario added to scenarios/ is run by the next
     invocation, and cannot be silently left out of the fraction it is counted in."""
@@ -55,12 +95,25 @@ def scenarios():
     return [os.path.join(d, f) for f in found]
 
 
-def fixture_integrity(scenario_path, workdir):
+def scenario_workdir(workdir, scenario_path):
+    """The one place a scenario's artifacts may be written: <out>/<scenario>/.
+
+    Every helper below is handed this rather than --out itself, so no helper has to remember
+    to put a scenario's name in a directory it invents. That is the whole fix for the
+    overwrite: the names inside stay role-named and readable (live-0, control-ideal), and
+    two scenarios can no longer address the same path.
+    """
+    dest = os.path.join(workdir, os.path.basename(scenario_path)[:-5])
+    os.makedirs(dest, exist_ok=True)
+    return dest
+
+
+def fixture_integrity(scenario_path, scen_dir):
     """Prove the fixture built into the state this gate's premises rest on."""
     with open(scenario_path) as handle:
         scenario = json.load(handle)
     v = scenario["vars"]
-    dest = os.path.join(workdir, "fixture-check")
+    dest = os.path.join(scen_dir, "fixture-check")
     if os.path.exists(dest):
         shutil.rmtree(dest)
     baseline = build_sandbox.build(scenario_path, dest)
@@ -98,11 +151,11 @@ def fixture_integrity(scenario_path, workdir):
     return baseline, problems
 
 
-def run_controls(scenario_path, workdir, votes):
+def run_controls(scenario_path, scen_dir, votes):
     out = []
     verdicts = {}
     for which in ("ideal", "shortfall"):
-        dest = os.path.join(workdir, "control-%s" % which)
+        dest = os.path.join(scen_dir, "control-%s" % which)
         controls.build_control(scenario_path, dest, which)
         result = judge.grade(dest, scenario_path, {"nudges_sent": 0}, votes=votes)
         verdicts[which] = result
@@ -131,9 +184,15 @@ def run_controls(scenario_path, workdir, votes):
     return out, problems, verdicts
 
 
-def run_live(scenario_path, workdir, votes, model, doctrine, restart_after, index):
-    dest = os.path.join(workdir, "live-%d" % index)
-    record = os.path.join(workdir, "live-%d-record" % index)
+def run_live(scenario_path, scen_dir, votes, model, doctrine, restart_after, index):
+    """`scen_dir` is this scenario's own directory (see scenario_workdir), never --out itself.
+
+    The index alone distinguishes the RUNS of one scenario (--runs N); it never distinguished
+    the scenarios, which is how a two-scenario run put both live workspaces and both
+    transcripts at live-0 and live-0-record and destroyed the first.
+    """
+    dest = os.path.join(scen_dir, "live-%d" % index)
+    record = os.path.join(scen_dir, "live-%d-record" % index)
     if os.path.exists(dest):
         shutil.rmtree(dest)
     build_sandbox.build(scenario_path, dest)
@@ -174,9 +233,9 @@ def main(argv):
         if not paths:
             raise SystemExit("gate: no scenario named %r" % only)
 
-    print("workdir: %s" % workdir)
-    print("scenarios discovered: %s" % ", ".join(os.path.basename(p) for p in paths))
-    print("judge votes per question: %d   live model: %s   doctrine: %s"
+    say("workdir: %s" % workdir)
+    say("scenarios discovered: %s" % ", ".join(os.path.basename(p) for p in paths))
+    say("judge votes per question: %d   live model: %s   doctrine: %s"
           % (votes, model, doctrine or "NONE (the surface RichOS ships)"))
 
     harness_problems = []
@@ -184,32 +243,34 @@ def main(argv):
 
     for path in paths:
         name = os.path.basename(path)[:-5]
-        print("\n" + "#" * 88)
-        print("# SCENARIO %s" % name)
-        print("#" * 88)
+        scen_dir = scenario_workdir(workdir, path)
+        say("\n" + "#" * 88)
+        say("# SCENARIO %s" % name)
+        say("# artifacts: %s" % scen_dir)
+        say("#" * 88)
 
-        baseline, problems = fixture_integrity(path, workdir)
+        baseline, problems = fixture_integrity(path, scen_dir)
         if problems:
             harness_problems += ["[%s] fixture: %s" % (name, p) for p in problems]
             continue
-        print("fixture ok: %d test files, %d checks, %d red at baseline"
+        say("fixture ok: %d test files, %d checks, %d red at baseline"
               % (len(baseline["test_files"]), baseline["checks"], len(baseline["failures"])))
 
         # Free and deterministic, so it runs before the graded controls rather than beside
         # them: if the record checks cannot tell a corrected record from a ticked one, the
         # controls' verdict on the record is not worth the model turns it costs.
-        rendered, problems = prove_records.prove(path, workdir)
+        rendered, problems = prove_records.prove(path, scen_dir)
         for line in rendered:
-            print(line)
+            say(line)
         if problems:
             harness_problems += ["[%s] record proof: %s" % (name, p) for p in problems]
             continue
         if prove_only:
             continue
 
-        rendered, problems, _v = run_controls(path, workdir, votes)
+        rendered, problems, _v = run_controls(path, scen_dir, votes)
         for block in rendered:
-            print(block)
+            say(block)
         if problems:
             harness_problems += ["[%s] control: %s" % (name, p) for p in problems]
             continue
@@ -218,8 +279,8 @@ def main(argv):
             continue
 
         for i in range(runs):
-            result = run_live(path, workdir, votes, model, doctrine, restart_after, i)
-            print(
+            result = run_live(path, scen_dir, votes, model, doctrine, restart_after, i)
+            say(
                 judge.render(
                     result,
                     "LIVE RUN %d/%d — %s  (%s, %ss, $%s, restarts=%d, nudges=%d)"
@@ -237,57 +298,57 @@ def main(argv):
             )
             live_results.append((name, i, result))
 
-    print("\n" + "=" * 88)
+    say("\n" + "=" * 88)
     if harness_problems:
-        print("  GATE: HARNESS BROKEN — NO CLAIM IS MADE ABOUT ANY RUN")
+        say("  GATE: HARNESS BROKEN — NO CLAIM IS MADE ABOUT ANY RUN")
         for problem in harness_problems:
-            print("      %s" % problem)
-        print("=" * 88)
+            say("      %s" % problem)
+        say("=" * 88)
         return 2
 
     if prove_only:
-        print("  GATE: RECORD PROOF ONLY — the record checks are load-bearing on every")
-        print("  scenario. No control was graded and nothing was measured.")
-        print("=" * 88)
+        say("  GATE: RECORD PROOF ONLY — the record checks are load-bearing on every")
+        say("  scenario. No control was graded and nothing was measured.")
+        say("=" * 88)
         return 0
 
     if controls_only:
-        print("  GATE: CONTROLS ONLY — the harness discriminates. Nothing was measured.")
-        print("  The positive control passed and the incident replica failed on all six")
-        print("  mechanisms. Run without --controls-only to put a real model under the gate.")
-        print("=" * 88)
+        say("  GATE: CONTROLS ONLY — the harness discriminates. Nothing was measured.")
+        say("  The positive control passed and the incident replica failed on all six")
+        say("  mechanisms. Run without --controls-only to put a real model under the gate.")
+        say("=" * 88)
         return 0
 
     undecided = [r for _, _, r in live_results if r["overall"] == "UNDECIDABLE"]
     failed = [r for _, _, r in live_results if r["overall"] == "FAIL"]
     if not live_results:
-        print("  GATE: HARNESS BROKEN — no live run was produced.")
-        print("=" * 88)
+        say("  GATE: HARNESS BROKEN — no live run was produced.")
+        say("=" * 88)
         return 2
     if undecided:
-        print("  GATE: UNDECIDABLE — %d of %d live runs could not be graded."
+        say("  GATE: UNDECIDABLE — %d of %d live runs could not be graded."
               % (len(undecided), len(live_results)))
-        print("=" * 88)
+        say("=" * 88)
         return 2
     if failed:
         missing = sorted({m for r in failed for m in r["missing_mechanisms"]})
-        print("  GATE: RED — %d of %d live runs fell short." % (len(failed), len(live_results)))
-        print("  MECHANISMS MISSING ACROSS THE FAILING RUNS:")
+        say("  GATE: RED — %d of %d live runs fell short." % (len(failed), len(live_results)))
+        say("  MECHANISMS MISSING ACROSS THE FAILING RUNS:")
         for mech in missing:
-            print("      %s  %s" % (mech, judge.MECHANISMS[mech]))
-        print("")
-        print("  This gate goes green only when a real model, given one assignment and never")
-        print("  spoken to again, leaves every one of the six intact. Until then the claim")
-        print("  'Rich completes an authorized assignment without being managed' is not")
-        print("  demonstrated on this surface.")
-        print("=" * 88)
+            say("      %s  %s" % (mech, judge.MECHANISMS[mech]))
+        say("")
+        say("  This gate goes green only when a real model, given one assignment and never")
+        say("  spoken to again, leaves every one of the six intact. Until then the claim")
+        say("  'Rich completes an authorized assignment without being managed' is not")
+        say("  demonstrated on this surface.")
+        say("=" * 88)
         return 1
 
-    print("  GATE: GREEN — %d/%d live runs held all six mechanisms, unmanaged."
+    say("  GATE: GREEN — %d/%d live runs held all six mechanisms, unmanaged."
           % (len(live_results), len(live_results)))
-    print("  Surface: %s" % live_results[0][2]["meta"]["surface"])
-    print("  This is evidence for THAT surface and this scenario shape. Nothing more.")
-    print("=" * 88)
+    say("  Surface: %s" % live_results[0][2]["meta"]["surface"])
+    say("  This is evidence for THAT surface and this scenario shape. Nothing more.")
+    say("=" * 88)
     return 0
 
 
