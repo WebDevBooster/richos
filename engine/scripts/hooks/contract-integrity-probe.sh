@@ -3327,6 +3327,9 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
         Q_AID="q0000002"
         Q_TX_PY="$ENGINE_ROOT/scripts/lib/worktree-transactions.py"
         Q_SANDBOX_OK=1
+        Q_WHY=""
+        Q_ERR=""
+        Q_DIAG=""
         mkdir -p "$Q_REPO/.claude/worktrees" 2>/dev/null || Q_SANDBOX_OK=0
         git -C "$Q_REPO" init -q -b main >/dev/null 2>&1 || Q_SANDBOX_OK=0
         printf 'seed\n' >"$Q_REPO/seed.txt" 2>/dev/null || Q_SANDBOX_OK=0
@@ -3347,17 +3350,40 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
             # RichOS. Model the old record format only inside this disposable
             # store, rather than asking current platform-owned code to violate
             # its ownership contract just to manufacture a quarantine.
+            #
+            # A record is "new format" by TWO independent markers and a
+            # historical one predates BOTH:
+            #   cleanup_owner                     routes terminalize() into the
+            #                                     platform-owned branch, which
+            #                                     never renames anything;
+            #   cleanup_policy=integrated-daily   makes terminalize() skip
+            #                                     save_ref+quarantine even once
+            #                                     the first marker is gone.
+            # This fixture stripped only the first, because the second did not
+            # exist when it was written (2afb9703 added it). The member then sat
+            # at `bound` with no quarantine, the guard below fell through, and
+            # the canary reported "could not be built" — six assertions silently
+            # not evaluated. Both markers are asserted present before removal, so
+            # a THIRD marker arriving later fails this fixture loudly instead of
+            # quietly leaving the old format unmodeled, and the result is read
+            # back and put to the module's own predicate rather than assumed.
             if [ "$Q_SANDBOX_OK" -eq 1 ]; then
-                RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 - "$Q_TX_PY" "$Q_SID" "$Q_AID" <<'PY' >/dev/null 2>&1 || Q_SANDBOX_OK=0
+                RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 - "$Q_TX_PY" "$Q_SID" "$Q_AID" <<'PY' >/dev/null 2>"$Q_DIR/fixture.err" || { Q_SANDBOX_OK=0; Q_WHY="the historical-format fixture edit"; }
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location('historical_probe_fixture', sys.argv[1])
 tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
 record = tx.load_tx(sys.argv[2], sys.argv[3])
-assert record['sealed'] and len(record['members']) == 1
+assert record['sealed'] and len(record['members']) == 1, record
 member = record['members'][0]
-assert member['class'] == 'native' and member['cleanup_owner'] == 'claude-code'
+assert member['class'] == 'native', 'class: %r' % member.get('class')
+assert member['cleanup_owner'] == 'claude-code', 'cleanup_owner: %r' % member.get('cleanup_owner')
+assert member['cleanup_policy'] == 'integrated-daily', 'cleanup_policy: %r' % member.get('cleanup_policy')
 del member['cleanup_owner']
+del member['cleanup_policy']
 tx.atomic_write_json(tx.tx_path(sys.argv[2], sys.argv[3]), record)
+back = tx.load_tx(sys.argv[2], sys.argv[3])['members'][0]
+assert 'cleanup_owner' not in back and 'cleanup_policy' not in back, back
+assert not tx.platform_native(back), back
 PY
             fi
             RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" claim --session-id "$Q_SID" --agent-id "$Q_AID" --ingress SubagentStop >/dev/null 2>&1 || Q_SANDBOX_OK=0
@@ -3387,6 +3413,23 @@ PY
             Q_OUT="$(REAP_WORKTREES_ROOT="$Q_REPO" RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" RICHOS_WORKTREE_CAPTURE_DIR="$Q_DIR/captures" \
                      RICHOS_RECONCILE_SETTLE=0.2 SESSION_START_RECONCILE_BUDGET=300 "$CANONICAL_REAPHOOK" </dev/null 2>/dev/null)"
             q_rc=$?
+            # THE RECOVERY OWNER MOVED, SO THE CANARY FOLLOWS IT. Until
+            # 28f07ab5 the session-start wrapper ran the reconciler with a time
+            # budget and recovery happened here; that commit made the wrapper
+            # STATUS-ONLY ("daily idle cleanup owns recovery") and left the
+            # reconciler to be driven by launchd and the daily idle pass. The
+            # arms below assert quarantined -> verified, and after 28f07ab5 the
+            # wrapper alone can no longer satisfy them.
+            #
+            # THE ASSERTIONS ARE NOT RELAXED TO MATCH — the recovery contract is
+            # unchanged and every arm below still has to hold. What changed is
+            # WHO performs it, so the canary now drives the reconciler directly,
+            # which is exactly what launchd and the idle pass do. Deleting these
+            # arms because the wrapper stopped satisfying them would have retired
+            # the only executable proof that crash recovery works at all.
+            Q_STATE_MID="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" members --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | cut -f5)"
+            RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" RICHOS_WORKTREE_CAPTURE_DIR="$Q_DIR/captures" \
+                RICHOS_RECONCILE_SETTLE=0.2 python3 "$CANONICAL_RECONCILER" --max-seconds 300 >/dev/null 2>&1
             set -e
             Q_STATE="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" members --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | cut -f5)"
             # verified_ts / verified_files / blocked_reason distinguish a state
@@ -3415,7 +3458,9 @@ print("%s\t%s\t%s" % (m.get("verified_ts") or "", m.get("verified_files") or 0,
                 emit_fail "Q. the session-start wrapper REMOVED a merged, clean, unlocked native worktree — the old liveness-inferring sweep is back with --execute. Live-agent eviction is not permitted, whatever the git state (the 2026-09-02 ruling). Restore immediately: git checkout -- scripts/hooks/session-start-reap-worktrees.sh"
                 Q_OK=0
             elif [ "$Q_STATE" != "verified" ]; then
-                emit_fail "Q. the session-start wrapper did NOT recover a terminal transaction left at quarantined — it never carried the member forward to 'verified' (state '${Q_STATE:-none}', it started at '$Q_STATE_PRE') — crash recovery is gutted, so a transaction the ingress left mid-way waits for launchd forever."
+                # The phrase "did NOT recover a terminal transaction" is the
+                # contract case 50d greps for. Keep it verbatim in any rewording.
+                emit_fail "Q. did NOT recover a terminal transaction left at quarantined — it was never carried forward to 'verified' (state '${Q_STATE:-none}', it started at '$Q_STATE_PRE'; after the status-only session-start wrapper it was at '${Q_STATE_MID:-none}', and the reconciler was then run directly with a 300s budget). Crash recovery is gutted: a transaction the ingress left mid-way is never captured or verified, so the work inside the quarantine is unrecoverable by any automatic path."
                 Q_OK=0
             elif [ ! -s "$Q_TAR" ]; then
                 emit_fail "Q. the member reached 'verified' with no archive on disk at $Q_TAR — 'verified' MEANS the capture was re-read and every digest matched, so a verified member with no bytes behind it is a state written over nothing."
@@ -3441,11 +3486,50 @@ print("%s\t%s\t%s" % (m.get("verified_ts") or "", m.get("verified_files") or 0,
             elif ! printf '%s' "$Q_OUT" | grep -q 'coverage (DRY-RUN)'; then
                 emit_fail "Q. the inventory reported no coverage line — a session would open blind to every worktree nothing owns, which is the 'reaped=1 residue=0' false green again. The inventory is gutted."
                 Q_OK=0
+            elif printf '%s' "$Q_OUT" | grep -q 'terminal members with a directory present=0'; then
+                # THE PRICE OF STATUS-ONLY, MADE INTO AN ASSERTION. 28f07ab5
+                # moved recovery off session start, so at this point in the run
+                # a real quarantine was sitting unrecovered and the wrapper's
+                # ONLY remaining job for it was to say so. A status-only hook
+                # that reports zero is worse than one that does nothing: the
+                # session opens believing there is nothing outstanding, and the
+                # member waits for an idle pass nobody knows to check on.
+                emit_fail "Q. the session-start wrapper reported 'terminal members with a directory present=0' while a quarantined member was in fact sitting unrecovered in its own sandbox. Since 28f07ab5 this hook does not recover anything itself — reporting the outstanding member is the whole of what it still owes, and it is reporting zero."
+                Q_OK=0
             else
-                emit_pass "Q. worktree lifecycle at session start: the wrapper REMOVES NOTHING on its own (a merged/clean/unlocked tree survives) + carries a quarantined terminal transaction forward quarantined->verified with a non-empty archive and verified_ts/verified_files set (negative control: it was at '''quarantined''' with no archive beforehand) + RETAINS the quarantine, its git registration and a blocked_reason naming the disabled-erasure policy + inventory is DRY-RUN — path-confined, manifest-matched"
+                emit_pass "Q. worktree lifecycle at session start: the wrapper REMOVES NOTHING on its own (a merged/clean/unlocked tree survives) and REPORTS the terminal member it no longer recovers (status-only since 28f07ab5) + the reconciler, recovery's current owner, carries a quarantined terminal transaction forward quarantined->verified with a non-empty archive and verified_ts/verified_files set (negative control: it was at '''quarantined''' with no archive beforehand) + RETAINS the quarantine, its git registration and a blocked_reason naming the disabled-erasure policy + inventory is DRY-RUN — path-confined, manifest-matched"
             fi
         else
-            emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — the throwaway historical-recovery fixture could not be built (transaction seal, fixture classification or claim failed). Wiring and hashes alone do not prove recovery; this probe is incomplete."
+            # THE DIAGNOSTIC NAMES WHICH OF THE THREE THINGS WENT WRONG.
+            # It used to say "(transaction seal, fixture classification or
+            # claim failed)" for all of them at once. On 2026-09-08 all three
+            # of those had SUCCEEDED and the real cause was that the fixture no
+            # longer produced a quarantine at all; the message sent the reader
+            # to the wrong commit. A dead check that also misdescribes itself
+            # costs more than no check.
+            if [ "$Q_SANDBOX_OK" -ne 1 ]; then
+                # Guarded: this probe runs under `set -eo pipefail`, so an
+                # unguarded `tail` of a file the fixture never got far enough to
+                # create would abort the whole probe with exit 1 instead of the
+                # exit 2 that means "a layer is broken".
+                if [ -s "$Q_DIR/fixture.err" ]; then
+                    Q_ERR="$(tail -3 "$Q_DIR/fixture.err" | tr '\n' ' ')"
+                fi
+                emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — a step of the throwaway fixture FAILED${Q_WHY:+ at $Q_WHY}${Q_ERR:+ — $Q_ERR}. Wiring and hashes alone do not prove recovery; this probe is incomplete."
+            elif [ ! -d "$Q_SURVIVOR" ]; then
+                emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — every fixture step reported success but the survivor worktree $Q_SURVIVOR does not exist, so the must-not-be-removed arm has nothing to watch. Wiring and hashes alone do not prove recovery; this probe is incomplete."
+            else
+                Q_DIAG="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" show --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    m = (json.load(sys.stdin).get("members") or [{}])[0]
+except Exception:
+    print("unreadable"); raise SystemExit(0)
+print("state=%s cleanup_owner=%s cleanup_policy=%s quarantine=%s" % (
+    m.get("state"), m.get("cleanup_owner"), m.get("cleanup_policy"), m.get("quarantine")))
+' 2>/dev/null)"
+                emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — every fixture step SUCCEEDED but no quarantine exists at $Q_QUAR (member: ${Q_DIAG:-unreadable}). The fixture no longer models a HISTORICAL record: terminalize() takes the save_ref+quarantine route only for a member with NEITHER the cleanup_owner marker NOR cleanup_policy=integrated-daily, so a newly added marker leaves the member at 'bound' and these six assertions are never evaluated. Strip every current new-format marker in the fixture above — do NOT relax the assertions below to match a member that was never quarantined."
+            fi
             Q_OK=0
         fi
         rm -rf "$Q_DIR" 2>/dev/null || true

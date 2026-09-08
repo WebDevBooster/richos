@@ -2131,19 +2131,36 @@ else
 fi
 rm -rf "$ROOT"
 
-# Case 50c — the wrapper runs NO reconciler (crash recovery gutted). Q3's
-# second arm must go red: the quarantined transaction is not completed.
+# Case 50c — CRASH RECOVERY GUTTED. Layer Q's recovery arm must go red: the
+# quarantined transaction is never carried forward.
+#
+# THIS CASE MUTATED THE WRONG FILE FROM 28f07ab5 UNTIL 2026-09-08, AND THE COST
+# WAS NOT ONE CASE. It anchored on the wrapper's
+#   RECONCILE_RAW="$(python3 "$RECONCILER" --max-seconds ...)"
+# line; 28f07ab5 made the wrapper status-only and replaced that line, so the
+# anchor matched nothing and the assert raised. Under `set -e` that ABORTED THE
+# WHOLE SUITE at this point, so 50c, 50d, and EVERY case after them — including
+# case 51, the owner-liveness gate this file itself calls "THE ONE THAT MATTERS"
+# — silently stopped running. A stale anchor in a mutation is not a local
+# failure; it is a hole in everything downstream of it.
+#
+# Recovery now lives in the reconciler, driven by launchd and the daily idle
+# pass, and Layer Q's canary drives it directly. So the mutation gutting
+# recovery belongs in the reconciler, which is what it does here.
 ROOT="$(make_sandbox)"
-python3 - "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" <<'PY'
+python3 - "$ROOT/scripts/reconcile-terminal-worktrees.py" <<'PY'
 import sys
 p = sys.argv[1]
 src = open(p).read()
-old = 'RECONCILE_RAW="$(python3 "$RECONCILER" --max-seconds "$SESSION_START_RECONCILE_BUDGET" 2>&1)" || true'
-assert old in src, "wrapper source drifted"
-open(p, "w").write(src.replace(old, 'RECONCILE_RAW="{\"reconciled\": 0, \"status\": {\"done\": true, \"definition_of_done\": {}}}"'))
+old = ('def reconcile_transaction(t, deadline=None, still_idle=None):\n'
+       '    sid, aid = t["session_id"], t["agent_id"]')
+assert src.count(old) == 1, "reconciler recovery anchor drifted — this mutation no longer mutates anything"
+open(p, "w").write(src.replace(old, old.replace(
+    'def reconcile_transaction(t, deadline=None, still_idle=None):\n',
+    'def reconcile_transaction(t, deadline=None, still_idle=None):\n    return\n'), 1))
 PY
-shasum -a 256 "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" | awk '{print $1}' \
-    > "$ROOT/scripts/hooks/session-start-reap-worktrees.sh.sha256"
+shasum -a 256 "$ROOT/scripts/reconcile-terminal-worktrees.py" | awk '{print $1}' \
+    > "$ROOT/scripts/reconcile-terminal-worktrees.py.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "50c.wrapper-without-reconciler-fails-layerQ" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'did NOT recover a terminal transaction'; then

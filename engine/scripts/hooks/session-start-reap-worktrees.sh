@@ -27,10 +27,18 @@
 # docs/plans/worktree-real-fix-2026-09-03.md.
 #
 # THIS HOOK'S TWO JOBS NOW:
-#   1. RECOVERY. Run the reconciler with a short time budget, so a
-#      transaction a crash left mid-way is resumed at the next session start
-#      even if launchd is not installed on this machine. SessionStart is NOT
-#      the scheduler — launchd is — and nothing waits for a later session.
+#   1. STATUS. Ask the reconciler what is outstanding and report it. This hook
+#      does NOT recover anything: 28f07ab5 moved recovery to the daily
+#      user-inactivity cleanup, and running it here as well would race that
+#      pass. The header said "RECOVERY. Run the reconciler with a short time
+#      budget" until 2026-09-08 while the code below had been status-only since
+#      28f07ab5, and that contradiction is how the lifecycle canary came to be
+#      asserting a job this hook no longer does.
+#      BECAUSE IT NO LONGER RECOVERS, REPORTING IS THE WHOLE OF WHAT IT OWES:
+#      a session that opens saying "nothing outstanding" over a real quarantine
+#      is worse than one that says nothing at all. Layer Q of the integrity
+#      probe asserts this hook reports a non-zero outstanding count when one
+#      exists.
 #   2. INVENTORY. Run the reaper in DRY-RUN (report only, never --execute,
 #      never --unlock-stale) so the session opens with the same denominator it
 #      always had: every repository, every worktree, and the ones nothing
