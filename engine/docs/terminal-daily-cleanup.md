@@ -41,3 +41,23 @@ branch hold. Completion and terminal observations are separate facts.
 These are cooperative workflow checks, not an operating-system barrier against
 arbitrary concurrent writers. They run as the ordinary user and require no
 administrator service or recurring approval.
+
+## Daily idle schedule
+
+Automatic reconciliation is scheduled for 4 am local time, after ten minutes
+without keyboard or mouse input. The job uses a lightweight idle-time check
+while waiting. It does not repeatedly scan repositories. Launchd catches a
+missed calendar event on wake; login also checks the last completed daily slot
+so a shutdown does not strand cleanup. Multiple missed days need only one pass.
+
+A local-date receipt and process lock prevent duplicate daily passes. Each pass
+keeps the existing 300-second soft work budget. A pass with nothing eligible or
+with active/unfinished work held still counts for that day. If user activity
+resumes, cleanup finishes its current step and waits before starting another.
+Unknown idle state defers cleanup. Existing active-work protections still apply
+even when the keyboard and mouse are idle.
+
+Session startup reports status without starting reconciliation. An explicit
+operator invocation without `--scheduled` remains available for maintenance.
+The local target hour is configured by `RECONCILE_HOUR`; rerunning the existing
+installer updates the ordinary-user launchd job. No administrator is required.

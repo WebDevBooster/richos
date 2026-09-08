@@ -46,8 +46,14 @@ PLIST="$LA/com.richos.worktree-reconciler.plist"
 printf '%s' "$OUT" | grep -q 'reconciler plist written (not loaded' && ok "S02  ...and says it was NOT loaded (a redirected directory is a test)" || bad "S02  out=${OUT:0:200}"
 grep -q "<string>$ENG/scripts/reconcile-terminal-worktrees.py</string>" "$PLIST" 2>/dev/null && ok "S03  the plist names THIS engine's reconciler" || bad "S03  reconciler path"
 grep -q '<string>--quiet</string>' "$PLIST" && grep -q '<string>--max-seconds</string>' "$PLIST" && ok "S04  the plist passes --quiet and a --max-seconds budget" || bad "S04  args"
-INTERVAL="$(sed -n 's/^RECONCILE_INTERVAL_SECONDS=\([0-9]*\).*/\1/p' "$ENG/orchestration.config" | head -1)"
-grep -q "<integer>$INTERVAL</integer>" "$PLIST" && ok "S05  StartInterval is RECONCILE_INTERVAL_SECONDS from orchestration.config ($INTERVAL)" || bad "S05  interval"
+HOUR="$(sed -n 's/^RECONCILE_HOUR=\([0-9]*\).*/\1/p' "$ENG/orchestration.config" | head -1)"
+python3 - "$PLIST" "$HOUR" <<'PYTEST' && ok "S05 daily calendar and idle admission, no polling interval" || bad "S05 calendar"
+import plistlib,sys
+p=plistlib.load(open(sys.argv[1],"rb"))
+assert p["StartCalendarInterval"]=={"Hour":int(sys.argv[2]),"Minute":0}
+assert "StartInterval" not in p and "--scheduled" in p["ProgramArguments"]
+assert p["ProgramArguments"][p["ProgramArguments"].index("--idle-minutes")+1]=="10"
+PYTEST
 grep -q '<key>RunAtLoad</key><true/>' "$PLIST" && ok "S06  RunAtLoad is set (a reboot resumes cleanup without a session)" || bad "S06  RunAtLoad"
 if command -v plutil >/dev/null 2>&1; then
     plutil -lint "$PLIST" >/dev/null 2>&1 && ok "S07  the plist parses (plutil -lint)" || bad "S07  plutil rejected the plist"
@@ -60,11 +66,11 @@ grep -q "<string>com.richos.worktree-reconciler</string>" "$PLIST" && ok "S08  L
 python3 - "$ENG/orchestration.config" <<'PY'
 import re, sys
 p = sys.argv[1]; s = open(p).read()
-s = re.sub(r"^RECONCILE_INTERVAL_SECONDS=\d+", "RECONCILE_INTERVAL_SECONDS=42", s, flags=re.M)
+s = re.sub(r"^RECONCILE_HOUR=\d+", "RECONCILE_HOUR=3", s, flags=re.M)
 open(p, "w").write(s)
 PY
 RICHOS_LAUNCH_AGENTS_DIR="$LA" "$ENG/scripts/hooks/install.sh" >/dev/null 2>&1
-grep -q '<integer>42</integer>' "$PLIST" && ok "S09  a changed RECONCILE_INTERVAL_SECONDS is written on re-install (idempotent, converges)" || bad "S09  interval not updated"
+grep -q '<integer>3</integer>' "$PLIST" && ok "S09  a changed RECONCILE_HOUR is written on re-install (idempotent, converges)" || bad "S09  interval not updated"
 
 # 3. an EPHEMERAL checkout with no redirect: nothing written anywhere
 rm -rf "$LA"
@@ -296,6 +302,11 @@ if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && command -v launchctl >/dev/null 2
         launchctl bootout "gui/$(id -u)/$stale" >/dev/null 2>&1 || true
     done
     LIVE_TX="$SANDBOX/live-tx"; LIVE_CAP="$SANDBOX/live-captures"
+    python3 - "$ENG/scripts/lib/cleanup-schedule.py" <<'PYIDLE'
+import sys
+from pathlib import Path
+p=Path(sys.argv[1]); p.write_text(p.read_text().replace('idle=idle_seconds', 'idle=lambda: 6000'))
+PYIDLE
     OUT="$(RICHOS_LAUNCH_AGENTS_DIR="$LA2" RICHOS_LAUNCHD_LABEL="$TL" RICHOS_WORKTREE_TX_DIR="$LIVE_TX" RICHOS_WORKTREE_CAPTURE_DIR="$LIVE_CAP" bash "$ENG/scripts/hooks/install.sh" 2>&1)"; RC=$?
     PRINTED="$(launchctl print "gui/$(id -u)/$TL" 2>&1)"; PRC=$?
     if [ "$RC" -eq 0 ] && [ "$PRC" -eq 0 ] && printf '%s' "$PRINTED" | grep -qF "$ENG/scripts/reconcile-terminal-worktrees.py" && printf '%s' "$OUT" | grep -q 'verified with launchctl print'; then
@@ -322,7 +333,7 @@ if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && command -v launchctl >/dev/null 2
     if [ "$RC" -eq 0 ] && printf '%s' "$PRINTED" | grep -qF "$ENG3/scripts/reconcile-terminal-worktrees.py" && ! printf '%s' "$PRINTED" | grep -qF "$ENG/scripts/reconcile-terminal-worktrees.py"; then
         ok "S25  reinstalling from a second checkout REPOINTS the loaded job at it (bootout + bootstrap + verify; no manual command)"
     else
-        bad "S25  rc=$RC printed=${PRINTED:0:300}"
+        bad "S25  rc=$RC printed=${PRINTED:0:300} out=${OUT:0:1200}"
     fi
     live_cleanup
     launchctl print "gui/$(id -u)/$TL" >/dev/null 2>&1 && bad "S26  the test job survived bootout" || ok "S26  ...and bootout removes it: launchctl print no longer finds the test job"

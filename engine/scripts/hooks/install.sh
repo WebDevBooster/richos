@@ -435,6 +435,7 @@ HOOK_FILES+=(
     "$REPO_ROOT/scripts/lib/worktree-ledger.py"
     "$REPO_ROOT/scripts/lib/completion-proof.py"
     "$REPO_ROOT/scripts/lib/daily-workspace-cleanup.py"
+    "$REPO_ROOT/scripts/lib/cleanup-schedule.py"
     "$REPO_ROOT/scripts/create-teammate-worktree.sh"
     # The worktree TRANSACTION store — the file that now decides the exact
     # member set a terminal ingress quarantines and the reconciler removes.
@@ -702,8 +703,8 @@ fi
 
 # --- The persistent reconciler, under launchd -------------------------------
 #
-# The worktree lifecycle's cleanup is a persistent, user-level job: every
-# RECONCILE_INTERVAL_SECONDS it drives terminal worktree transactions to
+# The worktree lifecycle's cleanup is a persistent, user-level job: each
+# day at the configured local hour it drives terminal worktree transactions to
 # removal, retrying normal failures until they succeed, so that no cleanup ever
 # waits for a later session start and no human is asked to run anything
 # (docs/plans/worktree-real-fix-2026-09-03.md, "Capture and removal").
@@ -733,8 +734,13 @@ fi
 # right after the pointer step and with 2>/dev/null hiding the reason. The
 # interval already has a default one line down; a missing config is a default,
 # never a failed install.
-RECONCILE_INTERVAL="$(sed -n 's/^RECONCILE_INTERVAL_SECONDS=\([0-9][0-9]*\).*$/\1/p' "$REPO_ROOT/orchestration.config" 2>/dev/null | head -1 || true)"
-[ -n "$RECONCILE_INTERVAL" ] || RECONCILE_INTERVAL=300
+RECONCILE_HOUR="$(sed -n 's/^RECONCILE_HOUR=\([0-9][0-9]*\).*$/\1/p' "$REPO_ROOT/orchestration.config" 2>/dev/null | head -1 || true)"
+[ -n "$RECONCILE_HOUR" ] || RECONCILE_HOUR=4
+if [ "$RECONCILE_HOUR" -gt 23 ]; then
+    echo "ERROR: RECONCILE_HOUR must be between 0 and 23" >&2; exit 2
+fi
+RECONCILE_IDLE_MINUTES=10
+RECONCILE_BUDGET=300
 LAUNCHD_PROD_LABEL="com.richos.worktree-reconciler"
 LAUNCHD_LABEL="${RICHOS_LAUNCHD_LABEL:-$LAUNCHD_PROD_LABEL}"
 # A custom label is a TEST label, and only a test label: it must carry the
@@ -781,9 +787,15 @@ write_reconciler_plist() {
         <string>$RECONCILER</string>
         <string>--quiet</string>
         <string>--max-seconds</string>
-        <string>$RECONCILE_INTERVAL</string>
+        <string>$RECONCILE_BUDGET</string>
+        <string>--scheduled</string>
+        <string>--schedule-hour</string>
+        <string>$RECONCILE_HOUR</string>
+        <string>--idle-minutes</string>
+        <string>$RECONCILE_IDLE_MINUTES</string>
     </array>
-    <key>StartInterval</key><integer>$RECONCILE_INTERVAL</integer>
+    <key>StartCalendarInterval</key>
+    <dict><key>Hour</key><integer>$RECONCILE_HOUR</integer><key>Minute</key><integer>0</integer></dict>
     <key>RunAtLoad</key><true/>
     <key>ProcessType</key><string>Background</string>
 ${_ENV_BLOCK:+$_ENV_BLOCK
@@ -836,7 +848,7 @@ if [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ] && [ "$LAUNCHD_TEST_LABEL" -eq 1 ]; th
     elif ! _SCHED_ERR="$(schedule_reconciler_job 2>&1)"; then
         RECONCILER_SCHEDULE_FAILED="$_SCHED_ERR"
     else
-        echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL — a TEST label, every ${RECONCILE_INTERVAL}s) -> $LAUNCHD_PLIST; verified with launchctl print"
+        echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL — a TEST label, daily at ${RECONCILE_HOUR}:00 when idle) -> $LAUNCHD_PLIST; verified with launchctl print"
     fi
 elif [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
     # A redirected plist directory with the production label is a test of the
@@ -849,7 +861,7 @@ elif LAUNCHD_ACCOUNT_HOME="$("$PYTHON_BIN" -c 'import os, pwd; print(pwd.getpwui
 elif [ "$POINTER_EPHEMERAL" -eq 1 ] || [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
     echo "NOTE: reconciler NOT scheduled from this checkout (ephemeral or a linked worktree) — the schedule would point at a directory that goes away. Run install.sh from the main checkout to schedule it. (install.sh)" >&2
 elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
-    echo "NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '$PYTHON_BIN $RECONCILER --quiet' every $RECONCILE_INTERVAL seconds with your host's scheduler. (install.sh)" >&2
+    echo "NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '$PYTHON_BIN $RECONCILER --quiet' daily at ${RECONCILE_HOUR}:00; --scheduled uses macOS idle detection. (install.sh)" >&2
 elif [ "$(cd "$ENGINE_CONFIG_DIR" 2>/dev/null && pwd -P)" != "$(cd "$HOME/.claude" 2>/dev/null && pwd -P)" ]; then
     echo "NOTE: reconciler NOT scheduled — CLAUDE_CONFIG_DIR is not the operator's real ~/.claude, so this is a sandboxed install. (install.sh)" >&2
 else
@@ -871,7 +883,7 @@ else
     elif ! _SCHED_ERR="$(schedule_reconciler_job 2>&1)"; then
         RECONCILER_SCHEDULE_FAILED="$_SCHED_ERR"
     else
-        echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL, every ${RECONCILE_INTERVAL}s) -> $LAUNCHD_PLIST; verified with launchctl print"
+        echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL, daily at ${RECONCILE_HOUR}:00 when idle) -> $LAUNCHD_PLIST; verified with launchctl print"
     fi
 fi
 if [ -n "$RECONCILER_SCHEDULE_FAILED" ]; then

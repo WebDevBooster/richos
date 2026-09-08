@@ -97,7 +97,7 @@ else
     SWEEP_ROOT="${REAP_WORKTREES_ROOT:-}"
 fi
 
-# --- 1. RECOVERY: the reconciler, with a budget --------------------------------
+# --- 1. STATUS ONLY: daily idle cleanup owns recovery --------------------------------
 RECONCILE_SUMMARY=""
 if [ ! -f "$RECONCILER" ]; then
     printf '%s\n' "$(require_asset "$RECONCILER" "scripts/hooks/session-start-reap-worktrees.sh" "the worktree reconciler (an ENGINE asset)")" >&2
@@ -105,13 +105,13 @@ if [ ! -f "$RECONCILER" ]; then
 elif ! command -v python3 >/dev/null 2>&1; then
     RECONCILE_SUMMARY="RECONCILER NOT RUN — python3 is unavailable; terminal worktree transactions were not recovered."
 else
-    RECONCILE_RAW="$(python3 "$RECONCILER" --max-seconds "$SESSION_START_RECONCILE_BUDGET" 2>&1)" || true
+    RECONCILE_RAW="$(python3 "$RECONCILER" --status 2>&1)" || true
     RECONCILE_SUMMARY="$(printf '%s\n' "$RECONCILE_RAW" | python3 -c '
 import json, sys
 lines = sys.stdin.read().splitlines()
 notes = [l for l in lines if l.startswith("reconcile:")]
 try:
-    d = json.loads(next(l for l in lines if l.startswith("{")))
+    d = {"status": json.loads("\n".join(lines)), "reconciled": 0}
 except Exception:
     d = None
 if d is None:

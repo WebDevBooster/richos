@@ -842,13 +842,15 @@ def orphan_backstop_pass(only=None):
     return claimed
 
 
-def reconcile_transaction(t, deadline=None):
+def reconcile_transaction(t, deadline=None, still_idle=None):
     sid, aid = t["session_id"], t["agent_id"]
     base, cap = retry_backoff()
     with tx.tx_lock(sid, aid, timeout=5):
         for i in range(len(t.get("members") or [])):
             steps_this_run = 0
             while True:
+                if still_idle is not None and not still_idle():
+                    return False
                 if deadline and time.time() > deadline:
                     return
                 t = tx.load_tx(sid, aid)
@@ -1123,9 +1125,11 @@ def retention_pass():
             "reason_code": "automatic-erasure-disabled"}
 
 
-def run(max_seconds=None, only=None):
+def run(max_seconds=None, only=None, still_idle=None):
     deadline = time.time() + max_seconds if max_seconds else None
     n = 0
+    if still_idle is not None and not still_idle():
+        return False
     # ADOPTION RUNS FIRST, and only when nothing was named with --agent: a
     # single-transaction run is a targeted repair of a record that already
     # exists, and it must not go looking for new ones.
@@ -1134,20 +1138,28 @@ def run(max_seconds=None, only=None):
             n += adoption_pass()
         except Exception as e:
             log("adoption pass: %s" % e)
+        if still_idle is not None and not still_idle():
+            return False
         if not deadline or time.time() < deadline:
             try:
                 tx._managed_workspaces().recover_preparations(deadline=deadline)
             except Exception as e:
                 log("managed preparation recovery: %s" % e)
+    if still_idle is not None and not still_idle():
+        return False
     try:
         n += process_pending_terminals(only)
     except Exception as e:
         log("pending terminal pass: %s" % e)
+    if still_idle is not None and not still_idle():
+        return False
     try:
         n += orphan_backstop_pass(only)
     except Exception as e:
         log("native-gone backstop pass: %s" % e)
     for t in list(tx.iter_transactions()):
+        if still_idle is not None and not still_idle():
+            return False
         if not t.get("terminal"):
             continue
         # The derived terminal indexes are repaired on EVERY pass, for every
@@ -1166,10 +1178,13 @@ def run(max_seconds=None, only=None):
             log("time budget reached; the rest waits for the next run")
             break
         try:
-            reconcile_transaction(t, deadline)
+            if reconcile_transaction(t, deadline, still_idle) is False:
+                return False
         except Exception as e:
             log("transaction %s/%s: %s" % (t["session_id"][:8], t["agent_id"], e))
         n += 1
+    if still_idle is not None and not still_idle():
+        return False
     try:
         retention_pass()
     except Exception as e:
@@ -1236,11 +1251,20 @@ def main(argv):
     ap.add_argument("--max-seconds", type=float, default=None)
     ap.add_argument("--agent", default=None, help="SESSION_ID/AGENT_ID: reconcile one transaction")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--scheduled", action="store_true", help="Daily idle cleanup with login catch-up")
+    ap.add_argument("--schedule-hour", type=int, default=4)
+    ap.add_argument("--idle-minutes", type=float, default=10)
     a = ap.parse_args(argv)
     if a.status:
         s = status()
         print(json.dumps(s, sort_keys=True, indent=1))
         return 0 if s["done"] else 1
+    if a.scheduled:
+        schedule = _load("cleanup_schedule", os.path.join(HERE, "lib", "cleanup-schedule.py"))
+        while schedule.scheduled(lambda idle: run(a.max_seconds, a.agent, idle),
+                                 a.schedule_hour, a.idle_minutes) == "interrupted":
+            time.sleep(60)
+        return 0
     n = run(a.max_seconds, a.agent)
     s = status()
     if not a.quiet:
