@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# task-completed-handoff.sh — TaskCompleted hook. LOG-ONLY; never blocks.
+# task-completed-handoff.sh — TaskCompleted hook. Verify committed integration before recording completion.
 #
 # Appends one JSON line per task completion to the session team directory
 # (task-events.jsonl) — durable coordination state for the orchestrator, one
@@ -9,14 +9,36 @@
 # is pruned from the queryable task store, so this append-only log + the commit
 # are the durable completion record.
 #
-# Fail-open everywhere: any parse/IO error exits 0. Env override for tests:
-# TASK_COMPLETED_TEAMS_DIR.
+# A refused proof exits 2 so the native task remains open with remediation.
+# Idle and SubagentStop remain observations, not accepted delivery.
+# This cooperative hook is not a same-user security or writer-cutoff boundary.
 
 set -o pipefail
 
 # Keep event JSON out of argv/environment: Linux imposes per-string exec limits.
 # Descriptor 3 carries the data while stdin carries the inline Python source.
 PAYLOAD="$(cat)"
+
+_PROOF_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/completion-proof.py"
+# Reject malformed events. An explicitly different event is not a completion.
+_EVENT="$(printf '%s' "$PAYLOAD" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,dict); print(d.get("hook_event_name", ""))')" || exit 2
+[ "$_EVENT" = "TaskCompleted" ] || exit 0
+# The plugin is global; the existing root contract limits enforcement to adopters.
+_ROOT_LIB="$(dirname "$_PROOF_PY")/resolve-roots.sh"
+if [ ! -f "$_ROOT_LIB" ]; then
+    echo "Task remains unfinished: RichOS root resolver is missing." >&2
+    exit 2
+fi
+. "$_ROOT_LIB" || exit 2
+if ! resolve_entity_root "$PAYLOAD"; then
+    case "$RICHOS_ROOT_STATUS" in
+        not-adopted) exit 0 ;;
+        *) root_failure_banner "task-completed-handoff" >&2; exit 2 ;;
+    esac
+fi
+if ! printf '%s' "$PAYLOAD" | python3 -B "$_PROOF_PY"; then
+    exit 2
+fi
 
 # --- ownership ledger: an ADVISORY per-agent finish signal -------------------
 # Retained in ~/.claude/state/worktree-ledger.jsonl (scripts/lib/
@@ -120,7 +142,7 @@ record = {
     "task_subject": first("task_subject", "task_title", "subject", "title"),
     "teammate": first("teammate_name", "agent_type", "agentType", "owner", "agent_id", "agentId"),
     "session_id": session_id,
-    "decision": "logged"
+    "decision": "verified"
 }
 
 try:

@@ -360,7 +360,7 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/task-completed-handoff.sh",
-            "timeout": 15
+            "timeout": 120
           }
         ]
       }
