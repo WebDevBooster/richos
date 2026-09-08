@@ -1,0 +1,28 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-wake-native.py",
+        "--self-test-r3",
+        "--review-evidence",
+        "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-75nlm56i"
+      ],
+      "exit": 0,
+      "stdout": "PASS: bounded R3 input injection, transcript confirmation, prose ask, permission gap and equivalent-parser cases; preserved reviewer failure reproduced\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-wake-native.py",
+        "--self-test-parser"
+      ],
+      "exit": 0,
+      "stdout": "PASS: 9 native parser receipt checks\n",
+      "stderr": ""
+    }
+  ],
+  "execution_harness_sha256": "65548730bfd69523e0906a0328017ea637548dc46de377a188dfe7d8d8945921",
+  "reevaluation_harness_sha256": "f0eb8cdf5fa3b943a4e2870e50180c902a745f9507128d3899751e19dcf9b5d2"
+}

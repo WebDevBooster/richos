@@ -1,0 +1,11 @@
+--- base/engine/scripts/ceo-asks-status.sh
++++ mutant/engine/scripts/ceo-asks-status.sh
+@@ -88,7 +88,7 @@
+ if owned_work_policy "$ROOT"; then OWNED_POLICY=1; fi
+ ARC=0
+ if [ "$OWNED_POLICY" -eq 1 ]; then
+-    ca_assess "$ROOT" "" || ARC=$?
++    ca_assess "$ROOT" "$SESSION" || ARC=$?
+ else
+     ca_assess "$ROOT" "$SESSION" || ARC=$?
+ fi

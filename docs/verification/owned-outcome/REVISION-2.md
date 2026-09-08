@@ -1,5 +1,8 @@
 # Response to Sage's external review
 
+Historical R2 report for `2b9d7122`. Current corrections and measured limits are
+in [RESULTS-3.md](RESULTS-3.md); the evidence below is retained unchanged.
+
 This revision responds to `docs/reviews/sage-fable-r1-owned-outcome-2026-09-08.md`
 on main. The reviewed commit was `b80f9978`. Changes remain on
 `codex/owned-outcome-completion` in the existing separate worktree. The review was

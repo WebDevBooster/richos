@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
 # guard-ceo-ask-first.sh — BLOCKING PreToolUse guard on the Agent tool.
+# Explicit owned-outcome adoption uses the source-backed dispatch registrar.
+# The historical per-session contract below applies to the unadopted path.
 #
 # REFUSES TO DISPATCH A TEAMMATE WHILE A PREPARED CEO DECISION HAS NEVER BEEN
 # PUT TO HIM THIS SESSION.
@@ -160,46 +162,21 @@ OWNED_POLICY=0
 if owned_work_policy "$ENTITY_ROOT"; then OWNED_POLICY=1; fi
 
 
+if [ "$OWNED_POLICY" -eq 1 ]; then
+    RC=0
+    printf '%s' "$INPUT" | owned_work_dispatch "$ENTITY_ROOT" || RC=$?
+    exit "$RC"
+fi
+
 _CA_LIB="$SCRIPT_DIR/../lib/ceo-asks.sh"
 if [ ! -f "$_CA_LIB" ]; then
     announce_broken "CEO-ASK GATE IS OFF: scripts/lib/ceo-asks.sh is missing at $_CA_LIB, so its entire predicate is absent. Teammate dispatches are UNGATED — a clean run and an absent gate must never look the same."
-    if [ "$OWNED_POLICY" -eq 1 ]; then
-        RC=0; printf '%s' "$INPUT" | owned_work_dispatch /dev/null || RC=$?
-        exit "$RC"
-    fi
     exit 0
 fi
-# shellcheck source=../lib/ceo-asks.sh
 . "$_CA_LIB"
-
 if ! ca_require; then
     announce_broken "CEO-ASK GATE IS OFF: $CA_BROKEN. Teammate dispatches are UNGATED."
-    if [ "$OWNED_POLICY" -eq 1 ]; then
-        RC=0; printf '%s' "$INPUT" | owned_work_dispatch /dev/null || RC=$?
-        exit "$RC"
-    fi
     exit 0
-fi
-
-if [ "$OWNED_POLICY" -eq 1 ]; then
-    # Read the authoritative items even if an ask was witnessed. An ask receipt
-    # never establishes the answer, and a deferral cannot waive missing authority.
-    ITEMS="$(mktemp -t owned-ceo-items.XXXXXX)" || exit 2
-    RRC=0
-    ca_resolve "$ENTITY_ROOT" || RRC=$?
-    case "$RRC" in
-        0) ca_items_json "$ITEMS" || {
-            announce_broken "CEO dependency record is unreadable: ${CA_BROKEN}. Independent work may continue; dependent work cannot be cleared."
-            rm -f "$ITEMS"
-        } ;;
-        1) printf '[]' > "$ITEMS" ;;
-        *) announce_broken "CEO dependency record is unreadable: ${CA_REASON}. Independent work may continue; dependent work cannot be cleared."
-           rm -f "$ITEMS" ;;
-    esac
-    RC=0
-    printf '%s' "$INPUT" | owned_work_dispatch "$ITEMS" || RC=$?
-    rm -f "$ITEMS"
-    exit "$RC"
 fi
 
 RRC=0

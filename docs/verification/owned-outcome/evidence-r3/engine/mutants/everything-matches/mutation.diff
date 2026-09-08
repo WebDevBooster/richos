@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/ceo-asks.py
++++ mutant/engine/scripts/lib/ceo-asks.py
+@@ -176,7 +176,7 @@
+         # A threshold that is wrong by one on some title lengths and not others
+         # is exactly the kind of quiet arithmetic that makes a gate untrustable.
+         needed = max(MIN_HITS, int(math.ceil(SCORE_FLOOR * len(title_words) - 1e-9)))
+-    return hits >= needed, score, hits, needed, "title"
++    return True, score, hits, needed, "title"
+ 
+ 
+ def do_match(job):

@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/owned-dispatch.py
++++ mutant/engine/scripts/lib/owned-dispatch.py
+@@ -153,7 +153,7 @@
+         if latest_config != config or latest_data != data:
+             raise ValueError('Source authority changed during dispatch review')
+         record(root, data, kind, diagnostics)
+-        if kind == 'pending':
++        if True:
+             print(PENDING, file=sys.stderr)
+             return 2
+         return 0

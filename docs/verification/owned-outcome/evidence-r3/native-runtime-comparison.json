@@ -1,0 +1,100 @@
+[
+  {
+    "file": "engine/hooks/hooks.json",
+    "tested_sha256": "fe1b44d51579655dec1cca4f3f33b13774ded3d84c178c9ab71c888c0f96082b",
+    "final_sha256": "ffdc259d5ffe31cb22a5795a246aac246c555aa89b44db4d53533d55949df091",
+    "identical": false,
+    "diff": "--- tested/engine/hooks/hooks.json\n+++ final/engine/hooks/hooks.json\n@@ -113,7 +113,7 @@\n           {\n             \"type\": \"command\",\n             \"command\": \"bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-ceo-ask-first.sh\",\n-            \"timeout\": 180\n+            \"timeout\": 240\n           },\n           {\n             \"type\": \"command\",\n"
+  },
+  {
+    "file": "engine/scripts/install-owned-work.py",
+    "tested_sha256": "637105ec6fa7344a01a947affa3c86d9841f797223778d50717e27f4434837a5",
+    "final_sha256": "637105ec6fa7344a01a947affa3c86d9841f797223778d50717e27f4434837a5",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/hooks/install.sh",
+    "tested_sha256": "f2137fd4be197a36d126fc885f6329bca0e479dc9b96189738a53beb720ba6be",
+    "final_sha256": "f2137fd4be197a36d126fc885f6329bca0e479dc9b96189738a53beb720ba6be",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/hooks/guard-ceo-ask-first.sh",
+    "tested_sha256": "f48aa7653ac3d4247806d3804ce3d1ee4da3df2f12149ab35e821cec08232892",
+    "final_sha256": "c523e7ee39387e8242c8c089c4176c7fd66311df97d0979b65383cce5972d473",
+    "identical": false,
+    "diff": "--- tested/engine/scripts/hooks/guard-ceo-ask-first.sh\n+++ final/engine/scripts/hooks/guard-ceo-ask-first.sh\n@@ -1,6 +1,8 @@\n #!/usr/bin/env bash\n #\n # guard-ceo-ask-first.sh \u2014 BLOCKING PreToolUse guard on the Agent tool.\n+# Explicit owned-outcome adoption uses the source-backed dispatch registrar.\n+# The historical per-session contract below applies to the unadopted path.\n #\n # REFUSES TO DISPATCH A TEAMMATE WHILE A PREPARED CEO DECISION HAS NEVER BEEN\n # PUT TO HIM THIS SESSION.\n"
+  },
+  {
+    "file": "engine/scripts/hooks/session-start-ceo-ask.sh",
+    "tested_sha256": "348552c5a7eb55b9caeb34a0121bf4ccd7669fe43070951c93a1354105e344cb",
+    "final_sha256": "348552c5a7eb55b9caeb34a0121bf4ccd7669fe43070951c93a1354105e344cb",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/hooks/notice-ceo-asks.sh",
+    "tested_sha256": "5412d6176fa38e5b08de7795dee6e1d5a6ac40dc8471016d3d91e00fb493f0a5",
+    "final_sha256": "5412d6176fa38e5b08de7795dee6e1d5a6ac40dc8471016d3d91e00fb493f0a5",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/hooks/notice-ceo-unasked.sh",
+    "tested_sha256": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+    "final_sha256": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/owned-session.py",
+    "tested_sha256": "77ab8483e032ef5e2e69b32e884b78385b565999e470213f58436a0c0fa822b9",
+    "final_sha256": "77ab8483e032ef5e2e69b32e884b78385b565999e470213f58436a0c0fa822b9",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/owned-dispatch.py",
+    "tested_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+    "final_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/owned-work-policy.sh",
+    "tested_sha256": "abe21b30be480f22ddc7f71e08f2059890eb67321b96b225d0cc7f44560022aa",
+    "final_sha256": "abe21b30be480f22ddc7f71e08f2059890eb67321b96b225d0cc7f44560022aa",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/ceo-asks.sh",
+    "tested_sha256": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+    "final_sha256": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/ceo-asks.py",
+    "tested_sha256": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+    "final_sha256": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/ceo-ruled.sh",
+    "tested_sha256": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
+    "final_sha256": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/ceo-ruled.py",
+    "tested_sha256": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+    "final_sha256": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/resolve-roots.sh",
+    "tested_sha256": "553218b5d7fe87755326f1988c6c725002ff7715e9a6164f4b029a2151bc4d8c",
+    "final_sha256": "553218b5d7fe87755326f1988c6c725002ff7715e9a6164f4b029a2151bc4d8c",
+    "identical": true
+  },
+  {
+    "file": "engine/scripts/lib/resolve-main-checkout.sh",
+    "tested_sha256": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+    "final_sha256": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+    "identical": true
+  }
+]

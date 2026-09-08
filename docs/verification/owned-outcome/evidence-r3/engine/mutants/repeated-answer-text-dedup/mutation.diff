@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/owned-dispatch.py
++++ mutant/engine/scripts/lib/owned-dispatch.py
+@@ -92,7 +92,7 @@
+             known = set(saved.get('source_ids', []))
+             # Membership is by native source ID. A repeated CEO answer after a
+             # revocation is new authority and must not be deduplicated by text.
+-            messages.extend({'role': m['role'], 'text': m['text']} for m in current if m['source_id'] not in known)
++            messages.extend({'role': m['role'], 'text': m['text']} for m in current if m['source_id'] not in known and not any(x['text'] == m['text'] for x in messages))
+         else:
+             messages = [{'role': m['role'], 'text': m['text']} for m in current]
+         unavailable = not messages

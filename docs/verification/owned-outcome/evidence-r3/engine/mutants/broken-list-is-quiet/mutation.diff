@@ -1,0 +1,11 @@
+--- base/engine/scripts/hooks/notice-ceo-unasked.sh
++++ mutant/engine/scripts/hooks/notice-ceo-unasked.sh
+@@ -146,7 +146,7 @@
+         # a channel that is unproven for PreToolUse. This is the one that is
+         # measured, so this is the guarantee.
+         stop_notice_abnormal "broken:$(printf '%s' "$CA_REASON" | cksum | tr -d ' ')" \
+-            "CEO-ASK WATCH IS BROKEN: this repository DECLARES CEO TODOs and they cannot be read — ${CA_REASON}. Teammate dispatches are UNGATED and no prepared decision is being surfaced. A declared-but-unreadable list is not an empty one."
++            "CEO-ASK WATCH IS BROKEN: this repository DECLARES CEO TODOs and they cannot be read — ${CA_REASON}. Teammate dispatches are fine and no prepared decision is being surfaced. A declared-but-unreadable list is not an empty one."
+         exit 0 ;;
+ esac
+ 

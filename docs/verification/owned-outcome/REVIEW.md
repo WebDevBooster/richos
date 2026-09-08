@@ -2,7 +2,8 @@
 
 Historical report for `b80f9978`. The external review found deficiencies in the
 adopted guard and trial interpretation. Current corrections and evidence are in
-[REVISION-2.md](REVISION-2.md); its behavior supersedes this report where stated.
+[RESULTS-3.md](RESULTS-3.md) and [REVISION-3.md](REVISION-3.md).
+[REVISION-2.md](REVISION-2.md) preserves the intervening revision's history.
 
 Date: 2026-09-08. Branch: `codex/owned-outcome-completion`.
 Base: `28f07ab5`. Worktree: `/Users/alex/ab/richos-wt/codex-owned-outcome-completion`.

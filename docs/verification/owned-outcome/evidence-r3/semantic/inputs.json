@@ -1,0 +1,402 @@
+[
+  {
+    "name": "independent_negation",
+    "expected": "independent",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "This in no way depends on the CEO's decision. Repair the local parser defect."
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "independent_nothing_blocked",
+    "expected": "independent",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Nothing here is blocked by the CEO's decision. Repair the local parser defect."
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "independent_history",
+    "expected": "independent",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "An earlier brief said it depends on the CEO's decision but that is no longer true. Repair the independent local parser defect."
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "pending_contraction",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the signing enrollment choice. The CEO hasn't answered. This dispatch depends on that answer."
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "pending_pronoun_ruling",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the signing enrollment choice. We cannot proceed without his ruling."
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "pending_ordinary_waiting",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the signing enrollment choice. We are waiting for the CEO's answer."
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "pending_original_review",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the CEO answer to his prepared decision. He has NOT answered it. This dispatch DEPENDS on that answer and cannot proceed without it."
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "asked_is_not_answered",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the selected signing enrollment mode.\ndepends-on-ceo: 1.1\nceo-todos-deferred: keep moving"
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        },
+        {
+          "role": "assistant",
+          "text": "Should we use individual enrollment or company enrollment? I recommend individual."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "actual_answer_same_pending_row",
+    "expected": "authorized",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the selected signing enrollment mode.\ndepends-on-ceo: 1.1"
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        },
+        {
+          "role": "user",
+          "text": "Use individual enrollment for signing. Implement that configuration now. Do not actually enroll or spend."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "wrong_scope_answer",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the selected signing enrollment mode.\ndepends-on-ceo: 1.1"
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        },
+        {
+          "role": "user",
+          "text": "The webinar should be on Tuesday. Implement that calendar display."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "revoked_answer",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the selected signing enrollment mode.\ndepends-on-ceo: 1.1"
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Repair the independent local parser defect. Also implement the signing enrollment choice once I actually rule; that choice is still undecided. Do not enroll, spend or publish."
+        },
+        {
+          "role": "user",
+          "text": "Use individual enrollment for signing. Implement that configuration now. Do not actually enroll or spend."
+        },
+        {
+          "role": "user",
+          "text": "I revoke that signing choice. Do not implement either enrollment mode until I rule again."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "declared_ruling_same_pending_row",
+    "expected": "authorized",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the selected signing enrollment mode.\ndepends-on-ceo: 1.1"
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Implement the signing configuration according to my current recorded ruling. Do not enroll or spend."
+        }
+      ],
+      "standing_rulings": [
+        {
+          "path": "/declared/wiki/ceo-decisions.md",
+          "text": "CEO ruling: use individual enrollment for signing configuration. Implement that configuration; do not enroll or spend. This supersedes the old undecided TODO."
+        }
+      ],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "removed_ruling_same_pending_row",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the selected signing enrollment mode.\ndepends-on-ceo: 1.1"
+      },
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Apple signing identity: individual or company enrollment",
+          "unblocks": "Implement the chosen signing enrollment mode."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "text": "Implement the signing configuration according to my current recorded ruling. Do not enroll or spend."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "pending_record_relevant",
+    "expected": "pending",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the export feature using the selected storage mode and verify it locally."
+      },
+      "messages": [
+        {
+          "role": "user",
+          "text": "Handle implementation of the export feature using our selected storage mode. Honor the current decision records. Hold only steps that actually need a business choice from me; do not spend or publish."
+        }
+      ],
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Export storage choice remains undecided: local-only or paid cloud",
+          "unblocks": "The export implementation requires this choice before its storage behavior can be implemented."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  },
+  {
+    "name": "pending_record_unrelated",
+    "expected": "independent",
+    "input": {
+      "proposed_dispatch": {
+        "prompt": "Implement the export feature using the selected storage mode and verify it locally."
+      },
+      "messages": [
+        {
+          "role": "user",
+          "text": "Handle implementation of the export feature using our selected storage mode. Honor the current decision records. Hold only steps that actually need a business choice from me; do not spend or publish."
+        }
+      ],
+      "pending_items": [
+        {
+          "id": "1.1",
+          "state": "READY-FOR-CEO",
+          "title": "Webinar date remains undecided: Tuesday or Friday",
+          "unblocks": "Publish the webinar date. This does not affect software exports."
+        }
+      ],
+      "standing_rulings": [],
+      "source_unavailable": false
+    }
+  }
+]

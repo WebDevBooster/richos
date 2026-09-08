@@ -1,0 +1,372 @@
+[
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/semantic/inputs.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-dispatch-r3-sql03a_q/inputs.json",
+    "sha256": "db09b9f9a20c78759031468bd35ca4b84c944d04ceb60094d9f49c533260934d"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/semantic/result.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-dispatch-r3-sql03a_q/result.json",
+    "sha256": "98e7da758e838defc2b717a86e5c1fdf72e3043abeff8940067ed56846b37485"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/semantic/result.operational-re-evaluation.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-dispatch-r3-sql03a_q/result.operational-re-evaluation.json",
+    "sha256": "528840e34570395dca7754b3892c3a9e5e15037b35713be9abd1b99748efb390"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/result.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/result.json",
+    "sha256": "0349aa7aad286340fa9b669a12001b17c348a048b37acee84ac3500cb751f92d"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/result.re-evaluated.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/result.re-evaluated.json",
+    "sha256": "3fa9cac030888baea8c049d7812cbfbca53f28b5258b9f659abf90973ab5ef37"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/request.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/request.txt",
+    "sha256": "b4bf605d2224863077edc3bc1874d66b67b0a10381877042a1d2c3b49a19d2c9"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/acceptance-contract.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/acceptance-contract.json",
+    "sha256": "68c343fa674614a0c4c6684df9fad7699da755995774c78faeecd2be5a35887f"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/fixture-permissions.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/fixture-permissions.json",
+    "sha256": "681dfd0bbdea68043193436d4cad2358c7eaf8c9fce1c6d4ec16716d717a82c3"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/source-identity.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/source-identity.json",
+    "sha256": "7fad304874b51afe3a7dbe01ed5cc06ead24ca63cde0d4f2fd433e0fef35b66f"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/runtime-snapshot-identity.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/runtime-snapshot-identity.json",
+    "sha256": "3e875101e816aa4c2d05a3954fafa57a0cbfbdefe407af704488fa2b9fae38a9"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/input-events.jsonl",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/input-events.jsonl",
+    "sha256": "2dcd1047abcf1a58c03e48b17f0d3733c3ebb5baff1c0937c5b95ce2549062ce"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/input-measurement.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/input-measurement.json",
+    "sha256": "9405d3f0b80b01d5d58b16c0a937c23a0506f60db78bea746b68be4838ff0047"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/native-parser-receipts.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/native-parser-receipts.json",
+    "sha256": "30946b72252e5bc45c7d3fd8a0e2282a04b6b3f424617d06dc65164d827bb3bf"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/all-leader-prose-reviewed.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/all-leader-prose-reviewed.json",
+    "sha256": "cd1b7ce8514d5f6c1c80712c0dd711bd448a38abac155a0b9a1ba9854e4fd179"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/child-ask-review.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/child-ask-review.json",
+    "sha256": "ecaa9abff01253f3e7cbe31112f10bcbd4fa67a7bf4f542276d66c59acb3e1dc"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/independent-tests.log",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/independent-tests.log",
+    "sha256": "2f0072f4660f928f63394ec5a8a010c86c7916768a58e6d35ccc2fa7cd5d175a"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/mutant-native.log",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/mutant-native.log",
+    "sha256": "84c1fbcc9182b85c831cf0baf51b8dc974e452243fe79e52a70c1495747f11f7"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/mutant-external.log",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/mutant-external.log",
+    "sha256": "88745d5471bc930bcb5ab1f42030509cbac11b6cbd9493fa8b851d8fa3eb97ed"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/tested-harness.py",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/tested-harness.py",
+    "sha256": "65548730bfd69523e0906a0328017ea637548dc46de377a188dfe7d8d8945921"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/re-evaluated-harness.py",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/re-evaluated-harness.py",
+    "sha256": "f0eb8cdf5fa3b943a4e2870e50180c902a745f9507128d3899751e19dcf9b5d2"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/result.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/result.json",
+    "sha256": "329b7e4965b706a95cced737feb7133816a613f34c1028ec75eb4ee6d5244181"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/request.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/request.txt",
+    "sha256": "b4bf605d2224863077edc3bc1874d66b67b0a10381877042a1d2c3b49a19d2c9"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/acceptance-contract.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/acceptance-contract.json",
+    "sha256": "e347bfe1ac4476335e951ca4cd097d5f5ff830b2135e9a9945a0fc573da9a330"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/fixture-permissions.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/fixture-permissions.json",
+    "sha256": "c0df49774fbee5fed4551c19214198586bf21d56d719b80e3bc66784b6817955"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/source-identity.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/source-identity.json",
+    "sha256": "c4980287adc5d33098866c4edf4a3a8f354f60965d7ed65becca7d97e6c0c059"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/runtime-snapshot-identity.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/runtime-snapshot-identity.json",
+    "sha256": "76ee77682e98c64a2e99085f660065fd1abf7275175ce6bcb59ef28176b9af35"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/input-events.jsonl",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/input-events.jsonl",
+    "sha256": "bbee06f48fa2c2de612f102e07a24b24e7a94cfde83408c1a5bf336f06bb1b81"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/input-measurement.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/input-measurement.json",
+    "sha256": "141e54315bc4d8410411de8a42b889768bc6658f476e812e1b5f07f8d6405974"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/permission-observations.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/permission-observations.json",
+    "sha256": "9f2b2b420b7e29019c8c36fed2367d8fc97bc969995910eabd3d6b92ad4901a6"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/core.log",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-r3-core-_x_mv15t/cargo.log",
+    "sha256": "2f5b870fc4e24ccce958c9ae8b574319cf504c0c510d38ba366c6ff0c86359d8"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/adapter.log",
+    "source": "/tmp/richos-owned-adapter-r3-final-tests.log",
+    "sha256": "7e21799762f5509ae27151abe8689e9b172d8ce3ec0639dc13c4efc60cdf92ae"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine-mutations-first-failed.log",
+    "source": "/tmp/richos-ceo-r3-full.log",
+    "sha256": "0e9f1e6b16e2ff3d95103bda14aaf4fa0dea9d9a18434d47881669a1e3f8a3b6"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/final-harness-self-tests.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/final-harness-self-tests.json",
+    "sha256": "65bef435e657b41fa31e1400c4fc16714291d0a9f67c0a76427afc8927b46e2f"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/QA-NARRATIVE-R3.md",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/QA-NARRATIVE-R3.md",
+    "sha256": "8259c26d186a7a5334ee0ffc2811f6b26144ccff116cd242e0d1cd0246a43555"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/QA-NARRATIVE-R3.md",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/QA-NARRATIVE-R3.md",
+    "sha256": "9ac3d816c3bce33f276184068c18e73137dee5caa602c0a1756a487633e3964e"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/owned-dispatch-reviews.jsonl",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/workspace/.claude/state/owned-dispatch-reviews.jsonl",
+    "sha256": "0f13be3c436fd098498bbb31ffb59a7d1ecf8ae3b225cbf379a91531a1e58f7d"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-equivalent/adoption.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-8ipsk0f2/workspace/.claude/owned-work.json",
+    "sha256": "c94b7db8c506d30244a16d2ac063d8113f5624e7509b33dd4770c28693a1aebf"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/owned-dispatch-reviews.jsonl",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/workspace/.claude/state/owned-dispatch-reviews.jsonl",
+    "sha256": "badf8a2fa549c05d118653a224d3182d6167a232c0d3e386d4f3e828707bc866"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/native-default/adoption.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/workspace/.claude/owned-work.json",
+    "sha256": "b1bf1dd9995c3ca0d2ee5e6a90ee6355cbe911862486fe3577eaaac72fe9b64d"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/process.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/process.json",
+    "sha256": "3ae7cb32306f7d3c88e8d9905cf7607e69e4441c599d4f5be3b7fb9007e0cded"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/source-hashes.json",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/source-hashes.json",
+    "sha256": "352019d6b76ae343a40b8bde432efc4d05c2b7744b9315a466d46870ef0cb963"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/richos-ceo-r3-full-final.log",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/richos-ceo-r3-full-final.log",
+    "sha256": "9e21186c10d1eaa492a73df007b4b1e4dbad24757615ade7f145e4b5e4724287"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/richos-ceo-r3-direct-final.log",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/richos-ceo-r3-direct-final.log",
+    "sha256": "8835e2ded3f4c84a757b0abc44f368bd695db661494004aea7742a86967ab717"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/adopted-reminder-silent/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/adopted-reminder-silent/out.txt",
+    "sha256": "69a754959a527d7cad0978a281d5da6c203947fc71611970a08bc0a3da2b7025"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/always-holds-marker/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/always-holds-marker/out.txt",
+    "sha256": "e88bc8bb5d736472b6ee4684e255310ccc049927d45ae331405edf9a9b9f13c8"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/ask-receipt-clears-pending-notice/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/ask-receipt-clears-pending-notice/out.txt",
+    "sha256": "b6e7f23604efc28fe273688c10760abbfab8bba617bbfb92151d52f905568651"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/ask-receipt-clears-pending-status/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/ask-receipt-clears-pending-status/out.txt",
+    "sha256": "ebab68d0ea1c2360d6ac9ecf5de16f776dfa817459a749a5d79f21272411ab78"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/bare-defer-permits/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/bare-defer-permits/out.txt",
+    "sha256": "a72e59c3428b17889fe99179719d81b6445bec45b4e4fa4a320991ce0eb0378a"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/blocked-counts-as-prepared/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/blocked-counts-as-prepared/out.txt",
+    "sha256": "c54220f491d84a01a23e4bb72e56a077a987401de98d94d52f93eecdb867f93c"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/broken-fails-closed/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/broken-fails-closed/out.txt",
+    "sha256": "e6df68755ea74f6812a98c31d38248210d0fa6e8798068ad1f466f58abc693da"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/broken-list-is-quiet/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/broken-list-is-quiet/out.txt",
+    "sha256": "d26ff2ae217217b609a674292995dda2bdf80c58b3ee29f7b0a4ac7e1c558dd3"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/child-binding-ignored/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/child-binding-ignored/out.txt",
+    "sha256": "7f69e7f2265e5bbe94ab3e7c3461948e6713f4b67219ffcc3bebbb73cb26c366"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/citation-optional/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/citation-optional/out.txt",
+    "sha256": "bf48c4073fe9105ea22946437ebc0beb1c567646c5abee22709d632439fa7cf8"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/everything-matches/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/everything-matches/out.txt",
+    "sha256": "0b5959749f5bb3091d86137b75562af5a431693a04e9bbdb9df020b1e4b03a3a"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/gate-does-not-block/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/gate-does-not-block/out.txt",
+    "sha256": "5a1306959a15c9a113d1e97ff33e081fdcf8af84a3c2be2faf5f927bab2153be"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/no-escape-hatch/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/no-escape-hatch/out.txt",
+    "sha256": "5b741f2a898bf5a0d30d6a574650b71a02d595e0dfc0fd9f5204fb445faa101d"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/no-ledger-write/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/no-ledger-write/out.txt",
+    "sha256": "8bacb953519fec7a76fcecf5521dac3a0cf1face5346aebc41fee53e4dd82df3"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/no-session-filter/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/no-session-filter/out.txt",
+    "sha256": "044358917b53574e9222c80569440275d544f74afc2a6a842426bcdeaf74831e"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/notice-blocks-the-turn/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/notice-blocks-the-turn/out.txt",
+    "sha256": "baa93bea4d7f523e95a4baeb94c144aca2eb181fb16d19f41ea95a6b2f862937"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/notice-counts-not-names/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/notice-counts-not-names/out.txt",
+    "sha256": "495a1b0c0d3b05a7dfc16d3334d5b7cb4aed6a6dfa83e9b6775566e65a370878"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/pending-state-not-read/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/pending-state-not-read/out.txt",
+    "sha256": "c169f3547269c79a74a3bd5815971497586ec35ba032c056b835d7d4d93308fd"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/pending-verdict-ignored/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/pending-verdict-ignored/out.txt",
+    "sha256": "44e636d7e4041df9b187f85c02bad380c80a4328ab05b8e1a3abf4dda9c76d7d"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/policy-boolean-version/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/policy-boolean-version/out.txt",
+    "sha256": "112317054b0964d06b58fc578c3bb2b8a9cf64d660485d3e6fb5c94c80d4e6e4"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/policy-disabled-accepted/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/policy-disabled-accepted/out.txt",
+    "sha256": "329368aaf0564a9616e1d51eaafcc5bd955c4314b8f56ec9ddde65f0743283db"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/policy-wrong-decision-field/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/policy-wrong-decision-field/out.txt",
+    "sha256": "538425079729b199b45094f0d6cc191b377626728889135684fa518172f391da"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/policy-wrong-version/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/policy-wrong-version/out.txt",
+    "sha256": "32e6d2203344ab65168e45e11dd17bf823d1aed9cef836b3454a2bb3a1cf80ea"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/quote-membership-ignored/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/quote-membership-ignored/out.txt",
+    "sha256": "d81a924f0238d5de45f1a787814fd6c3c05e4f10428117992af9ab480e77e667"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/repeated-answer-text-dedup/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/repeated-answer-text-dedup/out.txt",
+    "sha256": "67644e44069f54f40ba667a14fff8c8df54bd43927b37ecc05639f8dcdd15c74"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/ruling-state-not-read/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/ruling-state-not-read/out.txt",
+    "sha256": "64119596b82aaa7fc0354a54896f7201598f87fc4f68ac833b8521d8854c7ded"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/saved-source-dropped/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/saved-source-dropped/out.txt",
+    "sha256": "408f35942638eccce6aafca6bb7c94d9c4835929c569d78544f46cabc5a51170"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/session-start-silent/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/session-start-silent/out.txt",
+    "sha256": "7aa9ed3446bd01b2f0820b2e760d8de4e9ea2ebe0a4f3c1485e701f1ed9dfe29"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/source-role-ignored/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/source-role-ignored/out.txt",
+    "sha256": "f4f086a26b29d6792eeacb243065276948cfd066344c7e1e0298bb4f3a05014d"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/stale-source-accepted/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/stale-source-accepted/out.txt",
+    "sha256": "0bc09523a437bc801709f18db6077be0b53d7b18d4e86895bd4b221a159e4ce4"
+  },
+  {
+    "artifact": "docs/verification/owned-outcome/evidence-r3/engine/mutants/worker-discharges/out.txt",
+    "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/worker-discharges/out.txt",
+    "sha256": "1997e76aecf0f84111d7f44344c1c79f671472bf130f75baeae5217ff6436255"
+  }
+]

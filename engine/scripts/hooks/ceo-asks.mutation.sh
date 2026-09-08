@@ -34,8 +34,14 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t ceo-asks-mutation.XXXXXX)" && pwd -P)"
-trap 'rm -rf "$SANDBOX"' EXIT
+if [ -n "${RICHOS_MUTATION_EVIDENCE_DIR:-}" ]; then
+    mkdir -p "$RICHOS_MUTATION_EVIDENCE_DIR"
+    SANDBOX="$(cd "$RICHOS_MUTATION_EVIDENCE_DIR" && pwd -P)"
+    printf 'Mutation evidence retained at: %s\n' "$SANDBOX"
+else
+    SANDBOX="$(cd "$(mktemp -d -t ceo-asks-mutation.XXXXXX)" && pwd -P)"
+    trap 'rm -rf "$SANDBOX"' EXIT
+fi
 
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 
@@ -76,7 +82,9 @@ mutant() {
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" \
-       "$ENGINE_ROOT/scripts/lib/cold-open-prompt.md" "$ENGINE_ROOT/scripts/lib/owned-work-policy.sh" "$dir/scripts/lib/"
+       "$ENGINE_ROOT/scripts/lib/cold-open-prompt.md" "$ENGINE_ROOT/scripts/lib/owned-work-policy.sh" "$ENGINE_ROOT/scripts/lib/owned-dispatch.py" \
+       "$ENGINE_ROOT/scripts/lib/owned-dispatch.test.py" "$ENGINE_ROOT/scripts/lib/owned-session.py" \
+       "$ENGINE_ROOT/scripts/lib/ceo-ruled.sh" "$ENGINE_ROOT/scripts/lib/ceo-ruled.py" "$dir/scripts/lib/"
     cp "$ENGINE_ROOT/scripts/ceo-asks-status.sh" "$dir/scripts/"
     cp "$ENGINE_ROOT/hooks/hooks.json" "$dir/hooks/"
     chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/"*.sh
@@ -121,7 +129,9 @@ mutant() {
     # findings. The boundary was never what fixed anything: ESCAPING is. With
     # `.` taken literally, `z1.` cannot match `z1b.` and `C1.` cannot match
     # `C10.`, because the character after the prefix is a digit and not a dot.
-    if ! grep -q "FAIL  ${want_re}" "$dir/out.txt"; then
+    # Python host cases use unittest's anchored failure header, not its
+    # ordinary per-test status line. Either witness must name the exact case.
+    if ! grep -q "FAIL  ${want_re}" "$dir/out.txt" && ! grep -q "^FAIL: ${want_re} (" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at %s (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
         FAIL=$((FAIL + 1)); return
@@ -223,18 +233,40 @@ mutant policy-disabled-accepted "OWN-CFG4." "$P" \
 mutant policy-wrong-decision-field "OWN-CFG7." "$P" \
     " and d.get('decision_policy') == 'dependency'" "" \
     "the decision policy field must select this mechanism explicitly."
-mutant declared-dependency-bypassed "OWN5." "$P" \
-    'if not markers:' 'if True:' \
-    "adoption must not become an unconditional dispatch bypass."
-mutant missing-authority-prose-ignored "OWN7." "$P" \
-    'if missing:' 'if False:' \
-    "the reviewers explicit unanswered dependency cannot require a magic token to be stopped."
-mutant negation-ignored "OWN13." "$P" \
-    '(?<!not )' '' \
-    "an explicit statement of independence cannot be treated as a missing authority claim."
-mutant unanswered-means-dependent "OWN14." "$P" \
-    'unanswered and linked' 'unanswered' \
-    "merely mentioning an unrelated unanswered question cannot gate independent work."
+D="scripts/lib/owned-dispatch.py"
+mutant pending-verdict-ignored "OWN5." "$D" \
+    "if kind == 'pending':" "if False:" \
+    "a pending disposition must hold the affected dispatch."
+mutant always-holds-marker "OWN8." "$D" \
+    "if kind == 'pending':" "if True:" \
+    "actual source authority can clear the same dispatch with the same pending row."
+mutant pending-state-not-read "OWN14." "$D" \
+    "'pending_items': pending" "'pending_items': []" \
+    "the registrar must receive actual authoritative pending records."
+mutant ruling-state-not-read "OWN14." "$D" \
+    "'standing_rulings': sources" "'standing_rulings': []" \
+    "standing authority must be sourced from declared records."
+mutant source-role-ignored "test_assistant_is_not_authority" "$D" \
+    "if message['role'] == 'user':" "if True:" \
+    "assistant assertions cannot grant CEO authority."
+mutant quote-membership-ignored "test_wrong_quote_cannot_clear" "$D" \
+    " or quote not in source" "" \
+    "an invented quote must not clear a dependency."
+mutant citation-optional "test_authorization_requires_citation" "$D" \
+    "if verdict['kind'] == 'authorized' and not verdict['citations']:" "if False:" \
+    "authorized must carry actual source evidence."
+mutant stale-source-accepted "OWN16." "$D" \
+    "if latest_config != config or latest_data != data:" "if False:" \
+    "authority revoked during review cannot be used to dispatch."
+mutant child-binding-ignored "OWN23." "$D" \
+    "if payload.get('agent_id') and saved is None:" "if False:" \
+    "unmarked child instructions are not CEO authority."
+mutant saved-source-dropped "OWN21." "$D" \
+    "if saved is not None:" "if False:" \
+    "compaction must preserve prior source-bound authority."
+mutant repeated-answer-text-dedup "OWN24." "$D" \
+    "if m['source_id'] not in known)" "if m['source_id'] not in known and not any(x['text'] == m['text'] for x in messages))" \
+    "a repeated ruling after revocation is new authority, not a duplicate."
 mutant adopted-reminder-silent "OWN3." "$N" \
     '    stop_notice_abnormal "pending:$IDS" \' \
     '    exit 0; stop_notice_abnormal "pending:$IDS" \' \

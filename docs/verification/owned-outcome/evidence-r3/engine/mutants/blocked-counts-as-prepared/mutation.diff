@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/ceo-asks.py
++++ mutant/engine/scripts/lib/ceo-asks.py
+@@ -241,7 +241,7 @@
+     # put to him would be asking him about work nobody has finished. That is the
+     # failure this engine's CEO-TODOs contract already exists to stop, and this
+     # gate must not reintroduce it from the other side.
+-    prepared = [i for i in items if (i.get("state") or "") == ready_state]
++    prepared = list(items)
+ 
+     # WHAT COUNTS AS AN ASK, decided here and nowhere else. Two conditions, and
+     # both are the anti-gaming property:

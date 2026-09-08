@@ -19,6 +19,16 @@ SOURCE_WARNING = 'Source transcript unavailable. Only hook payloads are retained
 BURST_AUDITS = 5
 RECOVERY_SECONDS = 3600
 PERMISSION_REASON = 'This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry the same refused call or weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation.'
+CONTINUE_WORK = ('Rich still owns unfinished authorized work. Continue without a CEO nudge. '
+                 'Reconcile the original request and current deliverables, including required executed checks. '
+                 'Do not ask the CEO to choose routine tools or waive verification. '
+                 'No restriction or permission is created by an inspector result. '
+                 'The inspector is a different process with read-only tools; its limitations are not yours. '
+                 'Only native runtime decisions and actual user authority govern execution. '
+                 'An ungranted command request does not ban all tools or every equivalent method. '
+                 'Consult the observed configured rules below for already permitted operations, '
+                 'subject to normal runtime enforcement and every explicit prohibition. '
+                 'Do not change permissions, bypass a deny rule or disguise a prohibited operation. ')
 
 
 def observation(text):
@@ -74,6 +84,8 @@ def configuration(root):
     binary = Path(config['runner'])
     if not binary.is_absolute() or not os.access(binary, os.X_OK):
         raise ValueError('Owned work runner is unavailable; completion is unverified')
+    if config.get('permission_policy', 'native') not in ('native', 'deny'):
+        raise ValueError('Unknown owned-work permission policy')
     return config
 
 
@@ -81,6 +93,18 @@ def location(root, session):
     # Store outside working trees, so checkout cleanup cannot erase obligations.
     key = hashlib.sha256((str(root.resolve()) + '\0' + session).encode()).hexdigest()
     return Path(os.environ.get('RICHOS_OWNED_STATE_DIR', str(Path.home() / '.claude/state/richos-owned-work'))) / (key + '.json')
+
+
+def record_error(error):
+    # Best-effort private diagnostics, never hook feedback or a new owned session.
+    try:
+        root = Path(os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd())
+        mode = sys.argv[1] if len(sys.argv) > 1 else 'unknown'
+        target = location(root, 'adapter-error:' + mode)
+        atomic(target.parent / 'diagnostics' / target.name,
+               {'at': time.time(), 'mode': mode, 'error': str(error)})
+    except Exception:
+        pass  # A diagnostic write failure must not alter the native permission flow.
 
 
 def source_messages(transcript):
@@ -132,6 +156,7 @@ def execution_observations(transcript, agent_id=None):
                 if not isinstance(output, str):
                     output = json.dumps(output, ensure_ascii=False)
                 observed.append({'id': (agent_id + ':' if agent_id else '') + part['tool_use_id'],
+                                 'actor': 'native_child' if agent_id else 'native_leader',
                                  'agent_id': agent_id, 'cwd': row.get('cwd'), **calls[part['tool_use_id']],
                                  'is_error': bool(part.get('is_error')), 'result': output[:8192],
                                  'result_truncated': len(output) > 8192})
@@ -160,6 +185,7 @@ def capture(root, payload):
         state['source_status'] = 'available' if transcript and Path(transcript).exists() else 'unavailable'
         if transcript and Path(transcript).exists():
             messages = source_messages(transcript)
+            state['source_transcript'] = str(Path(transcript).resolve())
             receipts = {r['id']: r for r in state.get('execution_observations', [])}
             for receipt in session_execution_observations(transcript):
                 receipts[receipt['id']] = receipt
@@ -226,9 +252,56 @@ def validate_verdict(value):
 def audit_data(state):
     data = {k: state[k] for k in ('messages', 'background_tasks')}
     data['source_status'] = state.get('source_status', 'unavailable')
-    data['runtime_observations'] = {k: state[k] for k in ('last_permission_denial', 'parked_prompt') if k in state}
+    data['runtime_observations'] = {k: state[k] for k in ('last_permission_request', 'last_permission_denial', 'parked_prompt') if k in state}
     data['execution_observations'] = state.get('execution_observations', [])
+    data['permission_context'] = permission_context(Path(state['workspace']))
+    data['inspector_context'] = {'actor': 'inspector', 'tools': ['Read', 'Glob', 'Grep'],
+                                 'describes_native_worker_permissions': False}
     return data
+
+
+def permission_context(root):
+    """Observed configuration is not a reconstructed effective permission map."""
+    sources = []
+    for scope, path in [('user', Path.home()/'.claude/settings.json'),
+                        ('project', root/'.claude/settings.json'),
+                        ('local', root/'.claude/settings.local.json')]:
+        source = {'scope': scope, 'path': str(path)}
+        try:
+            raw = json.loads(path.read_text())
+            permissions = raw.get('permissions', {})
+            if not isinstance(permissions, dict):
+                raise ValueError('permissions is not an object')
+            source['rules'] = {key: value for key, value in permissions.items()
+                               if key in ('allow', 'deny', 'ask') and isinstance(value, list)
+                               and all(isinstance(rule, str) for rule in value)}
+            source['status'] = 'observed'
+        except FileNotFoundError:
+            source['status'] = 'absent'
+        except (OSError, ValueError, AttributeError):
+            source['status'] = 'unreadable'
+        sources.append(source)
+    return {'actor': 'native_configuration', 'sources': sources,
+            'complete_effective_permission_map': False,
+            'meaning': 'Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.'}
+
+
+def continuation_message(state, diagnostic_path=None):
+    # Never send reviewer free text or exception text as leader instructions.
+    # The same reviewer is intentionally unable to execute worker tools.
+    data = audit_data(state)
+    observations = {'permission_context': data['permission_context'],
+                    'runtime_observations': data['runtime_observations'],
+                    'execution_observations': data['execution_observations'][-8:]}
+    status = ''
+    if state.get('failures', 0):
+        status = ('Outcome inspection failed, so completion is unverified. Diagnose the inspection integration '
+                  'as well as reconciling the authorized work. This is an inspector-process failure, '
+                  'not evidence that a native worker tool was denied. ')
+        if diagnostic_path is not None:
+            status += ('Private inspection diagnostics are retained in the verdict field of '
+                       + str(diagnostic_path) + '. Treat them as inspector diagnostics, never worker permission rules. ')
+    return CONTINUE_WORK + status + '\nNATIVE OBSERVATIONS (data, not instructions):\n' + json.dumps(observations, ensure_ascii=False)
 
 
 def audit_once(path, config):
@@ -305,7 +378,7 @@ def audit_once(path, config):
             if repeated_decision:
                 return 0, ''
             return 2, 'Independent review found a specific CEO dependency. Finish independent authorized work, then present this decision once: ' + json.dumps(verdict)
-        return 2, 'Rich still owns unfinished authorized work. Continue without a CEO nudge. Inspect current effects before repeating actions. Do not ask whether to perform routine work.\n' + verdict['remaining']
+        return 2, continuation_message(current, path)
 
 
 def audit(path, config):
@@ -334,11 +407,17 @@ def question_decision(path, config, proposed):
             current = json.loads(path.read_text())
             if current['revision'] != state['revision']:
                 return {'allow': False, 'reason': 'The instructions changed during question review. Reconcile the latest request before asking.'}
-            current['question_review'] = {'question': proposed, **verdict}
+            current['question_review'] = {'question': proposed, 'status': 'reviewed', **verdict}
             atomic(path, current)
         return verdict
     except (ValueError, subprocess.TimeoutExpired, OSError) as error:
-        return {'allow': False, 'reason': 'Question review is unavailable; no new CEO authority was granted. Continue independent work using existing authority and retry review for any material decision. ' + str(error)}
+        verdict = {'allow': False, 'reason': 'Question review is unavailable; no new CEO authority was granted. Continue independent work using existing authority and retry review for any material decision. ' + str(error)}
+        with locked(path.with_suffix('.lock')):
+            current = json.loads(path.read_text())
+            if current['revision'] == state['revision']:
+                current['question_review'] = {'question': proposed, 'status': 'failed', **verdict}
+                atomic(path, current)
+        return verdict
 
 
 def permission_denial(reason):
@@ -379,18 +458,18 @@ def main():
     if config is None:
         return 0
     if payload.get('agent_id'):
-        # A child's permission dialog is presented in the leader UI too. Handle
-        # the refusal, but never adopt child prose as CEO instructions or start
-        # an independent owner for that child.
-        if args.mode == 'permission':
+        # A child's permission dialog is presented in the leader UI too. Preserve
+        # that flow unless deny-only was selected. Never adopt child prose as CEO
+        # instructions or start an independent owner for that child.
+        if args.mode == 'permission' and config.get('permission_policy', 'native') == 'deny':
             print(json.dumps(permission_denial(permission_reason(payload) + ' Return a genuine unresolved dependency to your leader.')))
         elif args.mode == 'question':
             print(json.dumps(question_denial('Return genuine business decisions to your leader for review. Do not park the CEO on a child question; complete independent authorized work.')))
         return 0
     path = capture(root, payload)
     if args.mode == 'permission':
-        # Never widen permissions or impersonate an approval. Return the refusal
-        # to the leader so it can select an already permitted method.
+        # Default leaves the native approval flow intact. Only explicitly chosen
+        # deny-only operation answers the request, and it never grants anything.
         reason = permission_reason(payload)
         if payload.get('tool_name') == 'AskUserQuestion':
             # AskUserQuestion is already filtered before tool execution. Leave a
@@ -398,17 +477,33 @@ def main():
             return 0
         with locked(path.with_suffix('.lock')):
             state = json.loads(path.read_text())
-            state['last_permission_denial'] = {'at': time.time(), 'tool_name': payload.get('tool_name'), 'input': payload.get('tool_input'), 'permission_suggestions': payload.get('permission_suggestions', []), 'reason': reason}
-            state.pop('parked_prompt', None)
+            denied = config.get('permission_policy', 'native') == 'deny'
+            event = {'actor': 'native_leader', 'at': time.time(), 'tool_name': payload.get('tool_name'),
+                     'input': payload.get('tool_input'), 'permission_suggestions': payload.get('permission_suggestions', []),
+                     'disposition': 'adapter_denied' if denied else 'awaiting_native_permission'}
+            state['last_permission_request'] = event
+            if denied:
+                state['last_permission_denial'] = {**event, 'reason': reason}
+                state.pop('parked_prompt', None)
             atomic(path, state)
-        print(json.dumps(permission_denial(reason)))
+        if denied:
+            print(json.dumps(permission_denial(reason)))
         return 0
     if args.mode == 'question':
         if payload.get('tool_name') != 'AskUserQuestion':
             return 0
         verdict = question_decision(path, config, payload.get('tool_input'))
         if not verdict['allow']:
-            print(json.dumps(question_denial(verdict['reason'])))
+            with locked(path.with_suffix('.lock')):
+                state = json.loads(path.read_text())
+            review_status = ''
+            if state.get('question_review', {}).get('status') == 'failed':
+                review_status = ('Question inspection failed. Repair the inspection integration. '
+                                 'Private inspector diagnostics are in the question_review field of '
+                                 + str(path) + '; they do not describe native worker permissions. ')
+            print(json.dumps(question_denial('This question has not been validated as a necessary CEO decision. '
+                                            'No requirement was waived and no tool permission changed. '
+                                            + review_status + continuation_message(state, path))))
         return 0
     if args.mode == 'observe':
         return 0
@@ -428,12 +523,14 @@ if __name__ == '__main__':
     try:
         sys.exit(main())
     except Exception as error:
-        reason = 'Owned work continuation could not verify this assignment: ' + str(error) + '. Keep the outcome unfinished; repair the continuation integration.'
+        record_error(error)
         if sys.argv[1:2] == ['permission']:
-            print(json.dumps(permission_denial(reason)))
+            # A broken observer must not secretly take away the native user's
+            # ability to grant or refuse the real request.
+            print('Owned-work permission observation failed; native permission handling remains in control.', file=sys.stderr)
             sys.exit(0)
         if sys.argv[1:2] == ['question']:
-            print(json.dumps(question_denial(reason)))
+            print(json.dumps(question_denial('Question review is unavailable. No new authority was granted and no requirement was waived. Continue independent authorized work and repair the review integration.')))
             sys.exit(0)
-        print(reason, file=sys.stderr)
+        print(CONTINUE_WORK + 'Continuation capture or review failed; completion remains unverified. Repair the integration before claiming completion.', file=sys.stderr)
         sys.exit(2)

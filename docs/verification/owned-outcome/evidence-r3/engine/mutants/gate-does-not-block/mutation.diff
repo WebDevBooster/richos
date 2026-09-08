@@ -1,0 +1,8 @@
+--- base/engine/scripts/hooks/guard-ceo-ask-first.sh
++++ mutant/engine/scripts/hooks/guard-ceo-ask-first.sh
+@@ -321,4 +321,4 @@
+     echo "  .claude/state/$CA_DEFER_LOG_NAME."
+     echo "(hook: scripts/hooks/guard-ceo-ask-first.sh)"
+ } >&2
+-exit 2
++exit 0

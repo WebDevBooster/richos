@@ -39,13 +39,19 @@ owned = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(owned)
 
 
-def install(workspace, runner):
+def install(workspace, runner, permission_policy=None):
     root = Path(workspace).resolve(strict=True)
     binary = Path(runner).resolve(strict=True)
     if not os.access(binary, os.X_OK):
         raise ValueError('Runner is not executable')
     target = root / '.claude/settings.local.json'
+    prior_config = root / owned.CONFIG
     with owned.locked(target.with_suffix('.owned-lock')):
+        if permission_policy is None:
+            previous = json.loads(prior_config.read_text()) if prior_config.exists() else {}
+            permission_policy = previous.get('permission_policy', 'native')
+        if permission_policy not in ('native', 'deny'):
+            raise ValueError('Permission policy must be native or deny')
         original = json.loads(target.read_text()) if target.exists() else {}
         # Preserve user/local permissions and unrelated hooks byte-semantically.
         hooks = original.setdefault('hooks', {})
@@ -67,7 +73,7 @@ def install(workspace, runner):
                 groups.append(group)
         ignore_local_config(root)
         owned.atomic(target, original)
-        owned.atomic(root / owned.CONFIG, {'version': 1, 'enabled': True, 'runner': str(binary), 'decision_policy': 'dependency'})
+        owned.atomic(root / owned.CONFIG, {'version': 1, 'enabled': True, 'runner': str(binary), 'decision_policy': 'dependency', 'permission_policy': permission_policy})
     return target
 
 
@@ -75,5 +81,7 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('workspace')
     p.add_argument('runner')
+    p.add_argument('--permission-policy', choices=['native', 'deny'], default=None,
+                   help='Native preserves real permission prompts (default). Deny explicitly refuses every new permission request; it never grants authority. Reinstall preserves an explicit existing choice.')
     args = p.parse_args()
-    print(install(args.workspace, args.runner))
+    print(install(args.workspace, args.runner, args.permission_policy))

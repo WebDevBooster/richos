@@ -1,0 +1,5 @@
+# Preserve raw output bytes and the required context prefixes in unified patches.
+# Production code and authored review documents keep normal whitespace checks.
+*.log -whitespace
+*.diff -whitespace
+out.txt -whitespace

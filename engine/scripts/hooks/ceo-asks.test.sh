@@ -8,8 +8,8 @@
 # a richos-hq list) and a suite that only ever tested the single-repo case
 # would pass over the configuration that actually ships.
 #
-# The SHIPPED hooks are driven with synthetic payloads. Nothing is stubbed
-# except the entity root (RICHOS_ENTITY_ROOT), which is the one thing a test
+# The SHIPPED hooks are driven with synthetic payloads. The adopted dependency cases use an explicit controlled registrar fixture.
+# Legacy machinery only overrides the entity root (RICHOS_ENTITY_ROOT), which is the one thing a test
 # must not share with the live session.
 #
 # THE PROPERTY THIS SUITE EXISTS TO PIN, above all the others:
@@ -48,7 +48,7 @@ for h in notice-ceo-asks.sh guard-ceo-ask-first.sh notice-ceo-unasked.sh session
     chmod +x "$ENGINE/scripts/hooks/$h"
 done
 for l in ceo-asks.sh ceo-asks.py ceo-todos.sh ceo-todos.py resolve-roots.sh \
-         resolve-main-checkout.sh stop-hook-notice.sh cold-open-prompt.md owned-work-policy.sh; do
+         resolve-main-checkout.sh stop-hook-notice.sh cold-open-prompt.md owned-work-policy.sh owned-dispatch.py owned-session.py ceo-ruled.sh ceo-ruled.py; do
     cp "$SRC_DIR/../lib/$l" "$ENGINE/scripts/lib/$l" 2>/dev/null || true
 done
 cp "$ENGINE_SRC/scripts/ceo-asks-status.sh" "$ENGINE/scripts/"
@@ -177,6 +177,7 @@ print(json.dumps({
     "tool_name": "Agent",
     "session_id": os.environ["CA_S"],
     "cwd": os.environ["CA_CWD"],
+    "transcript_path": os.environ["CA_CWD"] + "/native-transcript.jsonl",
     "tool_input": {
         "subagent_type": "dev",
         "name": "dev-sonnet-t1",
@@ -608,7 +609,7 @@ for h in notice-ceo-asks.sh guard-ceo-ask-first.sh notice-ceo-unasked.sh session
     fi
 done
 
-for f in scripts/lib/ceo-asks.sh scripts/lib/ceo-asks.py scripts/lib/owned-work-policy.sh; do
+for f in scripts/lib/ceo-asks.sh scripts/lib/ceo-asks.py scripts/lib/owned-work-policy.sh scripts/lib/owned-dispatch.py scripts/lib/owned-session.py; do
     if grep -q "$(basename "$f")" "$SRC_DIR/install.sh" 2>/dev/null; then
         ok "G4. $f is sidecar-hashed by install.sh"
     else
@@ -622,7 +623,47 @@ write_seat_config "$TODOREPO"
 reset_ledger
 rm -f "$DEFERS"
 OWN_CONFIG="$SEAT/.claude/owned-work.json"
-write_owned_config() { printf '%s\n' '{"version":1,"enabled":true,"decision_policy":"dependency"}' > "$OWN_CONFIG"; }
+# This runner is a controlled registrar fixture, not a prose classifier.
+# Its source-driven mode changes verdict only when actual supplied authority changes.
+cat > "$SEAT/dispatch-fixture" <<'PYRUN'
+#!/usr/bin/env python3
+import json,sys
+from pathlib import Path
+root=Path(__file__).parent
+data=json.load(sys.stdin)
+(root/'last-dispatch.json').write_text(json.dumps(data))
+mode=(root/'review-mode').read_text().strip()
+kind, citations='pending',[]
+if mode in ('independent','record-change','declaration-change'): kind='independent'
+elif mode in ('authority','revoke'):
+    for index,message in enumerate(data['messages']):
+        if message['role']=='user' and message['text']=='Use individual enrollment.':
+            kind='authorized';citations=[{'message_index':index,'path':None,'quote':message['text']}]
+if mode == 'revoke':
+    (root/'native-transcript.jsonl').write_text(json.dumps({'type':'user','uuid':'ceo-revoke','message':{'content':'I revoke the signing authorization.'}})+'\n')
+if mode == 'record-change':
+    path=Path(next(r['path'] for r in data['standing_rulings'] if r['path'].endswith('/open-items.md')))
+    path.write_text(path.read_text().replace('1.1 READY-FOR-CEO','1.1 BLOCKED-ON-RICH'))
+if mode == 'declaration-change':
+    (root/'replacement-ruling.md').write_text('A changed standing source.')
+    with (root/'orchestration.config').open('a') as f: f.write('\nCEO_RULINGS_PATHS="replacement-ruling.md"\n')
+print(json.dumps({'kind':kind,'citations':citations}))
+PYRUN
+chmod +x "$SEAT/dispatch-fixture"
+write_owned_config() {
+    python3 - "$OWN_CONFIG" "$SEAT/dispatch-fixture" <<'PYCONFIG'
+import json,sys
+open(sys.argv[1],'w').write(json.dumps({'version':1,'enabled':True,'decision_policy':'dependency','runner':sys.argv[2]}))
+PYCONFIG
+}
+write_source() {
+    python3 - "$SEAT/native-transcript.jsonl" "$1" <<'PYSOURCE'
+import json,sys
+open(sys.argv[1],'w').write(json.dumps({'type':'user','uuid':'ceo-1','message':{'content':sys.argv[2]}})+'\n')
+PYSOURCE
+}
+write_source 'Repair the local defect. Signing remains undecided.'
+printf independent > "$SEAT/review-mode"
 write_owned_config
 run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation defect. The unrelated CEO decision remains pending; this work does not depend on it.")"
 if [ "$RC" -eq 0 ] && [ ! -s "$LEDGER" ] && [ ! -s "$DEFERS" ]; then
@@ -641,27 +682,30 @@ run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation de
 if [ "$RC" -eq 2 ]; then ok "OWN4. unadopted repositories retain their existing policy";
 else bad "OWN4. adoption change leaked into an unadopted repository" "rc=$RC $ERR"; fi
 write_owned_config
+printf authority > "$SEAT/review-mode"
 run_hook "$GATE" "$(agent_payload OWNED $'Implement the signing choice.\ndepends-on-ceo: 1.1')"
-if [ "$RC" -eq 2 ] && [[ "$ERR" == *"1.1 remains pending"* ]]; then
-    ok "OWN5. a declared pending dependency blocks only its dispatch"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"CEO DEPENDENCY PENDING"* ]]; then
+    ok "OWN5. unresolved authority holds the affected dispatch"
 else bad "OWN5. a pending dependency was bypassed" "rc=$RC $ERR"; fi
 run_hook "$WITNESS" "$(ask_payload OWNED - "$Q_SIGNING" "$L_SIGNING" "$D_SIGNING")"
 run_hook "$GATE" "$(agent_payload OWNED $'Implement signing.\ndepends-on-ceo: 1.1\nceo-todos-deferred: keep moving')"
-if [ "$RC" -eq 2 ] && [[ "$ERR" == *"Asking it this session does not authorize"* ]]; then
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"CEO DEPENDENCY PENDING"* ]]; then
     ok "OWN6. an ask receipt and deferral do not authorize dependent work"
 else bad "OWN6. asking or deferring was misread as authority" "rc=$RC $ERR"; fi
 run_hook "$GATE" "$(agent_payload OWNED "Implement the CEO answer to his prepared decision. He has NOT answered it. This dispatch DEPENDS on that answer and cannot proceed without it.")"
-if [ "$RC" -eq 2 ] && [[ "$ERR" == *"explicitly declares missing CEO authority"* ]]; then
-    ok "OWN7. the reviewers explicit unanswered-dependency prose blocks without a marker"
-else bad "OWN7. the reviewers dependent dispatch was permitted" "rc=$RC $ERR"; fi
-run_hook "$GATE" "$(agent_payload OWNED $'Implement signing.\ndepends-on-ceo: nonexistent')"
-if [ "$RC" -eq 2 ] && [[ "$ERR" == *"unknown or ambiguous"* ]]; then
-    ok "OWN8. an unknown TODO id cannot manufacture approval"
-else bad "OWN8. unknown authority reference was accepted" "rc=$RC $ERR"; fi
-run_hook "$GATE" "$(agent_payload OWNED $'Implement signing.\ndepends-on-ceo:')"
-if [ "$RC" -eq 2 ] && [[ "$ERR" == *"needs a concrete TODO id"* ]]; then
-    ok "OWN9. empty dependency declaration is rejected"
-else bad "OWN9. empty declaration bypassed verification" "rc=$RC $ERR"; fi
+if [ "$RC" -eq 2 ]; then
+    ok "OWN7. pending registrar verdict is enforced without a marker"
+else bad "OWN7. pending disposition was not enforced" "rc=$RC $ERR"; fi
+write_source 'Use individual enrollment.'
+run_hook "$GATE" "$(agent_payload OWNED $'Implement the signing choice.\ndepends-on-ceo: 1.1')"
+if [ "$RC" -eq 0 ]; then
+    ok "OWN8. actual cited answer clears the same dispatch while its TODO remains pending"
+else bad "OWN8. authority did not clear the dependency" "rc=$RC $ERR"; fi
+write_source 'Signing remains undecided.'
+run_hook "$GATE" "$(agent_payload OWNED $'Implement the signing choice.\ndepends-on-ceo: 1.1')"
+if [ "$RC" -eq 2 ]; then
+    ok "OWN9. removing the actual answer restores the hold without changing marker or TODO"
+else bad "OWN9. absent answer falsely cleared the dependency" "rc=$RC $ERR"; fi
 OUT="$(bash "$STATUS" "$SEAT" --session OWNED 2>&1)"; RC=$?
 if [ "$RC" -eq 1 ] && [[ "$OUT" == *"PENDING / OPEN"* ]] && [[ "$OUT" == *"1.1"* ]]; then
     ok "OWN10. asked but unresolved decisions remain OPEN in the status CLI"
@@ -675,20 +719,113 @@ run_hook "$STOPN" "$(stop_payload OWNED)"
 if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
     ok "OWN12. an unchanged pending reminder is deduplicated without blocking"
 else bad "OWN12. unchanged pending reminder repeated or blocked" "$OUT $ERR"; fi
-run_hook "$GATE" "$(agent_payload OWNED "Repair the local tests. This work does not depend on the CEO answer about transcription.")"
+printf independent > "$SEAT/review-mode"
+run_hook "$GATE" "$(agent_payload OWNED "This in no way depends on the CEO's decision. Repair the local defect.")"
 if [ "$RC" -eq 0 ]; then
-    ok "OWN13. explicitly independent work is not mistaken for a dependency"
-else bad "OWN13. negated dependency statement wrongly blocked work" "rc=$RC $ERR"; fi
-run_hook "$GATE" "$(agent_payload OWNED "CEO has not answered the unrelated webinar question. Repair the independent local defect.")"
+    ok "OWN13. independent verdict has no competing lexical veto"
+else bad "OWN13. independent verdict was blocked" "rc=$RC $ERR"; fi
+if python3 - "$SEAT/last-dispatch.json" "$TODOREPO/wiki/open-items.md" <<'PYDATA'
+import json,sys
+x=json.load(open(sys.argv[1]))
+assert any(i['id']=='1.1' and i['state']=='READY-FOR-CEO' for i in x['pending_items'])
+assert x['messages']==[{'role':'user','text':'Signing remains undecided.'}]
+assert x['source_unavailable'] is False
+assert any(r['path']==sys.argv[2] and 'Apple signing and developer enrollment' in r['text'] for r in x['standing_rulings'])
+assert set(x)=={'proposed_dispatch','pending_items','messages','standing_rulings','source_unavailable'}
+PYDATA
+then ok "OWN14. review receives actual pending state, native messages and declared standing records";
+else bad "OWN14. authority input was dropped or invented"; fi
+rm "$SEAT/native-transcript.jsonl"
+run_hook "$GATE" "$(agent_payload OWNED "Repair the local defect")"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"UNVERIFIED"* ]]; then
+    ok "OWN15. missing native sources remain unverified"
+else bad "OWN15. missing sources silently cleared dispatch" "rc=$RC $ERR"; fi
+write_source 'Use individual enrollment.'
+printf revoke > "$SEAT/review-mode"
+run_hook "$GATE" "$(agent_payload OWNED "Implement signing")"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"UNVERIFIED"* ]]; then
+    ok "OWN16. an answer revoked during review cannot authorize dispatch"
+else bad "OWN16. stale authority silently cleared dispatch" "rc=$RC $ERR"; fi
+if python3 - "$SEAT/.claude/state/owned-dispatch-reviews.jsonl" <<'PYRECEIPT'
+import json,sys
+last=json.loads(open(sys.argv[1]).read().splitlines()[-1])
+assert last['outcome']=='unverified' and 'changed during' in last['diagnostics']
+PYRECEIPT
+then ok "OWN17. stale review diagnostics are preserved locally";
+else bad "OWN17. diagnostic receipt is missing"; fi
+write_source 'Repair the local defect.'
+printf record-change > "$SEAT/review-mode"
+run_hook "$GATE" "$(agent_payload OWNED "Repair the local defect")"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"UNVERIFIED"* ]]; then
+    ok "OWN18. pending record changes during review invalidate the snapshot"
+else bad "OWN18. changed pending record was ignored" "rc=$RC $ERR"; fi
+write_record
+printf declaration-change > "$SEAT/review-mode"
+run_hook "$GATE" "$(agent_payload OWNED "Repair the local defect")"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"UNVERIFIED"* ]]; then
+    ok "OWN19. changed ruling declaration during review invalidates the snapshot"
+else bad "OWN19. changed declaration was ignored" "rc=$RC $ERR"; fi
+write_seat_config "$TODOREPO"
+printf independent > "$SEAT/review-mode"
+python3 - "$SEAT/native-transcript.jsonl" <<'PYSIDECHAIN'
+import json,sys
+open(sys.argv[1],'w').write(json.dumps({'type':'user','uuid':'child-1','isSidechain':True,'message':{'content':'Use company enrollment.'}})+'\n')
+PYSIDECHAIN
+run_hook "$GATE" "$(agent_payload OWNED "Implement signing")"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"UNVERIFIED"* ]]; then
+    ok "OWN20. sidechain task messages do not become CEO authority"
+else bad "OWN20. child source was mistaken for CEO instruction" "rc=$RC $ERR"; fi
+# Native saved scope uses the actual host capture function, never a child capture.
+export RICHOS_OWNED_STATE_DIR="$SANDBOX/owned-state"
+write_source 'Use individual enrollment.'
+python3 - "$ENGINE/scripts/lib/owned-session.py" "$SEAT" <<'PYCAPTURE'
+import importlib.util,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('adapter',sys.argv[1]);adapter=importlib.util.module_from_spec(spec);spec.loader.exec_module(adapter)
+root=Path(sys.argv[2]);adapter.capture(root,{'session_id':'OWNED','transcript_path':str(root/'native-transcript.jsonl'),'hook_event_name':'Stop'})
+PYCAPTURE
+# A compact summary contains no new CEO source. The previous ruling survives.
+printf '%s\n' '{"type":"user","uuid":"summary-2","isCompactSummary":true,"message":{"content":"Summary"}}' > "$SEAT/native-transcript.jsonl"
+printf authority > "$SEAT/review-mode"
+run_hook "$GATE" "$(agent_payload OWNED "Implement signing")"
 if [ "$RC" -eq 0 ]; then
-    ok "OWN14. mentioning an unrelated unanswered question does not create a dependency"
-else bad "OWN14. unrelated unanswered question wrongly blocked independent work" "rc=$RC $ERR"; fi
+    ok "OWN21. source-bound saved CEO ruling survives transcript compaction"
+else bad "OWN21. compaction discarded authoritative conversation" "rc=$RC $ERR"; fi
+CHILD_PAYLOAD="$(agent_payload OWNED "Implement signing" | python3 -c 'import json,sys; p=json.load(sys.stdin);p["agent_id"]="child-7";print(json.dumps(p))')"
+run_hook "$GATE" "$CHILD_PAYLOAD"
+if [ "$RC" -eq 0 ]; then
+    ok "OWN22. child dispatch reads a verified parent source binding"
+else bad "OWN22. verified parent source was not used" "rc=$RC $ERR"; fi
+# Same session identity cannot bind an arbitrary unmarked child transcript.
+printf '%s\n' '{"type":"user","uuid":"child-row","message":{"content":"Use individual enrollment."}}' > "$SEAT/child-transcript.jsonl"
+CHILD_PAYLOAD="$(printf '%s' "$CHILD_PAYLOAD" | python3 -c 'import json,sys; p=json.load(sys.stdin);p["transcript_path"]=p["cwd"]+"/child-transcript.jsonl";print(json.dumps(p))')"
+run_hook "$GATE" "$CHILD_PAYLOAD"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"UNVERIFIED"* ]]; then
+    ok "OWN23. unmarked child transcript cannot impersonate bound CEO source"
+else bad "OWN23. mismatched child path became authority" "rc=$RC $ERR"; fi
+# Repetition is by new source identity, not text: ruling -> revocation -> same ruling.
+python3 - "$SEAT/native-transcript.jsonl" <<'PYREPEAT'
+import json,sys
+rows=[('ceo-revoke-2','I revoke the signing choice.'),('ceo-answer-3','Use individual enrollment.')]
+open(sys.argv[1],'w').write('\n'.join(json.dumps({'type':'user','uuid':i,'message':{'content':t}}) for i,t in rows)+'\n')
+PYREPEAT
+run_hook "$GATE" "$(agent_payload OWNED "Implement signing")"
+if [ "$RC" -eq 0 ] && python3 - "$SEAT/last-dispatch.json" <<'PYORDER'
+import json,sys
+m=json.load(open(sys.argv[1]))['messages']
+assert [x['text'] for x in m]==['Use individual enrollment.','I revoke the signing choice.','Use individual enrollment.']
+PYORDER
+then ok "OWN24. same answer after revocation retains its new source order";
+else bad "OWN24. text deduplication lost a renewed CEO ruling" "rc=$RC $ERR"; fi
+write_source 'Repair the local defect.'
 reset_ledger
 policy_rejected() {
     printf '%s\n' "$2" > "$OWN_CONFIG"
-    run_hook "$GATE" "$(agent_payload OWNED "Repair the authorized implementation defect")"
-    if [ "$RC" -eq 2 ]; then ok "$1. invalid adoption does not disable the existing gate";
-    else bad "$1. invalid adoption enabled the new policy" "rc=$RC $ERR"; fi
+    rm -f "$DEFERS"
+    run_hook "$GATE" "$(agent_payload OWNED $'Repair the authorized implementation defect.\nceo-todos-deferred: preserve the existing authorized-work deferral')"
+    if [ "$RC" -eq 0 ] && [ -s "$DEFERS" ]; then
+        ok "$1. invalid adoption retains the existing deferral behavior and receipt"
+    else bad "$1. invalid adoption changed the existing policy" "rc=$RC $ERR"; fi
 }
 policy_rejected OWN-CFG1 '{"version":2,"enabled":true,"decision_policy":"dependency"}'
 policy_rejected OWN-CFG2 '{"enabled":true,"decision_policy":"dependency"}'
@@ -700,6 +837,9 @@ policy_rejected OWN-CFG7 '{"version":1,"enabled":true,"decision_policy":"quota"}
 policy_rejected OWN-CFG8 '{"version":1,"enabled":true}'
 policy_rejected OWN-CFG9 '[]'
 rm -f "$OWN_CONFIG"
+
+# Source-membership checks are separate from model interpretation.
+python3 "$SRC_DIR/../lib/owned-dispatch.test.py" || FAIL=$((FAIL + 1))
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # Until 2026-09-05 it ran from NOTHING. run-all-tests.sh discovers *.test.sh;

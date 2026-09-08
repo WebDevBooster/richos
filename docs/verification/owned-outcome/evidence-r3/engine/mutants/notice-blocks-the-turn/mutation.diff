@@ -1,0 +1,10 @@
+--- base/engine/scripts/hooks/notice-ceo-unasked.sh
++++ mutant/engine/scripts/hooks/notice-ceo-unasked.sh
+@@ -195,6 +195,6 @@
+     exit 0
+ fi
+ 
+-stop_notice_abnormal "unasked:$IDS" \
++exit 2; stop_notice_abnormal "unasked:$IDS" \
+     "HE HAS NOT BEEN ASKED — CEO TODO ${TOP_ID}: ${TOP_ASK}${MORE} Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh"
+ exit 0

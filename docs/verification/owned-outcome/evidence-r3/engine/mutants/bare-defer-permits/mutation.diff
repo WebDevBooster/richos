@@ -1,0 +1,11 @@
+--- base/engine/scripts/hooks/guard-ceo-ask-first.sh
++++ mutant/engine/scripts/hooks/guard-ceo-ask-first.sh
+@@ -242,7 +242,7 @@
+ # character, so a bare `ceo-todos-deferred:` extracts to nothing and permits
+ # nothing.
+ DEFER_MARKER="$(printf '%s' "$PROMPT" \
+-    | grep -oE "^[[:space:]]*${CA_DEFER_MARKER}[[:space:]]*[^[:space:]].*" \
++    | grep -oE "^[[:space:]]*${CA_DEFER_MARKER}.*" \
+     | head -1 | sed -E 's/^[[:space:]]*//' || true)"
+ 
+ ARC=0

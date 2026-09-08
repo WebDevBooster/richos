@@ -1,0 +1,374 @@
+[
+  {
+    "name": "adopted-reminder-silent",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/notice-ceo-unasked.sh",
+        "base_sha256": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+        "mutant_sha256": "2ca3132156574b97a88137cb5b6ac24ea2b4b3276422cf53b64c987a8a281cd9"
+      }
+    ],
+    "diff_sha256": "2939d03a4cfdb7278105b26f7e8fb4300062534d3a2683c230af3c535c3aac04",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/adopted-reminder-silent"
+  },
+  {
+    "name": "always-holds-marker",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "e01fa372470e4bdcab92e2dfc6ddefa01e6d884afc4617ecf0d5cdc370634796"
+      }
+    ],
+    "diff_sha256": "816df3995386e7d9bdb43069f7a21b98cf1b83d97b8609e8d0acf3f097476f1f",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/always-holds-marker"
+  },
+  {
+    "name": "ask-receipt-clears-pending-notice",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/notice-ceo-unasked.sh",
+        "base_sha256": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+        "mutant_sha256": "a960a33ab9e3e9d4846d13e4891e8f40003708b14fec66efb43713d325d635da"
+      }
+    ],
+    "diff_sha256": "3b31fce3021cc5d82ab82f733673192386d0f57488156588707b37801c9038dc",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/ask-receipt-clears-pending-notice"
+  },
+  {
+    "name": "ask-receipt-clears-pending-status",
+    "changes": [
+      {
+        "file": "engine/scripts/ceo-asks-status.sh",
+        "base_sha256": "693bdd1dff2680a187a7562b6efaecfb1252ad31a4453457e2510bbd44691582",
+        "mutant_sha256": "4039999e11a568bb021929352a4c9c8d0efd1e125ac528d3c27e133db86066f5"
+      }
+    ],
+    "diff_sha256": "0a3def3732e3cab5ea48f8eb77ee46bd40982c611ca036abeec204c54540c5b6",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/ask-receipt-clears-pending-status"
+  },
+  {
+    "name": "bare-defer-permits",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/guard-ceo-ask-first.sh",
+        "base_sha256": "c523e7ee39387e8242c8c089c4176c7fd66311df97d0979b65383cce5972d473",
+        "mutant_sha256": "528b27fa44f9e87048fab71d77019b1dc0116566aa5b15563f5ebf88866ab978"
+      }
+    ],
+    "diff_sha256": "27d376cf344342ec6f214f86dac739838751ff3f3a8d890c605c4af146b25c33",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/bare-defer-permits"
+  },
+  {
+    "name": "blocked-counts-as-prepared",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/ceo-asks.py",
+        "base_sha256": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "mutant_sha256": "63c5ddc87a0baf990ffa8d03957090801bccdbb11c802e1807fab1a8b7fe8c8c"
+      }
+    ],
+    "diff_sha256": "4989cf1c7acec107715db572a178452f1c1ea4698a51c4284b80d50083f1d62e",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/blocked-counts-as-prepared"
+  },
+  {
+    "name": "broken-fails-closed",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/guard-ceo-ask-first.sh",
+        "base_sha256": "c523e7ee39387e8242c8c089c4176c7fd66311df97d0979b65383cce5972d473",
+        "mutant_sha256": "05d779312115b5060cd503770684da8b40e6161c4d95741d5f99ad1dd591ea76"
+      }
+    ],
+    "diff_sha256": "601187d0494a788df733de53b966443850b85dbc524b89b42827a7fa898ddf37",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/broken-fails-closed"
+  },
+  {
+    "name": "broken-list-is-quiet",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/notice-ceo-unasked.sh",
+        "base_sha256": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+        "mutant_sha256": "666fce97918ffd376695ecdbf73a1b594ee43023050f2f09616e3661a451fffd"
+      }
+    ],
+    "diff_sha256": "afc8b8c29a7187c3bc1347ef932efcea932c8209879d44500802543c1bd88ab5",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/broken-list-is-quiet"
+  },
+  {
+    "name": "child-binding-ignored",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "c45f4536bb6e55f78b80b28eeeb32a45d09fbbb26af9a798353f5d3a66338170"
+      }
+    ],
+    "diff_sha256": "3305e50f70b10edcedcb01dc464b58cedc78c9ae841435e84de29fa98f7253a5",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/child-binding-ignored"
+  },
+  {
+    "name": "citation-optional",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "441c4d485183060dc394b58841baf4c039b00db2f71982811d3a4deaeeab3b76"
+      }
+    ],
+    "diff_sha256": "65c8086bf940544fe4f4829560e68b17a044a20ebf835c5cdfa82625f8f5e920",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/citation-optional"
+  },
+  {
+    "name": "everything-matches",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/ceo-asks.py",
+        "base_sha256": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "mutant_sha256": "936db1c53418b93e142b416df310cf440f2518de5b1564e3b525813b53f9ee4c"
+      }
+    ],
+    "diff_sha256": "0654dfca9cf255c814a8f626a29d27f81a3acd9d61c0ad1aa5006f8e5997d412",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/everything-matches"
+  },
+  {
+    "name": "gate-does-not-block",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/guard-ceo-ask-first.sh",
+        "base_sha256": "c523e7ee39387e8242c8c089c4176c7fd66311df97d0979b65383cce5972d473",
+        "mutant_sha256": "070e83fb39d275d80d6c375691ea2c45b0a472b8d635bd42e4ef9ebdf193094b"
+      }
+    ],
+    "diff_sha256": "15a0af15c19190cdeb4ff4f3bedaf369008027daed47698df7a1a1687c80eafb",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/gate-does-not-block"
+  },
+  {
+    "name": "no-escape-hatch",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/guard-ceo-ask-first.sh",
+        "base_sha256": "c523e7ee39387e8242c8c089c4176c7fd66311df97d0979b65383cce5972d473",
+        "mutant_sha256": "b28658f95d769fdaf4849eb922e1a23306cefaf1c748657b95340f70136ab44b"
+      }
+    ],
+    "diff_sha256": "18e2479e2045e4472ddfe858c05faa12afa160c3762e414287ebf28cb49187f9",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/no-escape-hatch"
+  },
+  {
+    "name": "no-ledger-write",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/notice-ceo-asks.sh",
+        "base_sha256": "5412d6176fa38e5b08de7795dee6e1d5a6ac40dc8471016d3d91e00fb493f0a5",
+        "mutant_sha256": "55f29d2f31ee53bc1334746fbb1ee05a2ba9cdd5f32b6f4c728071cac3e394a5"
+      }
+    ],
+    "diff_sha256": "aaaa4ad22e85bd0b286872806f921fda0bddf6afed543a132a0d6c2d9485fae1",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/no-ledger-write"
+  },
+  {
+    "name": "no-session-filter",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/ceo-asks.sh",
+        "base_sha256": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "mutant_sha256": "8cf6692774b15be00073e958f261e28adf523bdfd908ea36a50f980c2ee4a0e9"
+      }
+    ],
+    "diff_sha256": "b5fd26f681c1502de06af5483e05c9fd70b988c89e78a381c89d1110c3662d42",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/no-session-filter"
+  },
+  {
+    "name": "notice-blocks-the-turn",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/notice-ceo-unasked.sh",
+        "base_sha256": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+        "mutant_sha256": "83f74b8dc30f8525a6a5d269d4838a35419899c998f8d611ba451d7ddf5d9e9b"
+      }
+    ],
+    "diff_sha256": "d0a5f83c10cb833e8652c0b3eb8ec3a5c339445ca0474155258b42fb5641f86e",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/notice-blocks-the-turn"
+  },
+  {
+    "name": "notice-counts-not-names",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/notice-ceo-unasked.sh",
+        "base_sha256": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+        "mutant_sha256": "3f631d6070eb832a594a7f0f5a5808bb70af2c06d86901009663c72ab76bda2d"
+      }
+    ],
+    "diff_sha256": "f65ec2a47ef8399bc984fa0daa50231294c234056ea17800b64f6eae115e6eb2",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/notice-counts-not-names"
+  },
+  {
+    "name": "pending-state-not-read",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "230f79aad1443a4e895416b6882af0a213b9f54591c3704827d661352a2f853f"
+      }
+    ],
+    "diff_sha256": "580b4c510b6f0276c0c5363fd0b00998b26da2988a2ea901e88f9cf73c55e1ce",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/pending-state-not-read"
+  },
+  {
+    "name": "pending-verdict-ignored",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "107c0277665692b9f24226c20722a07600fd583f4de061aa08163c948624af0a"
+      }
+    ],
+    "diff_sha256": "e2129b5941cdf070db307e3f01a091dda35a4411f0c0a6bb45809f5ebbf71cd2",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/pending-verdict-ignored"
+  },
+  {
+    "name": "policy-boolean-version",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-work-policy.sh",
+        "base_sha256": "abe21b30be480f22ddc7f71e08f2059890eb67321b96b225d0cc7f44560022aa",
+        "mutant_sha256": "c1d4468e1be669e2193f391461161983ea46d8c47d279c70f9734a9f5f5ed3fe"
+      }
+    ],
+    "diff_sha256": "7ce2656dec85487d1c98ecdd068ca31411b19f943ce9e601b381d420f105b58c",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/policy-boolean-version"
+  },
+  {
+    "name": "policy-disabled-accepted",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-work-policy.sh",
+        "base_sha256": "abe21b30be480f22ddc7f71e08f2059890eb67321b96b225d0cc7f44560022aa",
+        "mutant_sha256": "c2dd529b3dded6df318a182097460f0fb77b75ad8d948206c829952ced26cac0"
+      }
+    ],
+    "diff_sha256": "64d16f1cfb3229825d16b790a028aec89793497fda983464868c4fc3b29b87cf",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/policy-disabled-accepted"
+  },
+  {
+    "name": "policy-wrong-decision-field",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-work-policy.sh",
+        "base_sha256": "abe21b30be480f22ddc7f71e08f2059890eb67321b96b225d0cc7f44560022aa",
+        "mutant_sha256": "d50b451985c7041b5c38eec0272d552b65c274687ead08a5d990ee8d08ff8cd0"
+      }
+    ],
+    "diff_sha256": "801b6d8bb7f56f3cf70436e253905d01d0da3ed146bdb192a065f065b9d5ac71",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/policy-wrong-decision-field"
+  },
+  {
+    "name": "policy-wrong-version",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-work-policy.sh",
+        "base_sha256": "abe21b30be480f22ddc7f71e08f2059890eb67321b96b225d0cc7f44560022aa",
+        "mutant_sha256": "b43a29b7786ce90c6a94d28bbf9055d32a6bfc32bb9c806933764e3647cc9aa5"
+      }
+    ],
+    "diff_sha256": "41fd4b843779b9735b80502ceb550eaa0d1d5085a4775281ce64900c9080aeb0",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/policy-wrong-version"
+  },
+  {
+    "name": "quote-membership-ignored",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "51bcd665ebbdf07c27cb678965ffd541cca8e00e1154dcbaba5155d2267a11de"
+      }
+    ],
+    "diff_sha256": "44169047cd04271e12c94d5fd799e2f4c713098977c602736af41e096d246588",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/quote-membership-ignored"
+  },
+  {
+    "name": "repeated-answer-text-dedup",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "a7dbd2ab112e12091539779173f7e728f0e3dec739611c3114ed8737cd63e6e3"
+      }
+    ],
+    "diff_sha256": "99abcc52b271da7867ac5c654dc34774641a8b4f43fbeaea879b89cca903cca7",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/repeated-answer-text-dedup"
+  },
+  {
+    "name": "ruling-state-not-read",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "03f540f41aa13efa4b27a4e0b9e757218830bc8a11e57bf9ca10ed599bd69c01"
+      }
+    ],
+    "diff_sha256": "29ce289cb4a8bc79238a580d41f7374a79c021488a819aa5f1a070c8407ecf6f",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/ruling-state-not-read"
+  },
+  {
+    "name": "saved-source-dropped",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "da4398969869f447714ea3babfbf5ce9a578721509ba1888d9c849ab0e2f4eb7"
+      }
+    ],
+    "diff_sha256": "acc00ba0f119630d5a3e80d233834b294bc9d512f2062c157fb5821a0f905c66",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/saved-source-dropped"
+  },
+  {
+    "name": "session-start-silent",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/session-start-ceo-ask.sh",
+        "base_sha256": "348552c5a7eb55b9caeb34a0121bf4ccd7669fe43070951c93a1354105e344cb",
+        "mutant_sha256": "10ace0844d85c201ce0fdb14c819f9b06d84d1e07ee3048fee03e42fa25120c8"
+      }
+    ],
+    "diff_sha256": "538d6bd339c9d88335591e4441b1dafa29a55e7031744af87c477207f620e2ee",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/session-start-silent"
+  },
+  {
+    "name": "source-role-ignored",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "f1aebda0cbb8e61e33e0cf76fc7ffc44b20701f7bf3b66e595f201604bd3b04a"
+      }
+    ],
+    "diff_sha256": "2bfc55c6f62263c7fd7ec2864d3a37d746a5272710936a56e710fea60ae22d9c",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/source-role-ignored"
+  },
+  {
+    "name": "stale-source-accepted",
+    "changes": [
+      {
+        "file": "engine/scripts/lib/owned-dispatch.py",
+        "base_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+        "mutant_sha256": "8946cf7628f4fb8d7db0dcf7339174549eb88cf0ccd77c98e908270ac88b0794"
+      }
+    ],
+    "diff_sha256": "25201ebe945e969c0740e93da96e5b89f1f9fda44a4476034fbc6f2cf93370c3",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/stale-source-accepted"
+  },
+  {
+    "name": "worker-discharges",
+    "changes": [
+      {
+        "file": "engine/scripts/hooks/notice-ceo-asks.sh",
+        "base_sha256": "5412d6176fa38e5b08de7795dee6e1d5a6ac40dc8471016d3d91e00fb493f0a5",
+        "mutant_sha256": "6bc7862fb8a67474a688c6a1eb60ecff8f8c628572e59a69dcc5ad791e03ae88"
+      }
+    ],
+    "diff_sha256": "6e88876024e2c6450166b2bba87de586fcdc0e629ae24dcbdc2c0c1952026e7f",
+    "raw_directory": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants/worker-discharges"
+  }
+]

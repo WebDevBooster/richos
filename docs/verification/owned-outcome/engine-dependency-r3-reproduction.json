@@ -1,0 +1,59 @@
+{
+  "kind": "controlled predicate reproduction, not real model or installed evidence",
+  "commit": "2b9d7122102b846ba1276cfb97b0985c7642adde",
+  "source": "engine/scripts/lib/owned-work-policy.sh",
+  "source_sha256": "823788184f16b822fc9c1de176eb3b0fe6df2889863c87c1c20d0c9d09e1f611",
+  "fixture_items": [
+    {
+      "id": "1.1",
+      "state": "READY-FOR-CEO",
+      "title": "CEO decision"
+    }
+  ],
+  "results": [
+    {
+      "name": "negated",
+      "prompt": "This in no way depends on the CEO's decision.",
+      "expected": 0,
+      "actual": 2,
+      "stderr": "CEO DEPENDENCY: this dispatch explicitly declares missing CEO authority. Do not execute the dependent step. Present the concrete decision with the affected deliverable and recommendation; continue independent authorized work. An ask or deferral marker is not approval.\n"
+    },
+    {
+      "name": "nothing",
+      "prompt": "Nothing here is blocked by the CEO's decision.",
+      "expected": 0,
+      "actual": 2,
+      "stderr": "CEO DEPENDENCY: this dispatch explicitly declares missing CEO authority. Do not execute the dependent step. Present the concrete decision with the affected deliverable and recommendation; continue independent authorized work. An ask or deferral marker is not approval.\n"
+    },
+    {
+      "name": "history",
+      "prompt": "An earlier brief said it depends on the CEO's decision but that is no longer true.",
+      "expected": 0,
+      "actual": 2,
+      "stderr": "CEO DEPENDENCY: this dispatch explicitly declares missing CEO authority. Do not execute the dependent step. Present the concrete decision with the affected deliverable and recommendation; continue independent authorized work. An ask or deferral marker is not approval.\n"
+    },
+    {
+      "name": "contracted",
+      "prompt": "The CEO hasn't answered. This dispatch depends on that answer.",
+      "expected": 2,
+      "actual": 0,
+      "stderr": ""
+    },
+    {
+      "name": "ruling",
+      "prompt": "We cannot proceed without his ruling.",
+      "expected": 2,
+      "actual": 0,
+      "stderr": ""
+    },
+    {
+      "name": "waiting",
+      "prompt": "We are waiting for the CEO's answer.",
+      "expected": 2,
+      "actual": 0,
+      "stderr": ""
+    }
+  ],
+  "original_evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-r3-dependency-repro-zehmie8b/result.json",
+  "limits": "The ruling pronoun example assumes CEO context. These probes reproduce the lexical predicate, not a semantic adjudication or production hook installation."
+}

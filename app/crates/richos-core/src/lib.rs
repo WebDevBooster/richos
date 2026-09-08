@@ -154,3 +154,4 @@ pub use worker_status::WorkerStatusView;
 pub mod autonomy;
 
 pub mod registration;
+pub mod dispatch;

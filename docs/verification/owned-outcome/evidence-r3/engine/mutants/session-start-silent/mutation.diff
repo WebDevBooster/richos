@@ -1,0 +1,11 @@
+--- base/engine/scripts/hooks/session-start-ceo-ask.sh
++++ mutant/engine/scripts/hooks/session-start-ceo-ask.sh
+@@ -122,7 +122,7 @@
+ 
+ [ "${CA_UNASKED:-0}" -gt 0 ] || exit 0
+ 
+-TOP="$(printf '%s\n' "$CA_ASK_LINES" | head -1)"
++TOP="$(printf '%s\n' "$CA_ASK_LINES" | head -0)"
+ TOP_ID="$(printf '%s' "$TOP" | cut -f2)"
+ TOP_ASK="$(printf '%s' "$TOP" | cut -f4)"
+ 

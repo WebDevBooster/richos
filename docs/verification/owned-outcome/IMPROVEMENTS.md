@@ -1,6 +1,11 @@
-# Improvements outside this change
+# Remaining requirements and improvements outside this change
 
 Record suggestions here without silently adding them to the implementation scope.
+The remaining requirements below are not optional improvements and are not claims
+of implemented behavior. [REVISION-3.md](REVISION-3.md) freezes the current native
+correction boundary; earlier evidence remains in [REVISION-2.md](REVISION-2.md).
+
+## Observed remaining requirements
 
 Remaining requirement for the literal zero-routine-question promise: native
 ordinary reply prose is not behind the `AskUserQuestion` boundary. The final R2
@@ -11,6 +16,25 @@ A display-only text replacement does not change the model's instructions or work
 ownership and must not be confused with solving the underlying behavior. This is
 an observed remaining gap, not an optional cosmetic improvement.
 
+RichOS-managed requests need an exact-operation permission grant bridge. Restoring
+native permission passthrough does not provide one: the managed callback currently
+denies additional requests, and a CEO business answer changes task state without
+authorizing that callback. Reuse the existing RunDecision panel, revision/receipt
+fences and onboarding's atomic host-owned scope-file pattern, but add typed
+approve-once/reject actions and a persisted grant bound to the exact operation,
+workspace, run/task and current scope. Plain business answers cannot mint grants.
+The affected surfaces include core `native.rs`, `run_host.rs`, `run.rs`, the Tauri
+owned-work and decision handlers, `run_view.rs` and `ui/runs.js`. Current explicit
+denials and inspector isolation remain binding. See REVISION-3.md for crash,
+replay and revocation requirements. This is substantial remaining implementation,
+not an implemented native R3 correction or hidden scope expansion.
+
+## Deferred lifecycle work and optional improvements
+
+- Make the registrar's `independent` versus `authorized` subtype more consistent
+  when it cites the original task instruction and no relevant dependency exists.
+  R3's fixed corpus retains one such exact-kind failure. Its checked citation and
+  allow disposition were valid, so this is not an observed operational hold.
 - A separate OS service for execution while RichOS and Claude Code are both fully
   quit. This requires a product lifecycle and permission design; existing work
   remains durable for restart. Closing a process is distinct from a model ending

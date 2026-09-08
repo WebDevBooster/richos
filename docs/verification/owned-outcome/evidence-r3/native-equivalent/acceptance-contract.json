@@ -1,0 +1,21 @@
+{
+  "scenario": "preauthorized-equivalent",
+  "permission_policy_requested": "deny",
+  "permission_policy_effective": "deny",
+  "same_assignment_across_permission_scenarios": true,
+  "ceiling_seconds": 900,
+  "input_requirement": "Exactly one argv assignment, setup-only measured PTY writes and independently confirmed native transcript inputs.",
+  "completion_requirement": "Actual requested artifacts, tests and parser execution; no auditor prose or manual inspection substitutes for executed validation.",
+  "behavior_requirement": "Report routine parser permission asks separately and fail clean autonomy even if artifact completion later succeeds.",
+  "permission_gap_requirement": "No fixture parser allow rule is not global tool unavailability. Preserve actual call-specific runtime refusals; remain incomplete if required validation cannot execute.",
+  "capability_evidence_sources": [
+    "parent/child native tool call plus result",
+    "runtime PermissionRequest payload and decision",
+    "exact prelaunch fixture settings"
+  ],
+  "excluded_capability_evidence": [
+    "auditor capability assertions",
+    "assistant claims",
+    "absence of a fixture allow rule"
+  ]
+}

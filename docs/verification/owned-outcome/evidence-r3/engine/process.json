@@ -1,0 +1,7 @@
+{
+  "process_exit": 0,
+  "elapsed_seconds": 511.1,
+  "deadline_seconds": 780,
+  "aggregate_log": "/tmp/richos-ceo-r3-full-final.log",
+  "mutant_evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants"
+}

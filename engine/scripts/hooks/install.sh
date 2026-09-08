@@ -365,6 +365,8 @@ HOOK_FILES+=(
     "$REPO_ROOT/scripts/lib/ceo-asks.sh"
     "$REPO_ROOT/scripts/lib/ceo-asks.py"
     "$REPO_ROOT/scripts/lib/owned-work-policy.sh"
+    "$REPO_ROOT/scripts/lib/owned-dispatch.py"
+    "$REPO_ROOT/scripts/lib/owned-session.py"
     # The CEO-RULED predicate, both halves. FIFTH time the same argument, and
     # this pair carries a wrinkle worth naming: ceo-ruled.py takes its tokenizer
     # from ceo-asks.py directly above, so the two CEO gates cannot drift into

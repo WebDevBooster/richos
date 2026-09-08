@@ -22,9 +22,9 @@ fn main() {
 fn run() -> Result<i32, Box<dyn std::error::Error>> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() < 2 {
-        return Err("Usage: richos-run handle JOURNAL WORKSPACE REQUEST | audit-session WORKSPACE SECONDS | audit-question WORKSPACE SECONDS | create JOURNAL PLAN.json | drive JOURNAL | status JOURNAL | pause JOURNAL | resume JOURNAL | retry JOURNAL TASK_ID | end JOURNAL".into());
+        return Err("Usage: richos-run handle JOURNAL WORKSPACE REQUEST | audit-session WORKSPACE SECONDS | audit-question WORKSPACE SECONDS | audit-dispatch WORKSPACE SECONDS | create JOURNAL PLAN.json | drive JOURNAL | status JOURNAL | pause JOURNAL | resume JOURNAL | retry JOURNAL TASK_ID | end JOURNAL".into());
     }
-    if matches!(args[0].as_str(), "audit-session" | "audit-question") && args.len() == 3 {
+    if matches!(args[0].as_str(), "audit-session" | "audit-question" | "audit-dispatch") && args.len() == 3 {
         use std::io::Read;
         let workspace = PathBuf::from(&args[1]).canonicalize()?;
         let seconds: u64 = args[2].parse()?;
@@ -33,6 +33,10 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
         std::io::stdin().take(4 * 1024 * 1024 + 1).read_to_string(&mut input)?;
         if input.len() > 4 * 1024 * 1024 { return Err("Session scope exceeds audit input limit; work remains unfinished".into()); }
         let data: serde_json::Value = serde_json::from_str(&input)?;
+        if args[0] == "audit-dispatch" {
+            println!("{}", richos_core::dispatch::audit(data, seconds)?);
+            return Ok(0);
+        }
         if data.get("messages").and_then(|m| m.as_array()).is_none_or(|m| m.is_empty()) {
             return Err("No source conversation supplied; cannot certify completion".into());
         }

@@ -1,0 +1,11 @@
+--- base/engine/scripts/hooks/notice-ceo-asks.sh
++++ mutant/engine/scripts/hooks/notice-ceo-asks.sh
+@@ -261,7 +261,7 @@
+     "discharges": bool(verdict == "MATCH" and not agent_id),
+ }
+ try:
+-    with open(os.environ["CA_LEDGER"], "a", encoding="utf-8") as fh:
++    if False:
+         fh.write(json.dumps(record) + "\n")
+ except Exception:
+     pass

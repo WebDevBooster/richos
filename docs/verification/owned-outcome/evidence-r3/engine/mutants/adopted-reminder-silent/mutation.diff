@@ -1,0 +1,11 @@
+--- base/engine/scripts/hooks/notice-ceo-unasked.sh
++++ mutant/engine/scripts/hooks/notice-ceo-unasked.sh
+@@ -190,7 +190,7 @@
+ fi
+ 
+ if [ "${OWNED_POLICY:-0}" -eq 1 ]; then
+-    stop_notice_abnormal "pending:$IDS" \
++    exit 0; stop_notice_abnormal "pending:$IDS" \
+         "CEO DECISION PENDING: ${TOP_ID}: ${TOP_ASK} Keep this visible to the CEO without blocking independent authorized work. An ask is not an answer; only the dependent deliverable waits. Full list: scripts/ceo-asks-status.sh"
+     exit 0
+ fi

@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/owned-work-policy.sh
++++ mutant/engine/scripts/lib/owned-work-policy.sh
+@@ -5,7 +5,7 @@
+ import json, sys
+ try:
+     d = json.load(open(sys.argv[1]))
+-    sys.exit(0 if isinstance(d, dict) and type(d.get('version')) is int and d.get('version') == 1 and d.get('enabled') is True and d.get('decision_policy') == 'dependency' else 1)
++    sys.exit(0 if isinstance(d, dict) and d.get('version') == 1 and d.get('enabled') is True and d.get('decision_policy') == 'dependency' else 1)
+ except (OSError, ValueError):
+     sys.exit(1)
+ PY

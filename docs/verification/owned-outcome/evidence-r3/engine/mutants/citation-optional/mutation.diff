@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/owned-dispatch.py
++++ mutant/engine/scripts/lib/owned-dispatch.py
+@@ -110,7 +110,7 @@
+         raise ValueError('Unsupported dispatch disposition')
+     if verdict['kind'] not in ('independent', 'pending', 'authorized') or not isinstance(verdict['citations'], list):
+         raise ValueError('Unsupported dispatch disposition')
+-    if verdict['kind'] == 'authorized' and not verdict['citations']:
++    if False:
+         raise ValueError('Cleared dependency lacks cited authority')
+     for cite in verdict['citations']:
+         if not isinstance(cite, dict) or set(cite) != {'message_index', 'path', 'quote'}:
