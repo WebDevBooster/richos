@@ -22,19 +22,22 @@
 #      branch — every mutant it builds is perfectly readable — so the branch
 #      that protects the gate from crying wolf over a house style is the branch
 #      nothing else covers.
-#   3. THE EVIDENCE ITSELF (case 6, added after a reviewer using the gate lost
-#      some of it). This gate's product is the evidence under --out, and it was
-#      losable without saying so: two scenarios wrote their artifacts to one set
-#      of role-named directories. It is not reachable by inspecting the source
-#      for a path expression — the property is what survives a SECOND scenario —
-#      so the case drives the real gate.main() and then looks at the disk.
+#   3. THE EVIDENCE ITSELF (cases 6 and 7, added after a reviewer using the gate
+#      lost some of it). This gate's product is the evidence under --out and the
+#      log of what it did, and both were losable without saying so: two
+#      scenarios wrote their artifacts to one set of role-named directories, and
+#      a redirected run buffered its whole log until exit so an interrupted run
+#      left nothing at all. Neither is reachable by inspecting the source for a
+#      flush call or a path expression — the property is what survives a second
+#      scenario and what survives a SIGKILL — so both cases drive the real
+#      gate.main() and then look at the disk.
 #
-# No model is called: _one_call is stubbed, and cases 6-7 stub the sandbox
+# No model is called: _one_call is stubbed, and cases 6-8 stub the sandbox
 # builder, the live runner and the judge. The suite is deterministic and free,
 # which is why it can live in scripts/run-all-tests.sh's discovery without making
 # the runner pay for the gate. Cost, measured rather than claimed —
-# `/usr/bin/time -p lib/harness.test.sh` on 2026-09-08: real 0.11, three runs in
-# a row, 25 cases. Re-run it rather than believe the number.
+# `/usr/bin/time -p lib/harness.test.sh` on 2026-09-08: real 0.15, three runs in
+# a row, 29 cases. Re-run it rather than believe the number.
 #
 # Exit codes: 0 all cases pass, 1 a case failed.
 
@@ -48,6 +51,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = sys.argv[1]
 sys.path.insert(0, HERE)
@@ -410,12 +414,98 @@ check(
 )
 
 # -----------------------------------------------------------------------------------
-# CASE 7 — THE CHECKS ABOVE, PROVEN BY MUTATION RATHER THAN ASSERTED.
+# CASE 7 — AN INTERRUPTED RUN LEAVES THE EVIDENCE IT HAD ALREADY PRINTED.
+#
+# Python block-buffers stdout as soon as it is not a terminal, which is exactly what an
+# operator creates by redirecting a run that takes minutes to a log. Measured on the pre-fix
+# code with the gate's own free mode: `--prove-records > log` held the log at 0 BYTES for the
+# first three seconds of a four-second run, then wrote all 8017 bytes at exit; SIGKILL at two
+# seconds left a 0-byte log even though all six mutants had been built and graded by then.
+#
+# So this case does not check that a flush call exists — a source-inspection check would pass
+# on a flush that never runs, and the thing that matters is not the call, it is the file. It
+# starts the real gate.main() in a child with stdout to a file, lets it print its header, and
+# SIGKILLs it where a person would: mid-run, believing it had hung. The bytes that are on disk
+# afterwards are the whole assertion.
+# -----------------------------------------------------------------------------------
+CHILD = """import os, sys, time
+sys.path.insert(0, %(here)r)
+import gate
+
+def hang(scenario_path, scen_dir):
+    # Everything above this point has been printed. Announce that, then never return —
+    # the process is going to be killed here, which is the case under test.
+    open(%(sentinel)r, "w").close()
+    time.sleep(120)
+    return None, []
+
+gate.scenarios = lambda: [%(scenario)r]
+gate.fixture_integrity = hang
+gate.main(["--out", %(out)r])
+"""
+
+def interrupted_run(lib):
+    """Start the real gate.main against `lib` with stdout REDIRECTED TO A FILE — the operator's
+    case, and the one Python block-buffers — let it print its header, then SIGKILL it where a
+    person would. Returns (reached, surviving stdout, stderr)."""
+    tmp = tempfile.mkdtemp(prefix="gate-harness-flush-")
+    child_py = os.path.join(tmp, "child.py")
+    log_path = os.path.join(tmp, "gate.log")
+    err_path = os.path.join(tmp, "gate.err")
+    sentinel = os.path.join(tmp, "printed-and-hung")
+    with open(child_py, "w") as handle:
+        handle.write(CHILD % {
+            "here": lib,
+            "sentinel": sentinel,
+            "scenario": "/nowhere/alpha.json",
+            "out": os.path.join(tmp, "out"),
+        })
+    # stderr goes to its OWN file, never into the log under test: a child that crashed on
+    # import would otherwise write a traceback into the log and make "the log is not empty"
+    # true for the wrong reason.
+    with open(log_path, "w") as out_handle, open(err_path, "w") as err_handle:
+        child = subprocess.Popen(
+            [sys.executable, child_py], stdout=out_handle, stderr=err_handle
+        )
+        deadline = time.time() + 30
+        while (not os.path.exists(sentinel) and child.poll() is None
+               and time.time() < deadline):
+            time.sleep(0.02)
+        reached = os.path.exists(sentinel)
+        child.kill()
+        child.wait()
+    with open(log_path) as handle:
+        surviving = handle.read()
+    with open(err_path) as handle:
+        child_stderr = handle.read()
+    shutil.rmtree(tmp, ignore_errors=True)
+    return reached, surviving, child_stderr
+
+
+reached, surviving, child_stderr = interrupted_run(HERE)
+check(
+    "7a the child printed its header and reached the interruption point (plumbing)",
+    reached,
+    "sentinel not written; child stderr: %s" % child_stderr.strip()[-300:],
+)
+check(
+    "7b a run killed mid-flight leaves the lines it had already printed",
+    surviving.strip() != "",
+    "the log an operator is left with after SIGKILL is %d bytes" % len(surviving),
+)
+check(
+    "7c and ALL of them, first line to last, not a buffer's worth",
+    "workdir: " in surviving and "# SCENARIO alpha" in surviving,
+    "surviving log: %r" % surviving[-300:],
+)
+
+# -----------------------------------------------------------------------------------
+# CASE 8 — THE TWO CHECKS ABOVE, PROVEN BY MUTATION RATHER THAN ASSERTED.
 #
 # This gate holds its record checks to mutation because what they replaced had never been
-# WATCHED fail, and that is how an inadequate check survives. Case 6 is a new check over
-# behavior nothing else constrained, so it gets the same bar: the gate is broken back the way
-# it was broken before, and the break must be caught by the case that claims it.
+# WATCHED fail, and that is how an inadequate check survives. Cases 6 and 7 are new checks over
+# behavior nothing else constrained, so they get the same bar: the gate is broken back the two
+# ways it was broken before, and each break must be caught by its own case.
 #
 # A mutant that CANNOT BE APPLIED is reported as a harness fault in those words and never as a
 # finding — if the anchor line moves, this suite must say it could not do the experiment, not
@@ -442,7 +532,7 @@ shared_out_lib, applied = mutate(
 )
 MUTANT = drive_two_scenarios(shared_out_lib) if applied else {}
 check(
-    "7a a gate that writes both scenarios to one --out is caught by 6b-6e",
+    "8a a gate that writes both scenarios to one --out is caught by 6b-6e",
     applied and MUTANT["live"] == ["beta"] and MUTANT["transcripts"] == ["beta"]
     and MUTANT["controls"] == ["beta"] and MUTANT["proofs"] == ["beta"],
     ("MUTANT COULD NOT BE APPLIED — harness fault, not a finding"
@@ -452,6 +542,17 @@ check(
      % (MUTANT["live"], MUTANT["transcripts"], MUTANT["controls"], MUTANT["proofs"])),
 )
 shutil.rmtree(os.path.dirname(shared_out_lib), ignore_errors=True)
+
+no_flush_lib, applied = mutate("    print(line)\n    sys.stdout.flush()\n", "    print(line)\n")
+m_reached, m_surviving, m_stderr = interrupted_run(no_flush_lib) if applied else (False, "", "")
+check(
+    "8b a gate that does not flush is caught by 7b-7c",
+    applied and m_reached and m_surviving == "",
+    ("MUTANT COULD NOT BE APPLIED — harness fault, not a finding" if not applied else
+     "the unflushed mutant reached the same point and left %d bytes for the operator "
+     "(stderr: %s)" % (len(m_surviving), m_stderr.strip()[-200:])),
+)
+shutil.rmtree(os.path.dirname(no_flush_lib), ignore_errors=True)
 
 print("")
 print("  %d cases, %d failed" % (CASES, len(FAILURES)))

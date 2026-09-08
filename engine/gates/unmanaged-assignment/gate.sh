@@ -336,10 +336,10 @@
 # ===========================================================================
 # THE EVIDENCE IT LEAVES BEHIND — read this before quoting an --out directory
 # ===========================================================================
-# The property below was absent until 2026-09-08, was found by a reviewer USING
-# this gate rather than reading it, and lost evidence without saying it had. It
-# is stated here because this gate's product is its evidence; its exit code is a
-# summary of it.
+# Both properties below were absent until 2026-09-08, both were found by a
+# reviewer USING this gate rather than reading it, and both lost evidence
+# without saying they had. They are stated here because this gate's product is
+# its evidence; its exit code is a summary of it.
 #
 #   <out>/<scenario>/...   EVERY artifact is scoped to the scenario that made
 #                          it — live-N, live-N-record, control-ideal,
@@ -353,9 +353,19 @@
 #                          and left ONE set of seven prove-records-* directories,
 #                          all of them shipping-units'.
 #
-# It is pinned by lib/harness.test.sh (case 6) against the real gate.main(), and
-# that check is proven load-bearing by mutation in case 7 — the same bar
-# --prove-records holds the record checks to.
+#   the log is flushed     Every line reaches stdout as it is produced, so a run
+#                          that is redirected to a file — which is what an
+#                          operator does with a run that takes minutes — shows
+#                          progress, and a run that is INTERRUPTED still holds
+#                          the steps that had already finished. Unflushed,
+#                          `--prove-records > log` sat at 0 bytes for 3 seconds
+#                          of a 4-second run and emitted all 8017 at exit;
+#                          SIGKILL at 2 seconds left a 0-byte log after six
+#                          mutants had been built and graded.
+#
+# Both are pinned by lib/harness.test.sh (cases 6 and 7) against the real
+# gate.main(), and both checks are proven load-bearing by mutation in case 8 —
+# the same bar --prove-records holds the record checks to.
 #
 # THE TWO-SCENARIO RUNS RECORDED BELOW PREDATE THE SCOPING FIX. Their logs are
 # unaffected and are the evidence quoted; but if an --out directory from one of
