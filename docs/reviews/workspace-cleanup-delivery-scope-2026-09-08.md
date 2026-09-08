@@ -32,14 +32,14 @@ with an entirely new execution platform is an implementation proposal.
 
 ## Remaining delivery checklist
 
-- [ ] Identify the smallest existing lifecycle path that meets the requirements
+- [x] Identify the smallest existing lifecycle path that meets the requirements
   for both ordinary terminal work and RichOS-managed work. Record any actual
   gap without silently narrowing the user's requested environments.
-- [ ] Verify the completion gate rejects dirty or unintegrated deliverables and
+- [x] Verify the completion gate rejects dirty or unintegrated deliverables and
   accepts a clean integrated result in the intended repository.
-- [ ] Verify automatic cleanup for native ownership boundaries, cross-repository
+- [x] Verify automatic cleanup for native ownership boundaries, cross-repository
   work, dead branches and interrupted cleanup, while preserving active work.
-- [ ] Verify the configured engine loads and the required lifecycle hooks run.
+- [x] Verify the configured engine loads and the required lifecycle hooks run.
 - [ ] Resolve failures relevant to that delivery path and complete Sage and
   Frank review of the exact changes being shipped.
 - [ ] Merge and push the tested changes, then activate the required installation.
@@ -77,3 +77,23 @@ separately if necessary and select only the reviewed delivery changes for merge.
 Do not describe cooperative hooks as an operating-system security boundary or
 claim that arbitrary future writes are impossible. These limits do not excuse
 missing ordinary workflow cleanup or dropping terminal support from the job.
+
+## Verification recorded before rollout
+
+The selected branch uses the existing completion hook and terminal reconciler.
+Completion verification passed 20 controls. A real installed Claude Code session
+kept a dirty fixture task open and accepted a clean integrated fixture with one
+receipt. The configured RichOS plugin loaded; the fixture registered the selected
+hook explicitly. Installed-file verification follows the canonical merge.
+
+Daily cleanup passed 16 controls, independently repeated by Frank and in the
+assembled delivery checkout. The explicit backlog discard passed nine actual
+Git controls. The femcboost ECS wrapper uses the same verifier before appending
+completion, with refusal controls and its existing crash recovery suite passing.
+
+The selected updater passed its 37 library tests, startup execution test and
+69 app tests. The signed updater acceptance run passed ten controls. The broader
+prototype runtime is preserved separately and is not included in this delivery.
+
+Normal cleanup is a background operation. Its time budget is checked between
+members, so it does not promise a hard cancellation deadline during file reads.
