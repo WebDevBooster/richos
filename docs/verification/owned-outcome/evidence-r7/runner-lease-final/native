@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+import json,os,sys,time
+from pathlib import Path
+root=Path(os.environ['RICHOS_LEASE_FIXTURE'])
+for line in sys.stdin:
+ m=json.loads(line)
+ if m.get('type')=='control_request':
+  print(json.dumps({'type':'control_response','response':{'subtype':'success','request_id':m['request_id'],'response':{}}}),flush=True)
+ elif m.get('type')=='user':
+  (root/'provider-started').write_text(str(os.getpid()))
+  deadline=time.monotonic()+15
+  while not (root/'release').exists() and time.monotonic()<deadline: time.sleep(0.02)
+  print(json.dumps({'type':'result','subtype':'success','stop_reason':'end_turn','structured_output':{'result':{'kind':'incomplete','remaining':'The fixture repair remains unfinished.'}}}),flush=True)

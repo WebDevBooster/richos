@@ -1,0 +1,32 @@
+{
+  "case": "detached-orphan-fresh",
+  "kind": "orphan-fresh",
+  "provider_calls": 0,
+  "checks": {
+    "old_hook_detached_and_sleeping_under_lock": true,
+    "barrier_holds_only_old_audit_lock": true,
+    "pid_only_death_leaves_old_audit_alive": true,
+    "real_old_owner_dead": true,
+    "orphan_cannot_wake_or_inspect": true,
+    "only_replacement_hook_inspects_and_wakes": true,
+    "one_immediate_reconciliation_without_hour_sleep": true,
+    "orphan_cannot_reserve_or_publish_reconciliation": true,
+    "wake_ack_follows_actual_cli_output": true,
+    "transfer_credit_durably_claimed_once": true,
+    "same_replacement_owns_assignment": true,
+    "inspection_budget_not_refilled": true,
+    "reconciliation_gate_cleared": true,
+    "original_source_and_constraints_retained": true,
+    "repeated_start_stop_cannot_buy_inspection_credit": true,
+    "no_human_assignment_resent": true,
+    "replacement_transcript_has_no_synthetic_assignment": true,
+    "no_owned_fixture_processes_remain": true,
+    "private_raw_evidence_has_restricted_permissions": true
+  },
+  "reconciliation_timing": {
+    "elapsed_seconds": 0.383422957995208,
+    "deadline_seconds": 4,
+    "straggler_poll_contract_seconds": null
+  },
+  "passed": true
+}

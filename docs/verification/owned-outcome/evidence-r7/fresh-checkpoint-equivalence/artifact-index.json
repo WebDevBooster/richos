@@ -1,0 +1,123 @@
+{
+  "boundary": "Copied immutable final state and transcript snapshots. Removed only invocation IDs in its final recorded completion checkpoint from completion_consumed_invocations. Rebound transcript paths to byte-identical private snapshot copies. No messages, timing, execution, ownership or terminal rows changed. This is a derived preclaim classifier replay, not another live trial.",
+  "private_archive": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1",
+  "records": [
+    {
+      "original": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/result.json",
+      "bytes": 7452,
+      "copy_bytes": 7452,
+      "sha256": "a09d316cf2b8730129ddb6175eb1abdc913ab1f1a4852c622d1fd3e6717fbae4",
+      "original_sha256": "a09d316cf2b8730129ddb6175eb1abdc913ab1f1a4852c622d1fd3e6717fbae4",
+      "copy_sha256": "a09d316cf2b8730129ddb6175eb1abdc913ab1f1a4852c622d1fd3e6717fbae4",
+      "copy": "docs/verification/owned-outcome/evidence-r7/fresh-checkpoint-equivalence/result.json"
+    },
+    {
+      "original": "/tmp/richos-r7-fresh-checkpoint-compare.py",
+      "bytes": 4330,
+      "copy_bytes": 4330,
+      "sha256": "a38af0bf5b536fb89f25efa3680ba219bd5e195dc4418a8c93c8264106badbc0",
+      "original_sha256": "a38af0bf5b536fb89f25efa3680ba219bd5e195dc4418a8c93c8264106badbc0",
+      "copy_sha256": "a38af0bf5b536fb89f25efa3680ba219bd5e195dc4418a8c93c8264106badbc0",
+      "copy": "docs/verification/owned-outcome/evidence-r7/fresh-checkpoint-equivalence/comparison-script.py"
+    },
+    {
+      "original": "/tmp/richos-r7-fresh-checkpoint-compare.log",
+      "bytes": 214,
+      "copy_bytes": 214,
+      "sha256": "d2f41a5aa5045782f86781cbaba5bf6bc95fbff5e7299dd6d9acdbe5e1ee15a5",
+      "original_sha256": "d2f41a5aa5045782f86781cbaba5bf6bc95fbff5e7299dd6d9acdbe5e1ee15a5",
+      "copy_sha256": "d2f41a5aa5045782f86781cbaba5bf6bc95fbff5e7299dd6d9acdbe5e1ee15a5",
+      "copy": "docs/verification/owned-outcome/evidence-r7/fresh-checkpoint-equivalence/comparison.log"
+    },
+    {
+      "original": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/old-adapter.py",
+      "bytes": 100370,
+      "copy_bytes": 100370,
+      "sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+      "original_sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+      "copy_sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+      "copy": "docs/verification/owned-outcome/evidence-r7/fresh-checkpoint-equivalence/old-adapter.py"
+    },
+    {
+      "original": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/new-adapter.py",
+      "bytes": 104082,
+      "copy_bytes": 104082,
+      "sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+      "original_sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+      "copy_sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+      "copy": "docs/verification/owned-outcome/evidence-r7/fresh-checkpoint-equivalence/new-adapter.py"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/runtime-snapshot/engine/scripts/lib/owned-session.py",
+      "bytes": 100370,
+      "copy_bytes": 100370,
+      "sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+      "original_sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+      "copy_sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/old-adapter.py"
+    },
+    {
+      "original": "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py",
+      "bytes": 104082,
+      "copy_bytes": 104082,
+      "sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+      "original_sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+      "copy_sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/new-adapter.py"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/state/5559dec13cecbd38b719b0d29b3aec1558c6a6919bcd757311985aaa3dc6815e.json",
+      "bytes": 172990,
+      "copy_bytes": 172990,
+      "sha256": "a3dfab22239d0cf7fae38fe82a1abd9e7dd652730c47fc0ead0f98076537a8f5",
+      "original_sha256": "a3dfab22239d0cf7fae38fe82a1abd9e7dd652730c47fc0ead0f98076537a8f5",
+      "copy_sha256": "a3dfab22239d0cf7fae38fe82a1abd9e7dd652730c47fc0ead0f98076537a8f5",
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/original-state.json"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/transcript-fd01ca96-0cfa-4880-bb58-96e8f645855a.jsonl",
+      "bytes": 333411,
+      "copy_bytes": 333411,
+      "sha256": "748c11e5c24c6307aa1595451da0a3566b8a0d5ec20d49be8138635f146ec08c",
+      "original_sha256": "748c11e5c24c6307aa1595451da0a3566b8a0d5ec20d49be8138635f146ec08c",
+      "copy_sha256": "748c11e5c24c6307aa1595451da0a3566b8a0d5ec20d49be8138635f146ec08c",
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/transcripts/fd01ca96-0cfa-4880-bb58-96e8f645855a.jsonl"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/transcript-ae9f6b6d-0425-4a25-a6d5-7e4b7b242176.jsonl",
+      "bytes": 594910,
+      "copy_bytes": 594910,
+      "sha256": "17d02bd7f4e19003e7d11933f5695b63031b73b2ddee5a99d6541f9efed896e4",
+      "original_sha256": "17d02bd7f4e19003e7d11933f5695b63031b73b2ddee5a99d6541f9efed896e4",
+      "copy_sha256": "17d02bd7f4e19003e7d11933f5695b63031b73b2ddee5a99d6541f9efed896e4",
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/transcripts/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176.jsonl"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/transcript-child-agent-a4b28d16af28fe54a.jsonl",
+      "bytes": 275335,
+      "copy_bytes": 275335,
+      "sha256": "b9394bbbf5187e197879f88feec3dcbacdb251147c2d94480ccbb19754851671",
+      "original_sha256": "b9394bbbf5187e197879f88feec3dcbacdb251147c2d94480ccbb19754851671",
+      "copy_sha256": "b9394bbbf5187e197879f88feec3dcbacdb251147c2d94480ccbb19754851671",
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/transcripts/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176/subagents/agent-a4b28d16af28fe54a.jsonl"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/transcript-child-agent-abfae99e48ec21b2f.jsonl",
+      "bytes": 77405,
+      "copy_bytes": 77405,
+      "sha256": "d8a6c018d2bd1653999d475a43a4299c4b6443f2581f2618a9c45fc8c191b130",
+      "original_sha256": "d8a6c018d2bd1653999d475a43a4299c4b6443f2581f2618a9c45fc8c191b130",
+      "copy_sha256": "d8a6c018d2bd1653999d475a43a4299c4b6443f2581f2618a9c45fc8c191b130",
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/transcripts/fd01ca96-0cfa-4880-bb58-96e8f645855a/subagents/agent-abfae99e48ec21b2f.jsonl"
+    },
+    {
+      "original": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/derived-state.json",
+      "bytes": 180185,
+      "copy_bytes": 180185,
+      "sha256": "994aace218e727f1188f510f2efd0ebc8d764ca8df239bcde16e7f1ef60c69d0",
+      "original_sha256": "994aace218e727f1188f510f2efd0ebc8d764ca8df239bcde16e7f1ef60c69d0",
+      "copy_sha256": "994aace218e727f1188f510f2efd0ebc8d764ca8df239bcde16e7f1ef60c69d0",
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/derived-state.json"
+    }
+  ]
+}

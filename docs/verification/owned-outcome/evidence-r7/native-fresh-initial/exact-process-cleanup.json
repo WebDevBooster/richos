@@ -1,0 +1,65 @@
+{
+  "before": [
+    {
+      "pid": 11755,
+      "ppid": 66330,
+      "pgid": 11755,
+      "status": "Ss",
+      "started": "Wed Sep 9 14:34:00 2026",
+      "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+    },
+    {
+      "pid": 12743,
+      "ppid": 11755,
+      "pgid": 11755,
+      "status": "S",
+      "started": "Wed Sep 9 14:34:00 2026",
+      "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+    },
+    {
+      "pid": 66330,
+      "ppid": 17293,
+      "pgid": 66330,
+      "status": "Ss",
+      "started": "Wed Sep 9 14:22:13 2026",
+      "command": "/Users/alex/.local/bin/claude"
+    }
+  ],
+  "signals": [
+    {
+      "identity": {
+        "pid": 66330,
+        "ppid": 17293,
+        "pgid": 66330,
+        "status": "Ss",
+        "started": "Wed Sep 9 14:22:13 2026",
+        "command": "/Users/alex/.local/bin/claude"
+      },
+      "signal": "SIGTERM"
+    },
+    {
+      "identity": {
+        "pid": 12743,
+        "ppid": 11755,
+        "pgid": 11755,
+        "status": "S",
+        "started": "Wed Sep 9 14:34:00 2026",
+        "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+      },
+      "signal": "SIGTERM"
+    },
+    {
+      "identity": {
+        "pid": 66330,
+        "ppid": 17293,
+        "pgid": 66330,
+        "status": "Ss",
+        "started": "Wed Sep 9 14:22:13 2026",
+        "command": "/Users/alex/.local/bin/claude"
+      },
+      "signal": "SIGKILL"
+    }
+  ],
+  "after": [],
+  "all_owned_processes_stopped": true
+}

@@ -2,7 +2,7 @@
 
 Record suggestions here without silently adding them to the implementation scope.
 The remaining requirements below are not optional improvements and are not claims
-of implemented behavior. [REVISION-6.md](REVISION-6.md) defines the current
+of implemented behavior. [REVISION-7.md](REVISION-7.md) defines the current
 correction boundary; historical results remain in their numbered reports.
 
 ## Observed remaining requirements
@@ -129,3 +129,24 @@ the native hook transport was measured on 2.1.263 and 2.1.266, not every release
   capability would need exact identity binding and native permission enforcement;
   it must not turn a recovery notice into blanket Bash or process-kill authority.
   Fresh-session recovery continues to use its normal permitted diagnostic tools.
+
+## Considered during revision 7, outside its fix
+
+- Consider a separately paced reminder based on the last source-bound incomplete
+  inspection while paid inspection is cooling down. First fix the observed lost
+  diagnostic delivery, then measure whether reminders are needed. Such reminders
+  would still cost native model tokens and must not repeat stale facts, manufacture
+  child work to earn inspection credit or refill inspection allowances. No reminder
+  loop or general change to verification-credit policy is included in R7.
+- Assess the boundary between fresh-session diagnosis and repair while transfer
+  is withheld. In the first R7 fresh trial, the replacement edited fixture files
+  using its normally permitted tools before the old group's residual process
+  exited. The registered Agent dispatch remained gated, but ownership bookkeeping
+  is not an exclusive filesystem execution fence. A stricter distinction must
+  preserve legitimate fresh-session diagnosis and existing native permissions;
+  it is separate from the orphaned-inspector fix.
+- Prefer a native per-invocation identifier on every resumed completion notice.
+  The observed missing-ID carrier now needs strict output-generation evidence.
+  Legitimate but identical reports across generations remain ambiguous and must
+  not earn credit by guesswork. Broader host-carrier compatibility needs equally
+  strong provenance rather than loosening completion or human-input checks.

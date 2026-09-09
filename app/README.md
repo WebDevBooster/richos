@@ -1667,3 +1667,5 @@ addresses native operational briefs, bounded dispatch context and restart owners
 The [sixth revision](../docs/verification/owned-outcome/REVISION-6.md) removes the
 inherited restart delay and makes withheld recovery visible with automatic
 liveness rechecks.
+The [seventh revision](../docs/verification/owned-outcome/REVISION-7.md) binds
+checkers to their actual native process through crash recovery and wake delivery.

@@ -1,0 +1,12 @@
+{
+  "recorded_operational_inputs": [],
+  "transcript_unexpected_inputs": [],
+  "transcript_initial_count": 1,
+  "argv_initial_count": 1,
+  "matched_system_messages": 0,
+  "matched_recorded_restart_notifications": [],
+  "matched_bound_completed_notifications": [],
+  "matched_bound_bash_notifications": [],
+  "operational_followups": 0,
+  "confirmed": true
+}

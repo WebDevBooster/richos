@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "enabled": true,
+  "decision_policy": "dependency",
+  "permission_policy": "native",
+  "runner": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fake-inspector"
+}

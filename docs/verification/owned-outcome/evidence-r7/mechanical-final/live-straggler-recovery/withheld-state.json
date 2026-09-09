@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "session_id": "replacement",
+  "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-b12wl71x/live-straggler-recovery/workspace",
+  "messages": [],
+  "revision": 1,
+  "failures": 0,
+  "source_ids": [],
+  "recovered_transcripts": [],
+  "withheld_recoveries": [
+    {
+      "session": "old",
+      "owner_process": {
+        "pid": 12069,
+        "pgid": 12069,
+        "started": "Wed Sep 9 14:18:32 2026",
+        "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-b12wl71x/claude"
+      },
+      "reason": "residual_process_group",
+      "live_processes": [
+        {
+          "pid": 12075,
+          "ppid": 1,
+          "pgid": 12069,
+          "started": "Wed Sep 9 14:18:32 2026",
+          "command": "/bin/sleep"
+        }
+      ]
+    }
+  ],
+  "provenance_version": 1,
+  "ownership": {
+    "owner_session_id": "replacement",
+    "process": {
+      "pid": 12083,
+      "pgid": 12083,
+      "started": "Wed Sep 9 14:18:32 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-b12wl71x/claude"
+    },
+    "recovered_sessions": [],
+    "started_at": 1788963513.1041942
+  },
+  "source_status": "available",
+  "source_transcript": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-b12wl71x/live-straggler-recovery/replacement-transcript.jsonl",
+  "execution_observations": [],
+  "background_tasks": [],
+  "event": "SessionStart",
+  "updated_at": 1788963513.10554
+}

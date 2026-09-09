@@ -1,0 +1,1 @@
+PASS: composed prepare-only fixture contains exactly one synchronous240-second scheduling/interruption hook, preserves all original hooks/permissions and compiles; no provider calls; evidence /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-jijjznko

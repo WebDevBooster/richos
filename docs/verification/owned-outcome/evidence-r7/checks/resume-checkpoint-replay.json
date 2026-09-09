@@ -1,0 +1,63 @@
+{
+  "old_source_sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+  "candidate_source_sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+  "original_batch": null,
+  "candidate_batch": {
+    "id": "b2ba1d6b7cbe5d952f657199b48a073b20a5d37197c5057966ffd449d5c3ca9e",
+    "invocations": [
+      "5eb68203-b607-4908-b576-8d76d2277add:a3d4f1699fcdf00b8:toolu_01FH4NUi2XH9JFgwFWnXXb9g",
+      "5eb68203-b607-4908-b576-8d76d2277add:leader:toolu_01PGfgS9XTrndANqtbs613n4"
+    ],
+    "terminals": [
+      {
+        "invocation": "5eb68203-b607-4908-b576-8d76d2277add:leader:toolu_01PGfgS9XTrndANqtbs613n4",
+        "source_id": "326d0f68-98e7-42d0-9774-a77c45a7e4e3",
+        "at": 1788965741.055,
+        "resumed_report_source_id": "660c2dfd-fa8e-4270-acee-0ee3bfaf56f5",
+        "prior_stopped_source_id": "88bbff6d-afc8-425d-8506-c91e971f0130"
+      },
+      {
+        "invocation": "5eb68203-b607-4908-b576-8d76d2277add:a3d4f1699fcdf00b8:toolu_01FH4NUi2XH9JFgwFWnXXb9g",
+        "source_id": "ccf5582e-fffb-4677-bd38-ec39716179bc",
+        "at": 1788965723.11
+      }
+    ],
+    "successful_receipt_ids": [
+      "a3d4f1699fcdf00b8:toolu_011VxuqxZNeV9skw7Uvu6zpH",
+      "a3d4f1699fcdf00b8:toolu_014Y837ykD6s793WHxJjzvUg",
+      "a3d4f1699fcdf00b8:toolu_017g1e3BNNgm9BUA95YoRzxq",
+      "a3d4f1699fcdf00b8:toolu_01932LA7ojVgcNi9Ey7kQQ2r",
+      "a3d4f1699fcdf00b8:toolu_019eEWtmrUx3nTJ6r21xLMDo",
+      "a3d4f1699fcdf00b8:toolu_01Ez2CDteRLsbz8PagTdTaj7",
+      "a3d4f1699fcdf00b8:toolu_01SY7Q24yLiQoeVBhcjje4HS",
+      "a3d4f1699fcdf00b8:toolu_01UjyEhbm2SYEAXit7FfCRbg",
+      "a3d4f1699fcdf00b8:toolu_01ViWj3aFubPWHtAhxYFXM5L",
+      "a3d4f1699fcdf00b8:toolu_01WpmHmynzfe7WRLQGRmoHuo",
+      "ab23130adf1595706:toolu_013wCrp41cVD3jcHKJZK3Jjj",
+      "ab23130adf1595706:toolu_014mNXyweJ2UQULMJ2CVsV6g",
+      "ab23130adf1595706:toolu_01A1xUvdCZLpTFts7VbQQHjN",
+      "ab23130adf1595706:toolu_01BjUnbeJd71uhFJ46h6CSj8",
+      "ab23130adf1595706:toolu_01DMSPkGLqrJoLxB7PhDhNBv",
+      "ab23130adf1595706:toolu_01K4yZ3ywVGGYAUedoqrQfVH",
+      "ab23130adf1595706:toolu_01L9BmQuX6DbBEtvG3mXYedM",
+      "ab23130adf1595706:toolu_01NQr3fM118ka9bYHqrewFUG",
+      "ab23130adf1595706:toolu_01QBbRW3d8pjriHtSvVi8MUS",
+      "ab23130adf1595706:toolu_01QNKuXjLkHCMQyog7jqTeZ4",
+      "ab23130adf1595706:toolu_01RhShExB8A2LKziCQU496iy",
+      "ab23130adf1595706:toolu_01Rm6veBnqiHKiAD6SkV3hKe",
+      "ab23130adf1595706:toolu_01RwYCoJccv8iAxXo9KWiXbZ",
+      "ab23130adf1595706:toolu_01TBp9VVCF7rJSo1phiru3cU",
+      "ab23130adf1595706:toolu_01Ut7rL6DyHzhd3X8LUjSh7J",
+      "ab23130adf1595706:toolu_01YKScNpNhsshj7py6TKt4EF"
+    ]
+  },
+  "negative_mutations_rejected": [
+    "no-stop",
+    "human-stop",
+    "human-completion",
+    "old-completion-result"
+  ],
+  "duplicate_checkpoint_rejected": true,
+  "immutable_snapshot_hashes_unchanged": true,
+  "provider_calls": 0
+}

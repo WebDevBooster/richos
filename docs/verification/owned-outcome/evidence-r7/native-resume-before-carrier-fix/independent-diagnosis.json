@@ -1,0 +1,62 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "authority": {
+        "file": "requirements.md",
+        "text": "Current approved contract: native workspaces return platform-pending; external workspaces return verified.",
+        "note": "backlog.md records the PREVIOUS contract ('native workspaces return verified') and is historical only; it was not treated as authority and was not edited."
+      },
+      "native": {
+        "requirement": "native workspaces return platform-pending",
+        "implementation_before": "lifecycle.py returned 'platform-pending' for owner == 'native'",
+        "implementation_after": "unchanged - already correct",
+        "test_before": "test_native asserted status('native') == 'verified'",
+        "test_after": "test_native asserts status('native') == 'platform-pending'",
+        "what_changed": "test_lifecycle.py only",
+        "why": "The implementation already matched the approved contract. The test still encoded the superseded contract from backlog.md ('native workspaces return verified'), so the incorrect state came from a stale test assertion, not from the code."
+      },
+      "external": {
+        "requirement": "external workspaces return verified",
+        "implementation_before": "lifecycle.py returned 'bound' for every non-native owner, including 'external'",
+        "implementation_after": "lifecycle.py returns 'verified' for every non-native owner, including 'external'",
+        "test_before": "test_external asserted status('external') == 'verified'",
+        "test_after": "unchanged - already correct",
+        "what_changed": "lifecycle.py only",
+        "why": "The test already asserted the approved contract value 'verified'. The code returned 'bound', a value that appears in neither requirements.md nor backlog.md, so the code did not match the approved contract."
+      },
+      "verification": {
+        "command": "python3 -m unittest test_lifecycle -v",
+        "result": "Ran 2 tests - OK (0 failures, 0 errors)",
+        "coverage": "Both owners remain covered by one test case each; no tests were skipped, weakened or removed."
+      },
+      "scope": {
+        "files_modified": [
+          "lifecycle.py",
+          "test_lifecycle.py"
+        ],
+        "files_created": [
+          "diagnosis.json",
+          "improvements.md"
+        ],
+        "files_deliberately_untouched": [
+          "requirements.md",
+          "backlog.md",
+          "README.md",
+          "ceo-items.md",
+          "CEO-TODOs.md",
+          "decision-D7.md"
+        ],
+        "deletions": "none",
+        "dependencies_added": "none (stdlib unittest only)"
+      }
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "base_commit": "125906f5f02057091f3e427b5a89cfda834fcfa4",
+  "branch": "codex/owned-outcome-completion",
+  "files": {
+    "app/README.md": "0608757a7ab964b1db6dc3f01493905443d9dd17117a19889b0faed3df25f0c8",
+    "app/scripts/test-owned-recovery.py": "ce2554ca67bc23bae3f47c44b9faaf1e7e4662413921088d60e1e9c024969d5d",
+    "app/scripts/test-owned-wake-native.py": "722103bfeea9b3f0f5f56dbd79e1186220e4409493d0725a95c5e112381f3aac",
+    "docs/verification/owned-outcome/IMPROVEMENTS.md": "47cd71652954587148532887afdd40c59b2516d86f37dd727680e059f6266614",
+    "docs/verification/owned-outcome/RESULTS-7.md": "0dc0e44f2087a89639dda4c45b7a7017c5776e49c197c99c33efd18e8f65629e",
+    "docs/verification/owned-outcome/REVIEW.md": "a968f1a01b46e8580e3ad74696fde59d79d949a9b8e489a175aaa3206945f89b",
+    "docs/verification/owned-outcome/REVISION-7.md": "3db11cf45bd17ad01a2ce615c9f301bbeb40fb029a69288999d5d5aee7b99925",
+    "engine/scripts/lib/owned-session.py": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+    "engine/scripts/lib/owned-session.test.py": "ae0cbb68420b79e76ea4b086aa1054e35c594c121919fbe7e549da5b1b8315ab"
+  }
+}

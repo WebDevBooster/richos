@@ -1,0 +1,6402 @@
+[
+  {
+    "pid": 17936,
+    "ppid": 17896,
+    "pgid": 17936,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:54 2026",
+    "command": "/Users/alex/.local/bin/claude"
+  },
+  {
+    "pid": 17952,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:54 2026",
+    "command": "(security)"
+  },
+  {
+    "pid": 17954,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:54 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 19606,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 19607,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 19608,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 19870,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 19873,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 19885,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 19917,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 19918,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "gh"
+  },
+  {
+    "pid": 19919,
+    "ppid": 17936,
+    "pgid": 19919,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 19927,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "/bin/sh"
+  },
+  {
+    "pid": 19932,
+    "ppid": 19919,
+    "pgid": 19919,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(cat)"
+  },
+  {
+    "pid": 19933,
+    "ppid": 17936,
+    "pgid": 19933,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 19934,
+    "ppid": 17936,
+    "pgid": 19934,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 19935,
+    "ppid": 17936,
+    "pgid": 19935,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 19936,
+    "ppid": 19927,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 19938,
+    "ppid": 19927,
+    "pgid": 17936,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "grep"
+  },
+  {
+    "pid": 19939,
+    "ppid": 19927,
+    "pgid": 17936,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "grep"
+  },
+  {
+    "pid": 19946,
+    "ppid": 17936,
+    "pgid": 19946,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 19948,
+    "ppid": 17936,
+    "pgid": 19948,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 19949,
+    "ppid": 17936,
+    "pgid": 19949,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 19950,
+    "ppid": 17936,
+    "pgid": 19950,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 19952,
+    "ppid": 17936,
+    "pgid": 19952,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 19954,
+    "ppid": 17936,
+    "pgid": 19954,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 20020,
+    "ppid": 19933,
+    "pgid": 19933,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 20023,
+    "ppid": 19934,
+    "pgid": 19934,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 20031,
+    "ppid": 19918,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(security)"
+  },
+  {
+    "pid": 20048,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "gh"
+  },
+  {
+    "pid": 20081,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 20084,
+    "ppid": 19952,
+    "pgid": 19952,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20085,
+    "ppid": 19919,
+    "pgid": 19919,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 20086,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 20090,
+    "ppid": 19954,
+    "pgid": 19954,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20091,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 20093,
+    "ppid": 19950,
+    "pgid": 19950,
+    "status": "Z",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 20100,
+    "ppid": 19948,
+    "pgid": 19948,
+    "status": "?",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20103,
+    "ppid": 20084,
+    "pgid": 19952,
+    "status": "?E",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20104,
+    "ppid": 19949,
+    "pgid": 19949,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20106,
+    "ppid": 20100,
+    "pgid": 19948,
+    "status": "?E",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20110,
+    "ppid": 19946,
+    "pgid": 19946,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20218,
+    "ppid": 19934,
+    "pgid": 19934,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 20315,
+    "ppid": 19948,
+    "pgid": 19948,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 20317,
+    "ppid": 20315,
+    "pgid": 19948,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 20331,
+    "ppid": 19935,
+    "pgid": 19935,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 20341,
+    "ppid": 20020,
+    "pgid": 19933,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20355,
+    "ppid": 19950,
+    "pgid": 19950,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20360,
+    "ppid": 20355,
+    "pgid": 19950,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(tr)"
+  },
+  {
+    "pid": 20361,
+    "ppid": 20355,
+    "pgid": 19950,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(cut)"
+  },
+  {
+    "pid": 20362,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(2.1.266)"
+  },
+  {
+    "pid": 20363,
+    "ppid": 19952,
+    "pgid": 19952,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20364,
+    "ppid": 19946,
+    "pgid": 19946,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20365,
+    "ppid": 20341,
+    "pgid": 19933,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20422,
+    "ppid": 20218,
+    "pgid": 19934,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 20516,
+    "ppid": 17936,
+    "pgid": 20516,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 20524,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "caffeinate"
+  },
+  {
+    "pid": 20538,
+    "ppid": 20516,
+    "pgid": 20516,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 20563,
+    "ppid": 20516,
+    "pgid": 20516,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 20564,
+    "ppid": 20516,
+    "pgid": 20516,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 20569,
+    "ppid": 17936,
+    "pgid": 20569,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 20586,
+    "ppid": 20563,
+    "pgid": 20516,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 20598,
+    "ppid": 20569,
+    "pgid": 20569,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20601,
+    "ppid": 20598,
+    "pgid": 20569,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 20620,
+    "ppid": 20569,
+    "pgid": 20569,
+    "status": "S",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 20621,
+    "ppid": 20620,
+    "pgid": 20569,
+    "status": "R",
+    "started": "Wed Sep 9 14:20:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 21763,
+    "ppid": 17936,
+    "pgid": 21763,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:00 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 23257,
+    "ppid": 17936,
+    "pgid": 23257,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:02 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 23259,
+    "ppid": 17936,
+    "pgid": 23259,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:02 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 23289,
+    "ppid": 23257,
+    "pgid": 23257,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:02 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 23326,
+    "ppid": 23257,
+    "pgid": 23257,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:02 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 23327,
+    "ppid": 23257,
+    "pgid": 23257,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:02 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 23447,
+    "ppid": 17936,
+    "pgid": 23447,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:03 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 23680,
+    "ppid": 17936,
+    "pgid": 23680,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:03 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 23687,
+    "ppid": 17936,
+    "pgid": 23687,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:03 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 23709,
+    "ppid": 23680,
+    "pgid": 23680,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:03 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 23731,
+    "ppid": 23680,
+    "pgid": 23680,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:03 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 23732,
+    "ppid": 23680,
+    "pgid": 23680,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:03 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 24110,
+    "ppid": 17936,
+    "pgid": 24110,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 24117,
+    "ppid": 17936,
+    "pgid": 24117,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 24144,
+    "ppid": 24110,
+    "pgid": 24110,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 24168,
+    "ppid": 24110,
+    "pgid": 24110,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 24169,
+    "ppid": 24110,
+    "pgid": 24110,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 24577,
+    "ppid": 17936,
+    "pgid": 24577,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 24583,
+    "ppid": 17936,
+    "pgid": 24583,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 24593,
+    "ppid": 24577,
+    "pgid": 24577,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 24620,
+    "ppid": 24577,
+    "pgid": 24577,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:04 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 24680,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "U",
+    "started": "Wed Sep 9 14:21:05 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 27043,
+    "ppid": 17936,
+    "pgid": 27043,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:09 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 27044,
+    "ppid": 17936,
+    "pgid": 27044,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:09 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 27055,
+    "ppid": 27043,
+    "pgid": 27043,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:09 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 27072,
+    "ppid": 27043,
+    "pgid": 27043,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:09 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 27073,
+    "ppid": 27043,
+    "pgid": 27043,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:09 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 27820,
+    "ppid": 17936,
+    "pgid": 27820,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:10 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 27825,
+    "ppid": 17936,
+    "pgid": 27825,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:10 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 27836,
+    "ppid": 27820,
+    "pgid": 27820,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:10 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 27851,
+    "ppid": 27820,
+    "pgid": 27820,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:10 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 28270,
+    "ppid": 17936,
+    "pgid": 28270,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 28271,
+    "ppid": 17936,
+    "pgid": 28271,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 28279,
+    "ppid": 28271,
+    "pgid": 28271,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 28282,
+    "ppid": 28279,
+    "pgid": 28271,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 28289,
+    "ppid": 28270,
+    "pgid": 28270,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 28368,
+    "ppid": 17936,
+    "pgid": 28368,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 28372,
+    "ppid": 17936,
+    "pgid": 28372,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 28391,
+    "ppid": 28368,
+    "pgid": 28368,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 28397,
+    "ppid": 28372,
+    "pgid": 28372,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 28398,
+    "ppid": 28397,
+    "pgid": 28372,
+    "status": "?E",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 28399,
+    "ppid": 28397,
+    "pgid": 28372,
+    "status": "U",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 28428,
+    "ppid": 28368,
+    "pgid": 28368,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:11 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 36334,
+    "ppid": 17936,
+    "pgid": 36334,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 36335,
+    "ppid": 17936,
+    "pgid": 36335,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 36339,
+    "ppid": 17936,
+    "pgid": 36339,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36340,
+    "ppid": 17936,
+    "pgid": 36340,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36341,
+    "ppid": 17936,
+    "pgid": 36341,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36342,
+    "ppid": 17936,
+    "pgid": 36342,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36343,
+    "ppid": 17936,
+    "pgid": 36343,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36344,
+    "ppid": 17936,
+    "pgid": 36344,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36345,
+    "ppid": 17936,
+    "pgid": 36345,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36349,
+    "ppid": 17936,
+    "pgid": 36349,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36362,
+    "ppid": 36339,
+    "pgid": 36339,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36370,
+    "ppid": 36362,
+    "pgid": 36339,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 36456,
+    "ppid": 36334,
+    "pgid": 36334,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 36468,
+    "ppid": 36335,
+    "pgid": 36335,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 36469,
+    "ppid": 36343,
+    "pgid": 36343,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36480,
+    "ppid": 36340,
+    "pgid": 36340,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36483,
+    "ppid": 36344,
+    "pgid": 36344,
+    "status": "?",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36486,
+    "ppid": 36480,
+    "pgid": 36340,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 36487,
+    "ppid": 36341,
+    "pgid": 36341,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36488,
+    "ppid": 36487,
+    "pgid": 36341,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36490,
+    "ppid": 36349,
+    "pgid": 36349,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36579,
+    "ppid": 36349,
+    "pgid": 36349,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36583,
+    "ppid": 36579,
+    "pgid": 36349,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 36591,
+    "ppid": 36343,
+    "pgid": 36343,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36594,
+    "ppid": 36591,
+    "pgid": 36343,
+    "status": "?E",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 36599,
+    "ppid": 36345,
+    "pgid": 36345,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36604,
+    "ppid": 36599,
+    "pgid": 36345,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 36611,
+    "ppid": 36334,
+    "pgid": 36334,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 36614,
+    "ppid": 36335,
+    "pgid": 36335,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 36616,
+    "ppid": 36335,
+    "pgid": 36335,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 36617,
+    "ppid": 36334,
+    "pgid": 36334,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 36631,
+    "ppid": 36340,
+    "pgid": 36340,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36635,
+    "ppid": 36631,
+    "pgid": 36340,
+    "status": "?",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 36638,
+    "ppid": 36342,
+    "pgid": 36342,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36639,
+    "ppid": 36341,
+    "pgid": 36341,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 36641,
+    "ppid": 36638,
+    "pgid": 36342,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 36642,
+    "ppid": 36639,
+    "pgid": 36341,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 36783,
+    "ppid": 36614,
+    "pgid": 36335,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36859,
+    "ppid": 36783,
+    "pgid": 36335,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 36883,
+    "ppid": 36859,
+    "pgid": 36335,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 36936,
+    "ppid": 36614,
+    "pgid": 36335,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 37065,
+    "ppid": 36936,
+    "pgid": 36335,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:27 2026",
+    "command": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-pjdo181c/richos-run-snapshot"
+  },
+  {
+    "pid": 37117,
+    "ppid": 37065,
+    "pgid": 37117,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:28 2026",
+    "command": "/Users/alex/.local/bin/claude"
+  },
+  {
+    "pid": 37586,
+    "ppid": 37117,
+    "pgid": 37117,
+    "status": "Z",
+    "started": "Wed Sep 9 14:21:28 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 37676,
+    "ppid": 37117,
+    "pgid": 37117,
+    "status": "U",
+    "started": "Wed Sep 9 14:21:28 2026",
+    "command": "(sh)"
+  },
+  {
+    "pid": 52056,
+    "ppid": 17936,
+    "pgid": 52056,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 52057,
+    "ppid": 17936,
+    "pgid": 52057,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 52058,
+    "ppid": 17936,
+    "pgid": 52058,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52059,
+    "ppid": 17936,
+    "pgid": 52059,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52060,
+    "ppid": 17936,
+    "pgid": 52060,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52062,
+    "ppid": 17936,
+    "pgid": 52062,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52063,
+    "ppid": 17936,
+    "pgid": 52063,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52064,
+    "ppid": 17936,
+    "pgid": 52064,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52065,
+    "ppid": 17936,
+    "pgid": 52065,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52066,
+    "ppid": 17936,
+    "pgid": 52066,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52083,
+    "ppid": 52058,
+    "pgid": 52058,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52086,
+    "ppid": 52083,
+    "pgid": 52058,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 52090,
+    "ppid": 52063,
+    "pgid": 52063,
+    "status": "?",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52091,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "security"
+  },
+  {
+    "pid": 52092,
+    "ppid": 52062,
+    "pgid": 52062,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52093,
+    "ppid": 52092,
+    "pgid": 52062,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52094,
+    "ppid": 52090,
+    "pgid": 52063,
+    "status": "?E",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52095,
+    "ppid": 52093,
+    "pgid": 52062,
+    "status": "?",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 52097,
+    "ppid": 52066,
+    "pgid": 52066,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52098,
+    "ppid": 52059,
+    "pgid": 52059,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52099,
+    "ppid": 52065,
+    "pgid": 52065,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52100,
+    "ppid": 52064,
+    "pgid": 52064,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52101,
+    "ppid": 52098,
+    "pgid": 52059,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52102,
+    "ppid": 52100,
+    "pgid": 52064,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52103,
+    "ppid": 52102,
+    "pgid": 52064,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 52104,
+    "ppid": 52097,
+    "pgid": 52066,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52105,
+    "ppid": 52099,
+    "pgid": 52065,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52321,
+    "ppid": 52056,
+    "pgid": 52056,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 52322,
+    "ppid": 52057,
+    "pgid": 52057,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 52323,
+    "ppid": 52056,
+    "pgid": 52056,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 52331,
+    "ppid": 52057,
+    "pgid": 52057,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 52348,
+    "ppid": 52059,
+    "pgid": 52059,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52351,
+    "ppid": 52348,
+    "pgid": 52059,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 52357,
+    "ppid": 52060,
+    "pgid": 52060,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52361,
+    "ppid": 52064,
+    "pgid": 52064,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52362,
+    "ppid": 52357,
+    "pgid": 52060,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52363,
+    "ppid": 52065,
+    "pgid": 52065,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52364,
+    "ppid": 52362,
+    "pgid": 52060,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 52367,
+    "ppid": 52066,
+    "pgid": 52066,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52369,
+    "ppid": 52063,
+    "pgid": 52063,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52372,
+    "ppid": 52363,
+    "pgid": 52065,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 52373,
+    "ppid": 52361,
+    "pgid": 52064,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52374,
+    "ppid": 52062,
+    "pgid": 52062,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52375,
+    "ppid": 52367,
+    "pgid": 52066,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 52376,
+    "ppid": 52369,
+    "pgid": 52063,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52377,
+    "ppid": 52376,
+    "pgid": 52063,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 52378,
+    "ppid": 52374,
+    "pgid": 52062,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52462,
+    "ppid": 52059,
+    "pgid": 52059,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52467,
+    "ppid": 52462,
+    "pgid": 52059,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 52605,
+    "ppid": 17936,
+    "pgid": 52605,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52606,
+    "ppid": 17936,
+    "pgid": 52606,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 52624,
+    "ppid": 52605,
+    "pgid": 52605,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 52625,
+    "ppid": 52605,
+    "pgid": 52605,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(sed)"
+  },
+  {
+    "pid": 52644,
+    "ppid": 52606,
+    "pgid": 52606,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 52646,
+    "ppid": 52644,
+    "pgid": 52606,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 53762,
+    "ppid": 17936,
+    "pgid": 53762,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:21:59 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 53795,
+    "ppid": 53762,
+    "pgid": 53762,
+    "status": "S",
+    "started": "Wed Sep 9 14:21:59 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 53797,
+    "ppid": 53795,
+    "pgid": 53762,
+    "status": "R",
+    "started": "Wed Sep 9 14:21:59 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54492,
+    "ppid": 17936,
+    "pgid": 54492,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 54493,
+    "ppid": 17936,
+    "pgid": 54493,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54494,
+    "ppid": 17936,
+    "pgid": 54494,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54495,
+    "ppid": 17936,
+    "pgid": 54495,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54496,
+    "ppid": 17936,
+    "pgid": 54496,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54497,
+    "ppid": 17936,
+    "pgid": 54497,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54498,
+    "ppid": 17936,
+    "pgid": 54498,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54499,
+    "ppid": 17936,
+    "pgid": 54499,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54501,
+    "ppid": 17936,
+    "pgid": 54501,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54502,
+    "ppid": 17936,
+    "pgid": 54502,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54503,
+    "ppid": 17936,
+    "pgid": 54503,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54504,
+    "ppid": 17936,
+    "pgid": 54504,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 54506,
+    "ppid": 17936,
+    "pgid": 54506,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 54556,
+    "ppid": 54497,
+    "pgid": 54497,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 54557,
+    "ppid": 54493,
+    "pgid": 54493,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54558,
+    "ppid": 54494,
+    "pgid": 54494,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54564,
+    "ppid": 54496,
+    "pgid": 54496,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54568,
+    "ppid": 54501,
+    "pgid": 54501,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54569,
+    "ppid": 54557,
+    "pgid": 54493,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 54570,
+    "ppid": 54495,
+    "pgid": 54495,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54571,
+    "ppid": 54504,
+    "pgid": 54504,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54573,
+    "ppid": 54571,
+    "pgid": 54504,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54574,
+    "ppid": 54498,
+    "pgid": 54498,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54575,
+    "ppid": 54573,
+    "pgid": 54504,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 54576,
+    "ppid": 54568,
+    "pgid": 54501,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54577,
+    "ppid": 54570,
+    "pgid": 54495,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54579,
+    "ppid": 54576,
+    "pgid": 54501,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54580,
+    "ppid": 54577,
+    "pgid": 54495,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54612,
+    "ppid": 54492,
+    "pgid": 54492,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 54740,
+    "ppid": 54499,
+    "pgid": 54499,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54747,
+    "ppid": 54740,
+    "pgid": 54499,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 54753,
+    "ppid": 54494,
+    "pgid": 54494,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54754,
+    "ppid": 54498,
+    "pgid": 54498,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54755,
+    "ppid": 54496,
+    "pgid": 54496,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54756,
+    "ppid": 54503,
+    "pgid": 54503,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54759,
+    "ppid": 54756,
+    "pgid": 54503,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 54760,
+    "ppid": 54495,
+    "pgid": 54495,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54761,
+    "ppid": 54755,
+    "pgid": 54496,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 54762,
+    "ppid": 54754,
+    "pgid": 54498,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54763,
+    "ppid": 54504,
+    "pgid": 54504,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54764,
+    "ppid": 54753,
+    "pgid": 54494,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54765,
+    "ppid": 54760,
+    "pgid": 54495,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54766,
+    "ppid": 54762,
+    "pgid": 54498,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 54767,
+    "ppid": 54764,
+    "pgid": 54494,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 54768,
+    "ppid": 54497,
+    "pgid": 54497,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 54769,
+    "ppid": 54763,
+    "pgid": 54504,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 54770,
+    "ppid": 54765,
+    "pgid": 54495,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 54771,
+    "ppid": 54501,
+    "pgid": 54501,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 55124,
+    "ppid": 54501,
+    "pgid": 54501,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55126,
+    "ppid": 55124,
+    "pgid": 54501,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55177,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(zsh)"
+  },
+  {
+    "pid": 55219,
+    "ppid": 55177,
+    "pgid": 17936,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(grep)"
+  },
+  {
+    "pid": 55220,
+    "ppid": 17936,
+    "pgid": 55220,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55253,
+    "ppid": 17936,
+    "pgid": 55253,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 55259,
+    "ppid": 17936,
+    "pgid": 55259,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55260,
+    "ppid": 17936,
+    "pgid": 55260,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55261,
+    "ppid": 17936,
+    "pgid": 55261,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55262,
+    "ppid": 17936,
+    "pgid": 55262,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55264,
+    "ppid": 17936,
+    "pgid": 55264,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55265,
+    "ppid": 17936,
+    "pgid": 55265,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55268,
+    "ppid": 17936,
+    "pgid": 55268,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55269,
+    "ppid": 17936,
+    "pgid": 55269,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55270,
+    "ppid": 17936,
+    "pgid": 55270,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55272,
+    "ppid": 17936,
+    "pgid": 55272,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55274,
+    "ppid": 17936,
+    "pgid": 55274,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55277,
+    "ppid": 17936,
+    "pgid": 55277,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55291,
+    "ppid": 55261,
+    "pgid": 55261,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55294,
+    "ppid": 55291,
+    "pgid": 55261,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55311,
+    "ppid": 17936,
+    "pgid": 55311,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(zsh)"
+  },
+  {
+    "pid": 55388,
+    "ppid": 55265,
+    "pgid": 55265,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 55401,
+    "ppid": 55262,
+    "pgid": 55262,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55402,
+    "ppid": 55274,
+    "pgid": 55274,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55405,
+    "ppid": 55402,
+    "pgid": 55274,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55406,
+    "ppid": 55311,
+    "pgid": 55311,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(ls)"
+  },
+  {
+    "pid": 55407,
+    "ppid": 55269,
+    "pgid": 55269,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55409,
+    "ppid": 55405,
+    "pgid": 55274,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 55411,
+    "ppid": 55407,
+    "pgid": 55269,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55413,
+    "ppid": 55260,
+    "pgid": 55260,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55414,
+    "ppid": 55413,
+    "pgid": 55260,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 55416,
+    "ppid": 55253,
+    "pgid": 55253,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 55417,
+    "ppid": 55270,
+    "pgid": 55270,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55420,
+    "ppid": 55417,
+    "pgid": 55270,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55421,
+    "ppid": 55420,
+    "pgid": 55270,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 55422,
+    "ppid": 55259,
+    "pgid": 55259,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55423,
+    "ppid": 55411,
+    "pgid": 55269,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 55424,
+    "ppid": 55264,
+    "pgid": 55264,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55548,
+    "ppid": 55268,
+    "pgid": 55268,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55561,
+    "ppid": 55548,
+    "pgid": 55268,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55605,
+    "ppid": 55253,
+    "pgid": 55253,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 55617,
+    "ppid": 55253,
+    "pgid": 55253,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 55618,
+    "ppid": 55262,
+    "pgid": 55262,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55619,
+    "ppid": 55264,
+    "pgid": 55264,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55620,
+    "ppid": 55274,
+    "pgid": 55274,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55623,
+    "ppid": 55260,
+    "pgid": 55260,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55624,
+    "ppid": 55265,
+    "pgid": 55265,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55628,
+    "ppid": 55618,
+    "pgid": 55262,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55637,
+    "ppid": 55619,
+    "pgid": 55264,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55638,
+    "ppid": 55623,
+    "pgid": 55260,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55640,
+    "ppid": 55624,
+    "pgid": 55265,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 55641,
+    "ppid": 55272,
+    "pgid": 55272,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55645,
+    "ppid": 55641,
+    "pgid": 55272,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 55646,
+    "ppid": 55269,
+    "pgid": 55269,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 55649,
+    "ppid": 55646,
+    "pgid": 55269,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 55650,
+    "ppid": 55259,
+    "pgid": 55259,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55652,
+    "ppid": 55650,
+    "pgid": 55259,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 55653,
+    "ppid": 55261,
+    "pgid": 55261,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55663,
+    "ppid": 55274,
+    "pgid": 55274,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55668,
+    "ppid": 55663,
+    "pgid": 55274,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55767,
+    "ppid": 55261,
+    "pgid": 55261,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55770,
+    "ppid": 55767,
+    "pgid": 55261,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55789,
+    "ppid": 55259,
+    "pgid": 55259,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55791,
+    "ppid": 55265,
+    "pgid": 55265,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55804,
+    "ppid": 55791,
+    "pgid": 55265,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55806,
+    "ppid": 55272,
+    "pgid": 55272,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55809,
+    "ppid": 55806,
+    "pgid": 55272,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 55810,
+    "ppid": 55269,
+    "pgid": 55269,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55811,
+    "ppid": 55804,
+    "pgid": 55265,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55899,
+    "ppid": 55265,
+    "pgid": 55265,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55901,
+    "ppid": 55899,
+    "pgid": 55265,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 55912,
+    "ppid": 55259,
+    "pgid": 55259,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55913,
+    "ppid": 55912,
+    "pgid": 55259,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 55916,
+    "ppid": 55269,
+    "pgid": 55269,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 55919,
+    "ppid": 55916,
+    "pgid": 55269,
+    "status": "U",
+    "started": "Wed Sep 9 14:22:01 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 56252,
+    "ppid": 17936,
+    "pgid": 56252,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 56253,
+    "ppid": 17936,
+    "pgid": 56253,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 56334,
+    "ppid": 56252,
+    "pgid": 56252,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 56375,
+    "ppid": 56253,
+    "pgid": 56253,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 56377,
+    "ppid": 56375,
+    "pgid": 56253,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 56379,
+    "ppid": 56377,
+    "pgid": 56253,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 56958,
+    "ppid": 17936,
+    "pgid": 56958,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 56960,
+    "ppid": 17936,
+    "pgid": 56960,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 56980,
+    "ppid": 56958,
+    "pgid": 56958,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 57010,
+    "ppid": 56960,
+    "pgid": 56960,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 57011,
+    "ppid": 57010,
+    "pgid": 56960,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 57012,
+    "ppid": 57011,
+    "pgid": 56960,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:02 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 57463,
+    "ppid": 17936,
+    "pgid": 57463,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:03 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 57464,
+    "ppid": 17936,
+    "pgid": 57464,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:03 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 57467,
+    "ppid": 57464,
+    "pgid": 57464,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:03 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 57521,
+    "ppid": 57463,
+    "pgid": 57463,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:03 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 57522,
+    "ppid": 57463,
+    "pgid": 57463,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:03 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 57526,
+    "ppid": 57464,
+    "pgid": 57464,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:03 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 57528,
+    "ppid": 57526,
+    "pgid": 57464,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:03 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 58230,
+    "ppid": 17936,
+    "pgid": 58230,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:04 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 58326,
+    "ppid": 58230,
+    "pgid": 58230,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:04 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 58225,
+    "ppid": 17936,
+    "pgid": 58225,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:04 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 58229,
+    "ppid": 17936,
+    "pgid": 58229,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:04 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 58325,
+    "ppid": 58225,
+    "pgid": 58225,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:04 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 58370,
+    "ppid": 58326,
+    "pgid": 58230,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:05 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 58375,
+    "ppid": 58229,
+    "pgid": 58229,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:05 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 58376,
+    "ppid": 58375,
+    "pgid": 58229,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:05 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 58377,
+    "ppid": 58376,
+    "pgid": 58229,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:05 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 58406,
+    "ppid": 17936,
+    "pgid": 58406,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:05 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 58407,
+    "ppid": 17936,
+    "pgid": 58407,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:05 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 58409,
+    "ppid": 58407,
+    "pgid": 58407,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:05 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 58419,
+    "ppid": 58406,
+    "pgid": 58406,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:05 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 64015,
+    "ppid": 17936,
+    "pgid": 64015,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 64017,
+    "ppid": 17936,
+    "pgid": 64017,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 64019,
+    "ppid": 17936,
+    "pgid": 64019,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64020,
+    "ppid": 17936,
+    "pgid": 64020,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64021,
+    "ppid": 17936,
+    "pgid": 64021,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64022,
+    "ppid": 17936,
+    "pgid": 64022,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64023,
+    "ppid": 17936,
+    "pgid": 64023,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64024,
+    "ppid": 17936,
+    "pgid": 64024,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64025,
+    "ppid": 17936,
+    "pgid": 64025,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64028,
+    "ppid": 17936,
+    "pgid": 64028,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64030,
+    "ppid": 17936,
+    "pgid": 64030,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64031,
+    "ppid": 17936,
+    "pgid": 64031,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64041,
+    "ppid": 17936,
+    "pgid": 64041,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64047,
+    "ppid": 17936,
+    "pgid": 64047,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64048,
+    "ppid": 17936,
+    "pgid": 64048,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64049,
+    "ppid": 17936,
+    "pgid": 64049,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64054,
+    "ppid": 17936,
+    "pgid": 64054,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64056,
+    "ppid": 17936,
+    "pgid": 64056,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64081,
+    "ppid": 64041,
+    "pgid": 64041,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64093,
+    "ppid": 64081,
+    "pgid": 64041,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64094,
+    "ppid": 64025,
+    "pgid": 64025,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64096,
+    "ppid": 64054,
+    "pgid": 64054,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 64107,
+    "ppid": 64030,
+    "pgid": 64030,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64110,
+    "ppid": 64093,
+    "pgid": 64041,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 64111,
+    "ppid": 64094,
+    "pgid": 64025,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64113,
+    "ppid": 64047,
+    "pgid": 64047,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64114,
+    "ppid": 64028,
+    "pgid": 64028,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64115,
+    "ppid": 64031,
+    "pgid": 64031,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64118,
+    "ppid": 64115,
+    "pgid": 64031,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64119,
+    "ppid": 64107,
+    "pgid": 64030,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64120,
+    "ppid": 64023,
+    "pgid": 64023,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64122,
+    "ppid": 64114,
+    "pgid": 64028,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64123,
+    "ppid": 64021,
+    "pgid": 64021,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64124,
+    "ppid": 64118,
+    "pgid": 64031,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 64125,
+    "ppid": 64111,
+    "pgid": 64025,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 64127,
+    "ppid": 64022,
+    "pgid": 64022,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64128,
+    "ppid": 64119,
+    "pgid": 64030,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 64129,
+    "ppid": 64120,
+    "pgid": 64023,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64130,
+    "ppid": 64123,
+    "pgid": 64021,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64131,
+    "ppid": 64056,
+    "pgid": 64056,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64132,
+    "ppid": 64048,
+    "pgid": 64048,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64133,
+    "ppid": 64129,
+    "pgid": 64023,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64134,
+    "ppid": 64127,
+    "pgid": 64022,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64136,
+    "ppid": 64122,
+    "pgid": 64028,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64137,
+    "ppid": 64130,
+    "pgid": 64021,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 64138,
+    "ppid": 64131,
+    "pgid": 64056,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64139,
+    "ppid": 64132,
+    "pgid": 64048,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64140,
+    "ppid": 64049,
+    "pgid": 64049,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64141,
+    "ppid": 64134,
+    "pgid": 64022,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 64142,
+    "ppid": 64139,
+    "pgid": 64048,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 64143,
+    "ppid": 64140,
+    "pgid": 64049,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64144,
+    "ppid": 64138,
+    "pgid": 64056,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64145,
+    "ppid": 64020,
+    "pgid": 64020,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64146,
+    "ppid": 64143,
+    "pgid": 64049,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64183,
+    "ppid": 64017,
+    "pgid": 64017,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64465,
+    "ppid": 64015,
+    "pgid": 64015,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 64506,
+    "ppid": 64020,
+    "pgid": 64020,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64529,
+    "ppid": 64506,
+    "pgid": 64020,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64538,
+    "ppid": 64031,
+    "pgid": 64031,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64550,
+    "ppid": 64538,
+    "pgid": 64031,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 64577,
+    "ppid": 64049,
+    "pgid": 64049,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64585,
+    "ppid": 64025,
+    "pgid": 64025,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64588,
+    "ppid": 64577,
+    "pgid": 64049,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64598,
+    "ppid": 64585,
+    "pgid": 64025,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64617,
+    "ppid": 64030,
+    "pgid": 64030,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64619,
+    "ppid": 64617,
+    "pgid": 64030,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64620,
+    "ppid": 64023,
+    "pgid": 64023,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64621,
+    "ppid": 64054,
+    "pgid": 64054,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64629,
+    "ppid": 64028,
+    "pgid": 64028,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64632,
+    "ppid": 64629,
+    "pgid": 64028,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64635,
+    "ppid": 64620,
+    "pgid": 64023,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64637,
+    "ppid": 64047,
+    "pgid": 64047,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64638,
+    "ppid": 64024,
+    "pgid": 64024,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64640,
+    "ppid": 64638,
+    "pgid": 64024,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64642,
+    "ppid": 64048,
+    "pgid": 64048,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64643,
+    "ppid": 64041,
+    "pgid": 64041,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64649,
+    "ppid": 64056,
+    "pgid": 64056,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 64652,
+    "ppid": 64643,
+    "pgid": 64041,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 64653,
+    "ppid": 64642,
+    "pgid": 64048,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64656,
+    "ppid": 64637,
+    "pgid": 64047,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 64657,
+    "ppid": 64649,
+    "pgid": 64056,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 64663,
+    "ppid": 64021,
+    "pgid": 64021,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64666,
+    "ppid": 64663,
+    "pgid": 64021,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 64668,
+    "ppid": 64621,
+    "pgid": 64054,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64669,
+    "ppid": 64022,
+    "pgid": 64022,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64670,
+    "ppid": 64019,
+    "pgid": 64019,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64671,
+    "ppid": 64183,
+    "pgid": 64017,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64672,
+    "ppid": 64668,
+    "pgid": 64054,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64673,
+    "ppid": 64672,
+    "pgid": 64054,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64674,
+    "ppid": 64669,
+    "pgid": 64022,
+    "status": "U",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 64675,
+    "ppid": 64670,
+    "pgid": 64019,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 65049,
+    "ppid": 64183,
+    "pgid": 64017,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 65051,
+    "ppid": 65049,
+    "pgid": 64017,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 65078,
+    "ppid": 17936,
+    "pgid": 65078,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 65111,
+    "ppid": 64465,
+    "pgid": 64015,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 65128,
+    "ppid": 65078,
+    "pgid": 65078,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 65132,
+    "ppid": 65128,
+    "pgid": 65078,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 65133,
+    "ppid": 65128,
+    "pgid": 65078,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 65250,
+    "ppid": 64183,
+    "pgid": 64017,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 65273,
+    "ppid": 65250,
+    "pgid": 64017,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 65274,
+    "ppid": 64465,
+    "pgid": 64015,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 65354,
+    "ppid": 64465,
+    "pgid": 64015,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 65376,
+    "ppid": 64465,
+    "pgid": 64015,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 65389,
+    "ppid": 65376,
+    "pgid": 64015,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 65414,
+    "ppid": 65376,
+    "pgid": 64015,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-pjdo181c/richos-run-snapshot"
+  },
+  {
+    "pid": 65431,
+    "ppid": 65414,
+    "pgid": 65431,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:12 2026",
+    "command": "/Users/alex/.local/bin/claude"
+  },
+  {
+    "pid": 65609,
+    "ppid": 65431,
+    "pgid": 65431,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 65634,
+    "ppid": 65431,
+    "pgid": 65634,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 65636,
+    "ppid": 65431,
+    "pgid": 65636,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 65637,
+    "ppid": 65431,
+    "pgid": 65637,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 65642,
+    "ppid": 65431,
+    "pgid": 65642,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 65645,
+    "ppid": 65431,
+    "pgid": 65645,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 65648,
+    "ppid": 65431,
+    "pgid": 65648,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 65649,
+    "ppid": 65431,
+    "pgid": 65649,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 65745,
+    "ppid": 65634,
+    "pgid": 65634,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 65892,
+    "ppid": 65637,
+    "pgid": 65637,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 65895,
+    "ppid": 65636,
+    "pgid": 65636,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 65899,
+    "ppid": 65637,
+    "pgid": 65637,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 65904,
+    "ppid": 65636,
+    "pgid": 65636,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 65959,
+    "ppid": 65649,
+    "pgid": 65649,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 65961,
+    "ppid": 65645,
+    "pgid": 65645,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 65962,
+    "ppid": 65648,
+    "pgid": 65648,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 65967,
+    "ppid": 65962,
+    "pgid": 65648,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 65968,
+    "ppid": 65959,
+    "pgid": 65649,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 65970,
+    "ppid": 65961,
+    "pgid": 65645,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 65983,
+    "ppid": 65745,
+    "pgid": 65634,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(mktemp)"
+  },
+  {
+    "pid": 65987,
+    "ppid": 65642,
+    "pgid": 65642,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 66142,
+    "ppid": 65431,
+    "pgid": 65431,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "node"
+  },
+  {
+    "pid": 66234,
+    "ppid": 65431,
+    "pgid": 66234,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 66301,
+    "ppid": 66234,
+    "pgid": 66234,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:13 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 67547,
+    "ppid": 17936,
+    "pgid": 67547,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 67548,
+    "ppid": 17936,
+    "pgid": 67548,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67549,
+    "ppid": 17936,
+    "pgid": 67549,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67552,
+    "ppid": 17936,
+    "pgid": 67552,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67554,
+    "ppid": 17936,
+    "pgid": 67554,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67555,
+    "ppid": 17936,
+    "pgid": 67555,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67556,
+    "ppid": 17936,
+    "pgid": 67556,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67557,
+    "ppid": 17936,
+    "pgid": 67557,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67558,
+    "ppid": 17936,
+    "pgid": 67558,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67559,
+    "ppid": 17936,
+    "pgid": 67559,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67562,
+    "ppid": 17936,
+    "pgid": 67562,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 67569,
+    "ppid": 17936,
+    "pgid": 67569,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 67576,
+    "ppid": 17936,
+    "pgid": 67576,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 67667,
+    "ppid": 67547,
+    "pgid": 67547,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 67697,
+    "ppid": 67557,
+    "pgid": 67557,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 67702,
+    "ppid": 67569,
+    "pgid": 67569,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 67712,
+    "ppid": 67556,
+    "pgid": 67556,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 67718,
+    "ppid": 67554,
+    "pgid": 67554,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 67720,
+    "ppid": 67702,
+    "pgid": 67569,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 67723,
+    "ppid": 67548,
+    "pgid": 67548,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 67725,
+    "ppid": 67718,
+    "pgid": 67554,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 67727,
+    "ppid": 67725,
+    "pgid": 67554,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 68349,
+    "ppid": 17936,
+    "pgid": 68349,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:15 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 68728,
+    "ppid": 17936,
+    "pgid": 68728,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:16 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 68729,
+    "ppid": 17936,
+    "pgid": 68729,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:16 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 69051,
+    "ppid": 17936,
+    "pgid": 69051,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:17 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 69052,
+    "ppid": 17936,
+    "pgid": 69052,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:17 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 69127,
+    "ppid": 69051,
+    "pgid": 69051,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:17 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 69132,
+    "ppid": 69051,
+    "pgid": 69051,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:17 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 69158,
+    "ppid": 69052,
+    "pgid": 69052,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:17 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 69159,
+    "ppid": 69158,
+    "pgid": 69052,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:17 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 69279,
+    "ppid": 65431,
+    "pgid": 65431,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:17 2026",
+    "command": "(2.1.266)"
+  },
+  {
+    "pid": 71170,
+    "ppid": 65431,
+    "pgid": 71170,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:21 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 71192,
+    "ppid": 71170,
+    "pgid": 71170,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:21 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 71934,
+    "ppid": 17936,
+    "pgid": 71934,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 71935,
+    "ppid": 17936,
+    "pgid": 71935,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 71936,
+    "ppid": 17936,
+    "pgid": 71936,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 71937,
+    "ppid": 17936,
+    "pgid": 71937,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 71938,
+    "ppid": 17936,
+    "pgid": 71938,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 71939,
+    "ppid": 17936,
+    "pgid": 71939,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 71940,
+    "ppid": 17936,
+    "pgid": 71940,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 72166,
+    "ppid": 71934,
+    "pgid": 71934,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 72176,
+    "ppid": 71934,
+    "pgid": 71934,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 72193,
+    "ppid": 71940,
+    "pgid": 71940,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72197,
+    "ppid": 72193,
+    "pgid": 71940,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 72198,
+    "ppid": 71937,
+    "pgid": 71937,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72199,
+    "ppid": 71939,
+    "pgid": 71939,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72200,
+    "ppid": 71935,
+    "pgid": 71935,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72202,
+    "ppid": 71938,
+    "pgid": 71938,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72207,
+    "ppid": 72200,
+    "pgid": 71935,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 72217,
+    "ppid": 72198,
+    "pgid": 71937,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72219,
+    "ppid": 72202,
+    "pgid": 71938,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72220,
+    "ppid": 72219,
+    "pgid": 71938,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 72221,
+    "ppid": 71936,
+    "pgid": 71936,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72222,
+    "ppid": 72199,
+    "pgid": 71939,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72223,
+    "ppid": 72217,
+    "pgid": 71937,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72225,
+    "ppid": 72221,
+    "pgid": 71936,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 72226,
+    "ppid": 72222,
+    "pgid": 71939,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:22 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72744,
+    "ppid": 17936,
+    "pgid": 72744,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 72745,
+    "ppid": 17936,
+    "pgid": 72745,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 72746,
+    "ppid": 17936,
+    "pgid": 72746,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 72747,
+    "ppid": 17936,
+    "pgid": 72747,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 72748,
+    "ppid": 17936,
+    "pgid": 72748,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 72749,
+    "ppid": 17936,
+    "pgid": 72749,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 72750,
+    "ppid": 17936,
+    "pgid": 72750,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 72862,
+    "ppid": 72744,
+    "pgid": 72744,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 72878,
+    "ppid": 72745,
+    "pgid": 72745,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72879,
+    "ppid": 72748,
+    "pgid": 72748,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72880,
+    "ppid": 72747,
+    "pgid": 72747,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72881,
+    "ppid": 72749,
+    "pgid": 72749,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72883,
+    "ppid": 72879,
+    "pgid": 72748,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72884,
+    "ppid": 72878,
+    "pgid": 72745,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72885,
+    "ppid": 72881,
+    "pgid": 72749,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 72886,
+    "ppid": 72750,
+    "pgid": 72750,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 73124,
+    "ppid": 72748,
+    "pgid": 72748,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 73130,
+    "ppid": 73124,
+    "pgid": 72748,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:23 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 74913,
+    "ppid": 17936,
+    "pgid": 74913,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 74914,
+    "ppid": 17936,
+    "pgid": 74914,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74915,
+    "ppid": 17936,
+    "pgid": 74915,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74916,
+    "ppid": 17936,
+    "pgid": 74916,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74917,
+    "ppid": 17936,
+    "pgid": 74917,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74918,
+    "ppid": 17936,
+    "pgid": 74918,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74919,
+    "ppid": 17936,
+    "pgid": 74919,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74920,
+    "ppid": 17936,
+    "pgid": 74920,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74921,
+    "ppid": 17936,
+    "pgid": 74921,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74922,
+    "ppid": 17936,
+    "pgid": 74922,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74923,
+    "ppid": 17936,
+    "pgid": 74923,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74924,
+    "ppid": 17936,
+    "pgid": 74924,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 74925,
+    "ppid": 17936,
+    "pgid": 74925,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:25 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74946,
+    "ppid": 74920,
+    "pgid": 74920,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74949,
+    "ppid": 74915,
+    "pgid": 74915,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74950,
+    "ppid": 74914,
+    "pgid": 74914,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74952,
+    "ppid": 74919,
+    "pgid": 74919,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74953,
+    "ppid": 74946,
+    "pgid": 74920,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74954,
+    "ppid": 74916,
+    "pgid": 74916,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74955,
+    "ppid": 74923,
+    "pgid": 74923,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74957,
+    "ppid": 74949,
+    "pgid": 74915,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74958,
+    "ppid": 74953,
+    "pgid": 74920,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 74959,
+    "ppid": 74952,
+    "pgid": 74919,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74960,
+    "ppid": 74954,
+    "pgid": 74916,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74961,
+    "ppid": 74955,
+    "pgid": 74923,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74962,
+    "ppid": 74921,
+    "pgid": 74921,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74963,
+    "ppid": 74950,
+    "pgid": 74914,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 74964,
+    "ppid": 74924,
+    "pgid": 74924,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74965,
+    "ppid": 74960,
+    "pgid": 74916,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 74966,
+    "ppid": 74959,
+    "pgid": 74919,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 74967,
+    "ppid": 74957,
+    "pgid": 74915,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74968,
+    "ppid": 74964,
+    "pgid": 74924,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74969,
+    "ppid": 74918,
+    "pgid": 74918,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74970,
+    "ppid": 74962,
+    "pgid": 74921,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74971,
+    "ppid": 74961,
+    "pgid": 74923,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74972,
+    "ppid": 74925,
+    "pgid": 74925,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 74973,
+    "ppid": 74917,
+    "pgid": 74917,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:26 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 76349,
+    "ppid": 17936,
+    "pgid": 17936,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:27 2026",
+    "command": "(security)"
+  },
+  {
+    "pid": 79329,
+    "ppid": 65431,
+    "pgid": 79329,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:32 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 79390,
+    "ppid": 79329,
+    "pgid": 79329,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:32 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 79391,
+    "ppid": 79329,
+    "pgid": 79329,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:32 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 82578,
+    "ppid": 17936,
+    "pgid": 82578,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 82579,
+    "ppid": 17936,
+    "pgid": 82579,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 82580,
+    "ppid": 17936,
+    "pgid": 82580,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 82581,
+    "ppid": 17936,
+    "pgid": 82581,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 82582,
+    "ppid": 17936,
+    "pgid": 82582,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 82583,
+    "ppid": 17936,
+    "pgid": 82583,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 82584,
+    "ppid": 17936,
+    "pgid": 82584,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82809,
+    "ppid": 82578,
+    "pgid": 82578,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 82812,
+    "ppid": 82578,
+    "pgid": 82578,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 82861,
+    "ppid": 82579,
+    "pgid": 82579,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82867,
+    "ppid": 82861,
+    "pgid": 82579,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 82876,
+    "ppid": 82582,
+    "pgid": 82582,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82879,
+    "ppid": 82876,
+    "pgid": 82582,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 82904,
+    "ppid": 82581,
+    "pgid": 82581,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82906,
+    "ppid": 82584,
+    "pgid": 82584,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82908,
+    "ppid": 82904,
+    "pgid": 82581,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82909,
+    "ppid": 82580,
+    "pgid": 82580,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82910,
+    "ppid": 82908,
+    "pgid": 82581,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 82911,
+    "ppid": 82906,
+    "pgid": 82584,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82913,
+    "ppid": 82911,
+    "pgid": 82584,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 82914,
+    "ppid": 82909,
+    "pgid": 82580,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82915,
+    "ppid": 82583,
+    "pgid": 82583,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82916,
+    "ppid": 82914,
+    "pgid": 82580,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 82917,
+    "ppid": 82915,
+    "pgid": 82583,
+    "status": "U",
+    "started": "Wed Sep 9 14:22:39 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 87706,
+    "ppid": 17936,
+    "pgid": 87706,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 87708,
+    "ppid": 17936,
+    "pgid": 87708,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 87709,
+    "ppid": 17936,
+    "pgid": 87709,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 87711,
+    "ppid": 17936,
+    "pgid": 87711,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 87713,
+    "ppid": 17936,
+    "pgid": 87713,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 87714,
+    "ppid": 17936,
+    "pgid": 87714,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 87715,
+    "ppid": 17936,
+    "pgid": 87715,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 87873,
+    "ppid": 87706,
+    "pgid": 87706,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 87901,
+    "ppid": 87709,
+    "pgid": 87709,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 87903,
+    "ppid": 87901,
+    "pgid": 87709,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 87904,
+    "ppid": 87711,
+    "pgid": 87711,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 87905,
+    "ppid": 87715,
+    "pgid": 87715,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 87908,
+    "ppid": 87905,
+    "pgid": 87715,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 87910,
+    "ppid": 87904,
+    "pgid": 87711,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 87919,
+    "ppid": 87714,
+    "pgid": 87714,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 87922,
+    "ppid": 87919,
+    "pgid": 87714,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 87933,
+    "ppid": 87713,
+    "pgid": 87713,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 87936,
+    "ppid": 87933,
+    "pgid": 87713,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 87937,
+    "ppid": 87708,
+    "pgid": 87708,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:47 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90115,
+    "ppid": 17936,
+    "pgid": 90115,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 90116,
+    "ppid": 17936,
+    "pgid": 90116,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90117,
+    "ppid": 17936,
+    "pgid": 90117,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90119,
+    "ppid": 17936,
+    "pgid": 90119,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90120,
+    "ppid": 17936,
+    "pgid": 90120,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90121,
+    "ppid": 17936,
+    "pgid": 90121,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90123,
+    "ppid": 17936,
+    "pgid": 90123,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90124,
+    "ppid": 17936,
+    "pgid": 90124,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90125,
+    "ppid": 17936,
+    "pgid": 90125,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90126,
+    "ppid": 17936,
+    "pgid": 90126,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90127,
+    "ppid": 17936,
+    "pgid": 90127,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 90383,
+    "ppid": 90121,
+    "pgid": 90121,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90401,
+    "ppid": 90123,
+    "pgid": 90123,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90406,
+    "ppid": 90119,
+    "pgid": 90119,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90410,
+    "ppid": 90125,
+    "pgid": 90125,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90413,
+    "ppid": 90406,
+    "pgid": 90119,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 90416,
+    "ppid": 90126,
+    "pgid": 90126,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90418,
+    "ppid": 90124,
+    "pgid": 90124,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90420,
+    "ppid": 90115,
+    "pgid": 90115,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 90427,
+    "ppid": 90115,
+    "pgid": 90115,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 90428,
+    "ppid": 90117,
+    "pgid": 90117,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90432,
+    "ppid": 90116,
+    "pgid": 90116,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90436,
+    "ppid": 90127,
+    "pgid": 90127,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90437,
+    "ppid": 90432,
+    "pgid": 90116,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90438,
+    "ppid": 90410,
+    "pgid": 90125,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90439,
+    "ppid": 90428,
+    "pgid": 90117,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 90440,
+    "ppid": 90401,
+    "pgid": 90123,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90441,
+    "ppid": 90437,
+    "pgid": 90116,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 90442,
+    "ppid": 90436,
+    "pgid": 90127,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90443,
+    "ppid": 90438,
+    "pgid": 90125,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90444,
+    "ppid": 90440,
+    "pgid": 90123,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90445,
+    "ppid": 90120,
+    "pgid": 90120,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90446,
+    "ppid": 90442,
+    "pgid": 90127,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 90447,
+    "ppid": 90443,
+    "pgid": 90125,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 90448,
+    "ppid": 90444,
+    "pgid": 90123,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 90449,
+    "ppid": 90445,
+    "pgid": 90120,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90450,
+    "ppid": 90418,
+    "pgid": 90124,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90451,
+    "ppid": 90449,
+    "pgid": 90120,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90452,
+    "ppid": 90450,
+    "pgid": 90124,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 90453,
+    "ppid": 90452,
+    "pgid": 90124,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:51 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94072,
+    "ppid": 65431,
+    "pgid": 94072,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 94074,
+    "ppid": 65431,
+    "pgid": 94074,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 94077,
+    "ppid": 65431,
+    "pgid": 94077,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94078,
+    "ppid": 65431,
+    "pgid": 94078,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94079,
+    "ppid": 65431,
+    "pgid": 94079,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94080,
+    "ppid": 65431,
+    "pgid": 94080,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94081,
+    "ppid": 65431,
+    "pgid": 94081,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94082,
+    "ppid": 65431,
+    "pgid": 94082,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94083,
+    "ppid": 65431,
+    "pgid": 94083,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94084,
+    "ppid": 65431,
+    "pgid": 94084,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94085,
+    "ppid": 65431,
+    "pgid": 94085,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94086,
+    "ppid": 65431,
+    "pgid": 94086,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94088,
+    "ppid": 65431,
+    "pgid": 94088,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94089,
+    "ppid": 65431,
+    "pgid": 94089,
+    "status": "Us",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94090,
+    "ppid": 65431,
+    "pgid": 94090,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94092,
+    "ppid": 65431,
+    "pgid": 94092,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94093,
+    "ppid": 65431,
+    "pgid": 94093,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94094,
+    "ppid": 65431,
+    "pgid": 94094,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94299,
+    "ppid": 94074,
+    "pgid": 94074,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 94349,
+    "ppid": 94082,
+    "pgid": 94082,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94352,
+    "ppid": 94080,
+    "pgid": 94080,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94357,
+    "ppid": 94094,
+    "pgid": 94094,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94358,
+    "ppid": 94081,
+    "pgid": 94081,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94362,
+    "ppid": 94352,
+    "pgid": 94080,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94363,
+    "ppid": 94084,
+    "pgid": 94084,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94364,
+    "ppid": 94357,
+    "pgid": 94094,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94365,
+    "ppid": 94358,
+    "pgid": 94081,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 94367,
+    "ppid": 94362,
+    "pgid": 94080,
+    "status": "UE",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 94369,
+    "ppid": 94077,
+    "pgid": 94077,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94370,
+    "ppid": 94092,
+    "pgid": 94092,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(cat)"
+  },
+  {
+    "pid": 94371,
+    "ppid": 94093,
+    "pgid": 94093,
+    "status": "U",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94372,
+    "ppid": 94086,
+    "pgid": 94086,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94375,
+    "ppid": 94371,
+    "pgid": 94093,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 94376,
+    "ppid": 94090,
+    "pgid": 94090,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(cat)"
+  },
+  {
+    "pid": 94377,
+    "ppid": 94363,
+    "pgid": 94084,
+    "status": "U",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94379,
+    "ppid": 94372,
+    "pgid": 94086,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94381,
+    "ppid": 94377,
+    "pgid": 94084,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 94382,
+    "ppid": 94083,
+    "pgid": 94083,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94383,
+    "ppid": 94369,
+    "pgid": 94077,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94384,
+    "ppid": 94078,
+    "pgid": 94078,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94385,
+    "ppid": 94379,
+    "pgid": 94086,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94386,
+    "ppid": 94085,
+    "pgid": 94085,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94387,
+    "ppid": 94382,
+    "pgid": 94083,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94388,
+    "ppid": 94386,
+    "pgid": 94085,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94389,
+    "ppid": 94079,
+    "pgid": 94079,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94390,
+    "ppid": 94384,
+    "pgid": 94078,
+    "status": "?",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94391,
+    "ppid": 94388,
+    "pgid": 94085,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 94392,
+    "ppid": 94389,
+    "pgid": 94079,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 94393,
+    "ppid": 94392,
+    "pgid": 94079,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95133,
+    "ppid": 94299,
+    "pgid": 94074,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95136,
+    "ppid": 95133,
+    "pgid": 94074,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 95428,
+    "ppid": 64465,
+    "pgid": 64015,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "(ps)"
+  },
+  {
+    "pid": 95508,
+    "ppid": 64465,
+    "pgid": 64015,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:57 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 95528,
+    "ppid": 95508,
+    "pgid": 64015,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-pjdo181c/richos-run-snapshot"
+  },
+  {
+    "pid": 95539,
+    "ppid": 95528,
+    "pgid": 95539,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "/Users/alex/.local/bin/claude"
+  },
+  {
+    "pid": 95703,
+    "ppid": 95539,
+    "pgid": 95539,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 95704,
+    "ppid": 95539,
+    "pgid": 95539,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "/bin/sh"
+  },
+  {
+    "pid": 95705,
+    "ppid": 95539,
+    "pgid": 95705,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 95706,
+    "ppid": 95539,
+    "pgid": 95706,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 95707,
+    "ppid": 95539,
+    "pgid": 95707,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 95709,
+    "ppid": 95539,
+    "pgid": 95709,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 95710,
+    "ppid": 95704,
+    "pgid": 95539,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "ps"
+  },
+  {
+    "pid": 95711,
+    "ppid": 95539,
+    "pgid": 95711,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 95712,
+    "ppid": 95704,
+    "pgid": 95539,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "grep"
+  },
+  {
+    "pid": 95714,
+    "ppid": 95539,
+    "pgid": 95714,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 95715,
+    "ppid": 95539,
+    "pgid": 95715,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 95716,
+    "ppid": 95704,
+    "pgid": 95539,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "grep"
+  },
+  {
+    "pid": 95717,
+    "ppid": 95539,
+    "pgid": 95717,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 95718,
+    "ppid": 95539,
+    "pgid": 95718,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 95719,
+    "ppid": 95539,
+    "pgid": 95719,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 95726,
+    "ppid": 95715,
+    "pgid": 95715,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95727,
+    "ppid": 95717,
+    "pgid": 95717,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95728,
+    "ppid": 95727,
+    "pgid": 95717,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95730,
+    "ppid": 95726,
+    "pgid": 95715,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95731,
+    "ppid": 95730,
+    "pgid": 95715,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 95733,
+    "ppid": 95718,
+    "pgid": 95718,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95734,
+    "ppid": 95733,
+    "pgid": 95718,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95735,
+    "ppid": 95734,
+    "pgid": 95718,
+    "status": "Z",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "<defunct>"
+  },
+  {
+    "pid": 95736,
+    "ppid": 95719,
+    "pgid": 95719,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95737,
+    "ppid": 95736,
+    "pgid": 95719,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95739,
+    "ppid": 95714,
+    "pgid": 95714,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95740,
+    "ppid": 95711,
+    "pgid": 95711,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95741,
+    "ppid": 95739,
+    "pgid": 95714,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95742,
+    "ppid": 95740,
+    "pgid": 95711,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 95743,
+    "ppid": 95741,
+    "pgid": 95714,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 95744,
+    "ppid": 95742,
+    "pgid": 95711,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(dirname)"
+  },
+  {
+    "pid": 95777,
+    "ppid": 95706,
+    "pgid": 95706,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "bash"
+  },
+  {
+    "pid": 96109,
+    "ppid": 95777,
+    "pgid": 95706,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 96197,
+    "ppid": 95539,
+    "pgid": 95539,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "npm"
+  },
+  {
+    "pid": 96273,
+    "ppid": 95539,
+    "pgid": 96273,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 96274,
+    "ppid": 95539,
+    "pgid": 96274,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 96343,
+    "ppid": 96273,
+    "pgid": 96273,
+    "status": "R",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 96369,
+    "ppid": 96274,
+    "pgid": 96274,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 96371,
+    "ppid": 96369,
+    "pgid": 96274,
+    "status": "S",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 96372,
+    "ppid": 96371,
+    "pgid": 96274,
+    "status": "?E",
+    "started": "Wed Sep 9 14:22:58 2026",
+    "command": "(git)"
+  },
+  {
+    "pid": 97673,
+    "ppid": 17936,
+    "pgid": 97673,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:23:00 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 97687,
+    "ppid": 97673,
+    "pgid": 97673,
+    "status": "R",
+    "started": "Wed Sep 9 14:23:00 2026",
+    "command": "(python3.14)"
+  },
+  {
+    "pid": 98270,
+    "ppid": 95539,
+    "pgid": 98270,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:23:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 98325,
+    "ppid": 98270,
+    "pgid": 98270,
+    "status": "R",
+    "started": "Wed Sep 9 14:23:01 2026",
+    "command": "(Python)"
+  },
+  {
+    "pid": 98712,
+    "ppid": 95539,
+    "pgid": 98712,
+    "status": "Rs",
+    "started": "Wed Sep 9 14:23:02 2026",
+    "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+  },
+  {
+    "pid": 98713,
+    "ppid": 95539,
+    "pgid": 98713,
+    "status": "Ss",
+    "started": "Wed Sep 9 14:23:02 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 98716,
+    "ppid": 98713,
+    "pgid": 98713,
+    "status": "S",
+    "started": "Wed Sep 9 14:23:02 2026",
+    "command": "(bash)"
+  },
+  {
+    "pid": 98718,
+    "ppid": 98716,
+    "pgid": 98713,
+    "status": "R",
+    "started": "Wed Sep 9 14:23:02 2026",
+    "command": "(python3.14)"
+  }
+]

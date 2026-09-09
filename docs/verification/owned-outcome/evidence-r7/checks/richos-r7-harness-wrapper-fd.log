@@ -1,0 +1,1 @@
+PASS: generated hook/runner wrappers compile; actual inherited inference-lock FD reaches deterministic executable through generated runner wrapper, exact device/inode and native binding logged; zero provider calls. Evidence: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-gzhvc9bi

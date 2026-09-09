@@ -1,0 +1,93 @@
+{
+  "scoring_only": true,
+  "provider_calls": 0,
+  "evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj",
+  "original_passed": false,
+  "passed": false,
+  "original_result_sha256": "819b27d39ee32432d806cd4bf999b6ec93ca092b927579300c8f2fe8b782c23e",
+  "original_tested_harness_sha256": "66fa8b33cd20c60242d3f1fc1750c0b3463e69f84fba163b629e890ff826f0bb",
+  "corrected_meter_sha256": "1327385f2814c2932e813678155ca3054f86b949faeac2f8c3ee98242b2be6b5",
+  "original_evidence_unchanged": true,
+  "source_hashes": {
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/result.json": "819b27d39ee32432d806cd4bf999b6ec93ca092b927579300c8f2fe8b782c23e",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/input-measurement.json": "968ae64264f7131fc05647047ea92a051ba24441bd78cadbf1d31a17353d8ff1",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/input-events.jsonl": "5773935d39824cf3f166e9fd629ede7539ed49863954060654b46c0ca383ede0",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/request.txt": "b4bf605d2224863077edc3bc1874d66b67b0a10381877042a1d2c3b49a19d2c9",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/restart-evidence.json": "abbb0a0ec9bfe76a69175a3082f742179aee568642fea8358634d75c1be34aed",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/process-launches.json": "fe06c42bc8a50d781263873bf450b300253fdba53b0bddae2213486ab4cf48e0",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/tested-harness.py": "66fa8b33cd20c60242d3f1fc1750c0b3463e69f84fba163b629e890ff826f0bb",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/adapter-hooks.jsonl": "e9c97797320f894799aad0f866ec126c742e02d6dbff2e0f906a5c49c25abadc",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/audits.jsonl": "dc8972222bf890dd0504edc431e3e9f89d392ff1369512f67e80db4e822a9bfb",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/source-identity.json": "589dfca9f7c9c1848a44d12b59169ae31daba655c0e53325b5e294c8e0e01da7",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/transcript-5eb68203-b607-4908-b576-8d76d2277add.jsonl": "d0fc3eadb502c315afc8331d5513ab64e8499076281dcd2b2f0792da49e6664d",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/transcript-child-agent-ab23130adf1595706.jsonl": "ea6406b3b4a39cc4771c7bc937b9c8bd426bc08c8c4eea86d2829f2b7681ab2c",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/transcript-child-agent-a3d4f1699fcdf00b8.jsonl": "ca3e61d76b9cc2d98f4993df750e1402792d74ee4aede14b9e788879b6fb7b49"
+  },
+  "changed_checks": {
+    "no_operational_followups_measured": {
+      "original": false,
+      "corrected": true
+    },
+    "replacement_received_zero_assignment_or_nudge": {
+      "original": false,
+      "corrected": true
+    }
+  },
+  "checks": {
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": false,
+    "source_identity_unchanged": true,
+    "no_operational_followups_measured": true,
+    "actual_auditor_completed": false,
+    "no_routine_parser_prose_asks": true,
+    "documented_json_parser_check_executed_natively": true,
+    "portable_native_dispatch_adapter_exercised": true,
+    "host_registered_brief_supplied_without_permission_grant": true,
+    "host_registered_brief_reaches_native_child": true,
+    "registration_once_per_owned_source_revision": true,
+    "successful_dispatch_has_registered_work_receipt": true,
+    "verified_human_source_retained": true,
+    "actual_engine_pending_notice_exercised": true,
+    "unrelated_engine_decision_still_pending": true,
+    "auditor_binary_unchanged": true,
+    "diagnosis_correct": true,
+    "both_test_methods_retained": true,
+    "independent_tests_pass": true,
+    "actual_behavior_matches_contract": true,
+    "coverage_rejects_native_regression": true,
+    "coverage_rejects_external_regression": true,
+    "scope_preserved": true,
+    "actual_child_work_interrupted_before_completion": true,
+    "replacement_received_zero_assignment_or_nudge": true,
+    "native_session_identity_matches_restart_mode": true,
+    "replacement_owns_recovered_assignment": true,
+    "replacement_saved_verified_completion": false,
+    "durable_ownership_transferred_to_replacement": true,
+    "hour_pacing_injection_preserved_source_and_authority": true,
+    "actual_detached_stop_audit_was_sleeping_at_crash": true,
+    "crash_signalled_only_actual_leader_pid": true,
+    "no_orphan_audit_session_owned_replacement_work": true,
+    "replacement_sessionstart_delivered_actual_wake": true,
+    "replacement_reached_authorized_agent": true,
+    "actual_audit_runner_inherited_inference_lease": true,
+    "all_recorded_fixture_processes_cleaned_up": true
+  },
+  "input_measurement": {
+    "recorded_operational_inputs": [],
+    "transcript_unexpected_inputs": [],
+    "transcript_initial_count": 1,
+    "argv_initial_count": 1,
+    "matched_system_messages": 3,
+    "matched_recorded_restart_notifications": [
+      "88bbff6d-afc8-425d-8506-c91e971f0130"
+    ],
+    "matched_bound_completed_notifications": [],
+    "matched_bound_resumed_completion_notifications": [
+      "326d0f68-98e7-42d0-9774-a77c45a7e4e3"
+    ],
+    "matched_bound_bash_notifications": [],
+    "operational_followups": 0,
+    "confirmed": true
+  }
+}

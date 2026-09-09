@@ -1,0 +1,57 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "authoritative_source": "requirements.md line 1: \"Current approved contract: native workspaces return platform-pending; external workspaces return verified.\"",
+      "superseded_source": "backlog.md line 1 records a PREVIOUS contract (\"native workspaces return verified\"). Treated as history, not a requirement.",
+      "native": {
+        "expected_per_requirements": "platform-pending",
+        "test_asserted_before": "verified",
+        "implementation_returned_before": "platform-pending",
+        "classification_reason": "The implementation already matched the current approved contract. The test encoded the superseded contract from backlog.md, so the stale artifact was the assertion, not the code.",
+        "change_made": "test_lifecycle.py line 5: assertion updated to expect \"platform-pending\". lifecycle.py deliberately left unchanged for this owner.",
+        "refs": [
+          "requirements.md:1",
+          "backlog.md:1",
+          "lifecycle.py:2",
+          "test_lifecycle.py:5"
+        ]
+      },
+      "external": {
+        "expected_per_requirements": "verified",
+        "test_asserted_before": "verified",
+        "implementation_returned_before": "bound",
+        "classification_reason": "The test already asserted the current approved contract correctly. The implementation returned \"bound\", a value the contract does not define, so the defect was in the code.",
+        "change_made": "lifecycle.py line 2: the non-native branch now returns \"verified\" instead of \"bound\". test_lifecycle.py deliberately left unchanged for this owner.",
+        "refs": [
+          "requirements.md:1",
+          "lifecycle.py:2",
+          "test_lifecycle.py:7"
+        ]
+      },
+      "note_on_divergent_classification": "The two owners classify differently on purpose. Changing lifecycle.py to satisfy the original test_native assertion would have made native workspaces report \"verified\", silently reverting to the superseded backlog.md contract.",
+      "provenance_of_before_values": {
+        "note": "The pre-repair state is not recoverable from the repository itself (zero commits, empty .git/objects), so the \"before\" values are corroborated from execution receipts rather than from git.",
+        "receipts": [
+          "A worker process in prior session c0208cd0 read lifecycle.py at 2026-09-09T14:22:12Z and captured: 'return \"platform-pending\" if owner == \"native\" else \"bound\"' - an independent record of the external defect, written before any repair edit.",
+          "The first test run in this session recorded both original failures verbatim: test_external AssertionError 'bound' != 'verified', and test_native AssertionError 'platform-pending' != 'verified' - confirming the native implementation was already correct and only its assertion was stale."
+        ]
+      },
+      "verification": {
+        "tests": "python3 -m unittest test_lifecycle -v -> 2 tests, OK",
+        "json_validity": "python3 -m json.tool diagnosis.json -> parsed successfully, exit 0. Note: the README prescribes 'python3 -c \"import json; json.load(open(...))\"', which is not preauthorized in this session and was NOT executed. json.tool was used as the permitted equivalent: it parses the file with the same JSON loader and exits nonzero on malformed input, so the validation outcome is equivalent.",
+        "untouched_files_confirmed": [
+          "requirements.md",
+          "backlog.md"
+        ]
+      }
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

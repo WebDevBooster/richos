@@ -1,0 +1,31 @@
+{
+  "captured_at": 1788966242.626379,
+  "description": "Complete raw transcript snapshot captured read-only after the earlier deterministic reproduction. Earlier hashes are retained, never rewritten.",
+  "matches_original_reproduction_leader_hash": true,
+  "original_reproduction_leader_hash": "d0fc3eadb502c315afc8331d5513ab64e8499076281dcd2b2f0792da49e6664d",
+  "records": [
+    {
+      "source": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-n71tx1sj-workspace/5eb68203-b607-4908-b576-8d76d2277add.jsonl",
+      "saved": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/resume-checkpoint-full-snapshot/leader.jsonl",
+      "sha256": "d0fc3eadb502c315afc8331d5513ab64e8499076281dcd2b2f0792da49e6664d",
+      "bytes": 558915,
+      "role": "leader"
+    },
+    {
+      "source": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-n71tx1sj-workspace/5eb68203-b607-4908-b576-8d76d2277add/subagents/agent-a3d4f1699fcdf00b8.jsonl",
+      "saved": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/resume-checkpoint-full-snapshot/child-agent-a3d4f1699fcdf00b8.jsonl",
+      "sha256": "ca3e61d76b9cc2d98f4993df750e1402792d74ee4aede14b9e788879b6fb7b49",
+      "bytes": 340525,
+      "role": "child"
+    },
+    {
+      "source": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-n71tx1sj-workspace/5eb68203-b607-4908-b576-8d76d2277add/subagents/agent-ab23130adf1595706.jsonl",
+      "saved": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/resume-checkpoint-full-snapshot/child-agent-ab23130adf1595706.jsonl",
+      "sha256": "ea6406b3b4a39cc4771c7bc937b9c8bd426bc08c8c4eea86d2829f2b7681ab2c",
+      "bytes": 271539,
+      "role": "child"
+    }
+  ],
+  "state_snapshot": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-n71tx1sj/resume-checkpoint-full-snapshot/state-at-reproduction.json",
+  "state_snapshot_sha256": "ab1856934928b8b1aed61b0d1a88c59b1d885627d66460d8277b21948ef70e21"
+}

@@ -1,0 +1,38 @@
+{
+  "before": [
+    {
+      "pid": 97417,
+      "ppid": 89747,
+      "pgid": 97417,
+      "status": "Ss",
+      "started": "Wed Sep 9 15:38:45 2026",
+      "command": "/Users/alex/.local/bin/claude"
+    }
+  ],
+  "signals": [
+    {
+      "identity": {
+        "pid": 97417,
+        "ppid": 89747,
+        "pgid": 97417,
+        "status": "Ss",
+        "started": "Wed Sep 9 15:38:45 2026",
+        "command": "/Users/alex/.local/bin/claude"
+      },
+      "signal": "SIGTERM"
+    },
+    {
+      "identity": {
+        "pid": 97417,
+        "ppid": 89747,
+        "pgid": 97417,
+        "status": "Ss",
+        "started": "Wed Sep 9 15:38:45 2026",
+        "command": "/Users/alex/.local/bin/claude"
+      },
+      "signal": "SIGKILL"
+    }
+  ],
+  "after": [],
+  "all_owned_processes_stopped": true
+}

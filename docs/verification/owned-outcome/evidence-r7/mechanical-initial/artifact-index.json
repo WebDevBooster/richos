@@ -1,0 +1,2488 @@
+{
+  "evidence_label": "mechanical-initial",
+  "original_root": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc",
+  "private_archive": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial",
+  "records": [
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/claude",
+      "bytes": 33640,
+      "sha256": "b34431db4942e0f509668e0e064edc0d8e240083a14f27093e5300678125f142",
+      "original_sha256": "b34431db4942e0f509668e0e064edc0d8e240083a14f27093e5300678125f142",
+      "copy_sha256": "b34431db4942e0f509668e0e064edc0d8e240083a14f27093e5300678125f142",
+      "copy_bytes": 33640,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/claude",
+      "restricted_reasons": [
+        "compiled_fixture_binary"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/compiler.json",
+      "bytes": 48,
+      "sha256": "732883d74fff105b6916110dd67928d04765fdfa4fce96791f3d3be410b4440f",
+      "original_sha256": "732883d74fff105b6916110dd67928d04765fdfa4fce96791f3d3be410b4440f",
+      "copy_sha256": "732883d74fff105b6916110dd67928d04765fdfa4fce96791f3d3be410b4440f",
+      "copy_bytes": 48,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/compiler.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/cleanup.json",
+      "bytes": 102,
+      "sha256": "208a15d74b208751707cb3827b88d58c02a2be9bdbcce1589b24ef8d2136a063",
+      "original_sha256": "208a15d74b208751707cb3827b88d58c02a2be9bdbcce1589b24ef8d2136a063",
+      "copy_sha256": "208a15d74b208751707cb3827b88d58c02a2be9bdbcce1589b24ef8d2136a063",
+      "copy_bytes": 102,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/cleanup.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/events.jsonl",
+      "bytes": 7696,
+      "sha256": "d45c32f94da9d109f23855fca5b04bb048f7a28dc75894ad22feb4847b461a6e",
+      "original_sha256": "d45c32f94da9d109f23855fca5b04bb048f7a28dc75894ad22feb4847b461a6e",
+      "copy_sha256": "d45c32f94da9d109f23855fca5b04bb048f7a28dc75894ad22feb4847b461a6e",
+      "copy_bytes": 7696,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/events.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/exhausted-original-state.json",
+      "bytes": 1456,
+      "sha256": "861b29c404e1f3984e09cbdc647b754e56f0a749ad08c08a67d53a3914e31c44",
+      "original_sha256": "861b29c404e1f3984e09cbdc647b754e56f0a749ad08c08a67d53a3914e31c44",
+      "copy_sha256": "861b29c404e1f3984e09cbdc647b754e56f0a749ad08c08a67d53a3914e31c44",
+      "copy_bytes": 1456,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/exhausted-original-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/hook-1788963411703493000.ready.json",
+      "bytes": 145,
+      "sha256": "56941fb4edcabf32475e367cb76bc66e8f8c2145f56f8c1bcd73385090b54f26",
+      "original_sha256": "56941fb4edcabf32475e367cb76bc66e8f8c2145f56f8c1bcd73385090b54f26",
+      "copy_sha256": "56941fb4edcabf32475e367cb76bc66e8f8c2145f56f8c1bcd73385090b54f26",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/hook-1788963411703493000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/hook-1788963411703493000.result.json",
+      "bytes": 1361,
+      "sha256": "21b18f35d9741586a59908b32e24834ab252d778e7e86e358e5ee2421cb89671",
+      "original_sha256": "21b18f35d9741586a59908b32e24834ab252d778e7e86e358e5ee2421cb89671",
+      "copy_sha256": "21b18f35d9741586a59908b32e24834ab252d778e7e86e358e5ee2421cb89671",
+      "copy_bytes": 1361,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/hook-1788963411703493000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/hook-1788963411819471000.ready.json",
+      "bytes": 145,
+      "sha256": "959678d4f10dc8e695aeaf054fec61542dcd49ee2985145bd7dc581c105f231e",
+      "original_sha256": "959678d4f10dc8e695aeaf054fec61542dcd49ee2985145bd7dc581c105f231e",
+      "copy_sha256": "959678d4f10dc8e695aeaf054fec61542dcd49ee2985145bd7dc581c105f231e",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/hook-1788963411819471000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/hook-1788963412083506000.ready.json",
+      "bytes": 145,
+      "sha256": "aeb461716fb3c5786523144cbc85afcb696ce7d8dada1b2cd0ec6eddfee6cdc4",
+      "original_sha256": "aeb461716fb3c5786523144cbc85afcb696ce7d8dada1b2cd0ec6eddfee6cdc4",
+      "copy_sha256": "aeb461716fb3c5786523144cbc85afcb696ce7d8dada1b2cd0ec6eddfee6cdc4",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/hook-1788963412083506000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/hook-1788963412083506000.result.json",
+      "bytes": 801,
+      "sha256": "81285ef9c3da8a63bc1874007998c415f41cf9a4668d139210c560a15267add4",
+      "original_sha256": "81285ef9c3da8a63bc1874007998c415f41cf9a4668d139210c560a15267add4",
+      "copy_sha256": "81285ef9c3da8a63bc1874007998c415f41cf9a4668d139210c560a15267add4",
+      "copy_bytes": 801,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/hook-1788963412083506000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/old-transcript.jsonl",
+      "bytes": 254,
+      "sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "original_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_bytes": 254,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/old-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/private/hook-10931-1788963411791553000.json",
+      "bytes": 1540,
+      "sha256": "66d085a6ed2e12c683a711932f505a1e4cf762ddf25e066fe8ff6d19a79bf02b",
+      "original_sha256": "66d085a6ed2e12c683a711932f505a1e4cf762ddf25e066fe8ff6d19a79bf02b",
+      "copy_sha256": "66d085a6ed2e12c683a711932f505a1e4cf762ddf25e066fe8ff6d19a79bf02b",
+      "copy_bytes": 1540,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/detached-orphan-fresh/private/hook-10931-1788963411791553000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/private/hook-10961-1788963416108419000.json",
+      "bytes": 1000,
+      "sha256": "19d4780689dcee0ff9c4759c89bbfff1d3be7a045cf5ff6cd1a39b0e83253e22",
+      "original_sha256": "19d4780689dcee0ff9c4759c89bbfff1d3be7a045cf5ff6cd1a39b0e83253e22",
+      "copy_sha256": "19d4780689dcee0ff9c4759c89bbfff1d3be7a045cf5ff6cd1a39b0e83253e22",
+      "copy_bytes": 1000,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/detached-orphan-fresh/private/hook-10961-1788963416108419000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/replacement-transcript.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/replacement-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/result.json",
+      "bytes": 1505,
+      "sha256": "4e37618bd42619349119f45542dc923a56882d99a4bcd17bd0efc09a0faa5de8",
+      "original_sha256": "4e37618bd42619349119f45542dc923a56882d99a4bcd17bd0efc09a0faa5de8",
+      "copy_sha256": "4e37618bd42619349119f45542dc923a56882d99a4bcd17bd0efc09a0faa5de8",
+      "copy_bytes": 1505,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/state/08c83764e6b63b35a170198531156dd4243238916542f0f63b46546150b4f740.ownership.json",
+      "bytes": 378,
+      "sha256": "23d0240cef9459d59e1203a5f8d97873aa4ac4b32cba5d8249484cc971d4cc19",
+      "original_sha256": "23d0240cef9459d59e1203a5f8d97873aa4ac4b32cba5d8249484cc971d4cc19",
+      "copy_sha256": "23d0240cef9459d59e1203a5f8d97873aa4ac4b32cba5d8249484cc971d4cc19",
+      "copy_bytes": 378,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/state/08c83764e6b63b35a170198531156dd4243238916542f0f63b46546150b4f740.ownership.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/state/08c83764e6b63b35a170198531156dd4243238916542f0f63b46546150b4f740.ownership.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/state/08c83764e6b63b35a170198531156dd4243238916542f0f63b46546150b4f740.ownership.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/state/2c1ac3839145df198043fa35c6219f598292ef0bfd8f365f557563414d7e15f8.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/state/2c1ac3839145df198043fa35c6219f598292ef0bfd8f365f557563414d7e15f8.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/state/c8d029b6dd73b99d9e6507900353c804b970bd32c585eaadf9de202839b3f794.audit-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/state/c8d029b6dd73b99d9e6507900353c804b970bd32c585eaadf9de202839b3f794.audit-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/state/c8d029b6dd73b99d9e6507900353c804b970bd32c585eaadf9de202839b3f794.json",
+      "bytes": 1318,
+      "sha256": "aefcff97090a97f183eaac14968444647fbdf44bcacefea21f63caa35f623267",
+      "original_sha256": "aefcff97090a97f183eaac14968444647fbdf44bcacefea21f63caa35f623267",
+      "copy_sha256": "aefcff97090a97f183eaac14968444647fbdf44bcacefea21f63caa35f623267",
+      "copy_bytes": 1318,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/state/c8d029b6dd73b99d9e6507900353c804b970bd32c585eaadf9de202839b3f794.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/state/c8d029b6dd73b99d9e6507900353c804b970bd32c585eaadf9de202839b3f794.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/state/c8d029b6dd73b99d9e6507900353c804b970bd32c585eaadf9de202839b3f794.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/workspace/.claude/owned-work.json",
+      "bytes": 224,
+      "sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "original_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_bytes": 224,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-fresh/workspace/.claude/owned-work.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/cleanup.json",
+      "bytes": 102,
+      "sha256": "ebab426610bcbb6a019ed467c3817128e35f578a4ffedafa20da9b444bd09fb5",
+      "original_sha256": "ebab426610bcbb6a019ed467c3817128e35f578a4ffedafa20da9b444bd09fb5",
+      "copy_sha256": "ebab426610bcbb6a019ed467c3817128e35f578a4ffedafa20da9b444bd09fb5",
+      "copy_bytes": 102,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/cleanup.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/events.jsonl",
+      "bytes": 7667,
+      "sha256": "1097f7216faa22197d6aa71b0b7d73ac479e128b6fd66227c2c7c9f4bc3b991e",
+      "original_sha256": "1097f7216faa22197d6aa71b0b7d73ac479e128b6fd66227c2c7c9f4bc3b991e",
+      "copy_sha256": "1097f7216faa22197d6aa71b0b7d73ac479e128b6fd66227c2c7c9f4bc3b991e",
+      "copy_bytes": 7667,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/events.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/exhausted-original-state.json",
+      "bytes": 1459,
+      "sha256": "12b7d5351f27f774e272e12a7b3a7ad695e9e6319e56eca77621298db0ce6c99",
+      "original_sha256": "12b7d5351f27f774e272e12a7b3a7ad695e9e6319e56eca77621298db0ce6c99",
+      "copy_sha256": "12b7d5351f27f774e272e12a7b3a7ad695e9e6319e56eca77621298db0ce6c99",
+      "copy_bytes": 1459,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/exhausted-original-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/hook-1788963416384318000.ready.json",
+      "bytes": 145,
+      "sha256": "03030c3164a99e876fb145cb2cbb408d3c0e1e939cf680b89f2ee8255a43dd91",
+      "original_sha256": "03030c3164a99e876fb145cb2cbb408d3c0e1e939cf680b89f2ee8255a43dd91",
+      "copy_sha256": "03030c3164a99e876fb145cb2cbb408d3c0e1e939cf680b89f2ee8255a43dd91",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/hook-1788963416384318000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/hook-1788963416384318000.result.json",
+      "bytes": 1362,
+      "sha256": "b3bc76de8477fd922afc3d013342ab66d664ce7caf37fd7230a938d432d55bdb",
+      "original_sha256": "b3bc76de8477fd922afc3d013342ab66d664ce7caf37fd7230a938d432d55bdb",
+      "copy_sha256": "b3bc76de8477fd922afc3d013342ab66d664ce7caf37fd7230a938d432d55bdb",
+      "copy_bytes": 1362,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/hook-1788963416384318000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/hook-1788963416498796000.ready.json",
+      "bytes": 145,
+      "sha256": "3ceb5f4c229f444c30375dddd0334590029c75aa3dda5139e5f1987e93cb81d9",
+      "original_sha256": "3ceb5f4c229f444c30375dddd0334590029c75aa3dda5139e5f1987e93cb81d9",
+      "copy_sha256": "3ceb5f4c229f444c30375dddd0334590029c75aa3dda5139e5f1987e93cb81d9",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/hook-1788963416498796000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/hook-1788963416767259000.ready.json",
+      "bytes": 145,
+      "sha256": "e6ab9be0a40553473b2b7344948ccac69113a0cf95013aec7c92e46a3859ed10",
+      "original_sha256": "e6ab9be0a40553473b2b7344948ccac69113a0cf95013aec7c92e46a3859ed10",
+      "copy_sha256": "e6ab9be0a40553473b2b7344948ccac69113a0cf95013aec7c92e46a3859ed10",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/hook-1788963416767259000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/hook-1788963416767259000.result.json",
+      "bytes": 803,
+      "sha256": "656b048b53fa05a307dd3131927ddbb4b0c81029f01aaac5c17cfa2a4b391aed",
+      "original_sha256": "656b048b53fa05a307dd3131927ddbb4b0c81029f01aaac5c17cfa2a4b391aed",
+      "copy_sha256": "656b048b53fa05a307dd3131927ddbb4b0c81029f01aaac5c17cfa2a4b391aed",
+      "copy_bytes": 803,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/hook-1788963416767259000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/old-transcript.jsonl",
+      "bytes": 254,
+      "sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "original_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_bytes": 254,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/old-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/private/hook-10988-1788963416472161000.json",
+      "bytes": 1544,
+      "sha256": "bf02939c19d0d9417bec64e851b0dae2efe62eeeaefa068352b12d56cb8f3e13",
+      "original_sha256": "bf02939c19d0d9417bec64e851b0dae2efe62eeeaefa068352b12d56cb8f3e13",
+      "copy_sha256": "bf02939c19d0d9417bec64e851b0dae2efe62eeeaefa068352b12d56cb8f3e13",
+      "copy_bytes": 1544,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/detached-orphan-resume/private/hook-10988-1788963416472161000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/private/hook-11010-1788963420791669000.json",
+      "bytes": 988,
+      "sha256": "e1181f37bde7deb1217d73e5fbc31477f83b6dd4aabbd8869a690f8ecba6d1b8",
+      "original_sha256": "e1181f37bde7deb1217d73e5fbc31477f83b6dd4aabbd8869a690f8ecba6d1b8",
+      "copy_sha256": "e1181f37bde7deb1217d73e5fbc31477f83b6dd4aabbd8869a690f8ecba6d1b8",
+      "copy_bytes": 988,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/detached-orphan-resume/private/hook-11010-1788963420791669000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/result.json",
+      "bytes": 1509,
+      "sha256": "656dd2b1f674aed83e98aa63615aad520f42037b51ea47df8a33bf637ea28a3a",
+      "original_sha256": "656dd2b1f674aed83e98aa63615aad520f42037b51ea47df8a33bf637ea28a3a",
+      "copy_sha256": "656dd2b1f674aed83e98aa63615aad520f42037b51ea47df8a33bf637ea28a3a",
+      "copy_bytes": 1509,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/state/4232cf386c405e5fe8724f448c9a1d04ba4ba6574aa8fd274ca56f2f3605e67c.audit-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/state/4232cf386c405e5fe8724f448c9a1d04ba4ba6574aa8fd274ca56f2f3605e67c.audit-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/state/4232cf386c405e5fe8724f448c9a1d04ba4ba6574aa8fd274ca56f2f3605e67c.json",
+      "bytes": 1320,
+      "sha256": "c4fb53dba8bfbdd6cf3878d7df8e4fe6d671f03c492600ec8841d468369e9dce",
+      "original_sha256": "c4fb53dba8bfbdd6cf3878d7df8e4fe6d671f03c492600ec8841d468369e9dce",
+      "copy_sha256": "c4fb53dba8bfbdd6cf3878d7df8e4fe6d671f03c492600ec8841d468369e9dce",
+      "copy_bytes": 1320,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/state/4232cf386c405e5fe8724f448c9a1d04ba4ba6574aa8fd274ca56f2f3605e67c.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/state/4232cf386c405e5fe8724f448c9a1d04ba4ba6574aa8fd274ca56f2f3605e67c.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/state/4232cf386c405e5fe8724f448c9a1d04ba4ba6574aa8fd274ca56f2f3605e67c.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/state/88e402db82f0d9db8f871b7ac0e0e8af96553885157dbcc6b4bb96df3027f4a8.ownership.json",
+      "bytes": 379,
+      "sha256": "2b5983b316e97593bc1edfb324f103315fe15ea7d362fbeed7f9c966ea12f785",
+      "original_sha256": "2b5983b316e97593bc1edfb324f103315fe15ea7d362fbeed7f9c966ea12f785",
+      "copy_sha256": "2b5983b316e97593bc1edfb324f103315fe15ea7d362fbeed7f9c966ea12f785",
+      "copy_bytes": 379,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/state/88e402db82f0d9db8f871b7ac0e0e8af96553885157dbcc6b4bb96df3027f4a8.ownership.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/state/88e402db82f0d9db8f871b7ac0e0e8af96553885157dbcc6b4bb96df3027f4a8.ownership.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/state/88e402db82f0d9db8f871b7ac0e0e8af96553885157dbcc6b4bb96df3027f4a8.ownership.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/workspace/.claude/owned-work.json",
+      "bytes": 224,
+      "sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "original_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_bytes": 224,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/detached-orphan-resume/workspace/.claude/owned-work.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fake-inspector",
+      "bytes": 1436,
+      "sha256": "30e6249807847665363006bf995e1deedec8565246d97ae11fa4d0c34676e948",
+      "original_sha256": "30e6249807847665363006bf995e1deedec8565246d97ae11fa4d0c34676e948",
+      "copy_sha256": "30e6249807847665363006bf995e1deedec8565246d97ae11fa4d0c34676e948",
+      "copy_bytes": 1436,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fake-inspector"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/cleanup.json",
+      "bytes": 102,
+      "sha256": "3c1017673d4cd52733553e98ca02b277e628f8cc7adf789df799017a4e66ebfc",
+      "original_sha256": "3c1017673d4cd52733553e98ca02b277e628f8cc7adf789df799017a4e66ebfc",
+      "copy_sha256": "3c1017673d4cd52733553e98ca02b277e628f8cc7adf789df799017a4e66ebfc",
+      "copy_bytes": 102,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/cleanup.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/events.jsonl",
+      "bytes": 22257,
+      "sha256": "f25917a114583b955f630206d67a95f6b6388e9efd95031db7551ee275d106e7",
+      "original_sha256": "f25917a114583b955f630206d67a95f6b6388e9efd95031db7551ee275d106e7",
+      "copy_sha256": "f25917a114583b955f630206d67a95f6b6388e9efd95031db7551ee275d106e7",
+      "copy_bytes": 22257,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/events.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/exhausted-original-state.json",
+      "bytes": 1458,
+      "sha256": "3e965275c06a9c32803d192368748ef821fd3755892648a31c23f51f6baba8c0",
+      "original_sha256": "3e965275c06a9c32803d192368748ef821fd3755892648a31c23f51f6baba8c0",
+      "copy_sha256": "3e965275c06a9c32803d192368748ef821fd3755892648a31c23f51f6baba8c0",
+      "copy_bytes": 1458,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/exhausted-original-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421022067000.ready.json",
+      "bytes": 145,
+      "sha256": "8dba2733e109504816e46a65c2f4f0486656df5240688181d71f11c43ebcf088",
+      "original_sha256": "8dba2733e109504816e46a65c2f4f0486656df5240688181d71f11c43ebcf088",
+      "copy_sha256": "8dba2733e109504816e46a65c2f4f0486656df5240688181d71f11c43ebcf088",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421022067000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421022067000.result.json",
+      "bytes": 1362,
+      "sha256": "0d3255f6f505d2ab1ba9a8689cf2ffc8065f93f4b17037fe6300a652f2401400",
+      "original_sha256": "0d3255f6f505d2ab1ba9a8689cf2ffc8065f93f4b17037fe6300a652f2401400",
+      "copy_sha256": "0d3255f6f505d2ab1ba9a8689cf2ffc8065f93f4b17037fe6300a652f2401400",
+      "copy_bytes": 1362,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421022067000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421220649000.ready.json",
+      "bytes": 145,
+      "sha256": "9e5516f7b49efeadc15915270d9a6f92f27512db8405c07d3213ee689a4c1777",
+      "original_sha256": "9e5516f7b49efeadc15915270d9a6f92f27512db8405c07d3213ee689a4c1777",
+      "copy_sha256": "9e5516f7b49efeadc15915270d9a6f92f27512db8405c07d3213ee689a4c1777",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421220649000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421220649000.result.json",
+      "bytes": 2288,
+      "sha256": "7dd51243cb49b6b95f60a143b7960fad15a0afa56e34744902237c508a7cd20d",
+      "original_sha256": "7dd51243cb49b6b95f60a143b7960fad15a0afa56e34744902237c508a7cd20d",
+      "copy_sha256": "7dd51243cb49b6b95f60a143b7960fad15a0afa56e34744902237c508a7cd20d",
+      "copy_bytes": 2288,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421220649000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421398588000.ready.json",
+      "bytes": 145,
+      "sha256": "cf28f1631d4661cdab5e63ac512bbff37c0df958d1b3e0e2c394bffeec32640f",
+      "original_sha256": "cf28f1631d4661cdab5e63ac512bbff37c0df958d1b3e0e2c394bffeec32640f",
+      "copy_sha256": "cf28f1631d4661cdab5e63ac512bbff37c0df958d1b3e0e2c394bffeec32640f",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421398588000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421398588000.result.json",
+      "bytes": 3293,
+      "sha256": "e9180e79d80c5bb14420dd402859cd7bc57910b04aa332930f66a9f549e245b6",
+      "original_sha256": "e9180e79d80c5bb14420dd402859cd7bc57910b04aa332930f66a9f549e245b6",
+      "copy_sha256": "e9180e79d80c5bb14420dd402859cd7bc57910b04aa332930f66a9f549e245b6",
+      "copy_bytes": 3293,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421398588000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421842602000.ready.json",
+      "bytes": 145,
+      "sha256": "3298f7dc3f6cd08648f6e7125e500e7416c5cbe88ce7800a9911424b5f8a317d",
+      "original_sha256": "3298f7dc3f6cd08648f6e7125e500e7416c5cbe88ce7800a9911424b5f8a317d",
+      "copy_sha256": "3298f7dc3f6cd08648f6e7125e500e7416c5cbe88ce7800a9911424b5f8a317d",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421842602000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421842602000.result.json",
+      "bytes": 2288,
+      "sha256": "5caee5f2d444350df3ff01f58936109949404c826c662fea7e77c62a62f06683",
+      "original_sha256": "5caee5f2d444350df3ff01f58936109949404c826c662fea7e77c62a62f06683",
+      "copy_sha256": "5caee5f2d444350df3ff01f58936109949404c826c662fea7e77c62a62f06683",
+      "copy_bytes": 2288,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421842602000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421948370000.ready.json",
+      "bytes": 145,
+      "sha256": "ddc17d261285c4654f1443c8c8f944e4d6a3b962882fb3928d88f2915541726f",
+      "original_sha256": "ddc17d261285c4654f1443c8c8f944e4d6a3b962882fb3928d88f2915541726f",
+      "copy_sha256": "ddc17d261285c4654f1443c8c8f944e4d6a3b962882fb3928d88f2915541726f",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421948370000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963421948370000.result.json",
+      "bytes": 804,
+      "sha256": "01010e0e5b0b8d14b25475d003673b7865d45b8b11a65cff1859ef4137d4dae8",
+      "original_sha256": "01010e0e5b0b8d14b25475d003673b7865d45b8b11a65cff1859ef4137d4dae8",
+      "copy_sha256": "01010e0e5b0b8d14b25475d003673b7865d45b8b11a65cff1859ef4137d4dae8",
+      "copy_bytes": 804,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963421948370000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963422633658000.ready.json",
+      "bytes": 145,
+      "sha256": "456ee24615a88e05c79948680fdb141c7bae2812358235c323e708be5bd3fb54",
+      "original_sha256": "456ee24615a88e05c79948680fdb141c7bae2812358235c323e708be5bd3fb54",
+      "copy_sha256": "456ee24615a88e05c79948680fdb141c7bae2812358235c323e708be5bd3fb54",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963422633658000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963422633658000.result.json",
+      "bytes": 2280,
+      "sha256": "e20e3018f5da9a5432b7c491a20317c95d3411afc9939d2f0c6ac6e0687e689e",
+      "original_sha256": "e20e3018f5da9a5432b7c491a20317c95d3411afc9939d2f0c6ac6e0687e689e",
+      "copy_sha256": "e20e3018f5da9a5432b7c491a20317c95d3411afc9939d2f0c6ac6e0687e689e",
+      "copy_bytes": 2280,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963422633658000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963422765453000.ready.json",
+      "bytes": 145,
+      "sha256": "5df505dc2b6edf678d11977ac23bf9be66d0875992152c7ab5f2b7d83c04fef4",
+      "original_sha256": "5df505dc2b6edf678d11977ac23bf9be66d0875992152c7ab5f2b7d83c04fef4",
+      "copy_sha256": "5df505dc2b6edf678d11977ac23bf9be66d0875992152c7ab5f2b7d83c04fef4",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963422765453000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/hook-1788963422765453000.result.json",
+      "bytes": 803,
+      "sha256": "ccc2ee2a55214587c08311c29b95cac1cfc3f3160d286fa8156adf04f4e0d880",
+      "original_sha256": "ccc2ee2a55214587c08311c29b95cac1cfc3f3160d286fa8156adf04f4e0d880",
+      "copy_sha256": "ccc2ee2a55214587c08311c29b95cac1cfc3f3160d286fa8156adf04f4e0d880",
+      "copy_bytes": 803,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/hook-1788963422765453000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/inspector.jsonl",
+      "bytes": 2646,
+      "sha256": "ce9daac03eb48f95c7d0bc0fd46f3fbeb1c08834114a72642357aa4083e68863",
+      "original_sha256": "ce9daac03eb48f95c7d0bc0fd46f3fbeb1c08834114a72642357aa4083e68863",
+      "copy_sha256": "ce9daac03eb48f95c7d0bc0fd46f3fbeb1c08834114a72642357aa4083e68863",
+      "copy_bytes": 2646,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/inspector.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/old-transcript.jsonl",
+      "bytes": 254,
+      "sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "original_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_bytes": 254,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/old-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/private/hook-11126-1788963421115629000.json",
+      "bytes": 1544,
+      "sha256": "353a25d8210bec4e6c68eeb32a0e3a58fc052306f088e1e678aeff5b94ac763a",
+      "original_sha256": "353a25d8210bec4e6c68eeb32a0e3a58fc052306f088e1e678aeff5b94ac763a",
+      "copy_sha256": "353a25d8210bec4e6c68eeb32a0e3a58fc052306f088e1e678aeff5b94ac763a",
+      "copy_bytes": 1544,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/private/hook-11126-1788963421115629000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/private/hook-11139-1788963421343272000.json",
+      "bytes": 2486,
+      "sha256": "0621af68249cb5613b1db1e2c64641d7594cd5c4d9a9bdb8e3eee3feea0cec5d",
+      "original_sha256": "0621af68249cb5613b1db1e2c64641d7594cd5c4d9a9bdb8e3eee3feea0cec5d",
+      "copy_sha256": "0621af68249cb5613b1db1e2c64641d7594cd5c4d9a9bdb8e3eee3feea0cec5d",
+      "copy_bytes": 2486,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/private/hook-11139-1788963421343272000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/private/hook-11145-1788963421819433000.json",
+      "bytes": 3536,
+      "sha256": "f5b4cb7d0a0a79a0f57ff731afd18ada04a6c1947701095c59defd6510934237",
+      "original_sha256": "f5b4cb7d0a0a79a0f57ff731afd18ada04a6c1947701095c59defd6510934237",
+      "copy_sha256": "f5b4cb7d0a0a79a0f57ff731afd18ada04a6c1947701095c59defd6510934237",
+      "copy_bytes": 3536,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/private/hook-11145-1788963421819433000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/private/hook-11170-1788963421937335000.json",
+      "bytes": 2486,
+      "sha256": "0c2c06b264e4ea05f4881fceefdbec23083b7de504390acf9c6b6db71b67a55d",
+      "original_sha256": "0c2c06b264e4ea05f4881fceefdbec23083b7de504390acf9c6b6db71b67a55d",
+      "copy_sha256": "0c2c06b264e4ea05f4881fceefdbec23083b7de504390acf9c6b6db71b67a55d",
+      "copy_bytes": 2486,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/private/hook-11170-1788963421937335000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/private/hook-11173-1788963422576372000.json",
+      "bytes": 1004,
+      "sha256": "1afd578132e96b18ecf03e24d74f2237f36740de90380e8d6297268b2fad6ec0",
+      "original_sha256": "1afd578132e96b18ecf03e24d74f2237f36740de90380e8d6297268b2fad6ec0",
+      "copy_sha256": "1afd578132e96b18ecf03e24d74f2237f36740de90380e8d6297268b2fad6ec0",
+      "copy_bytes": 1004,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/private/hook-11173-1788963422576372000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/private/hook-11180-1788963422758519000.json",
+      "bytes": 2470,
+      "sha256": "d7b3a71fb39b4f7baf52787c7f85afc4728154e9dfa872c1949c2440bbe9038f",
+      "original_sha256": "d7b3a71fb39b4f7baf52787c7f85afc4728154e9dfa872c1949c2440bbe9038f",
+      "copy_sha256": "d7b3a71fb39b4f7baf52787c7f85afc4728154e9dfa872c1949c2440bbe9038f",
+      "copy_bytes": 2470,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/private/hook-11180-1788963422758519000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/private/hook-11183-1788963423390504000.json",
+      "bytes": 996,
+      "sha256": "c0689bcd240e2dc796c763d47ff2e7bc76139c827e998332e8ea5e77b22784c2",
+      "original_sha256": "c0689bcd240e2dc796c763d47ff2e7bc76139c827e998332e8ea5e77b22784c2",
+      "copy_sha256": "c0689bcd240e2dc796c763d47ff2e7bc76139c827e998332e8ea5e77b22784c2",
+      "copy_bytes": 996,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/private/hook-11183-1788963423390504000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/private/inspector-1788963421684336000.json",
+      "bytes": 2061,
+      "sha256": "1c1d7dbf500133e5fa280c5cbbe82da37ec5cfd908f104bb75c1902f556fa534",
+      "original_sha256": "1c1d7dbf500133e5fa280c5cbbe82da37ec5cfd908f104bb75c1902f556fa534",
+      "copy_sha256": "1c1d7dbf500133e5fa280c5cbbe82da37ec5cfd908f104bb75c1902f556fa534",
+      "copy_bytes": 2061,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/private/inspector-1788963421684336000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/reconciled-state.json",
+      "bytes": 7002,
+      "sha256": "bf40efcbcdd2e372cb0738b6934d6baf58b94e51c77168eab36c83a85f648906",
+      "original_sha256": "bf40efcbcdd2e372cb0738b6934d6baf58b94e51c77168eab36c83a85f648906",
+      "copy_sha256": "bf40efcbcdd2e372cb0738b6934d6baf58b94e51c77168eab36c83a85f648906",
+      "copy_bytes": 7002,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/reconciled-state.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/repeated-hooks-state.json",
+      "bytes": 7023,
+      "sha256": "7df38a30f828adb9ffd4c27a3208b40d4e4f8183072ac81c5cbcfe9f17c4bbc1",
+      "original_sha256": "7df38a30f828adb9ffd4c27a3208b40d4e4f8183072ac81c5cbcfe9f17c4bbc1",
+      "copy_sha256": "7df38a30f828adb9ffd4c27a3208b40d4e4f8183072ac81c5cbcfe9f17c4bbc1",
+      "copy_bytes": 7023,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/repeated-hooks-state.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/replacement-transcript.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/replacement-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/result.json",
+      "bytes": 917,
+      "sha256": "311e00970943e20db2b4650f3537307c3dbea96ce1a700b6186104051f18dc3c",
+      "original_sha256": "311e00970943e20db2b4650f3537307c3dbea96ce1a700b6186104051f18dc3c",
+      "copy_sha256": "311e00970943e20db2b4650f3537307c3dbea96ce1a700b6186104051f18dc3c",
+      "copy_bytes": 917,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/state/41d7d37e76052cb904ae4820923c29eba69e72695374dd3de5984be098580bc1.audit-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/state/41d7d37e76052cb904ae4820923c29eba69e72695374dd3de5984be098580bc1.audit-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/state/41d7d37e76052cb904ae4820923c29eba69e72695374dd3de5984be098580bc1.inference-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/state/41d7d37e76052cb904ae4820923c29eba69e72695374dd3de5984be098580bc1.inference-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/state/41d7d37e76052cb904ae4820923c29eba69e72695374dd3de5984be098580bc1.json",
+      "bytes": 6404,
+      "sha256": "e597616e57bd887132c80a1231046f09d3c29dfd8c8ce796fd8db6329e8b48a2",
+      "original_sha256": "e597616e57bd887132c80a1231046f09d3c29dfd8c8ce796fd8db6329e8b48a2",
+      "copy_sha256": "e597616e57bd887132c80a1231046f09d3c29dfd8c8ce796fd8db6329e8b48a2",
+      "copy_bytes": 6404,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/fresh-exhausted-budget/state/41d7d37e76052cb904ae4820923c29eba69e72695374dd3de5984be098580bc1.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/state/41d7d37e76052cb904ae4820923c29eba69e72695374dd3de5984be098580bc1.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/state/41d7d37e76052cb904ae4820923c29eba69e72695374dd3de5984be098580bc1.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/state/56fb05185f603d32bf8c7e731169979fcf6245937a1b3d42f30901719862161e.ownership.json",
+      "bytes": 654,
+      "sha256": "1d4cfcd31f6ef990c038e3361633ddafa80fb45983a0a70f061539b7507e9f04",
+      "original_sha256": "1d4cfcd31f6ef990c038e3361633ddafa80fb45983a0a70f061539b7507e9f04",
+      "copy_sha256": "1d4cfcd31f6ef990c038e3361633ddafa80fb45983a0a70f061539b7507e9f04",
+      "copy_bytes": 654,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/state/56fb05185f603d32bf8c7e731169979fcf6245937a1b3d42f30901719862161e.ownership.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/state/56fb05185f603d32bf8c7e731169979fcf6245937a1b3d42f30901719862161e.ownership.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/state/56fb05185f603d32bf8c7e731169979fcf6245937a1b3d42f30901719862161e.ownership.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/state/91353ec09d40ef6d1c73af0cc924e0644535a0ed5b8b853abef7b04c8920fc15.json",
+      "bytes": 1306,
+      "sha256": "0958f5d32a5fa85b2461ef2cfe49852dc34b72d3d1f91c481edead097859677b",
+      "original_sha256": "0958f5d32a5fa85b2461ef2cfe49852dc34b72d3d1f91c481edead097859677b",
+      "copy_sha256": "0958f5d32a5fa85b2461ef2cfe49852dc34b72d3d1f91c481edead097859677b",
+      "copy_bytes": 1306,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/state/91353ec09d40ef6d1c73af0cc924e0644535a0ed5b8b853abef7b04c8920fc15.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/state/91353ec09d40ef6d1c73af0cc924e0644535a0ed5b8b853abef7b04c8920fc15.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/state/91353ec09d40ef6d1c73af0cc924e0644535a0ed5b8b853abef7b04c8920fc15.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/fresh-exhausted-budget/workspace/.claude/owned-work.json",
+      "bytes": 224,
+      "sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "original_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_bytes": 224,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/fresh-exhausted-budget/workspace/.claude/owned-work.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/cleanup.json",
+      "bytes": 102,
+      "sha256": "46f5fc22acde10a08752a4bd1c4893431420429238280b55af9c2e4846b31889",
+      "original_sha256": "46f5fc22acde10a08752a4bd1c4893431420429238280b55af9c2e4846b31889",
+      "copy_sha256": "46f5fc22acde10a08752a4bd1c4893431420429238280b55af9c2e4846b31889",
+      "copy_bytes": 102,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/cleanup.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/events.jsonl",
+      "bytes": 25858,
+      "sha256": "1ec0116e6a93f3adc9838967ad7c5ae52d4170811b7dc5ae62b403d07de0b0cd",
+      "original_sha256": "1ec0116e6a93f3adc9838967ad7c5ae52d4170811b7dc5ae62b403d07de0b0cd",
+      "copy_sha256": "1ec0116e6a93f3adc9838967ad7c5ae52d4170811b7dc5ae62b403d07de0b0cd",
+      "copy_bytes": 25858,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/events.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/exhausted-original-state.json",
+      "bytes": 1460,
+      "sha256": "2a2f2f8c2a6c548d01c0e8ff9ac5220546dbf47269ea25a0fdadeb3589201efa",
+      "original_sha256": "2a2f2f8c2a6c548d01c0e8ff9ac5220546dbf47269ea25a0fdadeb3589201efa",
+      "copy_sha256": "2a2f2f8c2a6c548d01c0e8ff9ac5220546dbf47269ea25a0fdadeb3589201efa",
+      "copy_bytes": 1460,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/exhausted-original-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963408330126000.ready.json",
+      "bytes": 145,
+      "sha256": "a1cf556b77a78ec7ad4e99e2c180c4b8b724654bf8d1cc12d06c335084afe610",
+      "original_sha256": "a1cf556b77a78ec7ad4e99e2c180c4b8b724654bf8d1cc12d06c335084afe610",
+      "copy_sha256": "a1cf556b77a78ec7ad4e99e2c180c4b8b724654bf8d1cc12d06c335084afe610",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963408330126000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963408330126000.result.json",
+      "bytes": 1363,
+      "sha256": "acbe9d5044da0783a8f65de56b522914b269120c2ba7db3f7782af052043c7fc",
+      "original_sha256": "acbe9d5044da0783a8f65de56b522914b269120c2ba7db3f7782af052043c7fc",
+      "copy_sha256": "acbe9d5044da0783a8f65de56b522914b269120c2ba7db3f7782af052043c7fc",
+      "copy_bytes": 1363,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963408330126000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963408534034000.ready.json",
+      "bytes": 145,
+      "sha256": "20bf39f5f5d2fe20d645fc1a4594ce558d85c3352f0f9222e529cb9733c28f01",
+      "original_sha256": "20bf39f5f5d2fe20d645fc1a4594ce558d85c3352f0f9222e529cb9733c28f01",
+      "copy_sha256": "20bf39f5f5d2fe20d645fc1a4594ce558d85c3352f0f9222e529cb9733c28f01",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963408534034000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963408534034000.result.json",
+      "bytes": 2290,
+      "sha256": "68c4bcc749e7b500e7a3d1d4a245a992edfffa8e025919822edb8c09a643829a",
+      "original_sha256": "68c4bcc749e7b500e7a3d1d4a245a992edfffa8e025919822edb8c09a643829a",
+      "copy_sha256": "68c4bcc749e7b500e7a3d1d4a245a992edfffa8e025919822edb8c09a643829a",
+      "copy_bytes": 2290,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963408534034000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963408708991000.ready.json",
+      "bytes": 145,
+      "sha256": "b8d4d45867ad35f7b4f5c5501aaac1a216d2b1dc4c3757bf097f64f79faa06e3",
+      "original_sha256": "b8d4d45867ad35f7b4f5c5501aaac1a216d2b1dc4c3757bf097f64f79faa06e3",
+      "copy_sha256": "b8d4d45867ad35f7b4f5c5501aaac1a216d2b1dc4c3757bf097f64f79faa06e3",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963408708991000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963408708991000.result.json",
+      "bytes": 804,
+      "sha256": "a7ae753bd90ef2447a29505eda84b2b14bb9f0b251e3c0d3190e8396f640111c",
+      "original_sha256": "a7ae753bd90ef2447a29505eda84b2b14bb9f0b251e3c0d3190e8396f640111c",
+      "copy_sha256": "a7ae753bd90ef2447a29505eda84b2b14bb9f0b251e3c0d3190e8396f640111c",
+      "copy_bytes": 804,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963408708991000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963409112345000.ready.json",
+      "bytes": 145,
+      "sha256": "1e93a77613c9fd5405fa54eafad04b19327da14326ad7c877a9b0ebebac3842c",
+      "original_sha256": "1e93a77613c9fd5405fa54eafad04b19327da14326ad7c877a9b0ebebac3842c",
+      "copy_sha256": "1e93a77613c9fd5405fa54eafad04b19327da14326ad7c877a9b0ebebac3842c",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963409112345000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963409112345000.result.json",
+      "bytes": 3295,
+      "sha256": "1911c2983ab6461a4ded0d8aee358b5fb83a1fac0867728c0df35c2f8f801416",
+      "original_sha256": "1911c2983ab6461a4ded0d8aee358b5fb83a1fac0867728c0df35c2f8f801416",
+      "copy_sha256": "1911c2983ab6461a4ded0d8aee358b5fb83a1fac0867728c0df35c2f8f801416",
+      "copy_bytes": 3295,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963409112345000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963409795821000.ready.json",
+      "bytes": 145,
+      "sha256": "8d79a17cb519799ce749356ff13eba228af39811387f6329501ef79ab135b02d",
+      "original_sha256": "8d79a17cb519799ce749356ff13eba228af39811387f6329501ef79ab135b02d",
+      "copy_sha256": "8d79a17cb519799ce749356ff13eba228af39811387f6329501ef79ab135b02d",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963409795821000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963409795821000.result.json",
+      "bytes": 2290,
+      "sha256": "e56f83aa7c35023d3ba153bc730195b4965797004e8b118e1520ad08fd1f8cb1",
+      "original_sha256": "e56f83aa7c35023d3ba153bc730195b4965797004e8b118e1520ad08fd1f8cb1",
+      "copy_sha256": "e56f83aa7c35023d3ba153bc730195b4965797004e8b118e1520ad08fd1f8cb1",
+      "copy_bytes": 2290,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963409795821000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963409898703000.ready.json",
+      "bytes": 145,
+      "sha256": "dba7ea5e69c2b069803e9e881a1d1eb80f64425a6d4dd34b54526b361100cf76",
+      "original_sha256": "dba7ea5e69c2b069803e9e881a1d1eb80f64425a6d4dd34b54526b361100cf76",
+      "copy_sha256": "dba7ea5e69c2b069803e9e881a1d1eb80f64425a6d4dd34b54526b361100cf76",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963409898703000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963409898703000.result.json",
+      "bytes": 805,
+      "sha256": "9b48614cf90ddd2aa9d2cf89e45f6071696ac8978f2c8489e4419bbb7bfc0446",
+      "original_sha256": "9b48614cf90ddd2aa9d2cf89e45f6071696ac8978f2c8489e4419bbb7bfc0446",
+      "copy_sha256": "9b48614cf90ddd2aa9d2cf89e45f6071696ac8978f2c8489e4419bbb7bfc0446",
+      "copy_bytes": 805,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963409898703000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963410542960000.ready.json",
+      "bytes": 145,
+      "sha256": "e22f40b101db1e28d0e5ee613765e737f989ac504936fda1e043e5eaebf25ecc",
+      "original_sha256": "e22f40b101db1e28d0e5ee613765e737f989ac504936fda1e043e5eaebf25ecc",
+      "copy_sha256": "e22f40b101db1e28d0e5ee613765e737f989ac504936fda1e043e5eaebf25ecc",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963410542960000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963410542960000.result.json",
+      "bytes": 2282,
+      "sha256": "70c71212a6795b00eba65ad27eb73c7acbfb7e387b6c057dbd7f0f6d69ae7bcb",
+      "original_sha256": "70c71212a6795b00eba65ad27eb73c7acbfb7e387b6c057dbd7f0f6d69ae7bcb",
+      "copy_sha256": "70c71212a6795b00eba65ad27eb73c7acbfb7e387b6c057dbd7f0f6d69ae7bcb",
+      "copy_bytes": 2282,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963410542960000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963410665423000.ready.json",
+      "bytes": 145,
+      "sha256": "e18ebeb3ad031c18f6042799fc0cec0db7737ca601225c35442693be1f1974bc",
+      "original_sha256": "e18ebeb3ad031c18f6042799fc0cec0db7737ca601225c35442693be1f1974bc",
+      "copy_sha256": "e18ebeb3ad031c18f6042799fc0cec0db7737ca601225c35442693be1f1974bc",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963410665423000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/hook-1788963410665423000.result.json",
+      "bytes": 805,
+      "sha256": "c920c0e66354f456dc54702903029934a770c8e25e7ad6c4dac050b9dce7a81a",
+      "original_sha256": "c920c0e66354f456dc54702903029934a770c8e25e7ad6c4dac050b9dce7a81a",
+      "copy_sha256": "c920c0e66354f456dc54702903029934a770c8e25e7ad6c4dac050b9dce7a81a",
+      "copy_bytes": 805,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/hook-1788963410665423000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/inspector.jsonl",
+      "bytes": 5302,
+      "sha256": "5516adce17b9307dac5fba53ee86f1bb0bfb8c1cd84f2e82b176edd20bad0bd2",
+      "original_sha256": "5516adce17b9307dac5fba53ee86f1bb0bfb8c1cd84f2e82b176edd20bad0bd2",
+      "copy_sha256": "5516adce17b9307dac5fba53ee86f1bb0bfb8c1cd84f2e82b176edd20bad0bd2",
+      "copy_bytes": 5302,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/inspector.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/interrupted-in-flight-state.json",
+      "bytes": 3787,
+      "sha256": "c96b82a17e9beb24b371ed3149d18ef8fdf8bfcbe949a836c221b41842c51a9c",
+      "original_sha256": "c96b82a17e9beb24b371ed3149d18ef8fdf8bfcbe949a836c221b41842c51a9c",
+      "copy_sha256": "c96b82a17e9beb24b371ed3149d18ef8fdf8bfcbe949a836c221b41842c51a9c",
+      "copy_bytes": 3787,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/interrupted-in-flight-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/old-transcript.jsonl",
+      "bytes": 254,
+      "sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "original_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_bytes": 254,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/old-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/hook-10842-1788963408419242000.json",
+      "bytes": 1548,
+      "sha256": "825c96ffc6c59a07ecd68becba0e6996154d2ce0813540a38ce8bbe5b0ff7fe4",
+      "original_sha256": "825c96ffc6c59a07ecd68becba0e6996154d2ce0813540a38ce8bbe5b0ff7fe4",
+      "copy_sha256": "825c96ffc6c59a07ecd68becba0e6996154d2ce0813540a38ce8bbe5b0ff7fe4",
+      "copy_bytes": 1548,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/hook-10842-1788963408419242000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/hook-10854-1788963408646702000.json",
+      "bytes": 2491,
+      "sha256": "d564340f68e2c9d89e503d06bf613907bd7674e0459e68f9941a61125393880a",
+      "original_sha256": "d564340f68e2c9d89e503d06bf613907bd7674e0459e68f9941a61125393880a",
+      "copy_sha256": "d564340f68e2c9d89e503d06bf613907bd7674e0459e68f9941a61125393880a",
+      "copy_bytes": 2491,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/hook-10854-1788963408646702000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/hook-10858-1788963409004960000.json",
+      "bytes": 1007,
+      "sha256": "839d6a724682bae28773b45f6adb26ef67a1f12dd35a844d043c70749c602327",
+      "original_sha256": "839d6a724682bae28773b45f6adb26ef67a1f12dd35a844d043c70749c602327",
+      "copy_sha256": "839d6a724682bae28773b45f6adb26ef67a1f12dd35a844d043c70749c602327",
+      "copy_bytes": 1007,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/hook-10858-1788963409004960000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/hook-10873-1788963409773687000.json",
+      "bytes": 3537,
+      "sha256": "896a9bc0744a8886268cb04bdd59e5cdf341e56c7bf04ae6f13dc2e2fa8db82c",
+      "original_sha256": "896a9bc0744a8886268cb04bdd59e5cdf341e56c7bf04ae6f13dc2e2fa8db82c",
+      "copy_sha256": "896a9bc0744a8886268cb04bdd59e5cdf341e56c7bf04ae6f13dc2e2fa8db82c",
+      "copy_bytes": 3537,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/hook-10873-1788963409773687000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/hook-10890-1788963409885444000.json",
+      "bytes": 2491,
+      "sha256": "efff36d3b6bf5c550cee551740e7f447e32cba0690e530021c58d3dab12c854c",
+      "original_sha256": "efff36d3b6bf5c550cee551740e7f447e32cba0690e530021c58d3dab12c854c",
+      "copy_sha256": "efff36d3b6bf5c550cee551740e7f447e32cba0690e530021c58d3dab12c854c",
+      "copy_bytes": 2491,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/hook-10890-1788963409885444000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/hook-10893-1788963410524906000.json",
+      "bytes": 1008,
+      "sha256": "1328ac068eaf5f16b87e37fdf9319fda889df4b94111cf7d335a697822b6fea9",
+      "original_sha256": "1328ac068eaf5f16b87e37fdf9319fda889df4b94111cf7d335a697822b6fea9",
+      "copy_sha256": "1328ac068eaf5f16b87e37fdf9319fda889df4b94111cf7d335a697822b6fea9",
+      "copy_bytes": 1008,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/hook-10893-1788963410524906000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/hook-10900-1788963410658863000.json",
+      "bytes": 2475,
+      "sha256": "a0bfddae274b3d71b65ed9084c2dfd572cb60ef6f24c8ed8252748960a48ba24",
+      "original_sha256": "a0bfddae274b3d71b65ed9084c2dfd572cb60ef6f24c8ed8252748960a48ba24",
+      "copy_sha256": "a0bfddae274b3d71b65ed9084c2dfd572cb60ef6f24c8ed8252748960a48ba24",
+      "copy_bytes": 2475,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/hook-10900-1788963410658863000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/hook-10903-1788963411291328000.json",
+      "bytes": 1000,
+      "sha256": "a1e6458ab7b34eb730a848ca51e944e26f45e1c621872383b205988c7728f985",
+      "original_sha256": "a1e6458ab7b34eb730a848ca51e944e26f45e1c621872383b205988c7728f985",
+      "copy_sha256": "a1e6458ab7b34eb730a848ca51e944e26f45e1c621872383b205988c7728f985",
+      "copy_bytes": 1000,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/hook-10903-1788963411291328000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/inspector-1788963408986657000.json",
+      "bytes": 2063,
+      "sha256": "4ebc8fd45632e2d995c6dcd97092a958c89f292e8095a23dc2dc153c9eec6691",
+      "original_sha256": "4ebc8fd45632e2d995c6dcd97092a958c89f292e8095a23dc2dc153c9eec6691",
+      "copy_sha256": "4ebc8fd45632e2d995c6dcd97092a958c89f292e8095a23dc2dc153c9eec6691",
+      "copy_bytes": 2063,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/inspector-1788963408986657000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/private/inspector-1788963409642366000.json",
+      "bytes": 2063,
+      "sha256": "4ebc8fd45632e2d995c6dcd97092a958c89f292e8095a23dc2dc153c9eec6691",
+      "original_sha256": "4ebc8fd45632e2d995c6dcd97092a958c89f292e8095a23dc2dc153c9eec6691",
+      "copy_sha256": "4ebc8fd45632e2d995c6dcd97092a958c89f292e8095a23dc2dc153c9eec6691",
+      "copy_bytes": 2063,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/private/inspector-1788963409642366000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/reconciled-state.json",
+      "bytes": 7032,
+      "sha256": "debdf5fe4769b26ec268907bcae9b42eca4a40deb4494ca2e9b068d171489c98",
+      "original_sha256": "debdf5fe4769b26ec268907bcae9b42eca4a40deb4494ca2e9b068d171489c98",
+      "copy_sha256": "debdf5fe4769b26ec268907bcae9b42eca4a40deb4494ca2e9b068d171489c98",
+      "copy_bytes": 7032,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/reconciled-state.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/repeated-hooks-state.json",
+      "bytes": 7032,
+      "sha256": "38d985499dc1b3ca36d38d4a09a074ddc2c5a54828274d032d3df3a42277f2c3",
+      "original_sha256": "38d985499dc1b3ca36d38d4a09a074ddc2c5a54828274d032d3df3a42277f2c3",
+      "copy_sha256": "38d985499dc1b3ca36d38d4a09a074ddc2c5a54828274d032d3df3a42277f2c3",
+      "copy_bytes": 7032,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/repeated-hooks-state.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/replacement-transcript.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/replacement-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/result.json",
+      "bytes": 1244,
+      "sha256": "34db3030ff05edaeef7a7f91db98a3010acefce48f632a9d91942fcc6b0e3dad",
+      "original_sha256": "34db3030ff05edaeef7a7f91db98a3010acefce48f632a9d91942fcc6b0e3dad",
+      "copy_sha256": "34db3030ff05edaeef7a7f91db98a3010acefce48f632a9d91942fcc6b0e3dad",
+      "copy_bytes": 1244,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/state/8ec60dbec4e8091a55167ec0087a9c8c336214bb5ad3fee2bad005c2bcbda6e8.ownership.json",
+      "bytes": 655,
+      "sha256": "4be0841eec489133bb24500ef90fc9fa4ef356d30b887626504f6d0b88cd22ca",
+      "original_sha256": "4be0841eec489133bb24500ef90fc9fa4ef356d30b887626504f6d0b88cd22ca",
+      "copy_sha256": "4be0841eec489133bb24500ef90fc9fa4ef356d30b887626504f6d0b88cd22ca",
+      "copy_bytes": 655,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/state/8ec60dbec4e8091a55167ec0087a9c8c336214bb5ad3fee2bad005c2bcbda6e8.ownership.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/state/8ec60dbec4e8091a55167ec0087a9c8c336214bb5ad3fee2bad005c2bcbda6e8.ownership.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/state/8ec60dbec4e8091a55167ec0087a9c8c336214bb5ad3fee2bad005c2bcbda6e8.ownership.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/state/932d9052877b7735313b64dba93a3712dd946597be69098cb5627e8f8e4e280f.audit-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/state/932d9052877b7735313b64dba93a3712dd946597be69098cb5627e8f8e4e280f.audit-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/state/932d9052877b7735313b64dba93a3712dd946597be69098cb5627e8f8e4e280f.inference-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/state/932d9052877b7735313b64dba93a3712dd946597be69098cb5627e8f8e4e280f.inference-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/state/932d9052877b7735313b64dba93a3712dd946597be69098cb5627e8f8e4e280f.json",
+      "bytes": 6413,
+      "sha256": "a17d47625974f0b602cf2bb7aea1fcb868460791b0a73a00253130d8dd0001f7",
+      "original_sha256": "a17d47625974f0b602cf2bb7aea1fcb868460791b0a73a00253130d8dd0001f7",
+      "copy_sha256": "a17d47625974f0b602cf2bb7aea1fcb868460791b0a73a00253130d8dd0001f7",
+      "copy_bytes": 6413,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/hook-only-mid-inference/state/932d9052877b7735313b64dba93a3712dd946597be69098cb5627e8f8e4e280f.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/state/932d9052877b7735313b64dba93a3712dd946597be69098cb5627e8f8e4e280f.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/state/932d9052877b7735313b64dba93a3712dd946597be69098cb5627e8f8e4e280f.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/state/cde1fdf0e6e08ead4f96876cf2e57fbc86f4360e210c8eda96237044781701e6.json",
+      "bytes": 1310,
+      "sha256": "84ca05f76aa3c3192420bd95e1ebc2eb6c1813b329ba0a6256e3dede06761de6",
+      "original_sha256": "84ca05f76aa3c3192420bd95e1ebc2eb6c1813b329ba0a6256e3dede06761de6",
+      "copy_sha256": "84ca05f76aa3c3192420bd95e1ebc2eb6c1813b329ba0a6256e3dede06761de6",
+      "copy_bytes": 1310,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/state/cde1fdf0e6e08ead4f96876cf2e57fbc86f4360e210c8eda96237044781701e6.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/state/cde1fdf0e6e08ead4f96876cf2e57fbc86f4360e210c8eda96237044781701e6.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/state/cde1fdf0e6e08ead4f96876cf2e57fbc86f4360e210c8eda96237044781701e6.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/hook-only-mid-inference/workspace/.claude/owned-work.json",
+      "bytes": 224,
+      "sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "original_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_bytes": 224,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/hook-only-mid-inference/workspace/.claude/owned-work.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/cleanup.json",
+      "bytes": 102,
+      "sha256": "0821493f59a967f92f0dbda8af2481a2c76f5953810fc73cdb8fd4fc179ff5d7",
+      "original_sha256": "0821493f59a967f92f0dbda8af2481a2c76f5953810fc73cdb8fd4fc179ff5d7",
+      "copy_sha256": "0821493f59a967f92f0dbda8af2481a2c76f5953810fc73cdb8fd4fc179ff5d7",
+      "copy_bytes": 102,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/cleanup.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/events.jsonl",
+      "bytes": 15582,
+      "sha256": "0d50b1f996ade1afcd29ab56daa4576f893911c5467186aff70ae777ddd9129d",
+      "original_sha256": "0d50b1f996ade1afcd29ab56daa4576f893911c5467186aff70ae777ddd9129d",
+      "copy_sha256": "0d50b1f996ade1afcd29ab56daa4576f893911c5467186aff70ae777ddd9129d",
+      "copy_bytes": 15582,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/events.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/exhausted-original-state.json",
+      "bytes": 1461,
+      "sha256": "a2d2df38806d8cb7fe155939a3abfd6dc5e2ebf3e135912a3f615b264bb7f972",
+      "original_sha256": "a2d2df38806d8cb7fe155939a3abfd6dc5e2ebf3e135912a3f615b264bb7f972",
+      "copy_sha256": "a2d2df38806d8cb7fe155939a3abfd6dc5e2ebf3e135912a3f615b264bb7f972",
+      "copy_bytes": 1461,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/exhausted-original-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963405757330000.ready.json",
+      "bytes": 145,
+      "sha256": "6cfc723de9fa8638b6931a27e40a318930b79be29184e43f28adb5b04bbf8217",
+      "original_sha256": "6cfc723de9fa8638b6931a27e40a318930b79be29184e43f28adb5b04bbf8217",
+      "copy_sha256": "6cfc723de9fa8638b6931a27e40a318930b79be29184e43f28adb5b04bbf8217",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963405757330000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963405757330000.result.json",
+      "bytes": 1363,
+      "sha256": "01e0542fe9555701b9dd4ff2fd989c007f25eba08195278a05b7a1099cf2d317",
+      "original_sha256": "01e0542fe9555701b9dd4ff2fd989c007f25eba08195278a05b7a1099cf2d317",
+      "copy_sha256": "01e0542fe9555701b9dd4ff2fd989c007f25eba08195278a05b7a1099cf2d317",
+      "copy_bytes": 1363,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963405757330000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963405969926000.ready.json",
+      "bytes": 145,
+      "sha256": "f3fed7e3ebe2f9e0546aeda0abd7a8dfb034c973fe763268f1e60c54dc814f1f",
+      "original_sha256": "f3fed7e3ebe2f9e0546aeda0abd7a8dfb034c973fe763268f1e60c54dc814f1f",
+      "copy_sha256": "f3fed7e3ebe2f9e0546aeda0abd7a8dfb034c973fe763268f1e60c54dc814f1f",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963405969926000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963405969926000.result.json",
+      "bytes": 2290,
+      "sha256": "130cdfefaa01793a10919b98cf211cffacb5be85d52f33bbd095d5ca3886bcbe",
+      "original_sha256": "130cdfefaa01793a10919b98cf211cffacb5be85d52f33bbd095d5ca3886bcbe",
+      "copy_sha256": "130cdfefaa01793a10919b98cf211cffacb5be85d52f33bbd095d5ca3886bcbe",
+      "copy_bytes": 2290,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963405969926000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963406134057000.ready.json",
+      "bytes": 145,
+      "sha256": "f9c99ae5c3339d121a6682bc65c3701ddf348a692b022ab2590d741dae66541c",
+      "original_sha256": "f9c99ae5c3339d121a6682bc65c3701ddf348a692b022ab2590d741dae66541c",
+      "copy_sha256": "f9c99ae5c3339d121a6682bc65c3701ddf348a692b022ab2590d741dae66541c",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963406134057000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963406134057000.result.json",
+      "bytes": 805,
+      "sha256": "2b5683d4f3b2751eee5be7e1cf00a0d435ac93e02c3c6409350198d45e6ca0c3",
+      "original_sha256": "2b5683d4f3b2751eee5be7e1cf00a0d435ac93e02c3c6409350198d45e6ca0c3",
+      "copy_sha256": "2b5683d4f3b2751eee5be7e1cf00a0d435ac93e02c3c6409350198d45e6ca0c3",
+      "copy_bytes": 805,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963406134057000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963406670504000.ready.json",
+      "bytes": 145,
+      "sha256": "4e9d2a0b66f696fb78fac370963575a30e10eae61036bb73c1deb89a92d528f1",
+      "original_sha256": "4e9d2a0b66f696fb78fac370963575a30e10eae61036bb73c1deb89a92d528f1",
+      "copy_sha256": "4e9d2a0b66f696fb78fac370963575a30e10eae61036bb73c1deb89a92d528f1",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963406670504000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963406670504000.result.json",
+      "bytes": 804,
+      "sha256": "a573863fc546f0e90a27b73d2c80a126e957bcc17d07d35aea738ddb9febea26",
+      "original_sha256": "a573863fc546f0e90a27b73d2c80a126e957bcc17d07d35aea738ddb9febea26",
+      "copy_sha256": "a573863fc546f0e90a27b73d2c80a126e957bcc17d07d35aea738ddb9febea26",
+      "copy_bytes": 804,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963406670504000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963407261602000.ready.json",
+      "bytes": 145,
+      "sha256": "85e4f1eb04775bd1b73ffef43cdc9261b4f94854df90e71b322242c54d152464",
+      "original_sha256": "85e4f1eb04775bd1b73ffef43cdc9261b4f94854df90e71b322242c54d152464",
+      "copy_sha256": "85e4f1eb04775bd1b73ffef43cdc9261b4f94854df90e71b322242c54d152464",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963407261602000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963407261602000.result.json",
+      "bytes": 2282,
+      "sha256": "fc1c61b43a9ce57c2e5a65afa3c50b71f306d12b18723745710ddc89cb5aba8a",
+      "original_sha256": "fc1c61b43a9ce57c2e5a65afa3c50b71f306d12b18723745710ddc89cb5aba8a",
+      "copy_sha256": "fc1c61b43a9ce57c2e5a65afa3c50b71f306d12b18723745710ddc89cb5aba8a",
+      "copy_bytes": 2282,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963407261602000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963407365341000.ready.json",
+      "bytes": 145,
+      "sha256": "ccae529a259ad23d8942e1e751880008c3ce0fb054b3a36d2dfce48539c93c24",
+      "original_sha256": "ccae529a259ad23d8942e1e751880008c3ce0fb054b3a36d2dfce48539c93c24",
+      "copy_sha256": "ccae529a259ad23d8942e1e751880008c3ce0fb054b3a36d2dfce48539c93c24",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963407365341000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/hook-1788963407365341000.result.json",
+      "bytes": 804,
+      "sha256": "f74b7bfd306e99f567f19f0988a0a988cb14c20a8216966e4acb51185a880de7",
+      "original_sha256": "f74b7bfd306e99f567f19f0988a0a988cb14c20a8216966e4acb51185a880de7",
+      "copy_sha256": "f74b7bfd306e99f567f19f0988a0a988cb14c20a8216966e4acb51185a880de7",
+      "copy_bytes": 804,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/hook-1788963407365341000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/inspector.jsonl",
+      "bytes": 5301,
+      "sha256": "092a13aff006352e7a121e52461e2c8b7c08ad295d50a3a22bc37b4f7d8976c8",
+      "original_sha256": "092a13aff006352e7a121e52461e2c8b7c08ad295d50a3a22bc37b4f7d8976c8",
+      "copy_sha256": "092a13aff006352e7a121e52461e2c8b7c08ad295d50a3a22bc37b4f7d8976c8",
+      "copy_bytes": 5301,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/inspector.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/interrupted-in-flight-state.json",
+      "bytes": 3788,
+      "sha256": "bbae4f459763bef7d3fb9459016db2e071caf1dae2a9e745d11cddfd3723d947",
+      "original_sha256": "bbae4f459763bef7d3fb9459016db2e071caf1dae2a9e745d11cddfd3723d947",
+      "copy_sha256": "bbae4f459763bef7d3fb9459016db2e071caf1dae2a9e745d11cddfd3723d947",
+      "copy_bytes": 3788,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/interrupted-in-flight-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/interrupted-limit-state.json",
+      "bytes": 4005,
+      "sha256": "824cf5dd56df9c1493079bc543733a7783c5c899d7082a24e665dbe35a7c419d",
+      "original_sha256": "824cf5dd56df9c1493079bc543733a7783c5c899d7082a24e665dbe35a7c419d",
+      "copy_sha256": "824cf5dd56df9c1493079bc543733a7783c5c899d7082a24e665dbe35a7c419d",
+      "copy_bytes": 4005,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/interrupted-limit-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/old-transcript.jsonl",
+      "bytes": 254,
+      "sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "original_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_bytes": 254,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/old-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/private/hook-10759-1788963405850396000.json",
+      "bytes": 1548,
+      "sha256": "836e002d876fc5af2a7c6876e41f56b65b00d9f744f36b2941f5c7d2e73ec7eb",
+      "original_sha256": "836e002d876fc5af2a7c6876e41f56b65b00d9f744f36b2941f5c7d2e73ec7eb",
+      "copy_sha256": "836e002d876fc5af2a7c6876e41f56b65b00d9f744f36b2941f5c7d2e73ec7eb",
+      "copy_bytes": 1548,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/interrupted-retry-limit/private/hook-10759-1788963405850396000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/private/hook-10771-1788963406100744000.json",
+      "bytes": 2491,
+      "sha256": "8369c9b7fa9702f725834c7db52bcade4d9eb34bdb04b1540ce592afa20cf0ba",
+      "original_sha256": "8369c9b7fa9702f725834c7db52bcade4d9eb34bdb04b1540ce592afa20cf0ba",
+      "copy_sha256": "8369c9b7fa9702f725834c7db52bcade4d9eb34bdb04b1540ce592afa20cf0ba",
+      "copy_bytes": 2491,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/interrupted-retry-limit/private/hook-10771-1788963406100744000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/private/hook-10775-1788963406552205000.json",
+      "bytes": 1007,
+      "sha256": "ca55172bf5492399670955a76adbd3e60717af0aad544ee9f9807b4a9b19f8de",
+      "original_sha256": "ca55172bf5492399670955a76adbd3e60717af0aad544ee9f9807b4a9b19f8de",
+      "copy_sha256": "ca55172bf5492399670955a76adbd3e60717af0aad544ee9f9807b4a9b19f8de",
+      "copy_bytes": 1007,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/interrupted-retry-limit/private/hook-10775-1788963406552205000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/private/hook-10790-1788963407232632000.json",
+      "bytes": 999,
+      "sha256": "1cfd5a7c5317c50227acdf99d05dc41188d49a251a5a50c7917234ae0a384ad4",
+      "original_sha256": "1cfd5a7c5317c50227acdf99d05dc41188d49a251a5a50c7917234ae0a384ad4",
+      "copy_sha256": "1cfd5a7c5317c50227acdf99d05dc41188d49a251a5a50c7917234ae0a384ad4",
+      "copy_bytes": 999,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/interrupted-retry-limit/private/hook-10790-1788963407232632000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/private/hook-10802-1788963407350973000.json",
+      "bytes": 2475,
+      "sha256": "a38c87f3c99202ef0f1657406fc81fc4fcd0f06d65b9ac0464e1e7e89b3ff920",
+      "original_sha256": "a38c87f3c99202ef0f1657406fc81fc4fcd0f06d65b9ac0464e1e7e89b3ff920",
+      "copy_sha256": "a38c87f3c99202ef0f1657406fc81fc4fcd0f06d65b9ac0464e1e7e89b3ff920",
+      "copy_bytes": 2475,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/interrupted-retry-limit/private/hook-10802-1788963407350973000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/private/hook-10805-1788963407991319000.json",
+      "bytes": 1000,
+      "sha256": "6cc7a0f13f6ee095f8986855e5e4bfd0d7a8b5ea5612d6bb2dfd117bc5d8665f",
+      "original_sha256": "6cc7a0f13f6ee095f8986855e5e4bfd0d7a8b5ea5612d6bb2dfd117bc5d8665f",
+      "copy_sha256": "6cc7a0f13f6ee095f8986855e5e4bfd0d7a8b5ea5612d6bb2dfd117bc5d8665f",
+      "copy_bytes": 1000,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/interrupted-retry-limit/private/hook-10805-1788963407991319000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/private/inspector-1788963406541090000.json",
+      "bytes": 2063,
+      "sha256": "9fca97e782aa3e50ddc0dea54f50f18b12da161db1e62ea7df7bd8a14842b8cc",
+      "original_sha256": "9fca97e782aa3e50ddc0dea54f50f18b12da161db1e62ea7df7bd8a14842b8cc",
+      "copy_sha256": "9fca97e782aa3e50ddc0dea54f50f18b12da161db1e62ea7df7bd8a14842b8cc",
+      "copy_bytes": 2063,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/interrupted-retry-limit/private/inspector-1788963406541090000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/private/inspector-1788963407228626000.json",
+      "bytes": 2063,
+      "sha256": "9fca97e782aa3e50ddc0dea54f50f18b12da161db1e62ea7df7bd8a14842b8cc",
+      "original_sha256": "9fca97e782aa3e50ddc0dea54f50f18b12da161db1e62ea7df7bd8a14842b8cc",
+      "copy_sha256": "9fca97e782aa3e50ddc0dea54f50f18b12da161db1e62ea7df7bd8a14842b8cc",
+      "copy_bytes": 2063,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/interrupted-retry-limit/private/inspector-1788963407228626000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/replacement-transcript.jsonl",
+      "bytes": 114,
+      "sha256": "c1459ecb6f9ca1e866c72fce0d6f57c81633b8ed37d38f15dd0ec92ff5358466",
+      "original_sha256": "c1459ecb6f9ca1e866c72fce0d6f57c81633b8ed37d38f15dd0ec92ff5358466",
+      "copy_sha256": "c1459ecb6f9ca1e866c72fce0d6f57c81633b8ed37d38f15dd0ec92ff5358466",
+      "copy_bytes": 114,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/replacement-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/result.json",
+      "bytes": 651,
+      "sha256": "11311636eac4876a9a826ad13cb437da8a282f1b0ce341b9cc0ddb73da83eab8",
+      "original_sha256": "11311636eac4876a9a826ad13cb437da8a282f1b0ce341b9cc0ddb73da83eab8",
+      "copy_sha256": "11311636eac4876a9a826ad13cb437da8a282f1b0ce341b9cc0ddb73da83eab8",
+      "copy_bytes": 651,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/4ac639b166f74a51a95bf2588db20afabc564440daf2d36fb2ef9f4913f980e9.ownership.json",
+      "bytes": 655,
+      "sha256": "520a8f88a88ce5b0cfe09eb1a90219470a9467067f2a52b9f05e52b3d4312229",
+      "original_sha256": "520a8f88a88ce5b0cfe09eb1a90219470a9467067f2a52b9f05e52b3d4312229",
+      "copy_sha256": "520a8f88a88ce5b0cfe09eb1a90219470a9467067f2a52b9f05e52b3d4312229",
+      "copy_bytes": 655,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/state/4ac639b166f74a51a95bf2588db20afabc564440daf2d36fb2ef9f4913f980e9.ownership.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/4ac639b166f74a51a95bf2588db20afabc564440daf2d36fb2ef9f4913f980e9.ownership.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/state/4ac639b166f74a51a95bf2588db20afabc564440daf2d36fb2ef9f4913f980e9.ownership.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/5158c562855d298d98ce42f61b6d5b0019885e4fe95c20dce0a4901ac2aa27a1.json",
+      "bytes": 1309,
+      "sha256": "8976baf1c8dc9f210ebdc4ef47e02396fa655162128eccfbd8a79f206c5bf89e",
+      "original_sha256": "8976baf1c8dc9f210ebdc4ef47e02396fa655162128eccfbd8a79f206c5bf89e",
+      "copy_sha256": "8976baf1c8dc9f210ebdc4ef47e02396fa655162128eccfbd8a79f206c5bf89e",
+      "copy_bytes": 1309,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/state/5158c562855d298d98ce42f61b6d5b0019885e4fe95c20dce0a4901ac2aa27a1.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/5158c562855d298d98ce42f61b6d5b0019885e4fe95c20dce0a4901ac2aa27a1.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/state/5158c562855d298d98ce42f61b6d5b0019885e4fe95c20dce0a4901ac2aa27a1.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/a68c3c330944612fb37b79aee86a5e64c8f172aef8d5576017e8f99232d09f45.audit-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/state/a68c3c330944612fb37b79aee86a5e64c8f172aef8d5576017e8f99232d09f45.audit-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/a68c3c330944612fb37b79aee86a5e64c8f172aef8d5576017e8f99232d09f45.inference-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/state/a68c3c330944612fb37b79aee86a5e64c8f172aef8d5576017e8f99232d09f45.inference-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/a68c3c330944612fb37b79aee86a5e64c8f172aef8d5576017e8f99232d09f45.json",
+      "bytes": 3422,
+      "sha256": "33d4a1b90afd52c94a503641419c0eb08626728d292e2028273c9b78e4b226d3",
+      "original_sha256": "33d4a1b90afd52c94a503641419c0eb08626728d292e2028273c9b78e4b226d3",
+      "copy_sha256": "33d4a1b90afd52c94a503641419c0eb08626728d292e2028273c9b78e4b226d3",
+      "copy_bytes": 3422,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/state/a68c3c330944612fb37b79aee86a5e64c8f172aef8d5576017e8f99232d09f45.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/a68c3c330944612fb37b79aee86a5e64c8f172aef8d5576017e8f99232d09f45.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/state/a68c3c330944612fb37b79aee86a5e64c8f172aef8d5576017e8f99232d09f45.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/workspace/.claude/owned-work.json",
+      "bytes": 224,
+      "sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "original_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_bytes": 224,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/interrupted-retry-limit/workspace/.claude/owned-work.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/cleanup.json",
+      "bytes": 102,
+      "sha256": "740f8957b12df6da2228ad06f61a36e0fc1fe7199997192176a128f41085ab09",
+      "original_sha256": "740f8957b12df6da2228ad06f61a36e0fc1fe7199997192176a128f41085ab09",
+      "copy_sha256": "740f8957b12df6da2228ad06f61a36e0fc1fe7199997192176a128f41085ab09",
+      "copy_bytes": 102,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/cleanup.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/events.jsonl",
+      "bytes": 31953,
+      "sha256": "3334ce6e845d5133c2f81c6235d090fbf46b87e514fc14259aacaad11fb5f97d",
+      "original_sha256": "3334ce6e845d5133c2f81c6235d090fbf46b87e514fc14259aacaad11fb5f97d",
+      "copy_sha256": "3334ce6e845d5133c2f81c6235d090fbf46b87e514fc14259aacaad11fb5f97d",
+      "copy_bytes": 31953,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/events.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/exhausted-original-state.json",
+      "bytes": 1463,
+      "sha256": "46cf1c504feb72be3fed65ccfc70983450f9b67ef9ce779260d0ceea4871a2a4",
+      "original_sha256": "46cf1c504feb72be3fed65ccfc70983450f9b67ef9ce779260d0ceea4871a2a4",
+      "copy_sha256": "46cf1c504feb72be3fed65ccfc70983450f9b67ef9ce779260d0ceea4871a2a4",
+      "copy_bytes": 1463,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/exhausted-original-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963426527235000.ready.json",
+      "bytes": 145,
+      "sha256": "bb475f3654af1e4294fe29409352ddf7df0d4a860aed7b7e3952c384876c64ce",
+      "original_sha256": "bb475f3654af1e4294fe29409352ddf7df0d4a860aed7b7e3952c384876c64ce",
+      "copy_sha256": "bb475f3654af1e4294fe29409352ddf7df0d4a860aed7b7e3952c384876c64ce",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963426527235000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963426527235000.result.json",
+      "bytes": 1362,
+      "sha256": "c493976ec277ab0503f99d791931b4c33ef1cb106a4991441e08a07e5dd6122c",
+      "original_sha256": "c493976ec277ab0503f99d791931b4c33ef1cb106a4991441e08a07e5dd6122c",
+      "copy_sha256": "c493976ec277ab0503f99d791931b4c33ef1cb106a4991441e08a07e5dd6122c",
+      "copy_bytes": 1362,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963426527235000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963426759564000.ready.json",
+      "bytes": 145,
+      "sha256": "78147d9d0b2213ead277aa92e03437a1ca7d8b55e8218a801a74b30885ef6474",
+      "original_sha256": "78147d9d0b2213ead277aa92e03437a1ca7d8b55e8218a801a74b30885ef6474",
+      "copy_sha256": "78147d9d0b2213ead277aa92e03437a1ca7d8b55e8218a801a74b30885ef6474",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963426759564000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963426759564000.result.json",
+      "bytes": 3801,
+      "sha256": "94047af22ff32e923c3f4b83937abe32896c75c81fd2a72a912807ad2d7c7784",
+      "original_sha256": "94047af22ff32e923c3f4b83937abe32896c75c81fd2a72a912807ad2d7c7784",
+      "copy_sha256": "94047af22ff32e923c3f4b83937abe32896c75c81fd2a72a912807ad2d7c7784",
+      "copy_bytes": 3801,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963426759564000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963426927834000.ready.json",
+      "bytes": 145,
+      "sha256": "dd5f555fbc9c85c4a4142e443e89215996feae332944459d6798581aa2329aa1",
+      "original_sha256": "dd5f555fbc9c85c4a4142e443e89215996feae332944459d6798581aa2329aa1",
+      "copy_sha256": "dd5f555fbc9c85c4a4142e443e89215996feae332944459d6798581aa2329aa1",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963426927834000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963426927834000.result.json",
+      "bytes": 1948,
+      "sha256": "7fc276131a5c0547ce2f9d2411047475fd28b647378693a82a0e405360b155c5",
+      "original_sha256": "7fc276131a5c0547ce2f9d2411047475fd28b647378693a82a0e405360b155c5",
+      "copy_sha256": "7fc276131a5c0547ce2f9d2411047475fd28b647378693a82a0e405360b155c5",
+      "copy_bytes": 1948,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963426927834000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963427262177000.ready.json",
+      "bytes": 145,
+      "sha256": "1a23a95ae78fd02e4e6aa1d951e9f3ad82bf1941e73c2a47c54093d256d15429",
+      "original_sha256": "1a23a95ae78fd02e4e6aa1d951e9f3ad82bf1941e73c2a47c54093d256d15429",
+      "copy_sha256": "1a23a95ae78fd02e4e6aa1d951e9f3ad82bf1941e73c2a47c54093d256d15429",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963427262177000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963427262177000.result.json",
+      "bytes": 3801,
+      "sha256": "7fc7a628dd359f2540cc534e064f413d3cffe9b92c38bb6b83e0e9725fd39aba",
+      "original_sha256": "7fc7a628dd359f2540cc534e064f413d3cffe9b92c38bb6b83e0e9725fd39aba",
+      "copy_sha256": "7fc7a628dd359f2540cc534e064f413d3cffe9b92c38bb6b83e0e9725fd39aba",
+      "copy_bytes": 3801,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963427262177000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963427431636000.ready.json",
+      "bytes": 145,
+      "sha256": "7e2d3a85b19742de77ff7593347aba1978ae44a2989e403634b7f3a3b046ab44",
+      "original_sha256": "7e2d3a85b19742de77ff7593347aba1978ae44a2989e403634b7f3a3b046ab44",
+      "copy_sha256": "7e2d3a85b19742de77ff7593347aba1978ae44a2989e403634b7f3a3b046ab44",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963427431636000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963427431636000.result.json",
+      "bytes": 3294,
+      "sha256": "d30af0809b1725f0244fb349c7c3cdd8af52c1bed5060c044797716852e3cf2d",
+      "original_sha256": "d30af0809b1725f0244fb349c7c3cdd8af52c1bed5060c044797716852e3cf2d",
+      "copy_sha256": "d30af0809b1725f0244fb349c7c3cdd8af52c1bed5060c044797716852e3cf2d",
+      "copy_bytes": 3294,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963427431636000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963433209049000.ready.json",
+      "bytes": 145,
+      "sha256": "2700bdb62a5c20c097f2e77ecde39d5a76e3738f67a1a277724034e59a155ae0",
+      "original_sha256": "2700bdb62a5c20c097f2e77ecde39d5a76e3738f67a1a277724034e59a155ae0",
+      "copy_sha256": "2700bdb62a5c20c097f2e77ecde39d5a76e3738f67a1a277724034e59a155ae0",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963433209049000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963433209049000.result.json",
+      "bytes": 2290,
+      "sha256": "81f8b6b6e9104428d71c57a7dcaf94cc40730a79aea68b9b195e632d279946d6",
+      "original_sha256": "81f8b6b6e9104428d71c57a7dcaf94cc40730a79aea68b9b195e632d279946d6",
+      "copy_sha256": "81f8b6b6e9104428d71c57a7dcaf94cc40730a79aea68b9b195e632d279946d6",
+      "copy_bytes": 2290,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963433209049000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963433325742000.ready.json",
+      "bytes": 145,
+      "sha256": "2b62be38ace878ce69ddd180b053e75451d98a2da946bf60fc7854728c96d2f5",
+      "original_sha256": "2b62be38ace878ce69ddd180b053e75451d98a2da946bf60fc7854728c96d2f5",
+      "copy_sha256": "2b62be38ace878ce69ddd180b053e75451d98a2da946bf60fc7854728c96d2f5",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963433325742000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963433325742000.result.json",
+      "bytes": 805,
+      "sha256": "a372e598a45718c2fd79b481880b860230ddc176b9e71c4ab4b466771f0308cb",
+      "original_sha256": "a372e598a45718c2fd79b481880b860230ddc176b9e71c4ab4b466771f0308cb",
+      "copy_sha256": "a372e598a45718c2fd79b481880b860230ddc176b9e71c4ab4b466771f0308cb",
+      "copy_bytes": 805,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963433325742000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963434004059000.ready.json",
+      "bytes": 145,
+      "sha256": "93242364348dd8fe2e528ed194dc0529e5db813935745bb92f421c2846584e11",
+      "original_sha256": "93242364348dd8fe2e528ed194dc0529e5db813935745bb92f421c2846584e11",
+      "copy_sha256": "93242364348dd8fe2e528ed194dc0529e5db813935745bb92f421c2846584e11",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963434004059000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963434004059000.result.json",
+      "bytes": 2282,
+      "sha256": "5ddf7065385e72735fe38661d22d45184494d1c94a173bfaa551c48edc4be873",
+      "original_sha256": "5ddf7065385e72735fe38661d22d45184494d1c94a173bfaa551c48edc4be873",
+      "copy_sha256": "5ddf7065385e72735fe38661d22d45184494d1c94a173bfaa551c48edc4be873",
+      "copy_bytes": 2282,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963434004059000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963434148789000.ready.json",
+      "bytes": 145,
+      "sha256": "7911f03633b0e3fdde66c0812ded1c05537449cc2a80f1f96fcf6ad313c090e2",
+      "original_sha256": "7911f03633b0e3fdde66c0812ded1c05537449cc2a80f1f96fcf6ad313c090e2",
+      "copy_sha256": "7911f03633b0e3fdde66c0812ded1c05537449cc2a80f1f96fcf6ad313c090e2",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963434148789000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/hook-1788963434148789000.result.json",
+      "bytes": 805,
+      "sha256": "a64b2176de9cf3367b126477028f998d6c4a72100df6344bc781e9e6d899b3ad",
+      "original_sha256": "a64b2176de9cf3367b126477028f998d6c4a72100df6344bc781e9e6d899b3ad",
+      "copy_sha256": "a64b2176de9cf3367b126477028f998d6c4a72100df6344bc781e9e6d899b3ad",
+      "copy_bytes": 805,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/hook-1788963434148789000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/inspector.jsonl",
+      "bytes": 2652,
+      "sha256": "3a683cdacfeed0dc9fbb5716189f337e4ebc30b899fd3eeab27b08bad311aab1",
+      "original_sha256": "3a683cdacfeed0dc9fbb5716189f337e4ebc30b899fd3eeab27b08bad311aab1",
+      "copy_sha256": "3a683cdacfeed0dc9fbb5716189f337e4ebc30b899fd3eeab27b08bad311aab1",
+      "copy_bytes": 2652,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/inspector.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/old-transcript.jsonl",
+      "bytes": 254,
+      "sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "original_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_bytes": 254,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/old-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11283-1788963426613087000.json",
+      "bytes": 1548,
+      "sha256": "20ef4e38f3260e1144e7c5aa73895f36b90e6a704a797a9f12352d1b5d428510",
+      "original_sha256": "20ef4e38f3260e1144e7c5aa73895f36b90e6a704a797a9f12352d1b5d428510",
+      "copy_sha256": "20ef4e38f3260e1144e7c5aa73895f36b90e6a704a797a9f12352d1b5d428510",
+      "copy_bytes": 1548,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11283-1788963426613087000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11297-1788963426900172000.json",
+      "bytes": 4002,
+      "sha256": "3b2b6924c4444109b2f11d7493cdd1842fb8a154440b11e11c5bfada0cb4e47b",
+      "original_sha256": "3b2b6924c4444109b2f11d7493cdd1842fb8a154440b11e11c5bfada0cb4e47b",
+      "copy_sha256": "3b2b6924c4444109b2f11d7493cdd1842fb8a154440b11e11c5bfada0cb4e47b",
+      "copy_bytes": 4002,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11297-1788963426900172000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11302-1788963427235812000.json",
+      "bytes": 2148,
+      "sha256": "0da8ef413a642f2a424e6c4f424121da5c28b6f3fc3527b45169b2f590e567e3",
+      "original_sha256": "0da8ef413a642f2a424e6c4f424121da5c28b6f3fc3527b45169b2f590e567e3",
+      "copy_sha256": "0da8ef413a642f2a424e6c4f424121da5c28b6f3fc3527b45169b2f590e567e3",
+      "copy_bytes": 2148,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11302-1788963427235812000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11314-1788963427399302000.json",
+      "bytes": 4002,
+      "sha256": "437bfdb5bea8d39ad86d1271f01c51aee348db514466ef5f7c599b0934076d8b",
+      "original_sha256": "437bfdb5bea8d39ad86d1271f01c51aee348db514466ef5f7c599b0934076d8b",
+      "copy_sha256": "437bfdb5bea8d39ad86d1271f01c51aee348db514466ef5f7c599b0934076d8b",
+      "copy_bytes": 4002,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11314-1788963427399302000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11319-1788963433160290000.json",
+      "bytes": 3534,
+      "sha256": "77f584cedfcb9dcdf40f06e15b9f7729e69aa930d9d5d30c84256c3c4eba1d2e",
+      "original_sha256": "77f584cedfcb9dcdf40f06e15b9f7729e69aa930d9d5d30c84256c3c4eba1d2e",
+      "copy_sha256": "77f584cedfcb9dcdf40f06e15b9f7729e69aa930d9d5d30c84256c3c4eba1d2e",
+      "copy_bytes": 3534,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11319-1788963433160290000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11371-1788963433304696000.json",
+      "bytes": 2491,
+      "sha256": "1a8c6cc962870ae35fe661a46ba9692c47c15f318dbee0f96bce0ba060700484",
+      "original_sha256": "1a8c6cc962870ae35fe661a46ba9692c47c15f318dbee0f96bce0ba060700484",
+      "copy_sha256": "1a8c6cc962870ae35fe661a46ba9692c47c15f318dbee0f96bce0ba060700484",
+      "copy_bytes": 2491,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11371-1788963433304696000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11380-1788963433952202000.json",
+      "bytes": 1008,
+      "sha256": "c2ec474d4b29e04edd1fddf738e129ebb70c8324cd5651c962dbaeb06fac6055",
+      "original_sha256": "c2ec474d4b29e04edd1fddf738e129ebb70c8324cd5651c962dbaeb06fac6055",
+      "copy_sha256": "c2ec474d4b29e04edd1fddf738e129ebb70c8324cd5651c962dbaeb06fac6055",
+      "copy_bytes": 1008,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11380-1788963433952202000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11387-1788963434127563000.json",
+      "bytes": 2475,
+      "sha256": "be94d92b9d348514e161ebf252dc0e3e2297756d6bdf1692c1e63d99a4282df3",
+      "original_sha256": "be94d92b9d348514e161ebf252dc0e3e2297756d6bdf1692c1e63d99a4282df3",
+      "copy_sha256": "be94d92b9d348514e161ebf252dc0e3e2297756d6bdf1692c1e63d99a4282df3",
+      "copy_bytes": 2475,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11387-1788963434127563000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/hook-11390-1788963434773127000.json",
+      "bytes": 1000,
+      "sha256": "6989072657793028a60d41054952e5c7b570714a896ef1c728363f74bf0b2341",
+      "original_sha256": "6989072657793028a60d41054952e5c7b570714a896ef1c728363f74bf0b2341",
+      "copy_sha256": "6989072657793028a60d41054952e5c7b570714a896ef1c728363f74bf0b2341",
+      "copy_bytes": 1000,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/hook-11390-1788963434773127000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/private/inspector-1788963433023059000.json",
+      "bytes": 2063,
+      "sha256": "6254d21026bf8536334bf73151aaf054ec5c54175f827835cdf229e7a417650f",
+      "original_sha256": "6254d21026bf8536334bf73151aaf054ec5c54175f827835cdf229e7a417650f",
+      "copy_sha256": "6254d21026bf8536334bf73151aaf054ec5c54175f827835cdf229e7a417650f",
+      "copy_bytes": 2063,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/private/inspector-1788963433023059000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/reconciled-state.json",
+      "bytes": 7169,
+      "sha256": "e7aa0e07d4ffe0ec4637c619040419f080ee506dfacb15f6927afe5b5dfe76c7",
+      "original_sha256": "e7aa0e07d4ffe0ec4637c619040419f080ee506dfacb15f6927afe5b5dfe76c7",
+      "copy_sha256": "e7aa0e07d4ffe0ec4637c619040419f080ee506dfacb15f6927afe5b5dfe76c7",
+      "copy_bytes": 7169,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/reconciled-state.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/repeated-hooks-state.json",
+      "bytes": 7171,
+      "sha256": "129722ced1aefcce3ca50a8a7b17ff9a66164a4860faed57189e03589eae76ef",
+      "original_sha256": "129722ced1aefcce3ca50a8a7b17ff9a66164a4860faed57189e03589eae76ef",
+      "copy_sha256": "129722ced1aefcce3ca50a8a7b17ff9a66164a4860faed57189e03589eae76ef",
+      "copy_bytes": 7171,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/repeated-hooks-state.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/replacement-transcript.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/replacement-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/result.json",
+      "bytes": 1344,
+      "sha256": "8ca1abf6cd7df3ff8b668462b9199e99c18409a6f817c1a9668466052480f2f5",
+      "original_sha256": "8ca1abf6cd7df3ff8b668462b9199e99c18409a6f817c1a9668466052480f2f5",
+      "copy_sha256": "8ca1abf6cd7df3ff8b668462b9199e99c18409a6f817c1a9668466052480f2f5",
+      "copy_bytes": 1344,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/state/da4ab0d93df82a1144f94087114970dc938834539e7d94b944871f0a81f10fab.json",
+      "bytes": 1312,
+      "sha256": "363be4daf67bab74dfb5a6f0feb20582732cd24a88b3d934e5f5c9c1c71a2361",
+      "original_sha256": "363be4daf67bab74dfb5a6f0feb20582732cd24a88b3d934e5f5c9c1c71a2361",
+      "copy_sha256": "363be4daf67bab74dfb5a6f0feb20582732cd24a88b3d934e5f5c9c1c71a2361",
+      "copy_bytes": 1312,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/state/da4ab0d93df82a1144f94087114970dc938834539e7d94b944871f0a81f10fab.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/state/da4ab0d93df82a1144f94087114970dc938834539e7d94b944871f0a81f10fab.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/state/da4ab0d93df82a1144f94087114970dc938834539e7d94b944871f0a81f10fab.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/state/f31f8476b59849adf6078c1daadbcd6e48d6748e65119b9d4a3f18beb2ae3262.ownership.json",
+      "bytes": 656,
+      "sha256": "e4aff343fc215196b100fcb046fd6cdf086ef5fdf689c0ebac0240f42ef689a2",
+      "original_sha256": "e4aff343fc215196b100fcb046fd6cdf086ef5fdf689c0ebac0240f42ef689a2",
+      "copy_sha256": "e4aff343fc215196b100fcb046fd6cdf086ef5fdf689c0ebac0240f42ef689a2",
+      "copy_bytes": 656,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/state/f31f8476b59849adf6078c1daadbcd6e48d6748e65119b9d4a3f18beb2ae3262.ownership.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/state/f31f8476b59849adf6078c1daadbcd6e48d6748e65119b9d4a3f18beb2ae3262.ownership.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/state/f31f8476b59849adf6078c1daadbcd6e48d6748e65119b9d4a3f18beb2ae3262.ownership.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/state/fd78f9b8f6162b3fbd2ee32d3a305bdf2076e4ba6d3133d340147fb12507862e.audit-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/state/fd78f9b8f6162b3fbd2ee32d3a305bdf2076e4ba6d3133d340147fb12507862e.audit-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/state/fd78f9b8f6162b3fbd2ee32d3a305bdf2076e4ba6d3133d340147fb12507862e.inference-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/state/fd78f9b8f6162b3fbd2ee32d3a305bdf2076e4ba6d3133d340147fb12507862e.inference-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/state/fd78f9b8f6162b3fbd2ee32d3a305bdf2076e4ba6d3133d340147fb12507862e.json",
+      "bytes": 6548,
+      "sha256": "2fede5f2af820815abe5be779b323e6f760aef175a61d3ec73041c353ef31cf0",
+      "original_sha256": "2fede5f2af820815abe5be779b323e6f760aef175a61d3ec73041c353ef31cf0",
+      "copy_sha256": "2fede5f2af820815abe5be779b323e6f760aef175a61d3ec73041c353ef31cf0",
+      "copy_bytes": 6548,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/live-straggler-recovery/state/fd78f9b8f6162b3fbd2ee32d3a305bdf2076e4ba6d3133d340147fb12507862e.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/state/fd78f9b8f6162b3fbd2ee32d3a305bdf2076e4ba6d3133d340147fb12507862e.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/state/fd78f9b8f6162b3fbd2ee32d3a305bdf2076e4ba6d3133d340147fb12507862e.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/withheld-state.json",
+      "bytes": 1547,
+      "sha256": "721d90cdd7d4b41d9bcf0898b0fc9ca9a82e46754011710e3f016d7201b70fcd",
+      "original_sha256": "721d90cdd7d4b41d9bcf0898b0fc9ca9a82e46754011710e3f016d7201b70fcd",
+      "copy_sha256": "721d90cdd7d4b41d9bcf0898b0fc9ca9a82e46754011710e3f016d7201b70fcd",
+      "copy_bytes": 1547,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/withheld-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/live-straggler-recovery/workspace/.claude/owned-work.json",
+      "bytes": 224,
+      "sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "original_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_bytes": 224,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/live-straggler-recovery/workspace/.claude/owned-work.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/owner.c",
+      "bytes": 370,
+      "sha256": "691af2aee52258eddffffe32de0ec340992f90d22c6ae9e841e9430893abbda9",
+      "original_sha256": "691af2aee52258eddffffe32de0ec340992f90d22c6ae9e841e9430893abbda9",
+      "copy_sha256": "691af2aee52258eddffffe32de0ec340992f90d22c6ae9e841e9430893abbda9",
+      "copy_bytes": 370,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/owner.c"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/result.json",
+      "bytes": 9356,
+      "sha256": "d50c6c0738b9357771eeab075cd86b951c1e09e5b54aae3e46021957096e034c",
+      "original_sha256": "d50c6c0738b9357771eeab075cd86b951c1e09e5b54aae3e46021957096e034c",
+      "copy_sha256": "d50c6c0738b9357771eeab075cd86b951c1e09e5b54aae3e46021957096e034c",
+      "copy_bytes": 9356,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/cleanup.json",
+      "bytes": 102,
+      "sha256": "cb3a16d4bddd5e8c490dbb03af21cb3e412d11c6b493fc0bb768670b53b84576",
+      "original_sha256": "cb3a16d4bddd5e8c490dbb03af21cb3e412d11c6b493fc0bb768670b53b84576",
+      "copy_sha256": "cb3a16d4bddd5e8c490dbb03af21cb3e412d11c6b493fc0bb768670b53b84576",
+      "copy_bytes": 102,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/cleanup.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/events.jsonl",
+      "bytes": 19771,
+      "sha256": "05c4a7969dd36ab60f5cdef555045918c8ee5e0a2e70ac1e10c3fee332fd51af",
+      "original_sha256": "05c4a7969dd36ab60f5cdef555045918c8ee5e0a2e70ac1e10c3fee332fd51af",
+      "copy_sha256": "05c4a7969dd36ab60f5cdef555045918c8ee5e0a2e70ac1e10c3fee332fd51af",
+      "copy_bytes": 19771,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/events.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/exhausted-original-state.json",
+      "bytes": 1460,
+      "sha256": "e932edf53460cf706a360f4ce3dc50e935e1dc775aaf4675e7634a7eb46a15c0",
+      "original_sha256": "e932edf53460cf706a360f4ce3dc50e935e1dc775aaf4675e7634a7eb46a15c0",
+      "copy_sha256": "e932edf53460cf706a360f4ce3dc50e935e1dc775aaf4675e7634a7eb46a15c0",
+      "copy_bytes": 1460,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/exhausted-original-state.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963423761665000.ready.json",
+      "bytes": 145,
+      "sha256": "f081d9db475d18c78f95738fa6cbcaa77ec16dc7c83066b0f8c96240379e61d8",
+      "original_sha256": "f081d9db475d18c78f95738fa6cbcaa77ec16dc7c83066b0f8c96240379e61d8",
+      "copy_sha256": "f081d9db475d18c78f95738fa6cbcaa77ec16dc7c83066b0f8c96240379e61d8",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963423761665000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963423761665000.result.json",
+      "bytes": 1363,
+      "sha256": "1e8eb06f3694b1629af51e5b5fa8be15a818c4faf2905de87b6bdde1b31d7d8a",
+      "original_sha256": "1e8eb06f3694b1629af51e5b5fa8be15a818c4faf2905de87b6bdde1b31d7d8a",
+      "copy_sha256": "1e8eb06f3694b1629af51e5b5fa8be15a818c4faf2905de87b6bdde1b31d7d8a",
+      "copy_bytes": 1363,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963423761665000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963423972051000.ready.json",
+      "bytes": 145,
+      "sha256": "1a282e2adc0b65ce369cc48fbbb15f7923407da880be2953173fde0b069ee2c9",
+      "original_sha256": "1a282e2adc0b65ce369cc48fbbb15f7923407da880be2953173fde0b069ee2c9",
+      "copy_sha256": "1a282e2adc0b65ce369cc48fbbb15f7923407da880be2953173fde0b069ee2c9",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963423972051000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963423972051000.result.json",
+      "bytes": 2250,
+      "sha256": "06080e119cf4db2f970c2fd43a957d9337ea489cfc3c331d458ba073e84ce37b",
+      "original_sha256": "06080e119cf4db2f970c2fd43a957d9337ea489cfc3c331d458ba073e84ce37b",
+      "copy_sha256": "06080e119cf4db2f970c2fd43a957d9337ea489cfc3c331d458ba073e84ce37b",
+      "copy_bytes": 2250,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963423972051000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963424149011000.ready.json",
+      "bytes": 145,
+      "sha256": "38511ed7c4f81f4959f6b7f2d57be77c77b1527820d151fc6ba51da298368668",
+      "original_sha256": "38511ed7c4f81f4959f6b7f2d57be77c77b1527820d151fc6ba51da298368668",
+      "copy_sha256": "38511ed7c4f81f4959f6b7f2d57be77c77b1527820d151fc6ba51da298368668",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963424149011000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963424149011000.result.json",
+      "bytes": 2821,
+      "sha256": "dee4af2cb87ca90283d1185e2199bb3a4781fa9a614a6ef60045cd98e9c90ae5",
+      "original_sha256": "dee4af2cb87ca90283d1185e2199bb3a4781fa9a614a6ef60045cd98e9c90ae5",
+      "copy_sha256": "dee4af2cb87ca90283d1185e2199bb3a4781fa9a614a6ef60045cd98e9c90ae5",
+      "copy_bytes": 2821,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963424149011000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963424609306000.ready.json",
+      "bytes": 145,
+      "sha256": "9ff3f24dfd710b17752affe11333f007069ea20ee9a8833ee00134303f100095",
+      "original_sha256": "9ff3f24dfd710b17752affe11333f007069ea20ee9a8833ee00134303f100095",
+      "copy_sha256": "9ff3f24dfd710b17752affe11333f007069ea20ee9a8833ee00134303f100095",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963424609306000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963424609306000.result.json",
+      "bytes": 1363,
+      "sha256": "a015a51c6a18536130be8c25d4d819e14a4cd78ef6b8260801d549f7d6dcedb8",
+      "original_sha256": "a015a51c6a18536130be8c25d4d819e14a4cd78ef6b8260801d549f7d6dcedb8",
+      "copy_sha256": "a015a51c6a18536130be8c25d4d819e14a4cd78ef6b8260801d549f7d6dcedb8",
+      "copy_bytes": 1363,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963424609306000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963424729564000.ready.json",
+      "bytes": 145,
+      "sha256": "1bbf70fc67d2c6de4d56530474fc6067050e88bd3afc7c7d62bfd4f5ca8c57cf",
+      "original_sha256": "1bbf70fc67d2c6de4d56530474fc6067050e88bd3afc7c7d62bfd4f5ca8c57cf",
+      "copy_sha256": "1bbf70fc67d2c6de4d56530474fc6067050e88bd3afc7c7d62bfd4f5ca8c57cf",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963424729564000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963424729564000.result.json",
+      "bytes": 804,
+      "sha256": "7d30367b648f023090f0e3eb4e75680c82004b4c0cf14d828b06c3af5886b264",
+      "original_sha256": "7d30367b648f023090f0e3eb4e75680c82004b4c0cf14d828b06c3af5886b264",
+      "copy_sha256": "7d30367b648f023090f0e3eb4e75680c82004b4c0cf14d828b06c3af5886b264",
+      "copy_bytes": 804,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963424729564000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963425407941000.ready.json",
+      "bytes": 145,
+      "sha256": "ef691f5ccf861f88a118535a072161d558cd666f91a6b13b6aad7a6ae1473bad",
+      "original_sha256": "ef691f5ccf861f88a118535a072161d558cd666f91a6b13b6aad7a6ae1473bad",
+      "copy_sha256": "ef691f5ccf861f88a118535a072161d558cd666f91a6b13b6aad7a6ae1473bad",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963425407941000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963425407941000.result.json",
+      "bytes": 1354,
+      "sha256": "8a41a2b92b36246dd2e3c13e00bf5ebe8f2c74da00864eca36ff488fde4ff1d3",
+      "original_sha256": "8a41a2b92b36246dd2e3c13e00bf5ebe8f2c74da00864eca36ff488fde4ff1d3",
+      "copy_sha256": "8a41a2b92b36246dd2e3c13e00bf5ebe8f2c74da00864eca36ff488fde4ff1d3",
+      "copy_bytes": 1354,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963425407941000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963425552246000.ready.json",
+      "bytes": 145,
+      "sha256": "db9f598a4d776b0c3b0f2fc05ab8b569b1b6767d16f4ba2780b3e96b00f0b1f4",
+      "original_sha256": "db9f598a4d776b0c3b0f2fc05ab8b569b1b6767d16f4ba2780b3e96b00f0b1f4",
+      "copy_sha256": "db9f598a4d776b0c3b0f2fc05ab8b569b1b6767d16f4ba2780b3e96b00f0b1f4",
+      "copy_bytes": 145,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963425552246000.ready.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/hook-1788963425552246000.result.json",
+      "bytes": 805,
+      "sha256": "9aab202dc3ef5f70d8ed80d08287f9f7e65e2acdddc9d0a997c006ae08fa25ad",
+      "original_sha256": "9aab202dc3ef5f70d8ed80d08287f9f7e65e2acdddc9d0a997c006ae08fa25ad",
+      "copy_sha256": "9aab202dc3ef5f70d8ed80d08287f9f7e65e2acdddc9d0a997c006ae08fa25ad",
+      "copy_bytes": 805,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/hook-1788963425552246000.result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/inspector.jsonl",
+      "bytes": 2176,
+      "sha256": "4715272402052e77806a5fe0370203e1136a50e60ecbb736d316d96722bfed44",
+      "original_sha256": "4715272402052e77806a5fe0370203e1136a50e60ecbb736d316d96722bfed44",
+      "copy_sha256": "4715272402052e77806a5fe0370203e1136a50e60ecbb736d316d96722bfed44",
+      "copy_bytes": 2176,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/inspector.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/old-transcript.jsonl",
+      "bytes": 254,
+      "sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "original_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_sha256": "7926ec919b7241db4ff3c756df84446a93efc95210c42d3c7a9fe417f48a7cef",
+      "copy_bytes": 254,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/old-transcript.jsonl"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/private/hook-11210-1788963423849508000.json",
+      "bytes": 1548,
+      "sha256": "a235066163b6fd23d917e481cf5d08941a5ce28bb280debad98ee6c87e927444",
+      "original_sha256": "a235066163b6fd23d917e481cf5d08941a5ce28bb280debad98ee6c87e927444",
+      "copy_sha256": "a235066163b6fd23d917e481cf5d08941a5ce28bb280debad98ee6c87e927444",
+      "copy_bytes": 1548,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/private/hook-11210-1788963423849508000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/private/hook-11222-1788963424088942000.json",
+      "bytes": 2435,
+      "sha256": "84a7a2c7a2e05dd14ae848e5ea0a45f136fda7426a020b257dee35cdf269a230",
+      "original_sha256": "84a7a2c7a2e05dd14ae848e5ea0a45f136fda7426a020b257dee35cdf269a230",
+      "copy_sha256": "84a7a2c7a2e05dd14ae848e5ea0a45f136fda7426a020b257dee35cdf269a230",
+      "copy_bytes": 2435,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/private/hook-11222-1788963424088942000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/private/hook-11226-1788963424557034000.json",
+      "bytes": 3052,
+      "sha256": "c7df5b0a7c897339462e24abf40f740ad96cbf89f48e5f31d86e526dbe090036",
+      "original_sha256": "c7df5b0a7c897339462e24abf40f740ad96cbf89f48e5f31d86e526dbe090036",
+      "copy_sha256": "c7df5b0a7c897339462e24abf40f740ad96cbf89f48e5f31d86e526dbe090036",
+      "copy_bytes": 3052,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/private/hook-11226-1788963424557034000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/private/hook-11242-1788963424699801000.json",
+      "bytes": 1548,
+      "sha256": "6df3cd5c0c98a45ad787b113a808a3d65c43fdc09b27c0b903ca9de6ddf178f5",
+      "original_sha256": "6df3cd5c0c98a45ad787b113a808a3d65c43fdc09b27c0b903ca9de6ddf178f5",
+      "copy_sha256": "6df3cd5c0c98a45ad787b113a808a3d65c43fdc09b27c0b903ca9de6ddf178f5",
+      "copy_bytes": 1548,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/private/hook-11242-1788963424699801000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/private/hook-11245-1788963425356187000.json",
+      "bytes": 992,
+      "sha256": "414ea01912ea3b54c4c257151f955c8a2fae6fb98330a5e046e260257e5c5699",
+      "original_sha256": "414ea01912ea3b54c4c257151f955c8a2fae6fb98330a5e046e260257e5c5699",
+      "copy_sha256": "414ea01912ea3b54c4c257151f955c8a2fae6fb98330a5e046e260257e5c5699",
+      "copy_bytes": 992,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/private/hook-11245-1788963425356187000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/private/hook-11253-1788963425531279000.json",
+      "bytes": 1532,
+      "sha256": "29bef67f951dc6babd21a7e15922b23e35e41cf69a5a451cb7e195b1e0554ab3",
+      "original_sha256": "29bef67f951dc6babd21a7e15922b23e35e41cf69a5a451cb7e195b1e0554ab3",
+      "copy_sha256": "29bef67f951dc6babd21a7e15922b23e35e41cf69a5a451cb7e195b1e0554ab3",
+      "copy_bytes": 1532,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/private/hook-11253-1788963425531279000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/private/hook-11256-1788963426178891000.json",
+      "bytes": 984,
+      "sha256": "53dd759b2a96d389cdf53c0b7c10360ec0ac4f2ca1ffff4797125101082b53c6",
+      "original_sha256": "53dd759b2a96d389cdf53c0b7c10360ec0ac4f2ca1ffff4797125101082b53c6",
+      "copy_sha256": "53dd759b2a96d389cdf53c0b7c10360ec0ac4f2ca1ffff4797125101082b53c6",
+      "copy_bytes": 984,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/private/hook-11256-1788963426178891000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/private/inspector-1788963424425826000.json",
+      "bytes": 1587,
+      "sha256": "cb6f528db3b2288b1834b2fbb7df5a856dbe65006ce511228b61c6569a698202",
+      "original_sha256": "cb6f528db3b2288b1834b2fbb7df5a856dbe65006ce511228b61c6569a698202",
+      "copy_sha256": "cb6f528db3b2288b1834b2fbb7df5a856dbe65006ce511228b61c6569a698202",
+      "copy_bytes": 1587,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/private/inspector-1788963424425826000.json",
+      "restricted_reasons": [
+        "original_restricted_raw_observation",
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/reconciled-state.json",
+      "bytes": 5549,
+      "sha256": "08ec3c3a3c9983d833eb45aec1660bd3761e5526216e6d735f6441670d53ee31",
+      "original_sha256": "08ec3c3a3c9983d833eb45aec1660bd3761e5526216e6d735f6441670d53ee31",
+      "copy_sha256": "08ec3c3a3c9983d833eb45aec1660bd3761e5526216e6d735f6441670d53ee31",
+      "copy_bytes": 5549,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/reconciled-state.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/repeated-hooks-state.json",
+      "bytes": 5571,
+      "sha256": "1037e189baa85055b2cbb414a027e982c31d2f33bb1fc9c2b0d6920b7628dc80",
+      "original_sha256": "1037e189baa85055b2cbb414a027e982c31d2f33bb1fc9c2b0d6920b7628dc80",
+      "copy_sha256": "1037e189baa85055b2cbb414a027e982c31d2f33bb1fc9c2b0d6920b7628dc80",
+      "copy_bytes": 5571,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/repeated-hooks-state.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/result.json",
+      "bytes": 918,
+      "sha256": "5b17a1cd1c2236eb7872a72388edea9d1ca82cbdca4ee3053c8f7f4015634ceb",
+      "original_sha256": "5b17a1cd1c2236eb7872a72388edea9d1ca82cbdca4ee3053c8f7f4015634ceb",
+      "copy_sha256": "5b17a1cd1c2236eb7872a72388edea9d1ca82cbdca4ee3053c8f7f4015634ceb",
+      "copy_bytes": 918,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/result.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/state/dd50e36ce1f1d54d51fcd7e1854a7f7493f1aec5c729a56247dc971050c2ee47.audit-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/state/dd50e36ce1f1d54d51fcd7e1854a7f7493f1aec5c729a56247dc971050c2ee47.audit-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/state/dd50e36ce1f1d54d51fcd7e1854a7f7493f1aec5c729a56247dc971050c2ee47.inference-lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/state/dd50e36ce1f1d54d51fcd7e1854a7f7493f1aec5c729a56247dc971050c2ee47.inference-lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/state/dd50e36ce1f1d54d51fcd7e1854a7f7493f1aec5c729a56247dc971050c2ee47.json",
+      "bytes": 5058,
+      "sha256": "862d0fd73197de5712abaf5047647deac909b6aa7a2a7b4efe1ded1c27f8c948",
+      "original_sha256": "862d0fd73197de5712abaf5047647deac909b6aa7a2a7b4efe1ded1c27f8c948",
+      "copy_sha256": "862d0fd73197de5712abaf5047647deac909b6aa7a2a7b4efe1ded1c27f8c948",
+      "copy_bytes": 5058,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/mechanical-initial/resume-exhausted-budget/state/dd50e36ce1f1d54d51fcd7e1854a7f7493f1aec5c729a56247dc971050c2ee47.json",
+      "restricted_reasons": [
+        "unredacted_user_permission_configuration"
+      ]
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/state/dd50e36ce1f1d54d51fcd7e1854a7f7493f1aec5c729a56247dc971050c2ee47.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/state/dd50e36ce1f1d54d51fcd7e1854a7f7493f1aec5c729a56247dc971050c2ee47.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/state/ea9812d241d6ffd61378edb218ce1600cf962476e3522f1db9a8a2ad9675b00e.ownership.json",
+      "bytes": 380,
+      "sha256": "e3370987013fb20bf18f579b6483216b91c8b51760cbe563cbb5854ba3198a01",
+      "original_sha256": "e3370987013fb20bf18f579b6483216b91c8b51760cbe563cbb5854ba3198a01",
+      "copy_sha256": "e3370987013fb20bf18f579b6483216b91c8b51760cbe563cbb5854ba3198a01",
+      "copy_bytes": 380,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/state/ea9812d241d6ffd61378edb218ce1600cf962476e3522f1db9a8a2ad9675b00e.ownership.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/state/ea9812d241d6ffd61378edb218ce1600cf962476e3522f1db9a8a2ad9675b00e.ownership.lock",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_bytes": 0,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/state/ea9812d241d6ffd61378edb218ce1600cf962476e3522f1db9a8a2ad9675b00e.ownership.lock"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/resume-exhausted-budget/workspace/.claude/owned-work.json",
+      "bytes": 224,
+      "sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "original_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_sha256": "831c0b817816ef2a7097480b212b45a98e7cf63d33bb1252a36cebf2feca059b",
+      "copy_bytes": 224,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/resume-exhausted-budget/workspace/.claude/owned-work.json"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/scripted-owner.py",
+      "bytes": 3866,
+      "sha256": "65299286cc95a15bf586f9f3eeb2439ee41a2e3ed1d1b47217b558090e88c47d",
+      "original_sha256": "65299286cc95a15bf586f9f3eeb2439ee41a2e3ed1d1b47217b558090e88c47d",
+      "copy_sha256": "65299286cc95a15bf586f9f3eeb2439ee41a2e3ed1d1b47217b558090e88c47d",
+      "copy_bytes": 3866,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/scripted-owner.py"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/tested-adapter.py",
+      "bytes": 98449,
+      "sha256": "a75d7ac6121d933812bfc65afb18633901bad0838d5f0ca7e36a6538699841d3",
+      "original_sha256": "a75d7ac6121d933812bfc65afb18633901bad0838d5f0ca7e36a6538699841d3",
+      "copy_sha256": "a75d7ac6121d933812bfc65afb18633901bad0838d5f0ca7e36a6538699841d3",
+      "copy_bytes": 98449,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/tested-adapter.py"
+    },
+    {
+      "original": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/tested-harness.py",
+      "bytes": 33383,
+      "sha256": "8e0d37b91eb1d667cf399666021616c88c164a53c7702b4c0200d0c5ff0135c3",
+      "original_sha256": "8e0d37b91eb1d667cf399666021616c88c164a53c7702b4c0200d0c5ff0135c3",
+      "copy_sha256": "8e0d37b91eb1d667cf399666021616c88c164a53c7702b4c0200d0c5ff0135c3",
+      "copy_bytes": 33383,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/tested-harness.py"
+    },
+    {
+      "original": "/tmp/richos-r7-recovery-first-failure.log",
+      "bytes": 7298,
+      "sha256": "46ac17bbecb238fce15547a6c8e703fe5a41c29f93dfcbcc530a0ec0e527cfa2",
+      "original_sha256": "46ac17bbecb238fce15547a6c8e703fe5a41c29f93dfcbcc530a0ec0e527cfa2",
+      "copy_sha256": "46ac17bbecb238fce15547a6c8e703fe5a41c29f93dfcbcc530a0ec0e527cfa2",
+      "copy_bytes": 7298,
+      "copy": "docs/verification/owned-outcome/evidence-r7/mechanical-initial/run.log"
+    }
+  ],
+  "copy_policy": "Original bytes retained exactly. Raw observations, user permission configuration and compiled fixture binaries remain private. Public receipts retain their original redaction markers and private-original hash references."
+}
