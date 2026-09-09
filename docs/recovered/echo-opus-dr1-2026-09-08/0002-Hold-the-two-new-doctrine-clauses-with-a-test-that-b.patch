@@ -1,0 +1,107 @@
+From 7ced3d00f7d01d0f9a1e1f7c8a7179d8d96df611 Mon Sep 17 00:00:00 2001
+From: Alex Booster <webdevbooster@gmail.com>
+Date: Tue, 8 Sep 2026 17:31:19 +0100
+Subject: [PATCH 2/2] Hold the two new doctrine clauses with a test that bites
+
+The clauses landed in the previous commit are the highest-leverage prose in
+the product and nothing asserted them. Every other load-bearing sentence in
+that file has a test standing over it - the dialect clause, the company
+absence, the 4 KB budget - and a sentence with no test is a sentence the
+next edit deletes without anyone noticing.
+
+Six assertions, both halves, because either one alone leaves the defect
+standing: an entry is not proof of the present; an answer resting on a
+stored entry goes to the thing itself first; an unchecked answer says it is
+unchecked; broken and out of date are two findings; naming which one it is
+is not the reader's job; and not knowing which yet is itself sayable.
+
+PROVED NOT VACUOUS rather than assumed. I put the pre-change file back in
+place and ran the test against it:
+
+  doctrine.rs:436 panicked - "an entry must not be offered as proof of the
+  present" - exit non-zero, then restored (template sha256 5af6d03faa570653,
+  which is the digest the rendered file's first line now carries).
+
+app/README.md's crate total moves with it. docs-claims.js check 3 counts
+every #[test] under src/ and tests/ and refuses a README that disagrees, so
+1034 -> 1035 and "1030 direct" -> "1031 direct" is part of this change, not
+a follow-up.
+
+  cargo test -p richos-core: 1036 passed, 0 failed, 4 ignored
+    (1031 direct + 4 ignored + 5 doc-tests)
+  docs-claims.js: crate totals now read richos-core=1035+5, and the suite's
+    only failure is the one already on main before I started (startup_exec.rs
+    is named in no README section). I did not touch it.
+---
+ app/README.md                          |  2 +-
+ app/crates/richos-core/src/doctrine.rs | 41 ++++++++++++++++++++++++++
+ 2 files changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/app/README.md b/app/README.md
+index 3ade7598..d0ca9114 100644
+--- a/app/README.md
++++ b/app/README.md
+@@ -875,7 +875,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
+ 
+ ```sh
+ # 1. The spine — fast, no native deps, no network:
+-cargo test -p richos-core                       # 1034 tests + 5 doc-tests; 1030 direct, 4 ignored
++cargo test -p richos-core                       # 1035 tests + 5 doc-tests; 1031 direct, 4 ignored
+ # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
+ # Ordinary passes and doc-test passes are separate; do not add them into the total above.
+ #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
+diff --git a/app/crates/richos-core/src/doctrine.rs b/app/crates/richos-core/src/doctrine.rs
+index 689a4984..7c91546f 100644
+--- a/app/crates/richos-core/src/doctrine.rs
++++ b/app/crates/richos-core/src/doctrine.rs
+@@ -418,6 +418,47 @@ mod tests {
+         );
+     }
+ 
++    /// **A PRESENT ENTRY THAT HAS STOPPED BEING TRUE IS ITS OWN FAILURE, AND THE FILE USED TO
++    /// HAVE NO WORD FOR IT.** Until 2026-09-08 the record clause warned only that the record
++    /// was INCOMPLETE — "an entry in it is proof the thing happened" stood alone — so a
++    /// successor reading a row that had gone false since it was written would have believed it,
++    /// correctly, by instruction. Measured on the operator side the same week: a list saying
++    /// "do this" for finished work, a row calling five suites red when none of them were, an
++    /// escalation resting on a workflow it named as disabled while that workflow was running.
++    ///
++    /// Both halves are asserted because either one alone leaves the defect standing. Knowing an
++    /// entry can be old is useless without saying WHICH of the two findings this is — the thing
++    /// is broken, or the description of it is old — and that difference is the chief
++    /// executive's to be told rather than his to work out.
++    #[test]
++    fn an_entry_is_evidence_about_when_it_was_written_and_the_two_findings_are_named_apart() {
++        let rendered = render(&DoctrineIdentity::default());
++        assert!(
++            rendered.contains("it is not proof the thing is\nstill true"),
++            "an entry must not be offered as proof of the present:\n{rendered}"
++        );
++        assert!(
++            rendered.contains("look at\nthe thing itself first"),
++            "resting an answer on a stored entry must send it to the thing itself:\n{rendered}"
++        );
++        assert!(
++            rendered.contains("If you have not, say so as you answer."),
++            "and an unchecked answer must say that it is unchecked:\n{rendered}"
++        );
++        assert!(
++            rendered.contains("Either the thing is broken, or the thing is fine and\nwhat was said about it is old."),
++            "broken and out of date are two findings, not one:\n{rendered}"
++        );
++        assert!(
++            rendered.contains("not his job to work out which one this is"),
++            "the difference is his to be told, never his to derive:\n{rendered}"
++        );
++        assert!(
++            rendered.contains("If you cannot tell yet, say that, and say what"),
++            "and not knowing which one it is must itself be sayable:\n{rendered}"
++        );
++    }
++
+     /// It is re-sent on every request of every turn, so its length is a permanent tax. §4.3
+     /// sets the budget at 4 KB and says why: the discipline of a budget is what keeps six
+     /// rules from acquiring paragraphs.
+-- 
+2.52.0
+

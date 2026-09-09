@@ -1,0 +1,127 @@
+From 6c1b8a3c14538908da1508c97d629d661982dbd2 Mon Sep 17 00:00:00 2001
+From: Alex Booster <webdevbooster@gmail.com>
+Date: Tue, 8 Sep 2026 17:29:10 +0100
+Subject: [PATCH 1/2] Tell the inner Rich a stored entry can be out of date,
+ not just missing
+
+The standing instruction had one half of the record's honesty and not the
+other. It said the record is partial and that an absent entry proves
+nothing - and then, in the same breath, that "an entry in it is proof the
+thing happened", with no clause anywhere saying an entry describes the
+moment it was written rather than now. A grep for obsolete|stale|no longer
+describes|superseded|out of date over the 63-line file returned nothing
+(exit 1).
+
+That is not a theoretical gap. On the operator side, on one day: two items
+in a person's own list said "do this" for work already finished and sat
+that way for 48 hours; a record row claimed five test suites were red when
+none of them were; and two open escalations rested on premises that had
+since gone false, one of them naming a workflow as disabled while it was
+active. A Rich reading any of those would have believed them, because this
+file told it to, and handed a confident wrong answer to the person it works
+for.
+
+Two ideas, in the file's own register (design section 4.2 item 3, extended
+from "how absence is reported" to how absence AND staleness are reported -
+both halves are invariant, so neither is the conditional kind 4.3 excludes):
+
+  - An entry is proof the thing happened; it is not proof the thing is
+    still true. When an answer rests on a stored entry and it would change
+    what he does next, look at the thing itself first, and say so when you
+    have not.
+  - "This is broken" and "this description is old" are two different
+    findings, and working out which one it is is not his job. Say which,
+    or say that you cannot tell yet and what would settle it.
+
+No machinery, no lists, no incident, no example - 4.3's exclusions bind
+this addition as much as the rest of the file.
+
+  63 lines -> 74 lines, 3206 -> 3769 bytes.
+  Worst case render (32-char name, per the budget test) = 139 provenance
+  + 3769 - 17 placeholder + 47 name line = 3938 bytes against 4.3's 4096.
+  158 bytes of headroom left, which is the tightest this file has been.
+
+action_ledger_tests.rs::the_ledgers_partial_coverage_is_stated_rather_than_overclaimed
+pins that sentence verbatim, line breaks included, and it is the test that
+deliberately followed the guarantee when it moved channel on 2026-09-06.
+Its pins move with the sentence rather than around it: the asymmetry it was
+written for is still asserted, and the missing half is now asserted beside
+it.
+
+  cargo test -p richos-core: 1035 passed, 0 failed, 4 ignored
+  (1030 direct + 4 ignored + 5 doc-tests; the README's "1034" is the static
+  count of #[test] across src/ and tests/, which includes the 4 ignored).
+---
+ .../richos-core/doctrine/inner-doctrine.md    | 19 +++++++++++++++----
+ .../richos-core/tests/action_ledger_tests.rs  | 17 +++++++++++++----
+ 2 files changed, 28 insertions(+), 8 deletions(-)
+
+diff --git a/app/crates/richos-core/doctrine/inner-doctrine.md b/app/crates/richos-core/doctrine/inner-doctrine.md
+index e15ed9c0..33180ea8 100644
+--- a/app/crates/richos-core/doctrine/inner-doctrine.md
++++ b/app/crates/richos-core/doctrine/inner-doctrine.md
+@@ -36,14 +36,25 @@ came to you.
+ 
+ ## What you know, and what you only seem to know
+ 
+-You are given a record of what has already been done on his behalf. That record is partial. An
+-entry in it is proof the thing happened; the absence of an entry is not proof that it did not.
+-So never tell him nothing was done, and never deny having done something because you cannot
+-remember doing it. Say you are not certain, and offer to check.
++You are given a record of what has already been done on his behalf. That record is partial, and
++always a little behind. An entry in it is proof the thing happened; it is not proof the thing is
++still true, and the absence of an entry is not proof that it did not. So never tell him nothing
++was done, and never deny having done something because you cannot remember doing it. Say you are
++not certain, and offer to check.
++
++When what you tell him rests on a stored entry and it would change what he does next, look at
++the thing itself first. If you have not, say so as you answer.
+ 
+ Never invent a fact, a number, a date, a name or a status to fill a gap. "I do not know yet"
+ is a complete answer, and a better one than a plausible guess.
+ 
++## Broken, or out of date
++
++When what you find does not match what you were told, there are two different answers, and it is
++not his job to work out which one this is. Either the thing is broken, or the thing is fine and
++what was said about it is old. Tell him which. If you cannot tell yet, say that, and say what
++would settle it.
++
+ ## His notes are his
+ 
+ Anything stored from earlier conversations is material he gave you: facts, preferences,
+diff --git a/app/crates/richos-core/tests/action_ledger_tests.rs b/app/crates/richos-core/tests/action_ledger_tests.rs
+index d7326339..14a78953 100644
+--- a/app/crates/richos-core/tests/action_ledger_tests.rs
++++ b/app/crates/richos-core/tests/action_ledger_tests.rs
+@@ -347,14 +347,23 @@ fn the_ledgers_partial_coverage_is_stated_rather_than_overclaimed() {
+     // re-spent on every rotation (inner-doctrine design §4.2 item 3, §5.1). A test that had
+     // simply been deleted alongside the sentence it checked would have retired a guarantee
+     // while looking like a tidy-up, so this one names the same fact in its new home.
++    //
++    // THE SENTENCE GREW A SECOND HALF ON 2026-09-08 AND THESE PINS MOVED WITH IT. It used to
++    // say only that the record was INCOMPLETE, which left "an entry is proof" standing alone —
++    // and a present entry that had stopped being true was then something the successor was
++    // instructed to believe. The asymmetry below is still the one this test was written for;
++    // the clause about an entry not proving the present is the half that was missing. The line
++    // breaks are part of the pins because the file is wrapped prose and the exact sentence is
++    // what is being held, exactly as `An\nentry` was held before.
+     let doctrine = richos_core::doctrine::render(&richos_core::doctrine::DoctrineIdentity::default());
+     assert!(doctrine.contains("That record is partial"), "{doctrine}");
+     assert!(
+-        doctrine.contains("An\nentry in it is proof the thing happened; the absence of an entry is not proof that it did not."),
+-        "the ledger's asymmetry must be stated, not implied:\n{doctrine}"
++        doctrine.contains("An entry in it is proof the thing happened; it is not proof the thing is\nstill true, and the absence of an entry is not proof that it did not."),
++        "the ledger's asymmetry must be stated, not implied — and an entry must not be read as \
++         proof of the present:\n{doctrine}"
+     );
+-    assert!(doctrine.contains("never tell him nothing was done"), "{doctrine}");
+-    assert!(doctrine.contains("Say you are not certain, and offer to check."), "{doctrine}");
++    assert!(doctrine.contains("never tell him nothing\nwas done"), "{doctrine}");
++    assert!(doctrine.contains("Say you are\nnot certain, and offer to check."), "{doctrine}");
+ 
+     // And the turn keeps ONLY what a system prompt cannot say: which conversation this is,
+     // and that the ledger meant is the one printed below. §5.1's acceptance condition is that
+-- 
+2.52.0
+
