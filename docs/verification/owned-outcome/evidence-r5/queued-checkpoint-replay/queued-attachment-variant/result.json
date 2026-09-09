@@ -1,0 +1,64 @@
+{
+  "mechanical_checkpoint_available": true,
+  "mocked_inspection_calls": 1,
+  "actual_provider_calls": 0,
+  "no_completion_claim": true,
+  "original_saved_state_unchanged": true,
+  "original_state_sha256": "caa14466499986fecc513803804764ddf333de82fb15ea63c30bd3d29483bb65",
+  "source_sha256": "03b43e7fefd0a34a79d8cc3b6c1ae771aeb6515e7092cc46be88ead304c51c75",
+  "checkpoint": {
+    "id": "99c58c249d54011149b633a4fb9d04667c4d401900e6e26d4c3bd3492b74cc9f",
+    "invocations": [
+      "520083b6-724c-491b-99b4-556c7099ead4:a736efa0146c361a1:toolu_01DLmeZpAdmeBuwMUMxHgfgX",
+      "520083b6-724c-491b-99b4-556c7099ead4:leader:toolu_01R5iqwvwarpB29v6iNVod3v"
+    ],
+    "terminals": [
+      {
+        "invocation": "520083b6-724c-491b-99b4-556c7099ead4:leader:toolu_01R5iqwvwarpB29v6iNVod3v",
+        "source_id": "b4087f69-4af9-4ff0-b5e8-523eb2986bcc",
+        "at": 1788951598.125
+      },
+      {
+        "invocation": "520083b6-724c-491b-99b4-556c7099ead4:a736efa0146c361a1:toolu_01DLmeZpAdmeBuwMUMxHgfgX",
+        "source_id": "c3e0adc3-8388-4eac-9a6b-bfd4db84a458",
+        "at": 1788951547.781
+      }
+    ],
+    "successful_receipt_ids": [
+      "a4d3dd00bfb61070b:toolu_011M6YzYPECW2GbnhFkpgBKE",
+      "a4d3dd00bfb61070b:toolu_014vrpNGmjw2154S4Lq3EPPr",
+      "a4d3dd00bfb61070b:toolu_019hKpLyudPLdW1PjMFJpi2y",
+      "a4d3dd00bfb61070b:toolu_01Csy9uyVygZcGMJxfrn2vsS",
+      "a4d3dd00bfb61070b:toolu_01FmHRt3QnUcPfZRg6Huui9a",
+      "a4d3dd00bfb61070b:toolu_01JdCjhXumLaHgA5FiE49DWt",
+      "a4d3dd00bfb61070b:toolu_01W8uccq1jB3fB316aJ4jHgQ",
+      "a4d3dd00bfb61070b:toolu_01XWcgWpGX1pGjGssnJ7WjgQ",
+      "a736efa0146c361a1:toolu_014Ve6PCNvaYeqqs9RtMFY7k",
+      "a736efa0146c361a1:toolu_014sVwnKXJGT9zTJyNWazm6P",
+      "a736efa0146c361a1:toolu_015ncgo9JBkeGKYrvXu7zLbH",
+      "a736efa0146c361a1:toolu_016J2G183AYuF6VTQ7xsdoiD",
+      "a736efa0146c361a1:toolu_017BF8f21Wqd5TSg9tFAUTQa",
+      "a736efa0146c361a1:toolu_0182ACNiZh3Txec4GH5LxVBb",
+      "a736efa0146c361a1:toolu_018ZbARdDEcZZaUj8jZtqmro",
+      "a736efa0146c361a1:toolu_01AAYwf4i9CXy6iR6MVon7XF",
+      "a736efa0146c361a1:toolu_01B84QW8Xd8vrzjpA9F14YHw",
+      "a736efa0146c361a1:toolu_01CLGJehwFYecba9bPsy5imh",
+      "a736efa0146c361a1:toolu_01EEqsRn652QAwqLd8oB82M2",
+      "a736efa0146c361a1:toolu_01FWvxWftKdAbfzo1NxJt33P",
+      "a736efa0146c361a1:toolu_01HZnEGRTSwMb6ChR3Dd9QGL",
+      "a736efa0146c361a1:toolu_01MrbSx7cLE6efZ4pVoofg54",
+      "a736efa0146c361a1:toolu_01QktzvF8KxjuZvi2oYCTf2T",
+      "a736efa0146c361a1:toolu_01RBpRRMujorbHCS5PSsfyey",
+      "a736efa0146c361a1:toolu_01RDXagygcMWMr7rdD5om9k1",
+      "a736efa0146c361a1:toolu_01SULkNeN3qb5P33hYhNRV9a",
+      "a736efa0146c361a1:toolu_01TknBcGzEEMsBR2wCPDGR1T",
+      "a736efa0146c361a1:toolu_01XDsBhd4XeFo6Wg75VWv15h",
+      "a736efa0146c361a1:toolu_01XDymGzQoA9vcH2jd29EwSS",
+      "a736efa0146c361a1:toolu_01Y6Cb7CcYFwhR4Q7xpeLM8o"
+    ]
+  },
+  "attempts_before": 5,
+  "attempts_after": 6,
+  "consumed_before_inspection": true,
+  "duplicate_checkpoint_unavailable": true
+}

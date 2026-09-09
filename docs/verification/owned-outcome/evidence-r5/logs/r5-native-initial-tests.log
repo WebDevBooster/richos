@@ -1,0 +1,631 @@
+EEEEE.E.EEEEEEE.EE.....E.EE.....E.EEE.EEE..EEEEE.EEEE..EEEEE.EEE.EEE..EE..
+======================================================================
+ERROR: test_ambiguous_pending_calls_cannot_expose_permission_ui (__main__.Owned.test_ambiguous_pending_calls_cannot_expose_permission_ui)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 687, in test_ambiguous_pending_calls_cannot_expose_permission_ui
+    path,payload=self.permission_setup();self.permission_call('other')
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_caller_original_claim_without_observation_cannot_trigger_review (__main__.Owned.test_caller_original_claim_without_observation_cannot_trigger_review)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 623, in test_caller_original_claim_without_observation_cannot_trigger_review
+    path,payload=self.permission_setup()
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_child_execution_is_observed_without_adopting_its_instructions (__main__.Owned.test_child_execution_is_observed_without_adopting_its_instructions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 983, in test_child_execution_is_observed_without_adopting_its_instructions
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_child_permission_uses_leader_source_without_adopting_child (__main__.Owned.test_child_permission_uses_leader_source_without_adopting_child)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 471, in test_child_permission_uses_leader_source_without_adopting_child
+    path,payload=self.permission_setup()
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_compaction_preserves_original_scope_and_corrections (__main__.Owned.test_compaction_preserves_original_scope_and_corrections)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 66, in test_compaction_preserves_original_scope_and_corrections
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_concurrent_permission_review_reserves_one_ticket_before_model (__main__.Owned.test_concurrent_permission_review_reserves_one_ticket_before_model)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 529, in test_concurrent_permission_review_reserves_one_ticket_before_model
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_cosmetic_bash_description_does_not_reset_operation_recovery (__main__.Owned.test_cosmetic_bash_description_does_not_reset_operation_recovery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 590, in test_cosmetic_bash_description_does_not_reset_operation_recovery
+    path,payload=self.permission_setup();payload['tool_input']['description']='first wording'
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_cosmetic_bash_failure_is_not_necessity_evidence (__main__.Owned.test_cosmetic_bash_failure_is_not_necessity_evidence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 598, in test_cosmetic_bash_failure_is_not_necessity_evidence
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_crashed_prompt_with_no_result_recovers_after_observed_inspection (__main__.Owned.test_crashed_prompt_with_no_result_recovers_after_observed_inspection)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 571, in test_crashed_prompt_with_no_result_recovers_after_observed_inspection
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_decision_delivered_once_and_new_answer_reopens_review (__main__.Owned.test_decision_delivered_once_and_new_answer_reopens_review)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 208, in test_decision_delivered_once_and_new_answer_reopens_review
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_execution_receipts_preserve_refusal_and_success_without_becoming_authority (__main__.Owned.test_execution_receipts_preserve_refusal_and_success_without_becoming_authority)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 955, in test_execution_receipts_preserve_refusal_and_success_without_becoming_authority
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_failed_inspection_stays_owned_across_reload_with_backoff (__main__.Owned.test_failed_inspection_stays_owned_across_reload_with_backoff)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 164, in test_failed_inspection_stays_owned_across_reload_with_backoff
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_honest_incomplete_reviews_are_paced_without_abandoning_ownership (__main__.Owned.test_honest_incomplete_reviews_are_paced_without_abandoning_ownership)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 928, in test_honest_incomplete_reviews_are_paced_without_abandoning_ownership
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_inspector_lock_prevents_competing_reviews (__main__.Owned.test_inspector_lock_prevents_competing_reviews)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 191, in test_inspector_lock_prevents_competing_reviews
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_inspector_remaining_is_retained_but_never_becomes_leader_instruction (__main__.Owned.test_inspector_remaining_is_retained_but_never_becomes_leader_instruction)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 760, in test_inspector_remaining_is_retained_but_never_becomes_leader_instruction
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_late_transcript_does_not_duplicate_request (__main__.Owned.test_late_transcript_does_not_duplicate_request)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 58, in test_late_transcript_does_not_duplicate_request
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_legacy_saved_authority_is_quarantined_then_recorroborated (__main__.Owned.test_legacy_saved_authority_is_quarantined_then_recorroborated)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 138, in test_legacy_saved_authority_is_quarantined_then_recorroborated
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_machine_prompt_flush_resolves_fence_without_human_authority (__main__.Owned.test_machine_prompt_flush_resolves_fence_without_human_authority)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 511, in test_machine_prompt_flush_resolves_fence_without_human_authority
+    path,payload=self.permission_setup()
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_native_first_permission_request_recovers_without_prompt_or_grant (__main__.Owned.test_native_first_permission_request_recovers_without_prompt_or_grant)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 693, in test_native_first_permission_request_recovers_without_prompt_or_grant
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_native_refusal_requires_later_verified_reconsideration (__main__.Owned.test_native_refusal_requires_later_verified_reconsideration)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 538, in test_native_refusal_requires_later_verified_reconsideration
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_native_wake_is_not_a_new_ceo_instruction (__main__.Owned.test_native_wake_is_not_a_new_ceo_instruction)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 84, in test_native_wake_is_not_a_new_ceo_instruction
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_new_instruction_during_review_gets_reaudited_without_old_wake (__main__.Owned.test_new_instruction_during_review_gets_reaudited_without_old_wake)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 175, in test_new_instruction_during_review_gets_reaudited_without_old_wake
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_observed_safety_prefix_preserves_source_and_exact_runtime_ticket (__main__.Owned.test_observed_safety_prefix_preserves_source_and_exact_runtime_ticket)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 607, in test_observed_safety_prefix_preserves_source_and_exact_runtime_ticket
+    path,payload=self.permission_setup()
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_pending_hook_is_bound_by_prompt_id_not_same_text (__main__.Owned.test_pending_hook_is_bound_by_prompt_id_not_same_text)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 503, in test_pending_hook_is_bound_by_prompt_id_not_same_text
+    path,payload=self.permission_setup()
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_pending_native_hook_cancellation_fences_inflight_permission (__main__.Owned.test_pending_native_hook_cancellation_fences_inflight_permission)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 488, in test_pending_native_hook_cancellation_fences_inflight_permission
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_permission_first_attempt_needs_no_model_then_exact_necessity_preserves_native_ui_once (__main__.Owned.test_permission_first_attempt_needs_no_model_then_exact_necessity_preserves_native_ui_once)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 423, in test_permission_first_attempt_needs_no_model_then_exact_necessity_preserves_native_ui_once
+    path,payload=self.permission_setup()
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_permission_gate_cannot_accept_failed_runner_json (__main__.Owned.test_permission_gate_cannot_accept_failed_runner_json)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 455, in test_permission_gate_cannot_accept_failed_runner_json
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_permission_notifications_are_observations_not_ceo_instructions (__main__.Owned.test_permission_notifications_are_observations_not_ceo_instructions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 916, in test_permission_notifications_are_observations_not_ceo_instructions
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_permission_review_cannot_ignore_new_native_human_correction (__main__.Owned.test_permission_review_cannot_ignore_new_native_human_correction)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 462, in test_permission_review_cannot_ignore_new_native_human_correction
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_permission_review_cannot_substitute_another_request_or_old_scope (__main__.Owned.test_permission_review_cannot_substitute_another_request_or_old_scope)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 447, in test_permission_review_cannot_substitute_another_request_or_old_scope
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_presented_decision_does_not_wake_leader_to_ask_it_again (__main__.Owned.test_presented_decision_does_not_wake_leader_to_ask_it_again)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 221, in test_presented_decision_does_not_wake_leader_to_ask_it_again
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_pretool_child_identity_is_observation_never_child_ceo_scope (__main__.Owned.test_pretool_child_identity_is_observation_never_child_ceo_scope)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 671, in test_pretool_child_identity_is_observation_never_child_ceo_scope
+    path,payload=self.permission_setup()
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_pretool_id_binds_permission_before_transcript_call_flush (__main__.Owned.test_pretool_id_binds_permission_before_transcript_call_flush)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 649, in test_pretool_id_binds_permission_before_transcript_call_flush
+    path,payload=self.permission_setup()
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_pretool_rewrite_binds_unique_name_but_ambiguity_cannot_prompt (__main__.Owned.test_pretool_rewrite_binds_unique_name_but_ambiguity_cannot_prompt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 662, in test_pretool_rewrite_binds_unique_name_but_ambiguity_cannot_prompt
+    path,payload=self.permission_setup();self.permission_result('call-1')
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_provider_error_is_diagnostic_not_a_leader_capability_fact (__main__.Owned.test_provider_error_is_diagnostic_not_a_leader_capability_fact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 780, in test_provider_error_is_diagnostic_not_a_leader_capability_fact
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_question_cannot_use_a_verdict_from_before_a_correction (__main__.Owned.test_question_cannot_use_a_verdict_from_before_a_correction)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 907, in test_question_cannot_use_a_verdict_from_before_a_correction
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_question_denial_keeps_raw_review_out_of_native_tool_feedback (__main__.Owned.test_question_denial_keeps_raw_review_out_of_native_tool_feedback)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 797, in test_question_denial_keeps_raw_review_out_of_native_tool_feedback
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_question_provider_failure_cannot_leak_a_false_verification_waiver (__main__.Owned.test_question_provider_failure_cannot_leak_a_false_verification_waiver)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 811, in test_question_provider_failure_cannot_leak_a_false_verification_waiver
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_question_review_rejects_routine_and_malformed_questions (__main__.Owned.test_question_review_rejects_routine_and_malformed_questions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 345, in test_question_review_rejects_routine_and_malformed_questions
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_repeated_identical_messages_with_distinct_ids_are_preserved (__main__.Owned.test_repeated_identical_messages_with_distinct_ids_are_preserved)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 80, in test_repeated_identical_messages_with_distinct_ids_are_preserved
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_repeated_routine_permission_without_necessity_evidence_needs_no_model (__main__.Owned.test_repeated_routine_permission_without_necessity_evidence_needs_no_model)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 440, in test_repeated_routine_permission_without_necessity_evidence_needs_no_model
+    o.capture(self.root,self.payload)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_request_is_durable_before_response_and_recorded_is_not_done (__main__.Owned.test_request_is_durable_before_response_and_recorded_is_not_done)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 43, in test_request_is_durable_before_response_and_recorded_is_not_done
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_safety_prefix_is_not_a_distinct_failed_alternative (__main__.Owned.test_safety_prefix_is_not_a_distinct_failed_alternative)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 640, in test_safety_prefix_is_not_a_distinct_failed_alternative
+    o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_submit_hook_waits_for_native_human_provenance (__main__.Owned.test_submit_hook_waits_for_native_human_provenance)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 128, in test_submit_hook_waits_for_native_human_provenance
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_successful_native_prompt_can_be_revalidated_for_a_new_invocation (__main__.Owned.test_successful_native_prompt_can_be_revalidated_for_a_new_invocation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 520, in test_successful_native_prompt_can_be_revalidated_for_a_new_invocation
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_unknown_prompt_outcome_requires_observed_effects_inspection (__main__.Owned.test_unknown_prompt_outcome_requires_observed_effects_inspection)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 556, in test_unknown_prompt_outcome_requires_observed_effects_inspection
+    path,payload=self.permission_setup();o.native_permission_request(self.root,payload,self.config)
+                 ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 417, in permission_setup
+    path=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_unvalidated_decision_prose_is_quarantined (__main__.Owned.test_unvalidated_decision_prose_is_quarantined)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 196, in test_unvalidated_decision_prose_is_quarantined
+    path = o.capture(self.root, self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+----------------------------------------------------------------------
+Ran 74 tests in 1.258s
+
+FAILED (errors=47)

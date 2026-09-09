@@ -1,0 +1,34 @@
+{
+  "native": "obsolete_assertion",
+  "external": "implementation_defect",
+  "evidence": {
+    "contract_source": "requirements.md: \"Current approved contract: native workspaces return platform-pending; external workspaces return verified.\"",
+    "superseded_contract_source": "backlog.md: \"Previous contract: native workspaces return verified.\" backlog.md records history only and is never the target of the repair.",
+    "native": {
+      "classification": "obsolete_assertion",
+      "required_by_requirements": "platform-pending",
+      "code_returned_before_repair": "platform-pending",
+      "test_asserted_before_repair": "verified",
+      "reasoning": "lifecycle.py already satisfied the current approved contract for native. The failure came from test_lifecycle.py, which still asserted 'verified' - the value named in backlog.md as the PREVIOUS contract. The check was stale, not the implementation.",
+      "file_changed": "test_lifecycle.py",
+      "change": "test_native now asserts status(\"native\") == \"platform-pending\", matching requirements.md.",
+      "lifecycle_py_behavior_for_native": "unchanged by this repair"
+    },
+    "external": {
+      "classification": "implementation_defect",
+      "required_by_requirements": "verified",
+      "code_returned_before_repair": "bound",
+      "test_asserted_before_repair": "verified",
+      "reasoning": "test_lifecycle.py already encoded the current approved contract for external. lifecycle.py returned 'bound' because external fell through the catch-all branch of the original ternary and was never handled explicitly. The implementation disagreed with the current contract, so the code was at fault.",
+      "file_changed": "lifecycle.py",
+      "change": "status() now handles \"external\" explicitly and returns \"verified\".",
+      "test_lifecycle_py_assertion_for_external": "unchanged by this repair"
+    },
+    "repair_note": "status() was rewritten from a two-branch ternary into explicit branches for the two owners requirements.md actually names. The pre-existing \"bound\" fallback is retained for any owner the contract does not specify, so the repair does not silently change behavior for unspecified owners.",
+    "verification": {
+      "tests": "python3 -m unittest test_lifecycle -v",
+      "json_validation": "python3 -m json.tool diagnosis.json",
+      "files_left_unchanged": ["requirements.md", "backlog.md"]
+    }
+  }
+}

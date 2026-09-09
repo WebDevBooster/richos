@@ -1,0 +1,492 @@
+test_assistant_and_injected_messages_do_not_reregister (__main__.DispatchHost.test_assistant_and_injected_messages_do_not_reregister) ... ERROR
+test_changed_revision_outage_preserves_ledger_and_paces_retry (__main__.DispatchHost.test_changed_revision_outage_preserves_ledger_and_paces_retry) ... ERROR
+test_child_requires_exact_leader_transcript_binding (__main__.DispatchHost.test_child_requires_exact_leader_transcript_binding) ... ERROR
+test_conflicting_selector_anywhere_in_operational_brief_is_rejected (__main__.DispatchHost.test_conflicting_selector_anywhere_in_operational_brief_is_rejected) ... ERROR
+test_first_ordinary_prompt_reports_selection_not_broken_integration (__main__.DispatchHost.test_first_ordinary_prompt_reports_selection_not_broken_integration) ... ERROR
+test_large_multitopic_source_is_archived_not_pasted_into_each_spawn (__main__.DispatchHost.test_large_multitopic_source_is_archived_not_pasted_into_each_spawn) ... ERROR
+test_mixed_human_row_cannot_authorize_by_dropping_prohibition (__main__.DispatchHost.test_mixed_human_row_cannot_authorize_by_dropping_prohibition) ... ERROR
+test_model_mutating_sources_cannot_publish_stale_registration (__main__.DispatchHost.test_model_mutating_sources_cannot_publish_stale_registration) ... ok
+test_new_human_instruction_changes_revision_and_blocks_stale_selector (__main__.DispatchHost.test_new_human_instruction_changes_revision_and_blocks_stale_selector) ... ERROR
+test_new_mixed_human_constraint_invalidates_existing_selector (__main__.DispatchHost.test_new_mixed_human_constraint_invalidates_existing_selector) ... ERROR
+test_nonzero_registrar_json_is_not_authority (__main__.DispatchHost.test_nonzero_registrar_json_is_not_authority) ... ok
+test_operational_brief_survives_under_registered_scope (__main__.DispatchHost.test_operational_brief_survives_under_registered_scope) ... ERROR
+test_oversize_operational_brief_or_registered_scope_denied_without_trimming (__main__.DispatchHost.test_oversize_operational_brief_or_registered_scope_denied_without_trimming) ... ERROR
+test_pending_hook_cancellation_fences_cached_dispatch_without_new_model (__main__.DispatchHost.test_pending_hook_cancellation_fences_cached_dispatch_without_new_model) ... ERROR
+test_pending_hook_during_registration_cannot_publish_old_scope (__main__.DispatchHost.test_pending_hook_during_registration_cannot_publish_old_scope) ... ok
+test_pending_scope_is_not_selectable_but_independent_work_is (__main__.DispatchHost.test_pending_scope_is_not_selectable_but_independent_work_is) ... ERROR
+test_permitted_dispatch_leaves_exact_work_receipt (__main__.DispatchHost.test_permitted_dispatch_leaves_exact_work_receipt) ... ERROR
+test_real_source_failure_keeps_unverified_feedback (__main__.DispatchHost.test_real_source_failure_keeps_unverified_feedback) ... ERROR
+test_recovered_assignment_waits_for_independent_review (__main__.DispatchHost.test_recovered_assignment_waits_for_independent_review) ... ERROR
+test_registration_once_then_many_dispatches_without_model (__main__.DispatchHost.test_registration_once_then_many_dispatches_without_model) ... ERROR
+test_registration_rejects_forged_or_uncited_authority (__main__.DispatchHost.test_registration_rejects_forged_or_uncited_authority) ... ERROR
+test_registration_rejects_hook_or_assistant_authority (__main__.DispatchHost.test_registration_rejects_hook_or_assistant_authority) ... ERROR
+test_revoked_old_id_cannot_select_new_independent_registration (__main__.DispatchHost.test_revoked_old_id_cannot_select_new_independent_registration) ... ERROR
+test_runner_outage_does_not_revoke_unchanged_registered_work (__main__.DispatchHost.test_runner_outage_does_not_revoke_unchanged_registered_work) ... ERROR
+test_selector_cannot_smuggle_proposed_brief (__main__.DispatchHost.test_selector_cannot_smuggle_proposed_brief) ... ERROR
+test_verified_scope_survives_compaction (__main__.DispatchHost.test_verified_scope_survives_compaction) ... ERROR
+
+======================================================================
+ERROR: test_assistant_and_injected_messages_do_not_reregister (__main__.DispatchHost.test_assistant_and_injected_messages_do_not_reregister)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 54, in test_assistant_and_injected_messages_do_not_reregister
+    self.register()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_changed_revision_outage_preserves_ledger_and_paces_retry (__main__.DispatchHost.test_changed_revision_outage_preserves_ledger_and_paces_retry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 74, in test_changed_revision_outage_preserves_ledger_and_paces_retry
+    ledger=self.register(); self.add('u2','Change the parser scope.')
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_child_requires_exact_leader_transcript_binding (__main__.DispatchHost.test_child_requires_exact_leader_transcript_binding)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 187, in test_child_requires_exact_leader_transcript_binding
+    self.register(); self.payload['agent_id']='child'
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_conflicting_selector_anywhere_in_operational_brief_is_rejected (__main__.DispatchHost.test_conflicting_selector_anywhere_in_operational_brief_is_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 112, in test_conflicting_selector_anywhere_in_operational_brief_is_rejected
+    self.register()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_first_ordinary_prompt_reports_selection_not_broken_integration (__main__.DispatchHost.test_first_ordinary_prompt_reports_selection_not_broken_integration)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 234, in test_first_ordinary_prompt_reports_selection_not_broken_integration
+    ledger=self.register();self.payload['tool_input']['prompt']='An ordinary engineer brief'
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_large_multitopic_source_is_archived_not_pasted_into_each_spawn (__main__.DispatchHost.test_large_multitopic_source_is_archived_not_pasted_into_each_spawn)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 140, in test_large_multitopic_source_is_archived_not_pasted_into_each_spawn
+    ledger = self.register()
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_mixed_human_row_cannot_authorize_by_dropping_prohibition (__main__.DispatchHost.test_mixed_human_row_cannot_authorize_by_dropping_prohibition)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 198, in test_mixed_human_row_cannot_authorize_by_dropping_prohibition
+    _,data=d.collect(self.root,self.payload)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_new_human_instruction_changes_revision_and_blocks_stale_selector (__main__.DispatchHost.test_new_human_instruction_changes_revision_and_blocks_stale_selector)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 61, in test_new_human_instruction_changes_revision_and_blocks_stale_selector
+    self.register(); self.add('u2','Pause parser work.')
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_new_mixed_human_constraint_invalidates_existing_selector (__main__.DispatchHost.test_new_mixed_human_constraint_invalidates_existing_selector)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 205, in test_new_mixed_human_constraint_invalidates_existing_selector
+    self.register()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_operational_brief_survives_under_registered_scope (__main__.DispatchHost.test_operational_brief_survives_under_registered_scope)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 99, in test_operational_brief_survives_under_registered_scope
+    ledger = self.register()
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_oversize_operational_brief_or_registered_scope_denied_without_trimming (__main__.DispatchHost.test_oversize_operational_brief_or_registered_scope_denied_without_trimming)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 158, in test_oversize_operational_brief_or_registered_scope_denied_without_trimming
+    self.register()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_pending_hook_cancellation_fences_cached_dispatch_without_new_model (__main__.DispatchHost.test_pending_hook_cancellation_fences_cached_dispatch_without_new_model)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 216, in test_pending_hook_cancellation_fences_cached_dispatch_without_new_model
+    ledger=self.register();adapter=d.adapter_module()
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_pending_scope_is_not_selectable_but_independent_work_is (__main__.DispatchHost.test_pending_scope_is_not_selectable_but_independent_work_is)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 120, in test_pending_scope_is_not_selectable_but_independent_work_is
+    ledger = self.register()
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_permitted_dispatch_leaves_exact_work_receipt (__main__.DispatchHost.test_permitted_dispatch_leaves_exact_work_receipt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 86, in test_permitted_dispatch_leaves_exact_work_receipt
+    ledger=self.register(); output=d.dispatch(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_real_source_failure_keeps_unverified_feedback (__main__.DispatchHost.test_real_source_failure_keeps_unverified_feedback)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 251, in test_real_source_failure_keeps_unverified_feedback
+    self.register();self.transcript.unlink();error=io.StringIO()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_recovered_assignment_waits_for_independent_review (__main__.DispatchHost.test_recovered_assignment_waits_for_independent_review)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 170, in test_recovered_assignment_waits_for_independent_review
+    self.register(); adapter = d.adapter_module()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_registration_once_then_many_dispatches_without_model (__main__.DispatchHost.test_registration_once_then_many_dispatches_without_model)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 45, in test_registration_once_then_many_dispatches_without_model
+    self.register()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_registration_rejects_forged_or_uncited_authority (__main__.DispatchHost.test_registration_rejects_forged_or_uncited_authority)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 181, in test_registration_rejects_forged_or_uncited_authority
+    _,data=d.collect(self.root,self.payload)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_registration_rejects_hook_or_assistant_authority (__main__.DispatchHost.test_registration_rejects_hook_or_assistant_authority)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 176, in test_registration_rejects_hook_or_assistant_authority
+    _,data=d.collect(self.root,self.payload)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_revoked_old_id_cannot_select_new_independent_registration (__main__.DispatchHost.test_revoked_old_id_cannot_select_new_independent_registration)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 127, in test_revoked_old_id_cannot_select_new_independent_registration
+    old = self.register()['work'][0]['id']
+          ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_runner_outage_does_not_revoke_unchanged_registered_work (__main__.DispatchHost.test_runner_outage_does_not_revoke_unchanged_registered_work)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 69, in test_runner_outage_does_not_revoke_unchanged_registered_work
+    self.register(); self.runner.unlink()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_selector_cannot_smuggle_proposed_brief (__main__.DispatchHost.test_selector_cannot_smuggle_proposed_brief)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 94, in test_selector_cannot_smuggle_proposed_brief
+    self.register()
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+======================================================================
+ERROR: test_verified_scope_survives_compaction (__main__.DispatchHost.test_verified_scope_survives_compaction)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 191, in test_verified_scope_survives_compaction
+    self.register(); self.transcript.write_text('')
+    ~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.test.py", line 40, in register
+    ledger=d.register(self.root,self.payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 135, in register
+    config, data = collect(root, payload)
+                   ~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-dispatch.py", line 79, in collect
+    adapter.capture(root, payload)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 244, in capture
+    return _capture(root, payload)
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py", line 375, in _capture
+    raise ValueError('Session state workspace mismatch')
+ValueError: Session state workspace mismatch
+
+----------------------------------------------------------------------
+Ran 26 tests in 0.046s
+
+FAILED (errors=23)

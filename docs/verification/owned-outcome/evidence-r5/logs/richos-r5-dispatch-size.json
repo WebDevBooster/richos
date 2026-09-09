@@ -1,0 +1,28 @@
+{
+  "registered": {
+    "work_ids": [
+      "3ea7ce9d0a69be7d4d3b5e2c"
+    ],
+    "registration_input_bytes": 186449,
+    "source_conversation_bytes": 186141
+  },
+  "dispatched": {
+    "work_id": "3ea7ce9d0a69be7d4d3b5e2c",
+    "brief_sha256": "077166f708f6420967920b1007393605e05e4bb7721eef54c99e28dc92739de9",
+    "prompt_bytes": 1407,
+    "operational_brief_bytes": 0,
+    "authority_excerpt_bytes": 51,
+    "source_conversation_bytes": 186141
+  },
+  "measurement": "Deterministic 6000-repeat multi-topic fixture with mocked registrar. Actual UTF-8 JSON bytes, not paid model usage or measured tokenizer tokens.",
+  "per_spawn_reduction_percent": 99.24,
+  "approx_tokens_bytes_div_4": {
+    "prompt_bytes": 351.75,
+    "source_conversation_bytes": 46535.25
+  },
+  "source_sha256": {
+    "engine/scripts/lib/owned-dispatch.py": "1f3dfd10e9f92f2382a163168791c33e795ef996785adbe8f2b9debcf7c43e44",
+    "engine/scripts/lib/owned-dispatch.test.py": "ed47150ed556c3be7f4e015a9462772918dee0a35a3e9f19bb74bc7c070acb57",
+    "engine/scripts/lib/owned-session.py": "0208016a7dfa93dd3ebb6be72cc8b3589abc9125a6c2b636b5059505c1a919b4"
+  }
+}

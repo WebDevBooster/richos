@@ -1,0 +1,33 @@
+{
+  "base_commit": "e0679a553c6462b7e882135028577304f7f59faa",
+  "branch": "codex/owned-outcome-completion",
+  "note": "Final review snapshot. Historical trials retain their own source and binary identities. This file excludes the evidence directory to avoid recursive hashing.",
+  "files": {
+    "app/README.md": "c582fbbda0ff906ab3c5a5ad92d00589dac00eccf3da7458998de3aabed1613a",
+    "app/crates/richos-core/src/dispatch.rs": "254affd2af70863f6f584169c7b652595e63099a90500fa2ab60cd4b852ca96b",
+    "app/scripts/test-owned-registration-protocol.py": "a6cdc320992945ed57cee0e6855b4aef14f84137e559f64043ddc1d269d0aef8",
+    "app/scripts/test-owned-wake-native.py": "f0fe7677f703e1b51e49fca64b1b9a474e786c4cf0d20906255a0c5a8f6af81b",
+    "app/src-tauri/src/owned_work.rs": "a67b7bbffd7bac0d9d6e39e8872b57ee2ee347ff0bde349aa0995e7e9e19c2dc",
+    "docs/verification/owned-outcome/IMPROVEMENTS.md": "b2c84c416dea44a0e873b7584a8e6f87a53a67bfbd7fd834ba3de0d3ee8322a4",
+    "docs/verification/owned-outcome/RESULTS-5.md": "831354b49d5cb34c2c18fec8b5256c1355045829a9d1af208188c424071a5655",
+    "docs/verification/owned-outcome/REVIEW.md": "963f14bb1ee683c012ceb93eb6244a2a6b8caf28ff399b971c20910b06aa6542",
+    "docs/verification/owned-outcome/REVISION-5.md": "266e8b1c498bfbb8ee4e1841c7c0891a18c6b10f27e86c8bf2d6b945222daa3d",
+    "engine/scripts/hooks/ceo-asks.mutation.sh": "c9dc67a0bf80e387ffd21352a444bc16376f915c8ccc48266e47887f2eaae371",
+    "engine/scripts/lib/owned-dispatch.py": "8592e473c413084e7ed1114d784d8700fcf273173127cec525068213bf72003b",
+    "engine/scripts/lib/owned-dispatch.test.py": "1f8c2ae0ea7f65246b64c1a786dfcf2d0e6670adc651c8bdfc469a113704db07",
+    "engine/scripts/lib/owned-session.py": "03b43e7fefd0a34a79d8cc3b6c1ae771aeb6515e7092cc46be88ead304c51c75",
+    "engine/scripts/lib/owned-session.test.py": "3a85ccd648f20b7eb2e227c633a8a4cd9f25685ad7a07b6e9eab8c77e49426e0"
+  },
+  "binaries": {
+    "app/target/debug/richos-run": {
+      "sha256": "ee6c9bf28ad0d42ea71b22adc08cbc094203e4ed68c8f4afc878623491935fb3",
+      "bytes": 4572424,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r5-2026-09-09/ee6c9bf28ad0d42ea71b22adc08cbc094203e4ed68c8f4afc878623491935fb3"
+    },
+    "app/src-tauri/target/debug/richos-tauri": {
+      "sha256": "087797a70c2dd3e905d936beb8ce7b2fcfb3b4a6a435231f0f20fa49b51e28f9",
+      "bytes": 55878656,
+      "private_copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r5-2026-09-09/087797a70c2dd3e905d936beb8ce7b2fcfb3b4a6a435231f0f20fa49b51e28f9"
+    }
+  }
+}

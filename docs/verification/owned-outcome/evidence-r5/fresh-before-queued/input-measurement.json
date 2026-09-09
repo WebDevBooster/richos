@@ -1,0 +1,16 @@
+{
+  "recorded_operational_inputs": [],
+  "transcript_unexpected_inputs": [
+    {
+      "uuid": "aee1e309-91e3-48c4-8afa-cf8dc987c123",
+      "text": "<task-notification>\n<task-id>bf98ar6pj</task-id>\n<tool-use-id>toolu_01MLYwTnd4Yoxh6SKSNkQnfH</tool-use-id>\n<output-file>/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-ekryio6b-workspace/520083b6-724c-491b-99b4-556c7099ead4/tasks/bf98ar6pj.output</output-file>\n<status>completed</status>\n<summary>Background command \"Wait for engineer to produce diagnosis.json\" completed (exit code 0)</summary>\n</task-notification>"
+    }
+  ],
+  "transcript_initial_count": 1,
+  "argv_initial_count": 1,
+  "matched_system_messages": 3,
+  "matched_recorded_restart_notifications": [],
+  "matched_bound_completed_notifications": [],
+  "operational_followups": 1,
+  "confirmed": false
+}

@@ -2,8 +2,8 @@
 
 Record suggestions here without silently adding them to the implementation scope.
 The remaining requirements below are not optional improvements and are not claims
-of implemented behavior. [REVISION-3.md](REVISION-3.md) freezes the current native
-correction boundary; earlier evidence remains in [REVISION-2.md](REVISION-2.md).
+of implemented behavior. [REVISION-5.md](REVISION-5.md) defines the current
+correction boundary; historical results remain in their numbered reports.
 
 ## Observed remaining requirements
 
@@ -16,18 +16,10 @@ A display-only text replacement does not change the model's instructions or work
 ownership and must not be confused with solving the underlying behavior. This is
 an observed remaining gap, not an optional cosmetic improvement.
 
-RichOS-managed requests need an exact-operation permission grant bridge. Restoring
-native permission passthrough does not provide one: the managed callback currently
-denies additional requests, and a CEO business answer changes task state without
-authorizing that callback. Reuse the existing RunDecision panel, revision/receipt
-fences and onboarding's atomic host-owned scope-file pattern, but add typed
-approve-once/reject actions and a persisted grant bound to the exact operation,
-workspace, run/task and current scope. Plain business answers cannot mint grants.
-The affected surfaces include core `native.rs`, `run_host.rs`, `run.rs`, the Tauri
-owned-work and decision handlers, `run_view.rs` and `ui/runs.js`. Current explicit
-denials and inspector isolation remain binding. See REVISION-3.md for crash,
-replay and revocation requirements. This is substantial remaining implementation,
-not an implemented native R3 correction or hidden scope expansion.
+The exact-operation permission grant bridge was implemented in revision 4.
+See [PERMISSIONS-4.md](PERMISSIONS-4.md) and [RESULTS-4.md](RESULTS-4.md) for its
+approve-once/reject commands, persisted grants, revocation and measured limits.
+It is no longer listed as missing implementation.
 
 ## Deferred lifecycle work and optional improvements
 
@@ -43,8 +35,9 @@ not an implemented native R3 correction or hidden scope expansion.
   engine. Only the dispatch and continuation conflict is addressed here.
 - Optimize large history indexing after correctness measurements establish a need.
 - Add an installer compatibility preflight for Claude's native wake contract.
-  The integration was measured on Claude Code 2.1.263; installation does not
-  currently reject older or incompatible versions.
+  The integration was initially measured on Claude Code 2.1.263 and R5 was
+  measured on 2.1.266; installation does not currently reject older or incompatible
+  versions.
 - Remove the existing missing-skills diagnostic from intentionally tool-limited
   auditor leases without hiding a real worker setup failure.
 - Stronger machine-verifiable execution attestation beyond observed tool results.
@@ -52,9 +45,10 @@ not an implemented native R3 correction or hidden scope expansion.
   real leader and child calls/results and rejects an actual saved missing-check
   result, but the reviewer still interprets those receipts with a model. External
   acceptance checks must never substitute for execution required of the worker.
-- Transfer native obligations and source authority to a new session or into
-  RichOS through an explicit ownership handoff. Do not equate same-session resume
-  with cross-session migration or start competing leaders implicitly.
+- Transfer native obligations and source authority into RichOS through an explicit
+  ownership handoff. Same-workspace native fresh-session recovery is implemented
+  in revision 5; migration between native Claude and RichOS remains separate work.
+  Do not equate those two boundaries or start competing leaders implicitly.
 - A structured decision/answer ledger with stable identifiers could let dispatch
   clearance cite actual answer receipts. Asked-question receipts and disappearing
   TODO items must never substitute for granted authority.
@@ -100,3 +94,20 @@ not an implemented native R3 correction or hidden scope expansion.
   preserving source provenance across compaction. It currently refreshes the
   leader's source and receipt view on each observed tool. No live acceptance stall
   was attributed to this, so performance work on large sessions is deferred.
+
+## Discovered during revision 5, outside its scope
+
+- Reduce redundant review delegation. In the fresh restart trial the lead and an
+  intermediate coordinator each dispatched a reviewer. Both returned, but the
+  duplicate work added cost without being required by the original assignment.
+  Do not expand the CEO's engineer-plus-review instruction into a mandatory extra
+  review layer merely because delegation is available.
+- A successful tool receipt establishes execution, not meaningful progress.
+  Repeatedly spawning new workers that do no useful work needs separate semantic
+  progress detection. Completion checkpoints must retain their exact receipt
+  linkage and consumed state; they cannot honestly promise a universal fixed
+  model-call ceiling against newly executed no-op work.
+- Reduce paid outcome inspections while a tracked worker is still active. The R5
+  trials spent several inspections confirming that a running worker had not
+  delivered yet. Any cheaper waiting path must retain a watchdog for lost or hung
+  work and must not infer completion from a native terminal event.

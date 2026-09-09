@@ -1,0 +1,11 @@
+{
+  "finding": "Actual linked nested child terminal exists in native queued_command task-notification attachment; parser accepts only native user task-notification rows and therefore withholds checkpoint.",
+  "runtime_sha256": "dba6f9177da13ccd0c10db8c1a3c1344436c4364040c6d3340549c57c6524161",
+  "native_terminal_uuid": "c3e0adc3-8388-4eac-9a6b-bfd4db84a458",
+  "native_session_id": "520083b6-724c-491b-99b4-556c7099ead4",
+  "parent_agent_id": "a736efa0146c361a1",
+  "child_agent_id": "a4d3dd00bfb61070b",
+  "invocation_tool_use_id": "toolu_01DLmeZpAdmeBuwMUMxHgfgX",
+  "native_terminal_timestamp": "2026-09-09T10:59:07.781Z",
+  "actions": "Read-only diagnosis; no live process changes, operational inputs, provider calls or source edits."
+}

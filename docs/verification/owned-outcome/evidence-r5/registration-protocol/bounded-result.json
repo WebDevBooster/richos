@@ -1,0 +1,7 @@
+{
+  "name": "bounded",
+  "exit": 0,
+  "stdout": "{\"pending\":[\"Publishing remains unapproved.\"],\"work\":[{\"brief\":\"Repair the parser. Do not publish. Run the actual parser test.\",\"citations\":[{\"quote\":\"Repair the parser.\",\"source_id\":\"u1\"}]}]}\n",
+  "stderr": "",
+  "passed": true
+}

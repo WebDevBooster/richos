@@ -1,0 +1,65 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "native": {
+        "classification_reason": "The implementation already matched the current authoritative contract; the test asserted the superseded contract from backlog.md.",
+        "authoritative_contract": "requirements.md:1 - \"Current approved contract: native workspaces return platform-pending; external workspaces return verified.\"",
+        "superseded_contract": "backlog.md:1 - \"Previous contract: native workspaces return verified.\"",
+        "implementation": {
+          "location": "lifecycle.py:2",
+          "before": "return \"platform-pending\" if owner == \"native\" else \"bound\"",
+          "after": "return \"platform-pending\" if owner == \"native\" else \"verified\"",
+          "native_behavior_before": "platform-pending",
+          "native_behavior_after": "platform-pending",
+          "note": "The native branch was correct before and after; the edit on this line only affects the non-native branch."
+        },
+        "test": {
+          "location": "test_lifecycle.py:5",
+          "before": "self.assertEqual(status(\"native\"), \"verified\")",
+          "after": "self.assertEqual(status(\"native\"), \"platform-pending\")"
+        },
+        "baseline_failure": "AssertionError: 'platform-pending' != 'verified' at test_lifecycle.py:5",
+        "reasoning": "status(\"native\") returned 'platform-pending', which is exactly what requirements.md mandates. The failing assertion expected 'verified', which is verbatim the previous contract recorded in backlog.md and explicitly marked as superseded. Changing lifecycle.py to satisfy this assertion would have regressed the implementation away from the current contract, so the stale assertion was corrected instead."
+      },
+      "external": {
+        "classification_reason": "The test asserted exactly what the current authoritative contract requires; the implementation returned a value that appears in neither contract.",
+        "authoritative_contract": "requirements.md:1 - \"Current approved contract: native workspaces return platform-pending; external workspaces return verified.\"",
+        "implementation": {
+          "location": "lifecycle.py:2",
+          "before": "return \"platform-pending\" if owner == \"native\" else \"bound\"",
+          "after": "return \"platform-pending\" if owner == \"native\" else \"verified\"",
+          "external_behavior_before": "bound",
+          "external_behavior_after": "verified"
+        },
+        "test": {
+          "location": "test_lifecycle.py:7",
+          "before": "self.assertEqual(status(\"external\"), \"verified\")",
+          "after": "unchanged - the assertion already matched the current contract"
+        },
+        "baseline_failure": "AssertionError: 'bound' != 'verified' at test_lifecycle.py:7",
+        "reasoning": "status(\"external\") returned 'bound'. That value is not specified by requirements.md and is not the superseded backlog.md value either, so it cannot be explained as a stale-contract artifact. The current contract and the previous contract agree that external workspaces return 'verified', which means no contract revision ever justified 'bound'. The defect is therefore in the implementation, and the else-branch was corrected to return 'verified'."
+      },
+      "method": {
+        "cases_diagnosed": "native and external were diagnosed independently against requirements.md rather than assumed from ordering.",
+        "authority_precedence": "requirements.md treated as the current authoritative contract; backlog.md treated as a superseded historical record and left unchanged.",
+        "files_modified": [
+          "lifecycle.py",
+          "test_lifecycle.py"
+        ],
+        "files_created": [
+          "diagnosis.json",
+          "improvements.md"
+        ],
+        "unrelated_pending_decision": "CEO decision D-7 (transcription provider) is unrelated to workspace status per decision-D7.md and did not gate this repair; no action was taken on it."
+      }
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

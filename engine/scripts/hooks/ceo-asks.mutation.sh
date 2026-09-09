@@ -242,7 +242,7 @@ mutant dispatch-success-receipt-dropped "test_permitted_dispatch_leaves_exact_wo
     "allowed dispatch must retain its exact host work receipt."
 mutant arbitrary-brief-selector-accepted "test_selector_cannot_smuggle_proposed_brief" "$D" \
     "selector == 'owned-work:' + w['id']" "selector.startswith('owned-work:' + w['id'])" \
-    "caller text cannot add work to an approved host brief."
+    "a selector suffix cannot choose an approved host brief."
 mutant authority-provenance-ignored "test_registration_rejects_hook_or_assistant_authority" "$D" \
     "                       m.get('role') == 'user' and m.get('provenance') == 'native_human_typed_v1']" "                       m.get('role') == 'user']" \
     "a user role without actual native provenance is not human authority."

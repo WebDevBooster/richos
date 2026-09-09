@@ -1,0 +1,7 @@
+{
+  "name": "oversize",
+  "exit": 2,
+  "stdout": "",
+  "stderr": "Run did not complete: Registered work exceeds the 16384-byte host budget; compact or split without dropping constraints\n",
+  "passed": true
+}

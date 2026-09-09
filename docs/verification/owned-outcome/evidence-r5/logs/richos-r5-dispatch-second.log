@@ -1,0 +1,32 @@
+test_assistant_and_injected_messages_do_not_reregister (__main__.DispatchHost.test_assistant_and_injected_messages_do_not_reregister) ... ok
+test_changed_revision_outage_preserves_ledger_and_paces_retry (__main__.DispatchHost.test_changed_revision_outage_preserves_ledger_and_paces_retry) ... ok
+test_child_requires_exact_leader_transcript_binding (__main__.DispatchHost.test_child_requires_exact_leader_transcript_binding) ... ok
+test_conflicting_selector_anywhere_in_operational_brief_is_rejected (__main__.DispatchHost.test_conflicting_selector_anywhere_in_operational_brief_is_rejected) ... ok
+test_constraints_outside_authority_excerpt_survive_without_source_tail (__main__.DispatchHost.test_constraints_outside_authority_excerpt_survive_without_source_tail) ... ok
+test_first_ordinary_prompt_reports_selection_not_broken_integration (__main__.DispatchHost.test_first_ordinary_prompt_reports_selection_not_broken_integration) ... ok
+test_large_multitopic_source_is_archived_not_pasted_into_each_spawn (__main__.DispatchHost.test_large_multitopic_source_is_archived_not_pasted_into_each_spawn) ... ok
+test_mixed_human_row_cannot_authorize_by_dropping_prohibition (__main__.DispatchHost.test_mixed_human_row_cannot_authorize_by_dropping_prohibition) ... ok
+test_model_mutating_sources_cannot_publish_stale_registration (__main__.DispatchHost.test_model_mutating_sources_cannot_publish_stale_registration) ... ok
+test_new_human_instruction_changes_revision_and_blocks_stale_selector (__main__.DispatchHost.test_new_human_instruction_changes_revision_and_blocks_stale_selector) ... ok
+test_new_mixed_human_constraint_invalidates_existing_selector (__main__.DispatchHost.test_new_mixed_human_constraint_invalidates_existing_selector) ... ok
+test_nonzero_registrar_json_is_not_authority (__main__.DispatchHost.test_nonzero_registrar_json_is_not_authority) ... ok
+test_operational_brief_survives_under_registered_scope (__main__.DispatchHost.test_operational_brief_survives_under_registered_scope) ... ok
+test_oversize_operational_brief_or_registered_scope_denied_without_trimming (__main__.DispatchHost.test_oversize_operational_brief_or_registered_scope_denied_without_trimming) ... ok
+test_pending_hook_cancellation_fences_cached_dispatch_without_new_model (__main__.DispatchHost.test_pending_hook_cancellation_fences_cached_dispatch_without_new_model) ... ok
+test_pending_hook_during_registration_cannot_publish_old_scope (__main__.DispatchHost.test_pending_hook_during_registration_cannot_publish_old_scope) ... ok
+test_pending_scope_is_not_selectable_but_independent_work_is (__main__.DispatchHost.test_pending_scope_is_not_selectable_but_independent_work_is) ... ok
+test_permitted_dispatch_leaves_exact_work_receipt (__main__.DispatchHost.test_permitted_dispatch_leaves_exact_work_receipt) ... ok
+test_real_source_failure_keeps_unverified_feedback (__main__.DispatchHost.test_real_source_failure_keeps_unverified_feedback) ... ok
+test_recovered_assignment_waits_for_independent_review (__main__.DispatchHost.test_recovered_assignment_waits_for_independent_review) ... ok
+test_registration_once_then_many_dispatches_without_model (__main__.DispatchHost.test_registration_once_then_many_dispatches_without_model) ... ok
+test_registration_rejects_forged_or_uncited_authority (__main__.DispatchHost.test_registration_rejects_forged_or_uncited_authority) ... ok
+test_registration_rejects_hook_or_assistant_authority (__main__.DispatchHost.test_registration_rejects_hook_or_assistant_authority) ... ok
+test_revoked_old_id_cannot_select_new_independent_registration (__main__.DispatchHost.test_revoked_old_id_cannot_select_new_independent_registration) ... ok
+test_runner_outage_does_not_revoke_unchanged_registered_work (__main__.DispatchHost.test_runner_outage_does_not_revoke_unchanged_registered_work) ... ok
+test_selector_cannot_smuggle_proposed_brief (__main__.DispatchHost.test_selector_cannot_smuggle_proposed_brief) ... ok
+test_verified_scope_survives_compaction (__main__.DispatchHost.test_verified_scope_survives_compaction) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.155s
+
+OK

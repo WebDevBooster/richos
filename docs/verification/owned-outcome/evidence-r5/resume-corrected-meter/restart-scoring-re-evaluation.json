@@ -1,0 +1,80 @@
+{
+  "scoring_only": true,
+  "provider_calls": 0,
+  "evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb",
+  "original_passed": false,
+  "passed": true,
+  "original_result_sha256": "be513c8590dfd90182b81cdb262232af10f4de73f8d260c42a206e8934b7e7c8",
+  "original_tested_harness_sha256": "12583ca5c8fe5fa27a4a77678833b8dbff14dfdf6ab3f4e578d4c31885fceeee",
+  "corrected_meter_sha256": "c0d1f92a4044bcbe66b45faebfb82479de2984e0baa9df08c8b3465b9d8efe55",
+  "original_evidence_unchanged": true,
+  "source_hashes": {
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/result.json": "be513c8590dfd90182b81cdb262232af10f4de73f8d260c42a206e8934b7e7c8",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/input-measurement.json": "93b1661313399500aa10663acf1ae2a4ba1b67e5ba5dff56224f905c7fe49137",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/input-events.jsonl": "5a18494daab10c0f5074d7abdc8b516c0a4a23149b06b69abd27fa899417cb1f",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/request.txt": "b4bf605d2224863077edc3bc1874d66b67b0a10381877042a1d2c3b49a19d2c9",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/restart-evidence.json": "a4f07168bff04c7fdda8a15cba9e5807091ac5dfbd42db1af67505d78d01b151",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/process-launches.json": "27554d9d3dbd44623ae04b3eb71e489b02c02940f2a3b4247eba7e4401f97fcf",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/tested-harness.py": "12583ca5c8fe5fa27a4a77678833b8dbff14dfdf6ab3f4e578d4c31885fceeee",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/adapter-hooks.jsonl": "f3454b38e557e61a68d03c4ac03d2d5fbebc0f04f60c3238d4fb1d907f13e7df",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/audits.jsonl": "c0e7260cc17e6fc150df197f3cb4a1e0c412c0e7d5564c55dd98a8b4a4fb9b9b",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/source-identity.json": "9e432cefb38001020736fed3c532c866bb9cad466bab6c3b23f277be880677e0",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/transcript-399607c5-765d-4e1a-9d9a-83d42c67f411.jsonl": "88a0872ba489f03a2019390b47b094d3383eb37481d6393477110c0a13920891",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/transcript-child-agent-a0c742af505e55d02.jsonl": "76d6c55b0dcc078db080f19d2f404ddca55f52c94f38313dd975608d72490c4e"
+  },
+  "changed_checks": {
+    "no_operational_followups_measured": {
+      "original": false,
+      "corrected": true
+    },
+    "replacement_received_zero_assignment_or_nudge": {
+      "original": false,
+      "corrected": true
+    }
+  },
+  "checks": {
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": true,
+    "source_identity_unchanged": true,
+    "no_operational_followups_measured": true,
+    "actual_auditor_completed": true,
+    "no_routine_parser_prose_asks": true,
+    "documented_json_parser_check_executed_natively": true,
+    "portable_native_dispatch_adapter_exercised": true,
+    "host_registered_brief_supplied_without_permission_grant": true,
+    "host_registered_brief_reaches_native_child": true,
+    "registration_once_per_owned_source_revision": true,
+    "successful_dispatch_has_registered_work_receipt": true,
+    "verified_human_source_retained": true,
+    "actual_engine_pending_notice_exercised": true,
+    "unrelated_engine_decision_still_pending": true,
+    "auditor_binary_unchanged": true,
+    "diagnosis_correct": true,
+    "both_test_methods_retained": true,
+    "independent_tests_pass": true,
+    "actual_behavior_matches_contract": true,
+    "coverage_rejects_native_regression": true,
+    "coverage_rejects_external_regression": true,
+    "scope_preserved": true,
+    "actual_child_work_interrupted_before_completion": true,
+    "replacement_received_zero_assignment_or_nudge": true,
+    "native_session_identity_matches_restart_mode": true,
+    "replacement_owns_recovered_assignment": true,
+    "replacement_saved_verified_completion": true,
+    "durable_ownership_transferred_to_replacement": true
+  },
+  "input_measurement": {
+    "recorded_operational_inputs": [],
+    "transcript_unexpected_inputs": [],
+    "transcript_initial_count": 1,
+    "argv_initial_count": 1,
+    "matched_system_messages": 2,
+    "matched_recorded_restart_notifications": [
+      "3ca17266-5744-4163-a94f-010cd4d3c197"
+    ],
+    "matched_bound_completed_notifications": [],
+    "operational_followups": 0,
+    "confirmed": true
+  }
+}

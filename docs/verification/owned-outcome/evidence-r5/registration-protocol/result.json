@@ -1,0 +1,32 @@
+{
+  "kind": "scripted native protocol, not semantic model validation",
+  "paid_calls": 0,
+  "source_sha256": {
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-registration-protocol.py": "a6cdc320992945ed57cee0e6855b4aef14f84137e559f64043ddc1d269d0aef8",
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/target/debug/richos-run": "ee6c9bf28ad0d42ea71b22adc08cbc094203e4ed68c8f4afc878623491935fb3",
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/dispatch.rs": "254affd2af70863f6f584169c7b652595e63099a90500fa2ab60cd4b852ca96b"
+  },
+  "results": [
+    {
+      "name": "bounded",
+      "exit": 0,
+      "stdout": "{\"pending\":[\"Publishing remains unapproved.\"],\"work\":[{\"brief\":\"Repair the parser. Do not publish. Run the actual parser test.\",\"citations\":[{\"quote\":\"Repair the parser.\",\"source_id\":\"u1\"}]}]}\n",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "name": "oversize",
+      "exit": 2,
+      "stdout": "",
+      "stderr": "Run did not complete: Registered work exceeds the 16384-byte host budget; compact or split without dropping constraints\n",
+      "passed": true
+    },
+    {
+      "name": "concise-repair",
+      "exit": 0,
+      "stdout": "{\"pending\":[\"Publishing remains unapproved.\"],\"work\":[{\"brief\":\"Fix parser; execute parser test. Do not publish.\",\"citations\":[{\"quote\":\"Repair the parser.\",\"source_id\":\"u1\"}]}]}\n",
+      "stderr": "",
+      "passed": true
+    }
+  ]
+}
