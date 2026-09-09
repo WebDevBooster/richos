@@ -1,0 +1,42 @@
+agents 257  total suite-wait 84.8 h  total active 192.5 h
+
+--- top 25 agents by suite-wait: suite_h active_h worktree-name id ---
+   5.36 h   6.13 h  zach-opus-rs1                aa4edcd6   cum 6%
+   5.21 h   5.62 h  zach-opus-ob1                ae47b94b   cum 12%
+   3.87 h   4.62 h  zach-opus-c1                 a99e2521   cum 17%
+   3.75 h   4.70 h  zach-opus-si1                af3b18f5   cum 21%
+   3.34 h   4.29 h  zach-opus-sg1                a091470a   cum 25%
+   3.11 h   4.08 h  zach-opus-prem1              a00f13b8   cum 29%
+   2.80 h   3.36 h  zach-fable-rf1               a4837db2   cum 32%
+   2.64 h   3.48 h  zach-opus-p8                 a4b54811   cum 35%
+   2.57 h   2.96 h  zach-opus-rg1                aef8aa1c   cum 39%
+   2.56 h   3.01 h  zach-opus-cg1                a5517449   cum 42%
+   2.43 h   3.21 h  zach-opus-dl1                ac8d4939   cum 44%
+   2.25 h   2.99 h  zach-opus-mr2                a6543934   cum 47%
+   2.11 h   3.21 h  zach-opus-p10                a53d95c2   cum 50%
+   1.76 h   2.43 h  zach-opus-w4                 afb461d4   cum 52%
+   1.56 h   2.20 h  zach-opus-g1                 af27d0af   cum 53%
+   1.51 h   2.23 h  agent-deaddead11             a8ded115   cum 55%
+   1.51 h   2.37 h  zach-fable-b2                a9456e12   cum 57%
+   1.31 h   2.07 h  zach-opus-cl1                a99041a7   cum 59%
+   1.30 h   1.16 h  zach-fable-rm3               a5f34b22   cum 60%
+   1.20 h   1.93 h  zach-opus-cv1                a1464aa0   cum 62%
+   1.17 h   1.40 h  zach-fable-loop1             a61b1d0f   cum 63%
+   1.17 h   1.85 h  zach-opus-e1                 a9ede716   cum 64%
+   1.16 h   1.90 h  zach-opus-mu1                a0625d0d   cum 66%
+   1.15 h   1.37 h  zach-opus-ack1               aa271192   cum 67%
+   1.13 h   2.26 h  echo-opus-r6                 a48f1a0d   cum 68%
+
+--- suite-wait by role token of worktree name ---
+  zach           70.5 h  (83%)
+  echo            6.8 h  (8%)
+  agent           2.9 h  (3%)
+  tom             2.0 h  (2%)
+  reed            1.0 h  (1%)
+  sage            0.6 h  (1%)
+  urban           0.4 h  (0%)
+  codex           0.3 h  (0%)
+  iris            0.2 h  (0%)
+  ray             0.0 h  (0%)
+  ?               0.0 h  (0%)
+  frank           0.0 h  (0%)

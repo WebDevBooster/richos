@@ -1,0 +1,57 @@
+agent transcripts in window: 261
+TOTAL matched by the committed regex: 84.8 h
+  EXEC     20.1 h
+  POLL     62.1 h
+  READ      0.2 h
+  OTHER     2.4 h
+
+by pattern (overlapping):
+   until..sleep         56.9 h
+   .test.sh             27.4 h
+   pgrep                18.2 h
+   contract-integrity   16.4 h
+   word:suite(s)        10.3 h
+   .mutation.sh          4.9 h
+   run-all-tests         3.5 h
+   docker logs           3.0 h
+   lsof -p               2.7 h
+   ci-verify             2.5 h
+
+--- 35 largest single calls >120s ---
+    953s EXEC  cd /Users/alex/ab/richos-wt/zach-fable-loop1/engine && bash scripts/hooks/contract-integrity.test.sh > /private/tmp/claude-501/-Users-alex-a
+    830s EXEC  bash /Users/alex/ab/richos-wt/zach-fable-rm3/engine/scripts/hooks/guard-worktree-removal.test.sh 2>&1 | grep -E "FAIL|passed" | tail -5; bas
+    821s EXEC  cd /Users/alex/ab/richos-wt/zach-fable-rm3 && bash engine/scripts/reap-stale-worktrees.mutation.sh 2>&1 | tail -12
+    626s EXEC  cd /Users/alex/ab/richos-wt/zach-fable-rm3 && bash engine/scripts/hooks/contract-integrity.test.sh 2>&1 | grep -E "FAIL|passed|failed" | tai
+    604s EXEC  cd /Users/alex/ab/richos-wt/zach-opus-ack1 && bash engine/scripts/hooks/engine-status.test.sh 2>&1 | tail -3
+    601s POLL  until docker logs richos-linux-after 2>&1 | grep -q 'AFTER RUN COMPLETE'; do sleep 30; done; docker logs richos-linux-after 2>&1 | sed -n '/
+    601s POLL  until grep -q "RUNNER_EXIT" /private/tmp/claude-501/-Users-alex-ab-femcboost/5584bf8d-6ff7-4db2-86a3-745f2e130c42/tasks/bfme62j3y.output 2>/
+    601s POLL  until [ -s /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/tasks/bs7uqcvu4.output ]; do sleep 30; done
+    601s POLL  until grep -q "contract-integrity.test.sh:" /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad
+    601s EXEC  cd /Users/alex/ab/richos-wt/zach-opus-cv1/engine/scripts && bash reap-stale-worktrees.test.sh > /private/tmp/claude-501/-Users-alex-ab-femcb
+    601s POLL  until grep -q "SWEEP_EXIT=" /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/tasks/bcpv80o9g.output 2>/
+    601s POLL  until [ -s /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/tasks/bs7uqcvu4.output ]; do sleep 30; done
+    601s POLL  until grep -q '^EXIT=' /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/ci.log; do sleep 20;
+    601s POLL  until ! pgrep -f "bash scripts/hooks/contract-integrity.test.sh" >/dev/null; do sleep 30; done; echo DONE; tail -30 /private/tmp/claude-501/
+    601s POLL  until ! pgrep -f "bash scripts/hooks/contract-integrity.test.sh" >/dev/null; do sleep 45; done; echo DONE
+    601s POLL  until docker logs richos-linux-f2 2>&1 | grep -q 'ci-verify.sh EXIT'; do sleep 240; done; docker logs richos-linux-f2 2>&1 | tail -12
+    601s POLL  until [ "$(pgrep -f 'richos-wt/zach-opus-g1/engine/scripts/hooks/contract-integrity.test.sh' | wc -l)" -eq 0 ]; do sleep 20; done; echo DONE
+    601s POLL  until ! pgrep -f 'suites.sh|contract-integrity' >/dev/null 2>&1; do sleep 5; done; cat /private/tmp/claude-501/-Users-alex-ab-femcboost/16b2
+    601s POLL  until docker logs richos-linux-recon2 2>&1 | grep -q 'EXIT'; do sleep 10; done; docker logs richos-linux-recon2 2>&1 | grep -E '^\s+FAIL|tes
+    601s POLL  until docker logs richos-linux-f2 2>&1 | grep -q 'ci-verify.sh EXIT'; do sleep 180; done; docker logs richos-linux-f2 2>&1 | tail -14
+    601s POLL  until [ "$(grep -c '^  \[' /private/tmp/claude-501/-Users-alex-ab-femcboost/5584bf8d-6ff7-4db2-86a3-745f2e130c42/scratchpad/full-after.log 2
+    601s POLL  until ! pgrep -f "bash scripts/hooks/contract-integrity.test.sh" >/dev/null; do sleep 45; done; echo DONE; tail -12 /private/tmp/claude-501/
+    601s EXEC  cd /Users/alex/ab/richos-wt/zach-opus-sd1 && bash engine/scripts/hooks/contract-integrity.test.sh --only IL,SA 2>&1 | grep -E '  (PASS|FAIL)
+    601s POLL  until grep -q '^EXIT=' /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/ci.log; do sleep 25;
+    601s POLL  until grep -q "RUNNER_EXIT" /private/tmp/claude-501/-Users-alex-ab-femcboost/5584bf8d-6ff7-4db2-86a3-745f2e130c42/tasks/bfme62j3y.output 2>/
+    601s POLL  until grep -q "checks observed against" /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/ful
+    601s POLL  until docker logs richos-linux-breadth 2>&1 | grep -q 'BREADTH PASS'; do sleep 20; done; docker logs richos-linux-breadth 2>&1 | grep -E '^R
+    601s POLL  until grep -q "contract-integrity.test.sh:" /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad
+    601s POLL  until docker logs richos-linux-f2 2>&1 | grep -q 'ci-verify.sh EXIT'; do sleep 300; done; docker logs richos-linux-f2 2>&1 | tail -12
+    601s POLL  D=/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/mut; until grep -q TIGHT2DONE "$D/tight2.
+    601s POLL  until ! pgrep -f "final-verify.sh" >/dev/null; do sleep 20; done; echo "=== REAPER ==="; grep -E "FAIL|all .* passed|REAPER_RC|mutation:" /p
+    601s POLL  until grep -q '^EXIT=' /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/ci.log; do sleep 20;
+    601s POLL  until grep -q '^EXIT=' /private/tmp/claude-501/-Users-alex-ab-femcboost/16b21750-131b-400e-a6b4-f9313174b201/scratchpad/ci.log; do sleep 20;
+    601s POLL  lsof -p 86891 +r 30 >/dev/null 2>&1; echo RUN_DONE
+    601s POLL  until [ "$(grep -c '^run ' /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/p10/logs/reconci
+
+calls>120s: 613 total 78.7 h

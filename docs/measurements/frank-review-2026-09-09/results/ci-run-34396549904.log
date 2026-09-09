@@ -1,0 +1,643 @@
+verify	Set up job	﻿2026-09-09T19:41:28.7613090Z Current runner version: '2.337.0'
+verify	Set up job	2026-09-09T19:41:28.7632000Z ##[group]Runner Image Provisioner
+verify	Set up job	2026-09-09T19:41:28.7632950Z Hosted Compute Agent
+verify	Set up job	2026-09-09T19:41:28.7633506Z Version: 20260828.587
+verify	Set up job	2026-09-09T19:41:28.7634245Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+verify	Set up job	2026-09-09T19:41:28.7634836Z Build Date: 2026-08-28T16:44:25Z
+verify	Set up job	2026-09-09T19:41:28.7635417Z Worker ID: {53e40d24-37ee-4928-a4c7-d1db3ae75cb7}
+verify	Set up job	2026-09-09T19:41:28.7635998Z Azure Region: westus3
+verify	Set up job	2026-09-09T19:41:28.7636478Z ##[endgroup]
+verify	Set up job	2026-09-09T19:41:28.7637806Z ##[group]Operating System
+verify	Set up job	2026-09-09T19:41:28.7638314Z Ubuntu
+verify	Set up job	2026-09-09T19:41:28.7638748Z 24.04.5
+verify	Set up job	2026-09-09T19:41:28.7639167Z LTS
+verify	Set up job	2026-09-09T19:41:28.7639589Z ##[endgroup]
+verify	Set up job	2026-09-09T19:41:28.7640096Z ##[group]Runner Image
+verify	Set up job	2026-09-09T19:41:28.7640575Z Image: ubuntu-24.04
+verify	Set up job	2026-09-09T19:41:28.7641043Z Version: 20260907.300.1
+verify	Set up job	2026-09-09T19:41:28.7641889Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+verify	Set up job	2026-09-09T19:41:28.7643293Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+verify	Set up job	2026-09-09T19:41:28.7644188Z ##[endgroup]
+verify	Set up job	2026-09-09T19:41:28.7645079Z ##[group]GITHUB_TOKEN Permissions
+verify	Set up job	2026-09-09T19:41:28.7646976Z Contents: read
+verify	Set up job	2026-09-09T19:41:28.7647485Z Metadata: read
+verify	Set up job	2026-09-09T19:41:28.7647936Z ##[endgroup]
+verify	Set up job	2026-09-09T19:41:28.7649558Z Secret source: Actions
+verify	Set up job	2026-09-09T19:41:28.7650339Z Cache mode: write
+verify	Set up job	2026-09-09T19:41:28.7651145Z Prepare workflow directory
+verify	Set up job	2026-09-09T19:41:28.7950036Z Prepare all required actions
+verify	Set up job	2026-09-09T19:41:28.8008552Z Getting action download info
+verify	Set up job	2026-09-09T19:41:29.0995161Z Download action repository 'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09' (SHA:fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09)
+verify	Set up job	2026-09-09T19:41:29.2080281Z Download action repository 'actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1' (SHA:ece7cb06caefa5fff74198d8649806c4678c61a1)
+verify	Set up job	2026-09-09T19:41:29.4003052Z Complete job name: verify
+verify	Checkout	﻿2026-09-09T19:41:29.4560008Z ##[group]Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+verify	Checkout	2026-09-09T19:41:29.4560902Z with:
+verify	Checkout	2026-09-09T19:41:29.4561316Z   fetch-depth: 0
+verify	Checkout	2026-09-09T19:41:29.4561806Z   repository: WebDevBooster/richos
+verify	Checkout	2026-09-09T19:41:29.4565610Z   token: ***
+verify	Checkout	2026-09-09T19:41:29.4566060Z   ssh-strict: true
+verify	Checkout	2026-09-09T19:41:29.4566506Z   ssh-user: git
+verify	Checkout	2026-09-09T19:41:29.4566933Z   persist-credentials: true
+verify	Checkout	2026-09-09T19:41:29.4567375Z   clean: true
+verify	Checkout	2026-09-09T19:41:29.4567886Z   sparse-checkout-cone-mode: true
+verify	Checkout	2026-09-09T19:41:29.4568370Z   fetch-tags: false
+verify	Checkout	2026-09-09T19:41:29.4568810Z   show-progress: true
+verify	Checkout	2026-09-09T19:41:29.4569233Z   lfs: false
+verify	Checkout	2026-09-09T19:41:29.4569617Z   submodules: false
+verify	Checkout	2026-09-09T19:41:29.4570073Z   set-safe-directory: true
+verify	Checkout	2026-09-09T19:41:29.4570561Z   allow-unsafe-pr-checkout: false
+verify	Checkout	2026-09-09T19:41:29.4571233Z ##[endgroup]
+verify	Checkout	2026-09-09T19:41:29.5396131Z Syncing repository: WebDevBooster/richos
+verify	Checkout	2026-09-09T19:41:29.5398234Z ##[group]Getting Git version info
+verify	Checkout	2026-09-09T19:41:29.5399169Z Working directory is '/home/runner/work/richos/richos'
+verify	Checkout	2026-09-09T19:41:29.5400122Z [command]/usr/bin/git version
+verify	Checkout	2026-09-09T19:41:29.5459477Z git version 2.55.0
+verify	Checkout	2026-09-09T19:41:29.5477682Z ##[endgroup]
+verify	Checkout	2026-09-09T19:41:29.5488112Z Temporarily overriding HOME='/home/runner/work/_temp/018b3989-4588-40d1-babe-ad9c7ffe5f6a' before making global git config changes
+verify	Checkout	2026-09-09T19:41:29.5490174Z Adding repository directory to the temporary git global config as a safe directory
+verify	Checkout	2026-09-09T19:41:29.5492860Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/richos/richos
+verify	Checkout	2026-09-09T19:41:29.5536162Z Deleting the contents of '/home/runner/work/richos/richos'
+verify	Checkout	2026-09-09T19:41:29.5555483Z ##[group]Initializing the repository
+verify	Checkout	2026-09-09T19:41:29.5556724Z [command]/usr/bin/git init /home/runner/work/richos/richos
+verify	Checkout	2026-09-09T19:41:29.5608730Z hint: Using 'master' as the name for the initial branch. This default branch name
+verify	Checkout	2026-09-09T19:41:29.5611578Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+verify	Checkout	2026-09-09T19:41:29.5613793Z hint: to use in all of your new repositories, which will suppress this warning,
+verify	Checkout	2026-09-09T19:41:29.5615137Z hint: call:
+verify	Checkout	2026-09-09T19:41:29.5616001Z hint:
+verify	Checkout	2026-09-09T19:41:29.5616955Z hint: 	git config --global init.defaultBranch <name>
+verify	Checkout	2026-09-09T19:41:29.5618038Z hint:
+verify	Checkout	2026-09-09T19:41:29.5619100Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+verify	Checkout	2026-09-09T19:41:29.5620797Z hint: 'development'. The just-created branch can be renamed via this command:
+verify	Checkout	2026-09-09T19:41:29.5621940Z hint:
+verify	Checkout	2026-09-09T19:41:29.5622556Z hint: 	git branch -m <name>
+verify	Checkout	2026-09-09T19:41:29.5623204Z hint:
+verify	Checkout	2026-09-09T19:41:29.5624533Z hint: Disable this message with "git config set advice.defaultBranchName false"
+verify	Checkout	2026-09-09T19:41:29.5625864Z Initialized empty Git repository in /home/runner/work/richos/richos/.git/
+verify	Checkout	2026-09-09T19:41:29.5628424Z [command]/usr/bin/git remote add origin https://github.com/WebDevBooster/richos
+verify	Checkout	2026-09-09T19:41:29.5657533Z ##[endgroup]
+verify	Checkout	2026-09-09T19:41:29.5658710Z ##[group]Disabling automatic garbage collection
+verify	Checkout	2026-09-09T19:41:29.5659779Z [command]/usr/bin/git config --local gc.auto 0
+verify	Checkout	2026-09-09T19:41:29.5684441Z ##[endgroup]
+verify	Checkout	2026-09-09T19:41:29.5685616Z ##[group]Setting up auth
+verify	Checkout	2026-09-09T19:41:29.5690450Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+verify	Checkout	2026-09-09T19:41:29.5714569Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+verify	Checkout	2026-09-09T19:41:29.5980572Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+verify	Checkout	2026-09-09T19:41:29.6005709Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+verify	Checkout	2026-09-09T19:41:29.6174133Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+verify	Checkout	2026-09-09T19:41:29.6207749Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+verify	Checkout	2026-09-09T19:41:29.6370504Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+verify	Checkout	2026-09-09T19:41:29.6395985Z ##[endgroup]
+verify	Checkout	2026-09-09T19:41:29.6396802Z ##[group]Fetching the repository
+verify	Checkout	2026-09-09T19:41:29.6403339Z [command]/usr/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+verify	Checkout	2026-09-09T19:41:38.8669745Z From https://github.com/WebDevBooster/richos
+verify	Checkout	2026-09-09T19:41:38.8671158Z  * [new branch]        echo-opus-dr1 -> origin/echo-opus-dr1
+verify	Checkout	2026-09-09T19:41:38.8672421Z  * [new branch]        main          -> origin/main
+verify	Checkout	2026-09-09T19:41:38.8674237Z  * [new tag]           orphaned/echo-opus-dr1-2026-09-08 -> orphaned/echo-opus-dr1-2026-09-08
+verify	Checkout	2026-09-09T19:41:38.8675654Z  * [new tag]           v1.0.0        -> v1.0.0
+verify	Checkout	2026-09-09T19:41:38.8676861Z  * [new tag]           v1.0.1        -> v1.0.1
+verify	Checkout	2026-09-09T19:41:38.8677738Z  * [new tag]           v1.0.2        -> v1.0.2
+verify	Checkout	2026-09-09T19:41:38.8705443Z [command]/usr/bin/git branch --list --remote origin/main
+verify	Checkout	2026-09-09T19:41:38.8714975Z   origin/main
+verify	Checkout	2026-09-09T19:41:38.8718022Z [command]/usr/bin/git rev-parse refs/remotes/origin/main
+verify	Checkout	2026-09-09T19:41:38.8739801Z 1bd9f688b191089d030dd7a74160f9ba3b219ed3
+verify	Checkout	2026-09-09T19:41:38.8743502Z ##[endgroup]
+verify	Checkout	2026-09-09T19:41:38.8745026Z ##[group]Determining the checkout info
+verify	Checkout	2026-09-09T19:41:38.8746260Z ##[endgroup]
+verify	Checkout	2026-09-09T19:41:38.8750373Z [command]/usr/bin/git sparse-checkout disable
+verify	Checkout	2026-09-09T19:41:38.8789396Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+verify	Checkout	2026-09-09T19:41:38.8814688Z ##[group]Checking out the ref
+verify	Checkout	2026-09-09T19:41:38.8816778Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+verify	Checkout	2026-09-09T19:41:39.5846744Z Switched to a new branch 'main'
+verify	Checkout	2026-09-09T19:41:39.5850300Z branch 'main' set up to track 'origin/main'.
+verify	Checkout	2026-09-09T19:41:39.5873472Z ##[endgroup]
+verify	Checkout	2026-09-09T19:41:39.5910486Z [command]/usr/bin/git log -1 --format=%H
+verify	Checkout	2026-09-09T19:41:39.5940212Z 1bd9f688b191089d030dd7a74160f9ba3b219ed3
+verify	Set up Python	﻿2026-09-09T19:41:39.6163942Z ##[group]Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+verify	Set up Python	2026-09-09T19:41:39.6164562Z with:
+verify	Set up Python	2026-09-09T19:41:39.6164923Z   python-version: 3.12
+verify	Set up Python	2026-09-09T19:41:39.6165291Z   check-latest: false
+verify	Set up Python	2026-09-09T19:41:39.6168006Z   token: ***
+verify	Set up Python	2026-09-09T19:41:39.6168365Z   update-environment: true
+verify	Set up Python	2026-09-09T19:41:39.6168785Z   allow-prereleases: false
+verify	Set up Python	2026-09-09T19:41:39.6169209Z   freethreaded: false
+verify	Set up Python	2026-09-09T19:41:39.6169556Z ##[endgroup]
+verify	Set up Python	2026-09-09T19:41:39.7196092Z ##[group]Installed versions
+verify	Set up Python	2026-09-09T19:41:39.7270154Z Successfully set up CPython (3.12.14)
+verify	Set up Python	2026-09-09T19:41:39.7271315Z ##[endgroup]
+verify	Declare a git identity for the throwaway test fixtures	﻿2026-09-09T19:41:39.7384586Z ##[group]Run git config --global user.name  "engine-self-verify"
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7385334Z ^[[36;1mgit config --global user.name  "engine-self-verify"^[[0m
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7385979Z ^[[36;1mgit config --global user.email "engine-self-verify@users.noreply.github.com"^[[0m
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7419001Z shell: /usr/bin/bash -e {0}
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7419462Z env:
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7419879Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7420504Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7421062Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7421549Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7422082Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7422618Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+verify	Declare a git identity for the throwaway test fixtures	2026-09-09T19:41:39.7423088Z ##[endgroup]
+verify	Verify the engine (scripts/ci-verify.sh)	﻿2026-09-09T19:41:39.7571110Z ##[group]Run scripts/ci-verify.sh
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7571608Z ^[[36;1mscripts/ci-verify.sh^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7588942Z shell: /usr/bin/bash -e {0}
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7589398Z env:
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7589870Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7590473Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7591045Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7591606Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7592136Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7592681Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7593151Z ##[endgroup]
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7665827Z 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7666878Z ^[[1m=== [1/7] preconditions (tool versions + git identity) ===^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7676972Z GNU bash, version 5.2.21(1)-release (x86_64-pc-linux-gnu)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7685418Z git version 2.55.0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7773303Z Python 3.12.14
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7825103Z git identity: engine-self-verify <engine-self-verify@users.noreply.github.com>
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7826053Z 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:39.7826560Z ^[[1m=== [2/7] bash -n every shipped shell script ===^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:40.2181116Z ^[[32m✓^[[0m bash -n: 289 script(s) OK
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:40.2181647Z 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:40.2182044Z ^[[1m=== [3/7] every engine test suite (scripts/run-all-tests.sh) ===^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:40.2272865Z ^[[1m=== engine self-test: 121 suite(s) discovered under /home/runner/work/richos/richos/engine ===^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:40.2421364Z   leak canary: watching 1 root(s); witness is contents and a proven sub-second mtime
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:40.9597695Z   [ 1/121] gates/unmanaged-assignment/lib/harness.test.sh             ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:44.6065564Z   [ 2/121] scripts/cold-open.test.sh                                  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:41:47.9018425Z   [ 3/121] scripts/collect-worktree-artifacts.test.sh                 ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:42:01.9934453Z   [ 4/121] scripts/create-teammate-worktree.test.sh                   ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:42:03.7018085Z   [ 5/121] scripts/daily-workspace-cleanup.test.sh                    ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:42:52.1381272Z   [ 6/121] scripts/demo.test.sh                                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:42:54.6822435Z   [ 7/121] scripts/hooks/agent-state-claims.test.sh                   ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:46:26.9062077Z   [ 8/121] scripts/hooks/by-reference.test.sh                         ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:52:07.3378626Z   [ 9/121] scripts/hooks/ceo-asks.test.sh                             ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:52:11.1107319Z   [10/121] scripts/hooks/ceo-inputs.test.sh                           ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:52:35.3373077Z   [11/121] scripts/hooks/ceo-ruled.test.sh                            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:57:57.7094709Z   [12/121] scripts/hooks/ceo-todos.test.sh                            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T19:58:02.6887353Z   [13/121] scripts/hooks/completeness-commits.test.sh                 ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5432851Z   [14/121] scripts/hooks/contract-integrity.test.sh                   ^[[31mFAIL^[[0m (rc=1)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5440178Z         note: copy-on-write clones are unavailable under /tmp — using a plain recursive copy. Identical sandboxes, slower run.
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5441117Z         === contract-integrity.test.sh ===
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5441547Z         
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5441875Z           PASS  1.committed-source-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5442712Z           PASS  SC1.every-registered-hook-starts-in-a-sandbox
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5443912Z           PASS  SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5444522Z           PASS  2.install-noop-rc-0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5444823Z           PASS  2.post-install-probe-rc-0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5445283Z           PASS  3.hook-removed-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5465172Z           PASS  4.wrong-path-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5486074Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.IqNRe2/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5506475Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.IqNRe2/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5508309Z           PASS  5.double-install-idempotent
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5508815Z           PASS  5.double-install-probe-still-rc-0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5509367Z           PASS  6.install-source-missing-rc-2
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5511100Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.iDqwKH/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5512636Z           PASS  7.canonical-source-untouched-by-install
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5513222Z           PASS  M1.duplicated-registration-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5515090Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.e5l5JF/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5516608Z           PASS  M2.migration-removes-duplicate-settings-json
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5517123Z           PASS  M2.post-migration-probe-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5518736Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.e5l5JF/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5520478Z           PASS  M2b.migration-second-run-noop
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5522231Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.KScXvm/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5523891Z           PASS  M3.machine-specific-settings-json-hooks-stripped-config-kept
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5524498Z           PASS  M3.machine-specific-probe-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5524954Z           PASS  M4.intra-file-duplication-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5525423Z           PASS  8.shim-at-wrong-path-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5525877Z           PASS  9.canonical-path-wrong-hash-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5526325Z           PASS  10.symlink-to-outside-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5526845Z           PASS  11.canonical-with-trailing-args-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5527310Z           PASS  11b.shim-with-trailing-args-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5527767Z           PASS  12.canonical-fresh-clone-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5528223Z           PASS  13.tamper-canonical-guard-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5528632Z           PASS  14.tamper-canonical-agent-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5529134Z           PASS  14a.tamper-guard-worktree-isolation-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5529625Z           PASS  14b.tamper-reader-teammate-hint-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5530088Z           PASS  14c.chain-entry-missing-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5530586Z           PASS  14d.chain-out-of-order-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5530989Z           PASS  15.inline-shim-replace-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5531429Z           PASS  16.manifest-missing-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5531837Z           PASS  17.manifest-wrong-hash-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5544663Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.gnXRKQ/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5547688Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.gnXRKQ/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5549192Z           PASS  18.install-idempotent-manifests
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5549719Z           PASS  19.git-main-checkout-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5550187Z           PASS  19b.layer-N-tracked-pass-line-present
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5550681Z           PASS  20.git-worktree-invocation-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5551177Z           PASS  21.worktree-probe-targets-main-settings
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5551758Z           PASS  32.git-untracked-ignored-settings-local-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5552308Z           PASS  32b.layer-N-names-the-git-add-f-fix
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5552788Z           FAIL  33.git-untracked-not-ignored-warns-rc-0  (expected exit=0 got=2)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5553260Z           PASS  33b.layer-N-warns-when-not-yet-committed
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5553747Z           PASS  22.install-no-python3-refuses
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5554299Z           PASS  22b.install-no-python3-stderr-names-python3
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5554669Z           PASS  23.probe-no-python3-refuses
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5555008Z           PASS  23b.probe-no-python3-stderr-names-python3
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5555345Z           PASS  24.install-missing-env-flag-refuses
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5555732Z           PASS  24b.install-missing-env-flag-names-the-key
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5556180Z           PASS  24c.install-missing-env-flag-must-not-write-settings-json
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5556631Z           PASS  25.install-missing-baseref-refuses
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5557164Z           PASS  25b.install-missing-baseref-names-the-key
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5557542Z           PASS  26.probe-catches-env-flag-removed-post-install
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5557945Z           PASS  26b.probe-names-the-missing-env-flag
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5558515Z           PASS  27.probe-catches-baseref-removed-post-install
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5559045Z           PASS  27b.probe-names-the-missing-baseref
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5559377Z           PASS  28.both-keys-correct-probe-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5559699Z           PASS  28b.layer-I-explicit-pass-line-present
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5560072Z           PASS  28c.layer-J-explicit-pass-line-present
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5560434Z           PASS  28d.layer-K-explicit-pass-line-present
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5560839Z           PASS  28e.layer-M-explicit-pass-line-present
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5561188Z           PASS  29.secrets-scanner-not-wired-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5561546Z           PASS  29b.probe-names-the-missing-secrets-scanner
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5562287Z           PASS  30.secrets-scanner-tampered-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5562626Z           PASS  30b.probe-names-the-hash-mismatch
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5564249Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.lcN2FX/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5566189Z           PASS  31.secrets-scanner-broken-then-reinstalled-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5566865Z           PASS  31b.functional-canary-catches-broken-scanner-despite-matching-hash
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5567377Z           PASS  31c.dead-secrets-scanner-fails-layer-K
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5567941Z           PASS  31d.layer-K-says-failing-to-start-not-failing-to-catch
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5568546Z           PASS  34.definition-drift-pair-intact-probe-rc-0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5569172Z           PASS  34b.layer-P-pass-line-present
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5569538Z           PASS  35.definition-snapshotter-unwired-fails-layerP
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5570024Z           PASS  35b.layer-P-names-the-missing-snapshotter
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5570379Z           PASS  36.definition-drift-guard-unwired-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5570800Z           PASS  37.definition-drift-guard-tampered-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5571222Z           PASS  37b.definition-snapshotter-tampered-fails-layerP
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5571690Z           PASS  38.definition-drift-guard-gutted-fails-layerP-canary
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5572230Z           PASS  38b.definition-drift-guard-overblocks-fails-layerP-canary
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5572628Z           PASS  38c.layer-P-names-the-over-block
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5573110Z           PASS  39.definition-snapshotter-duplicated-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5573491Z           PASS  40.definition-drift-guard-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5574217Z           PASS  41.reaper-chain-intact-probe-rc-0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5574614Z           PASS  41b.layer-Q-pass-line-present
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5575092Z           PASS  41c.broken-recovery-fixture-fails-probe
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5575664Z           PASS  41d.broken-recovery-fixture-is-explained
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5576045Z           PASS  42.reaper-wrapper-unwired-fails-layerQ
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5576568Z           PASS  42b.layer-Q-names-the-missing-wrapper
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5576976Z           PASS  43.reaper-wrapper-tampered-fails-layerQ
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5577541Z           PASS  44.reaper-script-tampered-fails-layerQ
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5578126Z           PASS  44b.reaper-sidecar-missing-fails-layerQ
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5578517Z           PASS  44c.layer-Q-names-the-missing-manifest
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5578893Z           PASS  45.reaper-gutted-fails-layerQ-canary
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5579297Z           PASS  45b.layer-Q-names-the-gutted-sweep
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5579810Z           PASS  45c.reaper-overreaches-fails-layerQ-canary
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5580340Z           PASS  45d.layer-Q-names-the-destroyed-work
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5580762Z           PASS  46.reaper-wrapper-duplicated-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5582303Z         NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '/opt/hostedtoolcache/Python/3.12.14/x64/bin/python3 /tmp/contract-integrity.Yd8iiO/scripts/reconcile-terminal-worktrees.py --quiet' daily at 4:00; --scheduled uses macOS idle detection. (install.sh)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5583451Z           PASS  47.install-mints-reaper-chain-sidecars
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5584112Z           PASS  47b.post-install-probe-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5584613Z           PASS  48.reaper-wrapper-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5585118Z           PASS  49.agent-finish-trigger-revived-fails-layerQ
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5585612Z           PASS  49b.layer-Q-names-the-revived-agent-finish-trigger
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5585976Z           PASS  50.wrapper-with-execute-fails-layerQ
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5587069Z           PASS  50b.layer-Q-names-the-revived-sweep (by the DRY-RUN arm: the summary reads EXECUTE. INVERTED 2026-09-06 — it used to be named by the destruction arm, which a6c076c made unreachable from this mutation; 45c/45d keep that arm)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5588155Z           PASS  50c.wrapper-without-reconciler-fails-layerQ
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5588582Z           PASS  50d.layer-Q-names-the-gutted-recovery
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5589022Z           PASS  51.owner-liveness-gate-removed-fails-layerQ4
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5589484Z           PASS  51b.layer-Q4-names-the-live-worktree-selected
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5590055Z           PASS  51c.layer-Q-top-arm-stays-GREEN-and-Q4-is-the-ONLY-red
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5590604Z           PASS  52.discovery-removed-fails-layerQ4
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5591081Z           PASS  52b.layer-Q4-names-the-blind-sweep
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5591608Z           PASS  53.reaper-scope-and-safety-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5592123Z           PASS  54.reconciler-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5592634Z           PASS  S1.worktree-removal-guard-not-wired-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5593049Z           PASS  S1b.layer-S-is-the-layer-that-caught-it
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5593439Z           PASS  S2.worktree-removal-guard-wired-twice-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5594198Z           PASS  S3.gutted-worktree-removal-guard-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5594691Z           PASS  S4.sanctioned-helper-missing-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5595229Z           PASS  S4b.layer-S-names-the-missing-helper
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5595595Z           PASS  IP1.interactive-prompt-guard-not-wired-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5596124Z           PASS  IP1b.layer-IP-is-the-layer-that-caught-it
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5596643Z           PASS  IP2.interactive-prompt-guard-wired-twice-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5597160Z           PASS  IP3.gutted-interactive-prompt-guard-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5597702Z           PASS  IP4.shape-table-missing-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5598045Z           PASS  IP4b.layer-IP-names-the-missing-shape-table
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5598630Z           PASS  IP5.dead-guard-that-refuses-everything-fails-despite-matching-hash
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5599368Z           PASS  IP5b.layer-IP-says-failing-to-start-not-failing-to-catch
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5599821Z           PASS  IP6.interactive-prompt-guard-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5600256Z           PASS  IP7.interactive-prompt-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5600712Z           PASS  IL1.idle-land-gate-not-wired-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5601043Z           PASS  IL1b.layer-IL-is-the-layer-that-caught-it
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5601844Z           PASS  IL2.missing-analyzer-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5602296Z           PASS  IL2b.layer-IL-names-the-missing-analyzer
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5602705Z           PASS  IL3.replaced-analyzer-fails-on-the-hash
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5603292Z           PASS  IL4.gutted-gate-fails-despite-matching-hash
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5603959Z           PASS  IL4b.layer-IL-says-it-is-registered-but-not-enforcing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5604529Z           PASS  IL5.gate-that-refuses-everything-fails-despite-matching-hash
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5605159Z           PASS  IL5b.layer-IL-says-refusing-everything-not-deciding
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5605615Z           PASS  IL6.idle-land-gate-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5605964Z           PASS  IL7.idle-land-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5606387Z           PASS  CL1.claim-gate-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5606773Z           PASS  CL2.claim-gate-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5607166Z           PASS  RI1.resume-isolation-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5607631Z           PASS  RI2.resume-isolation-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5608196Z           PASS  IN2.inflight-notify-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5608630Z           PASS  WTR1.worktree-removal-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5609094Z           PASS  MT1.model-tiers-undeclared-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5609457Z           PASS  MT1b.the-refusal-names-the-blank-declaration
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5609891Z           PASS  MT2.model-tiers-alias-set-drifts-from-allowed-models-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5610335Z           PASS  MT2b.the-refusal-names-the-unranked-alias
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5610718Z           PASS  MT3.doctrine-quotes-a-different-order-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5611058Z           PASS  MT3b.the-refusal-names-both-orders
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5611641Z           PASS  MT4.doctrine-says-downgrade-without-quoting-the-data-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5612089Z           PASS  MT4b.the-refusal-names-the-missing-quotation
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5612496Z           PASS  MT5.control-declared-and-quoted-passes-the-layer
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5612906Z           PASS  MC1.no-ceiling-declared-warns-and-does-not-fail
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5613288Z           PASS  MC1b.the-warning-names-the-missing-declaration
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5613731Z           PASS  MC2.unrankable-ceiling-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5614087Z           PASS  MC2b.the-refusal-names-the-unrankable-ceiling
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5614536Z           PASS  MC3.doctrine-quotes-a-different-ceiling-fails
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5614957Z           PASS  MC3b.the-refusal-names-both-ceilings
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5615371Z           PASS  MC4.dead-ceiling-guard-is-caught
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5615722Z           PASS  MC4b.the-refusal-says-the-guard-did-not-refuse
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5616108Z           PASS  MC5.control-declared-and-quoted-passes-the-layer
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5616491Z           PASS  MC6.model-ceiling-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5616875Z           PASS  WTI1.staffing-gate-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5617247Z           PASS  MF1.mechanical-findings-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5617639Z           PASS  SA1.stated-actions-gate-suite-passes
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5618008Z           PASS  SA2.stated-actions-mutations-all-load-bearing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5618325Z         
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5618562Z         === summary ===
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5618788Z         passed: 166
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5619040Z         failed: 1
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5619271Z         failing cases:
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:36:58.5619554Z           - 33.git-untracked-not-ignored-warns-rc-0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:38:43.8991885Z   [15/121] scripts/hooks/detect-nonnative-worktree.test.sh            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:38:46.1702183Z   [16/121] scripts/hooks/engine-status.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:38:49.9532594Z   [17/121] scripts/hooks/escalations.test.sh                          ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:38:51.4469655Z   [18/121] scripts/hooks/guard-bash-main-writes.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:38:54.6909525Z   [19/121] scripts/hooks/guard-definition-drift.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:42:02.7796583Z   [20/121] scripts/hooks/guard-dialect.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:42:09.1330597Z   [21/121] scripts/hooks/guard-idle-land.test.sh                      ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:42:19.1089449Z   [22/121] scripts/hooks/guard-interactive-prompt.test.sh             ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:42:20.4430464Z   [23/121] scripts/hooks/guard-main-checkout-writes.test.sh           ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:44:09.7081869Z   [24/121] scripts/hooks/guard-model-ceiling.test.sh                  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:44:40.0245608Z   [25/121] scripts/hooks/guard-resume-isolation.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:46:50.1590963Z   [26/121] scripts/hooks/guard-sealed-worktree.test.sh                ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:46:55.0617533Z   [27/121] scripts/hooks/guard-stated-actions.test.sh                 ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:47:25.0699059Z   [28/121] scripts/hooks/guard-unresolved-claims.test.sh              ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:49:03.4493154Z   [29/121] scripts/hooks/guard-vendoring-commits.test.sh              ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:52:28.6236385Z   [30/121] scripts/hooks/guard-worktree-isolation.test.sh             ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:52:33.7429620Z   [31/121] scripts/hooks/guard-worktree-removal.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:52:36.6571404Z   [32/121] scripts/hooks/hook-staleness.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:52:41.0265155Z   [33/121] scripts/hooks/inflight-ack-durability.test.sh              ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:52:48.2544164Z   [34/121] scripts/hooks/inflight-notify.test.sh                      ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:53:20.4519423Z   [35/121] scripts/hooks/install-reconciler-schedule.test.sh          ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:53:22.8105166Z   [36/121] scripts/hooks/lifecycle-payload-transport.test.sh          ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:53:24.9655568Z   [37/121] scripts/hooks/long-payload.test.sh                         ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:53:28.3698637Z   [38/121] scripts/hooks/mechanical-findings.test.sh                  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:53:37.4157880Z   [39/121] scripts/hooks/named-persons.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:53:41.9421144Z   [40/121] scripts/hooks/payload-transport.test.sh                    ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:54:03.4034548Z   [41/121] scripts/hooks/publication-boundary.test.sh                 ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:54:04.2917671Z   [42/121] scripts/hooks/reader-teammate-hint.test.sh                 ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:54:12.3990452Z   [43/121] scripts/hooks/record-subagent-start.test.sh                ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T20:57:17.1225019Z   [44/121] scripts/hooks/root-contract.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:03:44.5656199Z   [45/121] scripts/hooks/row-currency.test.sh                         ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:03:52.3499927Z   [46/121] scripts/hooks/scan-secrets.test.sh                         ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:03:53.2071737Z   [47/121] scripts/hooks/session-evidence.test.sh                     ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:04:29.6879366Z   [48/121] scripts/hooks/session-start-reap-worktrees.test.sh         ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:06:56.9496718Z   [49/121] scripts/hooks/stale-staging.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:06:58.4565215Z   [50/121] scripts/hooks/stop-hook-visibility.test.sh                 ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:00.9543909Z   [51/121] scripts/hooks/task-completed-handoff.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:01.5821145Z   [52/121] scripts/hooks/teammate-idle-handoff.test.sh                ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4683515Z   [53/121] scripts/hooks/terminalize-agent-worktrees.test.sh          ^[[31mFAIL^[[0m (rc=1)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4690510Z         === terminalize-agent-worktrees tests ===
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4691120Z           PASS  R01  SubagentStop exits 0 (a terminal event is never prevented)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4691616Z           PASS  R02  the ingress reports that it WON the claim
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4691987Z           FAIL  R03  native backup ref
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4692260Z           FAIL  R04  external backup ref
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4692520Z           FAIL  R05  native quarantine
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4692742Z           FAIL  R06  external quarantine
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4693073Z           PASS  R07  the agent id is in the terminal index
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4694280Z           PASS  R08  the teammate name is terminal in this session
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4694671Z           FAIL  R09  states: bound bound 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4694983Z           PASS  R10  a second SubagentStop RESUMES (does not re-claim) and exits 0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4695418Z           PASS  R11  a WorktreeRemove for the (now quarantined) native path also resumes, exit 0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4695836Z           PASS  R12  ...and neither changed the transaction record (idempotent)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4696145Z           FAIL  R13  quarantine moved
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4696438Z           PASS  R14  WorktreeRemove for the exact native path WINS the claim
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4696738Z           FAIL  R15  three-repo quarantine
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4697034Z           PASS  R16  the record names WorktreeRemove as the winning ingress
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4697412Z           PASS  R17  the later SubagentStop resumes; the same transaction completes once
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4697765Z           PASS  R18  ...and did not overwrite the winner
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4698152Z           PASS  R19  SubagentStop for an agent with no transaction (a helper subagent) is silent and exits 0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4698627Z           PASS  R20  WorktreeRemove for a path RichOS never sealed: not adopted, not moved, silent
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4699304Z           PASS  R21  an UNSEALED (bound, never started) agent's SubagentStop is PERSISTED as pending, the agent is terminal by policy, and its worktree is not touched yet (nothing is sealed)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4700149Z           PASS  R21b ...and when the manifest later SEALS, the pending event claims it (ingress SubagentStop, via pending), preserves Claude-owned native cleanup and is consumed
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4700763Z           PASS  R21c ...and a later SubagentStop resumes the same transaction (idempotent)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4701339Z           PASS  R21d WorktreeRemove for an unsealed-but-bound agent's native path is recorded as a pending WorktreeRemove (exact platform id; nothing moved)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4702115Z           PASS  R21e an agent with neither a bound nor a start record gets NO pending record (a stop event about nobody is silence)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4702871Z           PASS  R28  TEN different nested stop ids from inside a live worker's cwd claim NOTHING: no terminal record, no pending record, both worktrees untouched, the transaction still sealed
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4704627Z           FAIL  R29  rc=0: terminalize-agent-worktrees.sh: SubagentStop ingress WON the claim for agent a000000000000t3c (dev-opus-t3c); members: agent-a000000000000t3c:bound, dev-opus-t3
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4705581Z           FAIL  R30  rc=0 native=present out=terminalize-agent-worktrees.sh: TaskStop ingress WON the claim for agent a000000000000t3d (dev-opus-t3d); members: agent-a000000000000t3d:bound, dev-opus-t3d:bound
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4706380Z           PASS  R31  the record names TaskStop as the ingress and keeps the requested name as provenance only
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4706975Z           PASS  R32  a second TaskStop result resumes idempotently
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4707724Z           FAIL  R33  dict rc=0: terminalize-agent-worktrees.sh: TaskStop ingress WON the claim for agent a000000000000t3e (dev-opus-t3e); members: agent
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4708731Z           FAIL  R34  list rc=0: terminalize-agent-worktrees.sh: TaskStop ingress WON the claim for agent a000000000000t3f (dev-opus-t3f); members: agent
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4709781Z           PASS  R35  a result with NO structured task_id claims nothing — even though its success sentence names the id and its request names a sealed teammate (neither prose nor the request is authority)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4710515Z           PASS  R36  a result carrying an error marker claims nothing, task_id or not (a failed stop stops nothing)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4711096Z           PASS  R37  a successful TaskStop for an id RichOS never recorded is a silent no-op (TaskStop may target an agent that owns no worktree)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4711716Z           PASS  R38  a PostToolUse for any tool other than TaskStop is ignored even when its response happens to carry a task_id
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4712353Z           PASS  R22  the same teammate name in a LATER session is not terminal; its transaction is its own
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4712801Z           PASS  R23  ...and its worktree is untouched by the earlier agent's terminalization
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4713152Z           PASS  R24  unparseable payload -> exit 0
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4714018Z           PASS  R25  TeammateIdle is NOT YET a terminal ingress (payload unmeasured on this platform; CEO specification section 3): no claim, no mutation, even with the exact id AND the exact cwd in the payload
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4714673Z           PASS  R26  library missing -> exit 0 with a NOTICE naming it
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4715137Z           PASS  R27  the terminal indexes are on disk where guard-sealed-worktree.sh and guard-resume-isolation.sh read them
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4715535Z         
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:05.4715790Z         === terminalize-agent-worktrees tests: 11 FAILED, 31 passed ===
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:07:19.2218940Z   [54/121] scripts/hooks/turn-manifest.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:08:32.6583535Z   [55/121] scripts/hooks/unasked-deferral.test.sh                     ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:08:33.0543041Z   [56/121] scripts/hooks/unevaluated-notice.test.sh                   ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:08:50.7383405Z   [57/121] scripts/hooks/unevaluated-payload.test.sh                  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:09:18.1933245Z   [58/121] scripts/hooks/unlanded-branches.test.sh                    ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:12:16.2425541Z   [59/121] scripts/hooks/unstarted-rows.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:12:22.0606748Z   [60/121] scripts/hooks/verify-agent-prompt.test.sh                  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:12:55.0135599Z   [61/121] scripts/hooks/waiver-repetition.test.sh                    ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:12:56.9471133Z   [62/121] scripts/hooks/worker-lifecycle.test.sh                     ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:12:57.3535704Z   [63/121] scripts/install-ack-protocol.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:12:57.5765873Z   [64/121] scripts/install-escalation-protocol.test.sh                ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:12:57.7458527Z   [65/121] scripts/lib/assert-own-worktree-registered.test.sh         ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:12:58.3330464Z   [66/121] scripts/lib/branch-retirement-safety.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:01.9142208Z   [67/121] scripts/lib/bulk-record-transport.test.sh                  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:02.0626379Z   [68/121] scripts/lib/cleanup-schedule.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:04.5206750Z   [69/121] scripts/lib/completion-proof.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:04.6497550Z   [70/121] scripts/lib/durable-filesystem-identity.test.sh            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:11.9745954Z   [71/121] scripts/lib/git-jurisdiction.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:16.8268746Z   [72/121] scripts/lib/global-state-witness.test.sh                   ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:17.1683207Z   [73/121] scripts/lib/leak-canary.test.sh                            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:20.7684585Z   [74/121] scripts/lib/legacy-registration-recovery.test.sh           ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:22.8841914Z   [75/121] scripts/lib/legacy-workspace-acceptance.test.sh            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:34.9550433Z   [76/121] scripts/lib/legacy-workspace-branch-batches.test.sh        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:39.3362044Z   [77/121] scripts/lib/legacy-workspace-capture.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:45.8779508Z   [78/121] scripts/lib/legacy-workspace-expiry.test.sh                ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:49.7170658Z   [79/121] scripts/lib/legacy-workspace-gate.test.sh                  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:50.6669333Z   [80/121] scripts/lib/legacy-workspace-inspection.test.sh            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:13:59.2852138Z   [81/121] scripts/lib/legacy-workspace-job.test.sh                   ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:00.4160666Z   [82/121] scripts/lib/legacy-workspace-maintenance.test.sh           ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:07.2952637Z   [83/121] scripts/lib/legacy-workspace-mutation.test.sh              ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:10.0680545Z   [84/121] scripts/lib/legacy-workspace-operator-integration.test.sh  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:10.1965847Z   [85/121] scripts/lib/legacy-workspace-operator.acceptance.test.sh   ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.0477399Z   [86/121] scripts/lib/legacy-workspace-operator.test.sh              ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.7994447Z   [87/121] scripts/lib/legacy-workspace-orphan.acceptance.test.sh     ^[[31mFAIL^[[0m (rc=1)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8002364Z         .EEE...
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8002678Z         ======================================================================
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8003452Z         ERROR: test_locked_fixture_real_archive_job_and_gc (__main__.Controller.test_locked_fixture_real_archive_job_and_gc)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8004464Z         ----------------------------------------------------------------------
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8004900Z         Traceback (most recent call last):
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8012360Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-orphan.acceptance.test.py", line 60, in test_locked_fixture_real_archive_job_and_gc
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8013014Z             self._complete('locked')
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8013502Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-orphan.acceptance.test.py", line 66, in _complete
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8014358Z             record,base,scratch=self._case(case)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8014701Z                                 ^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8015387Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-orphan.acceptance.test.py", line 47, in _case
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8016776Z             self.assertEqual(job.advance(self.manager,ident,scratch_root=scratch)['state'],'waiting-for-boot')
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8017207Z                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8017653Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-job.py", line 416, in advance
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8018117Z             scratch,binary=shadow._authority(gate,scratch_root,trusted_git)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8018432Z                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8019028Z           File "/home/runner/work/richos/richos/engine/scripts/lib/terminal-branch-shadow.py", line 51, in _authority
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8019682Z             executable = Path(executable).resolve(strict=True)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8020080Z                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8020641Z           File "/opt/hostedtoolcache/Python/3.12.14/x64/lib/python3.12/pathlib.py", line 1240, in resolve
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8021262Z             s = self._flavour.realpath(self, strict=strict)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8021532Z                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8021813Z           File "<frozen posixpath>", line 424, in realpath
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8022143Z           File "<frozen posixpath>", line 468, in _joinrealpath
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8022487Z         FileNotFoundError: [Errno 2] No such file or directory: '/Library'
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8022775Z         
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8022969Z         ======================================================================
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8023430Z         ERROR: test_orphan_fixture_real_admin_archive_job_and_gc (__main__.Controller.test_orphan_fixture_real_admin_archive_job_and_gc)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8024484Z         ----------------------------------------------------------------------
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8024790Z         Traceback (most recent call last):
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8025542Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-orphan.acceptance.test.py", line 63, in test_orphan_fixture_real_admin_archive_job_and_gc
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8026112Z             self._complete('orphan')
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8026569Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-orphan.acceptance.test.py", line 66, in _complete
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8027036Z             record,base,scratch=self._case(case)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8027277Z                                 ^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8027948Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-orphan.acceptance.test.py", line 47, in _case
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8028850Z             self.assertEqual(job.advance(self.manager,ident,scratch_root=scratch)['state'],'waiting-for-boot')
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8029445Z                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8030116Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-job.py", line 416, in advance
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8030575Z             scratch,binary=shadow._authority(gate,scratch_root,trusted_git)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8030887Z                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8031317Z           File "/home/runner/work/richos/richos/engine/scripts/lib/terminal-branch-shadow.py", line 51, in _authority
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8031756Z             executable = Path(executable).resolve(strict=True)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8032028Z                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8032434Z           File "/opt/hostedtoolcache/Python/3.12.14/x64/lib/python3.12/pathlib.py", line 1240, in resolve
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8032828Z             s = self._flavour.realpath(self, strict=strict)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8033252Z                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8034063Z           File "<frozen posixpath>", line 424, in realpath
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8034461Z           File "<frozen posixpath>", line 468, in _joinrealpath
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8034795Z         FileNotFoundError: [Errno 2] No such file or directory: '/Library'
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8035081Z         
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8035278Z         ======================================================================
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8035787Z         ERROR: test_recreated_orphan_keeps_new_bytes_old_admin_and_branch (__main__.Controller.test_recreated_orphan_keeps_new_bytes_old_admin_and_branch)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8036341Z         ----------------------------------------------------------------------
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8036625Z         Traceback (most recent call last):
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8037229Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-orphan.acceptance.test.py", line 79, in test_recreated_orphan_keeps_new_bytes_old_admin_and_branch
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8037837Z             record,base,scratch=self._case('orphan-recreated')
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8038114Z                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8038575Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-orphan.acceptance.test.py", line 47, in _case
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8039162Z             self.assertEqual(job.advance(self.manager,ident,scratch_root=scratch)['state'],'waiting-for-boot')
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8039560Z                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8039982Z           File "/home/runner/work/richos/richos/engine/scripts/lib/legacy-workspace-job.py", line 416, in advance
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8040438Z             scratch,binary=shadow._authority(gate,scratch_root,trusted_git)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8040746Z                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8041173Z           File "/home/runner/work/richos/richos/engine/scripts/lib/terminal-branch-shadow.py", line 51, in _authority
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8041691Z             executable = Path(executable).resolve(strict=True)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8041959Z                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8042377Z           File "/opt/hostedtoolcache/Python/3.12.14/x64/lib/python3.12/pathlib.py", line 1240, in resolve
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8042955Z             s = self._flavour.realpath(self, strict=strict)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8043368Z                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8043982Z           File "<frozen posixpath>", line 424, in realpath
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8044313Z           File "<frozen posixpath>", line 468, in _joinrealpath
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8044651Z         FileNotFoundError: [Errno 2] No such file or directory: '/Library'
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8044948Z         
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8045170Z         ----------------------------------------------------------------------
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8045459Z         Ran 7 tests in 0.599s
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8045658Z         
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:12.8045826Z         FAILED (errors=3)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:18.0588146Z   [88/121] scripts/lib/legacy-workspace-retirement.test.sh            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:18.7549074Z   [89/121] scripts/lib/legacy-workspace-service.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:18.9335597Z   [90/121] scripts/lib/legacy-workspace-snapshot-release.test.sh      ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:19.0558058Z   [91/121] scripts/lib/legacy-workspace-storage.acceptance.test.sh    ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:21.3065790Z   [92/121] scripts/lib/legacy-workspace-storage.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:24.7155667Z   [93/121] scripts/lib/managed-workspace-broker.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:25.1625498Z   [94/121] scripts/lib/managed-workspace-failed-creation.test.sh      ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:25.9242607Z   [95/121] scripts/lib/managed-workspace-idempotency.test.sh          ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:26.2330547Z   [96/121] scripts/lib/managed-workspace-integration.test.sh          ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:26.9513519Z   [97/121] scripts/lib/managed-workspace-manager.test.sh              ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:27.1688421Z   [98/121] scripts/lib/managed-workspace-volume.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:27.3825648Z   [99/121] scripts/lib/mutation-harness.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:28.1800977Z   [100/121] scripts/lib/native-platform-cleanup.test.sh                ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:34.1111881Z   [101/121] scripts/lib/owned-session.test.sh                          ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:35.1772828Z   [102/121] scripts/lib/process-identity.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:35.7173302Z   [103/121] scripts/lib/resolve-roots.test.sh                          ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:36.9154983Z   [104/121] scripts/lib/seat-jurisdiction.test.sh                      ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1536336Z   [105/121] scripts/lib/shell-worktree-sparse.test.sh                  ^[[31mFAIL^[[0m (rc=1)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1544024Z         === shell-worktree-sparse tests ===
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1545196Z           FAIL  S01  applied= before=608K after=608K left: .claude/agents/zach.md .githooks/pre-commit .gitignore CLAUDE.md README.md docs/a.md docs/deep/b.md qa-audits/run/shot-1.b64 qa-audits/run/shot-2.b64 qa-audits/run/shot-3.b64 qa-audits/run/shot-4.b64 qa-audits/run/shot-5.b64 qa-audits/run/shot-6.b64 qa-audits/run/shot-7.b64 qa-audits/run/shot-8.b64 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1546309Z           PASS  S01b the configured keep-set stays materialized (keep=)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1546739Z           FAIL  S01c before= after= freed=
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1547472Z           PASS  S02  a plain native spawn is never touched and never even considered — its worktree IS its workspace
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1548076Z           PASS  S03  the external member (the tree the teammate actually edits) is not sparsified
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1549114Z           FAIL  S04  applied= reason= files=.claude/agents/zach.md .githooks/pre-commit .gitignore CLAUDE.md NOTES.md README.md docs/a.md docs/deep/b.md qa-audits/run/shot-1.b64 qa-audits/run/shot-2.b64 qa-audits/run/shot-3.b64 qa-audits/run/shot-4.b64 qa-audits/run/shot-5.b64 qa-audits/run/shot-6.b64 qa-audits/run/shot-7.b64 qa-audits/run/shot-8.b64 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1550482Z         grep: /tmp/shell-sparse-test.ftSiVd/entity/.git/worktrees/agent-a00000000000sp01/config.worktree: No such file or directory
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1550970Z           FAIL  S05  main_ok=1 shared config: 0 worktree config: 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1551407Z           PASS  S06  the sparsified shell is still registered, still non-prunable, and native_member_gone is still False
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1551939Z           PASS  S06b the backstop still FIRES when the sparsified shell disappears (the signal is not muted)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1552429Z           PASS  S07  a gitignored file seeded into the shell survives sparsification byte-for-byte
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1552971Z           PASS  S08  a second run is a recorded no-op ('already sparse'), and re-sealing an already-sealed transaction changes nothing
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1553806Z           PASS  S09  the main checkout and a non-worktree directory are both refused — only a registered linked worktree is ever touched
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1554614Z           PASS  S10  a git failure leaves the shell whole — every file back, status clean, nothing half-done
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1555213Z           PASS  S11  restore brings back every file byte-for-byte (sparsified to 40K and back, digest unchanged)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1556024Z           PASS  S12  a root BLOCKED.md can still be written, added and committed in a sparsified shell (the escalation path survives)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1556670Z           PASS  S13  SHELL_SPARSE=off restores the previous behavior exactly — nothing is touched
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1557192Z           PASS  S14  the directory core.hooksPath resolves to is kept materialized even when config does not name it
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1557951Z           PASS  S15  a repository where enabling extensions.worktreeConfig would change how the MAIN checkout reads its config is refused
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1558836Z           PASS  S16  a shell with an initialized submodule is refused — its working tree is not reconstructible from this object store
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1559489Z           FAIL  S17  state=absent True quarantine=
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1560481Z           FAIL  S18  [False False False] {"blocked": 0, "failed": 0, "failed_present": 0, "pending_retry": 2, "pending_terminals": 0, "pending_terminals_unbindable": 0, "removed": 0, "sealed_external_only_unclaimed": 0, "sealed_native_missin
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1561361Z         
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.1561590Z         === shell-worktree-sparse tests: 15 passed, 6 FAILED ===
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:39.9822197Z   [106/121] scripts/lib/terminal-branch-cleanup.test.sh                ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:41.0694974Z   [107/121] scripts/lib/terminal-branch-shadow.test.sh                 ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:43.8609581Z   [108/121] scripts/lib/terminal-recovery-shadow.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:14:43.9920043Z   [109/121] scripts/lib/workspace-recovery-metadata.test.sh            ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:15:38.7011999Z   [110/121] scripts/lib/workspace-retire.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:16:18.6126838Z   [111/121] scripts/lib/worktree-adoption.test.sh                      ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:16:39.8851565Z   [112/121] scripts/lib/worktree-ledger.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:23:35.7729823Z   [113/121] scripts/lib/worktree-transactions.test.sh                  ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:23:43.6785810Z   [114/121] scripts/locate-engine.test.sh                              ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:23:44.1030750Z   [115/121] scripts/mutation-inventory.test.sh                         ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:23:44.8334500Z   [116/121] scripts/prepare-agent-spawn.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:23:45.3883025Z   [117/121] scripts/provision-claude-md.test.sh                        ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:23:49.9096498Z   [118/121] scripts/publication-completeness.test.sh                   ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:29:29.2327153Z   [119/121] scripts/reap-stale-worktrees.test.sh                       ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:08.9506505Z   [120/121] scripts/reconcile-terminal-worktrees.test.sh               ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.2959154Z   [121/121] scripts/run-all-tests.test.sh                              ^[[32mPASS^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.2959494Z 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.2959971Z ^[[31m✗ 117/121 engine test suites passed.^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.2960400Z ^[[31m  4 FAILED:^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.2960754Z     - scripts/hooks/contract-integrity.test.sh (rc=1)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.2961178Z     - scripts/hooks/terminalize-agent-worktrees.test.sh (rc=1)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.2961766Z     - scripts/lib/legacy-workspace-orphan.acceptance.test.sh (rc=1)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.2962316Z     - scripts/lib/shell-worktree-sparse.test.sh (rc=1)
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.3028984Z 
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.3029466Z ^[[31m✗ ci-verify: run-all-tests.sh failed — see the named suite(s) above.^[[0m
+verify	Verify the engine (scripts/ci-verify.sh)	2026-09-09T21:45:09.3046723Z ##[error]Process completed with exit code 1.
+verify	Post Checkout	﻿2026-09-09T21:45:09.3162853Z Post job cleanup.
+verify	Post Checkout	2026-09-09T21:45:09.3867802Z [command]/usr/bin/git version
+verify	Post Checkout	2026-09-09T21:45:09.3904842Z git version 2.55.0
+verify	Post Checkout	2026-09-09T21:45:09.3939608Z Copying '/home/runner/.gitconfig' to '/home/runner/work/_temp/d7d31d8e-4338-4e38-b5af-afe651d34516/.gitconfig'
+verify	Post Checkout	2026-09-09T21:45:09.3947680Z Temporarily overriding HOME='/home/runner/work/_temp/d7d31d8e-4338-4e38-b5af-afe651d34516' before making global git config changes
+verify	Post Checkout	2026-09-09T21:45:09.3948799Z Adding repository directory to the temporary git global config as a safe directory
+verify	Post Checkout	2026-09-09T21:45:09.3951649Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/richos/richos
+verify	Post Checkout	2026-09-09T21:45:09.3982711Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+verify	Post Checkout	2026-09-09T21:45:09.4011663Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+verify	Post Checkout	2026-09-09T21:45:09.4204982Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+verify	Post Checkout	2026-09-09T21:45:09.4221777Z http.https://github.com/.extraheader
+verify	Post Checkout	2026-09-09T21:45:09.4230895Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+verify	Post Checkout	2026-09-09T21:45:09.4255723Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+verify	Post Checkout	2026-09-09T21:45:09.4448790Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+verify	Post Checkout	2026-09-09T21:45:09.4474430Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+verify	Complete job	﻿2026-09-09T21:45:09.4780609Z Cleaning up orphan processes
