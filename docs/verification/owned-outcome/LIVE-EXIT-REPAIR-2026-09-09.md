@@ -79,8 +79,31 @@ transport envelope was 190 bytes. This was an isolated fixture, not a completion
 claim for the production conversation. Its tested runner SHA-256 is
 `8c189e0319793db6aff2a3859cd2e08da6cd1644824fc098d06cd60684858d61`.
 
-Stable installation and per-workspace migration are recorded below after the
-runtime commit is landed.
+## Installed correction
+
+Runtime commit `9e3d2edb` was fast-forwarded from the separate repair worktree to
+stable main. A stable-checkout build was installed outside Cargo and worktrees.
+Its SHA-256 is
+`2cf658aef485d2800aece84759d04acc9845d3e24fe61c7d84ff8c8a6dd86cfe`.
+This build uses the same Rust sources as the isolated provider trial above;
+its build location and binary identity differ and are recorded separately.
+
+The stable engine installer refreshed all required sidecars. All three adopters
+(richos, richos-hq and femcboost) were migrated and verified: ten owned hooks per
+workspace, zero `/Users/` strings in settings, readable JSON and all pre-existing
+permissions, non-hook settings and unrelated hooks preserved. Dispatch integrity
+passes with the actual adopter cwd and project environment. The first cross-root
+probe omitted that environment and correctly failed; its result is retained.
+
+The installed Python hook passed the actual CLI exit-contract regression. The
+stable Rust binary also passed five scripted-transport inference lease checks.
+No additional paid replay of the unchanged stable-build sources was claimed.
+
+An old audit process (PID 54089) was still waiting in the pre-fix hour-long
+backoff. Its exact command and parent were verified and it had no children.
+It was terminated so it could not emit an obsolete wake. The native Claude
+parent (PID 20597) was not signalled and remained running. Production ownership
+records were not erased or marked complete.
 
 The initial actual-session replay exposed an unreadable evidence directory.
 The required-source check rejected that verdict. The inspector now receives
