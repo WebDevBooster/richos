@@ -1,0 +1,28 @@
+strict full-suite invocations by Rich (8 days): 27 | Rich polling calls 14 poll-wait-h 0.0
+09-01 00:34 374e6f14 0.0 min cd ~/ab/richos/engine && ls *.test.sh tests 2>/dev/null | head; echo "=== run meta-suite ==="; bash contract-i
+09-01 00:34 374e6f14 5.3 min cd ~/ab/richos/engine && bash scripts/hooks/contract-integrity.test.sh 2>&1 | tail -12
+09-01 02:07 374e6f14 6.3 min cd ~/ab/richos/.worktrees/zach-opus-m1/engine && bash scripts/hooks/contract-integrity.test.sh 2>&1 | tail -6
+09-01 03:32 374e6f14 9.2 min cd ~/ab/richos/.worktrees/zach-opus-g4/engine && bash scripts/hooks/contract-integrity.test.sh 2>&1 | tail -4;
+09-01 03:41 374e6f14 9.1 min cd ~/ab/richos/engine && bash scripts/hooks/contract-integrity.test.sh 2>&1 | tail -4; echo "=== probe ==="; c
+09-01 12:01 374e6f14 9.1 min cd /Users/alex/ab/richos-wt/zach-opus-lo1/engine && bash scripts/hooks/contract-integrity.test.sh 2>&1 | tail 
+09-01 15:40 374e6f14 10.0 min cd ~/ab/richos && git merge --no-ff zach-opus-tg1 -m "The gate that was already there stood down 45 times and 
+09-01 15:50 374e6f14 10.0 min cd /Users/alex/ab/richos/engine && bash scripts/hooks/contract-integrity.test.sh > /tmp/ci.out 2>&1; echo "exi
+09-01 17:24 374e6f14 0.0 min cd /Users/alex/ab/richos/engine && bash scripts/hooks/contract-integrity.test.sh > /tmp/ci3.out 2>&1; echo "ex
+09-01 19:22 374e6f14 0.0 min cd /Users/alex/ab/richos/engine && bash scripts/hooks/contract-integrity.test.sh > /tmp/ci5.out 2>&1; echo "ex
+09-01 23:37 374e6f14 0.0 min cd /Users/alex/ab/richos/engine && bash scripts/hooks/contract-integrity.test.sh > /tmp/ci7.out 2>&1; echo "ex
+09-02 00:08 374e6f14 0.0 min cd /Users/alex/ab/richos/engine && bash scripts/hooks/contract-integrity.test.sh > /tmp/ci8.out 2>&1; echo "ex
+09-02 09:45 44276098 0.0 min cd /Users/alex/ab/richos-wt/zach-fable-wtl3 && bash engine/scripts/contract-integrity.test.sh 2>&1 | tail -3
+09-02 09:46 44276098 2.0 min cd /Users/alex/ab/richos-wt/zach-fable-wtl3 && bash engine/scripts/hooks/contract-integrity.test.sh 2>&1 | tai
+09-02 10:20 44276098 0.0 min cd /Users/alex/ab/richos && bash engine/scripts/hooks/contract-integrity.test.sh 2>&1 | tail -4
+09-02 12:40 44276098 0.0 min cd /Users/alex/ab/richos && bash engine/scripts/hooks/contract-integrity.test.sh 2>&1 | tail -4
+09-03 03:07 0224e460 0.0 min cd /Users/alex/ab/richos && bash engine/scripts/hooks/contract-integrity.test.sh > /private/tmp/claude-501/-Us
+09-03 19:36 df2b4fd1 0.0 min cd /Users/alex/ab/richos && timeout 3000 bash engine/scripts/hooks/contract-integrity.test.sh > /private/tmp/c
+09-03 19:37 df2b4fd1 0.0 min cd /Users/alex/ab/richos && bash engine/scripts/hooks/contract-integrity.test.sh > /private/tmp/claude-501/-Us
+09-05 16:25 9befc211 10.0 min cd /Users/alex/ab/richos && ./engine/scripts/run-all-tests.sh > /private/tmp/claude-501/-Users-alex-ab-femcboo
+09-05 19:08 9befc211 0.0 min cd /Users/alex/ab/richos && ./engine/scripts/run-all-tests.sh > /private/tmp/claude-501/-Users-alex-ab-femcboo
+09-08 12:48 5584bf8d 0.0 min cd /Users/alex/ab/richos/engine nohup bash scripts/run-all-tests.sh > /private/tmp/claude-501/-Users-alex-ab-f
+09-08 15:52 5584bf8d 0.1 min B=/private/tmp/claude-501/-Users-alex-ab-femcboost/5584bf8d-6ff7-4db2-86a3-745f2e130c42/scratchpad/richos-base
+09-08 17:58 5584bf8d 0.0 min W=/Users/alex/ab/richos-wt/sage-opus-bt2 echo "=== suite count with bt2's branch ===" cd "$W/engine" timeout 6
+09-08 17:58 5584bf8d 0.1 min cd /Users/alex/ab/richos-wt/sage-opus-bt2/engine echo "=== suite count discovered on bt2's branch ===" bash sc
+09-08 18:23 5584bf8d 0.2 min cd /Users/alex/ab/richos git push -q origin main 2>&1 | grep -viE 'vulnerabilit|dependabot|^remote:' || true e
+09-09 06:08 5584bf8d 0.0 min L=/private/tmp/claude-501/-Users-alex-ab-femcboost/5584bf8d-6ff7-4db2-86a3-745f2e130c42/scratchpad/engine-suit
