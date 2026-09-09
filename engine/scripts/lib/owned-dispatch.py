@@ -16,6 +16,9 @@ import sys
 # Bound each spawned prompt, never truncate scope or operational evidence.
 MAX_DISPATCH_BYTES = 32 * 1024
 MAX_REGISTERED_WORK_BYTES = 16 * 1024
+# The registrar refuses over 64 KiB; stay under it with headroom for its own framing.
+REGISTRAR_WIRE_BUDGET = 56 * 1024
+REGISTRAR_RULING_EXCERPT = 2 * 1024
 
 UNVERIFIED = ('CEO DEPENDENCY UNVERIFIED: source or review evidence is unavailable. '
               'Repair the local integration and retry the dispatch review. '
@@ -178,10 +181,51 @@ def register(root, payload):
                     source = Path(line.split('\t', 1)[0]).resolve()
                     standing.append({'path': str(source), 'text': source.read_text(), 'provenance': 'repository_context_unverified'})
             data['repository_context'] = {'pending_items': pending_items, 'standing_rulings': standing}
+            # PAGE THE EVIDENCE. The registrar refuses an inspection prompt over
+            # 64 KiB ("evidence must be paged"), and BOTH halves of this payload grow
+            # without bound: every assistant turn is appended to `messages`, and
+            # `standing_rulings` carries whole record files. Measured on femcboost
+            # 2026-09-09: 664,825 bytes -- 336,847 of repository_context (three files,
+            # 143,668 + 140,389 + 38,318) and 327,729 of messages (118 of them). Ten
+            # times the budget, so EVERY Agent dispatch from that repository failed,
+            # reported as "CEO DEPENDENCY UNVERIFIED" because this subprocess's stderr
+            # was discarded. It is an input-size overflow, not a missing authority.
+            #
+            # What is never paged out: the human's own typed messages. Those ARE the
+            # authority this registrar exists to establish -- 37 of them measured at
+            # 18,437 bytes, so they fit with room to spare. Whole-file rulings become
+            # path + size + digest references, and remaining budget is filled with the
+            # most recent other messages, newest first. `evidence_paged` states what
+            # was withheld so absence is never read as "no such instruction".
+            wire = dict(data)
+            rulings = wire.get('repository_context', {}).get('standing_rulings', [])
+            wire['repository_context'] = {
+                **wire.get('repository_context', {}),
+                'standing_rulings': [{'path': r['path'], 'bytes': len(r['text']),
+                                      'sha256': hashlib.sha256(r['text'].encode()).hexdigest(),
+                                      'excerpt': r['text'][:REGISTRAR_RULING_EXCERPT],
+                                      'provenance': r.get('provenance', 'repository_context_unverified')}
+                                     for r in rulings]}
+            authority_wire = [msg for msg in wire.get('messages', [])
+                              if msg.get('role') == 'user' and msg.get('provenance') == 'native_human_typed_v1']
+            others = [msg for msg in wire.get('messages', []) if msg not in authority_wire]
+            kept, withheld = [], 0
+            for msg in reversed(others):
+                probe = dict(wire, messages=authority_wire + [msg] + kept)
+                if len(json.dumps(probe).encode()) > REGISTRAR_WIRE_BUDGET:
+                    withheld += 1
+                    continue
+                kept.insert(0, msg)
+            wire['messages'] = authority_wire + kept
+            wire['evidence_paged'] = {'authority_messages_retained': len(authority_wire),
+                                      'other_messages_withheld': withheld,
+                                      'rulings_excerpted_to_bytes': REGISTRAR_RULING_EXCERPT,
+                                      'full_payload_bytes': len(json.dumps(data).encode())}
             result = subprocess.run([config['runner'], 'register-native-work', str(root), '120'],
-                                    input=json.dumps(data), text=True, capture_output=True, timeout=150)
+                                    input=json.dumps(wire), text=True, capture_output=True, timeout=150)
             if result.returncode:
-                raise ValueError('Registration process failed despite any stdout')
+                raise ValueError('Registration process failed (rc=%s): %s'
+                                 % (result.returncode, (result.stderr or '').strip()[:400] or 'no stderr'))
             verdict = validate(data, json.loads(result.stdout))
             _, latest = collect(root, payload)
             if latest['source_revision'] != data['source_revision']:
