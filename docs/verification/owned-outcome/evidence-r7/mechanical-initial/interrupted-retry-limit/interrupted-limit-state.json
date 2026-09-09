@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "session_id": "replacement",
+  "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/workspace",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Repair the local parser and verify its tests. Do not publish or install dependencies.",
+      "source_id": "original-human-source",
+      "provenance": "native_human_typed_v1",
+      "prompt_id": "original-human-prompt",
+      "source_session_id": "old"
+    },
+    {
+      "role": "assistant",
+      "text": "Still working on the original task.",
+      "source_id": "assistant-chatter",
+      "provenance": "native_assistant"
+    }
+  ],
+  "revision": 6,
+  "failures": 2,
+  "source_ids": [
+    "assistant-chatter",
+    "original-human-source"
+  ],
+  "recovered_transcripts": [
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/old-transcript.jsonl"
+  ],
+  "recovered_transcript_sessions": {
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/old-transcript.jsonl": "old"
+  },
+  "execution_observations": [],
+  "interrupted_audit_retries": 1,
+  "audit_attempts": 7,
+  "completion_consumed_invocations": [],
+  "completion_checkpoints": [],
+  "recovery_checkpoints": [
+    {
+      "id": "15286f06b56e585951c1a476d6be3d79b1dfa061d2c7a4eb255063266beeacbf",
+      "sources": [
+        {
+          "session": "old",
+          "process": {
+            "pid": 10756,
+            "pgid": 10756,
+            "started": "Wed Sep 9 14:16:45 2026",
+            "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/claude"
+          }
+        }
+      ],
+      "destination": {
+        "session": "replacement",
+        "process": {
+          "pid": 10768,
+          "pgid": 10768,
+          "started": "Wed Sep 9 14:16:45 2026",
+          "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/claude"
+        }
+      },
+      "created_at": 1788963406.091522,
+      "claimed_at": 1788963406.368662
+    }
+  ],
+  "retry_at": 1788967007.183412,
+  "recovery_obligations": [
+    {
+      "source_session_id": "old",
+      "source_state": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/state/5158c562855d298d98ce42f61b6d5b0019885e4fe95c20dce0a4901ac2aa27a1.json",
+      "prior_verdict": {
+        "kind": "incomplete",
+        "remaining": "Original fixture work remains unfinished."
+      },
+      "transferred_at": 1788963406.091381
+    }
+  ],
+  "recovered_permission_history": [],
+  "withheld_recoveries": [],
+  "provenance_version": 1,
+  "ownership": {
+    "owner_session_id": "replacement",
+    "process": {
+      "pid": 10768,
+      "pgid": 10768,
+      "started": "Wed Sep 9 14:16:45 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/claude"
+    },
+    "recovered_sessions": [
+      "old"
+    ],
+    "started_at": 1788963406.091464
+  },
+  "recovery_requires_review": true,
+  "source_status": "available",
+  "source_transcript": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/interrupted-retry-limit/replacement-transcript.jsonl",
+  "background_tasks": [],
+  "event": "Stop",
+  "updated_at": 1788963407.447104,
+  "audit_inference": {
+    "id": "8e58846a4957cae0ff8d4901c8266512027e18cabcb74f37b7e76dbb522f269f",
+    "owner_process": {
+      "pid": 10768,
+      "pgid": 10768,
+      "started": "Wed Sep 9 14:16:45 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/claude"
+    },
+    "hook_pid": 10791,
+    "fingerprint": "3cf18611ad37fa30c111b64c451b3bbc9f3035d50b59468d24af5106ceb8b3f2",
+    "phase": "started",
+    "inference_started_at": 1788963407.183433,
+    "retry_count": 1
+  },
+  "stop_hook_active": false
+}

@@ -1,0 +1,25 @@
+{
+  "native": "obsolete_assertion",
+  "external": "implementation_defect",
+  "evidence": {
+    "requirements": "requirements.md states: 'native workspaces return platform-pending; external workspaces return verified.'",
+    "native": {
+      "classification": "obsolete_assertion",
+      "original_code": "lifecycle.py returned \"platform-pending\" for owner == \"native\", which already matched requirements.md.",
+      "original_test_assertion": "test_lifecycle.py asserted status(\"native\") == \"verified\", which contradicts requirements.md.",
+      "root_cause": "The test encoded backlog.md's superseded prior contract ('native workspaces return verified'), not the current approved contract. The implementation was already correct; the test was stale.",
+      "change_made": "Updated test_lifecycle.py's test_native to assert status(\"native\") == \"platform-pending\", matching requirements.md. lifecycle.py's native branch was left unchanged since it was already correct."
+    },
+    "external": {
+      "classification": "implementation_defect",
+      "original_code": "lifecycle.py returned \"bound\" for owner != \"native\" (i.e. \"external\"), which contradicts requirements.md's 'external workspaces return verified'.",
+      "original_test_assertion": "test_lifecycle.py asserted status(\"external\") == \"verified\", which correctly matches requirements.md.",
+      "root_cause": "The implementation had not been updated to the current approved contract for the external case; the test correctly encoded the current contract and was failing against a defective implementation.",
+      "change_made": "Updated lifecycle.py to return \"verified\" for the external (non-native) branch instead of \"bound\". test_lifecycle.py's test_external assertion of \"verified\" was already correct and left unchanged."
+    },
+    "verification": {
+      "command": "python3 -m unittest test_lifecycle -v",
+      "result": "Both test_native and test_external passed (OK, 2 tests run) against the current lifecycle.py and test_lifecycle.py."
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "bash",
+    "engine/scripts/hooks/ceo-asks.test.sh"
+  ],
+  "exit": 0,
+  "seconds": 296.11581206321716,
+  "before": {
+    "engine/scripts/lib/owned-session.py": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+    "engine/scripts/lib/owned-dispatch.py": "950eeb2330c8978add9556190a6263b422717f36bd6c1c3f607e8c2f23b3a593"
+  },
+  "after": {
+    "engine/scripts/lib/owned-session.py": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+    "engine/scripts/lib/owned-dispatch.py": "950eeb2330c8978add9556190a6263b422717f36bd6c1c3f607e8c2f23b3a593"
+  },
+  "source_unchanged": true
+}

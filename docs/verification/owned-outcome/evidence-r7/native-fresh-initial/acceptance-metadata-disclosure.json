@@ -1,0 +1,26 @@
+{
+  "created_at": 1788966935.8339531,
+  "kind": "Reporting-only disclosure companion; original contract and result are not rewritten.",
+  "original_hashes": {
+    "result.json": "1a672a92bdbc38071e218e95ebdf0bf3526dda2487ec0ccda3552eb4ff73529c",
+    "acceptance-contract.json": "d70a4e167d3ae29895ff46a7881879d236e66a465092333ac6e0aba4b9c68b60",
+    "tested-harness.py": "a19c95837da1cc74d7677be36e0ae51b09a607993f3594a0d652d44e92908a3a",
+    "source-identity.json": "ed3a99e5cea19ae4c8c2f665af56699ba589fdfe1175ad7520fba9b7fb0360b8"
+  },
+  "live_tested_harness_sha256": "a19c95837da1cc74d7677be36e0ae51b09a607993f3594a0d652d44e92908a3a",
+  "corrected_harness_sha256": "ddaa98706b3cefbff904558cb746b2968eb69c5beed61a49e8b528665775ac65",
+  "original_contract_fields": {
+    "ceiling_seconds": 900,
+    "restart_requirement": "Interrupt a guarded native child executing real work before completion, stop the owned process group and start with zero assignment or nudge. Preserve both transcript histories and the one original human source.",
+    "exhausted_crash": null
+  },
+  "corrected_reporting_fields": {
+    "exhausted_crash": true,
+    "restart_requirement": "After actual guarded child work, inject pacing only into the canonical primary state, prove a detached Stop audit is sleeping, SIGKILL only the recorded leader PID and retain all process-group survivors. Start the replacement with zero assignment or nudge; preserve original source, both histories and exact individual-process cleanup.",
+    "ceiling_seconds": 1200
+  },
+  "actual_runtime_ceiling_seconds": 1200,
+  "basis": "The immutable tested harness selects1200 seconds when --exhausted-crash is true; its contract mistakenly recorded the900-second general-auditor value and legacy process-group stop description. Actual signal/process receipts and original result remain the execution evidence.",
+  "original_result_passed": false,
+  "changes_to_execution_or_scoring": false
+}

@@ -1,0 +1,176 @@
+{
+  "passed": false,
+  "provider_calls": 0,
+  "boundary": "Actual OS processes and shipped hook CLI; scripted leader/operator and fake inspector. This does not prove live model autonomous recovery.",
+  "source_sha256": {
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-recovery.py": "8e0d37b91eb1d667cf399666021616c88c164a53c7702b4c0200d0c5ff0135c3",
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py": "a75d7ac6121d933812bfc65afb18633901bad0838d5f0ca7e36a6538699841d3"
+  },
+  "source_unchanged": false,
+  "cases": [
+    {
+      "case": "interrupted-retry-limit",
+      "kind": "interrupted-limit",
+      "provider_calls": 0,
+      "checks": {
+        "real_old_owner_dead": true,
+        "leader_and_inspector_survive_hook_only_signal": true,
+        "surviving_inspector_lease_prevents_duplicate_inference": true,
+        "waiting_retry_does_not_spend_budget": true,
+        "only_hook_was_killed": true,
+        "assistant_chatter_cannot_refill_interrupted_retry": true,
+        "unpublished_interruption_has_no_delivery_ack": true,
+        "original_authority_survives_chatter": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "passed": true
+    },
+    {
+      "case": "hook-only-mid-inference",
+      "kind": "interrupted",
+      "provider_calls": 0,
+      "checks": {
+        "real_old_owner_dead": true,
+        "leader_and_inspector_survive_hook_only_signal": true,
+        "surviving_inspector_lease_prevents_duplicate_inference": true,
+        "waiting_retry_does_not_spend_budget": true,
+        "only_hook_was_killed": true,
+        "interrupted_hook_cannot_publish_or_wake": true,
+        "one_bounded_immediate_retry_after_child_exit": true,
+        "one_immediate_reconciliation_without_hour_sleep": true,
+        "wake_ack_follows_actual_cli_output": true,
+        "transfer_credit_durably_claimed_once": true,
+        "same_replacement_owns_assignment": true,
+        "inspection_budget_not_refilled": true,
+        "reconciliation_gate_cleared": true,
+        "original_source_and_constraints_retained": true,
+        "repeated_start_stop_cannot_buy_inspection_credit": true,
+        "no_human_assignment_resent": true,
+        "replacement_transcript_has_no_synthetic_assignment": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "reconciliation_timing": {
+        "elapsed_seconds": 0.6355838339950424,
+        "deadline_seconds": 4,
+        "straggler_poll_contract_seconds": null
+      },
+      "passed": true
+    },
+    {
+      "case": "detached-orphan-fresh",
+      "kind": "orphan-fresh",
+      "provider_calls": 0,
+      "checks": {
+        "old_hook_detached_and_sleeping_under_lock": true,
+        "pid_only_death_leaves_old_audit_alive": true,
+        "real_old_owner_dead": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "passed": false,
+      "error": "Traceback (most recent call last):\n  File \"/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-recovery.py\", line 341, in run_case\n    assert captured['exit'] == 0 and not captured['timed_out'], captured\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'exit': None, 'stdout': '', 'stderr': '', 'timed_out': True, 'provenance': {'hook_pid': 10962, 'hook_pgid': 10961, 'supervisor_pid': 10961, 'supervisor_pgid': 10961, 'caller_owner_pid': 10958, 'caller_driver_pid': 10959}, 'elapsed': 4.00552241699188, 'raw_stdout_sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'raw_stderr_sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'private_raw': {'path': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/private/hook-10961-1788963416108419000.json', 'sha256': '19d4780689dcee0ff9c4759c89bbfff1d3be7a045cf5ff6cd1a39b0e83253e22'}, 'public_output_policy': 'User-scope permission observations redacted; original hook bytes retained privately.'}\n"
+    },
+    {
+      "case": "detached-orphan-resume",
+      "kind": "orphan-resume",
+      "provider_calls": 0,
+      "checks": {
+        "old_hook_detached_and_sleeping_under_lock": true,
+        "pid_only_death_leaves_old_audit_alive": true,
+        "real_old_owner_dead": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "passed": false,
+      "error": "Traceback (most recent call last):\n  File \"/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-recovery.py\", line 341, in run_case\n    assert captured['exit'] == 0 and not captured['timed_out'], captured\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'exit': None, 'stdout': '', 'stderr': '', 'timed_out': True, 'provenance': {'hook_pid': 11011, 'hook_pgid': 11010, 'supervisor_pid': 11010, 'supervisor_pgid': 11010, 'caller_owner_pid': 11006, 'caller_driver_pid': 11007}, 'elapsed': 4.004050375020597, 'raw_stdout_sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'raw_stderr_sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'private_raw': {'path': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/private/hook-11010-1788963420791669000.json', 'sha256': 'e1181f37bde7deb1217d73e5fbc31477f83b6dd4aabbd8869a690f8ecba6d1b8'}, 'public_output_policy': 'User-scope permission observations redacted; original hook bytes retained privately.'}\n"
+    },
+    {
+      "case": "fresh-exhausted-budget",
+      "kind": "fresh",
+      "provider_calls": 0,
+      "checks": {
+        "real_old_owner_dead": true,
+        "one_immediate_reconciliation_without_hour_sleep": true,
+        "wake_ack_follows_actual_cli_output": true,
+        "transfer_credit_durably_claimed_once": true,
+        "same_replacement_owns_assignment": true,
+        "inspection_budget_not_refilled": true,
+        "reconciliation_gate_cleared": true,
+        "original_source_and_constraints_retained": true,
+        "repeated_start_stop_cannot_buy_inspection_credit": true,
+        "no_human_assignment_resent": true,
+        "replacement_transcript_has_no_synthetic_assignment": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "reconciliation_timing": {
+        "elapsed_seconds": 0.40068783299648203,
+        "deadline_seconds": 4,
+        "straggler_poll_contract_seconds": null
+      },
+      "passed": true
+    },
+    {
+      "case": "resume-exhausted-budget",
+      "kind": "resume",
+      "provider_calls": 0,
+      "checks": {
+        "real_old_owner_dead": true,
+        "one_immediate_reconciliation_without_hour_sleep": true,
+        "wake_ack_follows_actual_cli_output": true,
+        "transfer_credit_durably_claimed_once": true,
+        "same_replacement_owns_assignment": true,
+        "inspection_budget_not_refilled": true,
+        "reconciliation_gate_cleared": true,
+        "original_source_and_constraints_retained": true,
+        "repeated_start_stop_cannot_buy_inspection_credit": true,
+        "no_human_assignment_resent": true,
+        "replacement_transcript_has_no_synthetic_assignment": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "reconciliation_timing": {
+        "elapsed_seconds": 0.3854338750243187,
+        "deadline_seconds": 4,
+        "straggler_poll_contract_seconds": null
+      },
+      "passed": true
+    },
+    {
+      "case": "live-straggler-recovery",
+      "kind": "straggler",
+      "provider_calls": 0,
+      "checks": {
+        "real_old_owner_dead": true,
+        "live_straggler_prevents_transfer": true,
+        "withheld_state_records_exact_live_process": true,
+        "withheld_notice_visible_on_both_channels": true,
+        "empty_replacement_gets_host_only_wake": true,
+        "unchanged_blocker_does_not_repeat_wake": true,
+        "outstanding_hook_waits_without_transfer": true,
+        "scripted_recovery_uses_exact_live_identity": true,
+        "same_outstanding_stop_hook_picks_up_after_exit": true,
+        "one_immediate_reconciliation_without_hour_sleep": true,
+        "wake_ack_follows_actual_cli_output": true,
+        "transfer_credit_durably_claimed_once": true,
+        "same_replacement_owns_assignment": true,
+        "inspection_budget_not_refilled": true,
+        "reconciliation_gate_cleared": true,
+        "original_source_and_constraints_retained": true,
+        "repeated_start_stop_cannot_buy_inspection_credit": true,
+        "no_human_assignment_resent": true,
+        "replacement_transcript_has_no_synthetic_assignment": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "reconciliation_timing": {
+        "elapsed_seconds": 5.706308875000104,
+        "deadline_seconds": 8,
+        "straggler_poll_contract_seconds": 5
+      },
+      "passed": true
+    }
+  ]
+}

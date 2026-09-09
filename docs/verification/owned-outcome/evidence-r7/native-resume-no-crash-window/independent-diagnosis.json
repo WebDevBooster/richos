@@ -1,0 +1,30 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "requirements_line": "requirements.md: \"Current approved contract: native workspaces return platform-pending; external workspaces return verified.\"",
+      "native": {
+        "classification": "obsolete_assertion",
+        "original_implementation": "status(\"native\") returned \"platform-pending\", which already matched requirements.md.",
+        "original_test": "test_native asserted status(\"native\") == \"verified\", which matched the PREVIOUS contract recorded in backlog.md (\"Previous contract: native workspaces return verified\") rather than the current requirements.md contract.",
+        "conclusion": "The implementation for native was already correct per requirements.md; the test assertion was stale, carried over from the superseded contract in backlog.md.",
+        "fix_applied": "Updated test_lifecycle.py test_native to assert status(\"native\") == \"platform-pending\". lifecycle.py's native branch was left unchanged."
+      },
+      "external": {
+        "classification": "implementation_defect",
+        "original_implementation": "status(owner) returned \"bound\" for any owner != \"native\", including \"external\", which contradicts requirements.md's requirement that external workspaces return \"verified\".",
+        "original_test": "test_external asserted status(\"external\") == \"verified\", which correctly matches requirements.md.",
+        "conclusion": "The test assertion for external was already correct per requirements.md; the implementation was wrong (returned \"bound\" instead of \"verified\").",
+        "fix_applied": "Updated lifecycle.py so the else branch (external) returns \"verified\" instead of \"bound\". test_lifecycle.py's test_external assertion was left unchanged."
+      },
+      "test_output": "test_external (test_lifecycle.Lifecycle.test_external) ... ok\ntest_native (test_lifecycle.Lifecycle.test_native) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK"
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

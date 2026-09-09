@@ -1,0 +1,130 @@
+{
+  "passed": true,
+  "provider_calls": 0,
+  "hook_calls": 0,
+  "original_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8",
+  "evidence_root": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1",
+  "old_runtime_sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+  "new_runtime_sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+  "derivation": "Copied immutable final state and transcript snapshots. Removed only invocation IDs in its final recorded completion checkpoint from completion_consumed_invocations. Rebound transcript paths to byte-identical private snapshot copies. No messages, timing, execution, ownership or terminal rows changed. This is a derived preclaim classifier replay, not another live trial.",
+  "removed_consumed_invocations": [
+    "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176:leader:toolu_017zK8vjdCcUrA6BzNqLe9d3"
+  ],
+  "old_checkpoint": {
+    "id": "aa29377a4255752599051b47a3083551159c8f55c5958044aae371e8d98e4891",
+    "invocations": [
+      "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176:leader:toolu_017zK8vjdCcUrA6BzNqLe9d3"
+    ],
+    "terminals": [
+      {
+        "invocation": "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176:leader:toolu_017zK8vjdCcUrA6BzNqLe9d3",
+        "source_id": "9ff6f557-1654-4999-bb1c-07d62b04623f",
+        "at": 1788965702.862
+      }
+    ],
+    "successful_receipt_ids": [
+      "a4b28d16af28fe54a:toolu_01AD2DTiN6twyEpXGF2eSqGQ",
+      "a4b28d16af28fe54a:toolu_01B4kjR3ki17rAsGZig6Ud4H",
+      "a4b28d16af28fe54a:toolu_01Bay7BQQatDmsxn4BcGnewR",
+      "a4b28d16af28fe54a:toolu_01D9fiHhozKGUNy4qq6oy7Ck",
+      "a4b28d16af28fe54a:toolu_01Qnjz9gZdgpEhJPPNdSnpHY",
+      "a4b28d16af28fe54a:toolu_01XxJ34xfvU4KnaKHjhbG64p",
+      "a4b28d16af28fe54a:toolu_01YVcXJVnf2dRPmGmkJbgyFi"
+    ]
+  },
+  "new_checkpoint": {
+    "id": "aa29377a4255752599051b47a3083551159c8f55c5958044aae371e8d98e4891",
+    "invocations": [
+      "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176:leader:toolu_017zK8vjdCcUrA6BzNqLe9d3"
+    ],
+    "terminals": [
+      {
+        "invocation": "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176:leader:toolu_017zK8vjdCcUrA6BzNqLe9d3",
+        "source_id": "9ff6f557-1654-4999-bb1c-07d62b04623f",
+        "at": 1788965702.862
+      }
+    ],
+    "successful_receipt_ids": [
+      "a4b28d16af28fe54a:toolu_01AD2DTiN6twyEpXGF2eSqGQ",
+      "a4b28d16af28fe54a:toolu_01B4kjR3ki17rAsGZig6Ud4H",
+      "a4b28d16af28fe54a:toolu_01Bay7BQQatDmsxn4BcGnewR",
+      "a4b28d16af28fe54a:toolu_01D9fiHhozKGUNy4qq6oy7Ck",
+      "a4b28d16af28fe54a:toolu_01Qnjz9gZdgpEhJPPNdSnpHY",
+      "a4b28d16af28fe54a:toolu_01XxJ34xfvU4KnaKHjhbG64p",
+      "a4b28d16af28fe54a:toolu_01YVcXJVnf2dRPmGmkJbgyFi"
+    ]
+  },
+  "expected_recorded_checkpoint": {
+    "id": "aa29377a4255752599051b47a3083551159c8f55c5958044aae371e8d98e4891",
+    "invocations": [
+      "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176:leader:toolu_017zK8vjdCcUrA6BzNqLe9d3"
+    ],
+    "terminals": [
+      {
+        "invocation": "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176:leader:toolu_017zK8vjdCcUrA6BzNqLe9d3",
+        "source_id": "9ff6f557-1654-4999-bb1c-07d62b04623f",
+        "at": 1788965702.862
+      }
+    ],
+    "successful_receipt_ids": [
+      "a4b28d16af28fe54a:toolu_01AD2DTiN6twyEpXGF2eSqGQ",
+      "a4b28d16af28fe54a:toolu_01B4kjR3ki17rAsGZig6Ud4H",
+      "a4b28d16af28fe54a:toolu_01Bay7BQQatDmsxn4BcGnewR",
+      "a4b28d16af28fe54a:toolu_01D9fiHhozKGUNy4qq6oy7Ck",
+      "a4b28d16af28fe54a:toolu_01Qnjz9gZdgpEhJPPNdSnpHY",
+      "a4b28d16af28fe54a:toolu_01XxJ34xfvU4KnaKHjhbG64p",
+      "a4b28d16af28fe54a:toolu_01YVcXJVnf2dRPmGmkJbgyFi"
+    ]
+  },
+  "manifest": [
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/runtime-snapshot/engine/scripts/lib/owned-session.py",
+      "copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/old-adapter.py",
+      "bytes": 100370,
+      "original_sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632",
+      "copy_sha256": "2eb1d3abce03e7f06ec67b4eb769773c5b0f33392ab3938bda22dc1dda5b2632"
+    },
+    {
+      "original": "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py",
+      "copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/new-adapter.py",
+      "bytes": 104082,
+      "original_sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db",
+      "copy_sha256": "e6c970d530ffbacb817a9abfef821160f56f6391a26d29a85e5a09ceda8df7db"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/state/5559dec13cecbd38b719b0d29b3aec1558c6a6919bcd757311985aaa3dc6815e.json",
+      "copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/original-state.json",
+      "bytes": 172990,
+      "original_sha256": "a3dfab22239d0cf7fae38fe82a1abd9e7dd652730c47fc0ead0f98076537a8f5",
+      "copy_sha256": "a3dfab22239d0cf7fae38fe82a1abd9e7dd652730c47fc0ead0f98076537a8f5"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/transcript-fd01ca96-0cfa-4880-bb58-96e8f645855a.jsonl",
+      "copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/transcripts/fd01ca96-0cfa-4880-bb58-96e8f645855a.jsonl",
+      "bytes": 333411,
+      "original_sha256": "748c11e5c24c6307aa1595451da0a3566b8a0d5ec20d49be8138635f146ec08c",
+      "copy_sha256": "748c11e5c24c6307aa1595451da0a3566b8a0d5ec20d49be8138635f146ec08c"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/transcript-ae9f6b6d-0425-4a25-a6d5-7e4b7b242176.jsonl",
+      "copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/transcripts/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176.jsonl",
+      "bytes": 594910,
+      "original_sha256": "17d02bd7f4e19003e7d11933f5695b63031b73b2ddee5a99d6541f9efed896e4",
+      "copy_sha256": "17d02bd7f4e19003e7d11933f5695b63031b73b2ddee5a99d6541f9efed896e4"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/transcript-child-agent-a4b28d16af28fe54a.jsonl",
+      "copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/transcripts/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176/subagents/agent-a4b28d16af28fe54a.jsonl",
+      "bytes": 275335,
+      "original_sha256": "b9394bbbf5187e197879f88feec3dcbacdb251147c2d94480ccbb19754851671",
+      "copy_sha256": "b9394bbbf5187e197879f88feec3dcbacdb251147c2d94480ccbb19754851671"
+    },
+    {
+      "original": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/transcript-child-agent-abfae99e48ec21b2f.jsonl",
+      "copy": "/Users/alex/.codex/artifacts/richos-owned-outcome-r7-2026-09-09/fresh-checkpoint-equivalence-xlqgtjp1/transcripts/fd01ca96-0cfa-4880-bb58-96e8f645855a/subagents/agent-abfae99e48ec21b2f.jsonl",
+      "bytes": 77405,
+      "original_sha256": "d8a6c018d2bd1653999d475a43a4299c4b6443f2581f2618a9c45fc8c191b130",
+      "copy_sha256": "d8a6c018d2bd1653999d475a43a4299c4b6443f2581f2618a9c45fc8c191b130"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "before": [
+    {
+      "pid": 26990,
+      "ppid": 64729,
+      "pgid": 26990,
+      "status": "Ss",
+      "started": "Wed Sep 9 14:47:39 2026",
+      "command": "/Users/alex/.local/bin/claude"
+    }
+  ],
+  "signals": [
+    {
+      "identity": {
+        "pid": 26990,
+        "ppid": 64729,
+        "pgid": 26990,
+        "status": "Ss",
+        "started": "Wed Sep 9 14:47:39 2026",
+        "command": "/Users/alex/.local/bin/claude"
+      },
+      "signal": "SIGTERM"
+    },
+    {
+      "identity": {
+        "pid": 26990,
+        "ppid": 64729,
+        "pgid": 26990,
+        "status": "Ss",
+        "started": "Wed Sep 9 14:47:39 2026",
+        "command": "/Users/alex/.local/bin/claude"
+      },
+      "signal": "SIGKILL"
+    }
+  ],
+  "after": [],
+  "all_owned_processes_stopped": true
+}

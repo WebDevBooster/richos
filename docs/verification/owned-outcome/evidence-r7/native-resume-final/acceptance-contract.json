@@ -1,0 +1,28 @@
+{
+  "exhausted_crash": true,
+  "restart_requirement": "After actual guarded child work, inject pacing only into the canonical primary state, prove a detached Stop audit is sleeping, SIGKILL only the recorded leader PID and retain all process-group survivors. Start the replacement with zero assignment or nudge; preserve original source, both histories and exact individual-process cleanup.",
+  "ceiling_seconds": 1200,
+  "scenario": "preauthorized-equivalent",
+  "restart": "resume",
+  "hold_child_for_crash": true,
+  "child_timing_barrier_seconds": 180,
+  "child_timing_barrier_requirement": "Test-only synchronous interruption: hold one original child at its next tool after an actual source-linked Read; abort that held tool with exit2 on exact original leader death or180-second timeout. Never hold replacement work. Timeout without a real sleeping parent Stop audit fails the fixture and triggers exact cleanup.",
+  "permission_policy_requested": null,
+  "permission_policy_effective": "native",
+  "same_assignment_across_permission_scenarios": true,
+  "exact_operation_requirement": null,
+  "input_requirement": "Exactly one argv assignment, setup-only measured PTY writes and independently confirmed native transcript inputs.",
+  "completion_requirement": "Actual requested artifacts, tests and parser execution; no auditor prose or manual inspection substitutes for executed validation.",
+  "behavior_requirement": "Report routine parser permission asks separately and fail clean autonomy even if artifact completion later succeeds.",
+  "permission_gap_requirement": "No fixture parser allow rule is not global tool unavailability. Preserve actual call-specific runtime refusals; remain incomplete if required validation cannot execute.",
+  "capability_evidence_sources": [
+    "parent/child native tool call plus result",
+    "runtime PermissionRequest payload and decision",
+    "exact prelaunch fixture settings"
+  ],
+  "excluded_capability_evidence": [
+    "auditor capability assertions",
+    "assistant claims",
+    "absence of a fixture allow rule"
+  ]
+}

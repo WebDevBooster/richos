@@ -1,0 +1,2 @@
+# Captured artifacts retain exact bytes and observed whitespace.
+* -text -whitespace

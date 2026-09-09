@@ -1,0 +1,327 @@
+{
+  "before": {
+    "hooks": {
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py capture",
+              "timeout": 15
+            }
+          ]
+        }
+      ],
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py capture",
+              "timeout": 15
+            }
+          ]
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py audit",
+              "timeout": 3900,
+              "asyncRewake": true
+            }
+          ]
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/engine-hook-log.py /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/hooks/session-start-ceo-ask.sh",
+              "timeout": 30
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py audit",
+              "timeout": 3900,
+              "asyncRewake": true
+            }
+          ]
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/engine-hook-log.py /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/hooks/notice-ceo-unasked.sh",
+              "timeout": 30
+            }
+          ]
+        }
+      ],
+      "StopFailure": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py audit",
+              "timeout": 3900,
+              "asyncRewake": true
+            }
+          ]
+        }
+      ],
+      "PermissionRequest": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py permission",
+              "timeout": 180
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py question",
+              "timeout": 180
+            }
+          ],
+          "matcher": "AskUserQuestion"
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py tool",
+              "timeout": 15
+            }
+          ]
+        },
+        {
+          "matcher": "Agent",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-dispatch.py /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/workspace",
+              "timeout": 240
+            }
+          ]
+        }
+      ],
+      "Notification": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py observe",
+              "timeout": 15
+            }
+          ],
+          "matcher": "permission_prompt"
+        }
+      ],
+      "PostToolUse": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/engine-hook-log.py /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/hooks/notice-ceo-asks.sh",
+              "timeout": 30
+            }
+          ],
+          "matcher": "AskUserQuestion"
+        }
+      ]
+    },
+    "permissions": {
+      "allow": [
+        "Bash(python3 -m unittest *)",
+        "Bash(set -e -o pipefail)",
+        "Bash(python3 -m json.tool diagnosis.json)"
+      ]
+    }
+  },
+  "after": {
+    "hooks": {
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py capture",
+              "timeout": 15
+            }
+          ]
+        }
+      ],
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py capture",
+              "timeout": 15
+            }
+          ]
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py audit",
+              "timeout": 3900,
+              "asyncRewake": true
+            }
+          ]
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/engine-hook-log.py /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/hooks/session-start-ceo-ask.sh",
+              "timeout": 30
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py audit",
+              "timeout": 3900,
+              "asyncRewake": true
+            }
+          ]
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/engine-hook-log.py /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/hooks/notice-ceo-unasked.sh",
+              "timeout": 30
+            }
+          ]
+        }
+      ],
+      "StopFailure": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py audit",
+              "timeout": 3900,
+              "asyncRewake": true
+            }
+          ]
+        }
+      ],
+      "PermissionRequest": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py permission",
+              "timeout": 180
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py question",
+              "timeout": 180
+            }
+          ],
+          "matcher": "AskUserQuestion"
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py tool",
+              "timeout": 15
+            }
+          ]
+        },
+        {
+          "matcher": "Agent",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-dispatch.py /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/workspace",
+              "timeout": 240
+            }
+          ]
+        },
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/child-crash-barrier.py /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/child-crash-barrier-control.json /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/child-crash-barrier-events.jsonl",
+              "timeout": 240
+            }
+          ]
+        }
+      ],
+      "Notification": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/adapter-hook-log.py python3 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/lib/owned-session.py observe",
+              "timeout": 15
+            }
+          ],
+          "matcher": "permission_prompt"
+        }
+      ],
+      "PostToolUse": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/engine-hook-log.py /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/runtime-snapshot/engine/scripts/hooks/notice-ceo-asks.sh",
+              "timeout": 30
+            }
+          ],
+          "matcher": "AskUserQuestion"
+        }
+      ]
+    },
+    "permissions": {
+      "allow": [
+        "Bash(python3 -m unittest *)",
+        "Bash(set -e -o pipefail)",
+        "Bash(python3 -m json.tool diagnosis.json)"
+      ]
+    }
+  },
+  "added_hook": {
+    "hooks": [
+      {
+        "type": "command",
+        "command": "python3 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/child-crash-barrier.py /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/child-crash-barrier-control.json /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-o33xokiz/child-crash-barrier-events.jsonl",
+        "timeout": 240
+      }
+    ]
+  },
+  "product_hooks_and_permissions_preserved": true,
+  "synchronous": true,
+  "max_hold_seconds": 180,
+  "hook_timeout_seconds": 240,
+  "script_sha256": "8dcfb04ad580fc512c51b015f5e847e713b3e9cc2250bd31258e1529447a7d46"
+}

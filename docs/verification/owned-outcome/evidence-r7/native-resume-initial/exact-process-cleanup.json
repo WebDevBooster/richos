@@ -1,0 +1,27 @@
+{
+  "before": [
+    {
+      "pid": 95539,
+      "ppid": 1,
+      "pgid": 95539,
+      "status": "S",
+      "started": "Wed Sep 9 14:22:58 2026",
+      "command": "/Users/alex/.local/bin/claude"
+    }
+  ],
+  "signals": [
+    {
+      "identity": {
+        "pid": 95539,
+        "ppid": 1,
+        "pgid": 95539,
+        "status": "S",
+        "started": "Wed Sep 9 14:22:58 2026",
+        "command": "/Users/alex/.local/bin/claude"
+      },
+      "signal": "SIGTERM"
+    }
+  ],
+  "after": [],
+  "all_owned_processes_stopped": true
+}

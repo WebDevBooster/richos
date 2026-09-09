@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "session_id": "replacement",
+  "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/hook-only-mid-inference/workspace",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Repair the local parser and verify its tests. Do not publish or install dependencies.",
+      "source_id": "original-human-source",
+      "provenance": "native_human_typed_v1",
+      "prompt_id": "original-human-prompt",
+      "source_session_id": "old"
+    }
+  ],
+  "revision": 3,
+  "failures": 2,
+  "source_ids": [
+    "original-human-source"
+  ],
+  "recovered_transcripts": [
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/hook-only-mid-inference/old-transcript.jsonl"
+  ],
+  "recovered_transcript_sessions": {
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/hook-only-mid-inference/old-transcript.jsonl": "old"
+  },
+  "execution_observations": [],
+  "interrupted_audit_retries": 0,
+  "audit_attempts": 6,
+  "completion_consumed_invocations": [],
+  "completion_checkpoints": [],
+  "recovery_checkpoints": [
+    {
+      "id": "337749395357381470d2d762b0b720c8f9158fb86b44ef7400fc4425beda3755",
+      "sources": [
+        {
+          "session": "old",
+          "process": {
+            "pid": 14320,
+            "pgid": 14320,
+            "started": "Wed Sep 9 14:44:08 2026",
+            "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/claude"
+          }
+        }
+      ],
+      "destination": {
+        "session": "replacement",
+        "process": {
+          "pid": 14332,
+          "pgid": 14332,
+          "started": "Wed Sep 9 14:44:08 2026",
+          "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/claude"
+        }
+      },
+      "created_at": 1788965049.1184618,
+      "claimed_at": 1788965049.353993
+    }
+  ],
+  "retry_at": 1788968649.353994,
+  "recovery_obligations": [
+    {
+      "source_session_id": "old",
+      "source_state": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/hook-only-mid-inference/state/703dd2c37de93dde6947a5401b877749157984d2635d91c78253f1bd93329a23.json",
+      "prior_verdict": {
+        "kind": "incomplete",
+        "remaining": "Original fixture work remains unfinished."
+      },
+      "transferred_at": 1788965049.1183481
+    }
+  ],
+  "recovered_permission_history": [],
+  "withheld_recoveries": [],
+  "provenance_version": 1,
+  "ownership": {
+    "owner_session_id": "replacement",
+    "process": {
+      "pid": 14332,
+      "pgid": 14332,
+      "started": "Wed Sep 9 14:44:08 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/claude"
+    },
+    "recovered_sessions": [
+      "old"
+    ],
+    "started_at": 1788965049.118412
+  },
+  "recovery_requires_review": true,
+  "source_status": "available",
+  "source_transcript": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/hook-only-mid-inference/replacement-transcript.jsonl",
+  "background_tasks": [],
+  "event": "SessionStart",
+  "updated_at": 1788965049.215225,
+  "audit_inference": {
+    "id": "d15f155d8fafa61b5f4d99a7e4bf99dca68baeb1fbe8ea1154001af4908f8a9e",
+    "owner_process": {
+      "pid": 14332,
+      "pgid": 14332,
+      "started": "Wed Sep 9 14:44:08 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/claude"
+    },
+    "hook_pid": 14340,
+    "fingerprint": "3355a6d80957b5daa93f1643f89d85c37993c5086be4c954040408ff646ecec4",
+    "phase": "started",
+    "inference_started_at": 1788965049.3540092,
+    "retry_count": 0
+  }
+}

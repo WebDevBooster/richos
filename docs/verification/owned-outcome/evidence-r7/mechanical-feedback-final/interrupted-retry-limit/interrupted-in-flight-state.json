@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "session_id": "replacement",
+  "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/interrupted-retry-limit/workspace",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Repair the local parser and verify its tests. Do not publish or install dependencies.",
+      "source_id": "original-human-source",
+      "provenance": "native_human_typed_v1",
+      "prompt_id": "original-human-prompt",
+      "source_session_id": "old"
+    }
+  ],
+  "revision": 3,
+  "failures": 2,
+  "source_ids": [
+    "original-human-source"
+  ],
+  "recovered_transcripts": [
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/interrupted-retry-limit/old-transcript.jsonl"
+  ],
+  "recovered_transcript_sessions": {
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/interrupted-retry-limit/old-transcript.jsonl": "old"
+  },
+  "execution_observations": [],
+  "interrupted_audit_retries": 0,
+  "audit_attempts": 6,
+  "completion_consumed_invocations": [],
+  "completion_checkpoints": [],
+  "recovery_checkpoints": [
+    {
+      "id": "b466440a140ecb747be697f6d74d51c31bb18054f8da2bdf3a0ba5b2b33fd798",
+      "sources": [
+        {
+          "session": "old",
+          "process": {
+            "pid": 14244,
+            "pgid": 14244,
+            "started": "Wed Sep 9 14:44:06 2026",
+            "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/claude"
+          }
+        }
+      ],
+      "destination": {
+        "session": "replacement",
+        "process": {
+          "pid": 14256,
+          "pgid": 14256,
+          "started": "Wed Sep 9 14:44:06 2026",
+          "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/claude"
+        }
+      },
+      "created_at": 1788965046.5731788,
+      "claimed_at": 1788965046.862313
+    }
+  ],
+  "retry_at": 1788968646.8623161,
+  "recovery_obligations": [
+    {
+      "source_session_id": "old",
+      "source_state": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/interrupted-retry-limit/state/92e102cb971bc00c309db0b4553f01e200ac67b9002f04df8b732c58daa95fae.json",
+      "prior_verdict": {
+        "kind": "incomplete",
+        "remaining": "Original fixture work remains unfinished."
+      },
+      "transferred_at": 1788965046.573091
+    }
+  ],
+  "recovered_permission_history": [],
+  "withheld_recoveries": [],
+  "provenance_version": 1,
+  "ownership": {
+    "owner_session_id": "replacement",
+    "process": {
+      "pid": 14256,
+      "pgid": 14256,
+      "started": "Wed Sep 9 14:44:06 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/claude"
+    },
+    "recovered_sessions": [
+      "old"
+    ],
+    "started_at": 1788965046.573143
+  },
+  "recovery_requires_review": true,
+  "source_status": "available",
+  "source_transcript": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/interrupted-retry-limit/replacement-transcript.jsonl",
+  "background_tasks": [],
+  "event": "SessionStart",
+  "updated_at": 1788965046.722952,
+  "audit_inference": {
+    "id": "a3f85b1796fc1a825481422754d3d32fae08098d6923a1714b95c48651e4f845",
+    "owner_process": {
+      "pid": 14256,
+      "pgid": 14256,
+      "started": "Wed Sep 9 14:44:06 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-orqfmbfl/claude"
+    },
+    "hook_pid": 14264,
+    "fingerprint": "d34ff0b1d8ae7ce646210b5df8a6865419d4b3b8897fadd20395158980468f0f",
+    "phase": "started",
+    "inference_started_at": 1788965046.862335,
+    "retry_count": 0
+  }
+}

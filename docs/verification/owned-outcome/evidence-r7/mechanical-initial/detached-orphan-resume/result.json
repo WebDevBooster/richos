@@ -1,0 +1,14 @@
+{
+  "case": "detached-orphan-resume",
+  "kind": "orphan-resume",
+  "provider_calls": 0,
+  "checks": {
+    "old_hook_detached_and_sleeping_under_lock": true,
+    "pid_only_death_leaves_old_audit_alive": true,
+    "real_old_owner_dead": true,
+    "no_owned_fixture_processes_remain": true,
+    "private_raw_evidence_has_restricted_permissions": true
+  },
+  "passed": false,
+  "error": "Traceback (most recent call last):\n  File \"/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-recovery.py\", line 341, in run_case\n    assert captured['exit'] == 0 and not captured['timed_out'], captured\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'exit': None, 'stdout': '', 'stderr': '', 'timed_out': True, 'provenance': {'hook_pid': 11011, 'hook_pgid': 11010, 'supervisor_pid': 11010, 'supervisor_pgid': 11010, 'caller_owner_pid': 11006, 'caller_driver_pid': 11007}, 'elapsed': 4.004050375020597, 'raw_stdout_sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'raw_stderr_sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'private_raw': {'path': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-resume/private/hook-11010-1788963420791669000.json', 'sha256': 'e1181f37bde7deb1217d73e5fbc31477f83b6dd4aabbd8869a690f8ecba6d1b8'}, 'public_output_policy': 'User-scope permission observations redacted; original hook bytes retained privately.'}\n"
+}

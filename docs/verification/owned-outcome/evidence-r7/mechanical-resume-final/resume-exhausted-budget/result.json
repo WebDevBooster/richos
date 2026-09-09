@@ -1,0 +1,26 @@
+{
+  "case": "resume-exhausted-budget",
+  "kind": "resume",
+  "provider_calls": 0,
+  "checks": {
+    "real_old_owner_dead": true,
+    "one_immediate_reconciliation_without_hour_sleep": true,
+    "wake_ack_follows_actual_cli_output": true,
+    "transfer_credit_durably_claimed_once": true,
+    "same_replacement_owns_assignment": true,
+    "inspection_budget_not_refilled": true,
+    "reconciliation_gate_cleared": true,
+    "original_source_and_constraints_retained": true,
+    "repeated_start_stop_cannot_buy_inspection_credit": true,
+    "no_human_assignment_resent": true,
+    "replacement_transcript_has_no_synthetic_assignment": true,
+    "no_owned_fixture_processes_remain": true,
+    "private_raw_evidence_has_restricted_permissions": true
+  },
+  "reconciliation_timing": {
+    "elapsed_seconds": 0.39914275001501665,
+    "deadline_seconds": 4,
+    "straggler_poll_contract_seconds": null
+  },
+  "passed": true
+}

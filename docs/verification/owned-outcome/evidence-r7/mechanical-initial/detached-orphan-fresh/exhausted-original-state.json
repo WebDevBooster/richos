@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "session_id": "old",
+  "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/workspace",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Repair the local parser and verify its tests. Do not publish or install dependencies.",
+      "source_id": "original-human-source",
+      "provenance": "native_human_typed_v1",
+      "prompt_id": "original-human-prompt"
+    }
+  ],
+  "revision": 1,
+  "failures": 2,
+  "source_ids": [
+    "original-human-source"
+  ],
+  "recovered_transcripts": [],
+  "withheld_recoveries": [],
+  "provenance_version": 1,
+  "ownership": {
+    "owner_session_id": "old",
+    "process": {
+      "pid": 10928,
+      "pgid": 10928,
+      "started": "Wed Sep 9 14:16:51 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/claude"
+    },
+    "recovered_sessions": [],
+    "started_at": 1788963411.78493
+  },
+  "source_status": "available",
+  "source_transcript": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-o3n7xsfc/detached-orphan-fresh/old-transcript.jsonl",
+  "execution_observations": [],
+  "retry_at": 1788966411.8192608,
+  "audit_attempts": 5,
+  "background_tasks": [],
+  "event": "SessionStart",
+  "updated_at": 1788963411.786067,
+  "verdict": {
+    "kind": "incomplete",
+    "remaining": "Original fixture work remains unfinished."
+  }
+}

@@ -1,0 +1,4 @@
+✓ no settings.json to migrate — settings.local.json is the sole settings file
+✓ refreshed hook sha256 manifests
+✓ engine pointer -> /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-r7-install-ezthj75t/config/richos-engine -> /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-r7-install-ezthj75t/engine
+✓ reconciler plist written (not loaded: RICHOS_LAUNCH_AGENTS_DIR is set) -> /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-r7-install-ezthj75t/plists/com.richos.worktree-reconciler.plist

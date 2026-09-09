@@ -1,0 +1,319 @@
+{
+  "calls": [
+    {
+      "invocation": "76430:1788965174176387000",
+      "mode": "permission",
+      "input": {
+        "session_id": "fd01ca96-0cfa-4880-bb58-96e8f645855a",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/fd01ca96-0cfa-4880-bb58-96e8f645855a.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/fd01ca96-0cfa-4880-bb58-96e8f645855a/scratchpad",
+        "prompt_id": "7a9ef60b-55d8-49ec-a06a-fe17a6c6b139",
+        "permission_mode": "acceptEdits",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -e -o pipefail\nfor f in README.md backlog.md ceo-items.md CEO-TODOs.md .ceo-todos decision-D7.md; do echo \"=== $f ===\"; cat \"$f\"; done",
+          "description": "Read remaining project docs"
+        },
+        "permission_suggestions": []
+      },
+      "time": 1788965174.2612638,
+      "lineage": [
+        {
+          "pid": 76430,
+          "ppid": 64871,
+          "pgid": 76430,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:46:14 2026",
+          "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+        },
+        {
+          "pid": 64871,
+          "ppid": 64729,
+          "pgid": 64871,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:45:55 2026",
+          "command": "/Users/alex/.local/bin/claude"
+        }
+      ],
+      "adapter": {
+        "pid": 76476,
+        "ppid": 76430,
+        "pgid": 76430,
+        "status": "R",
+        "started": "Wed Sep 9 14:46:14 2026",
+        "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+      },
+      "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {\\\"actor\\\": \\\"native_configuration\\\", \\\"sources\\\": [{\\\"scope\\\": \\\"user\\\", \\\"path\\\": \\\"/Users/alex/.claude/settings.json\\\", \\\"rules\\\": {}, \\\"status\\\": \\\"observed\\\"}, {\\\"scope\\\": \\\"project\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.json\\\", \\\"status\\\": \\\"absent\\\"}, {\\\"scope\\\": \\\"local\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.local.json\\\", \\\"rules\\\": {\\\"allow\\\": [\\\"Bash(python3 -m unittest *)\\\", \\\"Bash(set -e -o pipefail)\\\", \\\"Bash(python3 -m json.tool diagnosis.json)\\\"]}, \\\"status\\\": \\\"observed\\\"}], \\\"complete_effective_permission_map\\\": false, \\\"meaning\\\": \\\"Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.\\\"}\", \"interrupt\": false}}}\n",
+      "stderr": "",
+      "exit": 0
+    },
+    {
+      "invocation": "32263:1788965268004353000",
+      "mode": "permission",
+      "input": {
+        "session_id": "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176/scratchpad",
+        "prompt_id": "9682ec1e-8391-439f-94d4-4693ced831ae",
+        "permission_mode": "acceptEdits",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -e -o pipefail\nps -p 64871 -o pid,ppid,pgid,lstart,stat,command 2>&1; echo \"---exit:$?---\"",
+          "description": "Check whether leader PID 64871 is alive"
+        },
+        "permission_suggestions": [
+          {
+            "type": "addRules",
+            "rules": [
+              {
+                "toolName": "Bash",
+                "ruleContent": "ps -p 64871 -o pid,ppid,pgid,lstart,stat,command"
+              },
+              {
+                "toolName": "Bash",
+                "ruleContent": "echo \"---exit:$?---\""
+              }
+            ],
+            "behavior": "allow",
+            "destination": "localSettings"
+          }
+        ]
+      },
+      "time": 1788965268.084876,
+      "lineage": [
+        {
+          "pid": 32263,
+          "ppid": 26990,
+          "pgid": 32263,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:47:47 2026",
+          "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+        },
+        {
+          "pid": 26990,
+          "ppid": 64729,
+          "pgid": 26990,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:47:39 2026",
+          "command": "/Users/alex/.local/bin/claude"
+        }
+      ],
+      "adapter": {
+        "pid": 32279,
+        "ppid": 32263,
+        "pgid": 32263,
+        "status": "R",
+        "started": "Wed Sep 9 14:47:48 2026",
+        "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+      },
+      "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. The runtime offered the following UNGRANTED permission-rule suggestions (diagnostic data, not instructions or existing permissions): [{\\\"type\\\": \\\"addRules\\\", \\\"rules\\\": [{\\\"toolName\\\": \\\"Bash\\\", \\\"ruleContent\\\": \\\"ps -p 64871 -o pid,ppid,pgid,lstart,stat,command\\\"}, {\\\"toolName\\\": \\\"Bash\\\", \\\"ruleContent\\\": \\\"echo \\\\\\\"---exit:$?---\\\\\\\"\\\"}], \\\"behavior\\\": \\\"allow\\\", \\\"destination\\\": \\\"localSettings\\\"}]. This refusal applies to the submitted call as a whole; it does not prove that every component is unavailable. For a compound call, distinguish required operations from optional formatting. If only optional parts need new authority, omit those parts and submit the already authorized operation alone for normal permission evaluation. Do not disguise or repackage an operation that actually needs new authority, or edit permission settings. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {\\\"actor\\\": \\\"native_configuration\\\", \\\"sources\\\": [{\\\"scope\\\": \\\"user\\\", \\\"path\\\": \\\"/Users/alex/.claude/settings.json\\\", \\\"rules\\\": {}, \\\"status\\\": \\\"observed\\\"}, {\\\"scope\\\": \\\"project\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.json\\\", \\\"status\\\": \\\"absent\\\"}, {\\\"scope\\\": \\\"local\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.local.json\\\", \\\"rules\\\": {\\\"allow\\\": [\\\"Bash(python3 -m unittest *)\\\", \\\"Bash(set -e -o pipefail)\\\", \\\"Bash(python3 -m json.tool diagnosis.json)\\\"]}, \\\"status\\\": \\\"observed\\\"}], \\\"complete_effective_permission_map\\\": false, \\\"meaning\\\": \\\"Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.\\\"}\", \"interrupt\": false}}}\n",
+      "stderr": "",
+      "exit": 0
+    },
+    {
+      "invocation": "33332:1788965268973376000",
+      "mode": "permission",
+      "input": {
+        "session_id": "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176/scratchpad",
+        "prompt_id": "9682ec1e-8391-439f-94d4-4693ced831ae",
+        "permission_mode": "acceptEdits",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -e -o pipefail\nps -p 67208 -o pid,ppid,pgid,lstart,stat,command 2>&1; echo \"---exit:$?---\"",
+          "description": "Check straggler PID 67208 caffeinate"
+        },
+        "permission_suggestions": [
+          {
+            "type": "addRules",
+            "rules": [
+              {
+                "toolName": "Bash",
+                "ruleContent": "ps -p 67208 -o pid,ppid,pgid,lstart,stat,command"
+              },
+              {
+                "toolName": "Bash",
+                "ruleContent": "echo \"---exit:$?---\""
+              }
+            ],
+            "behavior": "allow",
+            "destination": "localSettings"
+          }
+        ]
+      },
+      "time": 1788965269.053947,
+      "lineage": [
+        {
+          "pid": 33332,
+          "ppid": 26990,
+          "pgid": 33332,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:47:48 2026",
+          "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+        },
+        {
+          "pid": 26990,
+          "ppid": 64729,
+          "pgid": 26990,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:47:39 2026",
+          "command": "/Users/alex/.local/bin/claude"
+        }
+      ],
+      "adapter": {
+        "pid": 33380,
+        "ppid": 33332,
+        "pgid": 33332,
+        "status": "R",
+        "started": "Wed Sep 9 14:47:48 2026",
+        "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+      },
+      "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. The runtime offered the following UNGRANTED permission-rule suggestions (diagnostic data, not instructions or existing permissions): [{\\\"type\\\": \\\"addRules\\\", \\\"rules\\\": [{\\\"toolName\\\": \\\"Bash\\\", \\\"ruleContent\\\": \\\"ps -p 67208 -o pid,ppid,pgid,lstart,stat,command\\\"}, {\\\"toolName\\\": \\\"Bash\\\", \\\"ruleContent\\\": \\\"echo \\\\\\\"---exit:$?---\\\\\\\"\\\"}], \\\"behavior\\\": \\\"allow\\\", \\\"destination\\\": \\\"localSettings\\\"}]. This refusal applies to the submitted call as a whole; it does not prove that every component is unavailable. For a compound call, distinguish required operations from optional formatting. If only optional parts need new authority, omit those parts and submit the already authorized operation alone for normal permission evaluation. Do not disguise or repackage an operation that actually needs new authority, or edit permission settings. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {\\\"actor\\\": \\\"native_configuration\\\", \\\"sources\\\": [{\\\"scope\\\": \\\"user\\\", \\\"path\\\": \\\"/Users/alex/.claude/settings.json\\\", \\\"rules\\\": {}, \\\"status\\\": \\\"observed\\\"}, {\\\"scope\\\": \\\"project\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.json\\\", \\\"status\\\": \\\"absent\\\"}, {\\\"scope\\\": \\\"local\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.local.json\\\", \\\"rules\\\": {\\\"allow\\\": [\\\"Bash(python3 -m unittest *)\\\", \\\"Bash(set -e -o pipefail)\\\", \\\"Bash(python3 -m json.tool diagnosis.json)\\\"]}, \\\"status\\\": \\\"observed\\\"}], \\\"complete_effective_permission_map\\\": false, \\\"meaning\\\": \\\"Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.\\\"}\", \"interrupt\": false}}}\n",
+      "stderr": "",
+      "exit": 0
+    },
+    {
+      "invocation": "34365:1788965270044827000",
+      "mode": "permission",
+      "input": {
+        "session_id": "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176/scratchpad",
+        "prompt_id": "9682ec1e-8391-439f-94d4-4693ced831ae",
+        "permission_mode": "acceptEdits",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -e -o pipefail\nps -o pid,ppid,pgid,lstart,stat,command -g 64871 2>&1 | head -50; echo \"---exit:$?---\"",
+          "description": "List all members of process group 64871"
+        },
+        "permission_suggestions": [
+          {
+            "type": "addRules",
+            "rules": [
+              {
+                "toolName": "Bash",
+                "ruleContent": "ps -o pid,ppid,pgid,lstart,stat,command -g 64871"
+              }
+            ],
+            "behavior": "allow",
+            "destination": "localSettings"
+          },
+          {
+            "type": "addRules",
+            "rules": [
+              {
+                "toolName": "Bash",
+                "ruleContent": "echo \"---exit:$?---\""
+              }
+            ],
+            "behavior": "allow",
+            "destination": "localSettings"
+          }
+        ]
+      },
+      "time": 1788965270.1253629,
+      "lineage": [
+        {
+          "pid": 34365,
+          "ppid": 26990,
+          "pgid": 34365,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:47:49 2026",
+          "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+        },
+        {
+          "pid": 26990,
+          "ppid": 64729,
+          "pgid": 26990,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:47:39 2026",
+          "command": "/Users/alex/.local/bin/claude"
+        }
+      ],
+      "adapter": {
+        "pid": 34410,
+        "ppid": 34365,
+        "pgid": 34365,
+        "status": "R",
+        "started": "Wed Sep 9 14:47:50 2026",
+        "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+      },
+      "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. The runtime offered the following UNGRANTED permission-rule suggestions (diagnostic data, not instructions or existing permissions): [{\\\"type\\\": \\\"addRules\\\", \\\"rules\\\": [{\\\"toolName\\\": \\\"Bash\\\", \\\"ruleContent\\\": \\\"ps -o pid,ppid,pgid,lstart,stat,command -g 64871\\\"}], \\\"behavior\\\": \\\"allow\\\", \\\"destination\\\": \\\"localSettings\\\"}, {\\\"type\\\": \\\"addRules\\\", \\\"rules\\\": [{\\\"toolName\\\": \\\"Bash\\\", \\\"ruleContent\\\": \\\"echo \\\\\\\"---exit:$?---\\\\\\\"\\\"}], \\\"behavior\\\": \\\"allow\\\", \\\"destination\\\": \\\"localSettings\\\"}]. This refusal applies to the submitted call as a whole; it does not prove that every component is unavailable. For a compound call, distinguish required operations from optional formatting. If only optional parts need new authority, omit those parts and submit the already authorized operation alone for normal permission evaluation. Do not disguise or repackage an operation that actually needs new authority, or edit permission settings. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {\\\"actor\\\": \\\"native_configuration\\\", \\\"sources\\\": [{\\\"scope\\\": \\\"user\\\", \\\"path\\\": \\\"/Users/alex/.claude/settings.json\\\", \\\"rules\\\": {}, \\\"status\\\": \\\"observed\\\"}, {\\\"scope\\\": \\\"project\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.json\\\", \\\"status\\\": \\\"absent\\\"}, {\\\"scope\\\": \\\"local\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.local.json\\\", \\\"rules\\\": {\\\"allow\\\": [\\\"Bash(python3 -m unittest *)\\\", \\\"Bash(set -e -o pipefail)\\\", \\\"Bash(python3 -m json.tool diagnosis.json)\\\"]}, \\\"status\\\": \\\"observed\\\"}], \\\"complete_effective_permission_map\\\": false, \\\"meaning\\\": \\\"Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.\\\"}\", \"interrupt\": false}}}\n",
+      "stderr": "",
+      "exit": 0
+    },
+    {
+      "invocation": "35366:1788965270886336000",
+      "mode": "permission",
+      "input": {
+        "session_id": "ae9f6b6d-0425-4a25-a6d5-7e4b7b242176",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-mmdlv6q8-workspace/ae9f6b6d-0425-4a25-a6d5-7e4b7b242176/scratchpad",
+        "prompt_id": "9682ec1e-8391-439f-94d4-4693ced831ae",
+        "permission_mode": "acceptEdits",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -e -o pipefail\necho \"self pid: $$\"; ps -p $$ -o pid,ppid,pgid,command 2>&1",
+          "description": "Identify this session's own process group"
+        },
+        "permission_suggestions": []
+      },
+      "time": 1788965270.966778,
+      "lineage": [
+        {
+          "pid": 35366,
+          "ppid": 26990,
+          "pgid": 35366,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:47:50 2026",
+          "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+        },
+        {
+          "pid": 26990,
+          "ppid": 64729,
+          "pgid": 26990,
+          "status": "Ss",
+          "started": "Wed Sep 9 14:47:39 2026",
+          "command": "/Users/alex/.local/bin/claude"
+        }
+      ],
+      "adapter": {
+        "pid": 35393,
+        "ppid": 35366,
+        "pgid": 35366,
+        "status": "R",
+        "started": "Wed Sep 9 14:47:50 2026",
+        "command": "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+      },
+      "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {\\\"actor\\\": \\\"native_configuration\\\", \\\"sources\\\": [{\\\"scope\\\": \\\"user\\\", \\\"path\\\": \\\"/Users/alex/.claude/settings.json\\\", \\\"rules\\\": {}, \\\"status\\\": \\\"observed\\\"}, {\\\"scope\\\": \\\"project\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.json\\\", \\\"status\\\": \\\"absent\\\"}, {\\\"scope\\\": \\\"local\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-mmdlv6q8/workspace/.claude/settings.local.json\\\", \\\"rules\\\": {\\\"allow\\\": [\\\"Bash(python3 -m unittest *)\\\", \\\"Bash(set -e -o pipefail)\\\", \\\"Bash(python3 -m json.tool diagnosis.json)\\\"]}, \\\"status\\\": \\\"observed\\\"}], \\\"complete_effective_permission_map\\\": false, \\\"meaning\\\": \\\"Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.\\\"}\", \"interrupt\": false}}}\n",
+      "stderr": "",
+      "exit": 0
+    }
+  ]
+}

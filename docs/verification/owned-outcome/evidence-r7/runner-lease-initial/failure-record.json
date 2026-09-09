@@ -1,0 +1,7 @@
+{
+  "passed": false,
+  "classification": "fixture input missing verified-source provenance; runner rejected before scripted provider launch",
+  "provider_calls": 0,
+  "test_sha256": "640bc5772eb59292840be589cb2e7c0ab3cd90a9c853da8749c651670a00d654",
+  "recorded_after_failure": true
+}
