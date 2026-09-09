@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+import hashlib,json,os,sys,time
+from pathlib import Path
+raw=sys.stdin.buffer.read()
+path=Path(os.environ['RICHOS_RECOVERY_PRIVATE_DIR'])/('inspector-'+str(time.time_ns())+'.json')
+fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+with os.fdopen(fd,'wb') as output: output.write(raw)
+payload=json.loads(raw)
+root=Path(sys.argv[2])
+permission=payload.get('permission_context',{})
+permission['sources']=[{'scope':'user','redacted_nonfixture_configuration':True} if source.get('scope')=='user' else source for source in permission.get('sources',[])]
+with (root.parent/'inspector.jsonl').open('a') as log:
+    log.write(json.dumps({'argv':sys.argv[1:],'payload':payload,'at':time.time(),
+        'public_payload_policy':'User-scope permission observations redacted; original input retained privately.',
+        'private_raw':{'path':str(path),'sha256':hashlib.sha256(raw).hexdigest()}})+'\n')
+if sys.argv[1]!='audit-session':
+    raise SystemExit('Unexpected inspector operation')
+print(json.dumps({'kind':'incomplete','remaining':'Scripted inspection: original local repair remains unfinished. Continue within its retained constraints.'}))

@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "session_id": "old",
+  "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/resume-exhausted-budget/workspace",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Repair the local parser and verify its tests. Do not publish or install dependencies.",
+      "source_id": "original-human-source",
+      "provenance": "native_human_typed_v1",
+      "prompt_id": "original-human-prompt"
+    }
+  ],
+  "revision": 4,
+  "failures": 0,
+  "source_ids": [
+    "original-human-source"
+  ],
+  "recovered_transcripts": [],
+  "withheld_recoveries": [],
+  "provenance_version": 1,
+  "ownership": {
+    "owner_session_id": "old",
+    "process": {
+      "pid": 99787,
+      "pgid": 99787,
+      "started": "Wed Sep 9 12:23:33 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+    },
+    "recovered_sessions": [],
+    "started_at": 1788956613.9527721
+  },
+  "source_status": "available",
+  "source_transcript": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/resume-exhausted-budget/old-transcript.jsonl",
+  "execution_observations": [],
+  "retry_at": 1788960214.0477078,
+  "audit_attempts": 6,
+  "background_tasks": [],
+  "event": "SessionStart",
+  "updated_at": 1788956614.025558,
+  "verdict": {
+    "kind": "incomplete",
+    "remaining": "Scripted inspection: original local repair remains unfinished. Continue within its retained constraints."
+  },
+  "recovery_checkpoints": [
+    {
+      "id": "9f6eff1e36033e711e2ad6369deacbaa66e083b6c78867a80db731336443ad9a",
+      "sources": [
+        {
+          "session": "old",
+          "process": {
+            "pid": 99677,
+            "pgid": 99677,
+            "started": "Wed Sep 9 12:23:33 2026",
+            "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+          }
+        }
+      ],
+      "destination": {
+        "session": "old",
+        "process": {
+          "pid": 99787,
+          "pgid": 99787,
+          "started": "Wed Sep 9 12:23:33 2026",
+          "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+        }
+      },
+      "created_at": 1788956613.9528,
+      "claimed_at": 1788956614.026172
+    }
+  ],
+  "checked": "2dae878d1f66eea743fdda61d35155041c596235d95dafb96f548a351bb30cbd"
+}

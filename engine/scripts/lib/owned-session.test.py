@@ -1128,6 +1128,193 @@ class Recovery(unittest.TestCase):
         self.assertEqual(json.loads(again.read_text())['completion_consumed_invocations'],['old:launch'])
         self.assertEqual(json.loads(again.read_text())['completion_checkpoints'],[{'id':'consumed'}])
 
+    def test_exhausted_restart_reconciles_immediately_once_per_actual_process(self):
+        old,_=self.assignment();state=json.loads(old.read_text())
+        state.update(audit_attempts=5,failures=3,retry_at=o.time.time()+3000);o.atomic(old,state)
+        path,payload=self.boot('new',103)
+        def inspected(*args,**kwargs):
+            current=json.loads(path.read_text())
+            self.assertEqual((current['audit_attempts'],current['failures']),(6,3))
+            self.assertTrue(current['recovery_checkpoints'][-1]['claimed_at'])
+            self.boot('new',103)  # A duplicate startup during inference cannot refill.
+            return subprocess.CompletedProcess([],0,json.dumps({'kind':'incomplete','remaining':'Continue original repair.'}),'')
+        with patch.object(o.subprocess,'run',side_effect=inspected) as run,patch.object(o.time,'sleep',side_effect=AssertionError('No inherited restart delay')):
+            self.assertEqual(o.audit_once(path,self.config)[0],2);self.assertEqual(run.call_count,1)
+        current=json.loads(path.read_text());self.assertFalse(current.get('recovery_requires_review'))
+        self.assertEqual(len(current['recovery_checkpoints']),1)
+        self.boot('new',103)
+        with patch.object(o.subprocess,'run',side_effect=AssertionError('No repeated inspection')),patch.object(o.time,'sleep',side_effect=RuntimeError('paced')),self.assertRaisesRegex(RuntimeError,'paced'):
+            o.audit_once(path,self.config)
+        self.boot('new',104)
+        current=json.loads(path.read_text());self.assertEqual(len(current['recovery_checkpoints']),2)
+        self.assertNotIn('claimed_at',current['recovery_checkpoints'][-1])
+        with patch.object(o.subprocess,'run',return_value=subprocess.CompletedProcess([],1,'','inspector unavailable')),patch.object(o.time,'sleep',side_effect=AssertionError('Same-session actual restart receives one reconciliation')):
+            self.assertEqual(o.audit_once(path,self.config)[0],2)
+        current=json.loads(path.read_text());self.assertEqual(current['audit_attempts'],7);self.assertEqual(current['failures'],1)
+        self.assertTrue(current['recovery_checkpoints'][-1]['claimed_at'])
+
+    def test_reconciliation_crash_reservation_survives_duplicate_start_and_reclaim(self):
+        old,_=self.assignment();state=json.loads(old.read_text());state.update(audit_attempts=5,retry_at=o.time.time()+3000);o.atomic(old,state)
+        path,_=self.boot('new',103)
+        with patch.object(o.subprocess,'run',side_effect=KeyboardInterrupt),self.assertRaises(KeyboardInterrupt):o.audit_once(path,self.config)
+        self.boot('new',103);saved=json.loads(path.read_text())
+        self.assertEqual(saved['audit_attempts'],6);self.assertTrue(saved['recovery_checkpoints'][-1]['claimed_at'])
+        with patch.object(o.time,'sleep',side_effect=RuntimeError('paced')),self.assertRaisesRegex(RuntimeError,'paced'):o.audit_once(path,self.config)
+        resumed,_=self.boot('old',104);state=json.loads(resumed.read_text())
+        self.assertTrue(state['recovery_checkpoints'][0]['claimed_at']);self.assertNotIn('claimed_at',state['recovery_checkpoints'][-1])
+        self.assertEqual(state['audit_attempts'],6)
+
+    def test_withheld_straggler_is_visible_wakes_once_and_same_owner_rechecks(self):
+        old,_=self.assignment();i.install(self.root,self.runner)
+        state=json.loads(old.read_text());state.update(audit_attempts=5,retry_at=o.time.time()+3000);o.atomic(old,state)
+        rows={103:{**self.process(103),'ppid':1},999:{'pid':999,'pgid':101,'ppid':1,'started':'orphan-start','command':'sleep'}}
+        payload={'session_id':'new','transcript_path':str(self.root/'new.jsonl'),'cwd':str(self.root),'hook_event_name':'SessionStart'}
+        Path(payload['transcript_path']).write_text('')
+        import io
+        with patch.object(o,'native_owner_process',return_value=self.process(103)),patch.object(o,'native_processes',return_value=rows):
+            with patch.object(o.sys,'argv',['owned-session.py','capture']),patch.object(o.sys,'stdin',io.StringIO(json.dumps(payload))),patch.object(o.sys,'stdout',new_callable=io.StringIO) as stdout:
+                self.assertEqual(o.main(),0)
+            response=json.loads(stdout.getvalue())
+            for text in (response['systemMessage'],response['hookSpecificOutput']['additionalContext']):
+                self.assertIn('999',text);self.assertIn('orphan-start',text);self.assertIn('Do not kill an entire group',text)
+            path=o.location(self.root,'new');state=json.loads(path.read_text())
+            self.assertFalse(state['messages']);self.assertEqual(state['withheld_recoveries'][0]['reason'],'residual_process_group')
+            with patch.object(o.subprocess,'run',side_effect=AssertionError('Withheld notice is not a model call')):
+                self.assertEqual(o.audit_once(path,self.config)[0],2)
+                self.assertEqual(o.audit_once(path,self.config),(0,''))
+                self.transcript=Path(payload['transcript_path']);self.write_message('inspection','assistant','Inspecting the exact residual process identity.')
+                o.capture(self.root,dict(payload,hook_event_name='Stop'))
+                self.assertEqual(o.audit_once(path,self.config),(0,''),'inspection prose cannot mint paid authority work')
+            self.assertEqual(json.loads(o.ownership_location(self.root).read_text())['sessions']['old']['owner'],'old')
+            rows.pop(999)
+            o.capture(self.root,dict(payload,hook_event_name='Stop'))
+        state=json.loads(path.read_text());self.assertFalse(state['withheld_recoveries']);self.assertEqual(state['ownership']['process']['pid'],103)
+        self.assertTrue(any(m.get('source_id')=='source-old' for m in state['messages']))
+        with patch.object(o.time,'sleep',side_effect=AssertionError('Recovered work must reconcile immediately')):
+            self.assertEqual(o.audit_once(path,self.config)[0],2)
+
+    def test_completed_same_session_restart_does_not_reopen_or_mint_reconciliation(self):
+        path,_=self.assignment();state=json.loads(path.read_text())
+        state['verdict']={'kind':'complete','evidence':'Verified requested work.'}
+        state['checked']=o.hashlib.sha256(json.dumps(o.audit_data(state),sort_keys=True).encode()).hexdigest();o.atomic(path,state)
+        path,_=self.boot('old',103);state=json.loads(path.read_text())
+        self.assertFalse(state.get('recovery_requires_review'));self.assertFalse(state.get('recovery_checkpoints'))
+        with patch.object(o.subprocess,'run',side_effect=AssertionError('Completed restart must not inspect again')):
+            self.assertEqual(o.audit_once(path,self.config),(0,''))
+
+    def test_empty_and_assistant_only_restart_do_not_gate_or_mint_work(self):
+        for session in ('empty','assistant'):
+            path,payload=self.boot(session,101)
+            if session=='assistant':
+                self.transcript=Path(payload['transcript_path']);self.write_message('hello','assistant','Hello.')
+                o.capture(self.root,dict(payload,hook_event_name='Stop'))
+            path,_=self.boot(session,103);state=json.loads(path.read_text())
+            self.assertFalse(state.get('recovery_requires_review'));self.assertFalse(state.get('recovery_checkpoints'))
+        rows={104:{**self.process(104),'ppid':1},999:{'pid':999,'pgid':103,'ppid':1,'started':'orphan','command':'sleep'}}
+        with patch.object(o,'native_owner_process',return_value=self.process(104)),patch.object(o,'native_processes',return_value=rows):
+            o.capture(self.root,payload)
+        state=json.loads(path.read_text());self.assertNotIn('recovery_observer',state);self.assertFalse(state.get('recovery_requires_review'))
+
+    def test_same_id_residual_observer_cannot_execute_and_rechecks_after_exit(self):
+        path,payload=self.assignment();i.install(self.root,self.runner)
+        rows={103:{**self.process(103),'ppid':1},999:{'pid':999,'pgid':101,'ppid':1,'started':'orphan','command':'sleep'}}
+        import io
+        with patch.object(o,'native_owner_process',return_value=self.process(103)),patch.object(o,'native_processes',return_value=rows):
+            o.capture(self.root,payload)
+            state=json.loads(path.read_text());self.assertEqual(state['ownership']['process']['pid'],101)
+            self.assertEqual(state['recovery_observer']['process']['pid'],103);self.assertFalse(state.get('recovery_checkpoints'))
+            self.assertIn('this observer cannot terminate it',o.withheld_recovery_message(state))
+            self.assertNotIn('safe to reap',o.withheld_recovery_message(state))
+            self.assertEqual(o.audit_once(path,self.config)[0],2)
+            self.assertEqual(o.audit_once(path,self.config),(0,''))
+            for tool in ('Bash','Agent','SendMessage'):
+                proposed=dict(payload,hook_event_name='PreToolUse',tool_name=tool,tool_input={})
+                with patch.object(o.sys,'argv',['owned-session.py','tool']),patch.object(o.sys,'stdin',io.StringIO(json.dumps(proposed))),patch.object(o.sys,'stdout',new_callable=io.StringIO) as stdout:
+                    self.assertEqual(o.main(),0)
+                self.assertEqual(json.loads(stdout.getvalue())['hookSpecificOutput']['permissionDecision'],'deny')
+            rows.pop(999);o.capture(self.root,dict(payload,hook_event_name='Stop'))
+            state=json.loads(path.read_text());self.assertEqual(state['ownership']['process']['pid'],103)
+            self.assertNotIn('recovery_observer',state);self.assertTrue(state['recovery_checkpoints'])
+        self.assertEqual(o.audit_once(path,self.config)[0],2)
+
+    def test_enrolled_observer_process_inspection_failure_denies_actual_cli_tool_path(self):
+        path,payload=self.assignment();i.install(self.root,self.runner)
+        rows={103:{**self.process(103),'ppid':1},999:{'pid':999,'pgid':101,'ppid':1,'started':'orphan','command':'sleep'}}
+        with patch.object(o,'native_owner_process',return_value=self.process(103)),patch.object(o,'native_processes',return_value=rows):
+            o.capture(self.root,payload)
+        proposed=dict(payload,hook_event_name='PreToolUse',tool_name='Bash',tool_input={'command':'echo must-not-execute'})
+        for failure in ("OSError('ps unavailable')", "subprocess.TimeoutExpired('ps', 5)"):
+            wrapper="import runpy,sys,subprocess; from unittest.mock import patch; sys.argv=["+repr(str(Path(o.__file__)))+",'tool']; exec(\"with patch('subprocess.run',side_effect="+failure+"):\\n runpy.run_path(sys.argv[0],run_name='__main__')\")"
+            result=subprocess.run([sys.executable,'-c',wrapper],input=json.dumps(proposed),capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            response=json.loads(result.stdout)['hookSpecificOutput']
+            self.assertEqual(response['permissionDecision'],'deny')
+            self.assertIn('ownership cannot be verified',response['permissionDecisionReason'])
+
+    def test_mechanical_watch_picks_up_later_exit_without_input_or_paid_poll(self):
+        self.assignment();rows={103:{**self.process(103),'ppid':1},999:{'pid':999,'pgid':101,'ppid':1,'started':'orphan','command':'sleep'}}
+        payload={'session_id':'new','transcript_path':str(self.root/'new.jsonl'),'cwd':str(self.root),'hook_event_name':'SessionStart'}
+        Path(payload['transcript_path']).write_text('')
+        with patch.object(o,'native_owner_process',return_value=self.process(103)),patch.object(o,'native_processes',return_value=rows):
+            path=o.capture(self.root,payload);self.assertEqual(o.audit_once(path,self.config)[0],2)
+            def natural_exit(seconds):rows.pop(999)
+            with patch.object(o.time,'sleep',side_effect=natural_exit),patch.object(o.subprocess,'run',side_effect=AssertionError('Liveness watch cannot call inspector')):
+                self.assertEqual(o.audit_once(path,self.config,watch_withheld=True),(-1,''))
+            state=json.loads(path.read_text());self.assertFalse(state['withheld_recoveries']);self.assertTrue(state['recovery_checkpoints'])
+
+    def test_watch_timeout_refresh_is_durable_and_hourly_paced(self):
+        self.assignment();path,_=self.boot('new',103,active=[101]);self.assertEqual(o.audit_once(path,self.config)[0],2)
+        state=json.loads(path.read_text());state['withheld_watch_until']=100;o.atomic(path,state)
+        with patch.object(o.time,'time',return_value=101),patch.object(o.subprocess,'run',side_effect=AssertionError('No paid watch')):
+            code,message=o.audit_once(path,self.config,watch_withheld=True)
+            self.assertEqual(code,2);self.assertIn('bounded liveness watch',message)
+            self.assertEqual(json.loads(path.read_text())['withheld_watch_until'],3701)
+            with patch.object(o.time,'sleep',side_effect=RuntimeError('paced')),self.assertRaisesRegex(RuntimeError,'paced'):
+                o.audit_once(path,self.config,watch_withheld=True)
+
+    def test_completed_owned_scope_keeps_watching_other_withheld_assignment(self):
+        self.assignment('blocked',101);owned,payload=self.boot('owned',102,active=[101])
+        self.transcript=Path(payload['transcript_path']);self.write_message('source-owned','user','Complete the independent repair. Do not publish.')
+        with patch.object(o,'native_owner_process',return_value=self.process(102)),patch.object(o,'native_processes',return_value={pid:{**self.process(pid),'ppid':1} for pid in (101,102)}):
+            o.capture(self.root,dict(payload,hook_event_name='Stop'))
+        path,payload=self.boot('new',103,active=[101]);state=json.loads(path.read_text())
+        state['verdict']={'kind':'complete','evidence':'Verified currently acquired work.'};state.pop('recovery_requires_review',None)
+        state['checked']=o.hashlib.sha256(json.dumps(o.audit_data(state),sort_keys=True).encode()).hexdigest();o.atomic(path,state)
+        self.assertEqual(o.audit_once(path,self.config)[0],2)
+        rows={101:{**self.process(101),'ppid':1},103:{**self.process(103),'ppid':1}}
+        with patch.object(o,'native_owner_process',return_value=self.process(103)),patch.object(o,'native_processes',return_value=rows),patch.object(o.time,'sleep',side_effect=lambda _:rows.pop(101)),patch.object(o.subprocess,'run',side_effect=AssertionError('Watch is mechanical')):
+            self.assertEqual(o.audit_once(path,self.config,watch_withheld=True),(-1,''))
+        state=json.loads(path.read_text());self.assertFalse(state['withheld_recoveries']);self.assertTrue(state['recovery_requires_review'])
+
+    def test_concurrent_withheld_callbacks_reserve_only_one_host_wake(self):
+        from concurrent.futures import ThreadPoolExecutor
+        self.assignment();path,_=self.boot('new',103,active=[101])
+        with patch.object(o.subprocess,'run',side_effect=AssertionError('No inspector for withheld work')):
+            with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(lambda _:o.audit_once(path,self.config),(1,2)))
+        self.assertEqual(sum(code==2 for code,_ in results),1)
+
+    def test_withheld_live_and_unknown_owners_are_distinct_and_finished_are_omitted(self):
+        old,_=self.assignment();fresh,_=self.boot('new',103,active=[101])
+        state=json.loads(fresh.read_text());self.assertEqual(state['withheld_recoveries'][0]['reason'],'live_leader')
+        self.assertIn('Do not interrupt a live leader',o.withheld_recovery_message(state))
+        state=json.loads(old.read_text());state['status']='cancelled';o.atomic(old,state)
+        fresh,_=self.boot('new',103,active=[101]);self.assertFalse(json.loads(fresh.read_text())['withheld_recoveries'])
+        with patch.object(o,'native_processes',return_value={}):
+            unknown=o.recovery_blocker('legacy',None)
+        self.assertEqual(unknown['reason'],'unknown_ownership');self.assertIsNone(unknown['owner_process'])
+
+    def test_registry_start_parser_handles_both_native_orders_and_rejects_bad_identity(self):
+        config=self.root/'native-config';registry=config/'sessions';registry.mkdir(parents=True)
+        rows={101:{**self.process(101),'ppid':1,'started':'Wed 9 Sep 09:16:05 2026'}}
+        record={'pid':101,'sessionId':'old','cwd':str(self.root),'procStart':'Wed Sep  9 09:16:05 2026'}
+        with patch.dict(os.environ,CLAUDE_CONFIG_DIR=str(config)),patch.object(o,'native_processes',return_value=rows):
+            for value in ('Wed Sep  9 09:16:05 2026','Wed 9 Sep 09:16:05 2026'):
+                record['procStart']=value;o.atomic(registry/'101.json',record)
+                self.assertEqual(o.legacy_owner_process(self.root,'old',self.process(103))['pid'],101)
+            for value in ('Wed Sep 9 09:16:06 2026','malformed',''):
+                record['procStart']=value;o.atomic(registry/'101.json',record)
+                self.assertIsNone(o.legacy_owner_process(self.root,'old',self.process(103)))
+
     def test_legacy_ledgers_migrate_only_when_live_registry_is_accounted_for(self):
         self.write_message('legacy-source','user','Complete the earlier accepted repair. Do not publish.')
         old=o.capture(self.root,dict(self.payload,hook_event_name='Stop'))

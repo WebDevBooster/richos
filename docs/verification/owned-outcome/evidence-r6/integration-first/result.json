@@ -1,0 +1,80 @@
+{
+  "passed": false,
+  "provider_calls": 0,
+  "boundary": "Actual OS processes and shipped hook CLI; scripted leader/operator and fake inspector. This does not prove live model autonomous recovery.",
+  "source_sha256": {
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-recovery.py": "3396809f31983b310fb662771dd751beedba4e550a8e0ae28ca97967ceaae9dc",
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.py": "16ff3f1427997ce6387027dca86be348fdd060578e51269f0ad3b9afccaa42e0"
+  },
+  "source_unchanged": true,
+  "cases": [
+    {
+      "case": "fresh-exhausted-budget",
+      "kind": "fresh",
+      "provider_calls": 0,
+      "checks": {
+        "real_old_owner_dead": true,
+        "one_immediate_reconciliation_without_hour_sleep": true,
+        "transfer_credit_durably_claimed_once": true,
+        "same_replacement_owns_assignment": true,
+        "inspection_budget_not_refilled": true,
+        "reconciliation_gate_cleared": true,
+        "original_source_and_constraints_retained": true,
+        "repeated_start_stop_cannot_buy_inspection_credit": true,
+        "no_human_assignment_resent": true,
+        "replacement_transcript_has_no_synthetic_assignment": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "passed": true
+    },
+    {
+      "case": "resume-exhausted-budget",
+      "kind": "resume",
+      "provider_calls": 0,
+      "checks": {
+        "real_old_owner_dead": true,
+        "one_immediate_reconciliation_without_hour_sleep": true,
+        "transfer_credit_durably_claimed_once": true,
+        "same_replacement_owns_assignment": true,
+        "inspection_budget_not_refilled": true,
+        "reconciliation_gate_cleared": true,
+        "original_source_and_constraints_retained": true,
+        "repeated_start_stop_cannot_buy_inspection_credit": true,
+        "no_human_assignment_resent": true,
+        "replacement_transcript_has_no_synthetic_assignment": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "passed": true
+    },
+    {
+      "case": "live-straggler-recovery",
+      "kind": "straggler",
+      "provider_calls": 0,
+      "checks": {
+        "real_old_owner_dead": true,
+        "live_straggler_prevents_transfer": true,
+        "withheld_state_records_exact_live_process": true,
+        "withheld_notice_visible_on_both_channels": true,
+        "empty_replacement_gets_host_only_wake": true,
+        "unchanged_blocker_does_not_repeat_wake": true,
+        "outstanding_hook_waits_without_transfer": true,
+        "scripted_recovery_uses_exact_live_identity": true,
+        "same_outstanding_stop_hook_picks_up_after_exit": true,
+        "one_immediate_reconciliation_without_hour_sleep": false,
+        "transfer_credit_durably_claimed_once": true,
+        "same_replacement_owns_assignment": true,
+        "inspection_budget_not_refilled": true,
+        "reconciliation_gate_cleared": true,
+        "original_source_and_constraints_retained": true,
+        "repeated_start_stop_cannot_buy_inspection_credit": true,
+        "no_human_assignment_resent": true,
+        "replacement_transcript_has_no_synthetic_assignment": true,
+        "no_owned_fixture_processes_remain": true,
+        "private_raw_evidence_has_restricted_permissions": true
+      },
+      "passed": false
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "session_id": "replacement",
+  "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/live-straggler-recovery/workspace",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Repair the local parser and verify its tests. Do not publish or install dependencies.",
+      "source_id": "original-human-source",
+      "provenance": "native_human_typed_v1",
+      "prompt_id": "original-human-prompt",
+      "source_session_id": "old"
+    }
+  ],
+  "revision": 6,
+  "failures": 0,
+  "source_ids": [
+    "original-human-source"
+  ],
+  "recovered_transcripts": [
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/live-straggler-recovery/old-transcript.jsonl"
+  ],
+  "withheld_recoveries": [],
+  "provenance_version": 1,
+  "ownership": {
+    "owner_session_id": "replacement",
+    "process": {
+      "pid": 1065,
+      "pgid": 1065,
+      "started": "Wed Sep 9 12:23:35 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+    },
+    "recovered_sessions": [
+      "old"
+    ],
+    "started_at": 1788956615.8124921
+  },
+  "source_status": "available",
+  "source_transcript": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/live-straggler-recovery/replacement-transcript.jsonl",
+  "execution_observations": [],
+  "background_tasks": [],
+  "event": "Stop",
+  "updated_at": 1788956621.3682508,
+  "withheld_notice_key": "6c45eb900079a2080378a9033b15acc2a27618c72286c5532a01c4862fdf022c",
+  "withheld_watch_until": 1788960215.937609,
+  "stop_hook_active": false,
+  "recovered_transcript_sessions": {
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/live-straggler-recovery/old-transcript.jsonl": "old"
+  },
+  "audit_attempts": 6,
+  "completion_consumed_invocations": [],
+  "completion_checkpoints": [],
+  "recovery_checkpoints": [
+    {
+      "id": "0d059862002c14a32567fbe5c71e9aa600d2e756eced9379fe34750d492a0230",
+      "sources": [
+        {
+          "session": "old",
+          "process": {
+            "pid": 967,
+            "pgid": 967,
+            "started": "Wed Sep 9 12:23:35 2026",
+            "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+          }
+        }
+      ],
+      "destination": {
+        "session": "replacement",
+        "process": {
+          "pid": 1065,
+          "pgid": 1065,
+          "started": "Wed Sep 9 12:23:35 2026",
+          "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+        }
+      },
+      "created_at": 1788956621.366852,
+      "claimed_at": 1788956621.3689249
+    }
+  ],
+  "retry_at": 1788960221.390214,
+  "recovery_obligations": [
+    {
+      "source_session_id": "old",
+      "source_state": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/live-straggler-recovery/state/e0aee7d65d256727c402acd62f62fe3707a624b65f35546ac9f1e72a4223d84b.json",
+      "prior_verdict": {
+        "kind": "incomplete",
+        "remaining": "Original fixture work remains unfinished."
+      },
+      "transferred_at": 1788956621.36673
+    }
+  ],
+  "recovered_permission_history": [],
+  "checked": "ef2bb9c905a0d99070bc73ea32de804a09e57c24333dddd5a87cff1e9069772d",
+  "verdict": {
+    "kind": "incomplete",
+    "remaining": "Scripted inspection: original local repair remains unfinished. Continue within its retained constraints."
+  }
+}

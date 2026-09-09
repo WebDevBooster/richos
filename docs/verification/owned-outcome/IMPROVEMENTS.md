@@ -2,7 +2,7 @@
 
 Record suggestions here without silently adding them to the implementation scope.
 The remaining requirements below are not optional improvements and are not claims
-of implemented behavior. [REVISION-5.md](REVISION-5.md) defines the current
+of implemented behavior. [REVISION-6.md](REVISION-6.md) defines the current
 correction boundary; historical results remain in their numbered reports.
 
 ## Observed remaining requirements
@@ -21,6 +21,13 @@ See [PERMISSIONS-4.md](PERMISSIONS-4.md) and [RESULTS-4.md](RESULTS-4.md) for it
 approve-once/reject commands, persisted grants, revocation and measured limits.
 It is no longer listed as missing implementation.
 
+Native adoption has a hard runtime requirement: the hook must have an actual
+Claude ancestor whose executable basename is `claude`. The current ownership
+adapter does not support an npm installation that appears only as `node` in the
+process table. Adoption on that runtime is unsupported until process identity
+support and its acceptance checks exist. Version compatibility also matters:
+the native hook transport was measured on 2.1.263 and 2.1.266, not every release.
+
 ## Deferred lifecycle work and optional improvements
 
 - Make the registrar's `independent` versus `authorized` subtype more consistent
@@ -34,7 +41,8 @@ It is no longer listed as missing implementation.
 - Consolidate historical policy prose and duplicated notice hooks across the
   engine. Only the dispatch and continuation conflict is addressed here.
 - Optimize large history indexing after correctness measurements establish a need.
-- Add an installer compatibility preflight for Claude's native wake contract.
+- Enforce the native runtime requirements above with an installer compatibility
+  preflight for process identity and Claude's native wake contract.
   The integration was initially measured on Claude Code 2.1.263 and R5 was
   measured on 2.1.266; installation does not currently reject older or incompatible
   versions.
@@ -111,3 +119,13 @@ It is no longer listed as missing implementation.
   trials spent several inspections confirming that a running worker had not
   delivered yet. Any cheaper waiting path must retain a watchdog for lost or hung
   work and must not infer completion from a native terminal event.
+
+## Discovered during revision 6, outside its scope
+
+- A same-session-ID recovery observer is deliberately limited to native
+  `Read`, `Glob` and `Grep` while the old process group can still act. Its host
+  snapshots and watcher diagnose and recover after process exit, but cannot
+  terminate a non-terminating straggler. A narrowly authorized process-management
+  capability would need exact identity binding and native permission enforcement;
+  it must not turn a recovery notice into blanket Bash or process-kill authority.
+  Fresh-session recovery continues to use its normal permitted diagnostic tools.

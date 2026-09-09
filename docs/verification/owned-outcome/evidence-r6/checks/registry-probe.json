@@ -1,0 +1,14 @@
+{
+  "adapter_sha256": "2b29c6ef6447c213da17d28b856caed4d72f9fdf9d05c3e63024b73c4152e178",
+  "read_only": true,
+  "provider_calls": 0,
+  "observed_registry_cases": [
+    {
+      "pid": 20597,
+      "registry_start": "Wed Sep  9 09:16:05 2026",
+      "observed_start": "Wed Sep 9 09:16:05 2026",
+      "parsed_instants_equal": true,
+      "owner_matched": true
+    }
+  ]
+}

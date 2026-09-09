@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "session_id": "replacement",
+  "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/fresh-exhausted-budget/workspace",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Repair the local parser and verify its tests. Do not publish or install dependencies.",
+      "source_id": "original-human-source",
+      "provenance": "native_human_typed_v1",
+      "prompt_id": "original-human-prompt",
+      "source_session_id": "old"
+    }
+  ],
+  "revision": 7,
+  "failures": 0,
+  "source_ids": [
+    "original-human-source"
+  ],
+  "recovered_transcripts": [
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/fresh-exhausted-budget/old-transcript.jsonl"
+  ],
+  "recovered_transcript_sessions": {
+    "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/fresh-exhausted-budget/old-transcript.jsonl": "old"
+  },
+  "execution_observations": [],
+  "audit_attempts": 6,
+  "completion_consumed_invocations": [],
+  "completion_checkpoints": [],
+  "recovery_checkpoints": [
+    {
+      "id": "004fe7789cda26240402c922920aa19417adbddb9c7e37d3ca56252079f2b7bb",
+      "sources": [
+        {
+          "session": "old",
+          "process": {
+            "pid": 98738,
+            "pgid": 98738,
+            "started": "Wed Sep 9 12:23:31 2026",
+            "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+          }
+        }
+      ],
+      "destination": {
+        "session": "replacement",
+        "process": {
+          "pid": 98869,
+          "pgid": 98869,
+          "started": "Wed Sep 9 12:23:31 2026",
+          "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+        }
+      },
+      "created_at": 1788956612.0143502,
+      "claimed_at": 1788956612.0910342
+    }
+  ],
+  "retry_at": 1788960212.201471,
+  "recovery_obligations": [
+    {
+      "source_session_id": "old",
+      "source_state": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/fresh-exhausted-budget/state/8ee501585ecbc5436e73269b7e2d0f253ca62091c5109d9b6eaa6c2bc5efa94a.json",
+      "prior_verdict": {
+        "kind": "incomplete",
+        "remaining": "Original fixture work remains unfinished."
+      },
+      "transferred_at": 1788956612.01426
+    }
+  ],
+  "recovered_permission_history": [],
+  "withheld_recoveries": [],
+  "provenance_version": 1,
+  "ownership": {
+    "owner_session_id": "replacement",
+    "process": {
+      "pid": 98869,
+      "pgid": 98869,
+      "started": "Wed Sep 9 12:23:31 2026",
+      "command": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/claude"
+    },
+    "recovered_sessions": [
+      "old"
+    ],
+    "started_at": 1788956612.014304
+  },
+  "source_status": "available",
+  "source_transcript": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-recovery-e3_9cztv/fresh-exhausted-budget/replacement-transcript.jsonl",
+  "background_tasks": [],
+  "event": "Stop",
+  "updated_at": 1788956613.0282629,
+  "checked": "445c51139016afa5cd6423e41d5bc80d4bc2232be82d0111bd57ab9e6bd60e95",
+  "verdict": {
+    "kind": "incomplete",
+    "remaining": "Scripted inspection: original local repair remains unfinished. Continue within its retained constraints."
+  },
+  "stop_hook_active": false
+}

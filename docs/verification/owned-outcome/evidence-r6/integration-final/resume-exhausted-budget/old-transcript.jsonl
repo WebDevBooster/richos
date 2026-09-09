@@ -1,0 +1,1 @@
+{"uuid": "original-human-source", "type": "user", "origin": {"kind": "human"}, "promptSource": "typed", "promptId": "original-human-prompt", "message": {"content": "Repair the local parser and verify its tests. Do not publish or install dependencies."}}

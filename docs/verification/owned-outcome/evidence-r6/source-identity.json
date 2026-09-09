@@ -1,0 +1,16 @@
+{
+  "base_commit": "d8afbc1fa6e2ae717e8736fb9a683dad9b3a4661",
+  "branch": "codex/owned-outcome-completion",
+  "files": {
+    "app/README.md": "227c0c45cdf7c9eb3dbf4d9521a7f4ad600cdce40f7b17c9dc38196d13e1b193",
+    "app/scripts/test-owned-recovery.py": "6f94e22d5bc96366b7afb322ccbc88b1adcea0f49b1124f684f3f055d4c1f156",
+    "docs/verification/owned-outcome/IMPROVEMENTS.md": "78c44fb1ada954dd8fe90e64e9c88f53f03a784592712f59701f7fcea3b6667c",
+    "docs/verification/owned-outcome/RESULTS-6.md": "42eaf1aa894ca00887b3df94f1f8487468bde695f4df1c01a9dc15aaeca20417",
+    "docs/verification/owned-outcome/REVIEW.md": "7cdc15abc2ed6cef741744fcaed329c5ddbd778028dbc09d01f3bceb83ce7bfe",
+    "docs/verification/owned-outcome/REVISION-6.md": "fea43a18d860990e8ad2982b29a55aa3709e59170b7380846f13cc1a5324f6d5",
+    "engine/scripts/lib/owned-dispatch.py": "950eeb2330c8978add9556190a6263b422717f36bd6c1c3f607e8c2f23b3a593",
+    "engine/scripts/lib/owned-dispatch.test.py": "f6d3c794a5cc9d7c7deccfde23803b9d56ba2dc63a056ac265157c5d763e4ef1",
+    "engine/scripts/lib/owned-session.py": "2b29c6ef6447c213da17d28b856caed4d72f9fdf9d05c3e63024b73c4152e178",
+    "engine/scripts/lib/owned-session.test.py": "297e82e3c9bc794b5a15e54ae0329a45394d4c9baee8e0fc422de226056e69e9"
+  }
+}
