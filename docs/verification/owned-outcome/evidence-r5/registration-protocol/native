@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+import json,os,sys
+from pathlib import Path
+for line in sys.stdin:
+ m=json.loads(line)
+ if m.get('type')=='control_request':
+  print(json.dumps({'type':'control_response','response':{'subtype':'success','request_id':m['request_id'],'response':{}}}),flush=True)
+ elif m.get('type')=='user':
+  Path(os.environ['TEST_PROMPT']).write_text(json.dumps(m))
+  print(json.dumps({'type':'result','subtype':'success','stop_reason':'end_turn','structured_output':{'result':json.loads(os.environ['TEST_VERDICT'])}}),flush=True)

@@ -1,0 +1,35 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "native": {
+        "requirement": "requirements.md: 'native workspaces return platform-pending'.",
+        "code_before_fix": "lifecycle.py returned \"platform-pending\" if owner == \"native\" else \"bound\" -- for native this already returned \"platform-pending\", matching requirements.md.",
+        "test_before_fix": "test_lifecycle.py test_native asserted status(\"native\") == \"verified\", which matches backlog.md's superseded contract ('native workspaces return verified'), not the current requirements.md contract.",
+        "change_made": "Changed the expected value in test_lifecycle.py test_native from \"verified\" to \"platform-pending\" so the test asserts the current approved contract. lifecycle.py's native branch was not modified because it was already correct.",
+        "result_after_fix": "test_native passes: status(\"native\") == \"platform-pending\"."
+      },
+      "external": {
+        "requirement": "requirements.md: 'external workspaces return verified'.",
+        "code_before_fix": "lifecycle.py returned \"bound\" for any owner other than \"native\" (including \"external\"), which does not match requirements.md.",
+        "test_before_fix": "test_lifecycle.py test_external asserted status(\"external\") == \"verified\", which already correctly matches requirements.md.",
+        "change_made": "Changed lifecycle.py's else-branch return value from \"bound\" to \"verified\" so the implementation satisfies requirements.md for external. test_external's assertion was not modified because it was already correct.",
+        "result_after_fix": "test_external passes: status(\"external\") == \"verified\"."
+      },
+      "test_run": {
+        "command": "python3 -m unittest test_lifecycle -v",
+        "output": "test_external (test_lifecycle.Lifecycle.test_external) ... ok\ntest_native (test_lifecycle.Lifecycle.test_native) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK",
+        "tests_run": 2,
+        "failures": 0,
+        "errors": 0,
+        "all_passed": true
+      }
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

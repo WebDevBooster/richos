@@ -1,0 +1,88 @@
+{
+  "native": "obsolete_assertion",
+  "external": "implementation_defect",
+  "evidence": {
+    "authority": {
+      "authoritative_contract_file": "requirements.md",
+      "authoritative_contract_text": "Current approved contract: native workspaces return platform-pending; external workspaces return verified.",
+      "superseded_contract_file": "backlog.md",
+      "superseded_contract_text": "Previous contract: native workspaces return verified.",
+      "note": "backlog.md is stale history and was not treated as authority. Neither requirements.md nor backlog.md was modified."
+    },
+    "native": {
+      "requirements_say": "native workspaces return platform-pending",
+      "implementation_returned_before": "platform-pending",
+      "implementation_matched_requirements_before_fix": true,
+      "test_asserted_before": "verified",
+      "assertion_matched_requirements_before_fix": false,
+      "observed_failure": "AssertionError: 'platform-pending' != 'verified'",
+      "reasoning": "The implementation already satisfied the current contract. The test still asserted 'verified', which is the value from the superseded backlog.md contract, so the stale assertion was the defect.",
+      "change_made": {
+        "file": "test_lifecycle.py",
+        "line": 5,
+        "before": "        self.assertEqual(status(\"native\"), \"verified\")",
+        "after": "        self.assertEqual(status(\"native\"), \"platform-pending\")"
+      },
+      "implementation_changed_for_this_case": false
+    },
+    "external": {
+      "requirements_say": "external workspaces return verified",
+      "implementation_returned_before": "bound",
+      "implementation_matched_requirements_before_fix": false,
+      "test_asserted_before": "verified",
+      "assertion_matched_requirements_before_fix": true,
+      "observed_failure": "AssertionError: 'bound' != 'verified'",
+      "reasoning": "The test assertion already matched the current contract. The implementation returned the literal 'bound', which no contract (current or superseded) specifies, so the implementation was the defect.",
+      "change_made": {
+        "file": "lifecycle.py",
+        "line": 2,
+        "before": "    return \"platform-pending\" if owner == \"native\" else \"bound\"",
+        "after": "    return \"platform-pending\" if owner == \"native\" else \"verified\""
+      },
+      "test_changed_for_this_case": false
+    },
+    "verification": {
+      "command": "python3 -m unittest test_lifecycle -v",
+      "note": "unittest writes its report to stderr",
+      "before_fix": "test_external ... FAIL / test_native ... FAIL / Ran 2 tests in 0.000s / FAILED (failures=2)",
+      "after_fix": "test_external (test_lifecycle.Lifecycle.test_external) ... ok / test_native (test_lifecycle.Lifecycle.test_native) ... ok / Ran 2 tests in 0.000s / OK",
+      "result": "pass",
+      "before_fix_captured_by": "engineer",
+      "before_fix_captured_by_session_lead": false,
+      "before_fix_attribution_note": "The pre-fix failing run was executed by the engineer. The session lead did not run the suite before the repair and reports the pre-fix state on the engineer's execution record, not on a run of its own.",
+      "before_fix_verbatim_assertions": [
+        "AssertionError: 'bound' != 'verified'",
+        "AssertionError: 'platform-pending' != 'verified'"
+      ],
+      "after_fix_run_independently_by": [
+        "engineer",
+        "session lead",
+        "reviewer"
+      ]
+    },
+    "scope": {
+      "files_modified": [
+        "lifecycle.py",
+        "test_lifecycle.py"
+      ],
+      "files_created": [
+        "diagnosis.json",
+        "improvements.md"
+      ],
+      "files_deleted": [],
+      "incidental_untracked_byproduct": "__pycache__/ was generated automatically by running the test suite. It is not an authored change and was not deleted, per the no-deletions constraint.",
+      "dependencies_added": [],
+      "published_anywhere": false,
+      "unchanged_as_required": [
+        "requirements.md",
+        "backlog.md",
+        "README.md",
+        "ceo-items.md",
+        "CEO-TODOs.md",
+        "decision-D7.md",
+        ".ceo-todos"
+      ],
+      "out_of_scope_and_untouched": "Pending CEO decision D-7 (paid transcription provider for a separate project) remains undecided; no recommendation was acted on."
+    }
+  }
+}

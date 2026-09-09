@@ -1,0 +1,85 @@
+{
+  "scoring_only": true,
+  "provider_calls": 0,
+  "evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp",
+  "original_passed": false,
+  "passed": true,
+  "original_result_sha256": "7ab9d0bdaab7524c63dedd15addf86280219cb055c0becb877e9bfdb3fcec188",
+  "original_tested_harness_sha256": "c0d1f92a4044bcbe66b45faebfb82479de2984e0baa9df08c8b3465b9d8efe55",
+  "corrected_meter_sha256": "f0fe7677f703e1b51e49fca64b1b9a474e786c4cf0d20906255a0c5a8f6af81b",
+  "original_evidence_unchanged": true,
+  "source_hashes": {
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/result.json": "7ab9d0bdaab7524c63dedd15addf86280219cb055c0becb877e9bfdb3fcec188",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/input-measurement.json": "5883ec706740c0905f8b2d0de00d5d278fd91c75aee368cafd4f2f991b0dede7",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/input-events.jsonl": "46d01359037c19ce3949c8ca53d8d4171e8e8cd84179a273ad4e4b04a64b46c3",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/request.txt": "b4bf605d2224863077edc3bc1874d66b67b0a10381877042a1d2c3b49a19d2c9",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/restart-evidence.json": "2a06153c9d0be67e6806026557e5dc24ef7f40988c365c4f842db9152fc63a29",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/process-launches.json": "5d5eaf80976ffa8d2920b18fa874ae3680b4ae1f9e10875acb80a26d4cb8cb5f",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/tested-harness.py": "c0d1f92a4044bcbe66b45faebfb82479de2984e0baa9df08c8b3465b9d8efe55",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/adapter-hooks.jsonl": "f2e88ad838d68f00d033eff8d2c76f143781941f26ac73fb9a9b952c6dab5c0d",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/audits.jsonl": "931b50b2ac2a500fc24c639d2e066e17a6e59d1956468ed12927a50896167666",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/source-identity.json": "286db54d4bf3bf60451063ac4182c33ec6e8afd2ff0a6794827281740e297f76",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/transcript-child-agent-a5a3bc64af63a8b83.jsonl": "1d7b67b3359a66090b8218d536cbe0022b25aeafeae0269d32d5211eec0268c8",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/transcript-3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc.jsonl": "70f9c7edc33df8daa0777eadba20b467f11ca06f358df3aa78b127de2fb2dfa6",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-eb0nlocp/transcript-child-agent-a031e66119c2a5a6f.jsonl": "e8113db87b4cee966a630e1ffd6ff3eeed4f7e5ddd5d7e9d9c8db267a7806be8"
+  },
+  "changed_checks": {
+    "no_operational_followups_measured": {
+      "original": false,
+      "corrected": true
+    },
+    "replacement_received_zero_assignment_or_nudge": {
+      "original": false,
+      "corrected": true
+    }
+  },
+  "checks": {
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": true,
+    "source_identity_unchanged": true,
+    "no_operational_followups_measured": true,
+    "actual_auditor_completed": true,
+    "no_routine_parser_prose_asks": true,
+    "documented_json_parser_check_executed_natively": true,
+    "portable_native_dispatch_adapter_exercised": true,
+    "host_registered_brief_supplied_without_permission_grant": true,
+    "host_registered_brief_reaches_native_child": true,
+    "registration_once_per_owned_source_revision": true,
+    "successful_dispatch_has_registered_work_receipt": true,
+    "verified_human_source_retained": true,
+    "actual_engine_pending_notice_exercised": true,
+    "unrelated_engine_decision_still_pending": true,
+    "auditor_binary_unchanged": true,
+    "diagnosis_correct": true,
+    "both_test_methods_retained": true,
+    "independent_tests_pass": true,
+    "actual_behavior_matches_contract": true,
+    "coverage_rejects_native_regression": true,
+    "coverage_rejects_external_regression": true,
+    "scope_preserved": true,
+    "actual_child_work_interrupted_before_completion": true,
+    "replacement_received_zero_assignment_or_nudge": true,
+    "native_session_identity_matches_restart_mode": true,
+    "replacement_owns_recovered_assignment": true,
+    "replacement_saved_verified_completion": true,
+    "durable_ownership_transferred_to_replacement": true
+  },
+  "input_measurement": {
+    "recorded_operational_inputs": [],
+    "transcript_unexpected_inputs": [],
+    "transcript_initial_count": 1,
+    "argv_initial_count": 1,
+    "matched_system_messages": 4,
+    "matched_recorded_restart_notifications": [
+      "0b884959-98b5-424b-a786-26b03387bc7c"
+    ],
+    "matched_bound_completed_notifications": [],
+    "matched_bound_bash_notifications": [
+      "bbdfaf24-a0c6-40a3-b12d-c5fa5d793247",
+      "2f1484c8-4eae-4bdb-8e88-989cd78991c1"
+    ],
+    "operational_followups": 0,
+    "confirmed": true
+  }
+}

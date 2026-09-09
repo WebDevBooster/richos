@@ -1,0 +1,37 @@
+{
+  "native": "obsolete_assertion",
+  "external": "implementation_defect",
+  "evidence": {
+    "authority": {
+      "source": "requirements.md",
+      "quote": "Current approved contract: native workspaces return platform-pending; external workspaces return verified.",
+      "note": "backlog.md records a previous, superseded contract (native workspaces return verified). It is historical context only and was not treated as authority. backlog.md was not modified."
+    },
+    "native": {
+      "classification": "obsolete_assertion",
+      "requirement": "status(\"native\") must return \"platform-pending\".",
+      "code_returned_before": "platform-pending",
+      "test_asserted_before": "verified",
+      "reasoning": "The implementation already matched the approved contract. The test asserted \"verified\", which is exactly the superseded contract recorded in backlog.md, so the stale assertion was the defect.",
+      "change": "test_lifecycle.py: test_native assertion changed from assertEqual(status(\"native\"), \"verified\") to assertEqual(status(\"native\"), \"platform-pending\"). lifecycle.py native branch left unchanged.",
+      "test_result": "test_native ... ok"
+    },
+    "external": {
+      "classification": "implementation_defect",
+      "requirement": "status(\"external\") must return \"verified\".",
+      "code_returned_before": "bound",
+      "test_asserted_before": "verified",
+      "reasoning": "The test already asserted the value the approved contract mandates. The implementation returned \"bound\", a value that appears in neither the current nor the previous contract, so the implementation was the defect.",
+      "change": "lifecycle.py: non-native branch changed from returning \"bound\" to returning \"verified\". test_lifecycle.py test_external left unchanged.",
+      "test_result": "test_external ... ok"
+    },
+    "verification": {
+      "command": "python3 -m unittest test_lifecycle -v",
+      "before": "FAILED (failures=2) - test_external: 'bound' != 'verified'; test_native: 'platform-pending' != 'verified'",
+      "after": "Ran 2 tests in 0.000s - OK",
+      "files_changed": ["lifecycle.py", "test_lifecycle.py"],
+      "files_created": ["diagnosis.json", "improvements.md"],
+      "assertions_preserved": "Both tests still pin exact expected return values; neither was weakened into a no-op."
+    }
+  }
+}

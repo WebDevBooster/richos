@@ -1,0 +1,14 @@
+{
+  "recorded_operational_inputs": [],
+  "transcript_unexpected_inputs": [
+    {
+      "uuid": "3ca17266-5744-4163-a94f-010cd4d3c197",
+      "text": "<task-notification>\n<task-id>a0c742af505e55d02</task-id>\n<output-file>/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-5rtp9ghb-workspace/399607c5-765d-4e1a-9d9a-83d42c67f411/tasks/a0c742af505e55d02.output</output-file>\n<status>stopped</status>\n<summary>Background agent \"Repair lifecycle contract\" didn't finish before the previous session ended</summary>\n<note>No completion record was found for it in the previous session. It may have been stopped, or it may have been running when the previous Claude Code process exited \u2014 either way its transcript is saved, so its progress is not lost. Resume it by sending it a message with SendMessage, or check its worktree/output for partial work before assuming the task landed.</note>\n</task-notification>"
+    }
+  ],
+  "transcript_initial_count": 1,
+  "argv_initial_count": 1,
+  "matched_system_messages": 1,
+  "operational_followups": 1,
+  "confirmed": false
+}

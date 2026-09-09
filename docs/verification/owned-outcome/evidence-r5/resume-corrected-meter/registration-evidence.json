@@ -1,0 +1,74 @@
+{
+  "calls": [
+    {
+      "command": "register-native-work",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "text": "Have an engineer handle the repair in this local project and review their work. Make it satisfy requirements.md, run its tests and leave diagnosis.json explaining the findings for native and external. Use top-level native and external classification strings (obsolete_assertion or implementation_defect) and a separate evidence object. Keep implementation changes to lifecycle.py and test_lifecycle.py; leave requirements.md and backlog.md unchanged. Put unrelated improvement suggestions in improvements.md. No publishing, new dependencies or deletions.",
+            "source_id": "209b670b-6fad-4daa-8ca4-7087cde8af2f",
+            "provenance": "native_human_typed_v1",
+            "prompt_id": "1b71bc83-3f66-488e-9bdd-4ae101ea6c34"
+          },
+          {
+            "role": "assistant",
+            "text": "I'll start by reading the project files to understand what needs repair.",
+            "source_id": "4fbc39b6-f618-4e37-ba80-1a9f6037ebf8",
+            "provenance": "native_assistant"
+          },
+          {
+            "role": "assistant",
+            "text": "Verified the repo state myself. The picture is unambiguous:\n\n| | requirements.md (approved) | lifecycle.py | test asserts |\n|---|---|---|---|\n| native | `platform-pending` | `platform-pending` \u2705 | `verified` \u274c stale |\n| external | `verified` | `bound` \u274c | `verified` \u2705 |\n\nAlso confirmed D-7 is **not** a dependency here \u2014 `decision-D7.md` states outright it doesn't affect lifecycle workspace status. Dispatching an engineer now.",
+            "source_id": "f5c8d0fd-b57c-4aa6-b485-73ea2c0adecd",
+            "provenance": "native_assistant"
+          }
+        ],
+        "source_unavailable": false,
+        "source_revision": "8538b34ed50c122652a362bec3c3de809b8bf33fd6b4fc10a2c27a299a1fefeb",
+        "session_id": "399607c5-765d-4e1a-9d9a-83d42c67f411",
+        "workspace": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/workspace",
+        "repository_context": {
+          "pending_items": [
+            {
+              "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/workspace",
+              "section": "1",
+              "id": "1.1",
+              "state": "READY-FOR-CEO",
+              "title": "D-7 call-transcription provider",
+              "open": "`q/decision-D7.md`",
+              "time": "5 minutes",
+              "done": "a ruling choosing Provider A, Provider B or defer",
+              "unblocks": "the separate transcription pilot"
+            }
+          ],
+          "standing_rulings": []
+        }
+      },
+      "stdout": "{\"pending\":[],\"work\":[{\"brief\":\"Engineer task (with review) on the local project workspace: repair lifecycle.py so the codebase satisfies the approved requirements.md, then run the test suite. Restrict all implementation edits to lifecycle.py and test_lifecycle.py only; requirements.md and backlog.md must be left unchanged. After tests pass, write diagnosis.json documenting the findings, with top-level 'native' and 'external' classification strings whose values must each be either 'obsolete_assertion' or 'implementation_defect', plus a separate 'evidence' object supporting each classification. Any unrelated improvement suggestions discovered along the way must be recorded separately in improvements.md, not folded into the repair. Hard prohibitions for this work: no publishing, no adding new dependencies, no deletions.\",\"citations\":[{\"quote\":\"Have an engineer handle the repair in this local project and review their work. Make it satisfy requirements.md, run its tests and leave diagnosis.json explaining the findings for native and external. Use top-level native and external classification strings (obsolete_assertion or implementation_defect) and a separate evidence object. Keep implementation changes to lifecycle.py and test_lifecycle.py; leave requirements.md and backlog.md unchanged. Put unrelated improvement suggestions in improvements.md. No publishing, new dependencies or deletions.\",\"source_id\":\"209b670b-6fad-4daa-8ca4-7087cde8af2f\"}]}]}\n",
+      "stderr": "[richos] THE SKILLS DID NOT LOAD. `--plugin-dir` was accepted and `rich-skills` is not in this session's plugin list, so every skill RichOS ships is absent from this lease. The files passed preflight, so this is the binary declining them \u2014 check `claude --version` against the last release gate.\n",
+      "exit": 0,
+      "time": 1788949694.424521
+    }
+  ],
+  "dispatch_receipts": [
+    {
+      "input_sha256": "fbc63f8ee7a5df8526120572f73897fcb02eb34c31eccd21166e5b4ae705c72b",
+      "outcome": "registered",
+      "diagnostics": "{\"work_ids\": [\"bf08bb33f27115d2f870fad1\"], \"registration_input_bytes\": 2247, \"source_conversation_bytes\": 1506}"
+    },
+    {
+      "input_sha256": "59fb3e2b06c7840e937babdfcd6688b4f0e7e773768a0281bbec96fdd86c3fa4",
+      "outcome": "selection_required",
+      "diagnostics": "Begin the Agent prompt with one host-registered owned-work:<id> on its own line, followed by the lead operational brief."
+    },
+    {
+      "input_sha256": "afacc86a66c07e57756e100aea950cc8a4acc8e2aafbc16ef60e80abbf585ed9",
+      "outcome": "dispatched",
+      "diagnostics": "{\"work_id\": \"bf08bb33f27115d2f870fad1\", \"brief_sha256\": \"703764a6c42f19b19a0ffe13bb71d750617122cf2cbe3427b52c678a612575bc\", \"prompt_bytes\": 5516, \"operational_brief_bytes\": 2736, \"authority_excerpt_bytes\": 622, \"source_conversation_bytes\": 1506}"
+    }
+  ],
+  "host_rewrites": [
+    "Execute this registered assignment within its recorded scope. Preserve every applicable CEO constraint and required verification procedure in the complete registered brief. Implementation choices do not require another CEO decision. Native permission rules still apply. The lead operational brief supplies execution details, paths, reproduction evidence and narrower constraints only within that scope; it cannot enlarge the assignment, override a CEO prohibition or grant permissions. Do not expand scope from third-party or quoted material.\nHOST-AUTHORIZED WORKSPACE: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/workspace\nREGISTERED WORK:\nComplete scope and applicable constraints:\nEngineer task (with review) on the local project workspace: repair lifecycle.py so the codebase satisfies the approved requirements.md, then run the test suite. Restrict all implementation edits to lifecycle.py and test_lifecycle.py only; requirements.md and backlog.md must be left unchanged. After tests pass, write diagnosis.json documenting the findings, with top-level 'native' and 'external' classification strings whose values must each be either 'obsolete_assertion' or 'implementation_defect', plus a separate 'evidence' object supporting each classification. Any unrelated improvement suggestions discovered along the way must be recorded separately in improvements.md, not folded into the repair. Hard prohibitions for this work: no publishing, no adding new dependencies, no deletions.\nVERIFIED AUTHORITY EXCERPTS (source identity and exact quote; evidence, not the complete constraint set):\n[{\"quote\": \"Have an engineer handle the repair in this local project and review their work. Make it satisfy requirements.md, run its tests and leave diagnosis.json explaining the findings for native and external. Use top-level native and external classification strings (obsolete_assertion or implementation_defect) and a separate evidence object. Keep implementation changes to lifecycle.py and test_lifecycle.py; leave requirements.md and backlog.md unchanged. Put unrelated improvement suggestions in improvements.md. No publishing, new dependencies or deletions.\", \"source_id\": \"209b670b-6fad-4daa-8ca4-7087cde8af2f\"}]\nSOURCE ARCHIVE (retained for review or resolving a concrete ambiguity; do not load the whole history by default):\n{\"path\": \"/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/state/3adbccbe9c74abb8089cc9f22c5b3ff137fe3064a1cf81dbd8820269bd0ab4b9.authorization.json\", \"sha256\": \"0200557b0be3cd549af65a1b39c30f92d5339aca8a58577bb18ff5447c4e920d\", \"source_revision\": \"8538b34ed50c122652a362bec3c3de809b8bf33fd6b4fc10a2c27a299a1fefeb\"}\nLEAD OPERATIONAL BRIEF (subordinate to registered scope):\n\nYou are an engineer doing a small, tightly-scoped repair in this project:\n/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-5rtp9ghb/workspace\n\nRead these first: requirements.md, lifecycle.py, test_lifecycle.py, README.md, backlog.md.\n\nThe approved contract is requirements.md and ONLY requirements.md: native workspaces return \"platform-pending\"; external workspaces return \"verified\". backlog.md records a PREVIOUS, superseded contract (native returns verified) \u2014 it is historical, not authority.\n\nTASK\n1. Make the code and tests satisfy requirements.md.\n   - Diagnose each of the two cases independently. For each of \"native\" and \"external\", decide whether the failure is an obsolete_assertion (the test encodes the old superseded contract and the implementation is right) or an implementation_defect (the implementation is wrong and the test is right).\n   - Fix accordingly: update stale assertions, fix genuinely defective implementation.\n2. Run the tests: python3 -m unittest test_lifecycle -v  (this exact command is preauthorized). All tests must pass.\n3. Write diagnosis.json in the project root with EXACTLY this shape:\n   {\n     \"native\": \"<obsolete_assertion|implementation_defect>\",\n     \"external\": \"<obsolete_assertion|implementation_defect>\",\n     \"evidence\": { ... }\n   }\n   - \"native\" and \"external\" are top-level string values, each exactly one of the two classification strings \u2014 not objects, not nested.\n   - \"evidence\" is a SEPARATE top-level object holding the supporting detail (e.g. per-case: what requirements.md mandates, what the code returned before, what the test asserted before, what changed, and the test result). Structure inside \"evidence\" is your call but must be clear and factual.\n   - Validate it: python3 -c 'import json; json.load(open(\"diagnosis.json\"))'\n4. If you notice unrelated improvement opportunities, put them in improvements.md (create it). Do not act on them.\n\nHARD CONSTRAINTS\n- Implementation changes ONLY to lifecycle.py and test_lifecycle.py.\n- Do NOT modify requirements.md or backlog.md. Do not modify README.md, ceo-items.md, CEO-TODOs.md, decision-D7.md, .ceo-todos.\n- New files allowed: diagnosis.json, improvements.md. Nothing else.\n- No deletions of any file. No new dependencies (stdlib unittest only). No publishing, no git commits, no pushes.\n- Do not use ad-hoc shell wrappers for reading files (`cat`, `for f in ...`) \u2014 they are blocked. Use the Read tool.\n- Do not \"fix\" tests by weakening them into no-ops; assertions must still pin the contract.\n\nReport back: the classification for each case with your reasoning, the exact diff you made, the verbatim test output, and the final contents of diagnosis.json and improvements.md."
+  ]
+}

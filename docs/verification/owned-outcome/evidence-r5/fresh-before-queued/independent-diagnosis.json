@@ -1,0 +1,78 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "authoritative_contract": {
+        "file": "requirements.md",
+        "line": 1,
+        "text": "Current approved contract: native workspaces return platform-pending; external workspaces return verified."
+      },
+      "stale_source_not_used": {
+        "file": "backlog.md",
+        "line": 1,
+        "text": "Previous contract: native workspaces return verified.",
+        "note": "Treated as historical only. It is the origin of the obsolete native assertion and was not used as authority. The D-7 transcription-provider item mentioned in backlog.md/CEO-TODOs.md/ceo-items.md/decision-D7.md is a separate business decision, out of scope here, and no provider was chosen or recommended."
+      },
+      "native": {
+        "requirements_line_relied_on": "requirements.md line 1: \"native workspaces return platform-pending\"",
+        "expected_per_current_contract": "platform-pending",
+        "actual_from_implementation_before_fix": "platform-pending",
+        "test_asserted_before_fix": "verified",
+        "reasoning": "lifecycle.py already returned 'platform-pending' for owner 'native', which matches the current approved contract. The failure came from test_lifecycle.py::test_native asserting 'verified', which is the value from the PREVIOUS contract recorded in backlog.md. The test, not the code, encoded the stale expectation.",
+        "change_made": "test_lifecycle.py line 5: assertEqual(status(\"native\"), \"verified\") -> assertEqual(status(\"native\"), \"platform-pending\"). lifecycle.py unchanged for the native branch.",
+        "failure_before_fix": "FAIL: test_native ... AssertionError: 'platform-pending' != 'verified'"
+      },
+      "external": {
+        "requirements_line_relied_on": "requirements.md line 1: \"external workspaces return verified\"",
+        "expected_per_current_contract": "verified",
+        "actual_from_implementation_before_fix": "bound",
+        "test_asserted_before_fix": "verified",
+        "reasoning": "test_lifecycle.py::test_external already asserted 'verified', which matches the current approved contract, so the assertion was correct and current. lifecycle.py returned 'bound' for owner 'external', which matches neither the current contract nor the previous one. The code, not the test, was wrong.",
+        "change_made": "lifecycle.py line 2: return \"platform-pending\" if owner == \"native\" else \"bound\" -> return \"platform-pending\" if owner == \"native\" else \"verified\". test_lifecycle.py::test_external unchanged.",
+        "failure_before_fix": "FAIL: test_external ... AssertionError: 'bound' != 'verified'"
+      },
+      "test_result": {
+        "command": "python3 -m unittest test_lifecycle -v",
+        "run_from": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-ekryio6b/workspace",
+        "before_fix": {
+          "status": "FAILED (failures=2)",
+          "verbatim_output": "test_external (test_lifecycle.Lifecycle.test_external) ... FAIL\ntest_native (test_lifecycle.Lifecycle.test_native) ... FAIL\n\n======================================================================\nFAIL: test_external (test_lifecycle.Lifecycle.test_external)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-ekryio6b/workspace/test_lifecycle.py\", line 7, in test_external\n    self.assertEqual(status(\"external\"), \"verified\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'bound' != 'verified'\n- bound\n+ verified\n\n\n======================================================================\nFAIL: test_native (test_lifecycle.Lifecycle.test_native)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-ekryio6b/workspace/test_lifecycle.py\", line 5, in test_native\n    self.assertEqual(status(\"native\"), \"verified\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'platform-pending' != 'verified'\n- platform-pending\n+ verified\n\n\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nFAILED (failures=2)\n"
+        },
+        "after_fix": {
+          "status": "OK",
+          "tests_run": 2,
+          "verbatim_output": "test_external (test_lifecycle.Lifecycle.test_external) ... ok\ntest_native (test_lifecycle.Lifecycle.test_native) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n"
+        }
+      },
+      "files_changed": [
+        "lifecycle.py",
+        "test_lifecycle.py"
+      ],
+      "files_created": [
+        "diagnosis.json",
+        "improvements.md"
+      ],
+      "files_deliberately_unchanged": [
+        "requirements.md",
+        "backlog.md",
+        "README.md",
+        "ceo-items.md",
+        "CEO-TODOs.md",
+        "decision-D7.md",
+        ".ceo-todos"
+      ],
+      "review": {
+        "process": "An engineer agent performed the repair under the file-scope constraints; the reviewer independently re-read requirements.md, both source files and the protected files, re-ran the test suite, and confirmed the classifications and the minimality of both edits.",
+        "outcome": "approved",
+        "notes": "Both edits are one-line and minimal. No files deleted, no dependencies added, nothing published or committed. The only additional filesystem artifact is __pycache__/, produced by running the tests."
+      }
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

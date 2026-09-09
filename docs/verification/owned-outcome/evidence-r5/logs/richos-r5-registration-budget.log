@@ -1,0 +1,14 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.04s
+     Running unittests src/lib.rs (app/target/debug/deps/richos_core-f3641f3814acf25f)
+
+running 6 tests
+test dispatch::tests::explicit_no_work_registration_can_preserve_pending_scopes ... ok
+test dispatch::tests::unknown_origin_and_assistant_cannot_register_work ... ok
+test dispatch::tests::verified_human_registration_accepts_typed_source ... ok
+test dispatch::tests::missing_authority_and_extra_permissions_never_register ... ok
+test dispatch::tests::invented_quote_unknown_source_or_ambiguous_source_is_rejected ... ok
+test dispatch::tests::oversized_registration_is_rejected_without_clipping_authority ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 584 filtered out; finished in 0.00s
+

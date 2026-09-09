@@ -407,7 +407,6 @@ fn requests(state: &AppState, index: &mut IntakeIndex) -> Result<(), String> {
                 }
                 Err(error) => {
                     request.error = error;
-                    request.retry_at = now() + 30_000;
                     if registering && request.directive.is_some() {
                         request.application_failures = request.application_failures.saturating_add(1);
                     }

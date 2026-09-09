@@ -1,0 +1,85 @@
+{
+  "scoring_only": true,
+  "provider_calls": 0,
+  "evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f",
+  "original_passed": false,
+  "passed": false,
+  "original_result_sha256": "1431b18e01db9736869f91aefec4e737bcc35afeb02e4038dbdf41128b33f0b8",
+  "original_tested_harness_sha256": "12583ca5c8fe5fa27a4a77678833b8dbff14dfdf6ab3f4e578d4c31885fceeee",
+  "corrected_meter_sha256": "c0d1f92a4044bcbe66b45faebfb82479de2984e0baa9df08c8b3465b9d8efe55",
+  "original_evidence_unchanged": true,
+  "source_hashes": {
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/result.json": "1431b18e01db9736869f91aefec4e737bcc35afeb02e4038dbdf41128b33f0b8",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/input-measurement.json": "937fcbe0e335f16918aa2869c255a8feae8f9babbe327eb420a180bfbdd33ab0",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/input-events.jsonl": "e6a2861d80660b37a9dbd501ef7f2ff2068d52b565d99f46a0a2f51ce301ba5e",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/request.txt": "b4bf605d2224863077edc3bc1874d66b67b0a10381877042a1d2c3b49a19d2c9",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/restart-evidence.json": "f3be2fda95faec0e727a410562dd049fd933f9f58782137943d0460029514a6b",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/process-launches.json": "2d53d738131be3b2173e655dc56ff92a42db7b6ac3f828cbbbdd61656ad281f2",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/tested-harness.py": "12583ca5c8fe5fa27a4a77678833b8dbff14dfdf6ab3f4e578d4c31885fceeee",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/adapter-hooks.jsonl": "6134f6cf4ec52bc731b5481a1c4bb1ceedfc148a9f939eb2fb7d89b75e779a79",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/audits.jsonl": "4ad261d0b335f49656a802f186db36db62cd20c30a82853e83ee5968acc0ce96",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/source-identity.json": "bc9df879453bdb9788d2a58e1082617dff6ff7479d38edfd174796a077a4ee50",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/transcript-child-agent-afc60f724eadda307.jsonl": "4dcbc379c592c5ea69e37b3482f022d6691b45cc7d8aa051698a7c25af77ed03",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/transcript-child-agent-aeecbeedd47c7a35f.jsonl": "7344e78a37b7cba19ea0223c38d030ce7e1e4e1d8a44079c8fd34aa79fe85934",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/transcript-child-agent-aeba8916faf1847df.jsonl": "4a45ef2721ab040633728304770a97a28ad93031e0b4ad462e70f7ea423b8860",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/transcript-74d05ba6-e50f-40ab-8bcc-4ffc2ae998b1.jsonl": "4a012edbef4e7969d419156ef603f3ff3b390a360510004908bd80364a761ba9",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/transcript-806036d8-dbce-4dc6-8d88-bd1281b0917a.jsonl": "2d97b07c3e6c5958c02ed1cc750ed2af312cc3faf002fda2a749980a15503369",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/transcript-child-agent-a31cc4500dab5b6ad.jsonl": "ca7ad27cd63fecb4cf4ca0b1dbacd2e60c6a6f9793741d3b5223c585c6949141",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/transcript-child-agent-aa628e393988f1a79.jsonl": "22b89a4f12525b7fb323b4dfb5f7b525275e23d0f07a6526981be2dad092423f"
+  },
+  "changed_checks": {
+    "no_operational_followups_measured": {
+      "original": false,
+      "corrected": true
+    },
+    "replacement_received_zero_assignment_or_nudge": {
+      "original": false,
+      "corrected": true
+    }
+  },
+  "checks": {
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": false,
+    "source_identity_unchanged": true,
+    "no_operational_followups_measured": true,
+    "actual_auditor_completed": false,
+    "no_routine_parser_prose_asks": true,
+    "documented_json_parser_check_executed_natively": true,
+    "portable_native_dispatch_adapter_exercised": true,
+    "host_registered_brief_supplied_without_permission_grant": true,
+    "host_registered_brief_reaches_native_child": true,
+    "registration_once_per_owned_source_revision": true,
+    "successful_dispatch_has_registered_work_receipt": true,
+    "verified_human_source_retained": true,
+    "actual_engine_pending_notice_exercised": true,
+    "unrelated_engine_decision_still_pending": true,
+    "auditor_binary_unchanged": true,
+    "diagnosis_correct": true,
+    "both_test_methods_retained": true,
+    "independent_tests_pass": true,
+    "actual_behavior_matches_contract": true,
+    "coverage_rejects_native_regression": true,
+    "coverage_rejects_external_regression": true,
+    "scope_preserved": true,
+    "actual_child_work_interrupted_before_completion": true,
+    "replacement_received_zero_assignment_or_nudge": true,
+    "native_session_identity_matches_restart_mode": true,
+    "replacement_owns_recovered_assignment": true,
+    "replacement_saved_verified_completion": false,
+    "durable_ownership_transferred_to_replacement": true
+  },
+  "input_measurement": {
+    "recorded_operational_inputs": [],
+    "transcript_unexpected_inputs": [],
+    "transcript_initial_count": 1,
+    "argv_initial_count": 1,
+    "matched_system_messages": 6,
+    "matched_recorded_restart_notifications": [],
+    "matched_bound_completed_notifications": [
+      "f8a8cc4e-1b23-4793-a819-b53a449ff23b"
+    ],
+    "operational_followups": 0,
+    "confirmed": true
+  }
+}

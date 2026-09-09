@@ -1,0 +1,6 @@
+# Preserve captured evidence bytes, including observed log whitespace.
+* -text
+*.log -whitespace
+*.diff -whitespace
+out.txt -whitespace
+*.state -whitespace

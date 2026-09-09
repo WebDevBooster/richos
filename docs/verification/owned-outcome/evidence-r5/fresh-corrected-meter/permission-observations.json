@@ -1,0 +1,57 @@
+{
+  "calls": [
+    {
+      "mode": "permission",
+      "input": {
+        "session_id": "806036d8-dbce-4dc6-8d88-bd1281b0917a",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-nu04n--f-workspace/806036d8-dbce-4dc6-8d88-bd1281b0917a.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-nu04n--f-workspace/806036d8-dbce-4dc6-8d88-bd1281b0917a/scratchpad",
+        "prompt_id": "172406ec-f891-458a-acc5-9a8e08d49dfa",
+        "permission_mode": "acceptEdits",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -e -o pipefail\ngit status --porcelain && echo \"---LOG---\" && (git log --oneline -5 2>&1 || true)",
+          "description": "Check git state of workspace"
+        }
+      },
+      "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {\\\"actor\\\": \\\"native_configuration\\\", \\\"sources\\\": [{\\\"scope\\\": \\\"user\\\", \\\"path\\\": \\\"/Users/alex/.claude/settings.json\\\", \\\"rules\\\": {}, \\\"status\\\": \\\"observed\\\"}, {\\\"scope\\\": \\\"project\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/workspace/.claude/settings.json\\\", \\\"status\\\": \\\"absent\\\"}, {\\\"scope\\\": \\\"local\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/workspace/.claude/settings.local.json\\\", \\\"rules\\\": {\\\"allow\\\": [\\\"Bash(python3 -m unittest *)\\\", \\\"Bash(set -e -o pipefail)\\\", \\\"Bash(python3 -m json.tool diagnosis.json)\\\"]}, \\\"status\\\": \\\"observed\\\"}], \\\"complete_effective_permission_map\\\": false, \\\"meaning\\\": \\\"Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.\\\"}\", \"interrupt\": false}}}\n",
+      "stderr": "",
+      "exit": 0,
+      "time": 1788949764.068671
+    },
+    {
+      "mode": "permission",
+      "input": {
+        "session_id": "806036d8-dbce-4dc6-8d88-bd1281b0917a",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-nu04n--f-workspace/806036d8-dbce-4dc6-8d88-bd1281b0917a.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-nu04n--f-workspace/806036d8-dbce-4dc6-8d88-bd1281b0917a/scratchpad",
+        "prompt_id": "b48cfc77-e3de-44a8-9920-4291486dc8fe",
+        "permission_mode": "acceptEdits",
+        "agent_id": "a31cc4500dab5b6ad",
+        "agent_type": "general-purpose",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Monitor",
+        "tool_input": {
+          "description": "engineer edits to lifecycle files",
+          "timeout_ms": 600000,
+          "persistent": false,
+          "command": "until [ -n \"$(git -C /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/workspace status --porcelain -- lifecycle.py test_lifecycle.py 2>/dev/null)\" ]; do sleep 5; done; echo \"engineer edits detected\""
+        },
+        "permission_suggestions": []
+      },
+      "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {\\\"actor\\\": \\\"native_configuration\\\", \\\"sources\\\": [{\\\"scope\\\": \\\"user\\\", \\\"path\\\": \\\"/Users/alex/.claude/settings.json\\\", \\\"rules\\\": {}, \\\"status\\\": \\\"observed\\\"}, {\\\"scope\\\": \\\"project\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/workspace/.claude/settings.json\\\", \\\"status\\\": \\\"absent\\\"}, {\\\"scope\\\": \\\"local\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-nu04n__f/workspace/.claude/settings.local.json\\\", \\\"rules\\\": {\\\"allow\\\": [\\\"Bash(python3 -m unittest *)\\\", \\\"Bash(set -e -o pipefail)\\\", \\\"Bash(python3 -m json.tool diagnosis.json)\\\"]}, \\\"status\\\": \\\"observed\\\"}], \\\"complete_effective_permission_map\\\": false, \\\"meaning\\\": \\\"Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.\\\"}\", \"interrupt\": false}}}\n",
+      "stderr": "",
+      "exit": 0,
+      "time": 1788949932.833566
+    }
+  ]
+}

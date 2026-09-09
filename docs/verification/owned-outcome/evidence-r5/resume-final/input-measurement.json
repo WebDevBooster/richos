@@ -1,0 +1,22 @@
+{
+  "recorded_operational_inputs": [],
+  "transcript_unexpected_inputs": [
+    {
+      "uuid": "bbdfaf24-a0c6-40a3-b12d-c5fa5d793247",
+      "text": "<task-notification>\n<task-id>b7asgswk7</task-id>\n<tool-use-id>toolu_0135CMbmKzq5n2ezyFZauEvG</tool-use-id>\n<output-file>/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-eb0nlocp-workspace/3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc/tasks/b7asgswk7.output</output-file>\n<status>completed</status>\n<summary>Background command \"Wait for host reconciliation to settle\" completed (exit code 0)</summary>\n</task-notification>"
+    },
+    {
+      "uuid": "2f1484c8-4eae-4bdb-8e88-989cd78991c1",
+      "text": "<task-notification>\n<task-id>bwuem2g0h</task-id>\n<tool-use-id>toolu_01E3oKFiKxKWjwjsUdWVgbvY</tool-use-id>\n<output-file>/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-eb0nlocp-workspace/3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc/tasks/bwuem2g0h.output</output-file>\n<status>completed</status>\n<summary>Background command \"Wait longer for reconciliation to complete\" completed (exit code 0)</summary>\n</task-notification>"
+    }
+  ],
+  "transcript_initial_count": 1,
+  "argv_initial_count": 1,
+  "matched_system_messages": 2,
+  "matched_recorded_restart_notifications": [
+    "0b884959-98b5-424b-a786-26b03387bc7c"
+  ],
+  "matched_bound_completed_notifications": [],
+  "operational_followups": 2,
+  "confirmed": false
+}

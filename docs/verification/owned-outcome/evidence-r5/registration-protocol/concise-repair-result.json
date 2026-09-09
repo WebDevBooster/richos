@@ -1,0 +1,7 @@
+{
+  "name": "concise-repair",
+  "exit": 0,
+  "stdout": "{\"pending\":[\"Publishing remains unapproved.\"],\"work\":[{\"brief\":\"Fix parser; execute parser test. Do not publish.\",\"citations\":[{\"quote\":\"Repair the parser.\",\"source_id\":\"u1\"}]}]}\n",
+  "stderr": "",
+  "passed": true
+}
