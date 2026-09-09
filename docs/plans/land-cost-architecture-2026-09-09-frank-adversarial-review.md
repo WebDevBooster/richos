@@ -52,7 +52,7 @@ safe to execute in its stated order.
 assertion that "at least one of those is wrong" is itself the error.**
 
 - Sage #2: 8-day window, 261 subagent transcripts, **execution plus polling**. I reproduce
-  **84.8 h** to the decimal (`tools/decomp.py` → `results/suite-wait-decomposition.txt`).
+  **84.8 h** to the decimal (`docs/measurements/frank-review-2026-09-09/tools/decomp.py` → `results/suite-wait-decomposition.txt`).
 - Sage #1: all 1,713 transcripts on the machine, all time, **execution only** — it explicitly
   excludes the `until … sleep` loops ("377 calls ≥ 10 min, of which 97 name a suite; most of
   the rest are `until … sleep` loops"). **46.9 h.**
@@ -85,7 +85,7 @@ produced it. Sage #2 committed its tools. On reproducibility that is not a tie.
 
 ## 2. Where the hours actually are — the thing they both missed
 
-`tools/attrib.py` → `results/suite-wait-attribution.txt`, same corpus, same regex, one extra
+`docs/measurements/frank-review-2026-09-09/tools/attrib.py` → `results/suite-wait-attribution.txt`, same corpus, same regex, one extra
 column: whose worktree the commands ran in.
 
 ```
@@ -127,7 +127,7 @@ Consequences both documents get wrong:
 Sage #2 measured merge → push and got 0.8 min median. That window is open to the obvious
 objection that the verification happens *before* the merge, so I measured a strictly wider
 one: **previous push → this push, every Bash call in between, for every episode containing at
-least one merge** (`tools/landwindow.py` → `results/land-episode-verification.txt`).
+least one merge** (`docs/measurements/frank-review-2026-09-09/tools/landwindow.py` → `results/land-episode-verification.txt`).
 
 ```
 land episodes (previous push -> this push, containing >=1 merge): 229
@@ -237,7 +237,7 @@ Neither document proposes it.
 
 ### 5.2 `--only` already exists and was used fourteen times in eight days
 
-`tools/scoped2.py` → `results/what-agents-actually-invoked.txt`:
+`docs/measurements/frank-review-2026-09-09/tools/scoped2.py` → `results/what-agents-actually-invoked.txt`:
 
 ```
 one named .test.sh          10.63 h    807 calls  mean  47 s

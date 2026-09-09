@@ -1,0 +1,36 @@
+total Bash wait h  120.5
+SAGE#2 match     h  84.8  (n=4944)
+STRICT invoke    h  16.5  (n=944)
+S2-not-strict READ-ONLY h 2.8 (n=649)
+S2-not-strict other/poll h 65.5 (n=3351)
+--- time by regex alternative (overlapping) ---
+  until..sleep       56.9 h  n=484
+  .test.sh           27.4 h  n=2733
+  pgrep              18.2 h  n=458
+  contract-integrity   16.4 h  n=1104
+  word:suite(s)      10.3 h  n=997
+  .mutation.sh        4.9 h  n=608
+  run-all-tests       3.5 h  n=214
+  docker logs         3.0 h  n=75
+  lsof -p             2.7 h  n=28
+  ci-verify           2.5 h  n=95
+--- READ-ONLY cmds counted as suite-wait (>60s) ---
+    600s  lsof -p 62093 +r 1 >/dev/null 2>&1; echo "process 62093 exited"; tail -20 /private/tmp/claude-501/-Users-alex-ab-femcboost/0224e460-671a-449
+    600s  lsof -p 62093 +r 1 >/dev/null 2>&1; echo "runner exited"; tail -22 /private/tmp/claude-501/-Users-alex-ab-femcboost/0224e460-671a-4498-b07b-
+    600s  lsof -p 62093 +r 5 >/dev/null 2>&1; echo "runner exited"; grep -E "^  \[[ 0-9]+/59\]" /private/tmp/claude-501/-Users-alex-ab-femcboost/0224e
+    600s  lsof -p 62093 +r 5 >/dev/null 2>&1; echo RUNNER_DONE; tail -25 /private/tmp/claude-501/-Users-alex-ab-femcboost/0224e460-671a-4498-b07b-3d63
+    261s  lsof -p 44236 +r 5 >/dev/null 2>&1; echo CONTRACT_INTEGRITY_DONE; tail -4 /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T//engine-tests.gRa
+    600s  lsof -p 62093 +r 5 >/dev/null 2>&1; echo RUNNER_DONE; tail -12 /private/tmp/claude-501/-Users-alex-ab-femcboost/0224e460-671a-4498-b07b-3d63
+    600s  lsof -p 62093 +r 5 >/dev/null 2>&1; echo RUNNER_DONE; tail -14 /private/tmp/claude-501/-Users-alex-ab-femcboost/0224e460-671a-4498-b07b-3d63
+    600s  lsof -p 62093 +r 5 >/dev/null 2>&1; echo RUNNER_DONE; tail -14 /private/tmp/claude-501/-Users-alex-ab-femcboost/0224e460-671a-4498-b07b-3d63
+--- non-invoking poll/other counted as suite-wait (>120s) ---
+    601s  until ! pgrep -qf 'contract-integrity.test.sh'; do sleep 10; done; echo DONE; tail -20 /private/tmp/claude-501/-Users-alex-ab-femcboost/5584
+    600s  until ! pgrep -qf 'contract-integrity.test.sh'; do sleep 15; done; echo DONE; tail -25 /private/tmp/claude-501/-Users-alex-ab-femcboost/5584
+    600s  until ! pgrep -qf 'contract-integrity.test.sh'; do sleep 15; done; echo DONE; tail -14 /private/tmp/claude-501/-Users-alex-ab-femcboost/5584
+    601s  until ! pgrep -qf 'contract-integrity.test.sh'; do sleep 20; done; echo DONE; tail -10 /private/tmp/claude-501/-Users-alex-ab-femcboost/5584
+    600s  until ! pgrep -q -f 'bash scripts/hooks/contract-integrity[.]test[.]sh'; do sleep 20; done; echo DONE; tail -10 /private/tmp/claude-501/-Use
+    361s  until ! pgrep -q -f 'bash scripts/hooks/contract-integrity[.]test[.]sh'; do sleep 30; done; echo DONE; tail -12 /private/tmp/claude-501/-Use
+    601s  until ! pgrep -q -f 'bash scripts/hooks/contract-integrity[.]test[.]sh'; do sleep 30; done; echo DONE; tail -8 /private/tmp/claude-501/-User
+    601s  until ! pgrep -q -f 'bash scripts/hooks/contract-integrity[.]test[.]sh'; do sleep 30; done; echo DONE; tail -8 /private/tmp/claude-501/-User
+    601s  until ! pgrep -q -f 'bash scripts/hooks/contract-integrity[.]test[.]sh'; do sleep 45; done; echo DONE; tail -8 /private/tmp/claude-501/-User
+    601s  until ! pgrep -q -f 'bash scripts/hooks/contract-integrity[.]test[.]sh'; do sleep 45; done; echo DONE; tail -10 /private/tmp/claude-501/-Use
