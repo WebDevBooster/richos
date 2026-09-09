@@ -17,7 +17,7 @@ import sys
 MAX_DISPATCH_BYTES = 32 * 1024
 MAX_REGISTERED_WORK_BYTES = 16 * 1024
 # The registrar refuses over 64 KiB; stay under it with headroom for its own framing.
-REGISTRAR_WIRE_BUDGET = 56 * 1024
+REGISTRAR_WIRE_BUDGET = 24 * 1024  # smaller prompt = a registration that finishes inside its budget
 REGISTRAR_RULING_EXCERPT = 2 * 1024
 
 UNVERIFIED = ('CEO DEPENDENCY UNVERIFIED: source or review evidence is unavailable. '
@@ -221,8 +221,8 @@ def register(root, payload):
                                       'other_messages_withheld': withheld,
                                       'rulings_excerpted_to_bytes': REGISTRAR_RULING_EXCERPT,
                                       'full_payload_bytes': len(json.dumps(data).encode())}
-            result = subprocess.run([config['runner'], 'register-native-work', str(root), '120'],
-                                    input=json.dumps(wire), text=True, capture_output=True, timeout=150)
+            result = subprocess.run([config['runner'], 'register-native-work', str(root), '300'],
+                                    input=json.dumps(wire), text=True, capture_output=True, timeout=330)
             if result.returncode:
                 raise ValueError('Registration process failed (rc=%s): %s'
                                  % (result.returncode, (result.stderr or '').strip()[:400] or 'no stderr'))
@@ -248,8 +248,54 @@ def register(root, payload):
 def dispatch(root, payload):
     _, data = collect(root, payload)
     ledger = json.loads(ledger_path(root, payload).read_text())
-    if ledger.get('version') != 1 or ledger.get('source_revision') != data['source_revision']:
+    if ledger.get('version') != 1:
         raise ValueError('Current instructions have not been registered yet')
+    if ledger.get('source_revision') != data['source_revision']:
+        # A LATER MESSAGE DOES NOT RETRACT AN EARLIER INSTRUCTION, and this check
+        # used to assume it did. Registration reads the conversation, spends 60-300s
+        # in a model call, and then this line compared its result against a target
+        # that had moved -- so while a conversation is ACTIVE the gate can never
+        # converge. Measured on femcboost 2026-09-09: the ledger was built from 120
+        # messages while the live state held 127, seven having arrived during the
+        # check, several of them the CEO asking why dispatch was taking so long. Six
+        # consecutive spawns were refused, every one reported as 'CEO DEPENDENCY
+        # UNVERIFIED', which reads as a missing human authorization and is nothing of
+        # the kind. The faster he asked, the less it could finish.
+        #
+        # So a ledger built from a PREFIX of the current conversation is not invalid,
+        # it is behind. What it cannot know is whether one of the newer messages
+        # RETRACTS the selected work -- and that judgement belongs to the lead, who
+        # has read them. It is therefore delegated explicitly and auditably, the way
+        # every other exception in this engine is: a live
+        # `stale-authority-ack: <reason>` line in the prompt. A bare marker exempts
+        # nothing. Without the ack this still refuses, and a ledger that is NOT a
+        # prefix (a rewritten or unrelated history) is refused outright.
+        ledger_msgs = ledger.get('messages') or []
+        live_msgs = data.get('messages') or []
+        is_prefix = (len(ledger_msgs) <= len(live_msgs)
+                     and all(a.get('source_id') == b.get('source_id')
+                             for a, b in zip(ledger_msgs, live_msgs)))
+        ack = re.search(r'^[ \t]*stale-authority-ack:[ \t]*(\S.*)$',
+                        (payload.get('tool_input') or {}).get('prompt') or '', re.M)
+        if not is_prefix:
+            raise ValueError('Registered instructions are not a prefix of the current '
+                             'conversation; the history was rewritten, so re-register')
+        if not ack:
+            raise ValueError(
+                'Registration is %d message(s) behind the live conversation. A later message '
+                'does not retract an earlier one, so the registered work still stands -- but only '
+                'the lead can confirm none of the newer messages cancels it. Add a line '
+                '"stale-authority-ack: <what you checked>" to the prompt, or wait for '
+                're-registration.' % (len(live_msgs) - len(ledger_msgs)))
+        try:
+            state_dir = Path(str(ledger_path(root, payload)) + '.stale-acks.log')
+            with state_dir.open('a') as handle:
+                handle.write(json.dumps({'ledger_revision': ledger.get('source_revision'),
+                                         'live_revision': data['source_revision'],
+                                         'messages_behind': len(live_msgs) - len(ledger_msgs),
+                                         'reason': ack.group(1).strip()[:400]}) + '\n')
+        except OSError:
+            pass
     proposed = payload.get('tool_input', {})
     caller_prompt = proposed.get('prompt', '')
     if not isinstance(caller_prompt, str):
