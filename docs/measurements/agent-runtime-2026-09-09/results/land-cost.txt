@@ -1,0 +1,24 @@
+bash calls in main sessions 5374 merges 224 pushes 352 full-suite invocations by Rich 129
+merge->push minutes: n 174 median 0.8 p75 3.0 max 392
+lands with a full-suite call between merge and push: 10
+64 09-09 16:51 dab4b51d fulls-between 0
+163 09-09 13:46 dab4b51d fulls-between 0
+165 09-09 06:27 5584bf8d fulls-between 0
+275 09-09 11:54 dab4b51d fulls-between 0
+275 09-09 11:54 dab4b51d fulls-between 0
+355 09-09 10:34 dab4b51d fulls-between 0
+392 09-09 09:58 dab4b51d fulls-between 0
+392 09-09 09:57 dab4b51d fulls-between 0
+--- Rich full-suite invocations (time, session, cmd[:100])
+09-09 19:37 899d5bee cd /Users/alex/ab/richos ls .github/workflows/ 2>/dev/null echo "=== does CI run the full suite? ===
+09-09 19:38 899d5bee cd /Users/alex/ab/richos-hq mkdir -p docs/plans cat > docs/plans/land-cost-plan-2026-09-09.md <<'DOC
+09-09 19:38 899d5bee cd /Users/alex/ab/femcboost S=/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-84
+09-09 19:57 899d5bee cd /Users/alex/ab/femcboost python3 - <<'PY' from pathlib import Path p=Path("scripts/hooks/guard-br
+09-09 19:57 899d5bee cd /Users/alex/ab/femcboost git checkout -- scripts/hooks/guard-brief-verification-scope.sh python3 
+09-09 19:57 899d5bee cd /Users/alex/ab/femcboost S=/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-84
+09-09 19:57 899d5bee cd /Users/alex/ab/femcboost git add scripts/hooks/guard-brief-verification-scope.sh git commit -q -m
+09-09 20:03 899d5bee cd /Users/alex/ab/femcboost S=/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-84
+09-09 20:03 899d5bee cd /Users/alex/ab/femcboost S=/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-84
+09-09 20:23 899d5bee cd /Users/alex/ab/richos-hq python3 - <<'PY' from pathlib import Path p=Path("wiki/open-items.md") t
+09-09 20:24 899d5bee cd /Users/alex/ab/richos-hq python3 - <<'PY' from pathlib import Path p=Path("wiki/open-items.md") t
+09-09 20:24 899d5bee cd /Users/alex/ab/richos-hq && git commit -q -m "Row 3.35: re-stamp the brief gate and correct its s

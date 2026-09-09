@@ -1,0 +1,22 @@
+agents 260 span-h 237.8 ACTIVE-h 195.2 idle-h(gaps>15m) 42.6
+bash-wait-h 120.5 suite/poll-wait-h 84.8 => suite-wait share of ACTIVE 43 %
+active minutes: median 22 p75 67 p90 116 max 368
+active>=180min: 13 60-180: 58 <60: 189
+agents active>=1h: 71 active-h 146.3 their suite-wait-h 79.7 share 54 %
+refusals 847 median cost s 5 total cost h 2.4
+--- top 15 by ACTIVE: active_min span_min idle_min bash_min suite_min refusals name
+176 176 0 141 49 3 ? a6985b53
+178 1027 849 163 154 2 zach-opus-rg1 aef8aa1c
+181 181 0 148 135 8 ? a6543934
+181 1028 847 154 154 3 zach-opus-cg1 a5517449
+193 193 0 152 146 6 ? ac8d4939
+194 194 0 133 127 8 ? a53d95c2
+202 202 0 176 168 2 ? a4837db2
+209 209 0 161 158 12 ? a4b54811
+239 239 0 206 67 9 ? a13364ec
+245 245 0 211 186 6 ? a00f13b8
+258 258 0 203 200 20 ? a091470a
+278 278 0 237 232 6 ? a99e2521
+282 282 0 227 225 7 ? af3b18f5
+338 890 552 314 312 3 zach-opus-ob1 ae47b94b
+368 368 0 322 322 7 ? aa4edcd6

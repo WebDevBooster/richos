@@ -1,0 +1,13 @@
+guard-sealed-worktree            rc=0  0.030s
+guard-interactive-prompt         rc=0  0.080s
+guard-bash-main-writes           rc=0  0.073s
+guard-inflight-notify            rc=0  0.160s
+guard-worktree-removal           rc=0  0.072s
+guard-publication-commits        rc=0  0.075s
+guard-named-persons-commands     rc=0  0.087s
+guard-ceo-todos-commits          rc=0  0.071s
+guard-completeness-commits       rc=0  0.034s
+guard-row-currency-commits       rc=0  0.074s
+guard-vendoring-commits          rc=0  0.071s
+shell-evidence                   rc=0  0.024s
+engine PreToolUse[Bash] total: .851s
