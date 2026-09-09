@@ -33,3 +33,27 @@ Private transcripts, snapshots and test receipts are retained under `/Users/alex
 ## Remaining boundary
 
 This is a checkpoint and continuation repair, not a guarantee against provider outages or arbitrary model mistakes. An actual provider failure or a repeatedly stalled inspector remains visibly unverified and permits normal native exit. There is no infrastructure-failure instruction telling the leader to repair the checker, no automatic certification and no unchanged-input retry loop.
+
+## Reproducible local checks
+
+Run from the repository root:
+
+```sh
+cargo test --manifest-path app/Cargo.toml -p richos-core
+python3 engine/scripts/lib/owned-session.test.py
+python3 engine/scripts/lib/owned-session-progress.test.py
+python3 engine/scripts/lib/owned-dispatch.test.py
+python3 engine/scripts/install-owned-work.test.py
+```
+
+The native resume integration test is explicitly ignored in the ordinary suite because it makes actual provider calls. Its separate private receipts distinguish successful runs from earlier harness/provider failures. One targeted installed exit-test invocation used a nonexistent test name and failed; the corrected invocation ran the real CLI regression and passed. No failed or empty test run is counted as a pass.
+
+## Installed result
+
+Runtime commit `ed88e290` was fast-forwarded from the separate repair worktree to stable main. A stable-checkout build was installed outside Cargo and worktrees with SHA-256 `9fa9a49832b5762ba055448b3b12283a944b85f29f12d74da87798462edffcee`. The installed adapter SHA-256 is `4c60f838ea9115497534f6a02eb15a9cd45a5c0e534c427e8df79f5dd7ce70d8`; its integrity sidecar matches.
+
+All three existing adopters now resolve that runner. Each settings file is semantically identical to its pre-install backup, including hooks, permissions and unrelated configuration. The engine pointer remains on stable main. No worktree path was installed.
+
+The actual installed adapter and binary resumed the frozen real conversation checkpoint through a real native provider call. The cached development verdict was cleared first. In 41.46 seconds the adapter returned exit two with a specific incomplete verdict, no integration failure and all 41 source receipts retained under the same native UUID. This is the existing unfinished-work continuation signal, not an inspection-error wake. Only the process-owner check was simulated because the replay was deliberately outside the user's native process tree; production ownership checks were not modified. No wake was delivered to the live leader. The process-ownership and retirement paths retain their separate regression coverage.
+
+The installed six-test automatic-progress suite and actual hook CLI exit regression also passed. The latter checks that infrastructure failure displays once without a blocking wake and that replacing the runtime permits a fresh inspection. No stale production audit process was present when installation was checked. Private installed receipts are `installation.json` and `installed-hook-result.json` beside the other replay evidence.
