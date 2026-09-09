@@ -182,6 +182,7 @@ fn pending_view(state: &AppState, thread_id: &str) -> Option<RunView> {
             commands: vec![],
             attempts: 0,
             decision: None,
+            permission: None,
             evidence: if error.is_empty() {
                 vec![]
             } else {
@@ -503,6 +504,41 @@ pub fn respond_run_decision(
     Ok(result)
 }
 
+/// This command is the only UI route to a one-operation grant. Business answers
+/// cannot reach it and the run/operation fences are rechecked under the writer lock.
+#[tauri::command(async)]
+pub fn respond_run_permission(
+    app: AppHandle, state: State<AppState>, thread_id: String, run_id: String,
+    task_id: String, operation_id: String, action: richos_core::permission::Action,
+) -> Result<RunView, String> {
+    let journal = command_path(&state, &thread_id, Some(&run_id))?;
+    // Independent work need not be interrupted to record this exact permission.
+    // The controller consumes the persisted response at its next boundary.
+    {
+        let spine = state.spine.lock().unwrap();
+        if spine.active_binding().map(|b| b.thread_id()) != Some(thread_id.as_str()) {
+            return Err("The selected task changed.".into());
+        }
+    }
+    let snapshot = apply_permission_response(&journal, &task_id, &operation_id, action)?;
+    let result = view(&thread_id, &snapshot);
+    let _ = app.emit(EVENT_RUN_UPDATED, &result);
+    Ok(result)
+}
+
+fn apply_permission_response(journal: &std::path::Path, task_id: &str, operation_id: &str, action: richos_core::permission::Action) -> Result<richos_core::run::RunSnapshot, String> {
+    let mut snapshot = read_snapshot(journal).map_err(|e| e.to_string())?;
+    let operation = snapshot.permissions.iter().find(|p| p.id == operation_id && p.task_id == task_id)
+        .cloned().ok_or("This permission request changed. Refresh the assignment.")?;
+    let context = richos_core::permission::Context::new(journal, &snapshot, task_id)?;
+    context.respond(&operation, action)?;
+    snapshot.permissions.retain(|p| p.id != operation_id);
+    if let Some(i) = snapshot.plan.tasks.iter().position(|t| t.id == task_id) {
+        snapshot.tasks[i].state = richos_core::run::TaskState::Pending;
+    }
+    Ok(snapshot)
+}
+
 #[cfg(test)]
 mod stop_scope_tests {
     use super::*;
@@ -522,5 +558,53 @@ mod stop_scope_tests {
         assert!(flag.load(Ordering::SeqCst));
         assert!(path.with_extension("pause").exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod permission_command_tests {
+    use super::*;
+    use richos_core::run::{Check, RunHost, RunPlan, TaskSpec};
+    use richos_core::permission::{Action, Context};
+    struct Worker { context: Option<Context> }
+    impl RunHost for Worker {
+        fn permission_context(&mut self, context: Context) -> Result<(), String> { self.context = Some(context); Ok(()) }
+        fn execute(&mut self, _: &RunPlan, _: &TaskSpec, _: &[String]) -> Result<(), String> {
+            assert!(!self.context.as_ref().unwrap().request(&request()).unwrap()); Ok(())
+        }
+        fn verify(&mut self, _: &std::path::Path, _: &Check) -> Result<String, String> { Err("Required operation did not run".into()) }
+    }
+    fn request() -> serde_json::Value { serde_json::json!({"tool_name":"R4PermissionCommandTool","input":{"resource":"chosen"}}) }
+    struct Fixture { root: PathBuf, journal: PathBuf }
+    impl Fixture {
+        fn new() -> Self {
+            let root = PathBuf::from(std::env::var_os("HOME").unwrap()).join(format!(".richos-permission-command-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let workspace = root.join("workspace"); std::fs::create_dir_all(&workspace).unwrap();
+            let journal = root.join("run.jsonl");
+            let plan = RunPlan { goal:"Complete the job".into(), workspace, max_attempts:3, turn_timeout_seconds:10,
+                tasks:vec![TaskSpec {id:"task".into(),prompt:"Do the operation".into(),depends_on:vec![],
+                    checks:vec![Check {name:"result".into(),argv:vec!["/usr/bin/true".into()],timeout_seconds:2}]}] };
+            let mut ctl = RunController::create(&journal, plan).unwrap(); ctl.tick(&mut Worker {context:None}).unwrap();
+            Self {root,journal}
+        }
+    }
+    impl Drop for Fixture { fn drop(&mut self) { let _=std::fs::remove_dir_all(&self.root); } }
+    #[test]
+    fn typed_webview_response_reaches_exact_worker_permission_and_duplicate_response_is_refused() {
+        let f=Fixture::new(); let before=read_snapshot(&f.journal).unwrap(); let operation=&before.permissions[0];
+        assert!(apply_permission_response(&f.journal,"wrong-task",&operation.id,Action::ApproveOnce).is_err());
+        assert!(apply_permission_response(&f.journal,"task","wrong-operation",Action::ApproveOnce).is_err());
+        let projected=apply_permission_response(&f.journal,"task",&operation.id,Action::ApproveOnce).unwrap();
+        assert!(projected.permissions.is_empty());
+        assert!(apply_permission_response(&f.journal,"task",&operation.id,Action::ApproveOnce).is_err());
+        let context=Context::new(&f.journal,&before,"task").unwrap(); assert!(context.request(&request()).unwrap());
+        assert!(!context.request(&request()).unwrap());
+    }
+    #[test]
+    fn declined_webview_operation_requeues_work_without_granting_it() {
+        let f=Fixture::new(); let before=read_snapshot(&f.journal).unwrap(); let operation=&before.permissions[0];
+        apply_permission_response(&f.journal,"task",&operation.id,Action::Reject).unwrap();
+        let ctl=RunController::open(&f.journal).unwrap(); assert_eq!(ctl.snapshot().state(),RunState::Ready);
+        let context=Context::new(&f.journal,ctl.snapshot(),"task").unwrap(); assert!(!context.request(&request()).unwrap());
     }
 }

@@ -1,0 +1,17 @@
+   Compiling richos-tauri v1.0.3 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/src-tauri)
+warning: constant `OVERRIDE_ENV` is never used
+   --> src/activation.rs:346:11
+    |
+346 | pub const OVERRIDE_ENV: &str = "RICHOS_ACTIVATION";
+    |           ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OVERRIDE_REGULAR` is never used
+   --> src/activation.rs:348:11
+    |
+348 | pub const OVERRIDE_REGULAR: &str = "regular";
+    |           ^^^^^^^^^^^^^^^^
+
+warning: `richos-tauri` (bin "richos-tauri") generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.26s

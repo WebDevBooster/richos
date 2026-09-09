@@ -23,6 +23,9 @@ pub fn task_prompt(plan: &RunPlan, task: &TaskSpec, previous: &[String]) -> Stri
 }
 
 impl RunHost for CognitionRunHost<'_> {
+    fn permission_context(&mut self, context: crate::permission::Context) -> Result<(), String> {
+        self.cognition.set_managed_permission_context(context).map_err(|e| e.to_string())
+    }
     fn execute(
         &mut self,
         plan: &RunPlan,

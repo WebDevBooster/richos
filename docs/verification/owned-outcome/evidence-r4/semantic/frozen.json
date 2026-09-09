@@ -1,0 +1,9 @@
+{
+  "case_count": 10,
+  "source_hashes": {
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-dispatch.py": "86e9bbe11daa3203ccf34ae5cb2e7be1e4d6cfb25393a48285657a4a875c26c5",
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/dispatch.rs": "d094ce8a050765984350a734df3f5dba1137e909fb1e6364080c35f35e1f3d1e",
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/target/debug/richos-run": "09c8b9584493f0972cb306acdd9b51e1e75536d55272c8302053fd48a9d28fa4"
+  },
+  "paid_calls": 0
+}

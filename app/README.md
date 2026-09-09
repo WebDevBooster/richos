@@ -875,7 +875,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1045 tests + 5 doc-tests; 1041 direct, 4 ignored
+cargo test -p richos-core                       # 1102 tests + 5 doc-tests (1098 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -1652,7 +1652,12 @@ and the terminal protocol path. These checks also exercise the desktop Spine ada
 `crates/richos-core/tests/registration_tests.rs` covers intent/commitment consistency,
 quote provenance, full constraint preservation and the registrar schema.
 
+`crates/richos-core/tests/escalation_source_tests.rs` covers source-bound decision
+validation and automatic recovery from operational restrictions.
+
 `crates/richos-user-update/tests/startup_exec.rs` covers the update startup executor.
 
 See the [owned outcome review](../docs/verification/owned-outcome/REVIEW.md) for
 recovery without resubmission and the optional native Claude leader adapter.
+The [fourth revision](../docs/verification/owned-outcome/REVISION-4.md) adds recorded
+handoffs, verified native authority and separate exact-operation permissions.

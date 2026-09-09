@@ -1,0 +1,11 @@
+Error: playwright not found. Run `npm install` in app/ui/tests (its postinstall fetches WebKit too), or point RICHOS_PLAYWRIGHT at an existing install.
+    at loadPlaywright (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/ui/tests/lib/harness.js:52:9)
+    at main (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/ui/tests/runs.js:20:22)
+    at Object.<anonymous> (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/ui/tests/runs.js:312:1)
+    at Module._compile (node:internal/modules/cjs/loader:1803:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1934:10)
+    at Module.load (node:internal/modules/cjs/loader:1524:32)
+    at Module._load (node:internal/modules/cjs/loader:1326:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)

@@ -1,0 +1,45 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "native": {
+        "requirements_md": "Current approved contract: native workspaces return platform-pending; external workspaces return verified.",
+        "backlog_md": "Previous contract: native workspaces return verified.",
+        "lifecycle_py_before": "return \"platform-pending\" if owner == \"native\" else \"bound\"",
+        "test_lifecycle_py_before": "def test_native(self): self.assertEqual(status(\"native\"), \"verified\")",
+        "reasoning": "The implementation already returned 'platform-pending' for native, which matches the current approved contract in requirements.md. The failing test_native assertion expected 'verified', which is the superseded value recorded in backlog.md as the previous contract, not the current one. The defect was in the test's assertion, not in lifecycle.py, so this is classified as an obsolete_assertion.",
+        "fix_applied": "Updated test_lifecycle.py: test_native now asserts status(\"native\") == \"platform-pending\". lifecycle.py's native branch was left unchanged since it was already correct."
+      },
+      "external": {
+        "requirements_md": "Current approved contract: native workspaces return platform-pending; external workspaces return verified.",
+        "lifecycle_py_before": "return \"platform-pending\" if owner == \"native\" else \"bound\"",
+        "test_lifecycle_py_before": "def test_external(self): self.assertEqual(status(\"external\"), \"verified\")",
+        "reasoning": "requirements.md requires external workspaces to return 'verified', and test_external already asserted exactly that. lifecycle.py's else-branch instead returned 'bound' for any non-native owner (including 'external'), which contradicts requirements.md. The defect was in the implementation, not the test, so this is classified as an implementation_defect.",
+        "fix_applied": "Updated lifecycle.py: the else-branch of status() now returns \"verified\" instead of \"bound\". test_lifecycle.py's test_external assertion was left unchanged since it was already correct."
+      }
+    },
+    "files_changed": [
+      "lifecycle.py",
+      "test_lifecycle.py"
+    ],
+    "files_left_unchanged": [
+      "requirements.md",
+      "backlog.md"
+    ],
+    "test_run": {
+      "command": "python3 -m unittest test_lifecycle -v",
+      "result": "OK",
+      "tests": [
+        "test_external ... ok",
+        "test_native ... ok"
+      ]
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

@@ -1,0 +1,9 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests examples/run_view_probe.rs (app/target/debug/examples/run_view_probe-136270aeff406e1a)
+
+running 1 test
+test human_display_preserves_execution_and_amendment_requirements ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+

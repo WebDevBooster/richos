@@ -1,0 +1,28 @@
+   Compiling richos-tauri v1.0.3 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/src-tauri)
+warning: constant `OVERRIDE_ENV` is never used
+   --> src/activation.rs:346:11
+    |
+346 | pub const OVERRIDE_ENV: &str = "RICHOS_ACTIVATION";
+    |           ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OVERRIDE_REGULAR` is never used
+   --> src/activation.rs:348:11
+    |
+348 | pub const OVERRIDE_REGULAR: &str = "regular";
+    |           ^^^^^^^^^^^^^^^^
+
+warning: `richos-tauri` (bin "richos-tauri" test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.78s
+     Running unittests src/main.rs (app/src-tauri/target/debug/deps/richos_tauri-8aa299a8852d779c)
+
+running 5 tests
+test owned_work::pending_instruction_tests::newer_unclassified_instruction_fences_recovery_but_other_company_does_not ... ok
+test owned_work::pending_instruction_tests::original_answer_applies_once_but_absent_tied_or_ambiguous_question_is_unresolved ... ok
+test owned_work::pending_instruction_tests::delayed_answer_keeps_original_question_and_cannot_answer_replacement ... ok
+test owned_work::pending_instruction_tests::pending_correction_supersedes_original_without_losing_its_prohibition ... ok
+test owned_work::pending_instruction_tests::pending_cancellation_is_targetable_and_durable_before_recovery ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 71 filtered out; finished in 0.12s
+

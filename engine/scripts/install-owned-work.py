@@ -5,6 +5,7 @@ Explicit install is separate from building/reviewing the worktree.
 import argparse
 import importlib.util
 import json
+import hashlib
 import os
 from pathlib import Path
 import shlex
@@ -55,11 +56,11 @@ def install(workspace, runner, permission_policy=None):
         original = json.loads(target.read_text()) if target.exists() else {}
         # Preserve user/local permissions and unrelated hooks byte-semantically.
         hooks = original.setdefault('hooks', {})
-        for event, mode in [('UserPromptSubmit', 'capture'), ('SessionStart', 'capture'), ('SessionStart', 'audit'), ('Stop', 'audit'), ('StopFailure', 'audit'), ('PermissionRequest', 'permission'), ('PreToolUse', 'question'), ('Notification', 'observe')]:
+        for event, mode in [('UserPromptSubmit', 'capture'), ('SessionStart', 'capture'), ('SessionStart', 'audit'), ('Stop', 'audit'), ('StopFailure', 'audit'), ('PermissionRequest', 'permission'), ('PreToolUse', 'question'), ('PreToolUse', 'tool'), ('Notification', 'observe')]:
             command = 'python3 ' + shlex.quote(str(script)) + ' ' + mode
             groups = hooks.setdefault(event, [])
             found = [h for group in groups for h in group.get('hooks', []) if 'lib/owned-session.py' in h.get('command', '') and h['command'].endswith(' ' + mode)]
-            config = {'type': 'command', 'command': command, 'timeout': 3900 if mode == 'audit' else 180 if mode == 'question' else 15}
+            config = {'type': 'command', 'command': command, 'timeout': 3900 if mode == 'audit' else 180 if mode in ('question', 'permission') else 15}
             if mode == 'audit':
                 config['asyncRewake'] = True
             if found:
@@ -71,9 +72,24 @@ def install(workspace, runner, permission_policy=None):
                 if mode == 'question': group['matcher'] = 'AskUserQuestion'
                 if mode == 'observe': group['matcher'] = 'permission_prompt'
                 groups.append(group)
+        dispatch = script.with_name('owned-dispatch.py')
+        dispatch_command = 'python3 ' + shlex.quote(str(dispatch)) + ' ' + shlex.quote(str(root))
+        groups = hooks.setdefault('PreToolUse', [])
+        found = [h for group in groups if group.get('matcher') == 'Agent' for h in group.get('hooks', []) if 'lib/owned-dispatch.py' in h.get('command', '')]
+        dispatch_hook = {'type': 'command', 'command': dispatch_command, 'timeout': 240}
+        if found:
+            for hook in found:
+                hook.clear(); hook.update(dispatch_hook)
+        else:
+            groups.append({'matcher': 'Agent', 'hooks': [dispatch_hook]})
         ignore_local_config(root)
+        # Hook first, ownership marker second. A crash cannot make the engine
+        # skip while no direct adapter hook has been installed.
         owned.atomic(target, original)
-        owned.atomic(root / owned.CONFIG, {'version': 1, 'enabled': True, 'runner': str(binary), 'decision_policy': 'dependency', 'permission_policy': permission_policy})
+        owned.atomic(root / owned.CONFIG, {'version': 1, 'enabled': True, 'runner': str(binary),
+                    'decision_policy': 'dependency', 'permission_policy': permission_policy,
+                    'dispatch_owner': 'adapter', 'dispatch_command': dispatch_command,
+                    'dispatch_script_sha256': hashlib.sha256(dispatch.read_bytes()).hexdigest()})
     return target
 
 
@@ -82,6 +98,6 @@ if __name__ == '__main__':
     p.add_argument('workspace')
     p.add_argument('runner')
     p.add_argument('--permission-policy', choices=['native', 'deny'], default=None,
-                   help='Native preserves real permission prompts (default). Deny explicitly refuses every new permission request; it never grants authority. Reinstall preserves an explicit existing choice.')
+                   help='Native first recovers using existing permissions and exposes real prompts only after source-bound necessity review (default). Deny explicitly refuses every new permission request; it never grants authority. Reinstall preserves an explicit existing choice.')
     args = p.parse_args()
     print(install(args.workspace, args.runner, args.permission_policy))

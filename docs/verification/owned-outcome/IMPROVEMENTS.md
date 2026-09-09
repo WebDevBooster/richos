@@ -71,3 +71,32 @@ not an implemented native R3 correction or hidden scope expansion.
 - Reuse or pace identical proposed-question inspections while their source and
   evidence remain unchanged. These are separate paid model calls, outside the
   persisted outcome-audit burst; repeated denied proposals can still incur cost.
+
+## Discovered during revision 4, outside its scope
+
+- A future native provider contract could attest that an AskUserQuestion answer came
+  from a real human input event. Current successful tool-result metadata is
+  insufficient because hooks can programmatically supply answers. Until then,
+  native business decisions use a normal typed reply as authority; RichOS retains
+  its own trusted decision commands. Do not infer provenance from successful tools.
+- A future provider API for a strictly restricted turn on an existing conversation
+  lease could recover a missing Rich disposition without the private registrar.
+  Current callback denial alone cannot restrict tools that native rules already
+  auto-approve. Missing receipts therefore use the tool-free registrar exception.
+- Add a cheap runner capability/version handshake to the portable installer so it
+  can reject an old executable before adoption. R4 acceptance builds and fingerprints
+  the tested executable explicitly; a general installer handshake is separate work.
+- Replace the legacy string-prefix review/control interface with a typed result
+  across hosts in a future compatibility change. R4 closes the observed marker
+  injection paths and tests the current boundary; adding new untrusted string
+  producers must continue to use that boundary until the interface is replaced.
+- Restrict managed inspectors' runtime explanations to directly observed facts.
+  The corrected desktop trial completed without extra decisions, but an inspector
+  speculated that the engine was stood down and the worker repeated that explanation.
+  This did not grant tools or stall the task. Native permission review already
+  returns host-authored dispositions; improving all managed diagnostic prose is
+  separate from the source, continuation and permission mechanisms in this revision.
+- Make the native tool-ID observer read transcript tails incrementally while
+  preserving source provenance across compaction. It currently refreshes the
+  leader's source and receipt view on each observed tool. No live acceptance stall
+  was attributed to this, so performance work on large sessions is deferred.

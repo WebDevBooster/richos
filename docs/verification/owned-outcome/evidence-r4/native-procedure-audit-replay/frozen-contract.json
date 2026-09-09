@@ -1,0 +1,8 @@
+{
+  "source": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-7qh092p0",
+  "runner_sha256": "eab94940ae1c791241445ba41cab1b4975b3ca45b2d6bbf85457244fea3eb02d",
+  "autonomy_sha256": "b35e572ab95654171386b234d673ec7a239045a302d88157033f50d99f037232",
+  "input_sha256": "0edd6e9d7e04b196197c8ae3d694180240020bf062764de3cd64f22af0ed9249",
+  "expected": "incomplete: explicit engineer and independent review were not done",
+  "max_calls": 1
+}

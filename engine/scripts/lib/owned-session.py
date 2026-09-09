@@ -8,6 +8,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -15,10 +16,11 @@ import tempfile
 import time
 
 CONFIG = '.claude/owned-work.json'
+HUMAN_PROVENANCE = ('native_human_typed_v1',)
 SOURCE_WARNING = 'Source transcript unavailable. Only hook payloads are retained; transcript deduplication and observed question-answer provenance are unavailable. Do not infer missing answers or authority.'
 BURST_AUDITS = 5
 RECOVERY_SECONDS = 3600
-PERMISSION_REASON = 'This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry the same refused call or weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation.'
+PERMISSION_REASON = 'This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation.'
 CONTINUE_WORK = ('Rich still owns unfinished authorized work. Continue without a CEO nudge. '
                  'Reconcile the original request and current deliverables, including required executed checks. '
                  'Do not ask the CEO to choose routine tools or waive verification. '
@@ -82,8 +84,8 @@ def configuration(root):
     if not isinstance(config, dict) or type(config.get('version')) is not int or config.get('version') != 1 or config.get('enabled') is not True or config.get('decision_policy') != 'dependency':
         return None
     binary = Path(config['runner'])
-    if not binary.is_absolute() or not os.access(binary, os.X_OK):
-        raise ValueError('Owned work runner is unavailable; completion is unverified')
+    if not binary.is_absolute():
+        raise ValueError('Owned work runner path must be absolute')
     if config.get('permission_policy', 'native') not in ('native', 'deny'):
         raise ValueError('Unknown owned-work permission policy')
     return config
@@ -107,34 +109,75 @@ def record_error(error):
         pass  # A diagnostic write failure must not alter the native permission flow.
 
 
+def human_row(row):
+    """Native provenance allowlist, observed in Claude Code 2.1.263.
+
+    Missing provenance is unknown. Text shape, user role and a submit hook are
+    never sufficient. This is a native-runtime trust boundary, not protection
+    from an actor capable of rewriting the transcript on disk.
+    """
+    return (row.get('type') == 'user' and row.get('origin') == {'kind': 'human'}
+            and row.get('promptSource') == 'typed' and bool(row.get('uuid'))
+            and bool(row.get('promptId')) and not any(row.get(k) for k in
+                ('isSidechain', 'isMeta', 'isCompactSummary', 'isSynthetic')))
+
+
+def plain_human_part(part):
+    # Never promote appended transport/XML context through a genuine row. This
+    # intentionally leaves wrapped/attached text as context requiring review.
+    text = part.get('text')
+    return (part.get('type') == 'text' and isinstance(text, str) and bool(text.strip())
+            and not re.search(r'<[/!?]?[A-Za-z][^>]*>', text)
+            and not text.lstrip().startswith('[Cross-session'))
+
+
 def source_messages(transcript):
     messages = []
     questions = {}
     for line in Path(transcript).read_text().splitlines():
-        row = json.loads(line)  # malformed records are unknown, never an empty scope
+        row = json.loads(line)
         if row.get('isSidechain') or row.get('isMeta') or row.get('isCompactSummary') or row.get('isSynthetic') or row.get('type') not in ('user', 'assistant'):
             continue
         content = row.get('message', {}).get('content', [])
         if isinstance(content, str):
             content = [{'type': 'text', 'text': content}]
-        for c in content:
-            if c.get('type') == 'tool_use' and c.get('name') == 'AskUserQuestion':
-                questions[c.get('id')] = c.get('input', {}).get('questions', [])
-        parts = [c['text'] for c in content if c.get('type') == 'text']
-        for c in content:
-            if c.get('type') == 'tool_result' and c.get('tool_use_id') in questions and not c.get('is_error'):
-                # A proposed tool call alone is not proof it reached the CEO.
-                # Its successful result supplies both presentation and response.
-                prompts = questions[c['tool_use_id']]
-                shown = '\n'.join(q.get('question', '') for q in prompts if isinstance(q, dict))
-                if shown:
-                    messages.append({'role': 'assistant', 'text': shown,
-                                     'source_id': str(row.get('uuid') or hashlib.sha256(line.encode()).hexdigest()) + ':question'})
-                parts.append('CEO response to an observed AskUserQuestion: ' + json.dumps(c.get('content'), ensure_ascii=False))
-        text = '\n'.join(parts)
-        if not text or observation(text):
+        if not isinstance(content, list):
             continue
-        messages.append({'role': row['type'], 'text': text, 'source_id': row.get('uuid') or hashlib.sha256(line.encode()).hexdigest()})
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get('type') == 'tool_use' and part.get('name') == 'AskUserQuestion':
+                questions[part.get('id')] = {'questions': part.get('input', {}).get('questions', []), 'assistant_uuid': row.get('uuid')}
+            if part.get('type') == 'tool_result' and part.get('tool_use_id') in questions and not part.get('is_error'):
+                registered = questions[part['tool_use_id']]
+                shown = '\n'.join(q.get('question', '') for q in registered['questions'] if isinstance(q, dict))
+                if shown:
+                    messages.append({'role': 'assistant', 'text': shown, 'provenance': 'native_tool_observation',
+                                     'source_id': str(row.get('uuid')) + ':question'})
+                # AskUserQuestion answers can be programmatically supplied by
+                # another PreToolUse hook. Structured toolUseResult, matching
+                # questions and sourceToolAssistantUUID do not prove human UI
+                # origin. Retain the runtime observation, never grant authority.
+                messages.append({'role': 'unverified_user',
+                                 'text': json.dumps(row.get('toolUseResult', part.get('content')), ensure_ascii=False),
+                                 'provenance': 'native_tool_observation',
+                                 'source_id': str(row.get('uuid')) + ':answer'})
+        human = human_row(row)
+        parts = [c['text'] for c in content if isinstance(c, dict) and
+                 (plain_human_part(c) if human else row['type'] == 'assistant' and
+                  c.get('type') == 'text' and isinstance(c.get('text'), str))]
+        text = '\n'.join(parts)
+        full_text = '\n'.join(c['text'] for c in content if isinstance(c, dict) and c.get('type') == 'text' and isinstance(c.get('text'), str))
+        if human and full_text != text:
+            messages.append({'role': 'unverified_user', 'text': full_text,
+                             'source_id': str(row['uuid']) + ':context', 'prompt_id': row.get('promptId'), 'provenance': 'mixed_native_context'})
+            text = ''  # whole mixed row is context, never selectively stripped authority
+        if not text:
+            continue
+        messages.append({'role': row['type'], 'text': text,
+                         'source_id': str(row.get('uuid') or hashlib.sha256(line.encode()).hexdigest()),
+                         'provenance': 'native_human_typed_v1' if human else 'native_assistant',
+                         **({'prompt_id': row['promptId']} if human else {})})
     return messages
 
 
@@ -158,7 +201,8 @@ def execution_observations(transcript, agent_id=None):
                 observed.append({'id': (agent_id + ':' if agent_id else '') + part['tool_use_id'],
                                  'actor': 'native_child' if agent_id else 'native_leader',
                                  'agent_id': agent_id, 'cwd': row.get('cwd'), **calls[part['tool_use_id']],
-                                 'is_error': bool(part.get('is_error')), 'result': output[:8192],
+                                 'is_error': bool(part.get('is_error')), 'tool_denial_kind': row.get('toolDenialKind'),
+                                 'timestamp': row.get('timestamp'), 'result': output[:8192],
                                  'result_truncated': len(output) > 8192})
     return observed
 
@@ -180,7 +224,16 @@ def capture(root, payload):
     path = location(root, session)
     with locked(path.with_suffix('.lock')):
         state = json.loads(path.read_text()) if path.exists() else {'version': 1, 'session_id': session, 'workspace': str(root), 'messages': [], 'revision': 0, 'failures': 0, 'source_ids': []}
-        state['messages'] = [m for m in state['messages'] if not (m['role'] == 'user' and observation(m['text']))]
+        # Migrate old role-only authority without erasing the owned assignment.
+        # It can be re-corroborated below from actual native provenance.
+        for message in state['messages']:
+            if message['role'] == 'user' and message.get('provenance') not in HUMAN_PROVENANCE:
+                message['role'] = 'unverified_user'
+        if state.get('provenance_version') != 1:
+            state['source_ids'] = []
+            state.pop('authorization_registration', None)
+        state['provenance_version'] = 1
+        prior_authority = {(m.get('source_id'), m['text']) for m in state['messages'] if m.get('provenance') in HUMAN_PROVENANCE}
         transcript = payload.get('transcript_path')
         state['source_status'] = 'available' if transcript and Path(transcript).exists() else 'unavailable'
         if transcript and Path(transcript).exists():
@@ -192,27 +245,44 @@ def capture(root, payload):
             state['execution_observations'] = list(receipts.values())
             known = set(state.get('source_ids', []))
             for message in messages:
-                key = message.pop('source_id')
+                key = message['source_id']
                 if key in known:
                     continue
                 # Stop/UserPromptSubmit can precede the transcript write. Replace
                 # the corresponding pending copy instead of duplicating authority.
-                pending = next((m for m in state['messages'] if m.get('pending') and
-                                m['role'] == message['role'] and m['text'] == message['text']), None)
+                pending = next((m for m in state['messages'] if
+                                (m.get('pending') or m['role'] == 'unverified_user') and
+                                m['role'] in (message['role'], 'unverified_user') and
+                                (m.get('prompt_id') == message.get('prompt_id') if m.get('prompt_id') else m['text'] == message['text'])), None)
                 if pending is not None:
-                    pending.pop('pending')
+                    pending.clear()
+                    pending.update(message)
                 else:
                     state['messages'].append(message)
                 known.add(key)
             state['source_ids'] = sorted(known)
-        if payload.get('hook_event_name') == 'UserPromptSubmit' and payload.get('prompt') and not observation(payload['prompt']) and not payload.get('isMeta'):
+            # A hook carries no human authority. Its native prompt ID does,
+            # however, fence old authority until that exact row is flushed.
+            runtime_prompts = {r.get('promptId'): r for r in
+                               (json.loads(line) for line in Path(transcript).read_text().splitlines())
+                               if r.get('promptId') and r.get('type') == 'user' and r.get('origin')}
+            for message in state['messages']:
+                if message.get('pending') and message.get('provenance') == 'hook_unverified' and message.get('prompt_id') in runtime_prompts:
+                    row = runtime_prompts[message['prompt_id']]
+                    if row.get('origin', {}).get('kind') != 'human':
+                        message.pop('pending', None)
+                        message['provenance'] = 'native_transport_observation'
+        if payload.get('hook_event_name') == 'UserPromptSubmit' and payload.get('prompt') and (payload.get('prompt_id') or not observation(payload['prompt'])) and not payload.get('isMeta'):
+            msg = {'role': 'unverified_user', 'text': payload['prompt'], 'pending': True, 'provenance': 'hook_unverified', 'prompt_id': payload.get('prompt_id')}
+            matched = any((m.get('prompt_id') == msg['prompt_id'] if msg['prompt_id'] else m.get('text') == msg['text']) for m in state['messages'])
+            if not matched:
+                state['messages'].append(msg)
+        current_authority = {(m.get('source_id'), m['text']) for m in state['messages'] if m.get('provenance') in HUMAN_PROVENANCE}
+        if current_authority != prior_authority:
             state['retry_at'] = 0
             state['failures'] = 0
             state['audit_attempts'] = 0
             state.pop('parked_prompt', None)
-            msg = {'role': 'user', 'text': payload['prompt'], 'pending': True}
-            if not state['messages'] or any(state['messages'][-1].get(k) != msg[k] for k in ('role', 'text')):
-                state['messages'].append(msg)
         if payload.get('last_assistant_message'):
             msg = {'role': 'assistant', 'text': payload['last_assistant_message'], 'pending': True}
             if not state['messages'] or any(state['messages'][-1].get(k) != msg[k] for k in ('role', 'text')):
@@ -351,7 +421,17 @@ def audit_once(path, config):
             result = subprocess.run([config['runner'], 'audit-session', state['workspace'], '120'], input=json.dumps(data), text=True, capture_output=True, timeout=270)
             if result.returncode:
                 raise ValueError(result.stderr[-4000:] or 'Outcome inspection failed')
-            verdict = validate_verdict(json.loads(result.stdout))
+            response = json.loads(result.stdout)
+            escalation_validated = response.pop('escalation_validated', False) is True
+            verdict = validate_verdict(response)
+            if verdict['kind'] == 'decision' and not escalation_validated:
+                # Only the trusted CLI's source-bound escalation gate can permit
+                # a decision. A shape-valid model proposal cannot authorize it.
+                with locked(path.with_suffix('.lock')):
+                    proposal_state = json.loads(path.read_text())
+                    proposal_state['decision_proposal'] = verdict
+                    atomic(path, proposal_state)
+                verdict = {'kind': 'incomplete', 'remaining': 'An inspector proposed a decision that requires source-bound escalation validation. Independent authorized work remains owned.'}
             failures = 0
         except (ValueError, subprocess.TimeoutExpired, OSError) as error:
             failures = state.get('failures', 0) + 1
@@ -446,9 +526,232 @@ def question_denial(reason):
                                   'permissionDecisionReason': reason}}
 
 
+def pending_authority(state):
+    return any(m.get('pending') and m.get('provenance') == 'hook_unverified'
+               for m in state.get('messages', []))
+
+
+def observe_native_tool(root, payload):
+    """Retain runtime tool identity before transcript flush, never CEO scope."""
+    if payload.get('hook_event_name') != 'PreToolUse' or not payload.get('tool_use_id'):
+        return
+    actor = payload.get('agent_id')
+    actor = actor if not actor or actor.startswith('agent-') else 'agent-' + actor
+    if actor and not re.fullmatch(r'agent-[A-Za-z0-9_-]+', actor):
+        return
+    path = location(root, payload['session_id'])
+    if not actor:
+        capture(root, payload)
+    if not path.exists():
+        return
+    with locked(path.with_suffix('.lock')):
+        state = json.loads(path.read_text())
+        if state.get('session_id') != payload['session_id'] or Path(state.get('workspace', '')).resolve() != root.resolve() or not state.get('source_transcript'):
+            return
+        receipts = {r['id'] for r in state.get('execution_observations', [])}
+        requests = {k:v for k,v in state.get('native_tool_requests', {}).items() if k not in receipts}
+        ident = (actor + ':' if actor else '') + payload['tool_use_id']
+        requests[ident] = {'invocation_id': ident, 'agent_id': actor, 'tool_name': payload.get('tool_name'),
+                           'input': payload.get('tool_input'), 'prompt_id': payload.get('prompt_id'),
+                           'observed_at': time.time(), 'provenance': 'native_pretool_observation'}
+        state['native_tool_requests'] = requests
+        atomic(path, state)
+
+
+def permission_invocation(state, actor, payload):
+    """Bind a permission callback to a unique outstanding actual native call.
+
+    Claude 2.1.263's PermissionRequest omits tool_use_id. Hooks can rewrite
+    input, so a unique pending same-name call is the conservative fallback.
+    """
+    transcript = Path(state['source_transcript'])
+    if actor:
+        if not re.fullmatch(r'agent-[A-Za-z0-9_-]+', actor):
+            return None
+        transcript = transcript.with_suffix('') / 'subagents' / (actor + '.jsonl')
+    calls, latest_request, completed = {}, None, set()
+    for line in transcript.read_text().splitlines() if transcript.is_file() else []:
+        row = json.loads(line)
+        if (row.get('isSidechain') and not actor) or row.get('type') not in ('user', 'assistant'):
+            continue
+        content = row.get('message', {}).get('content', [])
+        if not isinstance(content, list):
+            continue
+        if row.get('type') == 'assistant' and row.get('requestId'):
+            latest_request = row['requestId']
+        for part in content:
+            if part.get('type') == 'tool_use':
+                calls[part['id']] = {**part, 'native_request_id': row.get('requestId')}
+            elif part.get('type') == 'tool_result':
+                calls.pop(part.get('tool_use_id'), None)
+                completed.add(part.get('tool_use_id'))
+    known_calls = set(calls)
+    candidates = [c for c in calls.values() if c.get('name') == payload.get('tool_name') and
+                  (not latest_request or c.get('native_request_id') == latest_request)]
+    # PreToolUse supplies tool_use_id even when PermissionRequest omits it
+    # and the current assistant row has not yet been written to the transcript.
+    # Only runtime operation identity is retained here, never human authority.
+    completed_ids = {r['id'] for r in state.get('execution_observations', [])}
+    for ident, observed in state.get('native_tool_requests', {}).items():
+        native_id = ident.removeprefix(actor + ':') if actor else ident
+        if (observed.get('agent_id') == actor and observed.get('tool_name') == payload.get('tool_name')
+                and ident not in completed_ids and native_id not in completed and native_id not in known_calls
+                and observed.get('provenance') == 'native_pretool_observation'):
+            candidates.append({'id': native_id, 'name': observed['tool_name'], 'input': observed['input']})
+    exact = [c for c in candidates if c.get('input') == payload.get('tool_input')]
+    selected = exact if exact else candidates
+    if len(selected) != 1:
+        return None
+    return (actor + ':' if actor else '') + selected[0]['id']
+
+
+def permission_operation_input(tool_name, tool_input, original_observation=None):
+    if tool_name == 'Bash' and isinstance(tool_input, dict):
+        normalized = {k:v for k,v in tool_input.items() if k != 'description'}
+        if original_observation:
+            original = original_observation.get('input', {}).get('command')
+            effective = tool_input.get('command')
+            if isinstance(original, str) and effective in (original, 'set -e -o pipefail\n' + original):
+                candidate = {**normalized, 'command': original}
+                observed = {k:v for k,v in original_observation['input'].items() if k != 'description'}
+                if candidate == observed:
+                    normalized = candidate
+        return normalized
+    return tool_input
+
+
+def native_permission_request(root, payload, config):
+    """Recover before exposing a native dialog. Never return a permission grant."""
+    path = location(root, payload['session_id'])
+    state = json.loads(path.read_text()) if path.exists() else {}
+    bound = (state.get('session_id') == payload['session_id'] and
+             Path(state.get('workspace', '')).resolve() == root.resolve() and state.get('source_transcript'))
+    if bound:
+        capture(root, {'session_id': payload['session_id'], 'transcript_path': state['source_transcript'],
+                       'hook_event_name': 'PermissionRequest'})
+        state = json.loads(path.read_text())
+    sources = [m for m in state.get('messages', []) if m.get('provenance') in (*HUMAN_PROVENANCE, 'mixed_native_context')]
+    scope_revision = hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
+    actor = payload.get('agent_id')
+    actor = actor if not actor or actor.startswith('agent-') else 'agent-' + actor
+    invocation = permission_invocation(state, actor, payload) if bound else None
+    operation = {'tool_name': payload.get('tool_name'), 'input': payload.get('tool_input'), 'agent_id': actor}
+    original = state.get('native_tool_requests', {}).get(invocation)
+    if original and (original.get('provenance') != 'native_pretool_observation' or original.get('invocation_id') != invocation
+                     or original.get('agent_id') != actor or original.get('tool_name') != operation['tool_name']):
+        original = None
+    operation_identity = {**operation, 'input': permission_operation_input(operation['tool_name'], operation['input'], original)}
+    operation_id = hashlib.sha256(json.dumps(operation_identity, sort_keys=True).encode()).hexdigest()
+    attempt_id = hashlib.sha256((operation_id + scope_revision).encode()).hexdigest()
+    descriptor = {**operation, 'scope_revision': scope_revision, 'invocation_id': invocation, 'original_observation': original}
+    request_id = hashlib.sha256(json.dumps(descriptor, sort_keys=True).encode()).hexdigest()
+    descriptor['request_id'] = request_id
+    attempts_path = path.with_suffix('.permission-attempts.json')
+    reason = permission_reason(payload) + ' For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): ' + json.dumps(permission_context(root))
+    disposition, reservation = 'recover', None
+    command = operation_identity['input'].get('command') if operation['tool_name'] == 'Bash' and isinstance(operation_identity['input'], dict) else json.dumps(operation_identity['input'], separators=(',', ':'))
+    human = [m for m in sources if m.get('role') == 'user' and m.get('provenance') in HUMAN_PROVENANCE]
+    explicit_operation = isinstance(command, str) and bool(command.strip()) and any(command in m['text'] for m in human)
+    receipts = state.get('execution_observations', [])
+    failed_alternative = any(r.get('is_error') is True and r.get('actor') in ('native_leader', 'native_child') and r.get('agent_id') == actor and (r.get('tool_name') != operation['tool_name'] or permission_operation_input(r.get('tool_name'), r.get('input')) != operation_identity['input']) for r in receipts)
+    eligible_sources = None
+    unknown_prompts = []
+    with locked(attempts_path.with_suffix('.lock')):
+        attempts = json.loads(attempts_path.read_text()) if attempts_path.exists() else {}
+        previous = attempts.setdefault(attempt_id, {'operation_id': operation_id, 'count': 0, 'tickets': {}})
+        prior_count = previous['count']
+        previous['count'] += 1  # per operation + scope, NOT per native retry invocation
+        previous['request'] = descriptor
+        tickets = previous.setdefault('tickets', {})
+        ticket = tickets.setdefault(invocation or 'unbound', {})
+        now = time.time()
+        lifecycle_ok = not ticket.get('exposed') and ticket.get('review_until', 0) <= now
+        for entry in attempts.values():
+            if entry.get('operation_id') != operation_id:
+                continue
+            for old_id, old in entry.get('tickets', {}).items():
+                if old.get('review_until', 0) > now:
+                    lifecycle_ok = False
+                if not old.get('exposed') or old_id == invocation:
+                    continue
+                receipt = next((r for r in receipts if r.get('id') == old_id), None)
+                if receipt and receipt.get('tool_denial_kind') == 'user-rejected':
+                    later = {m['source_id'] for m in human if m.get('source_id') not in old.get('source_ids', [])}
+                    eligible_sources = later if eligible_sources is None else eligible_sources & later
+                    if not later:
+                        lifecycle_ok = False
+                        reason += ' The native user explicitly refused this operation. Continue independent work; do not retry it without a later verified human instruction reconsidering this operation.'
+                elif not receipt or receipt.get('is_error'):
+                    inspections = [r for r in receipts if r.get('id') not in old.get('receipt_ids', []) and r.get('agent_id') == actor and r.get('is_error') is False and r.get('tool_name') in ('Read', 'Glob', 'Grep')]
+                    unknown_prompts.append({'invocation_id': old_id, 'receipt': receipt, 'effect_inspection_ids': [r['id'] for r in inspections]})
+                    if not inspections:
+                        lifecycle_ok = False
+                        reason += ' A prior native prompt has no confirmed successful outcome. Inspect actual effects with already permitted Read/Glob/Grep before considering a fresh necessary attempt; do not assume approval or replay the operation.'
+        if (config.get('permission_policy', 'native') == 'native' and prior_count >= 1 and invocation
+                and bound and not pending_authority(state) and lifecycle_ok and ticket.get('retry_at', 0) <= now and previous.get('retry_at', 0) <= now
+                and (explicit_operation or failed_alternative) and human):
+            reservation = os.urandom(16).hex()
+            ticket.update(reservation=reservation, review_until=now + 180)
+        atomic(attempts_path, attempts)
+    if reservation:
+        data = {'request': descriptor, 'messages': state.get('messages', []),
+                'execution_observations': receipts, 'adapter_permission_attempts': list(attempts.values()),
+                'eligible_authority_source_ids': sorted(eligible_sources) if eligible_sources is not None else None,
+                'unknown_prior_prompts': unknown_prompts,
+                'runtime_observations': {k: state[k] for k in ('last_permission_request', 'last_permission_denial') if k in state},
+                'permission_context': permission_context(root)}
+        checked = None
+        try:
+            result = subprocess.run([config['runner'], 'audit-native-permission', str(root), '120'],
+                                    input=json.dumps(data), text=True, capture_output=True, timeout=150)
+            if result.returncode:
+                raise ValueError('Permission necessity inspector failed')
+            checked = json.loads(result.stdout)
+            if (not isinstance(checked, dict) or set(checked) != {'request_id', 'scope_revision', 'disposition'}
+                    or checked['request_id'] != request_id or checked['scope_revision'] != scope_revision
+                    or checked['disposition'] not in ('recover', 'native_prompt')):
+                raise ValueError('Permission necessity result lacks exact current binding')
+            capture(root, {'session_id': payload['session_id'], 'transcript_path': state['source_transcript'], 'hook_event_name': 'PermissionRequest'})
+            diagnostic = 'host_bound_' + checked['disposition']
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            checked = None
+            diagnostic = str(error)
+        # Reserve first, then check both native scope and exact ticket under locks
+        # before exposing UI. A concurrently submitted cancellation fences here.
+        with locked(path.with_suffix('.lock')):
+            latest = json.loads(path.read_text())
+            latest_sources = [m for m in latest.get('messages', []) if m.get('provenance') in (*HUMAN_PROVENANCE, 'mixed_native_context')]
+            with locked(attempts_path.with_suffix('.lock')):
+                attempts = json.loads(attempts_path.read_text())
+                ticket = attempts[attempt_id]['tickets'][invocation]
+                if (checked and latest_sources == sources and not pending_authority(latest)
+                        and ticket.get('reservation') == reservation and not ticket.get('exposed')
+                        and permission_invocation(latest, actor, payload) == invocation):
+                    disposition = checked['disposition']
+                ticket.update(retry_at=time.time() + 60, review_until=0, diagnostic=diagnostic)
+                if disposition != 'native_prompt':
+                    attempts[attempt_id]['retry_at'] = time.time() + 60
+                if disposition == 'native_prompt':
+                    ticket.update(exposed=True, source_ids=[m['source_id'] for m in human],
+                                  receipt_ids=[r['id'] for r in receipts], exposed_at=time.time())
+                atomic(attempts_path, attempts)
+    event = {'actor': 'native_child' if actor else 'native_leader', 'agent_id': actor,
+             'at': time.time(), **descriptor, 'permission_suggestions': payload.get('permission_suggestions', []),
+             'disposition': 'awaiting_native_permission' if disposition == 'native_prompt' else 'adapter_recovery_denied'}
+    if path.exists():
+        with locked(path.with_suffix('.lock')):
+            current = json.loads(path.read_text())
+            current['last_permission_request'] = event
+            if disposition != 'native_prompt':
+                current['last_permission_denial'] = {**event, 'reason': reason}
+                current.pop('parked_prompt', None)
+            atomic(path, current)
+    return None if disposition == 'native_prompt' else permission_denial(reason)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['capture', 'audit', 'permission', 'question', 'observe'])
+    parser.add_argument('mode', choices=['capture', 'audit', 'permission', 'question', 'observe', 'tool'])
     args = parser.parse_args()
     payload = json.load(sys.stdin)
     if os.environ.get('RICHOS_OWNED_WORK_HOST') == 'controller':
@@ -457,42 +760,38 @@ def main():
     config = configuration(root)
     if config is None:
         return 0
+    if args.mode == 'tool':
+        observe_native_tool(root, payload)
+        return 0
+    if args.mode == 'permission':
+        if payload.get('tool_name') == 'AskUserQuestion':
+            print(json.dumps(permission_denial('Use the validated normal-conversation decision report and wait for a typed CEO response.')))
+            return 0
+        if not payload.get('agent_id'):
+            capture(root, payload)
+        response = native_permission_request(root, payload, config)
+        if response is not None:
+            print(json.dumps(response))
+        return 0
     if payload.get('agent_id'):
-        # A child's permission dialog is presented in the leader UI too. Preserve
-        # that flow unless deny-only was selected. Never adopt child prose as CEO
-        # instructions or start an independent owner for that child.
-        if args.mode == 'permission' and config.get('permission_policy', 'native') == 'deny':
-            print(json.dumps(permission_denial(permission_reason(payload) + ' Return a genuine unresolved dependency to your leader.')))
-        elif args.mode == 'question':
+        if args.mode == 'question':
             print(json.dumps(question_denial('Return genuine business decisions to your leader for review. Do not park the CEO on a child question; complete independent authorized work.')))
         return 0
     path = capture(root, payload)
-    if args.mode == 'permission':
-        # Default leaves the native approval flow intact. Only explicitly chosen
-        # deny-only operation answers the request, and it never grants anything.
-        reason = permission_reason(payload)
-        if payload.get('tool_name') == 'AskUserQuestion':
-            # AskUserQuestion is already filtered before tool execution. Leave a
-            # validated business question available for its actual human answer.
-            return 0
-        with locked(path.with_suffix('.lock')):
-            state = json.loads(path.read_text())
-            denied = config.get('permission_policy', 'native') == 'deny'
-            event = {'actor': 'native_leader', 'at': time.time(), 'tool_name': payload.get('tool_name'),
-                     'input': payload.get('tool_input'), 'permission_suggestions': payload.get('permission_suggestions', []),
-                     'disposition': 'adapter_denied' if denied else 'awaiting_native_permission'}
-            state['last_permission_request'] = event
-            if denied:
-                state['last_permission_denial'] = {**event, 'reason': reason}
-                state.pop('parked_prompt', None)
-            atomic(path, state)
-        if denied:
-            print(json.dumps(permission_denial(reason)))
-        return 0
     if args.mode == 'question':
         if payload.get('tool_name') != 'AskUserQuestion':
             return 0
         verdict = question_decision(path, config, payload.get('tool_input'))
+        if verdict['allow']:
+            proposed = payload.get('tool_input')
+            with locked(path.with_suffix('.lock')):
+                state = json.loads(path.read_text())
+                state['validated_decision_report'] = {'proposed': proposed, 'source_revision': state['revision']}
+                atomic(path, state)
+            print(json.dumps(question_denial('This decision was validated, but the native question widget cannot prove whether its answer came from the CEO or another hook. '
+                  'Present this prepared decision once in ordinary conversation, with its recommendation and options. Explain once that the CEO should reply in normal chat. '
+                  'Continue independent authorized work while awaiting that typed response. Do not call AskUserQuestion again for the same decision. '
+                  'No tool permission or business authority is granted by this report.')))
         if not verdict['allow']:
             with locked(path.with_suffix('.lock')):
                 state = json.loads(path.read_text())
@@ -524,10 +823,10 @@ if __name__ == '__main__':
         sys.exit(main())
     except Exception as error:
         record_error(error)
+        if sys.argv[1:2] == ['tool']:
+            sys.exit(0)  # Observability failure must not gate unrelated permitted tools.
         if sys.argv[1:2] == ['permission']:
-            # A broken observer must not secretly take away the native user's
-            # ability to grant or refuse the real request.
-            print('Owned-work permission observation failed; native permission handling remains in control.', file=sys.stderr)
+            print(json.dumps(permission_denial('Permission necessity review is unavailable. Continue using existing permitted tools and repair the integration. No new authority is granted and this does not ban every alternative.')))
             sys.exit(0)
         if sys.argv[1:2] == ['question']:
             print(json.dumps(question_denial('Question review is unavailable. No new authority was granted and no requirement was waived. Continue independent authorized work and repair the review integration.')))

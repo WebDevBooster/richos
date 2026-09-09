@@ -163,6 +163,7 @@ if owned_work_policy "$ENTITY_ROOT"; then OWNED_POLICY=1; fi
 
 
 if [ "$OWNED_POLICY" -eq 1 ]; then
+    if owned_work_adapter_dispatch_installed "$ENTITY_ROOT"; then exit 0; fi
     RC=0
     printf '%s' "$INPUT" | owned_work_dispatch "$ENTITY_ROOT" || RC=$?
     exit "$RC"

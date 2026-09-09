@@ -1,0 +1,71 @@
+{
+  "mode": "assignment-only-real-auditor",
+  "intentional_early_stop_injection": false,
+  "passed": false,
+  "checks": {
+    "same_native_leader": true,
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": false,
+    "source_identity_unchanged": true,
+    "no_operational_followups_measured": true,
+    "actual_auditor_completed": false,
+    "no_routine_parser_prose_asks": true,
+    "documented_json_parser_check_executed_natively": false,
+    "portable_native_dispatch_adapter_exercised": false,
+    "host_registered_brief_supplied_without_permission_grant": false,
+    "host_registered_brief_reaches_native_child": false,
+    "registration_once_for_single_human_assignment": false,
+    "successful_dispatch_has_registered_work_receipt": false,
+    "verified_human_source_retained": true,
+    "actual_engine_pending_notice_exercised": false,
+    "auditor_binary_unchanged": true,
+    "independent_validation_completed": false
+  },
+  "first": null,
+  "second": null,
+  "audits": 0,
+  "session_ids": [
+    "ff83ab18-bac9-4c86-864b-8e625694102b"
+  ],
+  "operational_followups": 0,
+  "input_measurement_confirmed": true,
+  "outcome": "incomplete",
+  "completion_checks": {
+    "same_native_leader": true,
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": false,
+    "source_identity_unchanged": true,
+    "no_operational_followups_measured": true,
+    "actual_auditor_completed": false,
+    "no_routine_parser_prose_asks": true,
+    "documented_json_parser_check_executed_natively": false,
+    "portable_native_dispatch_adapter_exercised": false,
+    "host_registered_brief_supplied_without_permission_grant": false,
+    "host_registered_brief_reaches_native_child": false,
+    "registration_once_for_single_human_assignment": false,
+    "successful_dispatch_has_registered_work_receipt": false,
+    "verified_human_source_retained": true,
+    "actual_engine_pending_notice_exercised": false,
+    "auditor_binary_unchanged": true,
+    "independent_validation_completed": false
+  },
+  "artifact_completion_verified": false,
+  "approval_boundary": {
+    "observed": false
+  },
+  "permission_policy_requested": "native",
+  "permission_policy_effective": "native",
+  "routine_parser_prose_asks": [],
+  "permission_scenario": "preauthorized-equivalent",
+  "setup_inputs": [
+    "select-disposable-workspace-trust",
+    "confirm-disposable-workspace-trust"
+  ],
+  "removed_environment_keys": [],
+  "observed_native_wakes": 0,
+  "probe_safety_ceiling": null,
+  "permission_denials": [],
+  "question_reviews": []
+}

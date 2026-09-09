@@ -1241,6 +1241,7 @@ fn main() {
                 None => eprintln!("[richos] central folder: no home directory — no company layer this launch"),
             }
             spine.set_onboarding_record(richos_core::onboarding::record_path(&data_dir));
+            spine.set_work_disposition_dir(data_dir.join("work-dispositions"));
 
             let boot = boot_entity(&registry, &config);
             match &boot.entity {
@@ -1826,6 +1827,7 @@ fn main() {
             managed_runs::retry_run_task,
             managed_runs::end_run,
             managed_runs::respond_run_decision,
+            managed_runs::respond_run_permission,
             managed_runs::archive_run,
             get_company_name,
             set_company_name,

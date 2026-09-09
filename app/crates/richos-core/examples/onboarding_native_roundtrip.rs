@@ -58,7 +58,7 @@ fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool, expect
         spine.machinery_journal().unwrap().read_thread(&result.thread_id), &turn);
     if expects_tool { assert!(handled, "the approved action must happen in this visible turn, not hidden priming"); }
     let scope = spine.onboarding_tool_scope(&spine.active_binding().unwrap()).unwrap();
-    let grants = std::fs::read_dir(scope.record_path.parent().unwrap().join("onboarding-scopes")).unwrap();
+    let grants = std::fs::read_dir(scope.record_path.as_ref().expect("roundtrip fixture has a real onboarding record").parent().unwrap().join("onboarding-scopes")).unwrap();
     let mut grants_checked = 0;
     for entry in grants {
         let value: serde_json::Value = serde_json::from_slice(&std::fs::read(entry.unwrap().path()).unwrap()).unwrap();

@@ -1,0 +1,8 @@
+
+== Exact operation permission controls ==
+  PASS  The exact tool input and workspace are displayed without business-answer controls
+  PASS  Allow this operation once uses the typed permission command and exact identity
+  PASS  Decline and find another way uses the typed permission command and exact identity
+  PASS  A stale approval retains the request and exposes recovery without reporting success
+  PASS  End uses the real end command when only a permission is pending
+  PASS  Narrow screens retain both typed controls in the shared reading flow

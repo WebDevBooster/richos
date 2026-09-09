@@ -1,0 +1,14 @@
+...............................F.......................
+======================================================================
+FAIL: test_permission_first_attempt_needs_no_model_then_exact_necessity_preserves_native_ui_once (__main__.Owned.test_permission_first_attempt_needs_no_model_then_exact_necessity_preserves_native_ui_once)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 420, in test_permission_first_attempt_needs_no_model_then_exact_necessity_preserves_native_ui_once
+    self.assertIsNone(o.native_permission_request(self.root,payload,self.config))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'deny', 'message': 'This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {"actor": "native_configuration", "sources": [{"scope": "user", "path": "/Users/alex/.claude/settings.json", "rules": {}, "status": "observed"}, {"scope": "project", "path": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-test-cuo3iyre/.claude/settings.json", "status": "absent"}, {"scope": "local", "path": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-test-cuo3iyre/.claude/settings.local.json", "status": "absent"}], "complete_effective_permission_map": false, "meaning": "Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call."}', 'interrupt': False}}} is not None
+
+----------------------------------------------------------------------
+Ran 55 tests in 1.810s
+
+FAILED (failures=1)

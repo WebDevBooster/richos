@@ -1,0 +1,9 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.46s
+     Running tests/run_tests.rs (app/target/debug/deps/run_tests-46e787b7fc255a01)
+
+running 1 test
+test source_bound_answer_requires_exact_question_and_preserves_original_resource_authority ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 48 filtered out; finished in 0.05s
+

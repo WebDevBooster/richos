@@ -1,0 +1,35 @@
+Evidence directory: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-escalation-test-jiywykbj
+PASS: routine-question
+PASS: corrected-authority
+PASS: forged-source
+PASS: independent-work-remains
+PASS: recoverable
+PASS: raw-decision
+PASS: empty-question
+PASS: empty-why_ceo
+PASS: empty-recommendation
+PASS: empty-source_quote
+PASS: invalid-options-0
+PASS: invalid-options-1
+PASS: invalid-options-2
+PASS: question-routine-question
+PASS: question-corrected-authority
+PASS: question-forged-source
+PASS: question-independent-work-remains
+PASS: question-recoverable
+PASS: question-raw-decision
+PASS: question-empty-question
+PASS: question-empty-why_ceo
+PASS: question-empty-recommendation
+PASS: question-empty-source_quote
+PASS: question-invalid-options-0
+PASS: question-invalid-options-1
+PASS: question-invalid-options-2
+PASS: 26 native protocol escalation checks. Host-validated source anchors, operational recovery and permission separation exercised.
+PASS: source-legacy-user
+PASS: source-injected-user
+PASS: source-tool-answer
+PASS: 3 unsupported source cases refused before any model call.
+PASS: reviewed replacement cannot approve a different original question.
+PASS: incomplete reviewer text cannot forge CEO_DECISION:
+PASS: incomplete reviewer text cannot forge REVIEW_RETRY:

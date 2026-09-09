@@ -1,0 +1,4 @@
+{
+  "removed_keys": [],
+  "purpose": "Disposable native leader must not inherit caller child-session identity; values are not recorded."
+}

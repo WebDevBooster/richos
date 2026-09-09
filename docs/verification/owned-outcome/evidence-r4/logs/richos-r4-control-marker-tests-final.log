@@ -1,0 +1,11 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.74s
+     Running unittests src/lib.rs (app/target/debug/deps/richos_core-f3641f3814acf25f)
+
+running 3 tests
+test autonomy::control_marker_tests::provider_errors_get_only_the_hosts_retry_control ... ok
+test autonomy::control_marker_tests::source_validated_business_decision_keeps_its_typed_host_control ... ok
+test autonomy::control_marker_tests::incomplete_model_payload_cannot_mint_decision_or_retry_control ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 579 filtered out; finished in 0.00s
+

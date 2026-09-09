@@ -653,6 +653,7 @@ pub struct NativeClient {
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: String,
     managed_workspace: Option<std::path::PathBuf>,
+    execution_worker: bool,
     structured_output: Mutex<Option<Value>>,
     next_id: AtomicI64,
     /// Control-request replies, keyed by our `request_id`.
@@ -687,6 +688,7 @@ pub struct NativeClient {
 /// starting value is `NotYetReported` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
+    permission_context: Option<crate::permission::Context>,
     /// Host-owned phase, never set by a model frame.
     context_only: bool,
     /// The model this session is running, from `system/init.model`.
@@ -735,6 +737,7 @@ struct ReaderState {
 impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
+            permission_context: None,
             context_only: false,
             session_model: None,
             context_window: None,
@@ -889,6 +892,7 @@ impl NativeClient {
             "the standing instruction and the skills are written for a conversation with the \
              CEO; a managed worker, an inspector and a registrar are not that"
         );
+        let execution_worker = managed && schema.is_none() && registrar_model.is_none();
         let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
         // Refuse BEFORE spawning, so the error names WHICH path is wrong instead of an
         // errno that stands for two different faults. See `preflight`.
@@ -1028,6 +1032,7 @@ impl NativeClient {
             stdin,
             session_id,
             managed_workspace,
+            execution_worker,
             structured_output: Mutex::new(None),
             next_id: AtomicI64::new(1),
             pending,
@@ -1220,8 +1225,8 @@ impl NativeClient {
             return;
         }
         if ty == "control_request" {
-            let context_only = state.lock().unwrap().context_only;
-            Self::handle_agent_request(&msg, stdin, current, between, managed, context_only);
+            let state = state.lock().unwrap();
+            Self::handle_agent_request(&msg, stdin, current, between, managed, state.context_only, state.permission_context.as_ref());
             return;
         }
 
@@ -1373,6 +1378,7 @@ impl NativeClient {
         between: &Arc<Mutex<BetweenTurn>>,
         managed: bool,
         context_only: bool,
+        permission_context: Option<&crate::permission::Context>,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
@@ -1382,7 +1388,10 @@ impl NativeClient {
             let decision = if context_only {
                 PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
             } else if managed {
-                PermissionDecision::Deny { message: "This action is outside the automatic execution policy. Find a permitted way to achieve the authorized outcome. Do not ask the CEO to edit settings or resolve implementation details. Report a precise authority or access requirement only if no permitted alternative exists.".into() }
+                match permission_context.map(|context| context.request(&request)) {
+                    Some(Ok(true)) => PermissionDecision::Allow { updated_input: request["input"].clone() },
+                    _ => PermissionDecision::Deny { message: "This exact operation has no usable grant. Find an already permitted way to finish. Do not ask the CEO to choose commands or change settings. If work remains incomplete, the host will retain the actual operation for a separate permission decision. No business answer grants tools.".into() },
+                }
             } else { decide_permission(&request) };
             let body = match &decision {
                 PermissionDecision::Allow { updated_input } => {
@@ -1818,9 +1827,23 @@ impl Cognition for NativeCognition {
         central_root: &Path, record_path: &Path) -> Result<(), CognitionError> {
         if let Some(path) = &self.onboarding_scope {
             crate::onboarding_tools::write_scope(path, &crate::onboarding_tools::OnboardingToolScope {
-                version: 1, entity_id: entity.to_string(), actions_allowed: false,
-                central_root: central_root.to_path_buf(), record_path: record_path.to_path_buf(),
+                version: 1, entity_id: entity.to_string(), actions_allowed: false, work_disposition: None,
+                central_root: Some(central_root.to_path_buf()), record_path: Some(record_path.to_path_buf()),
             }).map_err(|e| CognitionError::Io(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn set_managed_permission_context(&mut self, context: crate::permission::Context) -> Result<(), CognitionError> {
+        self.prepare_managed(&context.workspace)?;
+        if !self.client.execution_worker { return Err(CognitionError::Protocol("Inspectors and registrars cannot receive execution grants.".into())); }
+        self.client.reader_state.lock().unwrap().permission_context = Some(context);
+        Ok(())
+    }
+
+    fn set_work_disposition_scope(&mut self, scope: Option<crate::work_disposition::WorkDispositionScope>) -> Result<(), CognitionError> {
+        if let Some(path) = &self.onboarding_scope {
+            crate::onboarding_tools::set_work_disposition_scope(path, scope).map_err(CognitionError::Io)?;
         }
         Ok(())
     }
@@ -2104,7 +2127,7 @@ mod native_driver_tests {
     fn the_real_reader_verifies_both_onboarding_tools_from_the_first_init() {
         use crate::onboarding_tools::{OnboardingToolsVerdict, QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL};
         for (suffix, names, expected) in [
-            ("present", vec![QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL], OnboardingToolsVerdict::Loaded),
+            ("present", vec![QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL, crate::work_disposition::QUALIFIED_TOOL_NAME], OnboardingToolsVerdict::Loaded),
             ("missing-decline", vec![QUALIFIED_SAVE_TOOL], OnboardingToolsVerdict::Rejected),
             ("lookalike", vec!["mcp__other__save_company_notes", QUALIFIED_DECLINE_TOOL], OnboardingToolsVerdict::Rejected),
         ] {
@@ -2375,6 +2398,78 @@ done
         assert_eq!(client.prompt_context_only("Only context", &mut |_| {}).unwrap(), "end_turn");
         assert!(!client.reader_state.lock().unwrap().context_only);
         assert_eq!(client.prompt("Actual visible request", &mut |_| {}).unwrap(), "end_turn");
+    }
+
+    #[test]
+    fn managed_wire_consumes_exact_approval_once_and_hidden_context_cannot_consume_it() {
+        let fixture = crate::permission::tests::Fixture::new();
+        let context = fixture.approved();
+        let script = write_script("managed-exact-permission", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+for expected in deny allow deny; do
+  read -r prompt
+  printf '%s\n' '{"type":"control_request","request_id":"operation","request":{"subtype":"can_use_tool","tool_name":"R4PermissionTestTool","input":{"resource":"selected","value":1}}}'
+  read -r answer
+  case "$answer" in
+    *\"behavior\":\"$expected\"*) ;;
+    *) exit 9 ;;
+  esac
+  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+done
+"#);
+        let mut client = NativeClient::spawn_with_policy(&script, &fixture.workspace, true).unwrap();
+        client.reader_state.lock().unwrap().permission_context = Some(context);
+        assert_eq!(client.prompt_context_only("Historical context", &mut |_| {}).unwrap(), "permission_denied");
+        assert_eq!(client.prompt("Authorized work", &mut |_| {}).unwrap(), "end_turn");
+        assert_eq!(client.prompt("Repeated operation", &mut |_| {}).unwrap(), "permission_denied");
+    }
+
+    #[test]
+    fn inspector_lease_rejects_host_execution_context_even_with_matching_workspace() {
+        let fixture = crate::permission::tests::Fixture::new(); let context = fixture.approved();
+        let script = write_script("inspector-no-grants", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r next
+"#);
+        let mut inspector = NativeCognition::start_inspector(&script, &fixture.workspace).unwrap();
+        assert!(inspector.set_managed_permission_context(context).is_err());
+        assert!(fixture.context().request(&crate::permission::tests::Fixture::request()).unwrap());
+    }
+
+    #[test]
+    fn cognition_run_host_delivers_durable_approval_to_real_callback_before_worker_effect() {
+        let fixture = crate::permission::tests::Fixture::new();
+        let script = write_script("managed-host-permission", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+for expected in deny allow; do
+  read -r prompt
+  printf '%s\n' '{"type":"control_request","request_id":"operation","request":{"subtype":"can_use_tool","tool_name":"R4PermissionTestTool","input":{"resource":"selected","value":1}}}'
+  read -r answer
+  case "$answer" in
+    *\"behavior\":\"$expected\"*) ;;
+    *) exit 9 ;;
+  esac
+  if [ "$expected" = allow ]; then touch delivered; fi
+  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+done
+"#);
+        let journal = fixture.root.join("integrated.jsonl");
+        let mut plan = crate::run::read_snapshot(&fixture.journal).unwrap().plan;
+        plan.tasks[0].checks[0].argv = vec!["/bin/test".into(), "-f".into(), "delivered".into()];
+        let mut ctl = crate::run::RunController::create(&journal, plan).unwrap();
+        let mut model = NativeCognition::start_managed(&script, &fixture.workspace).unwrap();
+        let mut sink = |_: TurnItem<'_>| {};
+        let mut host = crate::run_host::CognitionRunHost { cognition: &mut model, on_item: &mut sink, pause: Arc::new(AtomicBool::new(false)) };
+        assert_eq!(ctl.tick(&mut host).unwrap(), crate::run::RunState::NeedsDecision);
+        assert!(!fixture.workspace.join("delivered").exists());
+        let operation = ctl.snapshot().permissions[0].clone();
+        ctl.respond_to_permission("task", &operation.id, crate::permission::Action::ApproveOnce).unwrap();
+        let state = ctl.tick(&mut host).unwrap();
+        assert_eq!(state, crate::run::RunState::Completed, "{:?}", ctl.snapshot());
+        assert!(fixture.workspace.join("delivered").is_file());
     }
 
     // ---- the permission seam -----------------------------------------------------------

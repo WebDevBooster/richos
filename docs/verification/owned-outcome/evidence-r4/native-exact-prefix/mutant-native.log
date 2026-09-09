@@ -1,0 +1,19 @@
+test_external (test_lifecycle.Lifecycle.test_external) ... ok
+test_native (test_lifecycle.Lifecycle.test_native) ... FAIL
+
+======================================================================
+FAIL: test_native (test_lifecycle.Lifecycle.test_native)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-gx6rw1a9/coverage-mutant-native/test_lifecycle.py", line 5, in test_native
+    self.assertEqual(status("native"), "platform-pending")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'verified' != 'platform-pending'
+- verified
++ platform-pending
+
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.000s
+
+FAILED (failures=1)

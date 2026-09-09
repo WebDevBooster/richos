@@ -3,7 +3,7 @@
 use crate::AppState;
 use richos_core::{
     autonomy::{self, Handoff},
-    cognition::TurnItem,
+    cognition::{Cognition, TurnItem},
     ledger::{Source, TurnState},
     native::{resolve_claude_bin, NativeCognition},
     run::{RunController, RunSnapshot, RunState},
@@ -31,6 +31,11 @@ struct Request {
     conversation: String,
     #[serde(default)]
     onboarding_tool_result: bool,
+    #[serde(default)]
+    disposition: Option<richos_core::work_disposition::Disposition>,
+    /// Retained even after successful omission recovery; never a handoff.
+    #[serde(default)]
+    disposition_diagnostic: Option<String>,
     done: bool,
     retry_at: u64,
     #[serde(default)]
@@ -40,6 +45,8 @@ struct Request {
     directive: Option<Handoff>,
     #[serde(default)]
     target_run_id: Option<String>,
+    #[serde(default)]
+    answer_binding: Option<AnswerBinding>,
     #[serde(default)]
     attempts: u32,
     #[serde(default)]
@@ -53,13 +60,52 @@ struct Request {
     #[serde(default)]
     tail: String,
 }
+/// A conversational answer must retain the question that existed when the CEO
+/// spoke. Retrying registration cannot turn yesterday's yes into today's grant.
+#[derive(Clone, Serialize, Deserialize)]
+struct AnswerBinding {
+    task_id: String,
+    decision_id: String,
+    resource: bool,
+}
+
+fn bind_answer(journal: &Path, request: &mut Request) -> Result<(), String> {
+    if request.answer_binding.is_some() { return Ok(()); }
+    if request.created_at == 0 { return Err("The original decision-answer time is unavailable.".into()); }
+    let snapshot = richos_core::run::read_snapshot_at(journal, request.created_at)
+        .map_err(|e|e.to_string())?.ok_or("No saved decision predates the original CEO answer.")?;
+    if request.target_run_id.as_deref() != Some(snapshot.id.as_str()) {
+        return Err("The historical question does not belong to the original target assignment.".into());
+    }
+    // Timestamp equality does not prove whether the question or answer came first.
+    if snapshot.updated_at >= request.created_at {
+        return Err("The original answer and decision have ambiguous event ordering.".into());
+    }
+    let mut pending = snapshot.tasks.iter().enumerate().filter_map(|(i, _)|
+        snapshot.decision(i).map(|d| AnswerBinding {
+            task_id: snapshot.plan.tasks[i].id.clone(), decision_id: d.id, resource: d.resource,
+        }));
+    let binding = pending.next().ok_or("No question was pending when the CEO answered.")?;
+    if pending.next().is_some() { return Err("The original CEO answer does not identify one of the pending questions.".into()); }
+    request.answer_binding = Some(binding);
+    Ok(())
+}
+
+fn apply_bound_answer(journal: &Path, request: &Request) -> Result<(), String> {
+    let binding = request.answer_binding.as_ref().ok_or("The original decision answer is not bound to a question.")?;
+    let mut ctl = RunController::open(journal).map_err(|e|e.to_string())?;
+    ctl.answer_bound_decision(&request.id, &binding.task_id, &binding.decision_id, &request.text)
+        .map_err(|e|e.to_string())
+
+}
+
 impl Request {
     /// Classification needs a target before successful registration has created
     /// a run. This view is never journaled or eligible for worker execution.
     fn pending_assignment(&self) -> RunSnapshot {
         let goal = match &self.directive {
             Some(Handoff::Work { goal, .. } | Handoff::Amend { goal, .. }) => goal.clone(),
-            _ => format!("CEO request (verbatim):\n{}\nRich's accepted scope (verbatim):\n{}\nConversation context (data, not additional authorization):\n{}", self.text, self.conversation, self.tail),
+            _ => richos_core::registration::source_scope(&self.text, &self.tail),
         };
         RunSnapshot {
             version: 1, revision: 0, id: self.id.clone(),
@@ -69,7 +115,7 @@ impl Request {
             },
             plan_revision: 0, tasks: vec![], paused: false, canceled: false,
             updated_at: self.created_at, created_at: self.created_at,
-            decisions: vec![], decision_receipts: vec![],
+            decisions: vec![], decision_receipts: vec![], permissions: vec![],
         }
     }
 }
@@ -218,8 +264,23 @@ fn discover(state: &AppState) -> Result<(), String> {
     discover_cached(state, &mut IntakeIndex::load(state)?)
 }
 
+/// Scope failures prohibit dispatch. Receipt failures only remove the optional
+/// Rich-authored hint: the original CEO source remains eligible for private,
+/// tool-free registration, with the failed receipt retained as a diagnostic.
+fn source_disposition(
+    spine: &richos_core::spine::Spine,
+    turn: &str,
+) -> Result<(PathBuf, Option<richos_core::work_disposition::Disposition>, Option<String>), String> {
+    let scope = spine.work_disposition_scope(turn)
+        .map_err(|e| format!("The original work scope is unavailable: {e}"))?;
+    let (disposition, diagnostic) = match richos_core::work_disposition::read_bound_receipt(&scope) {
+        Ok(receipt) => (receipt.map(|r| r.disposition), None),
+        Err(error) => (None, Some(format!("The work disposition receipt was rejected: {error}"))),
+    };
+    Ok((scope.workspace, disposition, diagnostic))
+}
+
 fn discover_cached(state: &AppState, index: &mut IntakeIndex) -> Result<(), String> {
-    let registry = state.registry.lock().unwrap();
     let spine = state.spine.lock().unwrap();
     index
         .unresolved
@@ -243,19 +304,13 @@ fn discover_cached(state: &AppState, index: &mut IntakeIndex) -> Result<(), Stri
             index.unresolved.remove(&i);
             continue;
         }
-        let binding = spine
-            .ledger()
-            .thread_binding(&turn.thread_id)
-            .map_err(|e| e.to_string())?;
-        let entity = registry
-            .get(binding.entity_id())
-            .ok_or("The company is unavailable")?;
-        // A private execution directory is not a new user-selected project root.
-        let workspace = entity
-            .roots
-            .first()
-            .cloned()
-            .unwrap_or_else(|| state.data_dir.join("workspaces").join(entity.id.as_str()));
+        // Preserve each source before attempting recovery. A corrupt receipt must
+        // not abort discovery for unrelated conversations or guess an execution root.
+        let (workspace, disposition, disposition_diagnostic) =
+            match source_disposition(&spine, &turn.id) {
+                Ok(bound) => bound,
+                Err(error) => (PathBuf::new(), None, Some(error)),
+            };
         save(
             &path,
             &Request {
@@ -268,12 +323,15 @@ fn discover_cached(state: &AppState, index: &mut IntakeIndex) -> Result<(), Stri
                 onboarding_tool_result: spine.machinery_journal().map(|journal|
                     richos_core::onboarding_tools::handled_in_turn(journal.read_thread(&turn.thread_id), &turn.id)
                 ).unwrap_or(false),
+                disposition,
+                disposition_diagnostic,
                 done: false,
                 retry_at: 0,
                 created_at: turn.created_at,
                 error: String::new(),
                 directive: None,
                 target_run_id: None,
+                answer_binding: None,
                 attempts: 0,
                 application_failures: 0,
                 halted: false,
@@ -364,7 +422,7 @@ fn requests(state: &AppState, index: &mut IntakeIndex) -> Result<(), String> {
                             .thread_binding(&request.thread)
                             .map_err(|e| e.to_string())?;
                         let id = format!("scope-{}", request.id);
-                        spine.report_owned_work(&binding, &id, &format!("Your accepted assignment needs a complete scope. State the deliverable and essential constraints in one concise prose paragraph, preserving prohibitions and previous requirements. No headings, lists or filesystem paths. Resolve routine details yourself; do not ask the CEO to plan. No work has been executed for this registration. CEO request: {}\nPrevious reply: {}\nConversation: {}", request.text, request.conversation, request.tail)).map_err(|e|e.to_string())?;
+                        spine.report_owned_work(&binding, &id, &format!("Your accepted assignment needs a complete scope. State the deliverable and essential constraints in one concise prose paragraph, preserving prohibitions and previous requirements. No headings, lists or filesystem paths. Resolve routine details yourself; do not ask the CEO to plan. No work has been executed for this registration. Authorized source and reference context: {}", richos_core::registration::source_scope(&request.text, &request.tail))).map_err(|e|e.to_string())?;
                         request.conversation = spine
                             .ledger()
                             .turn(&id)
@@ -462,7 +520,31 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
     {
         return Ok(true);
     }
+    if let Some(turn) = &request.source_turn {
+        let bound = source_disposition(&state.spine.lock().unwrap(), turn);
+        match bound {
+            Ok((workspace, disposition, diagnostic)) => {
+                // The durable host scope is the authority for the execution root.
+                request.workspace = workspace;
+                if request.directive.is_none() { request.disposition = disposition; }
+                if diagnostic.is_some() { request.disposition_diagnostic = diagnostic; }
+            }
+            Err(error) => {
+                request.workspace = PathBuf::new();
+                request.disposition = None;
+                request.disposition_diagnostic = Some(error.clone());
+                save(path, request)?;
+                return Err(error);
+            }
+        }
+        save(path, request)?;
+    }
     if request.directive.is_none() {
+        if request.disposition.as_ref().is_some_and(|d| d.kind == richos_core::work_disposition::DispositionKind::Discussion) {
+            request.directive = Some(Handoff::None);
+            save(path, request)?;
+            return Ok(true);
+        }
         let mut targets = current.clone();
         for entry in std::fs::read_dir(state.data_dir.join("requests")).map_err(|e| e.to_string())? {
             let pending_path = entry.map_err(|e| e.to_string())?.path();
@@ -475,13 +557,14 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
                 targets.push(pending.pending_assignment());
             }
         }
-        let (directive, target) = richos_core::registration::register_with_onboarding(
+        let (directive, target) = richos_core::registration::register_disposition(
             &request.text,
             &request.conversation,
             &request.tail,
             &targets,
             &request.error,
             request.onboarding_tool_result,
+            request.disposition.as_ref(),
         )?;
         request.directive = Some(directive);
         request.target_run_id = target;
@@ -513,6 +596,10 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
             primary
         }
     };
+    if matches!(request.directive, Some(Handoff::AnswerDecision)) {
+        bind_answer(&journal, request)?;
+        save(path, request)?;
+    }
     if matches!(request.directive, Some(Handoff::Amend { .. })) && request.preserve_pause.is_none() {
         // Capture user pause before the transient interruption used for a live
         // correction. The worker persists that interruption as paused too.
@@ -572,10 +659,7 @@ fn process_request(state: &AppState, path: &Path, request: &mut Request) -> Resu
             Ok(true)
         }
         Handoff::AnswerDecision => {
-            let mut ctl = RunController::open(&journal).map_err(|e| e.to_string())?;
-            ctl.answer_decision(&request.id, &request.text)
-                .map_err(|e| e.to_string())?;
-            ctl.pause(false).map_err(|e| e.to_string())?;
+            apply_bound_answer(&journal, request)?;
             Ok(true)
         }
         Handoff::Cancel => {
@@ -740,12 +824,17 @@ fn jobs(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
                 // No Spine borrow survives this scope. Rich can answer and revise work
                 // while this independently governed worker executes.
                 struct Host {
+                    permission_context: Option<richos_core::permission::Context>,
                     context: String,
                     pause: Arc<AtomicBool>,
                     app: tauri::AppHandle,
                     thread: String,
                 }
                 impl richos_core::run::RunHost for Host {
+                    fn permission_context(&mut self, context: richos_core::permission::Context) -> Result<(), String> {
+                        self.permission_context = Some(context);
+                        Ok(())
+                    }
                     fn execute(
                         &mut self,
                         plan: &richos_core::run::RunPlan,
@@ -755,6 +844,9 @@ fn jobs(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
                         let mut model =
                             NativeCognition::start_managed(&resolve_claude_bin(), &plan.workspace)
                                 .map_err(|e| e.to_string())?;
+                        if let Some(context) = self.permission_context.clone() {
+                            model.set_managed_permission_context(context).map_err(|e| e.to_string())?;
+                        }
                         // Priming is part of the bounded worker prompt, not an unbounded
                         // extra call before the timeout watcher starts.
                         let mut effective = plan.clone();
@@ -790,6 +882,7 @@ fn jobs(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
                     }
                 }
                 ctl.tick(&mut Host {
+                    permission_context: None,
                     context,
                     pause,
                     app: app.clone(),
@@ -897,6 +990,136 @@ pub fn selftest(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let result = (|| -> Result<serde_json::Value, String> {
             let state = app.state::<AppState>();
+            if mode == "disposition-corrupt" {
+                let cases = [
+                    ("Corrupt disposition", "Handle corrupt receipt: produce corrupt-disposition.txt containing Finished.", true),
+                    ("Stale disposition", "Handle stale receipt: produce stale-disposition.txt containing Finished.", true),
+                    ("Invalid disposition scope", "Handle invalid scope: produce invalid-scope.txt containing Finished.", true),
+                    ("Unrelated valid disposition", "Handle unrelated receipt: produce unrelated-disposition.txt containing Finished.", false),
+                ];
+                let mut threads = vec![];
+                for (title, text, damaged) in cases {
+                    let thread = crate::create_thread_in(app.state(), "fixture".into(), title.into())?;
+                    debug_send_message(app.state(), text.into())?;
+                    // Discovery itself must preserve this source and continue past it.
+                    discover(&state)?;
+                    threads.push((thread, text, damaged));
+                }
+                let deadline = std::time::Instant::now();
+                while deadline.elapsed() < Duration::from_secs(80) {
+                    let mut recovered = 0;
+                    let mut parked = 0;
+                    let mut source_turns = 0;
+                    for (thread, text, damaged) in &threads {
+                        let spine = state.spine.lock().unwrap();
+                        let sources: Vec<_> = spine.ledger().turns().iter()
+                            .filter(|t| t.thread_id == *thread && matches!(t.source, Source::Text | Source::Jam)).collect();
+                        if sources.len() != 1 || sources[0].user_text != *text {
+                            return Err("Receipt corruption lost or duplicated the original source".into());
+                        }
+                        source_turns += sources.len();
+                        let id = autonomy::turn_request_id(&sources[0].id)?;
+                        let expected = spine.work_disposition_scope(&sources[0].id);
+                        drop(spine);
+                        let request: Request = serde_json::from_slice(&std::fs::read(state.data_dir.join("requests").join(format!("{id}.json"))).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+                        if request.text != *text || request.source_turn.is_none() {
+                            return Err("Receipt recovery replaced the original CEO request".into());
+                        }
+                        if !request.conversation.is_empty() && request.tail.contains(&request.conversation) {
+                            return Err("The current acknowledgment leaked into prior conversation context".into());
+                        }
+                        let paths = crate::managed_runs::journals(&state, thread)?;
+                        if text.starts_with("Handle invalid scope:") {
+                            if expected.is_ok() || request.workspace != PathBuf::new() || request.done || request.directive.is_some()
+                                || !paths.is_empty() || request.disposition.is_some() || request.disposition_diagnostic.is_none() {
+                                return Err("Invalid host scope dispatched work or supplied a guessed workspace".into());
+                            }
+                            if request.attempts > 0 && request.retry_at > now() && !request.error.is_empty() { parked += 1; }
+                        } else {
+                            let expected = expected.map_err(|e|e.to_string())?;
+                            if request.workspace != expected.workspace || (*damaged && (request.disposition.is_some() || request.disposition_diagnostic.is_none())) {
+                                return Err("Corrupt receipt became a trusted handoff or changed the host workspace".into());
+                            }
+                            if paths.len() > 1 { return Err("Receipt recovery duplicated an assignment".into()); }
+                            if request.done && paths.first().is_some_and(|p| richos_core::run::read_snapshot(p).is_ok_and(|s| s.state() == RunState::Completed)) { recovered += 1; }
+                        }
+                    }
+                    if recovered == 3 && parked == 1 {
+                        return Ok(serde_json::json!({"passed":true,"recovered":recovered,"parked":parked,"sourceTurns":source_turns}));
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                return Err("Receipt isolation did not recover unrelated work before the deadline".into());
+            }
+            if mode.starts_with("disposition-") {
+                let interrupted = mode.contains("interrupted");
+                let discussion = mode == "disposition-discussion";
+                let title = if discussion { "Disposition discussion" } else if interrupted { "Interrupted disposition" } else { "Missing disposition" };
+                let request_text = if discussion { "How is disposition work going?" }
+                    else if interrupted { "Handle interrupted disposition: produce interrupted-disposition.txt containing Finished." }
+                    else { "Handle missing disposition: produce missing-disposition.txt containing Finished." };
+                let thread = if discussion || mode.ends_with("-enqueue") {
+                    let thread = crate::create_thread_in(app.state(), "fixture".into(), title.into())?;
+                    // The interrupted fake native process hangs before returning a receipt.
+                    // Its parent harness kills only this disposable app process group.
+                    debug_send_message(app.state(), request_text.into())?;
+                    if interrupted { return Err("Expected the harness to interrupt the app before this turn returned".into()); }
+                    discover(&state)?;
+                    thread
+                } else {
+                    state.spine.lock().unwrap().threads().into_iter().find(|t|t.title==title)
+                        .ok_or("The original disposition conversation disappeared on restart")?.id
+                };
+                if mode.ends_with("-enqueue") {
+                    let saved: Vec<Request> = std::fs::read_dir(state.data_dir.join("requests")).map_err(|e|e.to_string())?
+                        .flatten().filter_map(|e|std::fs::read(e.path()).ok())
+                        .filter_map(|b|serde_json::from_slice(&b).ok())
+                        .filter(|r:&Request|r.thread==thread).collect();
+                    if saved.len()!=1 || saved[0].text!=request_text || saved[0].disposition.is_some() {
+                        return Err("Missing disposition was lost or fabricated before restart".into());
+                    }
+                    return Ok(serde_json::json!({"passed":true,"thread":thread,"requestPersisted":true,"receiptMissing":true}));
+                }
+                let deadline=std::time::Instant::now();
+                while deadline.elapsed()<Duration::from_secs(80) {
+                    let saved: Vec<Request> = std::fs::read_dir(state.data_dir.join("requests")).map_err(|e|e.to_string())?
+                        .flatten().filter_map(|e|std::fs::read(e.path()).ok())
+                        .filter_map(|b|serde_json::from_slice(&b).ok())
+                        .filter(|r:&Request|r.thread==thread).collect();
+                    let paths=crate::managed_runs::journals(&state,&thread)?;
+                    let spine=state.spine.lock().unwrap();
+                    let sources: Vec<_>=spine.ledger().turns().iter().filter(|t|t.thread_id==thread && matches!(t.source,Source::Text|Source::Jam)).collect();
+                    if sources.len()!=1 || sources[0].user_text!=request_text {
+                        return Err("Disposition recovery lost or duplicated the original CEO source".into());
+                    }
+                    let source_state=sources[0].state;
+                    let interruption_reason=sources[0].stop_reason.clone().unwrap_or_default();
+                    drop(spine);
+                    if saved.len()==1 && saved[0].done {
+                        if discussion {
+                            if !paths.is_empty() || !saved[0].disposition.as_ref().is_some_and(|d|d.kind==richos_core::work_disposition::DispositionKind::Discussion) {
+                                return Err("Discussion did not finish through its explicit receipt only".into());
+                            }
+                            return Ok(serde_json::json!({"passed":true,"thread":thread,"requests":1,"runs":0,"sourceTurns":1}));
+                        }
+                        if paths.len()>1 { return Err("Recovery duplicated the owned run".into()); }
+                        if let Some(path)=paths.first() {
+                            let snapshot=richos_core::run::read_snapshot(path).map_err(|e|e.to_string())?;
+                            if snapshot.state()==RunState::Completed {
+                                if saved[0].disposition.is_some() || (interrupted && source_state!=TurnState::Interrupted) {
+                                    return Err("The omitted or interrupted disposition was not recovered from its actual source state".into());
+                                }
+                                if interrupted && (interruption_reason.contains("send it again") || !interruption_reason.contains("recover any unfinished assignment automatically")) {
+                                    return Err("The restart notice incorrectly asks the CEO to resubmit owned work".into());
+                                }
+                                return Ok(serde_json::json!({"passed":true,"thread":thread,"requests":1,"runs":1,"sourceTurns":1,"interruptedSource":interrupted,"interruptionReason":interruption_reason,"snapshot":snapshot}));
+                            }
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                return Err("Disposition recovery did not complete before the test deadline".into());
+            }
             if mode == "update-owned" {
                 use richos_core::work_gate::Liveness;
                 let mut checks = 0;
@@ -998,6 +1221,9 @@ pub fn selftest(app: tauri::AppHandle) {
                 return Err("Panel decision acknowledgments were not delivered".into());
             }
             if mode == "native-handoff" {
+                let central = state.data_dir.join("native-test-central");
+                std::fs::create_dir_all(&central).map_err(|e|e.to_string())?;
+                state.spine.lock().unwrap().set_central_root(central);
                 let thread = crate::create_thread_in(
                     app.state(),
                     "fixture".into(),
@@ -1441,8 +1667,7 @@ mod pending_instruction_tests {
     struct Temp(PathBuf);
     impl Temp {
         fn new() -> Self {
-            let path = std::env::temp_dir().join(format!("richos-pending-test-{}-{}", std::process::id(),
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let path = std::env::temp_dir().join(format!("richos-pending-test-{}", autonomy::request_id()));
             std::fs::create_dir(&path).unwrap();
             Self(path)
         }
@@ -1456,6 +1681,91 @@ mod pending_instruction_tests {
             "text": "Repair the local defect. Do not publish.", "conversation": "Recorded.",
             "done": false, "retry_at": 0, "created_at": created_at, "error": ""
         })).unwrap()
+    }
+
+    fn decision_snapshot(temp: &Temp) -> (PathBuf, RunSnapshot) {
+        let plan = autonomy::plan(temp.path(), "Prepare a report", "Prepare a report", vec![autonomy::WorkItem {
+            id: "deliver".into(), description: "Prepare a report".into(), depends_on: vec![], criteria: "Report is finished".into(),
+        }]).unwrap();
+        let journal = temp.path().join("run.jsonl");
+        let ctl = RunController::create(&journal, plan).unwrap();
+        let mut snapshot = ctl.snapshot().clone();
+        drop(ctl);
+        snapshot.updated_at = 100;
+        snapshot.tasks[0].state = richos_core::run::TaskState::NeedsDecision;
+        snapshot.tasks[0].evidence = vec![format!("{}{}", autonomy::DECISION, serde_json::json!({
+            "kind":"decision", "question":"Authorize purchase A?", "why_ceo":"Spending authority", "recommendation":"A", "options":["A","Decline"]
+        }))];
+        std::fs::write(&journal, format!("{}\n", serde_json::to_string(&snapshot).unwrap())).unwrap();
+        (journal, snapshot)
+    }
+
+    #[test]
+    fn delayed_answer_keeps_original_question_and_cannot_answer_replacement() {
+        let temp = Temp::new();
+        let (journal, first) = decision_snapshot(&temp);
+        let mut later = first.clone();
+        later.updated_at = 200;
+        later.revision += 1;
+        later.tasks[0].evidence = vec![format!("{}{}", autonomy::DECISION, serde_json::json!({
+            "kind":"decision", "question":"Authorize purchase B?", "why_ceo":"Different spending", "recommendation":"B", "options":["B","Decline"]
+        }))];
+        std::fs::write(&journal, format!("{}\n{}\n", serde_json::to_string(&first).unwrap(), serde_json::to_string(&later).unwrap())).unwrap();
+        let mut answer = request("answer", 150, temp.path());
+        answer.text = "Yes, proceed.".into();
+        answer.target_run_id = Some(first.id.clone());
+        bind_answer(&journal, &mut answer).unwrap();
+        assert_eq!(answer.answer_binding.as_ref().unwrap().decision_id, first.decision(0).unwrap().id);
+        let path = temp.path().join("answer.json");
+        save(&path, &answer).unwrap();
+        let mut replay: Request = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        bind_answer(&journal, &mut replay).unwrap();
+        let before = std::fs::read(&journal).unwrap();
+        assert!(apply_bound_answer(&journal, &replay).is_err());
+        assert_eq!(std::fs::read(&journal).unwrap(), before);
+        assert!(richos_core::run::read_snapshot(&journal).unwrap().decisions.is_empty());
+    }
+
+    #[test]
+    fn original_answer_applies_once_but_absent_tied_or_ambiguous_question_is_unresolved() {
+        let temp = Temp::new();
+        let (journal, first) = decision_snapshot(&temp);
+        for at in [0, 50, 100] {
+            let mut answer = request("answer", at, temp.path());
+            answer.target_run_id = Some(first.id.clone());
+            assert!(bind_answer(&journal, &mut answer).is_err());
+            assert!(answer.answer_binding.is_none());
+        }
+        let mut answer = request("answer", 150, temp.path());
+        answer.text = "Yes, authorize purchase A.".into();
+        answer.target_run_id = Some(first.id.clone());
+        bind_answer(&journal, &mut answer).unwrap();
+        apply_bound_answer(&journal, &answer).unwrap();
+        apply_bound_answer(&journal, &answer).unwrap();
+        let applied = richos_core::run::read_snapshot(&journal).unwrap();
+        assert_eq!(applied.decisions, vec![answer.text]);
+        assert_eq!(applied.decision_receipts.len(), 1);
+        let mut ambiguous = first;
+        let mut task = ambiguous.plan.tasks[0].clone();
+        task.id = "other".into();
+        ambiguous.plan.tasks.push(task);
+        ambiguous.tasks.push(ambiguous.tasks[0].clone());
+        std::fs::write(&journal, format!("{}\n", serde_json::to_string(&ambiguous).unwrap())).unwrap();
+        let mut answer = request("answer", 150, temp.path());
+        answer.target_run_id = Some(ambiguous.id.clone());
+        assert!(bind_answer(&journal, &mut answer).is_err());
+        assert!(answer.answer_binding.is_none());
+    }
+
+    #[test]
+    fn pending_scope_does_not_promote_the_current_unaccepted_interview_offer() {
+        let mut pending = request("pending", 1, Path::new("/tmp"));
+        pending.conversation = "I will repair the defect. Pick a company interview slot: Tuesday or Friday.".into();
+        pending.tail = "CEO: Keep the change private.".into();
+        let snapshot = pending.pending_assignment();
+        assert!(snapshot.plan.goal.contains(&pending.text));
+        assert!(snapshot.plan.goal.contains(&pending.tail));
+        assert!(!snapshot.plan.goal.contains("Tuesday or Friday"));
     }
 
     #[test]

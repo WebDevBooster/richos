@@ -1,0 +1,20 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.83s
+     Running tests/registration_tests.rs (app/target/debug/deps/registration_tests-3e380d06420754e2)
+
+running 12 tests
+test production_work_contract_keeps_only_the_two_onboarding_operations_inline ... ok
+test markdown_quote_provenance_tolerates_whitespace_but_preserves_ceo_contract ... ok
+test anaphoric_acceptance_keeps_prior_proposal_and_ceo_constraints_as_reference ... ok
+test discussion_cannot_discard_commitment_but_rich_cannot_veto_authorized_work ... ok
+test interrupted_empty_reply_cannot_veto_work_or_fabricate_commitment ... ok
+test onboarding_disposition_requires_host_tool_evidence_and_does_not_drop_other_work ... ok
+test discovery_is_owned_without_model_generated_acceptance_criteria ... ok
+test registration_cannot_fabricate_quotes_or_missing_targets ... ok
+test quotes_cannot_stitch_passages_change_negation_or_borrow_another_message ... ok
+test the_contract_preserves_ceo_constraints_and_tail_without_promoting_richs_reply ... ok
+test unsolicited_offer_stays_out_of_worker_and_inspector_contracts ... ok
+test repeated_corrections_keep_original_constraints_after_context_eviction ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+

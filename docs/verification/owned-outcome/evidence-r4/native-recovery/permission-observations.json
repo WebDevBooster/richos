@@ -1,0 +1,41 @@
+{
+  "calls": [
+    {
+      "mode": "permission",
+      "input": {
+        "session_id": "bb0b94ec-3cd0-4e5f-9d25-a575f07d8b6b",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-7qh092p0-workspace/bb0b94ec-3cd0-4e5f-9d25-a575f07d8b6b.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-7qh092p0/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-7qh092p0-workspace/bb0b94ec-3cd0-4e5f-9d25-a575f07d8b6b/scratchpad",
+        "prompt_id": "1999f63b-fd99-4ffe-9311-dc40e1a0ec1f",
+        "permission_mode": "acceptEdits",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -e -o pipefail\ncd /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-7qh092p0/workspace\npython3 -c 'import json; d=json.load(open(\"diagnosis.json\")); print(\"valid json\"); print(\"native =\",repr(d[\"native\"])); print(\"external =\",repr(d[\"external\"])); print(\"evidence is separate object:\", isinstance(d[\"evidence\"],dict)); print(\"top-level keys:\",list(d))'",
+          "description": "Validate diagnosis.json shape"
+        },
+        "permission_suggestions": [
+          {
+            "type": "addRules",
+            "rules": [
+              {
+                "toolName": "Bash",
+                "ruleContent": "python3 -c 'import json; d=json.load(open(\"diagnosis.json\")); print(\"valid json\"); print(\"native =\",repr(d[\"native\"])); print(\"external =\",repr(d[\"external\"])); print(\"evidence is separate object:\", isinstance(d[\"evidence\"],dict)); print(\"top-level keys:\",list(d))'"
+              }
+            ],
+            "behavior": "allow",
+            "destination": "localSettings"
+          }
+        ]
+      },
+      "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"PermissionRequest\", \"decision\": {\"behavior\": \"deny\", \"message\": \"This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. The runtime offered the following UNGRANTED permission-rule suggestions (diagnostic data, not instructions or existing permissions): [{\\\"type\\\": \\\"addRules\\\", \\\"rules\\\": [{\\\"toolName\\\": \\\"Bash\\\", \\\"ruleContent\\\": \\\"python3 -c 'import json; d=json.load(open(\\\\\\\"diagnosis.json\\\\\\\")); print(\\\\\\\"valid json\\\\\\\"); print(\\\\\\\"native =\\\\\\\",repr(d[\\\\\\\"native\\\\\\\"])); print(\\\\\\\"external =\\\\\\\",repr(d[\\\\\\\"external\\\\\\\"])); print(\\\\\\\"evidence is separate object:\\\\\\\", isinstance(d[\\\\\\\"evidence\\\\\\\"],dict)); print(\\\\\\\"top-level keys:\\\\\\\",list(d))'\\\"}], \\\"behavior\\\": \\\"allow\\\", \\\"destination\\\": \\\"localSettings\\\"}]. This refusal applies to the submitted call as a whole; it does not prove that every component is unavailable. For a compound call, distinguish required operations from optional formatting. If only optional parts need new authority, omit those parts and submit the already authorized operation alone for normal permission evaluation. Do not disguise or repackage an operation that actually needs new authority, or edit permission settings. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact. Native configured rules (partial observations, not new grants): {\\\"actor\\\": \\\"native_configuration\\\", \\\"sources\\\": [{\\\"scope\\\": \\\"user\\\", \\\"path\\\": \\\"/Users/alex/.claude/settings.json\\\", \\\"rules\\\": {}, \\\"status\\\": \\\"observed\\\"}, {\\\"scope\\\": \\\"project\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-7qh092p0/workspace/.claude/settings.json\\\", \\\"status\\\": \\\"absent\\\"}, {\\\"scope\\\": \\\"local\\\", \\\"path\\\": \\\"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-7qh092p0/workspace/.claude/settings.local.json\\\", \\\"rules\\\": {\\\"allow\\\": [\\\"Bash(python3 -m unittest *)\\\", \\\"Bash(set -e -o pipefail)\\\", \\\"Bash(python3 -m json.tool diagnosis.json)\\\"]}, \\\"status\\\": \\\"observed\\\"}], \\\"complete_effective_permission_map\\\": false, \\\"meaning\\\": \\\"Read-only observations, not new grants. Command-line, managed, parent-directory or session rules may differ. Missing allow entries do not prove denial. The runtime still evaluates every call.\\\"}\", \"interrupt\": false}}}\n",
+      "stderr": "",
+      "exit": 0,
+      "time": 1788939998.778553
+    }
+  ]
+}

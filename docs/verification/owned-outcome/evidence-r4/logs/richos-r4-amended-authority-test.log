@@ -1,0 +1,9 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.13s
+     Running tests/run_tests.rs (app/target/debug/deps/run_tests-46e787b7fc255a01)
+
+running 1 test
+test amended_scope_retains_original_host_authority_without_promoting_narrative ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out; finished in 0.02s
+

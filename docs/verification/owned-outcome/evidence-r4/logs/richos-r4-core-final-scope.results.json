@@ -1,0 +1,463 @@
+{
+  "log": "/tmp/richos-r4-core-final-scope.log",
+  "core_library_and_integration": 1092,
+  "cli_unit": 1,
+  "doctests": 5,
+  "failed": 0,
+  "ignored": 4,
+  "groups": [
+    {
+      "name": "Running unittests src/lib.rs (app/target/debug/deps/richos_core-f3641f3814acf25f)",
+      "result": "ok",
+      "passed": 583,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "name": "Running unittests src/bin/richos-run.rs (app/target/debug/deps/richos_run-1b809bc5ece4aaac)",
+      "result": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/action_ledger_tests.rs (app/target/debug/deps/action_ledger_tests-bed197819481a288)",
+      "result": "ok",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/belief_precision.rs (app/target/debug/deps/belief_precision-1c31b1609a7b0e36)",
+      "result": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/belief_trigger_tests.rs (app/target/debug/deps/belief_trigger_tests-4af7cb6a49e48ac2)",
+      "result": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/between_turn_tests.rs (app/target/debug/deps/between_turn_tests-0982848c27027b90)",
+      "result": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/between_turn_thread_tests.rs (app/target/debug/deps/between_turn_thread_tests-456f5e62408e760c)",
+      "result": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/company_layer_tests.rs (app/target/debug/deps/company_layer_tests-923d5c040784ffb4)",
+      "result": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/correction_forward_compat_tests.rs (app/target/debug/deps/correction_forward_compat_tests-58680270c8d7ca20)",
+      "result": "ok",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/doctrine_sentinel.rs (app/target/debug/deps/doctrine_sentinel-86375d0ae8e9e96b)",
+      "result": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "name": "Running tests/entity_binding_tests.rs (app/target/debug/deps/entity_binding_tests-29fc3f1f36f471b7)",
+      "result": "ok",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/entity_registry_tests.rs (app/target/debug/deps/entity_registry_tests-68f54fa5b0e37395)",
+      "result": "ok",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/escalation_source_tests.rs (app/target/debug/deps/escalation_source_tests-249d6ef89aa0dc4c)",
+      "result": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/feedback_no_outbound_tests.rs (app/target/debug/deps/feedback_no_outbound_tests-de35b46ba06597e0)",
+      "result": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/feedback_surface_tests.rs (app/target/debug/deps/feedback_surface_tests-648229c14ebf1aa9)",
+      "result": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/heard_precision.rs (app/target/debug/deps/heard_precision-b92a899247201721)",
+      "result": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/heard_trigger_tests.rs (app/target/debug/deps/heard_trigger_tests-9f68052e3ed484db)",
+      "result": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/intake_forward_compat_tests.rs (app/target/debug/deps/intake_forward_compat_tests-612b970b28f55ded)",
+      "result": "ok",
+      "passed": 19,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/launch_no_outbound_tests.rs (app/target/debug/deps/launch_no_outbound_tests-2371f93355d11200)",
+      "result": "ok",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/ledger_forward_compat_tests.rs (app/target/debug/deps/ledger_forward_compat_tests-5aad82e189850936)",
+      "result": "ok",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/live_event_tests.rs (app/target/debug/deps/live_event_tests-b22f9cd07ddfb9ec)",
+      "result": "ok",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/loro_gui_launch_tests.rs (app/target/debug/deps/loro_gui_launch_tests-6877ce0ff2f57386)",
+      "result": "ok",
+      "passed": 13,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "name": "Running tests/loro_lane_map_tests.rs (app/target/debug/deps/loro_lane_map_tests-c4279040a245038c)",
+      "result": "ok",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/loro_reprime_tests.rs (app/target/debug/deps/loro_reprime_tests-2e3d21de849ac0ab)",
+      "result": "ok",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/machinery_tests.rs (app/target/debug/deps/machinery_tests-d0551b3a295a0b4d)",
+      "result": "ok",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/native_cancel_tests.rs (app/target/debug/deps/native_cancel_tests-3a1e1ef88c7ffd47)",
+      "result": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/native_onboarding_grant_tests.rs (app/target/debug/deps/native_onboarding_grant_tests-89c9ec5b482f1e28)",
+      "result": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/onboarding_declination_tests.rs (app/target/debug/deps/onboarding_declination_tests-9615602821d9be2d)",
+      "result": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/onboarding_persistence_tests.rs (app/target/debug/deps/onboarding_persistence_tests-93fdea2430b9b6a6)",
+      "result": "ok",
+      "passed": 22,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/reachability_tests.rs (app/target/debug/deps/reachability_tests-fda7e06dc461aa1b)",
+      "result": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/registration_tests.rs (app/target/debug/deps/registration_tests-3e380d06420754e2)",
+      "result": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/request_preparation_tests.rs (app/target/debug/deps/request_preparation_tests-9ce7f1521502f5c5)",
+      "result": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/rotation_tests.rs (app/target/debug/deps/rotation_tests-0ca0dafc472451b7)",
+      "result": "ok",
+      "passed": 22,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/run_tests.rs (app/target/debug/deps/run_tests-46e787b7fc255a01)",
+      "result": "ok",
+      "passed": 49,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/setup.rs (app/target/debug/deps/setup-082196c9f31d5fad)",
+      "result": "ok",
+      "passed": 33,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/spine_tests.rs (app/target/debug/deps/spine_tests-01d18a8d064d203c)",
+      "result": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/spoken_gate_agreement.rs (app/target/debug/deps/spoken_gate_agreement-b7612094410710af)",
+      "result": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/spoken_precision.rs (app/target/debug/deps/spoken_precision-b4dc34118208f4c7)",
+      "result": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/spoken_trigger_tests.rs (app/target/debug/deps/spoken_trigger_tests-18e2087017247d23)",
+      "result": "ok",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/steering_tests.rs (app/target/debug/deps/steering_tests-0f4a1e0363a7a500)",
+      "result": "ok",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/timeline_tests.rs (app/target/debug/deps/timeline_tests-faefbc1e04ea25ad)",
+      "result": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/upstream_classification_tests.rs (app/target/debug/deps/upstream_classification_tests-6a965c69e8bb21c4)",
+      "result": "ok",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/upstream_turn_tests.rs (app/target/debug/deps/upstream_turn_tests-219a254af48b6480)",
+      "result": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/watermark_cadence_tests.rs (app/target/debug/deps/watermark_cadence_tests-dfd89bb8e1e6da2d)",
+      "result": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/work_gate_cost.rs (app/target/debug/deps/work_gate_cost-6fe8e99434bfe84f)",
+      "result": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Running tests/worker_attribution_tests.rs (app/target/debug/deps/worker_attribution_tests-9758c8b432d2acee)",
+      "result": "ok",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "Doc-tests richos_core",
+      "result": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "source_sha256": "a91b0b8ff05e97d9209dbeadf54f67406627fa00f64d3204da31d9f4b1a867f1",
+  "source_files": {
+    "app/Cargo.lock": "93d7edb37c10b4efc06e9cb224833d27bdf545ea87b482d091efbb7d7ad1f550",
+    "app/Cargo.toml": "ebbc2dc8ecdec5240df8a2b38ffe3d8aefcf82244289ffe8252204d176eee852",
+    "app/crates/richos-core/Cargo.toml": "dfae9f93d6491b173c6e441b468d79b6640084c525e9bd90d021cec944a0c247",
+    "app/crates/richos-core/doctrine/inner-doctrine.md": "fa27cc22cb064fdba249282140d4bc4c4c8c90af3556f2572d23b8a044047707",
+    "app/crates/richos-core/doctrine/owned-outcome.md": "42e2d5a72b8c0afb98a63f43ee6768b15296e925eee7a11388c7603a2cffc426",
+    "app/crates/richos-core/src/autonomy.rs": "cd786701de3a6de59a1c18b4f2efba121b9c622a364ff143b881d68e1aeeba01",
+    "app/crates/richos-core/src/belief.rs": "93c66d7de06a424dc1fa3cfcbacf0bbd83b5dedd56e69d442f3391750585c5b4",
+    "app/crates/richos-core/src/bin/richos-run.rs": "56558a1d7ccb6c3473b326503db5fa92fe614b0a9797b7d71b8f3bd6ec1c0472",
+    "app/crates/richos-core/src/cognition.rs": "fd36558edb356e13c7a5a8004c3081a06a93ef997fd8324b0be61db3ce516a9a",
+    "app/crates/richos-core/src/company.rs": "9dcc63adb808113b79c77c76e03156373351c6a1b71b58d3a36bf3e4e8e9028e",
+    "app/crates/richos-core/src/config.rs": "81aa925581bb5dbba2994819d9d98940266b3bd00b28175940e799e4d3aaad04",
+    "app/crates/richos-core/src/correction.rs": "f3d7455281970d59039835adcb7f5ed3d5410573767cfd9be82d7dded460ee3c",
+    "app/crates/richos-core/src/dispatch.rs": "d094ce8a050765984350a734df3f5dba1137e909fb1e6364080c35f35e1f3d1e",
+    "app/crates/richos-core/src/doctrine.rs": "332a8ff9f835caf537914025187009367c30f28470b34871ed9ccf2c6949467d",
+    "app/crates/richos-core/src/entity.rs": "13e01c6354e703c7d057a8d946b3382b38ea6ce7b674a14ab90151a4d8076a96",
+    "app/crates/richos-core/src/feedback.rs": "771d9d6fc56afba8c0430440c80400f6b6947b7f6869993091860e686192c034",
+    "app/crates/richos-core/src/heard.rs": "2b8577e6617fc4ca2ff644c9c53af767c1bc9a4212e79f7a7a63256154097f0f",
+    "app/crates/richos-core/src/home_field.rs": "64daaced16c44f75e479b1eaba08d3c85a5b8300ca7e15ccea9a63a002ed523c",
+    "app/crates/richos-core/src/journal.rs": "0dde26c81edfd42e43654af69fa3efafa175adbd39c3bff11a3d222c4f8e276d",
+    "app/crates/richos-core/src/launch.rs": "9a1cbb0f24538d285d41700b19a119a89f819a0de0a39f390d5c166afb01a50a",
+    "app/crates/richos-core/src/ledger.rs": "ec94918e4352e3ab9ca36d5eba3c2656c26a2aa382f7811b03df3d20cd4d418e",
+    "app/crates/richos-core/src/lib.rs": "49f3df357ba5686ffa74cb48b3c265216f23093f6ce0712ec594fa1ffd783846",
+    "app/crates/richos-core/src/live.rs": "22a393d79574a0102c810dbe996e3d3a1664d5404412090c9c6f4d1051bec4af",
+    "app/crates/richos-core/src/loro.rs": "815d8c2111ee2da373d8fa94cba52c07c8c8f8c289a8f59b7643f610b528861b",
+    "app/crates/richos-core/src/machinery.rs": "8348ecc66e0931cacd4123ee5822ee31dd4724ebcccf55c839d941761bef194d",
+    "app/crates/richos-core/src/native.rs": "6fea098178a362572fa857ad1dfee3a996f3ac6ea8c9c0d6912a58bbb508c370",
+    "app/crates/richos-core/src/native_permission.rs": "63c3f85514f0802bfbf353c0b1daa65857f6eff3298404bd6da68983e173a299",
+    "app/crates/richos-core/src/onboarding.rs": "844c02eb4db22676b2107aa6e612f191fac682bba9e4d37bdf409babe2703c55",
+    "app/crates/richos-core/src/onboarding_tools.rs": "4a3b60a96cf76d40ff8464815272e303071e66b37322838f710852b8b0d1bd26",
+    "app/crates/richos-core/src/permission.rs": "63a29979711d9c0121f175dbf77f4ed8920ebe53ea736fab8fc78ba229d1dc0f",
+    "app/crates/richos-core/src/provision.rs": "f8f8cf8c7452b2d5d865709d3d6186cc4334ee325afac6e7ad589bbac0fc103d",
+    "app/crates/richos-core/src/reachability.rs": "32f4847b951efcceb3cd98981bfe94a9386ef0c09f68ae6a57831291f4d28aae",
+    "app/crates/richos-core/src/registration.rs": "73501e8a6396980dced6582e0041d3531c16fb4ccd239ab6cf401dfd51529287",
+    "app/crates/richos-core/src/reprime.rs": "3b8181c96c0842476508c01afec7ecaf46587bd19b224a67ad774d7800478d53",
+    "app/crates/richos-core/src/run.rs": "80826bc51c73344e75b8e18beb20c246788d25196b93b102aa90065fd582409e",
+    "app/crates/richos-core/src/run_host.rs": "419fbf3967ad77c373fa217bfed11548e3c804d767fc660030f7f0f9a1bf3f68",
+    "app/crates/richos-core/src/run_spine.rs": "4311f0996cfeaf61b27eec053d797f1b657356cd5b5951d7eceb549216a47ec6",
+    "app/crates/richos-core/src/setup.rs": "12721286db7a7a854ec345fad7def0441137fd739e5ae372a14bc012865c3fb8",
+    "app/crates/richos-core/src/skills.rs": "a2a76bbd3fc63b85d4142a4390c6fbcb77b7e85b5e6af83b2a9e2bb950053293",
+    "app/crates/richos-core/src/skip.rs": "c6692f61127ac2b7e2ab067e4ecc278d1747acd4b1bb66ff227c128533a53d3c",
+    "app/crates/richos-core/src/spine.rs": "3c4f5ce7b42ef68b1a602ebff5f050a381c76afbac5804dc3732ec778c90aa10",
+    "app/crates/richos-core/src/spoken.rs": "7ddf343c410c9b1fb6e86c266bb652c5d7b53b3aebca659cc84782a705e1df73",
+    "app/crates/richos-core/src/staging.rs": "2dcf9ed2811d072cae870acb07164c2357e7d384155fa18ec84643b69dd82ac5",
+    "app/crates/richos-core/src/steering.rs": "173b67917e1e5b0961ab4602b9137c8b61f331135bba8390c1d9e2acf3e16ad3",
+    "app/crates/richos-core/src/stream.rs": "ba5b2c75b592fc68b8f7990e3e212f7b1edb2f7d19b247b79bd0a02c03bcdc03",
+    "app/crates/richos-core/src/thread.rs": "38194c1fe53c92433909ec07fe9e367adc5c448dd7c436a809f006b5efb7332c",
+    "app/crates/richos-core/src/timeline.rs": "a6b563172b57696d835537898e645b667f8e19817498074528b5c555d07a9844",
+    "app/crates/richos-core/src/upstream.rs": "eea553c2b3327b2c13d8ee817f996231cc7c8f0941721db08cf19b70cdef7760",
+    "app/crates/richos-core/src/util.rs": "d1919f26c00a9d3bc0d8480f42836ca4fd0e8884e03446fa44803e3280878aa9",
+    "app/crates/richos-core/src/work_disposition.rs": "b7b145c1fa13fd1f725cc3d6f3781a899d9eb62850f9cb7d4eb4ad57b9c3f276",
+    "app/crates/richos-core/src/work_gate.rs": "c7bc7e142163eb160f5a17087a1ae2fc5dbb528a6bb87b31fbc3825f658ae25f",
+    "app/crates/richos-core/src/worker_events.rs": "a5429565ad1e443e3025f9f817f24e8dabacc841a1b7a0c3af8d6f95c58e0d4b",
+    "app/crates/richos-core/src/worker_status.rs": "294ecc6bf0261366fc3745ff0a0564da9a2b9f18ce08b0aac259279b43b75f03",
+    "app/crates/richos-core/tests/action_ledger_tests.rs": "1a9124d879cddbe632a39813b8995c31af6d374855428fa4c66e7b5d541ac9f4",
+    "app/crates/richos-core/tests/belief_precision.rs": "5e3b6b59c85d54003e7718b8cb050eecd20526bd74d68ff87867f6bb63650d96",
+    "app/crates/richos-core/tests/belief_trigger_tests.rs": "43296e2ecab6b5fe6cebbb1711722bbfb67d69e73fdb0b07c97a5c6ab0ed88ca",
+    "app/crates/richos-core/tests/between_turn_tests.rs": "4fd3d86c337230b4c9d9fbe12adae01c9e55bc096a063443359749c5792244a1",
+    "app/crates/richos-core/tests/between_turn_thread_tests.rs": "1d81b55f2ac59466b174c6e941869b2414c77dfc72ee11c87a1215c697f577a8",
+    "app/crates/richos-core/tests/company_layer_tests.rs": "4a6a0aa31c9b2b8857fefd4d2c6dce055f025d272fa96cef71ef4ddf074f47bc",
+    "app/crates/richos-core/tests/correction_forward_compat_tests.rs": "ab44f79530caff40d0afb85fffec4be34ded9dac4acd1c3334a27c80a49fd35e",
+    "app/crates/richos-core/tests/doctrine_sentinel.rs": "398a253afdaac2b5eff54d0ccbf8fb3d7b17afa48e06de8c8ea1b1496129af79",
+    "app/crates/richos-core/tests/entity_binding_tests.rs": "dde3b2528120cead34f332f3607bd9169e106ebbb8adea833b3831e12d028bd1",
+    "app/crates/richos-core/tests/entity_registry_tests.rs": "7b21e7d9cf7d19241d63add4b884f78b19f3e487d75ef568c87e2ab106ceccfc",
+    "app/crates/richos-core/tests/escalation_source_tests.rs": "66035fd2a6daa5738c43c88402e6fe3a35da915f6306291927d10a8951b17132",
+    "app/crates/richos-core/tests/feedback_no_outbound_tests.rs": "33e10bea3dc5ea475b5844d743e6ae5a5f14f45d1ca3d05d54120735f8b22d68",
+    "app/crates/richos-core/tests/feedback_surface_tests.rs": "27dde6408bd559ac3984bc704f544a2e4e8381c7727af7d78c1ad2d5fbe4f1ec",
+    "app/crates/richos-core/tests/fixtures/ledgers/README.md": "212264043df6760d0c0f997c471065b9b972d624de61201e24598e123ff135c7",
+    "app/crates/richos-core/tests/fixtures/ledgers/v1-current.golden": "93323fc379d823a65e71decf5796596c61e7bce0d7cff4871d02dfd23521d83c",
+    "app/crates/richos-core/tests/fixtures/ledgers/v1-current.jsonl": "f03fa27b8e7e6f93c431d1c2c4dfcab2e1aa559bf4f4883433b542b87040e558",
+    "app/crates/richos-core/tests/fixtures/ledgers/v1-legacy.golden": "4ac11547aca3b86dda85269740548f04bd6d1200b4012844f869b13b911d0de5",
+    "app/crates/richos-core/tests/fixtures/ledgers/v1-legacy.jsonl": "5b57d4cddc894c4dad93e5bf80df605e9b18886e14d098b67d831578223fc164",
+    "app/crates/richos-core/tests/heard_precision.rs": "7eb87ef6967301e3858ff0fbdba219577b32089ba042243056438e4f049cc1da",
+    "app/crates/richos-core/tests/heard_trigger_tests.rs": "05c1cc043d4715a686884e6a7f40135c9bc534c4a974b3122d5b42a10252aa91",
+    "app/crates/richos-core/tests/intake_forward_compat_tests.rs": "e02989325bda4e0ab47e78c40c55f94f2dcaebcbd88317ea2675b0480d2d7285",
+    "app/crates/richos-core/tests/launch_no_outbound_tests.rs": "7af54fdab8242fda1b2784c79326005ad0b7833aa6ace73e8ae238150a52cd97",
+    "app/crates/richos-core/tests/ledger_forward_compat_tests.rs": "bb79f9f012cc1c5eb7363ef479493ddc7153219ee9c79a3619b236b8dfdc842b",
+    "app/crates/richos-core/tests/live_event_tests.rs": "e0a4c22125649410ecd200fb39801171cb0a377b7d489b60ed2f0ef168dcd300",
+    "app/crates/richos-core/tests/loro_gui_launch_tests.rs": "b434c0522dda39b1aa6de89b1b3f2d2079a7a02e1825b49bcc8c5179d99902ea",
+    "app/crates/richos-core/tests/loro_lane_map_tests.rs": "b4104be70e317568ae07ffa7939cb77360f0a010da914d88a0265c19572d3dd6",
+    "app/crates/richos-core/tests/loro_reprime_tests.rs": "67390555f75ef77c067f1045cb51691d99eca6aed08f960e2919e277aa308464",
+    "app/crates/richos-core/tests/machinery_tests.rs": "c73f208e22dbd4624b9f1355613ed8995f448e40da503f1bb38a8fe346ccd18b",
+    "app/crates/richos-core/tests/native_cancel_tests.rs": "305aa90028589e93c7dbac94b8bd43f33c97bd22ac5e0b848d622ee203d86277",
+    "app/crates/richos-core/tests/native_onboarding_grant_tests.rs": "3f0b45135f4e28407c846293db87048cb9cf097d792cc3985a1bc3ceb8949b26",
+    "app/crates/richos-core/tests/onboarding_declination_tests.rs": "145036d7539eca66f8e602338010849911ad8de11f74c5c6a6a1f025d51853c5",
+    "app/crates/richos-core/tests/onboarding_persistence_tests.rs": "a51f8f34b8e7b6be54f81a58835eb91f3a8a9258fabe7212c1e509d4e2202e1c",
+    "app/crates/richos-core/tests/reachability_tests.rs": "c4febfeee44ee9015d00e3e1c04da7b66ac1fc01615a63541897663cdea5dc12",
+    "app/crates/richos-core/tests/registration_tests.rs": "be4e0db383b29d7889ac18cc74b0f886f7c1315c3f020e196f2ae99067f10f61",
+    "app/crates/richos-core/tests/request_preparation_tests.rs": "a0de635e02149e8ac4b9c5920f70aab429a07e09e42c8b1525e5d262f41f45b6",
+    "app/crates/richos-core/tests/rotation_tests.rs": "5b53fbd564c9215e774de7289ae66ea324ecdf291b421e3a643eba0e585570be",
+    "app/crates/richos-core/tests/run_tests.rs": "91fa1d33abf6f7db225ce1ea23b6b878dfc1055266d425c9d0262ecbcdc0b5ea",
+    "app/crates/richos-core/tests/setup.rs": "296d7807771c7563ede489c848270666ebbe241d41c998ef289abdebd36ac7ad",
+    "app/crates/richos-core/tests/spine_tests.rs": "0a05e1c96f9c35259e5d232b7d7edd3173ee1a20f5c0f9cb3da39ea7585300a3",
+    "app/crates/richos-core/tests/spoken_gate_agreement.rs": "17e89e2405c1642c166a78356b2a17b7bbb490488d01e4a7f2b0ba5b8448c3c7",
+    "app/crates/richos-core/tests/spoken_precision.rs": "85aa273099f0fac55a2d732d7a9ac1547de546d4b868d5af6a0feb87cfe474c7",
+    "app/crates/richos-core/tests/spoken_trigger_tests.rs": "75c33e6176cd0216ba7c4978b93e31bad6a66e6976a0509b903f3bb5e10a90cb",
+    "app/crates/richos-core/tests/steering_tests.rs": "5a150be26fc4484cf62c6c20fbc6e9adacf7141a9a9fa8aa7636c8ace624c43d",
+    "app/crates/richos-core/tests/support/ledger_digest.rs": "2c2e3ad5267228246b25a9528257a5bea1411c32fa80dc0569af568b1a52396d",
+    "app/crates/richos-core/tests/support/mod.rs": "c97da650c0689dbd554bdacf529e61ec1e2bdbe77a60dfc9fc9be51871971af9",
+    "app/crates/richos-core/tests/timeline_tests.rs": "41f83e27bb9e82ab21593fd698812bbc1ca1a77c1ebe611ebbeb01e723aa532c",
+    "app/crates/richos-core/tests/upstream_classification_tests.rs": "eb615b29174c979206efa4e630f1ceb34b657f6122655725a65f19729230ad61",
+    "app/crates/richos-core/tests/upstream_turn_tests.rs": "8a89e7fc1380948f84ba44d00ae4436fc2f166eb2568e91cbe8d77ece1c818b7",
+    "app/crates/richos-core/tests/watermark_cadence_tests.rs": "230d1aaebb939e6c93f782697e4ef9ede282dc9103b544d195d06d335b8fba0b",
+    "app/crates/richos-core/tests/work_gate_cost.rs": "c7bb0368913fb2fac27b66c7c5cafd375ac2e459c053c145cca46427d02400fe",
+    "app/crates/richos-core/tests/worker_attribution_tests.rs": "d72814bca42d5689e4b682601f4b681123dda0df4822018517be21b634df5af7",
+    "app/scripts/test-owned-work-desktop.py": "fd09c918921784ecf7ec8e1c15b5f36a701a74dc2fe581e00da76f1961e9900c",
+    "app/src-tauri/Cargo.lock": "0c5f2a469ff1a7ebc9797202d54724970a8560462b0c76e842259707887e6401",
+    "app/src-tauri/Cargo.toml": "0c62a85e683d835d07327645cbf7b11d5e20e93e0ed55799cfecd7432285e95b",
+    "app/src-tauri/src/activation.rs": "0b90c7a2c2605926a2efcb3ad99b96964ee1ef2b6533cf42969ba4ab19402d11",
+    "app/src-tauri/src/engine.rs": "e8463317d0ac8ca2e4ba7c09830322bf7b6941cdd82f5e8fac5999623d0bf05f",
+    "app/src-tauri/src/events.rs": "38f74def161e6b9353f56ce68c08e81ae6eaee745b1ed085829e947152195797",
+    "app/src-tauri/src/machinery_view.rs": "ea4327f07d4d2e28d878abe730415302083fc88cd5da49dfd8c1d2c92aa289f0",
+    "app/src-tauri/src/main.rs": "b521243124af749de0a921bf70a5ccd452f4e4c0055ce963fcc53a109414f13f",
+    "app/src-tauri/src/managed_runs.rs": "4d149eba099aa0d0a678d9dfd1379d435936cad44744a6efb8a2522e0e489817",
+    "app/src-tauri/src/memory.rs": "c0797b6c45a9aba62a94d92ea984483f977b42d0c907a6148041ae4801a4827e",
+    "app/src-tauri/src/nav.rs": "77d7aac941ffa05ec2b5002ae4f138ada16317f32d4a79d7d8eec96199e6918b",
+    "app/src-tauri/src/owned_work.rs": "e4f350e9155e57d22b82e16b026031d6a5aff713b2a14f9c4cba5f06c84cd653",
+    "app/src-tauri/src/run_view.rs": "dfaeaee5aaba78e90e3fbe4cb0fc3462ec9994cfda05d35594a498305f489370",
+    "app/src-tauri/src/setup_view.rs": "775ee1375bcb70d2f553f20978a477491b9043cc7bc53c17a236d54bf8a46fbf",
+    "app/src-tauri/src/timeline_view.rs": "933226171c0d8e2777252f59dac7e6ac89a2070ca417325626336442c5428cb8",
+    "app/src-tauri/src/update_startup.rs": "61910726b235f90eb28aba773c06b702bc4620114364af7d143419174b36b9ad",
+    "app/src-tauri/src/updates.rs": "8097299fd27c733572b50b9968e0446ad1cfc5105c9359b20dc43a79fc4f031a"
+  }
+}

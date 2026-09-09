@@ -23,15 +23,19 @@ pub enum OnboardingToolsVerdict {
     Rejected,
 }
 
-/// Configuration acceptance is not proof that the subprocess connected. Both exact tool
+/// Configuration acceptance is not proof that the subprocess connected. All exact app tool
 /// names must appear in the native child's actual first system/init inventory.
 pub fn verdict_from_init(init: &Value) -> OnboardingToolsVerdict {
     let Some(tools) = init.get("tools").and_then(Value::as_array) else {
         return OnboardingToolsVerdict::Rejected;
     };
-    if [QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL]
-        .iter()
-        .all(|name| tools.iter().any(|tool| tool.as_str() == Some(name)))
+    if [
+        QUALIFIED_SAVE_TOOL,
+        QUALIFIED_DECLINE_TOOL,
+        crate::work_disposition::QUALIFIED_TOOL_NAME,
+    ]
+    .iter()
+    .all(|name| tools.iter().any(|tool| tool.as_str() == Some(name)))
     {
         OnboardingToolsVerdict::Loaded
     } else {
@@ -94,11 +98,14 @@ const MAX_SCOPE_BYTES: u64 = 16 * 1024;
 pub struct OnboardingToolScope {
     pub version: u32,
     pub entity_id: String,
-    pub central_root: PathBuf,
-    pub record_path: PathBuf,
+    pub central_root: Option<PathBuf>,
+    pub record_path: Option<PathBuf>,
     /// App-issued grant for one visible conversation turn. Missing is denied.
     #[serde(default)]
     pub actions_allowed: bool,
+    /// Only the host's current visible source turn may publish an intake disposition.
+    #[serde(default)]
+    pub work_disposition: Option<crate::work_disposition::WorkDispositionScope>,
 }
 
 impl OnboardingToolScope {
@@ -106,18 +113,27 @@ impl OnboardingToolScope {
         Self {
             version: 1,
             entity_id: entity.to_string(),
-            central_root: central_root.into(),
-            record_path: record_path.into(),
+            central_root: Some(central_root.into()),
+            record_path: Some(record_path.into()),
             actions_allowed: false,
+            work_disposition: None,
         }
     }
 
     fn validate(&self) -> Result<EntityId, String> {
-        if self.version != 1 || !self.central_root.is_absolute() || !self.record_path.is_absolute()
+        if self.version != 1 || self.central_root.is_some() != self.record_path.is_some()
+            || self.central_root.as_ref().is_some_and(|p| !p.is_absolute())
+            || self.record_path.as_ref().is_some_and(|p| !p.is_absolute())
         {
             return Err(
                 "The app has not supplied a valid company scope. Nothing was changed.".into(),
             );
+        }
+        if let Some(scope) = &self.work_disposition {
+            scope.validate()?;
+            if scope.entity != self.entity_id {
+                return Err("Work disposition belongs to a different company.".into());
+            }
         }
         EntityId::parse(&self.entity_id).map_err(|_| {
             "The app supplied an invalid company identity. Nothing was changed.".into()
@@ -156,6 +172,24 @@ pub fn set_actions_allowed(path: &Path, allowed: bool) -> Result<(), String> {
     write_scope(path, &scope)
 }
 
+/// Change only the host's turn binding. Interview destinations and grants are preserved.
+pub fn set_work_disposition_scope(
+    path: &Path,
+    work: Option<crate::work_disposition::WorkDispositionScope>,
+) -> Result<(), String> {
+    let mut scope = if path.exists() {
+        read_scope(path)?.0
+    } else if let Some(binding) = &work {
+        binding.validate()?;
+        OnboardingToolScope { version: 1, entity_id: binding.entity.clone(), central_root: None,
+            record_path: None, actions_allowed: false, work_disposition: None }
+    } else {
+        return Ok(());
+    };
+    scope.work_disposition = work;
+    write_scope(path, &scope)
+}
+
 fn require_action_grant(scope: &OnboardingToolScope) -> Result<(), String> {
     if scope.actions_allowed {
         Ok(())
@@ -186,6 +220,10 @@ pub fn tools() -> Value {
         {"name":DECLINE_TOOL_NAME,
          "description":"Record an explicit Not now answer to the company interview or resume offer. Only call when the CEO declines that specific offer in the current conversation. Never infer an interview decline from unrelated chat. Existing notes are preserved and other companies are unaffected.",
          "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
+         "annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},
+        {"name":crate::work_disposition::TOOL_NAME,
+         "description":"Record the current CEO turn's work disposition for RichOS. Use work for an authorized new outcome, amend for changed scope, answer_decision for an actual answer, cancel for explicit cancellation or discussion when no work is requested. The host supplies the original source and identity. Success confirms durable intake only, never execution, completion or new tool permission. Do not put off accepted work or mistake an interruption for cancellation.",
+         "inputSchema":crate::work_disposition::schema(),
          "annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}}
     ]})
 }
@@ -195,14 +233,29 @@ pub fn tools() -> Value {
 pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, String> {
     // Validate arguments before touching the scope or disk.
     match name {
+        crate::work_disposition::TOOL_NAME => {
+            let args: crate::work_disposition::Disposition = serde_json::from_value(arguments)
+                .map_err(|_| "Use only kind, optional target and a short reason. No disposition was recorded.".to_string())?;
+            args.validate()?;
+            let (scope, _) = read_scope(scope_path)?;
+            require_action_grant(&scope)?;
+            let work = scope.work_disposition.as_ref()
+                .ok_or("The host has not bound this call to a current CEO source turn. No disposition was recorded.")?;
+            let receipt = crate::work_disposition::record(work, args)?;
+            Ok(
+                json!({"status":"recorded","kind":receipt.disposition.kind,"executionStarted":false}),
+            )
+        }
         SAVE_TOOL_NAME => {
             let args: SaveArguments = serde_json::from_value(arguments).map_err(|_| {
                 "Use only notes and progress (partial or complete). Nothing was saved.".to_string()
             })?;
             let (scope, entity) = read_scope(scope_path)?;
             require_action_grant(&scope)?;
+            let central_root = scope.central_root.as_deref().ok_or("Choose a company notes destination before saving interview answers.")?;
+            let record_path = scope.record_path.as_deref().ok_or("Choose a company before changing interview preferences.")?;
             let bytes = company::save_company_notes(
-                &scope.central_root,
+                central_root,
                 &entity,
                 &args.notes,
                 args.progress,
@@ -211,7 +264,7 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
             // A successful answer supersedes a prior Not now. Preserve the saved notes if
             // this independent status update fails, and report that distinction truthfully.
             let resumed =
-                OnboardingRecord::clear_declination_for_entity(&scope.record_path, &entity).is_ok();
+                OnboardingRecord::clear_declination_for_entity(record_path, &entity).is_ok();
             Ok(
                 json!({"status":"saved","entityId":entity.to_string(),"progress":args.progress,"bytes":bytes,"verified":true,
                 "declinationCleared":resumed,"warning":if resumed { None } else { Some("Your notes were saved, but the interview reminder could not be updated. Retry the save to restore it.") }}),
@@ -223,11 +276,12 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
             })?;
             let (scope, entity) = read_scope(scope_path)?;
             require_action_grant(&scope)?;
+            let record_path = scope.record_path.as_deref().ok_or("Choose a company before changing interview preferences.")?;
             // Preserve the first explicit timestamp on retries.
-            let record = OnboardingRecord::load(&scope.record_path).for_entity(&entity);
+            let record = OnboardingRecord::load(record_path).for_entity(&entity);
             if !record.is_declined() {
                 OnboardingRecord::record_declination_for_entity(
-                    &scope.record_path,
+                    record_path,
                     &entity,
                     crate::util::now_millis(),
                 )
@@ -357,4 +411,101 @@ pub fn serve(
 /// Entry point used before the desktop shell initializes. Stdout is exclusively MCP frames.
 pub fn run_stdio(scope_path: &Path) -> io::Result<()> {
     serve(scope_path, io::stdin().lock(), io::stdout().lock())
+}
+
+#[cfg(test)]
+mod work_disposition_tests {
+    use super::*;
+    use crate::work_disposition::{self, WorkDispositionScope};
+
+    #[test]
+    fn work_receipt_requires_visible_grant_and_host_binding_and_preserves_interview_scope() {
+        let root =
+            std::env::temp_dir().join(format!("richos-disposition-tool-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("scope.json");
+        let initial = OnboardingToolScope::new(
+            &EntityId::parse("example").unwrap(),
+            &root.join("central"),
+            &root.join("record.json"),
+        );
+        write_scope(&path, &initial).unwrap();
+        let args = json!({"kind":"work","reason":"Repair the requested defect."});
+        assert!(call(&path, work_disposition::TOOL_NAME, args.clone()).is_err());
+        let binding = WorkDispositionScope {
+            source_turn: "turn-1".into(),
+            thread: "thread-1".into(),
+            entity: "example".into(),
+            workspace: root.clone(),
+            nonce: "nonce-1".into(),
+            receipt_path: root.join("receipt.json"),
+        };
+        set_work_disposition_scope(&path, Some(binding.clone())).unwrap();
+        assert!(call(&path, work_disposition::TOOL_NAME, args.clone()).is_err());
+        assert!(!binding.receipt_path.exists());
+        set_actions_allowed(&path, true).unwrap();
+        assert_eq!(
+            call(&path, work_disposition::TOOL_NAME, args.clone()).unwrap()["status"],
+            "recorded"
+        );
+        assert!(work_disposition::read_bound_receipt(&binding)
+            .unwrap()
+            .is_some());
+        set_actions_allowed(&path, false).unwrap();
+        assert!(call(&path, work_disposition::TOOL_NAME, args.clone()).is_err());
+        set_work_disposition_scope(&path, None).unwrap();
+        set_actions_allowed(&path, true).unwrap();
+        assert!(call(&path, work_disposition::TOOL_NAME, args).is_err());
+        let (after, _) = read_scope(&path).unwrap();
+        assert_eq!(after.central_root, initial.central_root);
+        assert_eq!(after.record_path, initial.record_path);
+        assert!(after.work_disposition.is_none());
+        assert!(after.actions_allowed);
+        let mut wrong = binding;
+        wrong.entity = "different".into();
+        assert!(set_work_disposition_scope(&path, Some(wrong)).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn disposition_without_company_notes_root_has_no_invented_interview_destination() {
+        let root = std::env::temp_dir().join(format!("richos-disposition-no-root-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("scope.json");
+        let binding = crate::work_disposition::WorkDispositionScope {
+            source_turn: "turn-1".into(), thread: "thread-1".into(), entity: "example".into(),
+            workspace: root.clone(), nonce: "nonce-1".into(), receipt_path: root.join("receipt.json"),
+        };
+        set_work_disposition_scope(&path, Some(binding.clone())).unwrap();
+        let (scope, _) = read_scope(&path).unwrap();
+        assert!(scope.central_root.is_none() && scope.record_path.is_none());
+        assert!(!scope.actions_allowed);
+        set_actions_allowed(&path, true).unwrap();
+        assert_eq!(call(&path, crate::work_disposition::TOOL_NAME, json!({"kind":"work","reason":"Complete the authorized work."})).unwrap()["status"], "recorded");
+        assert!(crate::work_disposition::read_bound_receipt(&binding).unwrap().is_some());
+        assert!(call(&path, SAVE_TOOL_NAME, json!({"notes":"Example company notes", "progress":"complete"})).is_err());
+        assert!(call(&path, DECLINE_TOOL_NAME, json!({})).is_err());
+        set_actions_allowed(&path, false).unwrap();
+        set_work_disposition_scope(&path, None).unwrap();
+        let (dormant, _) = read_scope(&path).unwrap();
+        assert!(dormant.central_root.is_none() && dormant.record_path.is_none() && dormant.work_disposition.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_scope_reads_without_disposition_but_tool_inventory_requires_the_new_tool() {
+        let raw = json!({"version":1,"entity_id":"example","central_root":"/central","record_path":"/record","actions_allowed":true});
+        let scope: OnboardingToolScope = serde_json::from_value(raw).unwrap();
+        assert!(scope.work_disposition.is_none());
+        assert_eq!(
+            verdict_from_init(&json!({"tools":[QUALIFIED_SAVE_TOOL,QUALIFIED_DECLINE_TOOL]})),
+            OnboardingToolsVerdict::Rejected
+        );
+        assert_eq!(
+            verdict_from_init(
+                &json!({"tools":[QUALIFIED_SAVE_TOOL,QUALIFIED_DECLINE_TOOL,work_disposition::QUALIFIED_TOOL_NAME]})
+            ),
+            OnboardingToolsVerdict::Loaded
+        );
+    }
 }

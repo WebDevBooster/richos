@@ -17,7 +17,7 @@
   function fitReading() { if (root && !root.hidden) root.style.setProperty("--run-reading-room", Math.max(0, root.getBoundingClientRect().top - 8) + "px"); }
   function error(e) { lastError = String(e); render(); }
   function all() { const rows = assignments.filter(a => a.runId !== current?.runId); if (current) rows.push(current); return rows; }
-  function needs(a) { return !["completed", "canceled"].includes(a.state) && (a.state === "needs_decision" || a.tasks.some(t => t.decision)); }
+  function needs(a) { return !["completed", "canceled"].includes(a.state) && (a.state === "needs_decision" || a.tasks.some(t => t.decision || t.permission)); }
   function title(a) { return a.goal.split("\n")[0]; }
   function date(a) { return a.createdAt ? new Date(a.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""; }
   function identity(a) {
@@ -106,13 +106,26 @@
           }); row.dataset.runChoice = a.runId; if (needs(a)) { attention(row); } list.append(row);
         } root.append(readingPanel(list, "run-choices-panel", () => { pickerOpen = false; render(); root.querySelector("[data-run-picker]")?.focus(); }));
       } root.append(picker);
-      const tasks = current.tasks.filter(t => t.decision), task = tasks[0];
+      const tasks = current.tasks.filter(t => t.decision || t.permission), task = tasks[0];
       const review = task ? button(labels.review_closed, () => {
         decisionOpen = true; pickerOpen = false; historyOpen = false; editor = null; render();
         if (decisionOpen) root.querySelector(".run-reading-body")?.focus();
       }, "runReview") : null;
       if (review) review.setAttribute("aria-expanded", String(decisionOpen));
-      if (task && !editor && decisionOpen) {
+      if (task?.permission && !editor && decisionOpen) {
+        const p = task.permission, decision = node("section", null, "run-decision");
+        decision.setAttribute("aria-label", "Permission for one operation");
+        decision.append(node("p", "Allow this operation once?", "run-question"),
+          node("p", "Rich could not finish using the permissions available. This approval covers only the operation shown. It changes no standing permission or explicit denial."),
+          node("p", `Tool: ${p.tool}`), node("p", `Workspace: ${p.workspace}`),
+          node("pre", JSON.stringify(p.input, null, 2)));
+        const actions = node("div", null, "run-actions");
+        const respondPermission = action => mutate("respond_run_permission", { ...target(), taskId: task.id,
+          operationId: p.id, action }, () => { decisionOpen = false; });
+        actions.append(button("Allow this operation once", () => respondPermission("approve_once"), "runApprovePermission"),
+          button("Decline and find another way", () => respondPermission("reject"), "runRejectPermission"));
+        decision.append(actions); root.append(readingPanel(decision, "run-decision-panel", () => { decisionOpen = false; render(); root.querySelector("[data-run-review]")?.focus(); }));
+      } else if (task && !editor && decisionOpen) {
         const d = task.decision, decision = node("section", null, "run-decision"); decision.setAttribute("aria-label", "Your decision");
         const question = node("div", null, "run-question-body");
         question.append(node("p", d.question, "run-question"), node("p", d.whyCeo));
@@ -153,7 +166,7 @@
         const submit = node("button", ending ? "Confirm end" : option ? "Confirm decision" : "Send decision"); submit.type = "submit"; if (ending) submit.dataset.runEnd = ""; form.append(cancel, submit);
         form.addEventListener("submit", e => {
           e.preventDefault(); const saved = editor;
-          if (ending && !saved.task) mutate("end_run", saved.target, () => { editor = null; });
+          if (ending && (!saved.task || saved.task.permission)) mutate("end_run", saved.target, () => { editor = null; });
           else mutate("respond_run_decision", { ...saved.target, taskId: saved.task.id, decisionId: saved.task.decision.id,
             action: ending ? { kind: "end" } : { kind: saved.kind === "scope" ? "change_scope" : "answer", text: option ? saved.task.option : saved.text } }, () => { editor = null; });
         }); root.append(readingPanel(form, "run-editor-panel", () => { editor = null; render(); root.querySelector("[data-run-review], [data-run-end]")?.focus(); }));
@@ -177,7 +190,9 @@
           item.append(node("p", "Earlier instructions still apply unless changed."));
           for (const previous of task.previous_instructions) {
             const section = node("section", null, "run-previous-instructions");
-            section.append(node("p", `Your request: ${previous.request}`), node("p", `Rich agreed: ${previous.acceptedScope}`)); item.append(section);
+            section.append(node("p", `Your request: ${previous.request}`));
+            if (previous.acceptedScope && previous.acceptedScope !== previous.request) section.append(node("p", `Rich agreed: ${previous.acceptedScope}`));
+            item.append(section);
           }
         }
         if (task.decision?.recommendation) item.append(node("p", task.decision.recommendation));

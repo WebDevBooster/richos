@@ -234,39 +234,27 @@ mutant policy-wrong-decision-field "OWN-CFG7." "$P" \
     " and d.get('decision_policy') == 'dependency'" "" \
     "the decision policy field must select this mechanism explicitly."
 D="scripts/lib/owned-dispatch.py"
-mutant pending-verdict-ignored "OWN5." "$D" \
-    "if kind == 'pending':" "if False:" \
-    "a pending disposition must hold the affected dispatch."
-mutant always-holds-marker "OWN8." "$D" \
-    "if kind == 'pending':" "if True:" \
-    "actual source authority can clear the same dispatch with the same pending row."
-mutant pending-state-not-read "OWN14." "$D" \
-    "'pending_items': pending" "'pending_items': []" \
-    "the registrar must receive actual authoritative pending records."
-mutant ruling-state-not-read "OWN14." "$D" \
-    "'standing_rulings': sources" "'standing_rulings': []" \
-    "standing authority must be sourced from declared records."
-mutant source-role-ignored "test_assistant_is_not_authority" "$D" \
-    "if message['role'] == 'user':" "if True:" \
-    "assistant assertions cannot grant CEO authority."
-mutant quote-membership-ignored "test_wrong_quote_cannot_clear" "$D" \
-    " or quote not in source" "" \
-    "an invented quote must not clear a dependency."
-mutant citation-optional "test_authorization_requires_citation" "$D" \
-    "if verdict['kind'] == 'authorized' and not verdict['citations']:" "if False:" \
-    "authorized must carry actual source evidence."
-mutant stale-source-accepted "OWN16." "$D" \
-    "if latest_config != config or latest_data != data:" "if False:" \
-    "authority revoked during review cannot be used to dispatch."
-mutant child-binding-ignored "OWN23." "$D" \
-    "if payload.get('agent_id') and saved is None:" "if False:" \
-    "unmarked child instructions are not CEO authority."
-mutant saved-source-dropped "OWN21." "$D" \
-    "if saved is not None:" "if False:" \
-    "compaction must preserve prior source-bound authority."
-mutant repeated-answer-text-dedup "OWN24." "$D" \
-    "if m['source_id'] not in known)" "if m['source_id'] not in known and not any(x['text'] == m['text'] for x in messages))" \
-    "a repeated ruling after revocation is new authority, not a duplicate."
+mutant registrar-nonzero-json-trusted "test_nonzero_registrar_json_is_not_authority" "$D" \
+    "if result.returncode:" "if False:" \
+    "a failed registrar cannot grant authority by printing valid JSON."
+mutant dispatch-success-receipt-dropped "test_permitted_dispatch_leaves_exact_work_receipt" "$D" \
+    "record(root, data, 'dispatched'," "(lambda *args: None)(root, data, 'dispatched'," \
+    "allowed dispatch must retain its exact host work receipt."
+mutant arbitrary-brief-selector-accepted "test_selector_cannot_smuggle_proposed_brief" "$D" \
+    "selector == 'owned-work:' + w['id']" "selector.startswith('owned-work:' + w['id'])" \
+    "caller text cannot add work to an approved host brief."
+mutant authority-provenance-ignored "test_registration_rejects_hook_or_assistant_authority" "$D" \
+    "                       m.get('role') == 'user' and m.get('provenance') == 'native_human_typed_v1']" "                       m.get('role') == 'user']" \
+    "a user role without actual native provenance is not human authority."
+mutant quote-membership-ignored "test_registration_rejects_forged_or_uncited_authority" "$D" \
+    "or cite['quote'] not in matches[0]['text']" "or False" \
+    "invented authority quotes must be rejected."
+mutant registration-source-race-ignored "test_model_mutating_sources_cannot_publish_stale_registration" "$D" \
+    "if latest['source_revision'] != data['source_revision']:" "if False:" \
+    "a human correction during registration invalidates its result."
+mutant registration-cache-disabled "test_registration_once_then_many_dispatches_without_model" "$D" \
+    "if previous.get('source_revision') == data['source_revision'] and previous.get('version') == 1:" "if False:" \
+    "unchanged authorized scope must not invoke a model for every dispatch."
 mutant adopted-reminder-silent "OWN3." "$N" \
     '    stop_notice_abnormal "pending:$IDS" \' \
     '    exit 0; stop_notice_abnormal "pending:$IDS" \' \

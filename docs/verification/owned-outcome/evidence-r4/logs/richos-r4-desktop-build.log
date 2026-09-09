@@ -1,0 +1,63 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+error[E0308]: arguments to this method are incorrect
+    --> /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/spine.rs:2862:34
+     |
+2862 |             Some(scope) => fresh.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+     |                                  ^^^^^^^^^^^^^^^^^^^^
+     |
+note: expected `&Path`, found `&Option<PathBuf>`
+    --> /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/spine.rs:2862:76
+     |
+2862 |             Some(scope) => fresh.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+     |                                                                            ^^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&Path`
+                found reference `&std::option::Option<PathBuf>`
+note: expected `&Path`, found `&Option<PathBuf>`
+    --> /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/spine.rs:2862:97
+     |
+2862 |             Some(scope) => fresh.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+     |                                                                                                 ^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&Path`
+                found reference `&std::option::Option<PathBuf>`
+note: method defined here
+    --> /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/cognition.rs:75:8
+     |
+  75 |     fn set_onboarding_scope(
+     |        ^^^^^^^^^^^^^^^^^^^^
+  76 |         &mut self, _entity: &crate::entity::EntityId, _central_root: &std::path::Path,
+     |                                                       -------------------------------
+  77 |         _record_path: &std::path::Path,
+     |         ------------------------------
+
+error[E0308]: arguments to this method are incorrect
+    --> /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/spine.rs:3025:38
+     |
+3025 |                 Some(lease) => lease.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+     |                                      ^^^^^^^^^^^^^^^^^^^^
+     |
+note: expected `&Path`, found `&Option<PathBuf>`
+    --> /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/spine.rs:3025:80
+     |
+3025 |                 Some(lease) => lease.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+     |                                                                                ^^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&Path`
+                found reference `&std::option::Option<PathBuf>`
+note: expected `&Path`, found `&Option<PathBuf>`
+    --> /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/spine.rs:3025:101
+     |
+3025 |                 Some(lease) => lease.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&Path`
+                found reference `&std::option::Option<PathBuf>`
+note: method defined here
+    --> /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core/src/cognition.rs:75:8
+     |
+  75 |     fn set_onboarding_scope(
+     |        ^^^^^^^^^^^^^^^^^^^^
+  76 |         &mut self, _entity: &crate::entity::EntityId, _central_root: &std::path::Path,
+     |                                                       -------------------------------
+  77 |         _record_path: &std::path::Path,
+     |         ------------------------------
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `richos-core` (lib) due to 2 previous errors
