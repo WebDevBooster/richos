@@ -170,10 +170,37 @@
 # proven mechanically instead, in leak-canary.test.sh case 5a, which lands a
 # real merge commit under a live canary and requires silence.
 #
+# ===========================================================================
+# PER-SUITE TIMING — added 2026-09-10
+# ===========================================================================
+# This runner printed PASS and FAIL and nothing else, so every wall-clock claim
+# ever made about it came from OUTSIDE it: an agent watching a terminal, or a CI
+# run log read days later. The cost of that is in the record rather than
+# hypothetical — the "2977.9s" figure quoted into three plans was stale, the
+# attribution above was wrong once already ("their cost is sandbox
+# construction"), and two adversarial reviews on 2026-09-09 had to re-derive the
+# distribution from transcripts because the runner would not say.
+#
+# So it says. Every suite line carries its duration, and every run ends with a
+# slowest-N tail and the summed suite time. `--timing-tsv PATH` writes
+# suite/ms/verdict/clock for anything that wants to diff two runs.
+#
+# THE NUMBER NAMES ITS OWN CLOCK. `date +%s%3N` is a GNU extension that BSD
+# `date` answers with the literal string `17889976023N`, and the operator's
+# /bin/bash is 3.2.57 with no `$EPOCHREALTIME`. scripts/lib/stopwatch.sh probes
+# for a clock that returns thirteen digits and prints which one it got, because
+# a duration table with no stated precision is how a one-second granularity gets
+# quoted to three decimal places.
+#
 # Usage:
 #   scripts/run-all-tests.sh            run everything, quiet on success
 #   scripts/run-all-tests.sh --verbose  stream every suite's full output
 #   scripts/run-all-tests.sh --list     print the discovered inventory, run none
+#   scripts/run-all-tests.sh --timing-tsv PATH   also write a timing TSV
+#
+# Environment:
+#   RICHOS_TIMING_TSV    same as --timing-tsv
+#   RICHOS_TIMING_TAIL   how many rows in the slowest-N tail (default 10, 0 off)
 #
 # Exit codes:
 #   0  every discovered suite passed and none wrote outside its sandbox
@@ -188,12 +215,18 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 VERBOSE=0
 LIST_ONLY=0
+TIMING_TSV="${RICHOS_TIMING_TSV:-}"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --verbose|-v) VERBOSE=1 ;;
         --list)       LIST_ONLY=1 ;;
+        --timing-tsv)
+            shift
+            [ "$#" -gt 0 ] || { echo "ERROR: run-all-tests.sh: --timing-tsv needs a path" >&2; exit 2; }
+            TIMING_TSV="$1" ;;
+        --timing-tsv=*) TIMING_TSV="${1#--timing-tsv=}" ;;
         *)
-            echo "ERROR: run-all-tests.sh: unrecognized argument '$1'. Usage: run-all-tests.sh [--verbose] [--list]" >&2
+            echo "ERROR: run-all-tests.sh: unrecognized argument '$1'. Usage: run-all-tests.sh [--verbose] [--list] [--timing-tsv PATH]" >&2
             exit 2 ;;
     esac
     shift
@@ -245,7 +278,7 @@ trap 'rm -rf "$LOG_DIR"' EXIT
 # not there under `set -u` without `-e` prints an error and carries on, and the
 # run would then report a fraction with the canary silently absent — which is
 # the shape of every defect this runner's header is about.
-for lib in tree-witness leak-canary; do
+for lib in tree-witness leak-canary stopwatch; do
     if [ ! -f "$ENGINE_ROOT/scripts/lib/$lib.sh" ]; then
         echo "ERROR: run-all-tests.sh: scripts/lib/$lib.sh is missing." >&2
         echo "       The leak canary cannot run, and this runner will not report a green" >&2
@@ -257,6 +290,9 @@ done
 . "$ENGINE_ROOT/scripts/lib/tree-witness.sh"
 # shellcheck source=lib/leak-canary.sh
 . "$ENGINE_ROOT/scripts/lib/leak-canary.sh"
+# shellcheck source=lib/stopwatch.sh
+. "$ENGINE_ROOT/scripts/lib/stopwatch.sh"
+sw_init
 tw_pick_mtime "$LOG_DIR"
 lc_add_root "$PWD"          # where this runner was started: where the 2026-09-05 fixture landed
 lc_add_root "$ENGINE_ROOT"  # the engine's own checkout: where a mutated guard would show
@@ -271,7 +307,20 @@ fi
 printf '  leak canary: watching %s root(s); witness is contents%s\n' \
     "$CANARY_ROOTS_N" \
     "$(tw_mtime_available && printf ' and a proven sub-second mtime' || printf ' ALONE (no sub-second mtime format proved itself here)')"
+printf '  timing: per suite, clock=%s%s\n' \
+    "$SW_METHOD" \
+    "$([ -n "$TIMING_TSV" ] && printf ', TSV -> %s' "$TIMING_TSV")"
 
+# The timing ledger. Parallel arrays rather than an associative array, because
+# the operator's /bin/bash is 3.2.57 and has none — see stopwatch.sh's header.
+TIMES_MS=()
+TIMES_VERDICT=()
+if [ -n "$TIMING_TSV" ]; then
+    : >"$TIMING_TSV" || { echo "ERROR: run-all-tests.sh: cannot write TSV at $TIMING_TSV" >&2; exit 2; }
+    printf 'suite\tms\tverdict\tclock\n' >>"$TIMING_TSV"
+fi
+
+RUN_T0="$(sw_now_ms)"
 i=0
 for t in "${SUITES[@]}"; do
     i=$((i + 1))
@@ -290,19 +339,29 @@ for t in "${SUITES[@]}"; do
     # takes arguments. Output is captured so a green run stays readable and a
     # red one can print EVERYTHING the failing suite said — a truncated failure
     # is a failure somebody has to reproduce by hand.
+    # The clock brackets the suite ONLY — not the canary baseline or diff around
+    # it. A timing table whose rows silently include the instrument's own two
+    # `git status` calls would attribute ~0.3s of runner overhead to every suite
+    # and make the 40 fast suites look twice their real cost.
+    SUITE_T0="$(sw_now_ms)"
     bash "$t" >"$LOG" 2>&1
     RC=$?
+    SUITE_MS=$(( $(sw_now_ms) - SUITE_T0 ))
+    TIMES_MS+=("$SUITE_MS")
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
     if [ "$RC" -ne 0 ]; then
-        printf '%sFAIL%s (rc=%s)\n' "$C_RED" "$C_RESET" "$RC"
+        printf '%sFAIL%s (rc=%s) %s\n' "$C_RED" "$C_RESET" "$RC" "$(sw_fmt "$SUITE_MS")"
         FAILED_NAMES+=("$REL (rc=$RC)")
+        TIMES_VERDICT+=("FAIL")
         sed 's/^/        /' "$LOG"
     elif [ "$CANARY_BASE_HEALTHY" -ne 1 ]; then
-        printf '%sFAIL%s (canary blind)\n' "$C_RED" "$C_RESET"
+        printf '%sFAIL%s (canary blind) %s\n' "$C_RED" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
         LEAKED_NAMES+=("$REL — the canary could not witness one of its roots, so it is NOT reporting a pass")
+        TIMES_VERDICT+=("CANARY-BLIND")
     elif [ -n "$ESCAPED" ]; then
-        printf '%sFAIL%s (wrote outside its sandbox)\n' "$C_RED" "$C_RESET"
+        printf '%sFAIL%s (wrote outside its sandbox) %s\n' "$C_RED" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
         LEAKED_NAMES+=("$REL")
+        TIMES_VERDICT+=("LEAKED")
         printf '%s\n' "$ESCAPED" | while IFS="$(printf '\t')" read -r croot centry; do
             if lc_is_tracked_change "$centry"; then
                 printf '        TRACKED FILE CHANGED DURING THE RUN — every suite after this one tested different code:\n'
@@ -312,11 +371,51 @@ for t in "${SUITES[@]}"; do
             printf '          %s  (under %s)\n' "$centry" "$croot"
         done
     else
-        printf '%sPASS%s\n' "$C_GREEN" "$C_RESET"
+        printf '%sPASS%s %s\n' "$C_GREEN" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
         PASSED=$((PASSED + 1))
+        TIMES_VERDICT+=("PASS")
         [ "$VERBOSE" -eq 1 ] && sed 's/^/        /' "$LOG"
     fi
+    if [ -n "$TIMING_TSV" ]; then
+        printf '%s\t%s\t%s\t%s\n' "$REL" "$SUITE_MS" "${TIMES_VERDICT[$((i - 1))]}" "$SW_METHOD" >>"$TIMING_TSV"
+    fi
 done
+RUN_MS=$(( $(sw_now_ms) - RUN_T0 ))
+
+# --- the slowest-N tail ----------------------------------------------------
+# Printed on EVERY run, green or red, because the point of it is not
+# diagnosing a failure — it is that nobody should ever again have to hand-time
+# this runner to find out where its hour goes. Five wrong cost attributions in
+# the record were all "which suites dominate", answered by guessing at the
+# suite's shape instead of reading a number the run already knew.
+echo ""
+printf '%s--- timing: %s suite(s) in %s (clock=%s) ---%s\n' \
+    "$C_BOLD" "$TOTAL" "$(sw_fmt "$RUN_MS")" "$SW_METHOD" "$C_RESET"
+TAIL_N="${RICHOS_TIMING_TAIL:-10}"
+case "$TAIL_N" in ''|*[!0-9]*) TAIL_N=10 ;; esac
+if [ "$TAIL_N" -gt 0 ]; then
+    SUM_MS=0
+    TIMING_RAW="$LOG_DIR/timing.raw"
+    : >"$TIMING_RAW"
+    j=0
+    while [ "$j" -lt "$TOTAL" ]; do
+        SUM_MS=$(( SUM_MS + ${TIMES_MS[$j]} ))
+        printf '%012d\t%s\t%s\n' "${TIMES_MS[$j]}" "${SUITES[$j]#"$ENGINE_ROOT"/}" "${TIMES_VERDICT[$j]}" >>"$TIMING_RAW"
+        j=$(( j + 1 ))
+    done
+    printf '  slowest %s of %s (suite time only; the run total above also carries the canary):\n' \
+        "$TAIL_N" "$TOTAL"
+    LC_ALL=C sort -rn "$TIMING_RAW" | head -n "$TAIL_N" | while IFS="$(printf '\t')" read -r ms rel verdict; do
+        # Share of the summed SUITE time, not of the run: the two differ by the
+        # canary, and a percentage that does not sum to 100 invites the reader
+        # to think a suite is cheaper than it is.
+        pct=0
+        [ "$SUM_MS" -gt 0 ] && pct=$(( (10#$ms * 100) / SUM_MS ))
+        printf '    %9s  %3s%%  %-58s %s\n' "$(sw_fmt "$((10#$ms))")" "$pct" "$rel" "$verdict"
+    done
+    printf '  summed suite time %s across %s suite(s); runner overhead (canary etc.) %s\n' \
+        "$(sw_fmt "$SUM_MS")" "$TOTAL" "$(sw_fmt "$(( RUN_MS - SUM_MS ))")"
+fi
 
 echo ""
 if [ "${#FAILED_NAMES[@]}" -eq 0 ] && [ "${#LEAKED_NAMES[@]}" -eq 0 ]; then
