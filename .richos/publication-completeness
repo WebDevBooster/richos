@@ -53,7 +53,39 @@
 # one of these four trees is not caught. That is the price of the precision —
 # without these, the check reported 26 findings of which 16 were correct
 # documents doing their job, and a check that is 60% noise gets switched off.
-CITATION_EXEMPT="engine/reference/ engine/skills/ engine/.claude/agents/ engine/qa-audits/"
+# ---------------------------------------------------------------------------
+# CITATION_EXEMPT, second group — FROZEN RECORDS OF CODE THAT WAS LATER REMOVED.
+#
+# Added 2026-09-09, after the orchestration rollback (`8397c530`, recorded in
+# `docs/verification/owned-outcome/ROLLBACK-2026-09-09.md`) deleted the managed
+# assignment controller, registrar, worker, inspector, desktop commands and
+# assignment panel. Twenty-three citations across the eight files below went
+# dangling in one commit, and every commit to this repository was refused from
+# that moment — the rollback removed the code and left the record pointing at it.
+#
+# THESE CITATIONS WERE TRUE WHEN THEY WERE WRITTEN. They are reviews, signoffs
+# and revision records of software that existed, was reviewed, was signed off and
+# was then deliberately removed. The rollback record says so in its own words:
+# "Historical reviews, signoffs and evidence remain in Git." Rewriting a signoff
+# to cite something else would falsify the one kind of document whose whole value
+# is that it says what was true on the day. Restoring the code to satisfy a
+# citation would be worse. So the honest form is this: the documents stand
+# unedited, and the exemption states why.
+#
+# EXACT FILES, never their directories. `docs/verification/ui-ux-signoffs/` and
+# `docs/verification/owned-outcome/` both keep receiving new documents, and a
+# directory-wide entry would silently license a genuinely broken citation in the
+# next one. Each line below is one file that already exists and already carries
+# the findings.
+#
+# THE COST, stated rather than discovered: a NEW dangling citation added to one
+# of these eight files is not caught. That is narrower than the alternative and
+# it is the price of leaving frozen records alone.
+#
+# WHEN THIS SHOULD SHRINK: if a future decision rewrites or retires one of these
+# documents, delete its line. An entry that suppresses nothing FAILS, so the
+# checker will name it rather than let it sit.
+CITATION_EXEMPT="engine/reference/ engine/skills/ engine/.claude/agents/ engine/qa-audits/ app/ORCHESTRATION-REVIEW.md app/URBAN-P5-RESPONSE.md docs/reviews/sage-fable-r4-owned-outcome-2026-09-09.md docs/reviews/sage-fable-r6-owned-outcome-2026-09-09.md docs/verification/owned-outcome/RESULTS-7.md docs/verification/owned-outcome/REVIEW.md docs/verification/owned-outcome/REVISION-3.md docs/verification/owned-outcome/evidence-r7/review-r6.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-05_21.40.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_02.05.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_03.00.md"
 
 # ---------------------------------------------------------------------------
 # WHAT IS NOT IN THIS FILE, AND WHY IT LEFT
