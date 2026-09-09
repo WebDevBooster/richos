@@ -5,19 +5,27 @@ Reviewer: Sage (`sage-fable-r3`). Reviewed against the second review of record,
 the Codex worktree; every probe below was run on a scratch copy or by reading
 Codex's own committed evidence. Committed in pieces on purpose.
 
-## Verdict (provisional until the last section says "final")
+## Verdict — final
 
-**Merge, but do not activate.** Same verdict as the second review, for a
-different reason. The second review said "do not activate" because the guard
-got the English wrong. This commit fixes that by removing the English-matching
-altogether: the dependency question is now put to a model, grounded in the
-CEO's actual messages and declared rulings, and the six r2 probe sentences all
-come back right in Codex's recorded run. What is new is the *shape* of the
-guard: every teammate dispatch in an adopted repository now costs a model call,
-can take up to four minutes, and refuses the dispatch — with no escape hatch —
-whenever that model call cannot run. That is safe to merge because the adoption
-file is committed nowhere and the unadopted path is unchanged. It is not yet
-safe to switch on.
+**Merge `5f519822`. Do not activate.** Same verdict as the second review, for
+a different reason. The second review said "do not activate" because the guard
+got the English wrong — it stopped work that said plainly it was independent.
+This commit fixes that by removing the English-matching altogether: the
+dependency question is now put to a model, grounded in the CEO's actual
+messages and declared rulings, and all six r2 probe sentences come back right
+in Codex's recorded run. Every one of the six blockers from the second review
+is addressed, four of them fully (table at the end). What is new is the
+*shape* of the guard — every teammate dispatch in an adopted repository now
+costs a model call, can take up to four minutes, and refuses the dispatch with
+no escape hatch whenever that call cannot run — and one thing the second
+review did not look for: the transcript text the validator treats as "the CEO
+said it" includes text other sessions and hooks can inject (Finding 4). Safe
+to merge because the adoption file is committed nowhere and the unadopted path
+is byte-for-byte the old gate; the land needs `install.sh` re-run for the
+`owned-dispatch.py` sidecar. Not yet safe to switch on. One thing for the CEO,
+and it is the same one as last time, reframed by what Codex shipped: the
+permission default is now "prompts reach you as prompts", with a deny mode
+kept as an option — does he want the deny mode to exist at all?
 
 Codex's own results page says the same thing in its own words: *"The requested
 no-babysitting outcome is not certified."*
@@ -206,3 +214,38 @@ are the `OWN` series).
 
 Not checked, by choice: the Rust dispatch contract (`dispatch.rs`, 140 lines)
 beyond reading that it exists; the full engine suite; `contract-integrity`.
+
+## The six blockers, scored
+
+| r2 blocker | at `5f519822` | how I checked |
+|---|---|---|
+| 1. Guard refuses work that says it is independent | **Fixed.** Regex gone; the three r2 sentences classify `independent`, each citing the CEO's own line | Codex's recorded corpus, read; `OWN13` in the suite (83/83 reproduced) |
+| 2. Recognizer misses ordinary English dependence | **Fixed.** The three r2 sentences classify `pending` | Same corpus, read |
+| 3. Seven of eight independent mutants survived | **Largely fixed.** 31/31 of Codex's die (recorded); my verdict-inverting mutant dies at `OWN23`; my two evidence-class mutants survive | Three mutants of my own, run against the shipped suite |
+| 4. Auditor writes its sandbox limits into the leader | **Fixed for `incomplete`/failure; open for `decision`.** Continuation is host-authored; the model's decision JSON still goes to the leader verbatim with only a shape check | Read `continuation_message()`, `validate_verdict()`, `audit_once()` |
+| 5. `operational_followups` hardcoded 0 | **Fixed.** Measured from captured events, `None` when unmeasurable, self-tested | Read line 135 and its self-test |
+| 6. Fixture pre-authorizes the parser route | **Fixed honestly.** Two trials; the un-preauthorized one is graded unfinished on line one of RESULTS-3 | Read both `fixture-permissions.json` and `adoption.json` |
+
+## Before activation, in order
+
+1. **Finding 4** — make transcript provenance an allowlist, not a prefix
+   denylist. Until then any peer session can write a "CEO ruling" into the
+   leader's transcript that the validator will accept if the model cites it.
+2. **Finding 1's cost shape** — put the trade to the CEO in plain words: under
+   adoption every teammate dispatch is a model call of up to two minutes, and
+   if that call cannot run the dispatch is refused with no override. Either he
+   accepts that, or the adopted path needs a logged escape hatch of the same
+   idiom as the rest of the engine.
+3. **Finding 5's open channel** — a host-side check that a `decision` verdict
+   is not a tool or permission ask.
+4. **Finding 3's survivors** — two tests: a non-zero registrar exit is refused
+   even with JSON on stdout; a permitted dispatch leaves a receipt.
+
+## What I did not do, by choice
+
+No full engine suite, no `contract-integrity`, no release-gate live runs, no
+re-run of Codex's 31-mutant harness, no re-run of the semantic corpus (that is
+15 model calls), no re-run of either native trial. Every number above that I
+did not measure is marked as read from Codex's evidence. The only things I
+executed were `ceo-asks.test.sh` four times on scratch copies (14–16 s each)
+and one deterministic Python probe.
