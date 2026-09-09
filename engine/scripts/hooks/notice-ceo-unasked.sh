@@ -96,10 +96,6 @@ _SHN_LIB="$SCRIPT_DIR/../lib/stop-hook-notice.sh"
 
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
-    . "$SCRIPT_DIR/../lib/owned-work-policy.sh"
-    OWNED_POLICY=0
-    if owned_work_policy "$ENTITY_ROOT"; then OWNED_POLICY=1; fi
-
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
     exit 0
 else
@@ -160,13 +156,7 @@ try:
 except Exception: print("")' 2>/dev/null || true)"
 
 ARC=0
-# In adopted repositories report pending items, including already-asked ones.
-# The ask ledger cannot erase an unanswered decision from the reminder.
-if [ "${OWNED_POLICY:-0}" -eq 1 ]; then
-    ca_assess "$ENTITY_ROOT" "" || ARC=$?
-else
-    ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?
-fi
+ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?
 if [ "$ARC" -ge 2 ]; then
     stop_notice_abnormal "assess-broken:$(printf '%s' "${CA_BROKEN:-}" | cksum | tr -d ' ')" \
         "CEO-ASK WATCH SWEPT NOTHING — ${CA_BROKEN:-the predicate could not run}. This is not an empty list; it is an unread one. Detail: scripts/ceo-asks-status.sh"
@@ -187,12 +177,6 @@ IDS="$(printf '%s\n' "$CA_ASK_LINES" | awk -F'\t' '{printf "%s ", $2}')"
 MORE=""
 if [ "${CA_UNASKED:-0}" -gt 1 ]; then
     MORE=" ${CA_UNASKED} of his prepared items have not been put to him in this session."
-fi
-
-if [ "${OWNED_POLICY:-0}" -eq 1 ]; then
-    stop_notice_abnormal "pending:$IDS" \
-        "CEO DECISION PENDING: ${TOP_ID}: ${TOP_ASK} Keep this visible to the CEO without blocking independent authorized work. An ask is not an answer; only the dependent deliverable waits. Full list: scripts/ceo-asks-status.sh"
-    exit 0
 fi
 
 stop_notice_abnormal "unasked:$IDS" \

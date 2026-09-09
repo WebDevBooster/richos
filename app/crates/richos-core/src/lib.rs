@@ -83,9 +83,6 @@ pub mod onboarding_tools;
 pub mod provision;
 pub mod reachability;
 pub mod reprime;
-pub mod run;
-pub mod run_host;
-pub mod run_spine;
 pub mod setup;
 pub mod skills;
 pub mod skip;
@@ -150,16 +147,3 @@ pub use timeline::{
 };
 pub use worker_events::{HostLiveness, ObservedWorkerState, OpenRun, SessionScope, WorkerEventRow};
 pub use worker_status::WorkerStatusView;
-
-pub mod autonomy;
-
-pub mod registration;
-pub mod dispatch;
-
-pub mod permission;
-pub mod work_disposition;
-pub mod native_permission;
-
-pub mod audit_context;
-
-pub mod inspection;

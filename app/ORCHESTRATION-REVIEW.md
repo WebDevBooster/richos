@@ -1,3 +1,5 @@
+> Historical record: this experimental integration was removed on September 9, 2026. See [rollback record](../docs/verification/owned-outcome/ROLLBACK-2026-09-09.md).
+
 # RichOS durable work: architecture and review history
 
 The September 8 continuation correction is documented in

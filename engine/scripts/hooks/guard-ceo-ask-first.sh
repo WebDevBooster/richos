@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 #
 # guard-ceo-ask-first.sh — BLOCKING PreToolUse guard on the Agent tool.
-# Explicit owned-outcome adoption uses the source-backed dispatch registrar.
-# The historical per-session contract below applies to the unadopted path.
 #
 # REFUSES TO DISPATCH A TEAMMATE WHILE A PREPARED CEO DECISION HAS NEVER BEEN
 # PUT TO HIM THIS SESSION.
@@ -154,27 +152,14 @@ if ! resolve_entity_root "$INPUT"; then
 fi
 ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 
-# Owned-outcome adoption replaces the historical per-session question quota.
-# Prepared decisions remain visible, but only actual task dependencies may wait.
-# This changes no spending/publication/permission gate and records no CEO answer.
-. "$SCRIPT_DIR/../lib/owned-work-policy.sh"
-OWNED_POLICY=0
-if owned_work_policy "$ENTITY_ROOT"; then OWNED_POLICY=1; fi
-
-
-if [ "$OWNED_POLICY" -eq 1 ]; then
-    if owned_work_adapter_dispatch_installed "$ENTITY_ROOT"; then exit 0; fi
-    RC=0
-    printf '%s' "$INPUT" | owned_work_dispatch "$ENTITY_ROOT" || RC=$?
-    exit "$RC"
-fi
-
 _CA_LIB="$SCRIPT_DIR/../lib/ceo-asks.sh"
 if [ ! -f "$_CA_LIB" ]; then
     announce_broken "CEO-ASK GATE IS OFF: scripts/lib/ceo-asks.sh is missing at $_CA_LIB, so its entire predicate is absent. Teammate dispatches are UNGATED — a clean run and an absent gate must never look the same."
     exit 0
 fi
+# shellcheck source=../lib/ceo-asks.sh
 . "$_CA_LIB"
+
 if ! ca_require; then
     announce_broken "CEO-ASK GATE IS OFF: $CA_BROKEN. Teammate dispatches are UNGATED."
     exit 0

@@ -17,7 +17,6 @@ fn open(root: &Path, executable: &Path) -> Spine {
         Entity::new("northstar-fixture", "Northstar fixture", &[engine.to_str().unwrap()]).unwrap(),
         Entity::new("second-fixture", "Second fixture", &[engine.to_str().unwrap()]).unwrap(),
     ]).unwrap());
-    spine.enable_owned_work();
     spine.set_machinery_journal(richos_core::journal::MachineryJournal::new(root.join("machinery")));
     spine.set_central_root(root.join("central"));
     spine.set_onboarding_record(root.join("config/onboarding.json"));
@@ -44,7 +43,7 @@ impl richos_core::stream::TurnObserver for FirstText {
 }
 fn ask(spine: &mut Spine, text: &str) -> String { ask_with_assignment(spine, text, false, false) }
 fn ask_saved(spine: &mut Spine, text: &str) -> String { ask_with_assignment(spine, text, false, true) }
-fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool, expects_tool: bool) -> String {
+fn ask_with_assignment(spine: &mut Spine, text: &str, _expects_work: bool, expects_tool: bool) -> String {
     let start = Instant::now();
     spine.set_observer(Box::new(FirstText { start, seen: std::sync::atomic::AtomicBool::new(false) }));
     let turn = spine.submit_prompt(text, Source::Text).expect("live turn");
@@ -58,7 +57,7 @@ fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool, expect
         spine.machinery_journal().unwrap().read_thread(&result.thread_id), &turn);
     if expects_tool { assert!(handled, "the approved action must happen in this visible turn, not hidden priming"); }
     let scope = spine.onboarding_tool_scope(&spine.active_binding().unwrap()).unwrap();
-    let grants = std::fs::read_dir(scope.record_path.as_ref().expect("roundtrip fixture has a real onboarding record").parent().unwrap().join("onboarding-scopes")).unwrap();
+    let grants = std::fs::read_dir(scope.record_path.parent().unwrap().join("onboarding-scopes")).unwrap();
     let mut grants_checked = 0;
     for entry in grants {
         let value: serde_json::Value = serde_json::from_slice(&std::fs::read(entry.unwrap().path()).unwrap()).unwrap();
@@ -66,16 +65,6 @@ fn ask_with_assignment(spine: &mut Spine, text: &str, expects_work: bool, expect
         grants_checked += 1;
     }
     assert!(grants_checked > 0, "no native scope grant checked");
-    let tail = spine.ledger().turns().iter().filter(|t| t.thread_id == result.thread_id && t.id != turn && matches!(t.source, Source::Text | Source::Jam))
-        .map(|t| format!("CEO: {}\nRich: {}", t.user_text, t.assistant_text)).collect::<Vec<_>>().join("\n");
-    let (handoff, _) = richos_core::registration::register_with_onboarding(text, &reply, &tail, &[], "", handled)
-        .expect("actual registrar classification");
-    eprintln!("Registrar: {:?}; tool receipt: {handled}", handoff);
-    if expects_work {
-        assert!(matches!(handoff, richos_core::autonomy::Handoff::Work { .. }), "independent work was lost");
-    } else {
-        assert!(matches!(handoff, richos_core::autonomy::Handoff::None), "interview incorrectly delegated");
-    }
     reply
 }
 fn state(spine: &Spine) -> OnboardingState { spine.onboarding_state(&spine.active_binding().unwrap()) }

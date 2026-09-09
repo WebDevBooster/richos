@@ -651,18 +651,7 @@ fn work_verdict(app: &AppHandle) -> WorkVerdict {
     let view = richos_core::worker_status::current_status(state.control.lease_session().as_deref());
     let (workers, worker_gap) = work_gate::workers(&view);
 
-    let mut verdict = work_gate::decide(&WorkSources {
-        turn,
-        spine,
-        workers,
-        worker_gap,
-    });
-    let owned = crate::owned_work::update_liveness(&state);
-    if owned != Liveness::Clear && !verdict.busy {
-        verdict.busy = true;
-        verdict.reason = crate::owned_work::ceo_message(owned);
-    }
-    verdict
+    work_gate::decide(&WorkSources { turn, spine, workers, worker_gap })
 }
 
 /// Re-read the gate and write it into the view. Emits only when something CHANGED.

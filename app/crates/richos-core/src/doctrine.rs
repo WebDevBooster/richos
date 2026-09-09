@@ -38,7 +38,7 @@
 //! | nothing | who Rich is; how he speaks; what he never says | **this file** |
 //! | entity | which company a thread belongs to | `reprime.rs::identity_assertion_scoped` |
 //! | conversation | the tail, pending decisions, current intent | the priming turn, Tiers A/B |
-//! | runtime state | whether a worker team exists | `spine.rs::OWNED_WORK_CONTRACT`, gated on `owned_work_enabled`, which is turned on AFTER the spawn |
+//! | retired runtime state | managed worker team | removed with the orchestration rollback on 2026-09-09 |
 //! | corpus | the loro slice | the priming turn, Tier C |
 //!
 //! `entity.rs:50` fixes the top row: *"RichOS v1 is deliberately one CEO on one machine."* So
@@ -382,7 +382,7 @@ mod tests {
         let rendered = render(&DoctrineIdentity::default());
         let lower = rendered.to_lowercase();
         for banned in [
-            "durable execution team", // spine.rs::OWNED_WORK_CONTRACT, gated on owned_work_enabled
+            "durable execution team", // the removed execution team must not be promised
             "worktree",
             "subagent",
             "teammate",

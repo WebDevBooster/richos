@@ -875,7 +875,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1103 tests + 5 doc-tests (1099 direct, 4 ignored)
+cargo test -p richos-core                       # 984 tests + 5 doc-tests (980 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -1637,35 +1637,12 @@ can be up to one tool call stale (bounded, one-directional, never a claim about 
 that was never witnessed). And the join is **session-scoped**, because `agent_id` is not
 globally unique — the clause that keeps another session's worker name and authored summary
 out of this entity's thread.
-# Managed work runs
+# Retired orchestration experiment
 
-RichOS can now own a finite work plan across model turns. See
-[Managed work runs](MANAGED-RUNS.md) for the desktop controls, portable terminal
-runner, acceptance contract and recovery limits.
-See [Orchestration review](ORCHESTRATION-REVIEW.md) for the observed failure,
-design rationale, review map and validation evidence.
-
-`crates/richos-core/tests/run_tests.rs` covers continuation, external acceptance,
-dependency order, cancellation, restart recovery, timeouts, exclusive ownership
-and the terminal protocol path. These checks also exercise the desktop Spine adapter.
-
-`crates/richos-core/tests/registration_tests.rs` covers intent/commitment consistency,
-quote provenance, full constraint preservation and the registrar schema.
-
-`crates/richos-core/tests/escalation_source_tests.rs` covers source-bound decision
-validation and automatic recovery from operational restrictions.
+The managed assignment controller and native Claude owned-outcome integration were
+removed on September 9, 2026. Ordinary Rich conversation, onboarding, voice,
+updates and the pre-existing engine remain. The review and evidence documents
+are historical records, not descriptions of installed functionality.
+See [rollback record](../docs/verification/owned-outcome/ROLLBACK-2026-09-09.md).
 
 `crates/richos-user-update/tests/startup_exec.rs` covers the update startup executor.
-
-See the [owned outcome review](../docs/verification/owned-outcome/REVIEW.md) for
-recovery without resubmission and the optional native Claude leader adapter.
-The [fourth revision](../docs/verification/owned-outcome/REVISION-4.md) adds recorded
-handoffs, verified native authority and separate exact-operation permissions.
-
-The [fifth owned-outcome revision](../docs/verification/owned-outcome/REVISION-5.md)
-addresses native operational briefs, bounded dispatch context and restart ownership.
-The [sixth revision](../docs/verification/owned-outcome/REVISION-6.md) removes the
-inherited restart delay and makes withheld recovery visible with automatic
-liveness rechecks.
-The [seventh revision](../docs/verification/owned-outcome/REVISION-7.md) binds
-checkers to their actual native process through crash recovery and wake delivery.

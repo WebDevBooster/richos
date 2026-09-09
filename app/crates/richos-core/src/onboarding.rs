@@ -276,10 +276,8 @@ ONBOARDING — you have nothing on file about this company, and that is a fact a
 install rather than about him. He has not been asked yet.\n\
 So offer, once, in your own words and at a natural moment: you can spend about twenty minutes \
 asking about his business — what it does, who it is for, and how he wants to work — and you \
-will write the answers down and use them from then on. An explicit work request takes precedence: \
-do not append this offer to its acknowledgment, progress updates or completion report. Wait for \
-a separate conversational moment or for him to return to onboarding. An unanswered offer is \
-not a pending CEO decision or a dependency of his work. Do not ask the questions until he says yes.\n\
+will write the answers down and use them from then on. If he is in the middle of something, \
+finish that first and offer afterwards. Do not ask the questions until he says yes.\n\
 When he says yes, use the skill named 'bootstrap-interview'. It carries the questions, their \
 order and what to do with the answers; do not improvise a substitute for it.\n\
 Four things are true while you do this, and he needs to hear all four from you:\n\
@@ -310,9 +308,7 @@ anything you were not told.\n\n";
 /// A resumption offers the remaining questions without pretending the saved answers are absent.
 pub const RESUME_BLOCK: &str = "ONBOARDING — this company's interview is partly complete. \
 The notes above contain answers already saved. Offer to pick up the remaining questions once \
-at a separate conversational moment, using rich-skills:bootstrap-interview if he agrees. Do not \
-append a resume offer to a work acknowledgment, progress update or completion report, and do not \
-treat the unanswered offer as a pending CEO decision. Never re-ask questions \
+at a natural moment, using rich-skills:bootstrap-interview if he agrees. Never re-ask questions \
 already answered. If he explicitly declines this offer, use mcp__richos_onboarding__decline_onboarding \
 and leave the saved answers intact.\n\n";
 

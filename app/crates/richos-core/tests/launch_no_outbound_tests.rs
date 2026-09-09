@@ -322,22 +322,6 @@ const BANNED_IN_WEB: &[&str] = &[
 ///
 /// String and char literals are skipped so a `"}"` inside a sentence cannot close a function
 /// early, and comments are skipped so a `{` in prose cannot open one.
-fn function_start(src: &str, name: &str) -> Option<usize> {
-    let mut offset = 0;
-    for line in src.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        if let Some((qualifiers, rest)) = trimmed.split_once("fn ") {
-            if ["", "pub ", "pub(crate) ", "async ", "pub async "].contains(&qualifiers) {
-                if rest.strip_prefix(name).map(|tail| tail.starts_with('(') || tail.starts_with('<')).unwrap_or(false) {
-                    return Some(offset + line.find("fn ").unwrap());
-                }
-            }
-        }
-        offset += line.len();
-    }
-    None
-}
-
 fn function_body(src: &str, name: &str) -> Option<String> {
     let needle = format!("fn {name}");
     let start = src.find(&needle)?;
@@ -392,7 +376,7 @@ fn function_body(src: &str, name: &str) -> Option<String> {
 /// to check it. Column-zero termination is safe here because the shell's functions are all
 /// top-level.
 fn raw_function_text(src: &str, name: &str) -> Option<String> {
-    let start = function_start(src, name)?;
+    let start = src.find(&format!("fn {name}"))?;
     let rest = &src[start..];
     let end = rest.find("\n}\n").map(|i| i + 2).unwrap_or(rest.len());
     Some(rest[..end].to_string())
@@ -410,7 +394,7 @@ fn launch_reachable_source() -> (Vec<String>, Vec<String>, String) {
         .filter_map(|(i, _)| {
             let rest = &SHELL_SOURCE[i + 3..];
             let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-            if name.is_empty() || function_start(SHELL_SOURCE, &name) != Some(i) {
+            if name.is_empty() {
                 None
             } else {
                 Some(name)

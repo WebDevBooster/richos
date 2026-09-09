@@ -216,7 +216,7 @@ fn an_over_budget_company_file_reaches_the_model_as_nothing_rather_than_as_half_
 ///
 /// Without this, an install that learns where its central folder is at boot — which is the
 /// ordinary case — would serve the whole first conversation with no company material and
-/// nothing would say so. `enable_owned_work` clears `lease_primed` for exactly this reason.
+/// nothing would say so. Changing company material must clear `lease_primed`.
 #[test]
 fn setting_the_central_folder_re_primes_a_lease_that_was_already_running() {
     let (path, ledger) = tmp_ledger("reprime");

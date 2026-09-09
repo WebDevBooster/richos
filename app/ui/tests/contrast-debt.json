@@ -134,34 +134,6 @@
       "checked": 18,
       "considered": 394
     },
-    "assignment-empty": {
-      "checked": 106,
-      "considered": 430
-    },
-    "assignment-running": {
-      "checked": 112,
-      "considered": 436
-    },
-    "assignment-decision": {
-      "checked": 124,
-      "considered": 452
-    },
-    "assignment-error": {
-      "checked": 108,
-      "considered": 432
-    },
-    "assignment-history": {
-      "checked": 132,
-      "considered": 460
-    },
-    "assignment-picker": {
-      "checked": 116,
-      "considered": 444
-    },
-    "assignment-scope": {
-      "checked": 122,
-      "considered": 450
-    },
     "entity-view": {
       "checked": 110,
       "considered": 436

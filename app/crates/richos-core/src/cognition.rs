@@ -124,17 +124,6 @@ pub trait Cognition: Send {
         None
     }
 
-    /// Managed work must explicitly support the requested workspace and permission
-    /// policy. Unknown adapters are refused, never assumed safe to run autonomously.
-    fn prepare_managed(&self, _workspace: &std::path::Path) -> Result<(), CognitionError> {
-        Err(CognitionError::Protocol("This lease does not support governed managed work.".into()))
-    }
-
-    /// Host-owned authority context, absent for conversational and inspection leases.
-    fn set_managed_permission_context(&mut self, _context: crate::permission::Context) -> Result<(), CognitionError> { Ok(()) }
-
-    fn set_work_disposition_scope(&mut self, _scope: Option<crate::work_disposition::WorkDispositionScope>) -> Result<(), CognitionError> { Ok(()) }
-
     /// Take everything the backing session emitted while NO turn was in flight (techy-mode
     /// §1.5, gap #1): session-start traffic, and whatever arrives after a prompt response
     /// has already been returned.

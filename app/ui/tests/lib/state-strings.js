@@ -653,9 +653,9 @@ function uiSources() {
 /// `{ text, normal, sites: ["main.js:1113", ...] }`, sorted by normal form.
 function inventory() {
   const byNormal = new Map();
-  const add = (text, site, explicit = false) => {
+  const add = (text, site) => {
     const normal = normalize(text);
-    if (!explicit && !looksLikeProse(normal)) return;
+    if (!looksLikeProse(normal)) return;
     let rec = byNormal.get(normal);
     if (!rec) { rec = { text: normal, normal, sites: [] }; byNormal.set(normal, rec); }
     if (rec.sites.indexOf(site) < 0) rec.sites.push(site);
@@ -667,17 +667,6 @@ function inventory() {
       for (const s of htmlVisibleStrings(src)) add(s.text, name + ":" + s.line);
     } else {
       for (const s of jsStringLiterals(src)) add(s.text, name + ":" + s.line);
-      {
-        // State maps are part of the inventory even when a label is just one word.
-        // Do not allow the prose heuristic to hide Working, Paused or Queued again.
-        for (const states of src.matchAll(/(?:const|let)\s+\w*(?:labels?|Labels?|LABELS?|states?|States?|STATES?|status|Status|STATUS)\w*\s*=\s*({[\s\S]*?});/g))
-          for (const s of jsStringLiterals(states[1])) add(s.text, name + ":states", true);
-        for (const match of src.matchAll(/(?:button|node)\(\s*"[^"]*"(?:,\s*"[^"]*")?/g)) {
-          const strings = jsStringLiterals(match[0]);
-          const text = strings[match[0].startsWith("node") ? 1 : 0]?.text;
-          if (text) add(text, name + ":controls", true);
-        }
-      }
     }
   }
   for (const s of rustStrings()) add(s.text, s.file + ":" + s.line);

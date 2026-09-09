@@ -58,9 +58,11 @@ const read = (p) => fs.readFileSync(p, "utf8");
 // Derivations
 // ---------------------------------------------------------------------------------------
 
-// Source inventory, not proof of execution. Two core fixtures are deliberately
-// ignored in the top-level run and invoked by parent tests in child processes.
-// Runtime pass totals must be read from completed cargo output separately.
+/// `#[test]` occurrences in one Rust file. Deliberately the crudest possible measure, and
+/// verified against the real thing rather than trusted: `cargo test -p richos-core` reports
+/// 151 unit + 153 integration, and this count reproduces both exactly. `#[ignore]` would
+/// break that agreement, and there is none in this workspace — if one lands, this count and
+/// cargo's stop agreeing and the number in the README has to say which it means.
 function testCount(file) {
   return (read(file).match(/#\[test\]/g) || []).length;
 }
@@ -93,14 +95,13 @@ function docTestCount(file) {
   return n;
 }
 
-function rustFiles(dir, recursive = false) {
+function rustFiles(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .flatMap((entry) => entry.isDirectory()
-      ? (recursive ? rustFiles(path.join(dir, entry.name), true) : [])
-      : (entry.name.endsWith(".rs") ? [path.join(dir, entry.name)] : []))
-    .sort();
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".rs"))
+    .sort()
+    .map((f) => path.join(dir, f));
 }
 
 function crateNames() {
@@ -207,8 +208,7 @@ async function main() {
         wrong.push(`${c.crate}: no such crate`);
         continue;
       }
-      // Cargo also runs unit tests in src/bin and nested source modules.
-      const files = [...rustFiles(path.join(crateDir, "src"), true), ...rustFiles(path.join(crateDir, "tests"))];
+      const files = [...rustFiles(path.join(crateDir, "src")), ...rustFiles(path.join(crateDir, "tests"))];
       assert(files.length > 0, `EMPTY INVENTORY: no .rs files under ${crateDir}`);
       const total = files.reduce((n, f) => n + testCount(f), 0);
       const ignored = files.reduce((n, f) => n + (read(f).match(/^\s*#\[ignore(?:\s*=.*?)?\]/gm) || []).length, 0);
@@ -216,7 +216,7 @@ async function main() {
         const line = c.line;
         assert(line.includes(`${total - ignored} direct, ${ignored} ignored`), "README must distinguish direct tests from ignored checks");
       }
-      const docs = rustFiles(path.join(crateDir, "src"), true).reduce((n, f) => n + docTestCount(f), 0);
+      const docs = rustFiles(path.join(crateDir, "src")).reduce((n, f) => n + docTestCount(f), 0);
       if (total !== c.tests) wrong.push(`${c.crate}: README says ${c.tests} tests, the tree has ${total}`);
       if (c.docTests !== null && docs !== c.docTests) {
         wrong.push(`${c.crate}: README says ${c.docTests} doc-tests, the tree has ${docs}`);

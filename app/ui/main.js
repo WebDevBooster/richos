@@ -22,7 +22,6 @@ if (!window.RichBridge) {
   };
 }
 const Bridge = window.RichBridge;
-window.RichRuns.mount(Bridge, document.getElementById("managed-run"));
 
 // ---------------------------------------------------------------------------------------
 // DOM refs
@@ -700,7 +699,6 @@ function showConversationView() {
 /// (`LedgerError::UnboundThread`, surfaced verbatim through `navigation_tree`), so the
 /// screen and the guard that produced it can never drift apart.
 function showUnboundView(row, rawError) {
-  window.RichRuns.show(null);
   const title = row ? row.display_title : "This thread";
   el("unbound-view-title").textContent = title;
   el("unbound-view-body").textContent =
@@ -735,7 +733,6 @@ function showUnboundView(row, rawError) {
 /// §3.5 entity overview, and §21's empty-entity and new-thread screens — one surface with
 /// three honest variants, because they differ only in how much there is to show.
 function showEntityView(entityId, mode) {
-  window.RichRuns.show(null);
   const entity = entityOf(entityId);
   if (!entity) return;
   stashThreadViewState();
@@ -970,7 +967,6 @@ async function openThread(threadId, opts) {
   autoGrow();
   composerBlockedEl.hidden = true;
   composerScopeEl.hidden = true;
-  window.RichRuns.show(null);
   setMainView("opening");
   syncComposerMode();
   renderRail();
@@ -991,7 +987,6 @@ async function openThread(threadId, opts) {
 
   await refreshActiveContext();
   if (stale()) return;
-  window.RichRuns.show(threadId);
   // The fence comes from the AUTHORITATIVE binding, not from this file's idea of what is
   // selected: `bindingRevision` is the activation revision, and every live event is measured
   // against it as a STALENESS floor (never an equality key — see `accepts()` in timeline.js).
@@ -1593,7 +1588,6 @@ async function send(explicitText) {
 
   try {
     await Bridge.invoke("send_message", { text, threadId: sentThreadId });
-    if (activeThreadId === sentThreadId) window.RichRuns.show(sentThreadId);
   } catch (e) {
     // A terminal event already explains this attempt. If the command rejected without
     // one, end only this invocation's local live state. A queued turn is not proof that

@@ -164,15 +164,15 @@ pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// The `stop_reason` `prompt` returns when the agent acknowledged the cancel.
 ///
 /// **This is OURS on this wire, and that is a real change from the file this replaces.**
-/// ACP answered a canceled prompt with `stopReason: "canceled"`. The native binary answers
+/// ACP answered a cancelled prompt with `stopReason: "cancelled"`. The native binary answers
 /// with `stop_reason: null`, `subtype: "error_during_execution"`, `is_error: true` and
 /// `terminal_reason: "aborted_streaming"` (`raw/run9-rust-driven.jsonl:65`) — the fact
 /// survives, it just lives on a different field. [`stop_reason_of`] maps it back, so
 /// everything downstream (`spine.rs`, `steering.rs`, the ledger) keeps the one string it
 /// already reasons about.
-pub const STOP_REASON_CANCELLED: &str = "canceled";
+pub const STOP_REASON_CANCELLED: &str = "cancelled";
 
-/// The stop reason `prompt` returns when the agent did NOT answer the canceled turn within
+/// The stop reason `prompt` returns when the agent did NOT answer the cancelled turn within
 /// [`CANCEL_GRACE_MS`] of being told to.
 ///
 /// A distinct string because it is a distinct fact: the CEO's stop still stands and the
@@ -183,7 +183,7 @@ pub const STOP_REASON_CANCEL_UNACKNOWLEDGED: &str = "cancel_unacknowledged";
 /// The `terminal_reason` the binary sets on a turn the client interrupted.
 pub const TERMINAL_REASON_ABORTED: &str = "aborted_streaming";
 
-/// How long `prompt` waits for the agent to answer the canceled turn.
+/// How long `prompt` waits for the agent to answer the cancelled turn.
 ///
 /// **`acp.rs:49` asked whoever ran the first live stop to replace this bound with a measured
 /// figure and to say so. That measurement now exists, and the bound is kept anyway.**
@@ -353,7 +353,7 @@ pub fn decide_permission(request: &Value) -> PermissionDecision {
 /// Map the binary's terminal `result` frame onto the one stop-reason string the rest of the
 /// app already reasons about.
 ///
-/// **Spike caveat C1, resolved here and nowhere else.** ACP said `stopReason: "canceled"`.
+/// **Spike caveat C1, resolved here and nowhere else.** ACP said `stopReason: "cancelled"`.
 /// This wire says `stop_reason: null` + `subtype: "error_during_execution"` +
 /// `terminal_reason: "aborted_streaming"`, and ONLY the last of those separates a cancel
 /// from a genuine error — an `error_during_execution` with any other `terminal_reason` is a
@@ -412,22 +412,6 @@ pub fn child_args(session_id: &str) -> Vec<String> {
     .collect()
 }
 
-/// The CEO-facing chat lease's argument vector: [`child_args`] plus the standing instruction.
-///
-/// **Why this is its own function rather than a line inside [`child_args`].** `child_args` is
-/// the base vector THREE other launch shapes are built from — the managed worker
-/// ([`managed_child_args`]), the workspace inspector, and the tool-free registrar that answers
-/// under a JSON schema. None of those is a conversation with the CEO, so none of them may carry
-/// a doctrine written for one:
-///
-/// - the doctrine tells its reader to speak in plain prose and never show a file path, which is
-///   the opposite of what a managed worker editing files is for;
-/// - the registrar's whole job is to emit a structured value, and a persona is a bias on it.
-///
-/// The inner-doctrine design's §4.1 rule decides this the same way it decides the file's
-/// contents: what is true for every turn of every CONVERSATION is not automatically true for
-/// every child process. [`managed_child_args`] is untouched by this — the CEO ruled its own
-/// change waits on a consolidation (design §8), and it never reaches this function.
 pub fn chat_child_args(session_id: &str, doctrine: &Path, skills: &Path) -> Vec<String> {
     let mut args = child_args(session_id);
     args.push(APPEND_SYSTEM_PROMPT_FILE.to_string());
@@ -437,26 +421,7 @@ pub fn chat_child_args(session_id: &str, doctrine: &Path, skills: &Path) -> Vec<
     args
 }
 
-/// Managed workers retain user, project and local settings, including configured
-/// hooks. The app grants local edits and sandboxed Bash, while the callback
-/// denies requests outside that policy.
-/// The ordinary chat adapter retains its existing policy through child_args.
-pub fn managed_child_args(session_id: &str) -> Vec<String> {
-    let mut args = child_args(session_id);
-    let i = args.iter().position(|a| a == "--setting-sources").unwrap();
-    args.splice(i..i + 2, ["--setting-sources".into(), "user,project,local".into()]);
-    // Transcript-dependent hooks need the provider transcript to exist.
-    args.retain(|a| a != "--no-session-persistence");
-    args.extend(["--permission-mode".into(), "acceptEdits".into(),
-        "--settings".into(), serde_json::json!({
-            "env": {"RICHOS_OWNED_WORK_HOST": "controller", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "CLAUDE_AUTO_BACKGROUND_TASKS": "0", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"},
-            "sandbox": {"enabled": true, "failIfUnavailable": true,
-                "autoAllowBashIfSandboxed": true, "allowUnsandboxedCommands": false,
-                "filesystem": {"disabled": false}, "excludedCommands": []},
-            "permissions": {"blockReadsOutsideWorkingDirectories": true, "deny": ["Bash(dangerouslyDisableSandbox:true)"]}
-        }).to_string()]);
-    args
-}
+
 
 /// Streamed items for the active prompt turn.
 ///
@@ -652,9 +617,6 @@ pub struct NativeClient {
     child: Child,
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: String,
-    managed_workspace: Option<std::path::PathBuf>,
-    execution_worker: bool,
-    structured_output: Mutex<Option<Value>>,
     next_id: AtomicI64,
     /// Control-request replies, keyed by our `request_id`.
     pending: Arc<Mutex<std::collections::HashMap<String, Sender<Value>>>>,
@@ -685,10 +647,9 @@ pub struct NativeClient {
 /// and written together, on one thread, and a single lock makes that obvious.
 ///
 /// `Default` is written out below rather than derived, because `skills_verdict`'s honest
-/// starting value is `NotRequested` and a derived default would be whichever variant happens
+/// starting value is `NotYetReported` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
-    permission_context: Option<crate::permission::Context>,
     /// Host-owned phase, never set by a model frame.
     context_only: bool,
     /// The model this session is running, from `system/init.model`.
@@ -725,9 +686,10 @@ struct ReaderState {
     /// path and version (measured, `inner-doctrine-skills-2026-09-06/` cell K2) — so the same
     /// class of silent failure is caught here rather than merely regretted.
     ///
-    /// Chat leases start at [`skills::SkillsVerdict::NotYetReported`] until the first turn.
-    /// Inspectors, registrars and workers do not request the chat plugin and retain
-    /// [`skills::SkillsVerdict::NotRequested`], regardless of their init plugin list.
+    /// It starts [`skills::SkillsVerdict::NotYetReported`] and stays there for a lease that has
+    /// never run a turn, because the init frame lands with the first TURN and not with the
+    /// handshake. That is a third state, not a pessimistic default: "nobody has told us" and
+    /// "we were told no" call for opposite responses.
     skills_verdict: crate::skills::SkillsVerdict,
     /// Both exact app-owned onboarding tools, as reported by the child on its first turn.
     onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict,
@@ -736,11 +698,10 @@ struct ReaderState {
 impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
-            permission_context: None,
             context_only: false,
             session_model: None,
             context_window: None,
-            skills_verdict: crate::skills::SkillsVerdict::NotRequested,
+            skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
             onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported,
         }
     }
@@ -876,67 +837,16 @@ impl NativeClient {
     /// `entity.rs` makes about its own directory: the shell resolves `app_data_dir()` and that
     /// is the authority, so this file does not carry a second opinion about where it lives.
     pub fn spawn(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, false, None, None, Some((doctrine, skills)), None, None)
+        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None)
     }
 
-    fn spawn_with_policy(bin: &Path, cwd: &Path, managed: bool) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, managed, None, None, None, None, None)
-    }
-
-    fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
-        Self::spawn_with_tools_and_evidence(bin, cwd, managed, schema, registrar_model, standing, onboarding, control, None)
-    }
-
-    fn spawn_with_tools_and_evidence(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>, evidence_directory: Option<&Path>) -> Result<Self, NativeError> {
-        Self::spawn_with_tools_evidence_and_session(bin, cwd, managed, schema, registrar_model,
-            standing, onboarding, control, evidence_directory, None)
-    }
-
-    fn spawn_with_tools_evidence_and_session(bin: &Path, cwd: &Path, managed: bool,
-        schema: Option<serde_json::Value>, registrar_model: Option<&str>,
-        standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>,
-        control: Option<&crate::steering::TurnControl>, evidence_directory: Option<&Path>,
-        inspector_session: Option<(&str, bool)>) -> Result<Self, NativeError> {
-        if let Some((id, _)) = inspector_session {
-            if !managed || schema.is_none() || registrar_model.is_some() || standing.is_some()
-                || onboarding.is_some() || evidence_directory.is_none()
-                || uuid::Uuid::parse_str(id).is_err()
-            {
-                return Err(NativeError::Protocol("A resumable inspector needs an explicit UUID and scoped evidence directory.".into()));
-            }
-        }
-        // This host-only directory is read scope for the inspector's existing read-only
-        // tools. It must never widen an execution worker or a registrar's workspace.
-        let evidence_directory = if let Some(directory) = evidence_directory {
-            if !managed || schema.is_none() || registrar_model.is_some() || standing.is_some() {
-                return Err(NativeError::Protocol("Only an inspector may receive an evidence directory.".into()));
-            }
-            let directory = directory.canonicalize()?;
-            if !directory.is_dir() || directory.parent().is_none() {
-                return Err(NativeError::Protocol("Inspector evidence must name a specific existing directory.".into()));
-            }
-            Some(directory)
-        } else { None };
-        // The standing instruction and the skills belong to the CEO-facing chat lease alone.
-        // See `chat_child_args`.
-        debug_assert!(
-            standing.is_none() || (!managed && schema.is_none() && registrar_model.is_none()),
-            "the standing instruction and the skills are written for a conversation with the \
-             CEO; a managed worker, an inspector and a registrar are not that"
-        );
-        let execution_worker = managed && schema.is_none() && registrar_model.is_none();
+    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
         let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
-        // Refuse BEFORE spawning, so the error names WHICH path is wrong instead of an
-        // errno that stands for two different faults. See `preflight`.
         preflight(bin, cwd, doctrine, skills)?;
-        let managed_workspace = if managed { Some(cwd.canonicalize()?) } else { None };
-
-        let session_id = inspector_session.map(|(id, _)| id.to_owned())
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let mut args = match (managed, standing) {
-            (true, _) => managed_child_args(&session_id),
-            (false, Some((d, s))) => chat_child_args(&session_id, d, s),
-            (false, None) => child_args(&session_id),
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let mut args = match standing {
+            Some((d, s)) => chat_child_args(&session_id, d, s),
+            None => child_args(&session_id),
         };
         if let Some((executable, scope)) = onboarding {
             let config = json!({"mcpServers": {"richos_onboarding": {
@@ -945,31 +855,7 @@ impl NativeClient {
             }}});
             args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
         }
-        if let Some(model) = registrar_model {
-            args = child_args(&session_id);
-            args.extend(["--model".into(), model.into()]);
-        }
-        if let Some(schema) = schema {
-            args.extend(["--tools".into(), if registrar_model.is_some() { "".into() } else { "Read,Glob,Grep".into() },
-                "--strict-mcp-config".into(), "--mcp-config".into(), "{\"mcpServers\":{}}".into(),
-                "--json-schema".into(), schema.to_string()]);
-        }
-        if let Some(directory) = evidence_directory {
-            args.extend(["--add-dir".into(), directory.display().to_string()]);
-        }
-        if inspector_session.is_some_and(|(_, resume)| resume) {
-            let index = args.iter().position(|arg| arg == "--session-id").unwrap();
-            args.splice(index..index + 2, ["--resume".to_owned(), session_id.clone()]);
-        }
-        let expected_inspector_session = inspector_session.map(|_| session_id.clone());
         let mut command = Command::new(bin);
-        if managed {
-            command.env("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1")
-                .env("CLAUDE_AUTO_BACKGROUND_TASKS", "0")
-                .env("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "0");
-        }
-        #[cfg(unix)]
-        if managed { use std::os::unix::process::CommandExt; command.process_group(0); }
         let mut child = command
             .args(args)
             .current_dir(cwd)
@@ -1000,14 +886,7 @@ impl NativeClient {
             Arc::new(Mutex::new(std::collections::HashMap::new()));
         let current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>> = Arc::new(Mutex::new(None));
         let between: Arc<Mutex<BetweenTurn>> = Arc::new(Mutex::new(BetweenTurn::default()));
-        let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState {
-            skills_verdict: if skills.is_some() {
-                crate::skills::SkillsVerdict::NotYetReported
-            } else {
-                crate::skills::SkillsVerdict::NotRequested
-            },
-            ..ReaderState::default()
-        }));
+        let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState::default()));
         let stderr_tail: Arc<Mutex<std::collections::VecDeque<String>>> =
             Arc::new(Mutex::new(std::collections::VecDeque::new()));
         // Reset at every `message_start`; read at every `assistant` frame. See
@@ -1053,15 +932,6 @@ impl NativeClient {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
-                if let Some(expected) = expected_inspector_session.as_deref() {
-                    if let Err(detail) = validate_inspector_session(&msg, expected) {
-                        Self::dispatch(json!({"type": "result", "is_error": true,
-                            "stop_reason": "session_identity_mismatch", "errors": [detail]}),
-                            &reader_stdin, &reader_pending, &reader_current, &reader_between,
-                            &reader_state, &reader_text_deltas, managed);
-                        break;
-                    }
-                }
                 Self::dispatch(
                     msg,
                     &reader_stdin,
@@ -1070,7 +940,6 @@ impl NativeClient {
                     &reader_between,
                     &reader_state,
                     &reader_text_deltas,
-                    managed,
                 );
             }
             // stdout closed. §5.2's POSITIVE termination signal: the child's stdout reached
@@ -1088,9 +957,6 @@ impl NativeClient {
             child,
             stdin,
             session_id,
-            managed_workspace,
-            execution_worker,
-            structured_output: Mutex::new(None),
             next_id: AtomicI64::new(1),
             pending,
             current_prompt,
@@ -1264,7 +1130,6 @@ impl NativeClient {
         between: &Arc<Mutex<BetweenTurn>>,
         state: &Arc<Mutex<ReaderState>>,
         text_deltas: &Arc<AtomicUsize>,
-        managed: bool,
     ) {
         let ty = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -1282,8 +1147,8 @@ impl NativeClient {
             return;
         }
         if ty == "control_request" {
-            let state = state.lock().unwrap();
-            Self::handle_agent_request(&msg, stdin, current, between, managed, state.context_only, state.permission_context.as_ref());
+            let context_only = state.lock().unwrap().context_only;
+            Self::handle_agent_request(&msg, stdin, current, between, context_only);
             return;
         }
 
@@ -1323,11 +1188,7 @@ impl NativeClient {
                 st.onboarding_tools_verdict = crate::onboarding_tools::verdict_from_init(&msg);
             }
             let before = st.skills_verdict;
-            // Only a lease launched with our plugin can reject it. Inspectors deliberately
-            // omit chat skills, so absence there is expected and never passed preflight.
-            if before != crate::skills::SkillsVerdict::NotRequested {
-                st.skills_verdict = crate::skills::verdict_from_init(&msg);
-            }
+            st.skills_verdict = crate::skills::verdict_from_init(&msg);
             if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
                 && before != crate::skills::SkillsVerdict::Rejected
             {
@@ -1339,7 +1200,7 @@ impl NativeClient {
                     "[richos] THE SKILLS DID NOT LOAD. `{PLUGIN_DIR}` was accepted and \
                      `{}` is not in this session's plugin list, so every skill RichOS ships is \
                      absent from this lease. The files passed preflight, so this is the binary \
-                     not reporting the requested plugin. Inspect its plugin diagnostics.",
+                     declining them — check `claude --version` against the last release gate.",
                     crate::skills::PLUGIN_NAME
                 );
             }
@@ -1437,9 +1298,7 @@ impl NativeClient {
         stdin: &Arc<Mutex<ChildStdin>>,
         current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
         between: &Arc<Mutex<BetweenTurn>>,
-        managed: bool,
         context_only: bool,
-        permission_context: Option<&crate::permission::Context>,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
@@ -1448,11 +1307,6 @@ impl NativeClient {
         let (response, machinery) = if subtype == "can_use_tool" {
             let decision = if context_only {
                 PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
-            } else if managed {
-                match permission_context.map(|context| context.request(&request)) {
-                    Some(Ok(true)) => PermissionDecision::Allow { updated_input: request["input"].clone() },
-                    _ => PermissionDecision::Deny { message: "This exact operation has no usable grant. Find an already permitted way to finish. Do not ask the CEO to choose commands or change settings. If work remains incomplete, the host will retain the actual operation for a separate permission decision. No business answer grants tools.".into() },
-                }
             } else { decide_permission(&request) };
             let body = match &decision {
                 PermissionDecision::Allow { updated_input } => {
@@ -1513,9 +1367,9 @@ impl NativeClient {
     /// Did the binary actually load RichOS's skills? Read off `system/init.plugins`.
     ///
     /// [`skills::SkillsVerdict::NotYetReported`] until the first turn, because that is when the
-    /// init frame arrives for a chat lease. Leases that do not request chat skills report
-    /// [`skills::SkillsVerdict::NotRequested`]. Neither state is a loading failure or proof
-    /// that the requested plugin was loaded.
+    /// init frame arrives. A caller that treats `NotYetReported` as a failure would report a
+    /// fresh lease as broken; a caller that treats it as success would report an unknown as a
+    /// fact. It is three states for that reason.
     pub fn skills_verdict(&self) -> crate::skills::SkillsVerdict {
         self.reader_state.lock().map(|s| s.skills_verdict).unwrap_or(crate::skills::SkillsVerdict::NotYetReported)
     }
@@ -1586,7 +1440,6 @@ impl NativeClient {
     /// consumer sees gaps where machinery happened. That is the point of a shared counter,
     /// and `app/STREAMING.md` says so.
     pub fn prompt(&self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, NativeError> {
-        *self.structured_output.lock().unwrap() = None;
         let (tx, rx): (Sender<ChunkMsg>, Receiver<ChunkMsg>) = channel();
         let msg = json!({
             "type": "user",
@@ -1618,7 +1471,6 @@ impl NativeClient {
         // assistant output" — but stops waiting forever for a `result` that a non-compliant
         // agent may never send.
         let mut cancel_deadline: Option<std::time::Instant> = None;
-        let mut permission_denied = false;
         loop {
             let received = match cancel_deadline {
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -1639,7 +1491,6 @@ impl NativeClient {
                     }
                 }
                 Ok(ChunkMsg::Permission { request, chosen }) => {
-                    permission_denied |= self.managed_workspace.is_some() && chosen == "deny";
                     on_item(TurnItem::Machinery(MachineryRecord::from_permission_request(
                         &request,
                         &chosen,
@@ -1665,7 +1516,6 @@ impl NativeClient {
                     cancel_deadline.get_or_insert_with(|| std::time::Instant::now() + cancel_grace());
                 }
                 Ok(ChunkMsg::Done(result)) => {
-                    *self.structured_output.lock().unwrap() = result.get("structured_output").cloned();
                     let reason = stop_reason_of(&result);
                     if reason == "child_exited" { return Err(NativeError::Closed); }
                     if result.get("is_error").and_then(Value::as_bool) == Some(true)
@@ -1675,7 +1525,7 @@ impl NativeClient {
                             .map(Value::to_string).unwrap_or_else(|| reason.clone());
                         return Err(NativeError::Protocol(detail));
                     }
-                    return Ok(if permission_denied { "permission_denied".into() } else { reason });
+                    return Ok(reason);
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     // The agent was told to interrupt and did not answer within the grace
@@ -1689,42 +1539,6 @@ impl NativeClient {
             }
         }
     }
-}
-
-fn native_reports_missing_session(error: &NativeError, session_id: &str) -> bool {
-    matches!(error, NativeError::Startup { stderr, .. }
-        if stderr.trim() == format!("No conversation found with session ID: {session_id}"))
-}
-
-fn inspector_transcript_exists(projects: &Path, session_id: &str) -> Result<bool, NativeError> {
-    let projects = match std::fs::read_dir(projects) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error.into()),
-    };
-    for project in projects {
-        let project = project?;
-        if !std::fs::metadata(project.path())?.is_dir() { continue; }
-        match std::fs::symlink_metadata(project.path().join(format!("{session_id}.jsonl"))) {
-            Ok(_) => return Ok(true),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(false)
-}
-
-// Native announces the actual identity at system/init and result, after initialization.
-// A resume that silently forked or selected another session must never supply audit evidence.
-fn validate_inspector_session(frame: &Value, expected: &str) -> Result<(), String> {
-    let actual = frame.get("session_id").and_then(Value::as_str);
-    let identity_required = frame.get("type").and_then(Value::as_str) == Some("result")
-        || (frame.get("type").and_then(Value::as_str) == Some("system")
-            && frame.get("subtype").and_then(Value::as_str) == Some("init"));
-    if actual.is_some_and(|id| id != expected) || (identity_required && actual.is_none()) {
-        return Err(format!("Inspector session identity mismatch: expected {expected}, received {actual:?}."));
-    }
-    Ok(())
 }
 
 /// `used`, summed from a vendor `usage` object, or `None` if it carries no input side.
@@ -1801,12 +1615,6 @@ impl TurnCancel for NativeCancelHandle {
 
 impl Drop for NativeClient {
     fn drop(&mut self) {
-        // Managed leases own their ordinary descendants, including a shell
-        // still running after a canceled turn. Never target the app's group.
-        #[cfg(unix)]
-        if self.managed_workspace.is_some() {
-            let _ = Command::new("/bin/kill").args(["-KILL", "--", &format!("-{}", self.child.id())]).stdout(Stdio::null()).stderr(Stdio::null()).status();
-        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -1875,78 +1683,11 @@ impl NativeCognition {
         let scopes = doctrine.parent().unwrap_or(cwd).join("onboarding-scopes");
         std::fs::create_dir_all(&scopes)?;
         let scope = scopes.join(format!("{}.json", uuid::Uuid::new_v4()));
-        let client = NativeClient::spawn_with_tools(bin, cwd, false, None, None,
-            Some((doctrine, skills)), Some((executable, &scope)), control)?;
+        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope)), control)?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id, onboarding_scope: Some(scope) })
     }
 
-    /// Launch a managed worker in its actual workspace, retaining the configured
-    /// settings and refusing requests for permissions that have not been granted.
-    pub fn structured_output(&self) -> Option<Value> { self.client.structured_output.lock().unwrap().clone() }
-
-    pub fn start_inspector(bin: &Path, workspace: &Path) -> Result<Self, NativeError> {
-        Self::start_inspector_with_schema(bin, workspace, crate::autonomy::response_schema())
-    }
-
-    pub fn start_inspector_with_schema(bin: &Path, workspace: &Path, schema: serde_json::Value) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, workspace, true, Some(schema), None, None, None, None)?;
-        let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: None })
-    }
-
-    /// Permit read-only inspection of this host-created evidence snapshot outside the
-    /// workspace. Only this directory is added; tools and permission callbacks stay scoped
-    /// exactly as on an ordinary inspector, with no execution grants.
-    pub fn start_inspector_with_schema_and_evidence(bin: &Path, workspace: &Path,
-        schema: serde_json::Value, evidence_directory: &Path) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools_and_evidence(bin, workspace, true,
-            Some(schema), None, None, None, None, Some(evidence_directory))?;
-        let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: None })
-    }
-
-    /// Continue the exact host-owned inspection conversation across process leases.
-    /// Native persistence is retained and no fork or most-recent-session fallback is used.
-    /// Only inspection tools and the named evidence directory are available.
-    pub fn start_resumable_inspector(bin: &Path, workspace: &Path,
-        schema: serde_json::Value, evidence_directory: &Path,
-        session_id: &str, resume: bool) -> Result<Self, NativeError> {
-        let spawn = |resume| NativeClient::spawn_with_tools_evidence_and_session(bin, workspace, true,
-            Some(schema.clone()), None, None, None, None, Some(evidence_directory), Some((session_id, resume)));
-        let client = match spawn(resume) {
-            Ok(client) => client,
-            Err(error) if resume && native_reports_missing_session(&error, session_id) => {
-                // A host may die after committing its lease but before the first prompt
-                // creates a native transcript. Only native's exact missing-session verdict
-                // plus absence on disk permits replay of that zero-progress launch.
-                let config = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())
-                    .map(std::path::PathBuf::from)
-                    .or_else(|| std::env::var_os("HOME").map(|v| std::path::PathBuf::from(v).join(".claude")))
-                    .ok_or_else(|| NativeError::Protocol("Cannot establish inspector transcript location.".into()))?;
-                if inspector_transcript_exists(&config.join("projects"), session_id)? {
-                    return Err(error);
-                }
-                spawn(false)?
-            }
-            Err(error) => return Err(error),
-        };
-        Ok(Self { client, session_id: session_id.to_owned(), onboarding_scope: None })
-    }
-
-    /// A detached transcriber has no tools, plugins or workspace access. Managed
-    /// callbacks still deny unexpected permission requests and drop kills its group.
-    pub fn start_registrar(bin: &Path, neutral_cwd: &Path, schema: Value, model: &str) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_tools(bin, neutral_cwd, true, Some(schema), Some(model), None, None, None)?;
-        let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: None })
-    }
-
-    pub fn start_managed(bin: &Path, workspace: &Path) -> Result<Self, NativeError> {
-        let client = NativeClient::spawn_with_policy(bin, workspace, true)?;
-        let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: None })
-    }
 
 }
 
@@ -1963,34 +1704,13 @@ impl Cognition for NativeCognition {
         central_root: &Path, record_path: &Path) -> Result<(), CognitionError> {
         if let Some(path) = &self.onboarding_scope {
             crate::onboarding_tools::write_scope(path, &crate::onboarding_tools::OnboardingToolScope {
-                version: 1, entity_id: entity.to_string(), actions_allowed: false, work_disposition: None,
-                central_root: Some(central_root.to_path_buf()), record_path: Some(record_path.to_path_buf()),
+                version: 1, entity_id: entity.to_string(), actions_allowed: false,
+                central_root: central_root.to_path_buf(), record_path: record_path.to_path_buf(),
             }).map_err(|e| CognitionError::Io(e.to_string()))?;
         }
         Ok(())
     }
 
-    fn set_managed_permission_context(&mut self, context: crate::permission::Context) -> Result<(), CognitionError> {
-        self.prepare_managed(&context.workspace)?;
-        if !self.client.execution_worker { return Err(CognitionError::Protocol("Inspectors and registrars cannot receive execution grants.".into())); }
-        self.client.reader_state.lock().unwrap().permission_context = Some(context);
-        Ok(())
-    }
-
-    fn set_work_disposition_scope(&mut self, scope: Option<crate::work_disposition::WorkDispositionScope>) -> Result<(), CognitionError> {
-        if let Some(path) = &self.onboarding_scope {
-            crate::onboarding_tools::set_work_disposition_scope(path, scope).map_err(CognitionError::Io)?;
-        }
-        Ok(())
-    }
-
-    fn prepare_managed(&self, workspace: &Path) -> Result<(), CognitionError> {
-        if self.client.managed_workspace.as_ref() != workspace.canonicalize().ok().as_ref()
-            || self.client.managed_workspace.is_none() {
-            return Err(CognitionError::Protocol("Managed work needs a governed lease in the selected workspace.".into()));
-        }
-        Ok(())
-    }
 
     fn session_id(&self) -> &str {
         &self.session_id
@@ -2114,12 +1834,9 @@ mod native_driver_tests {
     }
 
     #[test]
-    fn the_doctrine_never_reaches_a_managed_worker_or_the_base_vector() {
-        // §4.1's boundary rule applied to processes rather than to sentences: a managed worker
-        // editing files, an inspector and a registrar answering under a JSON schema are not
-        // conversations with the CEO, and a persona written for one would be wrong instruction
-        // for all three. `managed_child_args` is untouched (design §8).
-        for args in [child_args("s"), managed_child_args("s")] {
+    fn the_doctrine_never_reaches_the_base_vector() {
+        // Only the conversation argument vector carries the standing instruction.
+        for args in [child_args("s")] {
             assert!(
                 !args.iter().any(|a| a == APPEND_SYSTEM_PROMPT_FILE),
                 "the doctrine leaked into a non-chat argument vector: {args:?}"
@@ -2196,8 +1913,8 @@ mod native_driver_tests {
     }
 
     #[test]
-    fn the_skills_never_reach_a_managed_worker_or_the_base_vector() {
-        for args in [child_args("s"), managed_child_args("s")] {
+    fn the_skills_never_reach_the_base_vector() {
+        for args in [child_args("s")] {
             assert!(
                 !args.iter().any(|a| a == PLUGIN_DIR),
                 "RichOS's skills leaked into a non-chat argument vector: {args:?}"
@@ -2260,45 +1977,10 @@ mod native_driver_tests {
     }
 
     #[test]
-    fn skills_verdict_distinguishes_chat_rejection_from_intentionally_unrequested_skills() {
-        use crate::skills::SkillsVerdict;
-        // Exercise the actual spawn shapes and reader, not just the JSON helper. Every
-        // non-chat shape used to emit the false "files passed preflight" diagnostic.
-        for shape in ["chat", "inspector", "worker", "registrar"] {
-            for plugins in [json!([]), json!([{"name":"rich-skills"}])] {
-                let init = json!({"type":"system", "subtype":"init", "plugins":plugins});
-                let body = format!(
-                    "read -r line\nprintf '%s\\n' '{{\"type\":\"control_response\",\"response\":{{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{{}}}}}}'\n\
-                     read -r line\nprintf '%s\\n' '{init}'\n\
-                     printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"stop_reason\":\"end_turn\"}}'\n\
-                     while read -r line; do :; done\n"
-                );
-                let script = write_script(&format!("skills-shape-{shape}"), &body);
-                let schema = json!({"type":"object", "properties":{}});
-                let client = match shape {
-                    "chat" => NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()),
-                    "worker" => NativeClient::spawn_with_policy(&script, Path::new("/tmp"), true),
-                    "inspector" => NativeClient::spawn_with_tools(&script, Path::new("/tmp"), true, Some(schema), None, None, None, None),
-                    "registrar" => NativeClient::spawn_with_tools(&script, Path::new("/tmp"), true, Some(schema), Some("sonnet"), None, None, None),
-                    _ => unreachable!(),
-                }.unwrap();
-                assert_eq!(client.skills_verdict(), if shape == "chat" {
-                    SkillsVerdict::NotYetReported
-                } else { SkillsVerdict::NotRequested }, "{shape} before init");
-                client.prompt("ready", &mut |_| {}).unwrap();
-                let expected = if shape != "chat" { SkillsVerdict::NotRequested }
-                    else if plugins.as_array().unwrap().is_empty() { SkillsVerdict::Rejected }
-                    else { SkillsVerdict::Loaded };
-                assert_eq!(client.skills_verdict(), expected, "{shape} after init with {plugins}");
-            }
-        }
-    }
-
-    #[test]
     fn the_real_reader_verifies_both_onboarding_tools_from_the_first_init() {
         use crate::onboarding_tools::{OnboardingToolsVerdict, QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL};
         for (suffix, names, expected) in [
-            ("present", vec![QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL, crate::work_disposition::QUALIFIED_TOOL_NAME], OnboardingToolsVerdict::Loaded),
+            ("present", vec![QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL], OnboardingToolsVerdict::Loaded),
             ("missing-decline", vec![QUALIFIED_SAVE_TOOL], OnboardingToolsVerdict::Rejected),
             ("lookalike", vec!["mcp__other__save_company_notes", QUALIFIED_DECLINE_TOOL], OnboardingToolsVerdict::Rejected),
         ] {
@@ -2569,222 +2251,6 @@ done
         assert_eq!(client.prompt_context_only("Only context", &mut |_| {}).unwrap(), "end_turn");
         assert!(!client.reader_state.lock().unwrap().context_only);
         assert_eq!(client.prompt("Actual visible request", &mut |_| {}).unwrap(), "end_turn");
-    }
-
-    #[test]
-    fn managed_wire_consumes_exact_approval_once_and_hidden_context_cannot_consume_it() {
-        let fixture = crate::permission::tests::Fixture::new();
-        let context = fixture.approved();
-        let script = write_script("managed-exact-permission", r#"
-read -r init
-printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
-for expected in deny allow deny; do
-  read -r prompt
-  printf '%s\n' '{"type":"control_request","request_id":"operation","request":{"subtype":"can_use_tool","tool_name":"R4PermissionTestTool","input":{"resource":"selected","value":1}}}'
-  read -r answer
-  case "$answer" in
-    *\"behavior\":\"$expected\"*) ;;
-    *) exit 9 ;;
-  esac
-  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
-done
-"#);
-        let mut client = NativeClient::spawn_with_policy(&script, &fixture.workspace, true).unwrap();
-        client.reader_state.lock().unwrap().permission_context = Some(context);
-        assert_eq!(client.prompt_context_only("Historical context", &mut |_| {}).unwrap(), "permission_denied");
-        assert_eq!(client.prompt("Authorized work", &mut |_| {}).unwrap(), "end_turn");
-        assert_eq!(client.prompt("Repeated operation", &mut |_| {}).unwrap(), "permission_denied");
-    }
-
-    #[test]
-    fn inspector_evidence_adds_only_the_exact_directory_without_execution_grants() {
-        let fixture = crate::permission::tests::Fixture::new();
-        let evidence = fixture.root.join("private evidence");
-        std::fs::create_dir(&evidence).unwrap();
-        let args_path = fixture.root.join("inspector-args.txt");
-        let script = write_script("inspector-evidence", &format!(r#"
-printf '%s\n' "$@" > '{}'
-read -r init
-printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
-while read -r next; do :; done
-"#, args_path.display()));
-        let mut inspector = NativeCognition::start_inspector_with_schema_and_evidence(
-            &script, &fixture.workspace, crate::autonomy::response_schema(), &evidence).unwrap();
-        let args = std::fs::read_to_string(&args_path).unwrap();
-        let args: Vec<_> = args.lines().collect();
-        let i = args.iter().position(|s| *s == "--add-dir").unwrap();
-        assert_eq!(args[i + 1], evidence.canonicalize().unwrap().to_str().unwrap());
-        assert_eq!(args.iter().filter(|s| **s == "--add-dir").count(), 1);
-        let tools = args.iter().position(|s| *s == "--tools").unwrap();
-        assert_eq!(args[tools + 1], "Read,Glob,Grep");
-        assert!(args.contains(&"--strict-mcp-config"));
-        let settings = args.iter().position(|s| *s == "--setting-sources").unwrap();
-        assert_eq!(args[settings + 1], "user,project,local");
-        assert!(inspector.set_managed_permission_context(fixture.approved()).is_err());
-        drop(inspector);
-        let ordinary = NativeCognition::start_inspector(&script, &fixture.workspace).unwrap();
-        assert!(!std::fs::read_to_string(&args_path).unwrap().lines().any(|s| s == "--add-dir"));
-        drop(ordinary);
-        assert!(NativeClient::spawn_with_tools_and_evidence(&script, &fixture.workspace,
-            true, None, None, None, None, None, Some(&evidence)).is_err());
-        assert!(NativeCognition::start_inspector_with_schema_and_evidence(&script,
-            &fixture.workspace, crate::autonomy::response_schema(), &args_path).is_err());
-    }
-
-    #[test]
-    fn resumable_inspector_preserves_identity_scope_and_rejects_wrong_native_session() {
-        let fixture = crate::permission::tests::Fixture::new();
-        let evidence = fixture.root.join("resume-evidence");
-        std::fs::create_dir(&evidence).unwrap();
-        let args_path = fixture.root.join("resume-args.txt");
-        let session = uuid::Uuid::new_v4().to_string();
-        let script = write_script("resumable-inspector", &format!(r#"
-printf '%s\n' "$@" > '{}'
-read -r init
-printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
-read -r prompt
-printf '%s\n' '{{"type":"system","subtype":"init","session_id":"wrong-session"}}'
-while read -r next; do :; done
-"#, args_path.display()));
-        let approved = fixture.approved();
-        for resume in [false, true] {
-            let mut inspector = NativeCognition::start_resumable_inspector(&script, &fixture.workspace,
-                crate::autonomy::response_schema(), &evidence, &session, resume).unwrap();
-            let recorded = std::fs::read_to_string(&args_path).unwrap();
-            let args: Vec<_> = recorded.lines().collect();
-            let selector = if resume { "--resume" } else { "--session-id" };
-            let other = if resume { "--session-id" } else { "--resume" };
-            let at = args.iter().position(|a| *a == selector).unwrap();
-            assert_eq!(args[at + 1], session);
-            assert!(!args.contains(&other));
-            assert!(!args.contains(&"--fork-session"));
-            assert!(!args.contains(&"--no-session-persistence"));
-            let at = args.iter().position(|a| *a == "--tools").unwrap();
-            assert_eq!(args[at + 1], "Read,Glob,Grep");
-            let at = args.iter().position(|a| *a == "--setting-sources").unwrap();
-            assert_eq!(args[at + 1], "user,project,local");
-            assert_eq!(args.iter().filter(|a| **a == "--add-dir").count(), 1);
-            assert!(inspector.set_managed_permission_context(approved.clone()).is_err());
-            let error = inspector.prompt("inspect", &mut |_| {}).unwrap_err().to_string();
-            assert!(error.contains("session identity mismatch"), "{error}");
-        }
-        assert!(NativeCognition::start_resumable_inspector(&script, &fixture.workspace,
-            crate::autonomy::response_schema(), &evidence, "not-a-uuid", true).is_err());
-        assert!(validate_inspector_session(&json!({"type":"result"}), &session).is_err());
-        assert!(validate_inspector_session(&json!({"type":"result","session_id":session}), &session).is_ok());
-    }
-
-    #[test]
-    fn missing_session_recovery_requires_exact_native_verdict_and_no_existing_transcript() {
-        let fixture = crate::permission::tests::Fixture::new();
-        let projects = fixture.root.join("config/projects");
-        let session = uuid::Uuid::new_v4().to_string();
-        let missing = NativeError::Startup { reason: "child exited".into(),
-            stderr: format!("No conversation found with session ID: {session}") };
-        assert!(native_reports_missing_session(&missing, &session));
-        assert!(!native_reports_missing_session(&missing, &uuid::Uuid::new_v4().to_string()));
-        assert!(!native_reports_missing_session(&NativeError::Startup { reason: "child exited".into(),
-            stderr: "permission denied".into() }, &session));
-        assert!(!inspector_transcript_exists(&projects, &session).unwrap());
-        let another_workspace = projects.join("other-workspace");
-        std::fs::create_dir_all(&another_workspace).unwrap();
-        // Even damaged or empty transcript data must never be replaced by a fresh launch.
-        let transcript = another_workspace.join(format!("{session}.jsonl"));
-        std::fs::write(&transcript, "damaged transcript").unwrap();
-        assert!(inspector_transcript_exists(&projects, &session).unwrap());
-        std::fs::write(&transcript, "").unwrap();
-        assert!(inspector_transcript_exists(&projects, &session).unwrap());
-        assert!(inspector_transcript_exists(&transcript, &session).is_err());
-    }
-
-    #[test]
-    #[ignore = "Uses two real provider turns; set RICHOS_NATIVE_RESUME_PROOF to a private receipt path"]
-    fn real_native_inspector_resumes_exact_persisted_session() {
-        let receipt = std::env::var("RICHOS_NATIVE_RESUME_PROOF").expect("private receipt path");
-        let fixture = crate::permission::tests::Fixture::new();
-        let evidence = fixture.root.join("evidence");
-        std::fs::create_dir(&evidence).unwrap();
-        let bin = std::path::PathBuf::from(std::env::var("RICHOS_NATIVE_RESUME_BIN").unwrap_or_else(|_| "claude".into()));
-        let session = uuid::Uuid::new_v4().to_string();
-        let count = (uuid::Uuid::new_v4().as_u128() % 900 + 100) as u32;
-        let nonce = count.to_string();
-        let expected_remaining = (count - 7).to_string();
-        let schema = json!({"type":"object","properties":{"remembered":{"type":"string"}},
-            "required":["remembered"],"additionalProperties":false});
-        let started = std::time::Instant::now();
-        let before_first_prompt = NativeCognition::start_resumable_inspector(&bin, &fixture.workspace,
-            schema.clone(), &evidence, &session, false).unwrap();
-        drop(before_first_prompt);
-        let config = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())
-            .map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join(".claude"));
-        assert!(!inspector_transcript_exists(&config.join("projects"), &session).unwrap(),
-            "the interrupted initial lease must have no transcript, or this would not exercise missing-session recovery");
-        let mut initial = NativeCognition::start_resumable_inspector(&bin, &fixture.workspace,
-            schema.clone(), &evidence, &session, true).unwrap();
-        let first = initial.prompt(&format!("Our warehouse has {count} chairs. Report that count as a decimal string in the remembered field. Do not use tools."), &mut |_| {}).unwrap();
-        assert!(["end_turn", "tool_use"].contains(&first.as_str()), "{first}");
-        let first_output = initial.client.structured_output.lock().unwrap().clone();
-        assert_eq!(first_output.as_ref().and_then(|v| v.get("remembered")).and_then(Value::as_str), Some(nonce.as_str()));
-        drop(initial);
-        let mut resumed = NativeCognition::start_resumable_inspector(&bin, &fixture.workspace,
-            schema, &evidence, &session, true).unwrap();
-        let second = resumed.prompt("Seven chairs were sold. Calculate the remaining inventory and return that count as a decimal string in the remembered field. Do not use tools.", &mut |_| {}).unwrap();
-        assert!(["end_turn", "tool_use"].contains(&second.as_str()), "{second}");
-        let second_output = resumed.client.structured_output.lock().unwrap().clone();
-        assert_eq!(second_output.as_ref().and_then(|v| v.get("remembered")).and_then(Value::as_str), Some(expected_remaining.as_str()));
-        drop(resumed);
-        std::fs::write(receipt, serde_json::to_vec_pretty(&json!({"passed":true,
-            "session_id":session,"workspace":fixture.workspace,"same_uuid_after_process_restart":true,"recovered_death_before_first_prompt":true,
-            "prior_user_count_used_without_repeating_in_second_prompt":true,"provider_turns":2,
-            "first_stop_reason":first,"second_stop_reason":second,
-            "first":first_output,"second":second_output,"elapsed_seconds":started.elapsed().as_secs_f64()})).unwrap()).unwrap();
-    }
-
-    #[test]
-    fn inspector_lease_rejects_host_execution_context_even_with_matching_workspace() {
-        let fixture = crate::permission::tests::Fixture::new(); let context = fixture.approved();
-        let script = write_script("inspector-no-grants", r#"
-read -r init
-printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
-read -r next
-"#);
-        let mut inspector = NativeCognition::start_inspector(&script, &fixture.workspace).unwrap();
-        assert!(inspector.set_managed_permission_context(context).is_err());
-        assert!(fixture.context().request(&crate::permission::tests::Fixture::request()).unwrap());
-    }
-
-    #[test]
-    fn cognition_run_host_delivers_durable_approval_to_real_callback_before_worker_effect() {
-        let fixture = crate::permission::tests::Fixture::new();
-        let script = write_script("managed-host-permission", r#"
-read -r init
-printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
-for expected in deny allow; do
-  read -r prompt
-  printf '%s\n' '{"type":"control_request","request_id":"operation","request":{"subtype":"can_use_tool","tool_name":"R4PermissionTestTool","input":{"resource":"selected","value":1}}}'
-  read -r answer
-  case "$answer" in
-    *\"behavior\":\"$expected\"*) ;;
-    *) exit 9 ;;
-  esac
-  if [ "$expected" = allow ]; then touch delivered; fi
-  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
-done
-"#);
-        let journal = fixture.root.join("integrated.jsonl");
-        let mut plan = crate::run::read_snapshot(&fixture.journal).unwrap().plan;
-        plan.tasks[0].checks[0].argv = vec!["/bin/test".into(), "-f".into(), "delivered".into()];
-        let mut ctl = crate::run::RunController::create(&journal, plan).unwrap();
-        let mut model = NativeCognition::start_managed(&script, &fixture.workspace).unwrap();
-        let mut sink = |_: TurnItem<'_>| {};
-        let mut host = crate::run_host::CognitionRunHost { cognition: &mut model, on_item: &mut sink, pause: Arc::new(AtomicBool::new(false)) };
-        assert_eq!(ctl.tick(&mut host).unwrap(), crate::run::RunState::NeedsDecision);
-        assert!(!fixture.workspace.join("delivered").exists());
-        let operation = ctl.snapshot().permissions[0].clone();
-        ctl.respond_to_permission("task", &operation.id, crate::permission::Action::ApproveOnce).unwrap();
-        let state = ctl.tick(&mut host).unwrap();
-        assert_eq!(state, crate::run::RunState::Completed, "{:?}", ctl.snapshot());
-        assert!(fixture.workspace.join("delivered").is_file());
     }
 
     // ---- the permission seam -----------------------------------------------------------

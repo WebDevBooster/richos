@@ -1,3 +1,5 @@
+> Historical record: this experimental integration was removed on September 9, 2026. See [rollback record](../docs/verification/owned-outcome/ROLLBACK-2026-09-09.md).
+
 # Owned work behind Rich
 
 Talk to Rich normally. Typed input, voice and steering use his established

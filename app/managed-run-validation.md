@@ -1,3 +1,5 @@
+> Historical record: this experimental integration was removed on September 9, 2026. See [rollback record](../docs/verification/owned-outcome/ROLLBACK-2026-09-09.md).
+
 # Main integration: September 6, 2026
 
 See [the integration record](MERGE-VALIDATION-2026-09-06.md) and

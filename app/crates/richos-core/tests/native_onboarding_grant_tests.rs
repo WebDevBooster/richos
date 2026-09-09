@@ -47,7 +47,7 @@ while IFS= read -r line; do
         *'"actions_allowed":false'*) printf 'denied\n' >> observations ;;
         *) printf 'invalid\n' >> observations ;;
       esac
-      printf '%s\n' '{"type":"system","subtype":"init","tools":["mcp__richos_onboarding__save_company_notes","mcp__richos_onboarding__decline_onboarding","mcp__richos_onboarding__record_work_disposition"],"plugins":[{"name":"rich-skills"}]}'
+      printf '%s\n' '{"type":"system","subtype":"init","tools":["mcp__richos_onboarding__save_company_notes","mcp__richos_onboarding__decline_onboarding"],"plugins":[{"name":"rich-skills"}]}'
       case "$(cat mode 2>/dev/null)" in
         hold)
           printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_hold"}}}'

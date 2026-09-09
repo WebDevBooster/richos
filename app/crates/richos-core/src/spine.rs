@@ -142,25 +142,6 @@ struct QueuedProactiveEmit {
 /// again be the primary trigger.
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 
-/// The owned-work contract, appended to the priming turn when `owned_work_enabled`.
-///
-/// **One constant, because two copies of one rule is a schedule for divergence rather than a
-/// risk of it.** This text sat as a verbatim duplicate at two call sites — the rotation path
-/// and the first-attach path — and the only test touching it asserted a nine-word substring
-/// (`run_tests.rs`, *"You have a durable execution team"*), so the two copies could have
-/// diverged in 980 of their 989 characters and stayed green. Measured before the collapse:
-/// the two string literals were byte-identical at 991 source characters / **989 decoded
-/// characters** each. (`docs/plans/richos-inner-doctrine-2026-09-06.md` §2 reports 1043; that
-/// is the length of the whole `if self.owned_work_enabled { … }` STATEMENT — 29 + 17 + 993 +
-/// 2 + 2 = 1043 — not of the literal. Both numbers are right about different things.)
-///
-/// **It stays in the priming turn and does NOT move to the inner-doctrine file.** The
-/// doctrine file is a system prompt, fixed at spawn, and `owned_work_enabled` is turned on
-/// AFTER the spawn (`Spine::enable_owned_work`). A clause whose condition can flip after the
-/// prompt is fixed is a lie waiting for the flip — the inner-doctrine design's §4.1 boundary
-/// rule, and §4.3's "anything conditional" exclusion.
-pub const OWNED_WORK_CONTRACT: &str = "\nYou have a durable execution team managed by RichOS. Answer the CEO normally in your own voice. For work requests, own the complete outcome and resolve routine choices. Do not append optional onboarding offers, interview invitations or unrelated planning questions to a work acknowledgment, progress update or completion report. An unanswered onboarding offer is not a pending CEO decision. Wait for a separate conversational moment or the CEO to return to it. The company interview is a narrow exception: conduct its questions in this conversation and call only mcp__richos_onboarding__save_company_notes or mcp__richos_onboarding__decline_onboarding directly for approved interview notes or an explicit interview decline. Wait for the app-owned tool result before reporting what was saved or declined. Do not delegate these two interview operations to the execution team. An unrelated action requested alongside the interview still follows the work rule. For every other action request, including a single file edit, do not execute it in the conversation turn. Acknowledge ownership without claiming completion. State the deliverable and essential acceptance constraints concisely in one prose paragraph, including prohibitions and any changed requirements. No headings, lists or filesystem paths in this acknowledgment. Refer to the original request for unchanged details; the host preserves the full request and prior scope verbatim. Before ending each CEO turn, call mcp__richos_onboarding__record_work_disposition with work, amend, answer_decision, cancel or discussion and a brief reason. Even ordinary discussion needs its disposition receipt; a missing receipt stays unresolved. The host supplies source identity and preserves the original request. A successful receipt records intake, never execution or completion. Work and scope changes use a separate tool-free transcriber; ordinary discussion with a receipt does not. If a turn is interrupted or omits the receipt, the host may use that tool-free transcriber only to recover the unresolved intake. Never classify an action as discussion because you did not act or asked whether to start. Resolve routine choices yourself. Do not offer to start later when you can accept now. A correction revises the current assignment, not a second job waiting for it to end. Never claim execution finished until the host supplies verified results.\n";
-
 /// Fallback context-window budget, used ONLY while no `usage_update` has arrived for the
 /// current lease. Overridable via `set_context_budget`.
 ///
@@ -357,8 +338,6 @@ pub struct Spine {
     /// REFUSED, because there is nowhere durable to record the request. Every pre-existing
     /// test and headless run therefore behaves exactly as it did.
     control: TurnControl,
-    owned_work_enabled: bool,
-    work_disposition_dir: Option<PathBuf>,
     /// THE CENTRAL FOLDER, or `None` when nobody has told this spine where it is.
     ///
     /// `None` is the shipped default and it is a real state rather than a placeholder: every
@@ -457,8 +436,6 @@ impl Spine {
             registry: EntityRegistry::empty(),
             turn_in_progress: false,
             control: TurnControl::detached(),
-            owned_work_enabled: false,
-            work_disposition_dir: None,
             central_root: None,
             onboarding_record: None,
             onboarding_primed_block: None,
@@ -730,6 +707,7 @@ impl Spine {
         self.control.set_lease_session(Some(lease.session_id().to_string()));
         self.lease = Some(lease);
         self.lease_primed = false;
+        self.lease_primed_thread = None;
         // A FRESH LEASE HAS NOT MEASURED ITSELF YET, and must not inherit a number about
         // a session that no longer exists. Clearing here — the one place `self.lease` is
         // assigned — is what makes that true by construction on all three paths (boot,
@@ -765,72 +743,20 @@ impl Spine {
         self.lease.is_some()
     }
 
-    /// Temporarily use a separately governed worker. Restoring through install_lease
-    /// refreshes cancellation identity and forces the chat lease to re-prime from
-    /// the durable conversation (including the worker's output) on its next use.
-    pub(crate) fn take_run_lease(&mut self, worker: Box<dyn Cognition>) -> Option<Box<dyn Cognition>> {
-        let previous = self.lease.take();
-        self.install_lease(worker);
-        previous
-    }
-
-    pub(crate) fn restore_run_lease(&mut self, previous: Option<Box<dyn Cognition>>) {
-        if let Some(lease) = previous {
-            self.install_lease(lease);
-        } else {
-            self.lease = None;
-            self.control.set_cancel(None);
-            self.control.set_lease_session(None);
-            self.lease_primed = false;
-            self.context_usage = None;
-            self.context_pressure = None;
-        }
-    }
-
-    pub(crate) fn prepare_managed_lease(&self, workspace: &std::path::Path) -> Result<(), CognitionError> {
-        self.lease.as_ref().ok_or_else(|| CognitionError::Protocol("No managed worker is attached.".into()))?.prepare_managed(workspace)
-    }
-
-    /// The managed-run host uses the existing cancellation channel to enforce
-    /// its time budget on the currently installed managed worker.
-    pub fn enable_owned_work(&mut self) { self.owned_work_enabled = true; self.lease_primed = false; }
-
-    /// The same durable source turn owns both its expected nonce and its intake receipt.
-    pub fn set_work_disposition_dir(&mut self, path: PathBuf) {
-        self.work_disposition_dir = Some(path);
+    /// Retire a canceled or failed conversation child without another roundtrip.
+    fn clear_lease(&mut self) {
+        self.lease = None;
+        self.control.set_cancel(None);
+        self.control.set_lease_session(None);
         self.lease_primed = false;
-    }
-
-    pub fn work_disposition_scope(&self, original_turn: &str) -> Result<crate::work_disposition::WorkDispositionScope, SpineError> {
-        let failure = |s: String| SpineError::Cognition(CognitionError::Protocol(s));
-        let dir = self.work_disposition_dir.as_ref().filter(|p| p.is_absolute() && p.parent().is_some()).ok_or_else(|| failure("Work disposition persistence is unavailable.".into()))?;
-        let turn = self.ledger.turn(original_turn).ok_or_else(|| LedgerError::UnknownTurn(original_turn.into()))?;
-        if turn.quarantined || !matches!(turn.source, Source::Text | Source::Jam) {
-            return Err(failure("Only an original CEO source turn can bind a work disposition.".into()));
-        }
-        let binding = self.ledger.thread_binding(&turn.thread_id)?;
-        let entity = self.registry.get(binding.entity_id()).ok_or_else(|| SpineError::UnknownEntity(binding.entity_id().to_string()))?;
-        let workspace = entity.roots.first().cloned().unwrap_or_else(|| dir.parent().unwrap().join("workspaces").join(entity.id.as_str()));
-        let id = crate::autonomy::turn_request_id(original_turn).map_err(failure)?;
-        let scope = crate::work_disposition::WorkDispositionScope {
-            source_turn: original_turn.into(), thread: turn.thread_id.clone(), entity: entity.id.to_string(),
-            workspace, nonce: uuid::Uuid::new_v4().to_string(), receipt_path: dir.join(format!("{id}.json")),
-        };
-        crate::work_disposition::load_or_create_scope(&dir.join(format!("{id}.scope.json")), &scope).map_err(failure)
-    }
-
-    /// Missing is unresolved, not discussion. Intake may use the private tool-free
-    /// registrar as an omission/interruption recovery exception without rerouting chat.
-    pub fn work_disposition_receipt(&self, original_turn: &str) -> Result<Option<crate::work_disposition::Receipt>, SpineError> {
-        let scope = self.work_disposition_scope(original_turn)?;
-        crate::work_disposition::read_bound_receipt(&scope)
-            .map_err(|s| SpineError::Cognition(CognitionError::Protocol(s)))
+        self.lease_primed_thread = None;
+        self.context_usage = None;
+        self.context_pressure = None;
     }
 
     /// Tell this spine where the central folder is, so the company layer reaches the model.
     ///
-    /// **It clears `lease_primed`, exactly as [`Spine::enable_owned_work`] does, and for the
-    /// same reason.** The priming turn is what carries the company layer; a lease already
+    /// It clears `lease_primed`. The priming turn is what carries the company layer; a lease already
     /// primed without it would keep serving the conversation with no company material until
     /// the next thread switch, and nothing would say so. Un-priming re-issues it at the next
     /// turn, which is the cheap and honest answer.
@@ -954,64 +880,6 @@ impl Spine {
         Some(crate::onboarding_tools::OnboardingToolScope::new(
             binding.entity_id(), self.central_root.as_ref()?, self.onboarding_record.as_ref()?,
         ))
-    }
-
-    pub fn owned_worker_context(&mut self, binding: &ThreadBinding) -> Result<String, SpineError> {
-        let mut payload = RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
-        self.fill_loro_tier(&mut payload, binding);
-        Ok(payload.to_priming_prompt())
-    }
-
-    /// Host evidence is reported by Rich through the ordinary streamed speech path.
-    /// A stable receipt makes a completed notice idempotent across restarts.
-    pub fn report_owned_work(&mut self, binding: &ThreadBinding, id: &str, evidence: &str) -> Result<(), SpineError> {
-        if self.ledger.turn(id).map(|t| t.state == crate::ledger::TurnState::Completed).unwrap_or(false) { return Ok(()); }
-        let prompt = format!("Report this durable work update to the CEO in your normal voice. State the outcome and any material limitations in concise plain language. Do not name internal components, validation checks or technical failure details. Never claim work started or finished without the supplied evidence. Do not ask for routine retry or implementation decisions. Only an explicitly supplied CEO decision requires an answer. Keep this report on the assigned outcome. Do not append onboarding offers, interview invitations or unrelated planning questions, even when optional onboarding is due. Host evidence:\n{evidence}");
-        self.ledger.record_owned_prompt(binding, id, &prompt, Source::Proactive)?;
-        self.deliver(id, binding, &prompt, true)
-    }
-
-    pub fn run_cancel_handle(&self) -> Option<std::sync::Arc<dyn crate::steering::TurnCancel>> {
-        self.lease.as_ref().and_then(|lease| lease.cancel_handle())
-    }
-
-    /// Persist a request receipt or a supervisor response without inventing a
-    /// model turn. Stable IDs make request-spool recovery idempotent.
-    pub fn record_owned_message(&mut self, binding: &ThreadBinding, id: &str, user: Option<&str>, reply: &str) -> Result<(), SpineError> {
-        let source = if user.is_some() { Source::Text } else { Source::Proactive };
-        let id = self.ledger.record_owned_prompt(binding, id, user.unwrap_or(""), source)?;
-        if self.ledger.turn(&id).and_then(|t| t.ended_at).is_some() { return Ok(()); }
-        if self.ledger.turn(&id).and_then(|t| t.ended_at).is_none() {
-            if !reply.is_empty() && self.ledger.turn(&id).map(|t| t.assistant_text.is_empty()).unwrap_or(false) {
-                self.ledger.append_assistant_delta(&id, reply, 0)?;
-            }
-            self.ledger.complete_turn(&id, "host_receipt")?;
-        }
-        self.emit_live(self.turn_status_event(binding, &id, TurnStatus::Completed, None));
-        self.emit(StreamEvent::TurnCompleted { thread_id: binding.thread_id().into(), turn_id: id.clone(), stop_reason: "host_receipt".into(), at: now_millis() });
-        if user.is_none() && !reply.is_empty() { self.emit_proactive_live(binding, &id, AttentionTier::Digest, reply); }
-        Ok(())
-    }
-
-    /// An application-owned attempt, recorded as Proactive rather than as words
-    /// the user typed. Automatic crash replay is disabled: the run controller
-    /// owns recovery and cannot safely replay unknown external effects.
-    pub fn submit_run_prompt(&mut self, binding: &ThreadBinding, text: &str) -> Result<String, SpineError> {
-        self.ledger.verify_binding(binding)?;
-        if self.turn_in_progress {
-            return Err(SpineError::Cognition(CognitionError::Protocol("Another turn is already running.".into())));
-        }
-        let id = self.ledger.record_prompt_received(binding, text, Source::Proactive)?;
-        self.emit_live(self.turn_status_event(binding, &id, TurnStatus::Queued, None));
-        self.deliver(&id, binding, text, false)?;
-        Ok(self.ledger.turn(&id).and_then(|t| t.stop_reason.clone()).unwrap_or_else(|| "unknown".into()))
-    }
-
-    /// Called after the attempt's timeout watcher is disarmed. Queued user
-    /// input takes precedence over the next managed attempt.
-    pub fn finish_run_boundary(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
-        self.after_turn_boundary(binding)?;
-        self.drain_queue()
     }
 
     /// Attach the rotation/recovery seam. Without one, the spine can still run its
@@ -1804,21 +1672,6 @@ impl Spine {
         } else {
             self.prepare_request(binding)
         };
-        // Priming has finished before this grant becomes available. The host's source
-        // turn selects the scope; Proactive/Internal turns cannot create CEO authority.
-        let disposition_enabled = self.owned_work_enabled && self.work_disposition_dir.is_some();
-        let preparation = preparation.and_then(|_| {
-            if !disposition_enabled { return Ok(()); }
-            let source_turn = self.ledger.turn(turn_id).is_some_and(|t|
-                matches!(t.source, Source::Text | Source::Jam) && !t.quarantined);
-            let scope = if source_turn && self.control.stop_claim_for(turn_id).is_none() {
-                Some(self.work_disposition_scope(turn_id)?)
-            } else { None };
-            if let Some(lease) = self.lease.as_mut() {
-                lease.set_work_disposition_scope(scope)?;
-            }
-            Ok(())
-        });
         let stopped_before_prompt = self.control.stop_claim_for(turn_id).is_some();
         let preparation_stop = match &preparation {
             Err(SpineError::Cognition(CognitionError::PrimingStopped(reason))) => Some(reason.clone()),
@@ -1868,7 +1721,7 @@ impl Spine {
         // position from `machinery.rs`'s merge rules.
         let mut live_turn = LiveTurn::new(EventFence::for_turn(binding, turn_id), internal_turn);
 
-        let mut stop = if stopped_before_prompt {
+        let stop = if stopped_before_prompt {
             // An internal prime completing is not the user's request completing.
             // Stop at this boundary prevents delivery of the user prompt.
             Ok(preparation_stop.unwrap_or_else(|| crate::native::STOP_REASON_CANCELLED.to_string()))
@@ -1934,11 +1787,6 @@ impl Spine {
             lease.expect("successful preparation has a lease").prompt(text, &mut on_item)
         };
         // `ledger` / `lease` / `observer` / `machinery_*` borrows end here.
-        if disposition_enabled {
-            if let Some(lease) = self.lease.as_mut() {
-                if let Err(error) = lease.set_work_disposition_scope(None) { stop = Err(error); }
-            }
-        }
 
         self.turn_in_progress = false;
         // The turn is over, so anything still arriving has no turn to belong to (§1.5).
@@ -2264,7 +2112,7 @@ impl Spine {
         // on a process already known to ignore cancellation. The next request reconnects.
         if lease_stop_reason == Some(crate::native::STOP_REASON_CANCEL_UNACKNOWLEDGED) {
             // Never ask an unresponsive child for a handoff before retiring it.
-            self.restore_run_lease(None);
+            self.clear_lease();
             self.context_chars = 0;
             self.pending_rotation_reason = None;
         }
@@ -2432,12 +2280,7 @@ impl Spine {
                 continue;
             }
             let binding = self.ledger.thread_binding(&turn.thread_id)?;
-            let reason = if self.owned_work_enabled && matches!(turn.source, Source::Text | Source::Jam) {
-                "RichOS closed before this reply finished. Your message is saved. Rich will recover any unfinished assignment automatically."
-            } else {
-                "RichOS closed before this request finished. Your message is saved; send it again to retry."
-            };
-            self.ledger.interrupt_turn_after_restart(&id, reason)?;
+            self.ledger.interrupt_turn_after_restart(&id, "RichOS closed before this request finished. Your message is saved; send it again to retry.")?;
             self.emit_live(self.turn_status_event(&binding, &id, TurnStatus::Failed, None));
             self.emit_live(self.thread_summary_event(&binding, &id, ThreadStatus::Failed));
         }
@@ -2743,7 +2586,7 @@ impl Spine {
         ));
         // Retire the old child without asking it to finish another roundtrip. Delivery
         // covers spawning, priming and the replay with one cancellable request lifecycle.
-        self.restore_run_lease(None);
+        self.clear_lease();
         let outcome = self.deliver(&replay_turn_id, binding, original_text, false);
         if let Some(to_session) = self.lease_session_id().map(str::to_string) {
             self.ledger.record_rotation(&from_session, &to_session, "mid-turn-crash")?;
@@ -2828,12 +2671,9 @@ impl Spine {
             RePrimePayload::assemble_for_priming(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
-        // Onboarding, BEFORE the owned-work contract: this is either the CEO's own material
-        // or an offer to collect it, and the contract is an instruction, so the instruction
-        // stays last (`onboarding.rs`, `company.rs`).
+        // Preserve the company material and interview offer in the conversation.
         let onboarding_block = self.company_block(binding);
         if let Some(block) = &onboarding_block { priming.push_str(block); }
-        if self.owned_work_enabled { priming.push_str(OWNED_WORK_CONTRACT); }
         // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime:rotation]", Source::Internal);
 
@@ -2864,10 +2704,7 @@ impl Spine {
             }
         };
         let scoped = match self.onboarding_tool_scope(binding) {
-            Some(scope) => match (scope.central_root.as_deref(), scope.record_path.as_deref()) {
-                (Some(root), Some(record)) => fresh.set_onboarding_scope(binding.entity_id(), root, record),
-                _ => Ok(()),
-            },
+            Some(scope) => fresh.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
             None => Ok(()),
         };
         // Publish the successor's Stop handle before any priming request.
@@ -3002,11 +2839,8 @@ impl Spine {
             RePrimePayload::assemble_for_priming(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
-        // Onboarding, BEFORE the owned-work contract: this is either the CEO's own material
-        // or an offer to collect it, and the contract is an instruction, so the instruction
-        // stays last (`onboarding.rs`, `company.rs`).
+        // Preserve the company material and interview offer in the conversation.
         if let Some(block) = &onboarding_block { priming.push_str(block); }
-        if self.owned_work_enabled { priming.push_str(OWNED_WORK_CONTRACT); }
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime]", Source::Internal);
         // ... and as an Internal ACTION, claim-then-execute: this is the first-attach
@@ -3030,10 +2864,7 @@ impl Spine {
         // not a bug). Retained for debugging; never rendered.
         let scoped = match self.onboarding_tool_scope(binding) {
             Some(scope) => match self.lease.as_mut() {
-                Some(lease) => match (scope.central_root.as_deref(), scope.record_path.as_deref()) {
-                    (Some(root), Some(record)) => lease.set_onboarding_scope(binding.entity_id(), root, record),
-                    _ => Ok(()),
-                },
+                Some(lease) => lease.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
                 None => Ok(()),
             },
             None => Ok(()),
@@ -3088,128 +2919,5 @@ impl Spine {
     #[doc(hidden)]
     pub fn debug_set_turn_in_progress(&mut self, in_progress: bool) {
         self.turn_in_progress = in_progress;
-    }
-}
-
-#[cfg(test)]
-mod work_disposition_tests {
-    use super::*;
-    use crate::work_disposition::{self, Disposition, DispositionKind, WorkDispositionScope};
-    use std::sync::{Arc, Mutex};
-
-    struct ReceiptLease {
-        scope: Option<WorkDispositionScope>,
-        events: Arc<Mutex<Vec<&'static str>>>,
-        record: bool,
-        fail: bool,
-    }
-    impl Cognition for ReceiptLease {
-        fn session_id(&self) -> &str { "disposition-session" }
-        fn set_work_disposition_scope(&mut self, scope: Option<WorkDispositionScope>) -> Result<(), CognitionError> {
-            self.events.lock().unwrap().push(if scope.is_some() {"grant"} else {"revoke"});
-            self.scope = scope;
-            Ok(())
-        }
-        fn reprime(&mut self, _: &str, _: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
-            assert!(self.scope.is_none(), "Priming cannot receive a CEO turn grant");
-            self.events.lock().unwrap().push("prime");
-            Ok(())
-        }
-        fn prompt(&mut self, _: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
-            self.events.lock().unwrap().push("prompt");
-            if self.record {
-                if let Some(scope) = &self.scope {
-                    work_disposition::record(scope, Disposition { kind:DispositionKind::Discussion,target:None,reason:"The CEO requested an explanation only.".into() }).map_err(CognitionError::Io)?;
-                }
-            }
-            on_item(TurnItem::Text { seq:1,text:"Here is the explanation." });
-            if self.fail { Err(CognitionError::Protocol("interrupted before receipt".into())) }
-            else { Ok("end_turn".into()) }
-        }
-    }
-    fn fixture(root: &std::path::Path) -> Spine {
-        std::fs::create_dir_all(root).unwrap();
-        let mut spine = Spine::new(Ledger::open(root.join("ledger.jsonl")).unwrap());
-        let mut registry = EntityRegistry::empty();
-        registry.register(crate::entity::Entity::try_new("example","Example",vec![root.join("workspace")]).unwrap()).unwrap();
-        spine.set_entity_registry(registry);
-        spine.enable_owned_work();
-        spine.set_work_disposition_dir(root.join("work-dispositions"));
-        spine
-    }
-    fn root() -> PathBuf { std::env::temp_dir().join(format!("richos-spine-disposition-{}",uuid::Uuid::new_v4())) }
-    fn attach(spine: &mut Spine, record: bool, fail: bool) -> Arc<Mutex<Vec<&'static str>>> {
-        let events = Arc::new(Mutex::new(vec![]));
-        spine.attach_lease(Box::new(ReceiptLease {scope:None,events:events.clone(),record,fail}));
-        events
-    }
-
-    #[test]
-    fn visible_text_and_voice_grants_follow_priming_and_revoke_before_return() {
-        for source in [Source::Text,Source::Jam] {
-            let root=root();let mut spine=fixture(&root);
-            spine.create_thread("General",&EntityId::parse("example").unwrap()).unwrap();
-            let events=attach(&mut spine,true,false);
-            let id=spine.submit_prompt("Explain the current state.",source).unwrap();
-            assert_eq!(*events.lock().unwrap(),vec!["prime","grant","prompt","revoke"]);
-            let receipt=spine.work_disposition_receipt(&id).unwrap().unwrap();
-            assert_eq!(receipt.scope.source_turn,id);
-            assert_eq!(receipt.disposition.kind,DispositionKind::Discussion);
-            assert_eq!(spine.ledger.turn(&id).unwrap().user_text,"Explain the current state.");
-            let nonce=receipt.scope.nonce.clone();
-            drop(spine);
-            let reopened=fixture(&root);
-            assert_eq!(reopened.work_disposition_scope(&id).unwrap().nonce,nonce);
-            assert_eq!(reopened.work_disposition_receipt(&id).unwrap(),Some(receipt));
-            std::fs::remove_dir_all(root).unwrap();
-        }
-    }
-
-    #[test]
-    fn omitted_and_interrupted_receipts_remain_unresolved_with_original_source() {
-        for interrupted in [false,true] {
-            let root=root();let mut spine=fixture(&root);
-            spine.create_thread("General",&EntityId::parse("example").unwrap()).unwrap();
-            let events=attach(&mut spine,false,interrupted);
-            let result=spine.submit_prompt("Handle this repair; do not publish.",Source::Text);
-            assert_eq!(result.is_err(),interrupted);
-            let turn=spine.ledger.turns().iter().find(|t|t.source==Source::Text).unwrap();
-            let id=turn.id.clone();
-            assert!(spine.work_disposition_receipt(&id).unwrap().is_none());
-            let nonce=spine.work_disposition_scope(&id).unwrap().nonce;
-            assert_eq!(events.lock().unwrap().last(),Some(&"revoke"));
-            drop(spine);
-            let reopened=fixture(&root);
-            assert!(reopened.work_disposition_receipt(&id).unwrap().is_none());
-            assert_eq!(reopened.work_disposition_scope(&id).unwrap().nonce,nonce);
-            assert_eq!(reopened.ledger.turn(&id).unwrap().user_text,"Handle this repair; do not publish.");
-            std::fs::remove_dir_all(root).unwrap();
-        }
-    }
-
-    #[test]
-    fn proactive_updates_cannot_create_an_original_request_receipt() {
-        let root=root();let mut spine=fixture(&root);
-        let thread=spine.create_thread("General",&EntityId::parse("example").unwrap()).unwrap();
-        let events=attach(&mut spine,true,false);
-        let binding=spine.ledger.thread_binding(&thread).unwrap();
-        spine.report_owned_work(&binding,"notice-1","The required work was verified.").unwrap();
-        assert!(!events.lock().unwrap().contains(&"grant"));
-        assert!(spine.work_disposition_receipt("notice-1").is_err());
-        assert!(!root.join("work-dispositions").exists());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn receipt_from_replaced_scope_nonce_is_not_accepted_after_restart() {
-        let root=root();let mut spine=fixture(&root);
-        spine.create_thread("General",&EntityId::parse("example").unwrap()).unwrap();
-        attach(&mut spine,false,false);
-        let id=spine.submit_prompt("Explain the state.",Source::Text).unwrap();
-        let mut stale=spine.work_disposition_scope(&id).unwrap();stale.nonce="stale".into();
-        work_disposition::record(&stale,Disposition {kind:DispositionKind::Discussion,target:None,reason:"Discussion".into()}).unwrap();
-        drop(spine);
-        assert!(fixture(&root).work_disposition_receipt(&id).is_err());
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

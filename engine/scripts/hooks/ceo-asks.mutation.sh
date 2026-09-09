@@ -34,14 +34,8 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-if [ -n "${RICHOS_MUTATION_EVIDENCE_DIR:-}" ]; then
-    mkdir -p "$RICHOS_MUTATION_EVIDENCE_DIR"
-    SANDBOX="$(cd "$RICHOS_MUTATION_EVIDENCE_DIR" && pwd -P)"
-    printf 'Mutation evidence retained at: %s\n' "$SANDBOX"
-else
-    SANDBOX="$(cd "$(mktemp -d -t ceo-asks-mutation.XXXXXX)" && pwd -P)"
-    trap 'rm -rf "$SANDBOX"' EXIT
-fi
+SANDBOX="$(cd "$(mktemp -d -t ceo-asks-mutation.XXXXXX)" && pwd -P)"
+trap 'rm -rf "$SANDBOX"' EXIT
 
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 
@@ -82,9 +76,7 @@ mutant() {
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" \
-       "$ENGINE_ROOT/scripts/lib/cold-open-prompt.md" "$ENGINE_ROOT/scripts/lib/owned-work-policy.sh" "$ENGINE_ROOT/scripts/lib/owned-dispatch.py" \
-       "$ENGINE_ROOT/scripts/lib/owned-dispatch.test.py" "$ENGINE_ROOT/scripts/lib/owned-session.py" \
-       "$ENGINE_ROOT/scripts/lib/ceo-ruled.sh" "$ENGINE_ROOT/scripts/lib/ceo-ruled.py" "$dir/scripts/lib/"
+       "$ENGINE_ROOT/scripts/lib/cold-open-prompt.md" "$dir/scripts/lib/"
     cp "$ENGINE_ROOT/scripts/ceo-asks-status.sh" "$dir/scripts/"
     cp "$ENGINE_ROOT/hooks/hooks.json" "$dir/hooks/"
     chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/"*.sh
@@ -129,9 +121,7 @@ mutant() {
     # findings. The boundary was never what fixed anything: ESCAPING is. With
     # `.` taken literally, `z1.` cannot match `z1b.` and `C1.` cannot match
     # `C10.`, because the character after the prefix is a digit and not a dot.
-    # Python host cases use unittest's anchored failure header, not its
-    # ordinary per-test status line. Either witness must name the exact case.
-    if ! grep -q "FAIL  ${want_re}" "$dir/out.txt" && ! grep -q "^FAIL: ${want_re} (" "$dir/out.txt"; then
+    if ! grep -q "FAIL  ${want_re}" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at %s (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
         FAIL=$((FAIL + 1)); return
@@ -218,55 +208,6 @@ mutant session-start-silent "E2. " "$S" \
     '| head -1)"\nTOP_ID=' \
     '| head -0)"\nTOP_ID=' \
     "opening with a nameless announcement is opening with a count, which is the thing that failed."
-
-# --- 5. ADOPTED DEPENDENCY POLICY ------------------------------------------
-P="scripts/lib/owned-work-policy.sh"
-mutant policy-wrong-version "OWN-CFG1." "$P" \
-    " and d.get('version') == 1" "" \
-    "the policy version is a contract boundary, not decoration."
-mutant policy-boolean-version "OWN-CFG3." "$P" \
-    "type(d.get('version')) is int and " "" \
-    "JSON true must not masquerade as version 1."
-mutant policy-disabled-accepted "OWN-CFG4." "$P" \
-    " and d.get('enabled') is True" "" \
-    "an explicit disabled setting must retain the existing policy."
-mutant policy-wrong-decision-field "OWN-CFG7." "$P" \
-    " and d.get('decision_policy') == 'dependency'" "" \
-    "the decision policy field must select this mechanism explicitly."
-D="scripts/lib/owned-dispatch.py"
-mutant registrar-nonzero-json-trusted "test_nonzero_registrar_json_is_not_authority" "$D" \
-    "if result.returncode:" "if False:" \
-    "a failed registrar cannot grant authority by printing valid JSON."
-mutant dispatch-success-receipt-dropped "test_permitted_dispatch_leaves_exact_work_receipt" "$D" \
-    "record(root, data, 'dispatched'," "(lambda *args: None)(root, data, 'dispatched'," \
-    "allowed dispatch must retain its exact host work receipt."
-mutant arbitrary-brief-selector-accepted "test_selector_cannot_smuggle_proposed_brief" "$D" \
-    "selector == 'owned-work:' + w['id']" "selector.startswith('owned-work:' + w['id'])" \
-    "a selector suffix cannot choose an approved host brief."
-mutant authority-provenance-ignored "test_registration_rejects_hook_or_assistant_authority" "$D" \
-    "                       m.get('role') == 'user' and m.get('provenance') == 'native_human_typed_v1']" "                       m.get('role') == 'user']" \
-    "a user role without actual native provenance is not human authority."
-mutant quote-membership-ignored "test_registration_rejects_forged_or_uncited_authority" "$D" \
-    "or cite['quote'] not in matches[0]['text']" "or False" \
-    "invented authority quotes must be rejected."
-mutant registration-source-race-ignored "test_model_mutating_sources_cannot_publish_stale_registration" "$D" \
-    "if latest['source_revision'] != data['source_revision']:" "if False:" \
-    "a human correction during registration invalidates its result."
-mutant registration-cache-disabled "test_registration_once_then_many_dispatches_without_model" "$D" \
-    "if previous.get('source_revision') == data['source_revision'] and previous.get('version') == 1:" "if False:" \
-    "unchanged authorized scope must not invoke a model for every dispatch."
-mutant adopted-reminder-silent "OWN3." "$N" \
-    '    stop_notice_abnormal "pending:$IDS" \' \
-    '    exit 0; stop_notice_abnormal "pending:$IDS" \' \
-    "removing a dispatch quota does not remove the pending decision reminder."
-mutant ask-receipt-clears-pending-notice "OWN11." "$N" \
-    '    ca_assess "$ENTITY_ROOT" "" || ARC=$?' \
-    '    ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?' \
-    "an ask receipt is not an answer and must not hide the pending decision."
-mutant ask-receipt-clears-pending-status "OWN10." "scripts/ceo-asks-status.sh" \
-    '    ca_assess "$ROOT" "" || ARC=$?' \
-    '    ca_assess "$ROOT" "$SESSION" || ARC=$?' \
-    "the status CLI must report authoritative pending items, not an ask quota."
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
