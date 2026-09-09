@@ -677,6 +677,78 @@ def audit_data(state):
     return data
 
 
+
+def audit_transport(path, data):
+    """Keep complete evidence out of bounded stdin without removing source authority."""
+    encoded = json.dumps(data, ensure_ascii=False).encode('utf-8')
+    if len(encoded) <= 32 * 1024:
+        return encoded.decode('utf-8')
+    digest = hashlib.sha256(encoded).hexdigest()
+    directory = path.parent / (path.stem + '.audit-snapshots')
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+    snapshot = directory / (digest + '.json')
+    # Publish only a fully written file. A crash cannot leave a partial snapshot
+    # that poisons the same content identity on the next automatic retry.
+    fd, temporary = tempfile.mkstemp(dir=directory)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, snapshot)
+        except FileExistsError:
+            if snapshot.is_symlink() or hashlib.sha256(snapshot.read_bytes()).hexdigest() != digest:
+                raise ValueError('Audit snapshot integrity mismatch')
+        directory_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        os.unlink(temporary)
+    return json.dumps({'audit_snapshot': {'path': str(snapshot.resolve()), 'sha256': digest}})
+
+
+
+def audit_runtime_identity(config):
+    """Content identity, so replacement at the same path can recover a failed audit."""
+    digest = hashlib.sha256()
+    for name in (config['runner'], __file__):
+        digest.update(str(Path(name).resolve()).encode())
+        try:
+            with open(name, 'rb') as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                    digest.update(chunk)
+        except OSError as error:
+            digest.update(('unavailable:' + str(error)).encode())
+    return digest.hexdigest()
+
+
+def audit_failure_key(data, runtime_identity):
+    # A diagnostic wake can add assistant prose without changing any work or
+    # authority. That alone must not purchase the identical doomed inspection.
+    relevant = {**data, 'messages': [m for m in data['messages'] if m.get('role') != 'assistant']}
+    return hashlib.sha256(json.dumps([runtime_identity, relevant], sort_keys=True).encode()).hexdigest()
+
+
+def deterministic_audit_failure(error):
+    detail = str(error).casefold()
+    return any(term in detail for term in ('prompt is too long', 'prompt too long',
+               'context length exceeded', 'maximum context length', 'context_window_exceeded',
+               'input too large', 'input exceeds', 'payload too large'))
+
+
+def integration_failure_message(path):
+    return ('Outcome verification is unavailable because the inspector integration failed. '
+            'The assignment remains owned and completion is unverified. This failure is not a finding of unfinished business work. '
+            'Do not repeat completed work or add tooling repairs to the assignment because of this notice. '
+            'Preserve every explicit pause, stop or scope restriction. This diagnostic does not block normal session exit. '
+            'No CEO decision or response is requested. Automatic inspection can retry when substantive input or the installed runtime changes. '
+            'The same failed input will not be submitted repeatedly. Private diagnostics: ' + str(path))
+
+
 def permission_context(root):
     """Observed configuration is not a reconstructed effective permission map."""
     sources = []
@@ -1018,6 +1090,7 @@ def audit_once(path, config, watch_withheld=False, binding=None):
     binding = audit_binding(path) if binding is None else binding
     checked_audit_process(binding)
     initial = json.loads(path.read_text())
+    runtime_identity = audit_runtime_identity(config)
     # Native hooks can overlap. One inspector per leader; source capture remains free.
     pending = initial.get('recovery_requires_review') or initial.get('withheld_recoveries') or initial.get('audit_inference', {}).get('phase') == 'started' or initial.get('audit_wake', {}).get('message') and 'delivered_at' not in initial['audit_wake']
     with audit_lease(path, binding, '.audit-lock', wait_seconds=30 if pending else 0) as audit_fd:
@@ -1027,6 +1100,10 @@ def audit_once(path, config, watch_withheld=False, binding=None):
             checked_audit_process(binding)
             state = json.loads(path.read_text())
             wake = state.get('audit_wake', {})
+            runtime_changed = state.get('audit_runtime_identity') != runtime_identity and bool(state.get('audit_runtime_identity') or state.get('failures'))
+            if runtime_changed and state.get('failures') and wake.get('message') and 'delivered_at' not in wake:
+                wake['superseded_at'] = time.time()
+                atomic(path, state)
             if wake.get('owner_process') == binding['process'] and wake.get('message') and 'delivered_at' not in wake and 'superseded_at' not in wake:
                 if wake.get('context') == audit_wake_context(state):
                     checked_audit_process(binding)
@@ -1082,13 +1159,19 @@ def audit_once(path, config, watch_withheld=False, binding=None):
         fingerprint = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
         if state.get('checked') == fingerprint and state.get('verdict', {}).get('kind') in ('complete', 'decision'):
             return 0, ''
-        delay = max(0, state.get('retry_at', 0) - time.time())
+        failure_key = audit_failure_key(data, runtime_identity)
+        cached_failure = state.get('integration_failure')
+        if cached_failure and cached_failure.get('key') == failure_key:
+            return 0, ''  # Still owned and visibly unverified; no repeated request or wake.
+        failure_changed = bool(cached_failure)
+        pacing_delay = max(0, state.get('retry_at', 0) - time.time())
+        delay = 0 if runtime_changed or failure_changed else pacing_delay
         destination = {'session': state['session_id'], 'process': state.get('ownership', {}).get('process')}
         reconciliations = [c['id'] for c in state.get('recovery_checkpoints', []) if c.get('destination') == destination and 'claimed_at' not in c]
         previous_inference = state.get('audit_inference', {})
         interrupted = previous_inference.get('phase') == 'started'
         interrupted_retry = interrupted and state.get('interrupted_audit_retries', 0) < 1
-        checkpoint = native_completion_batch(state) if delay and state.get('audit_attempts', 0) >= BURST_AUDITS else None
+        checkpoint = native_completion_batch(state) if pacing_delay and state.get('audit_attempts', 0) >= BURST_AUDITS else None
         if delay and not checkpoint and not reconciliations and not interrupted_retry:
             deadline = time.monotonic() + min(delay, 3600)
             while time.monotonic() < deadline:
@@ -1119,6 +1202,8 @@ def audit_once(path, config, watch_withheld=False, binding=None):
                 if interrupted_retry:
                     current['interrupted_audit_retries'] = current.get('interrupted_audit_retries', 0) + 1
                 current['audit_attempts'] = attempts
+                current['audit_runtime_identity'] = runtime_identity
+                current.pop('integration_failure', None)
                 current['retry_at'] = time.time() + (RECOVERY_SECONDS if attempts >= BURST_AUDITS else 15)
                 current['audit_inference'] = {'id': hashlib.sha256((str(time.time_ns()) + ':' + str(os.getpid())).encode()).hexdigest(),
                                               'owner_process': binding['process'], 'hook_pid': os.getpid(), 'fingerprint': fingerprint,
@@ -1126,13 +1211,16 @@ def audit_once(path, config, watch_withheld=False, binding=None):
                 atomic(path, current)
 
             current_inspection_report = None
+            integration_failure = None
             try:
                 checked_audit_process(binding)
-                result = subprocess.run([config['runner'], 'audit-session', state['workspace'], '120'], input=json.dumps(data), text=True, capture_output=True, timeout=270, pass_fds=(inference_fd,))
+                result = subprocess.run([config['runner'], 'audit-session', state['workspace'], '120'], input=audit_transport(path, data), text=True, capture_output=True, timeout=270, pass_fds=(inference_fd,))
                 checked_audit_process(binding)
                 if result.returncode:
                     raise ValueError(result.stderr[-4000:] or 'Outcome inspection failed')
                 response = json.loads(result.stdout)
+                if not isinstance(response, dict):
+                    raise ValueError('Outcome inspection returned a non-object response')
                 escalation_validated = response.pop('escalation_validated', False) is True
                 verdict = validate_verdict(response)
                 if verdict['kind'] == 'incomplete':
@@ -1156,7 +1244,10 @@ def audit_once(path, config, watch_withheld=False, binding=None):
             except (ValueError, subprocess.TimeoutExpired, OSError) as error:
                 current_inspection_report = None
                 failures = state.get('failures', 0) + 1
-                verdict = {'kind': 'incomplete', 'remaining': 'Outcome inspection failed; the assignment remains owned and unverified. Diagnose the failure and continue authorized work. No CEO resubmission is needed. Detail: ' + str(error)}
+                integration_failure = {'kind': 'input_size' if deterministic_audit_failure(error) else 'inspection_unavailable',
+                                       'key': failure_key, 'runtime_identity': runtime_identity,
+                                       'diagnostic': str(error), 'recorded_at': time.time()}
+                verdict = {'kind': 'incomplete', 'remaining': 'Outcome inspection failed; completion is unverified. No additional work or authority was established by this integration failure.'}
             with locked(path.with_suffix('.lock')):
                 checked_audit_process(binding)
                 current = json.loads(path.read_text())
@@ -1167,9 +1258,11 @@ def audit_once(path, config, watch_withheld=False, binding=None):
                     atomic(path, current)
                     return -1, ''
                 repeated_decision = presented and prior.get('question') == verdict.get('question')
-                delay = RECOVERY_SECONDS if failures >= 3 or attempts >= BURST_AUDITS else 15 if failures else 0
+                delay = 0 if integration_failure else RECOVERY_SECONDS if attempts >= BURST_AUDITS else 0
                 current.pop('recovery_requires_review', None)
                 current.update(checked=fingerprint, verdict=verdict, failures=failures, retry_at=time.time() + delay)
+                if integration_failure is not None:
+                    current['integration_failure'] = integration_failure
                 if verdict['kind'] == 'complete':
                     current['audit_attempts'] = 0
                 if verdict['kind'] == 'decision':
@@ -1188,11 +1281,13 @@ def audit_once(path, config, watch_withheld=False, binding=None):
                 if verdict['kind'] == 'decision' and not repeated_decision:
                     message = 'Independent review found a specific CEO dependency. Finish independent authorized work, then present this decision once: ' + json.dumps(verdict)
                 elif verdict['kind'] == 'incomplete':
-                    message = continuation_message(current, path, binding=binding)
-                if message:
+                    message = integration_failure_message(path) if integration_failure else continuation_message(current, path, binding=binding)
+                if message and integration_failure is None:
                     set_audit_wake(current, binding, message)
                 atomic(path, current)
             checked_audit_process(binding)
+            if integration_failure is not None:
+                return 0, message  # Display a diagnostic, never asyncRewake on an integration error.
             if verdict['kind'] == 'complete':
                 return 0, ''
             if verdict['kind'] == 'decision':
@@ -1590,6 +1685,9 @@ def main():
     while True:
         code, message = audit(path, config, binding=binding)
         checked_audit_process(binding)
+        if code == 0 and message:
+            print(json.dumps({'systemMessage': message}))
+            return 0
         if not message or acknowledge_audit_wake(path, binding, message, stream=sys.stderr):
             return code
         # A current CEO correction superseded the queued wake before delivery.
@@ -1602,8 +1700,8 @@ if __name__ == '__main__':
     except (OwnershipSuperseded, OwnershipUnavailable) as error:
         if isinstance(error, OwnershipUnavailable) and sys.argv[1:2] == ['audit']:
             record_error(error)
-            print('Native audit process verification or lease inspection is temporarily unavailable. No new inspection or ownership transfer was authorized. Retry the native recovery check; retained work remains unfinished. Diagnostic: ' + str(error), file=sys.stderr)
-            sys.exit(2)
+            print(json.dumps({'systemMessage': 'Native outcome verification is temporarily unavailable. Retained work remains unverified; no new inspection or ownership transfer was authorized. This diagnostic does not block normal session exit. Details are retained in private adapter diagnostics.'}))
+            sys.exit(0)
         if sys.argv[1:2] in (['tool'], ['question']):
             print(json.dumps(question_denial(str(error) + '. Do not execute work without verified current ownership.')) )
         elif sys.argv[1:2] == ['permission']:
@@ -1613,6 +1711,9 @@ if __name__ == '__main__':
         sys.exit(0)  # A stale audit must never wake the old leader.
     except Exception as error:
         record_error(error)
+        if sys.argv[1:2] == ['audit']:
+            print(json.dumps({'systemMessage': 'Outcome inspection could not run. Completion remains unverified. This integration diagnostic does not request additional work or block normal session exit. Details are retained in private adapter diagnostics.'}))
+            sys.exit(0)
         if sys.argv[1:2] == ['tool']:
             sys.exit(0)  # Observability failure must not gate unrelated permitted tools.
         if sys.argv[1:2] == ['permission']:

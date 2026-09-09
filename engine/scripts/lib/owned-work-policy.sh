@@ -21,17 +21,29 @@ owned_work_dispatch() {
 # direct installed adapter hook exists and runs this reviewed sidecar's bytes.
 owned_work_adapter_dispatch_installed() {
     python3 - "$1" "$SCRIPT_DIR/../lib/owned-dispatch.py" <<'PYADAPTER'
-import hashlib,json,shlex,sys
+import hashlib,json,os,shlex,sys
 from pathlib import Path
 try:
     root=Path(sys.argv[1]).resolve()
     config=json.loads((root/'.claude/owned-work.json').read_text())
     settings=json.loads((root/'.claude/settings.local.json').read_text())
     command=config.get('dispatch_command','')
-    args=shlex.split(command)
-    assert config.get('dispatch_owner')=='adapter' and len(args)==3 and args[0]=='python3'
-    assert Path(args[2]).resolve()==root and Path(args[1]).name=='owned-dispatch.py'
-    digest=hashlib.sha256(Path(args[1]).read_bytes()).hexdigest()
+    portable='python3 "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/richos-engine/scripts/lib/owned-dispatch.py" "${CLAUDE_PROJECT_DIR:-$PWD}"'
+    assert config.get('dispatch_owner')=='adapter'
+    if command == portable:
+        # Resolve only the exact installer expression. Never evaluate arbitrary
+        # shell from project settings while deciding whether to skip a guard.
+        config_dir=Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home()/'.claude')
+        installed=config_dir/'richos-engine/scripts/lib/owned-dispatch.py'
+        actual_root=Path(os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd()).resolve()
+        assert actual_root==root
+    else:
+        # Retain the previous installation contract during rolling upgrades.
+        args=shlex.split(command)
+        assert len(args)==3 and args[0]=='python3'
+        assert Path(args[2]).resolve()==root and Path(args[1]).name=='owned-dispatch.py'
+        installed=Path(args[1])
+    digest=hashlib.sha256(installed.read_bytes()).hexdigest()
     assert digest==config.get('dispatch_script_sha256')==hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()
     assert any(group.get('matcher')=='Agent' and any(h.get('type')=='command' and h.get('command')==command for h in group.get('hooks',[])) for group in settings.get('hooks',{}).get('PreToolUse',[]))
 except (OSError,ValueError,TypeError,KeyError,AssertionError):

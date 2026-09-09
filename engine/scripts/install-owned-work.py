@@ -8,7 +8,8 @@ import json
 import hashlib
 import os
 from pathlib import Path
-import shlex
+import stat
+import tempfile
 import subprocess
 
 
@@ -18,6 +19,10 @@ def ignore_local_config(root):
     result = subprocess.run(['git', '-C', str(root), 'rev-parse', '--git-path', 'info/exclude'],
                             capture_output=True, text=True)
     if result.returncode == 0:
+        tracked = subprocess.run(['git', '-C', str(root), 'ls-files', '--error-unmatch',
+                                  '--', '.claude/owned-work.json'], capture_output=True)
+        if tracked.returncode == 0:
+            raise ValueError('Machine-specific .claude/owned-work.json is tracked; untrack it before adopting this workspace')
         path = Path(result.stdout.strip())
         if not path.is_absolute():
             path = root / path
@@ -40,6 +45,36 @@ owned = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(owned)
 
 
+# Keep repository settings identical across machines and checkout locations.
+# The engine installer owns this per-user pointer; never aim it at this script's
+# checkout as a side effect of workspace adoption.
+ENGINE_COMMAND_ROOT = '${CLAUDE_CONFIG_DIR:-$HOME/.claude}/richos-engine/scripts/lib'
+DISPATCH_COMMAND = 'python3 "' + ENGINE_COMMAND_ROOT + '/owned-dispatch.py" "${CLAUDE_PROJECT_DIR:-$PWD}"'
+
+
+def write_settings(path, data):
+    """Atomic readable settings, preserving the operator's existing file mode."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    fd, name = tempfile.mkstemp(dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as output:
+            os.fchmod(output.fileno(), mode)
+            json.dump(data, output, ensure_ascii=False, indent=2)
+            output.write('\n')
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(name, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
 def install(workspace, runner, permission_policy=None):
     root = Path(workspace).resolve(strict=True)
     binary = Path(runner).resolve(strict=True)
@@ -57,7 +92,7 @@ def install(workspace, runner, permission_policy=None):
         # Preserve user/local permissions and unrelated hooks byte-semantically.
         hooks = original.setdefault('hooks', {})
         for event, mode in [('UserPromptSubmit', 'capture'), ('SessionStart', 'capture'), ('SessionStart', 'audit'), ('Stop', 'audit'), ('StopFailure', 'audit'), ('PermissionRequest', 'permission'), ('PreToolUse', 'question'), ('PreToolUse', 'tool'), ('Notification', 'observe')]:
-            command = 'python3 ' + shlex.quote(str(script)) + ' ' + mode
+            command = 'python3 "' + ENGINE_COMMAND_ROOT + '/owned-session.py" ' + mode
             groups = hooks.setdefault(event, [])
             found = [h for group in groups for h in group.get('hooks', []) if 'lib/owned-session.py' in h.get('command', '') and h['command'].endswith(' ' + mode)]
             config = {'type': 'command', 'command': command, 'timeout': 3900 if mode == 'audit' else 180 if mode in ('question', 'permission') else 15}
@@ -73,7 +108,7 @@ def install(workspace, runner, permission_policy=None):
                 if mode == 'observe': group['matcher'] = 'permission_prompt'
                 groups.append(group)
         dispatch = script.with_name('owned-dispatch.py')
-        dispatch_command = 'python3 ' + shlex.quote(str(dispatch)) + ' ' + shlex.quote(str(root))
+        dispatch_command = DISPATCH_COMMAND
         groups = hooks.setdefault('PreToolUse', [])
         found = [h for group in groups if group.get('matcher') == 'Agent' for h in group.get('hooks', []) if 'lib/owned-dispatch.py' in h.get('command', '')]
         dispatch_hook = {'type': 'command', 'command': dispatch_command, 'timeout': 240}
@@ -85,7 +120,7 @@ def install(workspace, runner, permission_policy=None):
         ignore_local_config(root)
         # Hook first, ownership marker second. A crash cannot make the engine
         # skip while no direct adapter hook has been installed.
-        owned.atomic(target, original)
+        write_settings(target, original)
         owned.atomic(root / owned.CONFIG, {'version': 1, 'enabled': True, 'runner': str(binary),
                     'decision_policy': 'dependency', 'permission_policy': permission_policy,
                     'dispatch_owner': 'adapter', 'dispatch_command': dispatch_command,

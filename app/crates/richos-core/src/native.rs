@@ -685,7 +685,7 @@ pub struct NativeClient {
 /// and written together, on one thread, and a single lock makes that obvious.
 ///
 /// `Default` is written out below rather than derived, because `skills_verdict`'s honest
-/// starting value is `NotYetReported` and a derived default would be whichever variant happens
+/// starting value is `NotRequested` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
     permission_context: Option<crate::permission::Context>,
@@ -725,10 +725,9 @@ struct ReaderState {
     /// path and version (measured, `inner-doctrine-skills-2026-09-06/` cell K2) — so the same
     /// class of silent failure is caught here rather than merely regretted.
     ///
-    /// It starts [`skills::SkillsVerdict::NotYetReported`] and stays there for a lease that has
-    /// never run a turn, because the init frame lands with the first TURN and not with the
-    /// handshake. That is a third state, not a pessimistic default: "nobody has told us" and
-    /// "we were told no" call for opposite responses.
+    /// Chat leases start at [`skills::SkillsVerdict::NotYetReported`] until the first turn.
+    /// Inspectors, registrars and workers do not request the chat plugin and retain
+    /// [`skills::SkillsVerdict::NotRequested`], regardless of their init plugin list.
     skills_verdict: crate::skills::SkillsVerdict,
     /// Both exact app-owned onboarding tools, as reported by the child on its first turn.
     onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict,
@@ -741,7 +740,7 @@ impl Default for ReaderState {
             context_only: false,
             session_model: None,
             context_window: None,
-            skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
+            skills_verdict: crate::skills::SkillsVerdict::NotRequested,
             onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported,
         }
     }
@@ -885,6 +884,22 @@ impl NativeClient {
     }
 
     fn spawn_with_tools(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
+        Self::spawn_with_tools_and_evidence(bin, cwd, managed, schema, registrar_model, standing, onboarding, control, None)
+    }
+
+    fn spawn_with_tools_and_evidence(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>, evidence_directory: Option<&Path>) -> Result<Self, NativeError> {
+        // This host-only directory is read scope for the inspector's existing read-only
+        // tools. It must never widen an execution worker or a registrar's workspace.
+        let evidence_directory = if let Some(directory) = evidence_directory {
+            if !managed || schema.is_none() || registrar_model.is_some() || standing.is_some() {
+                return Err(NativeError::Protocol("Only an inspector may receive an evidence directory.".into()));
+            }
+            let directory = directory.canonicalize()?;
+            if !directory.is_dir() || directory.parent().is_none() {
+                return Err(NativeError::Protocol("Inspector evidence must name a specific existing directory.".into()));
+            }
+            Some(directory)
+        } else { None };
         // The standing instruction and the skills belong to the CEO-facing chat lease alone.
         // See `chat_child_args`.
         debug_assert!(
@@ -920,6 +935,9 @@ impl NativeClient {
             args.extend(["--tools".into(), if registrar_model.is_some() { "".into() } else { "Read,Glob,Grep".into() },
                 "--strict-mcp-config".into(), "--mcp-config".into(), "{\"mcpServers\":{}}".into(),
                 "--json-schema".into(), schema.to_string()]);
+        }
+        if let Some(directory) = evidence_directory {
+            args.extend(["--add-dir".into(), directory.display().to_string()]);
         }
         let mut command = Command::new(bin);
         if managed {
@@ -959,7 +977,14 @@ impl NativeClient {
             Arc::new(Mutex::new(std::collections::HashMap::new()));
         let current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>> = Arc::new(Mutex::new(None));
         let between: Arc<Mutex<BetweenTurn>> = Arc::new(Mutex::new(BetweenTurn::default()));
-        let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState::default()));
+        let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState {
+            skills_verdict: if skills.is_some() {
+                crate::skills::SkillsVerdict::NotYetReported
+            } else {
+                crate::skills::SkillsVerdict::NotRequested
+            },
+            ..ReaderState::default()
+        }));
         let stderr_tail: Arc<Mutex<std::collections::VecDeque<String>>> =
             Arc::new(Mutex::new(std::collections::VecDeque::new()));
         // Reset at every `message_start`; read at every `assistant` frame. See
@@ -1266,7 +1291,11 @@ impl NativeClient {
                 st.onboarding_tools_verdict = crate::onboarding_tools::verdict_from_init(&msg);
             }
             let before = st.skills_verdict;
-            st.skills_verdict = crate::skills::verdict_from_init(&msg);
+            // Only a lease launched with our plugin can reject it. Inspectors deliberately
+            // omit chat skills, so absence there is expected and never passed preflight.
+            if before != crate::skills::SkillsVerdict::NotRequested {
+                st.skills_verdict = crate::skills::verdict_from_init(&msg);
+            }
             if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
                 && before != crate::skills::SkillsVerdict::Rejected
             {
@@ -1278,7 +1307,7 @@ impl NativeClient {
                     "[richos] THE SKILLS DID NOT LOAD. `{PLUGIN_DIR}` was accepted and \
                      `{}` is not in this session's plugin list, so every skill RichOS ships is \
                      absent from this lease. The files passed preflight, so this is the binary \
-                     declining them — check `claude --version` against the last release gate.",
+                     not reporting the requested plugin. Inspect its plugin diagnostics.",
                     crate::skills::PLUGIN_NAME
                 );
             }
@@ -1452,9 +1481,9 @@ impl NativeClient {
     /// Did the binary actually load RichOS's skills? Read off `system/init.plugins`.
     ///
     /// [`skills::SkillsVerdict::NotYetReported`] until the first turn, because that is when the
-    /// init frame arrives. A caller that treats `NotYetReported` as a failure would report a
-    /// fresh lease as broken; a caller that treats it as success would report an unknown as a
-    /// fact. It is three states for that reason.
+    /// init frame arrives for a chat lease. Leases that do not request chat skills report
+    /// [`skills::SkillsVerdict::NotRequested`]. Neither state is a loading failure or proof
+    /// that the requested plugin was loaded.
     pub fn skills_verdict(&self) -> crate::skills::SkillsVerdict {
         self.reader_state.lock().map(|s| s.skills_verdict).unwrap_or(crate::skills::SkillsVerdict::NotYetReported)
     }
@@ -1798,6 +1827,17 @@ impl NativeCognition {
         Ok(Self { client, session_id, onboarding_scope: None })
     }
 
+    /// Permit read-only inspection of this host-created evidence snapshot outside the
+    /// workspace. Only this directory is added; tools and permission callbacks stay scoped
+    /// exactly as on an ordinary inspector, with no execution grants.
+    pub fn start_inspector_with_schema_and_evidence(bin: &Path, workspace: &Path,
+        schema: serde_json::Value, evidence_directory: &Path) -> Result<Self, NativeError> {
+        let client = NativeClient::spawn_with_tools_and_evidence(bin, workspace, true,
+            Some(schema), None, None, None, None, Some(evidence_directory))?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id, onboarding_scope: None })
+    }
+
     /// A detached transcriber has no tools, plugins or workspace access. Managed
     /// callbacks still deny unexpected permission requests and drop kills its group.
     pub fn start_registrar(bin: &Path, neutral_cwd: &Path, schema: Value, model: &str) -> Result<Self, NativeError> {
@@ -2124,6 +2164,41 @@ mod native_driver_tests {
     }
 
     #[test]
+    fn skills_verdict_distinguishes_chat_rejection_from_intentionally_unrequested_skills() {
+        use crate::skills::SkillsVerdict;
+        // Exercise the actual spawn shapes and reader, not just the JSON helper. Every
+        // non-chat shape used to emit the false "files passed preflight" diagnostic.
+        for shape in ["chat", "inspector", "worker", "registrar"] {
+            for plugins in [json!([]), json!([{"name":"rich-skills"}])] {
+                let init = json!({"type":"system", "subtype":"init", "plugins":plugins});
+                let body = format!(
+                    "read -r line\nprintf '%s\\n' '{{\"type\":\"control_response\",\"response\":{{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{{}}}}}}'\n\
+                     read -r line\nprintf '%s\\n' '{init}'\n\
+                     printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"stop_reason\":\"end_turn\"}}'\n\
+                     while read -r line; do :; done\n"
+                );
+                let script = write_script(&format!("skills-shape-{shape}"), &body);
+                let schema = json!({"type":"object", "properties":{}});
+                let client = match shape {
+                    "chat" => NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()),
+                    "worker" => NativeClient::spawn_with_policy(&script, Path::new("/tmp"), true),
+                    "inspector" => NativeClient::spawn_with_tools(&script, Path::new("/tmp"), true, Some(schema), None, None, None, None),
+                    "registrar" => NativeClient::spawn_with_tools(&script, Path::new("/tmp"), true, Some(schema), Some("sonnet"), None, None, None),
+                    _ => unreachable!(),
+                }.unwrap();
+                assert_eq!(client.skills_verdict(), if shape == "chat" {
+                    SkillsVerdict::NotYetReported
+                } else { SkillsVerdict::NotRequested }, "{shape} before init");
+                client.prompt("ready", &mut |_| {}).unwrap();
+                let expected = if shape != "chat" { SkillsVerdict::NotRequested }
+                    else if plugins.as_array().unwrap().is_empty() { SkillsVerdict::Rejected }
+                    else { SkillsVerdict::Loaded };
+                assert_eq!(client.skills_verdict(), expected, "{shape} after init with {plugins}");
+            }
+        }
+    }
+
+    #[test]
     fn the_real_reader_verifies_both_onboarding_tools_from_the_first_init() {
         use crate::onboarding_tools::{OnboardingToolsVerdict, QUALIFIED_SAVE_TOOL, QUALIFIED_DECLINE_TOOL};
         for (suffix, names, expected) in [
@@ -2423,6 +2498,41 @@ done
         assert_eq!(client.prompt_context_only("Historical context", &mut |_| {}).unwrap(), "permission_denied");
         assert_eq!(client.prompt("Authorized work", &mut |_| {}).unwrap(), "end_turn");
         assert_eq!(client.prompt("Repeated operation", &mut |_| {}).unwrap(), "permission_denied");
+    }
+
+    #[test]
+    fn inspector_evidence_adds_only_the_exact_directory_without_execution_grants() {
+        let fixture = crate::permission::tests::Fixture::new();
+        let evidence = fixture.root.join("private evidence");
+        std::fs::create_dir(&evidence).unwrap();
+        let args_path = fixture.root.join("inspector-args.txt");
+        let script = write_script("inspector-evidence", &format!(r#"
+printf '%s\n' "$@" > '{}'
+read -r init
+printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+while read -r next; do :; done
+"#, args_path.display()));
+        let mut inspector = NativeCognition::start_inspector_with_schema_and_evidence(
+            &script, &fixture.workspace, crate::autonomy::response_schema(), &evidence).unwrap();
+        let args = std::fs::read_to_string(&args_path).unwrap();
+        let args: Vec<_> = args.lines().collect();
+        let i = args.iter().position(|s| *s == "--add-dir").unwrap();
+        assert_eq!(args[i + 1], evidence.canonicalize().unwrap().to_str().unwrap());
+        assert_eq!(args.iter().filter(|s| **s == "--add-dir").count(), 1);
+        let tools = args.iter().position(|s| *s == "--tools").unwrap();
+        assert_eq!(args[tools + 1], "Read,Glob,Grep");
+        assert!(args.contains(&"--strict-mcp-config"));
+        let settings = args.iter().position(|s| *s == "--setting-sources").unwrap();
+        assert_eq!(args[settings + 1], "user,project,local");
+        assert!(inspector.set_managed_permission_context(fixture.approved()).is_err());
+        drop(inspector);
+        let ordinary = NativeCognition::start_inspector(&script, &fixture.workspace).unwrap();
+        assert!(!std::fs::read_to_string(&args_path).unwrap().lines().any(|s| s == "--add-dir"));
+        drop(ordinary);
+        assert!(NativeClient::spawn_with_tools_and_evidence(&script, &fixture.workspace,
+            true, None, None, None, None, None, Some(&evidence)).is_err());
+        assert!(NativeCognition::start_inspector_with_schema_and_evidence(&script,
+            &fixture.workspace, crate::autonomy::response_schema(), &args_path).is_err());
     }
 
     #[test]

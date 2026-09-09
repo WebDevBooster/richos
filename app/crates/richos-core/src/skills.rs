@@ -220,11 +220,12 @@ pub fn verify_present(plugin_root: &Path) -> Result<(), (PathBuf, String)> {
 
 /// What the first `system/init` frame said about our plugin.
 ///
-/// Three states rather than a `bool`, because "we have not been told yet" and "we were told it
-/// is not there" call for opposite responses, and collapsing them is how an absence gets
-/// reported as a fact. Same reasoning as `entity.rs::RegistrySource`.
+/// Separate intentionally omitted skills from pending discovery and actual acceptance or
+/// rejection. Inspectors, workers and registrars do not request the chat plugin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillsVerdict {
+    /// This lease did not request RichOS's chat plugin. Absence is expected, not rejection.
+    NotRequested,
     /// No `system/init` frame has arrived yet. It lands with the first TURN, not the handshake,
     /// so this is the state for the whole of a lease that has not been used.
     NotYetReported,
@@ -236,7 +237,7 @@ pub enum SkillsVerdict {
     Rejected,
 }
 
-/// Read the verdict off a `system/init` frame.
+/// Read the verdict off a `system/init` frame for a lease that requested the plugin.
 ///
 /// `plugins` is an array of objects carrying `name`, `path`, `source` and `version` — measured,
 /// cell K2. A frame with no `plugins` key at all is `Rejected` rather than `NotYetReported`: an

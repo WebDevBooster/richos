@@ -17,3 +17,11 @@ in [IMPROVEMENTS.md](IMPROVEMENTS.md).
   must not silently weaken the ownership check.
 
 Source: [Sage's R7 review](../../reviews/sage-fable-r7-owned-outcome-2026-09-09.md).
+
+## Outside the installed exit-failure repair
+
+- Evaluate inspection across multiple model leases if the full source conversation
+  itself exceeds a context window. Preserve all source constraints and verify
+  coverage across leases. This is separate from removing oversized execution
+  payloads from the initial prompt and letting infrastructure failures exit
+  normally with completion explicitly unverified.

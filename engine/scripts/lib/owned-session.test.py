@@ -170,16 +170,167 @@ class Owned(unittest.TestCase):
             with self.assertRaises(ValueError):
                 o.validate_verdict(v)
 
-    def test_failed_inspection_stays_owned_across_reload_with_backoff(self):
+    def test_failed_inspection_is_nonblocking_and_stays_owned_without_repeated_calls(self):
         path = o.capture(self.root, self.payload)
         failure = subprocess.CompletedProcess([], 2, '', 'provider unavailable')
-        with patch.object(o.subprocess, 'run', return_value=failure), patch.object(o.time, 'sleep'), patch.object(o.time, 'monotonic', side_effect=iter(range(0,100000,4000))):
+        with patch.object(o.subprocess, 'run', return_value=failure) as runner, patch.object(o.time, 'sleep') as sleep:
+            code, message = o.audit(path, self.config)
+            self.assertEqual(code, 0)
+            self.assertIn('does not block normal session exit', message)
             for _ in range(3):
-                self.assertEqual(o.audit(path, self.config)[0], 2)
+                self.assertEqual(o.audit(path, self.config), (0, ''))
+            runner.assert_called_once()
+            sleep.assert_not_called()
         state = json.loads(path.read_text())
-        self.assertEqual(state['failures'], 3)
-        self.assertGreater(state['retry_at'] - o.time.time(), 3500)
+        self.assertEqual(state['failures'], 1)
+        self.assertLessEqual(state['retry_at'], o.time.time())
         self.assertEqual(state['verdict']['kind'], 'incomplete')
+        self.assertNotIn('audit_wake', state)
+        self.assertEqual(state['integration_failure']['kind'], 'inspection_unavailable')
+
+    def test_context_failure_is_reported_once_and_identical_input_is_not_retried(self):
+        path = o.capture(self.root, self.payload)
+        failure = subprocess.CompletedProcess([], 2, '', 'Prompt is too long: 1093429 tokens > 1000000 maximum')
+        with patch.object(o.subprocess, 'run', return_value=failure) as runner, patch.object(o.time, 'sleep') as sleep:
+            code, message = o.audit(path, self.config)
+            self.assertEqual(code, 0)
+            self.assertNotIn(o.CONTINUE_WORK, message)
+            self.assertIn('not a finding of unfinished business work', message)
+            self.assertIn('Preserve every explicit pause', message)
+            for _ in range(4):
+                self.assertEqual(o.audit(path, self.config), (0, ''))
+            state = json.loads(path.read_text())
+            state['messages'].append({'role':'assistant', 'text':'The inspector integration is unavailable.'})
+            state['revision'] += 1
+            o.atomic(path, state)
+            self.assertEqual(o.audit(path, self.config), (0, ''))
+            self.assertEqual(runner.call_count, 1)
+            sleep.assert_not_called()
+        state = json.loads(path.read_text())
+        self.assertEqual(state['verdict']['kind'], 'incomplete')
+        self.assertEqual(state['integration_failure']['kind'], 'input_size')
+        self.assertEqual(state['failures'], 1)
+        self.assertNotIn('inspection_report', state)
+
+    def test_context_failure_retries_changed_evidence_without_waiting_or_losing_pause(self):
+        self.write_message('pause', 'user', 'Pause this assignment. Do not publish.')
+        path = o.capture(self.root, self.payload)
+        failure = subprocess.CompletedProcess([], 2, '', 'maximum context length exceeded')
+        with patch.object(o.subprocess, 'run', return_value=failure):
+            o.audit(path, self.config)
+        state = json.loads(path.read_text())
+        state['execution_observations'] = [{'id':'new-receipt','tool_name':'Read','is_error':False,'content':'Receipt now available'}]
+        state['retry_at'] = o.time.time() + 3600
+        state['revision'] += 1
+        o.atomic(path, state)
+        complete = subprocess.CompletedProcess([], 0, json.dumps({'kind':'complete','evidence':'Source explicitly pauses the assignment.'}), '')
+        with patch.object(o.subprocess, 'run', return_value=complete) as runner, patch.object(o.time, 'sleep') as sleep:
+            self.assertEqual(o.audit(path, self.config), (0, ''))
+            runner.assert_called_once()
+            self.assertIn('Pause this assignment. Do not publish.', runner.call_args.kwargs['input'])
+            sleep.assert_not_called()
+        state = json.loads(path.read_text())
+        self.assertNotIn('integration_failure', state)
+        self.assertEqual(state['failures'], 0)
+
+    def test_runner_replacement_recovers_failed_input_at_same_path(self):
+        path = o.capture(self.root, self.payload)
+        failure = subprocess.CompletedProcess([], 2, '', 'context_window_exceeded')
+        with patch.object(o.subprocess, 'run', return_value=failure):
+            o.audit(path, self.config)
+        before = self.runner.stat()
+        self.runner.write_text(self.runner.read_text().replace('proven defect', 'known defect'))
+        os.utime(self.runner, ns=(before.st_atime_ns, before.st_mtime_ns))
+        complete = subprocess.CompletedProcess([], 0, json.dumps({'kind':'complete','evidence':'Verified after runtime repair.'}), '')
+        with patch.object(o.subprocess, 'run', return_value=complete) as runner, patch.object(o.time, 'sleep') as sleep:
+            self.assertEqual(o.audit(path, self.config), (0, ''))
+            runner.assert_called_once()
+            sleep.assert_not_called()
+
+    def test_legacy_failure_backoff_gets_one_runtime_recovery_without_stale_wake(self):
+        path = o.capture(self.root, self.payload)
+        state = json.loads(path.read_text())
+        state.update(failures=3, audit_attempts=5, retry_at=o.time.time()+3600)
+        o.set_audit_wake(state, o.audit_binding(path), o.CONTINUE_WORK + 'Old integration failure')
+        o.atomic(path, state)
+        failure = subprocess.CompletedProcess([], 2, '', 'Prompt is too long')
+        with patch.object(o.subprocess, 'run', return_value=failure) as runner, patch.object(o.time, 'sleep') as sleep:
+            code, message = o.audit(path, self.config)
+            self.assertEqual(code, 0)
+            self.assertNotIn('Old integration failure', message)
+            self.assertEqual(o.audit(path, self.config), (0, ''))
+            runner.assert_called_once()
+            sleep.assert_not_called()
+        state = json.loads(path.read_text())
+        self.assertEqual(state['audit_attempts'], 6)
+        self.assertEqual(state['failures'], 4)
+
+    def test_large_audit_stdin_uses_private_immutable_complete_snapshot(self):
+        import hashlib
+        path = self.root / 'state' / 'session.json'
+        data = {'messages':[{'role':'user','text':'Do not publish.'}, {'role':'assistant','text':'x'*5000000}],
+                'execution_observations':[{'id':'first','content':'All receipts retained.'}]}
+        transport = json.loads(o.audit_transport(path, data))
+        snapshot = Path(transport['audit_snapshot']['path'])
+        self.assertEqual(json.loads(snapshot.read_text()), data)
+        self.assertEqual(hashlib.sha256(snapshot.read_bytes()).hexdigest(), transport['audit_snapshot']['sha256'])
+        self.assertLess(len(json.dumps(transport)), 1024)
+        self.assertEqual(snapshot.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(snapshot.parent.stat().st_mode & 0o777, 0o700)
+        before = snapshot.stat()
+        self.assertEqual(json.loads(o.audit_transport(path, data)), transport)
+        self.assertEqual(snapshot.stat().st_ino, before.st_ino)
+        self.assertEqual(snapshot.stat().st_mtime_ns, before.st_mtime_ns)
+        snapshot.write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'integrity mismatch'):
+            o.audit_transport(path, data)
+
+    def test_small_audit_transport_stays_inline(self):
+        data = {'messages':[{'role':'user','text':'Keep all authority.'}]}
+        self.assertEqual(json.loads(o.audit_transport(self.root/'session.json', data)), data)
+        self.assertFalse((self.root/'session.audit-snapshots').exists())
+
+    def test_cli_audit_failures_display_once_without_async_rewake_and_runtime_repair_retries(self):
+        i.install(self.root, self.runner)
+        counter = self.root / 'runner-calls'
+        for index, detail in enumerate(('Prompt is too long', 'Inspector timed out', 'Required evidence is unreadable')):
+            with self.subTest(detail=detail):
+                self.payload.update(hook_event_name='UserPromptSubmit', prompt='Keep the existing scope. Case ' + str(index))
+                path = o.capture(self.root, self.payload)
+                self.payload['hook_event_name'] = 'Stop'
+                counter.write_text('')
+                script = ('#!/usr/bin/env python3\nimport json,sys\nfrom pathlib import Path\n'
+                          'json.load(sys.stdin)\n'
+                          'with Path(' + repr(str(counter)) + ').open("a") as f: f.write("call\\n")\n')
+                self.runner.write_text(script + 'print(' + repr(detail) + ', file=sys.stderr)\nsys.exit(2)\n')
+                result = self.invoke('audit')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, '')
+                self.assertEqual(set(json.loads(result.stdout)), {'systemMessage'})
+                self.assertIn('does not block normal session exit', json.loads(result.stdout)['systemMessage'])
+                self.assertNotIn(o.CONTINUE_WORK, result.stdout)
+                self.assertEqual(counter.read_text(), 'call\n')
+                state = json.loads(path.read_text())
+                self.assertEqual(state['verdict']['kind'], 'incomplete')
+                self.assertIn(detail, state['integration_failure']['diagnostic'])
+                self.assertFalse(state.get('audit_wake', {}).get('message'))
+                repeated = self.invoke('audit')
+                self.assertEqual((repeated.returncode, repeated.stdout, repeated.stderr), (0, '', ''))
+                self.assertEqual(counter.read_text(), 'call\n')
+                self.runner.write_text(script + 'print(json.dumps({"kind":"complete","evidence":"Required outcome verified after integration repair."}))\n')
+                repaired = self.invoke('audit')
+                self.assertEqual((repaired.returncode, repaired.stdout, repaired.stderr), (0, '', ''))
+                self.assertEqual(counter.read_text(), 'call\ncall\n')
+                self.assertEqual(json.loads(path.read_text())['verdict']['kind'], 'complete')
+        self.payload.update(hook_event_name='UserPromptSubmit', prompt='Now handle another authorized repair.')
+        path = o.capture(self.root, self.payload)
+        self.payload['hook_event_name'] = 'Stop'
+        self.runner.write_text(script + 'print(json.dumps({"kind":"incomplete","remaining":"Required check found an actual unresolved defect."}))\n')
+        unfinished = self.invoke('audit')
+        self.assertEqual(unfinished.returncode, 2)
+        self.assertEqual(unfinished.stdout, '')
+        self.assertTrue(unfinished.stderr.startswith(o.CONTINUE_WORK))
+        self.assertNotIn('integration_failure', json.loads(path.read_text()))
 
     def test_new_instruction_during_review_gets_reaudited_without_old_wake(self):
         path = o.capture(self.root, self.payload)
@@ -387,7 +538,11 @@ class Owned(unittest.TestCase):
         self.assertEqual(config['dispatch_owner'],'adapter')
         lib=Path(__file__).with_name('owned-work-policy.sh')
         def installed():
-            return subprocess.run(['bash','-c','. "$1"; SCRIPT_DIR="$2"; owned_work_adapter_dispatch_installed "$3"','bash',str(lib),str(lib.parent.parent/'hooks'),str(self.root)]).returncode==0
+            config_dir=self.root/'claude-config'
+            config_dir.mkdir(exist_ok=True)
+            pointer=config_dir/'richos-engine'
+            if not pointer.exists(): pointer.symlink_to(lib.resolve().parents[2], target_is_directory=True)
+            return subprocess.run(['bash','-c','. "$1"; SCRIPT_DIR="$2"; owned_work_adapter_dispatch_installed "$3"','bash',str(lib),str(lib.parent.parent/'hooks'),str(self.root)], env=dict(os.environ, CLAUDE_CONFIG_DIR=str(config_dir), CLAUDE_PROJECT_DIR=str(self.root))).returncode==0
         self.assertTrue(installed())
         settings['hooks']['PreToolUse']=[g for g in settings['hooks']['PreToolUse'] if g.get('matcher')!='Agent']
         o.atomic(self.root/'.claude/settings.local.json',settings)
@@ -793,13 +948,15 @@ class Owned(unittest.TestCase):
     def test_only_valid_incomplete_inspections_publish_a_diagnostic_report(self):
         responses=[subprocess.CompletedProcess([],2,'','provider exception'),
                    subprocess.CompletedProcess([],0,'not JSON',''),
+                   subprocess.CompletedProcess([],0,'[]',''),
+                   subprocess.CompletedProcess([],0,'null',''),
                    subprocess.CompletedProcess([],0,json.dumps({'kind':'decision','question':'Choose?','why_ceo':'Claim','recommendation':'No','options':['Yes','No']}),''),
                    subprocess.CompletedProcess([],0,json.dumps({'kind':'complete','evidence':'Verified actual completion.'}),'')]
         for response in responses:
             with self.subTest(response=response.stdout):
                 path=o.capture(self.root,self.payload);state=json.loads(path.read_text())
                 state.update(inspection_report={'findings':'OLD REPORT'},audit_attempts=0,retry_at=0)
-                for key in ('checked','audit_wake','audit_inference'):state.pop(key,None)
+                for key in ('checked','audit_wake','audit_inference','integration_failure'):state.pop(key,None)
                 o.atomic(path,state)
                 with patch.object(o.subprocess,'run',return_value=response):code,message=o.audit(path,self.config)
                 self.assertNotIn('INSPECTOR DIAGNOSTIC REPORT',message)
@@ -810,13 +967,13 @@ class Owned(unittest.TestCase):
         path = o.capture(self.root, self.payload)
         with patch.object(o.subprocess, 'run', return_value=subprocess.CompletedProcess([], 2, '', poison)):
             code, message = o.audit(path, self.config)
-        self.assertEqual(code, 2)
-        self.assertTrue(message.startswith(o.CONTINUE_WORK))
+        self.assertEqual(code, 0)
+        self.assertNotIn(o.CONTINUE_WORK, message)
         self.assertNotIn(poison, message)
         state = json.loads(path.read_text())
-        self.assertIn(poison, state['verdict']['remaining'])
+        self.assertIn(poison, state['integration_failure']['diagnostic'])
         self.assertEqual(state['failures'], 1)
-        self.assertIn('Outcome inspection failed', message)
+        self.assertIn('inspector integration failed', message)
         self.assertIn(str(path), message)
 
     def test_question_denial_keeps_raw_review_out_of_native_tool_feedback(self):
@@ -856,7 +1013,7 @@ class Owned(unittest.TestCase):
     def test_top_level_capture_failure_is_private_diagnostic_not_hook_instruction(self):
         i.install(self.root, self.runner)
         (self.root/o.CONFIG).write_text('{broken')
-        for mode, code in [('permission', 0), ('question', 0), ('audit', 2)]:
+        for mode, code in [('permission', 0), ('question', 0), ('audit', 0)]:
             with self.subTest(mode=mode):
                 result = self.invoke(mode)
                 self.assertEqual(result.returncode, code)
@@ -871,7 +1028,8 @@ class Owned(unittest.TestCase):
                 elif mode == 'question':
                     self.assertEqual(json.loads(result.stdout)['hookSpecificOutput']['permissionDecision'], 'deny')
                 else:
-                    self.assertTrue(result.stderr.startswith(o.CONTINUE_WORK))
+                    self.assertEqual(result.stderr, '')
+                    self.assertIn('does not request additional work or block normal session exit', json.loads(result.stdout)['systemMessage'])
 
     def test_permission_context_is_partial_observed_data_not_an_inferred_grant(self):
         home = self.root/'isolated-user'
@@ -1188,7 +1346,7 @@ class Recovery(unittest.TestCase):
         current=json.loads(path.read_text());self.assertEqual(len(current['recovery_checkpoints']),2)
         self.assertNotIn('claimed_at',current['recovery_checkpoints'][-1])
         with patch.object(o.subprocess,'run',return_value=subprocess.CompletedProcess([],1,'','inspector unavailable')),patch.object(o.time,'sleep',side_effect=AssertionError('Same-session actual restart receives one reconciliation')):
-            self.assertEqual(o.audit_once(path,self.config)[0],2)
+            self.assertEqual(o.audit_once(path,self.config)[0],0)
         current=json.loads(path.read_text());self.assertEqual(current['audit_attempts'],7);self.assertEqual(current['failures'],1)
         self.assertTrue(current['recovery_checkpoints'][-1]['claimed_at'])
 
@@ -1599,7 +1757,7 @@ class AuditLifecycle(unittest.TestCase):
             children.append(subprocess.Popen([sys.executable,'-c','import time;time.sleep(.3)'],pass_fds=kwargs['pass_fds']))
             raise subprocess.TimeoutExpired('inspector',270)
         try:
-            with patch.object(o.subprocess,'run',side_effect=timed_out):self.assertEqual(o.audit_once(path,self.config)[0],2)
+            with patch.object(o.subprocess,'run',side_effect=timed_out):self.assertEqual(o.audit_once(path,self.config)[0],0)
             with open(path.with_suffix('.inference-lock'),'a') as lease,self.assertRaises(BlockingIOError):
                 o.fcntl.flock(lease,o.fcntl.LOCK_EX|o.fcntl.LOCK_NB)
         finally:
