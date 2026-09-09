@@ -25,3 +25,7 @@ Source: [Sage's R7 review](../../reviews/sage-fable-r7-owned-outcome-2026-09-09.
   coverage across leases. This is separate from removing oversized execution
   payloads from the initial prompt and letting infrastructure failures exit
   normally with completion explicitly unverified.
+
+## Suggestions observed during resumable inspection repair
+
+- Independently review cross-repository evidence access for native outcome inspections. The reported conversation includes deliverables outside its active workspace. The current read-only inspector correctly discloses that boundary. Expanding read scope is not part of the timeout/exit repair and must not become an implicit execution permission grant.

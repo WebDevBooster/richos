@@ -21,6 +21,8 @@ HUMAN_PROVENANCE = ('native_human_typed_v1',)
 SOURCE_WARNING = 'Source transcript unavailable. Only hook payloads are retained; transcript deduplication and observed question-answer provenance are unavailable. Do not infer missing answers or authority.'
 BURST_AUDITS = 5
 RECOVERY_SECONDS = 3600
+INSPECTION_SLICE_PAUSE = 1
+MAX_STALLED_INSPECTION_SLICES = 3
 PERMISSION_REASON = 'This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry a refused call without evidence that existing permitted alternatives cannot satisfy the authorized outcome, and never weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation.'
 CONTINUE_WORK = ('Rich still owns unfinished authorized work. Continue without a CEO nudge. '
                  'Reconcile the original request and current deliverables, including required executed checks. '
@@ -712,6 +714,27 @@ def audit_transport(path, data):
 
 
 
+def inspection_checkpoint(path, workspace):
+    """Workspace identity survives native session replacement and added evidence."""
+    directory = path.parent / 'inspection-checkpoints'
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+    key = hashlib.sha256(str(Path(workspace).resolve()).encode()).hexdigest()
+    return directory / (key + '.json')
+
+
+def validate_inspection_progress(value):
+    # This envelope is emitted only by the host CLI, outside model verdicts.
+    # A progress receipt is never evidence of business completion or authority.
+    if (set(value) != {'kind', 'checkpoint', 'reason', 'progressed'} or
+            value.get('kind') != 'progress' or type(value.get('progressed')) is not bool or
+            not isinstance(value.get('checkpoint'), str) or
+            not 1 <= len(value['checkpoint'].strip()) <= 256 or
+            not isinstance(value.get('reason'), str) or not value['reason'].strip()):
+        raise ValueError('Invalid host inspection progress receipt')
+    return value
+
+
 def audit_runtime_identity(config):
     """Content identity, so replacement at the same path can recover a failed audit."""
     digest = hashlib.sha256()
@@ -1181,7 +1204,9 @@ def audit_once(path, config, watch_withheld=False, binding=None):
                     if json.loads(path.read_text())['revision'] != revision:
                         return -1, ''
 
-        with audit_lease(path, binding, '.inference-lock', wait_seconds=300) as inference_fd:
+        checkpoint_path = inspection_checkpoint(path, state['workspace'])
+        with audit_lease(path, binding, '.inference-lock', wait_seconds=300) as inference_fd, \
+                audit_lease(checkpoint_path, binding, '.python-inference-lock', wait_seconds=300) as workspace_fd:
             # Reserve pacing before inference. Repeated honest incompletes also cost
             # compute; a process crash or synthetic wake cannot reset their allowance.
             with locked(path.with_suffix('.lock')):
@@ -1212,17 +1237,27 @@ def audit_once(path, config, watch_withheld=False, binding=None):
 
             current_inspection_report = None
             integration_failure = None
+            progress = None
             try:
                 checked_audit_process(binding)
-                result = subprocess.run([config['runner'], 'audit-session', state['workspace'], '120'], input=audit_transport(path, data), text=True, capture_output=True, timeout=270, pass_fds=(inference_fd,))
+                environment = dict(os.environ, RICHOS_AUDIT_CHECKPOINT=str(checkpoint_path.resolve()))
+                result = subprocess.run([config['runner'], 'audit-session', state['workspace'], '120'], input=audit_transport(path, data), text=True, capture_output=True, timeout=270, pass_fds=(inference_fd, workspace_fd), env=environment)
                 checked_audit_process(binding)
                 if result.returncode:
                     raise ValueError(result.stderr[-4000:] or 'Outcome inspection failed')
                 response = json.loads(result.stdout)
                 if not isinstance(response, dict):
                     raise ValueError('Outcome inspection returned a non-object response')
-                escalation_validated = response.pop('escalation_validated', False) is True
-                verdict = validate_verdict(response)
+                if response.get('kind') == 'progress':
+                    progress = validate_inspection_progress(response)
+                    previous_progress = state.get('inspection_progress', {})
+                    stalled = 0 if progress['progressed'] else previous_progress.get('stalled_slices', 0) + 1
+                    if stalled >= MAX_STALLED_INSPECTION_SLICES:
+                        raise ValueError('Inspection made no durable progress across three consecutive slices; completion remains unverified')
+                    verdict = progress
+                else:
+                    escalation_validated = response.pop('escalation_validated', False) is True
+                    verdict = validate_verdict(response)
                 if verdict['kind'] == 'incomplete':
                     current_inspection_report = verdict['remaining']
                 if verdict['kind'] == 'decision' and not escalation_validated:
@@ -1242,6 +1277,7 @@ def audit_once(path, config, watch_withheld=False, binding=None):
             except (OwnershipSuperseded, OwnershipUnavailable):
                 raise
             except (ValueError, subprocess.TimeoutExpired, OSError) as error:
+                progress = None
                 current_inspection_report = None
                 failures = state.get('failures', 0) + 1
                 integration_failure = {'kind': 'input_size' if deterministic_audit_failure(error) else 'inspection_unavailable',
@@ -1251,6 +1287,23 @@ def audit_once(path, config, watch_withheld=False, binding=None):
             with locked(path.with_suffix('.lock')):
                 checked_audit_process(binding)
                 current = json.loads(path.read_text())
+                if progress is not None:
+                    # The host checkpoint already contains durable progress even
+                    # when new source arrived during this slice. Keep it and audit
+                    # the newest scope automatically without waking the worker.
+                    previous_progress = current.get('inspection_progress', {})
+                    current['inspection_progress'] = {**progress, 'stalled_slices': stalled,
+                        'slices': previous_progress.get('slices', 0) + 1,
+                        'audited_fingerprint': fingerprint, 'recorded_at': time.time()}
+                    current['audit_inference']['phase'] = 'progress'
+                    current['audit_attempts'] = max(0, attempts - 1)
+                    current['failures'] = 0
+                    current['retry_at'] = time.time() + INSPECTION_SLICE_PAUSE
+                    current['interrupted_audit_retries'] = 0
+                    current.pop('checked', None)
+                    current.pop('inspection_report', None)
+                    atomic(path, current)
+                    return -1, ''
                 if hashlib.sha256(json.dumps(audit_data(current), sort_keys=True).encode()).hexdigest() != fingerprint:
                     # A meaningful newer instruction/result supersedes this audit.
                     # Duplicate capture bookkeeping alone cannot discard verification.
@@ -1269,6 +1322,7 @@ def audit_once(path, config, watch_withheld=False, binding=None):
                     current['decision_user_key'] = user_key
                     if not repeated_decision:
                         current['decision_message_count'] = len(current['messages'])
+                current.pop('inspection_progress', None)
                 current['audit_inference']['phase'] = 'published'
                 current['audit_inference']['published_at'] = time.time()
                 current['interrupted_audit_retries'] = 0

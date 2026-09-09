@@ -888,6 +888,23 @@ impl NativeClient {
     }
 
     fn spawn_with_tools_and_evidence(bin: &Path, cwd: &Path, managed: bool, schema: Option<serde_json::Value>, registrar_model: Option<&str>, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>, evidence_directory: Option<&Path>) -> Result<Self, NativeError> {
+        Self::spawn_with_tools_evidence_and_session(bin, cwd, managed, schema, registrar_model,
+            standing, onboarding, control, evidence_directory, None)
+    }
+
+    fn spawn_with_tools_evidence_and_session(bin: &Path, cwd: &Path, managed: bool,
+        schema: Option<serde_json::Value>, registrar_model: Option<&str>,
+        standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>,
+        control: Option<&crate::steering::TurnControl>, evidence_directory: Option<&Path>,
+        inspector_session: Option<(&str, bool)>) -> Result<Self, NativeError> {
+        if let Some((id, _)) = inspector_session {
+            if !managed || schema.is_none() || registrar_model.is_some() || standing.is_some()
+                || onboarding.is_some() || evidence_directory.is_none()
+                || uuid::Uuid::parse_str(id).is_err()
+            {
+                return Err(NativeError::Protocol("A resumable inspector needs an explicit UUID and scoped evidence directory.".into()));
+            }
+        }
         // This host-only directory is read scope for the inspector's existing read-only
         // tools. It must never widen an execution worker or a registrar's workspace.
         let evidence_directory = if let Some(directory) = evidence_directory {
@@ -914,7 +931,8 @@ impl NativeClient {
         preflight(bin, cwd, doctrine, skills)?;
         let managed_workspace = if managed { Some(cwd.canonicalize()?) } else { None };
 
-        let session_id = uuid::Uuid::new_v4().to_string();
+        let session_id = inspector_session.map(|(id, _)| id.to_owned())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let mut args = match (managed, standing) {
             (true, _) => managed_child_args(&session_id),
             (false, Some((d, s))) => chat_child_args(&session_id, d, s),
@@ -939,6 +957,11 @@ impl NativeClient {
         if let Some(directory) = evidence_directory {
             args.extend(["--add-dir".into(), directory.display().to_string()]);
         }
+        if inspector_session.is_some_and(|(_, resume)| resume) {
+            let index = args.iter().position(|arg| arg == "--session-id").unwrap();
+            args.splice(index..index + 2, ["--resume".to_owned(), session_id.clone()]);
+        }
+        let expected_inspector_session = inspector_session.map(|_| session_id.clone());
         let mut command = Command::new(bin);
         if managed {
             command.env("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1")
@@ -1030,6 +1053,15 @@ impl NativeClient {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
+                if let Some(expected) = expected_inspector_session.as_deref() {
+                    if let Err(detail) = validate_inspector_session(&msg, expected) {
+                        Self::dispatch(json!({"type": "result", "is_error": true,
+                            "stop_reason": "session_identity_mismatch", "errors": [detail]}),
+                            &reader_stdin, &reader_pending, &reader_current, &reader_between,
+                            &reader_state, &reader_text_deltas, managed);
+                        break;
+                    }
+                }
                 Self::dispatch(
                     msg,
                     &reader_stdin,
@@ -1659,6 +1691,42 @@ impl NativeClient {
     }
 }
 
+fn native_reports_missing_session(error: &NativeError, session_id: &str) -> bool {
+    matches!(error, NativeError::Startup { stderr, .. }
+        if stderr.trim() == format!("No conversation found with session ID: {session_id}"))
+}
+
+fn inspector_transcript_exists(projects: &Path, session_id: &str) -> Result<bool, NativeError> {
+    let projects = match std::fs::read_dir(projects) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    for project in projects {
+        let project = project?;
+        if !std::fs::metadata(project.path())?.is_dir() { continue; }
+        match std::fs::symlink_metadata(project.path().join(format!("{session_id}.jsonl"))) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(false)
+}
+
+// Native announces the actual identity at system/init and result, after initialization.
+// A resume that silently forked or selected another session must never supply audit evidence.
+fn validate_inspector_session(frame: &Value, expected: &str) -> Result<(), String> {
+    let actual = frame.get("session_id").and_then(Value::as_str);
+    let identity_required = frame.get("type").and_then(Value::as_str) == Some("result")
+        || (frame.get("type").and_then(Value::as_str) == Some("system")
+            && frame.get("subtype").and_then(Value::as_str) == Some("init"));
+    if actual.is_some_and(|id| id != expected) || (identity_required && actual.is_none()) {
+        return Err(format!("Inspector session identity mismatch: expected {expected}, received {actual:?}."));
+    }
+    Ok(())
+}
+
 /// `used`, summed from a vendor `usage` object, or `None` if it carries no input side.
 ///
 /// **The three fields are summed because context occupancy is all three.** `input_tokens`
@@ -1836,6 +1904,34 @@ impl NativeCognition {
             Some(schema), None, None, None, None, Some(evidence_directory))?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id, onboarding_scope: None })
+    }
+
+    /// Continue the exact host-owned inspection conversation across process leases.
+    /// Native persistence is retained and no fork or most-recent-session fallback is used.
+    /// Only inspection tools and the named evidence directory are available.
+    pub fn start_resumable_inspector(bin: &Path, workspace: &Path,
+        schema: serde_json::Value, evidence_directory: &Path,
+        session_id: &str, resume: bool) -> Result<Self, NativeError> {
+        let spawn = |resume| NativeClient::spawn_with_tools_evidence_and_session(bin, workspace, true,
+            Some(schema.clone()), None, None, None, None, Some(evidence_directory), Some((session_id, resume)));
+        let client = match spawn(resume) {
+            Ok(client) => client,
+            Err(error) if resume && native_reports_missing_session(&error, session_id) => {
+                // A host may die after committing its lease but before the first prompt
+                // creates a native transcript. Only native's exact missing-session verdict
+                // plus absence on disk permits replay of that zero-progress launch.
+                let config = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| std::env::var_os("HOME").map(|v| std::path::PathBuf::from(v).join(".claude")))
+                    .ok_or_else(|| NativeError::Protocol("Cannot establish inspector transcript location.".into()))?;
+                if inspector_transcript_exists(&config.join("projects"), session_id)? {
+                    return Err(error);
+                }
+                spawn(false)?
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(Self { client, session_id: session_id.to_owned(), onboarding_scope: None })
     }
 
     /// A detached transcriber has no tools, plugins or workspace access. Managed
@@ -2533,6 +2629,115 @@ while read -r next; do :; done
             true, None, None, None, None, None, Some(&evidence)).is_err());
         assert!(NativeCognition::start_inspector_with_schema_and_evidence(&script,
             &fixture.workspace, crate::autonomy::response_schema(), &args_path).is_err());
+    }
+
+    #[test]
+    fn resumable_inspector_preserves_identity_scope_and_rejects_wrong_native_session() {
+        let fixture = crate::permission::tests::Fixture::new();
+        let evidence = fixture.root.join("resume-evidence");
+        std::fs::create_dir(&evidence).unwrap();
+        let args_path = fixture.root.join("resume-args.txt");
+        let session = uuid::Uuid::new_v4().to_string();
+        let script = write_script("resumable-inspector", &format!(r#"
+printf '%s\n' "$@" > '{}'
+read -r init
+printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+read -r prompt
+printf '%s\n' '{{"type":"system","subtype":"init","session_id":"wrong-session"}}'
+while read -r next; do :; done
+"#, args_path.display()));
+        let approved = fixture.approved();
+        for resume in [false, true] {
+            let mut inspector = NativeCognition::start_resumable_inspector(&script, &fixture.workspace,
+                crate::autonomy::response_schema(), &evidence, &session, resume).unwrap();
+            let recorded = std::fs::read_to_string(&args_path).unwrap();
+            let args: Vec<_> = recorded.lines().collect();
+            let selector = if resume { "--resume" } else { "--session-id" };
+            let other = if resume { "--session-id" } else { "--resume" };
+            let at = args.iter().position(|a| *a == selector).unwrap();
+            assert_eq!(args[at + 1], session);
+            assert!(!args.contains(&other));
+            assert!(!args.contains(&"--fork-session"));
+            assert!(!args.contains(&"--no-session-persistence"));
+            let at = args.iter().position(|a| *a == "--tools").unwrap();
+            assert_eq!(args[at + 1], "Read,Glob,Grep");
+            let at = args.iter().position(|a| *a == "--setting-sources").unwrap();
+            assert_eq!(args[at + 1], "user,project,local");
+            assert_eq!(args.iter().filter(|a| **a == "--add-dir").count(), 1);
+            assert!(inspector.set_managed_permission_context(approved.clone()).is_err());
+            let error = inspector.prompt("inspect", &mut |_| {}).unwrap_err().to_string();
+            assert!(error.contains("session identity mismatch"), "{error}");
+        }
+        assert!(NativeCognition::start_resumable_inspector(&script, &fixture.workspace,
+            crate::autonomy::response_schema(), &evidence, "not-a-uuid", true).is_err());
+        assert!(validate_inspector_session(&json!({"type":"result"}), &session).is_err());
+        assert!(validate_inspector_session(&json!({"type":"result","session_id":session}), &session).is_ok());
+    }
+
+    #[test]
+    fn missing_session_recovery_requires_exact_native_verdict_and_no_existing_transcript() {
+        let fixture = crate::permission::tests::Fixture::new();
+        let projects = fixture.root.join("config/projects");
+        let session = uuid::Uuid::new_v4().to_string();
+        let missing = NativeError::Startup { reason: "child exited".into(),
+            stderr: format!("No conversation found with session ID: {session}") };
+        assert!(native_reports_missing_session(&missing, &session));
+        assert!(!native_reports_missing_session(&missing, &uuid::Uuid::new_v4().to_string()));
+        assert!(!native_reports_missing_session(&NativeError::Startup { reason: "child exited".into(),
+            stderr: "permission denied".into() }, &session));
+        assert!(!inspector_transcript_exists(&projects, &session).unwrap());
+        let another_workspace = projects.join("other-workspace");
+        std::fs::create_dir_all(&another_workspace).unwrap();
+        // Even damaged or empty transcript data must never be replaced by a fresh launch.
+        let transcript = another_workspace.join(format!("{session}.jsonl"));
+        std::fs::write(&transcript, "damaged transcript").unwrap();
+        assert!(inspector_transcript_exists(&projects, &session).unwrap());
+        std::fs::write(&transcript, "").unwrap();
+        assert!(inspector_transcript_exists(&projects, &session).unwrap());
+        assert!(inspector_transcript_exists(&transcript, &session).is_err());
+    }
+
+    #[test]
+    #[ignore = "Uses two real provider turns; set RICHOS_NATIVE_RESUME_PROOF to a private receipt path"]
+    fn real_native_inspector_resumes_exact_persisted_session() {
+        let receipt = std::env::var("RICHOS_NATIVE_RESUME_PROOF").expect("private receipt path");
+        let fixture = crate::permission::tests::Fixture::new();
+        let evidence = fixture.root.join("evidence");
+        std::fs::create_dir(&evidence).unwrap();
+        let bin = std::path::PathBuf::from(std::env::var("RICHOS_NATIVE_RESUME_BIN").unwrap_or_else(|_| "claude".into()));
+        let session = uuid::Uuid::new_v4().to_string();
+        let count = (uuid::Uuid::new_v4().as_u128() % 900 + 100) as u32;
+        let nonce = count.to_string();
+        let expected_remaining = (count - 7).to_string();
+        let schema = json!({"type":"object","properties":{"remembered":{"type":"string"}},
+            "required":["remembered"],"additionalProperties":false});
+        let started = std::time::Instant::now();
+        let before_first_prompt = NativeCognition::start_resumable_inspector(&bin, &fixture.workspace,
+            schema.clone(), &evidence, &session, false).unwrap();
+        drop(before_first_prompt);
+        let config = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join(".claude"));
+        assert!(!inspector_transcript_exists(&config.join("projects"), &session).unwrap(),
+            "the interrupted initial lease must have no transcript, or this would not exercise missing-session recovery");
+        let mut initial = NativeCognition::start_resumable_inspector(&bin, &fixture.workspace,
+            schema.clone(), &evidence, &session, true).unwrap();
+        let first = initial.prompt(&format!("Our warehouse has {count} chairs. Report that count as a decimal string in the remembered field. Do not use tools."), &mut |_| {}).unwrap();
+        assert!(["end_turn", "tool_use"].contains(&first.as_str()), "{first}");
+        let first_output = initial.client.structured_output.lock().unwrap().clone();
+        assert_eq!(first_output.as_ref().and_then(|v| v.get("remembered")).and_then(Value::as_str), Some(nonce.as_str()));
+        drop(initial);
+        let mut resumed = NativeCognition::start_resumable_inspector(&bin, &fixture.workspace,
+            schema, &evidence, &session, true).unwrap();
+        let second = resumed.prompt("Seven chairs were sold. Calculate the remaining inventory and return that count as a decimal string in the remembered field. Do not use tools.", &mut |_| {}).unwrap();
+        assert!(["end_turn", "tool_use"].contains(&second.as_str()), "{second}");
+        let second_output = resumed.client.structured_output.lock().unwrap().clone();
+        assert_eq!(second_output.as_ref().and_then(|v| v.get("remembered")).and_then(Value::as_str), Some(expected_remaining.as_str()));
+        drop(resumed);
+        std::fs::write(receipt, serde_json::to_vec_pretty(&json!({"passed":true,
+            "session_id":session,"workspace":fixture.workspace,"same_uuid_after_process_restart":true,"recovered_death_before_first_prompt":true,
+            "prior_user_count_used_without_repeating_in_second_prompt":true,"provider_turns":2,
+            "first_stop_reason":first,"second_stop_reason":second,
+            "first":first_output,"second":second_output,"elapsed_seconds":started.elapsed().as_secs_f64()})).unwrap()).unwrap();
     }
 
     #[test]

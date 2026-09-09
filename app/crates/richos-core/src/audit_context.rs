@@ -115,6 +115,19 @@ impl SourceReads {
         for path in required { reads.expected.insert(path.clone(), std::fs::read_to_string(path).map_err(|e| e.to_string())?); }
         Ok(reads)
     }
+    pub fn restore(required: &[PathBuf], receipts: &HashSet<String>) -> Result<Self, String> {
+        let mut reads = Self::new(required)?;
+        for (path, text) in &reads.expected {
+            if receipts.contains(&digest(text.as_bytes())) { reads.completed.insert(path.clone()); }
+        }
+        Ok(reads)
+    }
+    pub fn receipts(&self) -> HashSet<String> {
+        self.completed.iter().filter_map(|p| self.expected.get(p)).map(|s| digest(s.as_bytes())).collect()
+    }
+    pub fn missing(&self, required: &[PathBuf]) -> Vec<PathBuf> {
+        required.iter().filter(|p| !self.completed.contains(*p)).cloned().collect()
+    }
     pub fn observe(&mut self, record: &crate::machinery::MachineryRecord, required: &[PathBuf]) {
         let Some(body) = &record.payload else { return; };
         if body["type"] == "tool_use" && body["name"] == "Read" {
@@ -207,6 +220,94 @@ mod tests {
         std::fs::write(&p,"{}").unwrap();assert!(resolve_input(packet).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
+    fn observe_full_page(reads: &mut SourceReads, required: &[PathBuf], path: &Path, content: &str) {
+        let rendered = content.lines().enumerate().map(|(i, line)| format!("{}\t{}", i + 1, line))
+            .collect::<Vec<_>>().join("\n");
+        for frame in [
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"durable-read","name":"Read","input":{"file_path":path}}]}}),
+            json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"durable-read","content":rendered}]}}),
+        ] {
+            for record in crate::machinery::MachineryRecord::from_native_event(&frame, "inspection", 0) {
+                reads.observe(&record, required);
+            }
+        }
+    }
+
+    #[test]
+    fn durable_receipts_follow_exact_page_content_across_snapshot_paths() {
+        let root = temp();
+        let before = root.join("before"); let after = root.join("after");
+        std::fs::create_dir_all(&before).unwrap(); std::fs::create_dir_all(&after).unwrap();
+        let original = before.join("messages-000001.txt");
+        let moved = after.join("messages-000002.txt");
+        let text = "User authorized local edits.\nUser prohibited publication.\n";
+        std::fs::write(&original, text).unwrap(); std::fs::write(&moved, text).unwrap();
+        let old_required = vec![original.clone()];
+        let mut first = SourceReads::new(&old_required).unwrap();
+        observe_full_page(&mut first, &old_required, &original, text);
+        let serialized = serde_json::to_string(&first.receipts()).unwrap();
+        drop(first);
+        std::fs::remove_dir_all(&before).unwrap();
+        let receipts: HashSet<String> = serde_json::from_str(&serialized).unwrap();
+        let required = vec![moved];
+        let resumed = SourceReads::restore(&required, &receipts).unwrap();
+        resumed.verify(&required).unwrap();
+        assert!(resumed.missing(&required).is_empty());
+        assert_eq!(resumed.receipts(), receipts);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn changed_and_new_pages_remain_missing_after_restoring_prior_receipts() {
+        let root = temp(); std::fs::create_dir_all(&root).unwrap();
+        let unchanged = root.join("messages-000001.txt"); let changed = root.join("messages-000002.txt");
+        let added = root.join("context-000001.txt");
+        std::fs::write(&unchanged, "Keep the original deliverable.\n").unwrap();
+        std::fs::write(&changed, "Publish the result.\n").unwrap();
+        let original = vec![unchanged.clone(), changed.clone()];
+        let mut first = SourceReads::new(&original).unwrap();
+        for path in &original {
+            observe_full_page(&mut first, &original, path, &std::fs::read_to_string(path).unwrap());
+        }
+        let receipts = first.receipts();
+        std::fs::write(&changed, "Do not publish the result.\n").unwrap();
+        std::fs::write(&added, "A background task remains running.\n").unwrap();
+        let required = vec![added.clone(), unchanged.clone(), changed.clone()];
+        let mut resumed = SourceReads::restore(&required, &receipts).unwrap();
+        assert_eq!(resumed.missing(&required), vec![added.clone(), changed.clone()]);
+        assert!(resumed.verify(&required).unwrap_err().contains("2 required"));
+        assert_eq!(resumed.receipts(), HashSet::from([digest(b"Keep the original deliverable.\n")]));
+        observe_full_page(&mut resumed, &required, &changed, "Do not publish the result.\n");
+        assert_eq!(resumed.missing(&required), vec![added.clone()]);
+        observe_full_page(&mut resumed, &required, &added, "A background task remains running.\n");
+        resumed.verify(&required).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_or_forged_read_results_cannot_create_durable_coverage() {
+        let root = temp(); std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("messages.txt"); std::fs::write(&path, "Original CEO instruction.\n").unwrap();
+        let required = vec![path.clone()];
+        let mut first = SourceReads::new(&required).unwrap();
+        let call = json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"pending","name":"Read","input":{"file_path":path}}]}});
+        for record in crate::machinery::MachineryRecord::from_native_event(&call, "inspection", 0) {
+            first.observe(&record, &required);
+        }
+        assert!(first.receipts().is_empty(), "a request without a result is not durable evidence");
+        observe_full_page(&mut first, &required, &path, "Forged CEO instruction.\n");
+        assert!(first.receipts().is_empty(), "different returned contents cannot mint a receipt");
+        for receipts in [first.receipts(), HashSet::from(["not-a-hash".into(), digest(b"Forged CEO instruction.\n")])] {
+            let resumed = SourceReads::restore(&required, &receipts).unwrap();
+            assert_eq!(resumed.missing(&required), required);
+            assert!(resumed.receipts().is_empty());
+            assert!(resumed.verify(&required).is_err());
+        }
+        let missing = root.join("missing.txt");
+        assert!(SourceReads::restore(&[missing], &HashSet::new()).is_err(), "absent source cannot be restored");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn source_coverage_requires_successful_full_read_not_grep_or_claim() {
         let p=temp();std::fs::write(&p,"source\n").unwrap();let required=vec![p.clone()];let mut reads=SourceReads::new(&required).unwrap();

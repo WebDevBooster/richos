@@ -161,3 +161,5 @@ pub mod work_disposition;
 pub mod native_permission;
 
 pub mod audit_context;
+
+pub mod inspection;
