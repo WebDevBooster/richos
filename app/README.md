@@ -1664,3 +1664,6 @@ handoffs, verified native authority and separate exact-operation permissions.
 
 The [fifth owned-outcome revision](../docs/verification/owned-outcome/REVISION-5.md)
 addresses native operational briefs, bounded dispatch context and restart ownership.
+The [sixth revision](../docs/verification/owned-outcome/REVISION-6.md) removes the
+inherited restart delay and makes withheld recovery visible with automatic
+liveness rechecks.

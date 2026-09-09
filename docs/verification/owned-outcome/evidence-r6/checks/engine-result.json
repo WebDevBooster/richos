@@ -1,0 +1,14 @@
+{
+  "exit": 0,
+  "elapsed_seconds": 286.93792486190796,
+  "source_before": {
+    "engine/scripts/lib/owned-session.py": "16ff3f1427997ce6387027dca86be348fdd060578e51269f0ad3b9afccaa42e0",
+    "engine/scripts/lib/owned-dispatch.py": "950eeb2330c8978add9556190a6263b422717f36bd6c1c3f607e8c2f23b3a593"
+  },
+  "source_after": {
+    "engine/scripts/lib/owned-session.py": "2b29c6ef6447c213da17d28b856caed4d72f9fdf9d05c3e63024b73c4152e178",
+    "engine/scripts/lib/owned-dispatch.py": "950eeb2330c8978add9556190a6263b422717f36bd6c1c3f607e8c2f23b3a593"
+  },
+  "source_unchanged": false,
+  "log": "/tmp/richos-r6-engine.log"
+}

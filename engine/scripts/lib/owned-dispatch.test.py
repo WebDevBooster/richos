@@ -114,6 +114,25 @@ class DispatchHost(unittest.TestCase):
             self.payload['tool_input']['prompt'] = self.payload['tool_input']['prompt'].splitlines()[0]+'\n'+extra
             with self.assertRaises(d.SelectorConflict): d.dispatch(self.root,self.payload)
 
+    def test_same_selector_prose_punctuation_preserves_brief_and_exact_first_line(self):
+        ledger = self.register()
+        selector = 'owned-work:'+ledger['work'][0]['id']
+        for ending in (',', '.', ';', ':', '!', '?', ')', ']', '}', "'", '),'):
+            operational = 'Continue '+selector+ending+' keeping the existing constraints.'
+            self.payload['tool_input']['prompt'] = selector+'\n'+operational
+            output = d.dispatch(self.root,self.payload)['hookSpecificOutput']['updatedInput']['prompt']
+            self.assertTrue(output.endswith(operational))
+        self.payload['tool_input']['prompt'] = selector+',\nContinue the task.'
+        with self.assertRaises(d.SelectorRequired): d.dispatch(self.root,self.payload)
+
+    def test_punctuation_cannot_hide_conflicting_or_extended_selector(self):
+        ledger = self.register()
+        selector = 'owned-work:'+ledger['work'][0]['id']
+        for reference in ('owned-work:other,', 'owned-work:other)', selector+'a,',
+                          selector+'-other.', selector+'/other,', selector+',other', selector+':other'):
+            self.payload['tool_input']['prompt'] = selector+'\nContinue '+reference
+            with self.assertRaises(d.SelectorConflict): d.dispatch(self.root,self.payload)
+
     def test_pending_scope_is_not_selectable_but_independent_work_is(self):
         self.verdict['pending'] = ['Publishing awaits the CEO budget decision.']
         self.result = subprocess.CompletedProcess([],0,json.dumps(self.verdict),'')
@@ -223,6 +242,8 @@ class DispatchHost(unittest.TestCase):
             self.assertIn(expected,error.getvalue())
             self.assertNotIn('CEO DEPENDENCY UNVERIFIED',error.getvalue())
             self.assertNotIn('secret-caller-text',error.getvalue())
+            receipt = json.loads((self.root/'.claude/state/owned-dispatch-reviews.jsonl').read_text().splitlines()[-1])
+            self.assertEqual(receipt['outcome'],'brief_correction')
             if 'Shorten' in expected: self.assertIn('no text was truncated',error.getvalue())
 
     def test_recovered_assignment_waits_for_independent_review(self):
@@ -324,5 +345,7 @@ class DispatchHost(unittest.TestCase):
             self.assertEqual(d.main(),2)
         self.assertIn('CEO DEPENDENCY UNVERIFIED',error.getvalue())
         self.assertNotIn('source registration succeeded',error.getvalue())
+        receipt = json.loads((self.root/'.claude/state/owned-dispatch-reviews.jsonl').read_text().splitlines()[-1])
+        self.assertEqual(receipt['outcome'],'unverified')
 
 if __name__=='__main__':unittest.main(verbosity=2)
