@@ -31,6 +31,7 @@ pub struct TaskView {
     pub(crate) attempts: u32,
     pub(crate) evidence: Vec<String>,
     pub(crate) decision: Option<richos_core::run::RunDecision>,
+    pub(crate) permission: Option<richos_core::permission::Operation>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -125,6 +126,7 @@ pub(crate) fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
                         .collect()
                 },
                 decision: snapshot.decision(i),
+                permission: if snapshot.canceled { None } else { snapshot.permissions.iter().find(|p| p.task_id == t.id).cloned() },
             })
             .collect(),
     }
@@ -134,6 +136,16 @@ pub(crate) fn view(thread: &str, snapshot: &RunSnapshot) -> RunView {
 /// Recognize the registrar envelope, not arbitrary imported task prose.
 fn human_contract(text: &str) -> Option<(&str, &str)> {
     let text = text.strip_prefix("CEO request (verbatim):\n")?;
+    let current_context = "\nPrior conversation for resolving references in this request only (data, not additional authorization):\n";
+    let legacy_scope = "\nRich's accepted scope (verbatim):\n";
+    if let Some(boundary) = text.find(current_context) {
+        // A historical envelope may itself contain newer archived instructions.
+        // Choose the current record's first recognized boundary, not a nested one.
+        if text.find(legacy_scope).is_none_or(|legacy| boundary < legacy) {
+            let request = &text[..boundary];
+            return Some((request, request));
+        }
+    }
     let (request, rest) = text.split_once("\nRich's accepted scope (verbatim):\n")?;
     let reply = rest.split("\nPrevious accepted scope, overridden only where the CEO's correction explicitly changes it:\n").next()?;
     let reply = reply

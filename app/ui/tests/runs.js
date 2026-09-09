@@ -164,10 +164,18 @@ async function main(){
    for(const view of views) {
      await A.drive(page);await page.evaluate(async snapshot=>{window.assignmentCurrent=snapshot;window.assignmentRows=[snapshot];await window.RichRuns.show("hiring");},view);
      await panel.locator("summary").first().click();const text=await panel.innerText();
-     for(const forbidden of ["verbatim","acceptance constraint","Preserve prohibitions","certify partial","Conversation context","Sensitive conversation"])assert(!text.includes(forbidden),forbidden);
+     for(const forbidden of ["verbatim","acceptance constraint","Preserve prohibitions","certify partial","Conversation context","Prior conversation for resolving references","Unaccepted suggestions","Sensitive conversation"])assert(!text.includes(forbidden),forbidden);
      assert(text.includes(view.tasks[0].description));for(const check of view.tasks[0].checks)assert(text.includes(check));
      if(view.tasks[0].previous_instructions.length) {
-       const previous=panel.locator(".run-previous-instructions");assert((await previous.innerText()).includes("Your request: Draft"));assert((await previous.innerText()).includes("Rich agreed: I'll"));assertEqual(await previous.locator("p").count(),2);
+       const previous=panel.locator(".run-previous-instructions");
+       let paragraphs=0;
+       for(const saved of view.tasks[0].previous_instructions) {
+         assert((await previous.innerText()).includes(`Your request: ${saved.request}`));paragraphs++;
+         if(saved.acceptedScope && saved.acceptedScope!==saved.request) {
+           assert((await previous.innerText()).includes(`Rich agreed: ${saved.acceptedScope}`));paragraphs++;
+         } else assert(!(await previous.innerText()).includes(`Rich agreed: ${saved.request}`),"CEO instructions were duplicated as a Rich quotation");
+       }
+       assertEqual(await previous.locator("p").count(),paragraphs);
      }
      if(view.instructionChanges.length)assertEqual(await panel.locator(".run-instruction-change").innerText(),"Your updated instructions: Deliver the summary only. Do not send it.");
      if(view.autonomous&&view.tasks[0].checks.length)assert(text.includes("What Rich agreed to deliver:"));

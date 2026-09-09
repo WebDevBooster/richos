@@ -1,0 +1,176 @@
+
+=== A. the predicate: which item was a question about? ===
+  PASS  A1. a real Apple-signing question matches item 1.1
+  PASS  A2. 'what should we work on next' matches NOTHING
+  PASS  A3. a near miss that borrows two of an item's words still matches NOTHING
+  PASS  A4. naming an item by its id matches it
+  PASS  A5. an item in a CEO section in the BLOCKED-ON-RICH state is NOT prepared (3 of 4 count)
+
+=== B. the witness: only a real AskUserQuestion call writes a record ===
+  FAIL  B1. a real question about 1.1 is witnessed as 1.1 and discharges
+         rc=0 
+  FAIL  B2. a junk question is witnessed as UNMATCHED and discharges nothing
+  FAIL  B3. a WORKER's matching question is recorded and discharges nothing
+  PASS  B4. a payload for another tool writes nothing at all
+  FAIL  B5. a two-question call is witnessed as two records, one per item
+
+=== C. the gate: a teammate dispatch while he has not been asked ===
+  PASS  C1. an unasked prepared item BLOCKS the dispatch and names the item
+  PASS  C1b. the refusal says how to discharge it — with AskUserQuestion
+  FAIL  C2. one prepared item actually asked opens the gate for the session
+         rc=2 === A PREPARED CEO DECISION HAS NOT BEEN PUT TO HIM THIS SESSION — REFUSING THIS DISPATCH ===
+  prepared items : 3
+  asked this session : 0
+
+  On 2026-08-31 a session prepared two decisions for the CEO, the next
+  session opened, he asked "what's next", and he got a backlog report
+  and a dispatched engineer. Every guard was green. Nobody had been
+  asked anything. Dispatching a teammate is the act that beat the ask,
+  so it is the act that is blocked.
+
+  ASK HIM THIS, with the AskUserQuestion tool:
+
+    1.1  Apple signing and developer enrollment
+    Apple signing and developer enrollment? Answer = a ruling recorded in ceo-decisions.md — individual enrollment, company enrollment, or an explicit not yet. Open q/wiki/packaging-and-signing.md (15 minutes).
+
+  The gate reads the QUESTION TEXT, not an assertion — the question,
+  its options and their descriptions have to actually be about one of
+  his prepared items. A question that matches none of them is recorded
+  UNMATCHED and discharges nothing. ONE prepared item is the whole
+  requirement for this session; the rest are surfaced at every turn end.
+
+  The others still open this session:
+    1.2  The call-transcription default
+    2.1  Verify the podcast reference transcript
+
+  IF HE HAS ALREADY SAID GET ON WITH IT, say so on the record — add a
+  line to this spawn prompt:
+
+    ceo-todos-deferred: <reason>
+
+  which permits this one dispatch and is logged to
+  .claude/state/ceo-todos-defers.log.
+(hook: scripts/hooks/guard-ceo-ask-first.sh)
+  PASS  C3. A JUNK QUESTION DISCHARGES NOTHING — the gate is still closed after it
+  PASS  C4. a WORKER's matching question does not open the gate for the lead
+  PASS  C5. a question asked in ANOTHER session does not open this session's gate
+  PASS  C6. the 'ceo-todos-deferred:' prompt line permits the dispatch and is logged
+  PASS  C7. a bare 'ceo-todos-deferred:' with no reason does NOT permit the dispatch
+  PASS  C8. a payload for another tool passes untouched
+  PASS  C9. NOT-DECLARED: a seat with no CEO list stands down, silently
+  PASS  C10. BROKEN: a declared list that is not on disk FAILS OPEN and says so
+  PASS  C11. NOTHING PREPARED: a list of unprepared items blocks nothing
+
+=== D. the Stop notice: a turn does not end quietly ===
+  PASS  D1. an unasked item ends the turn with a named item on the operator channel
+  PASS  D1b. it is rendered as a QUESTION, not as a count
+  PASS  D2. the same unchanged set is announced ONCE, not under every turn
+  FAIL  D3. asking one item changes the set, so the notice speaks again with the next one
+  PASS  D4. a declared-but-unreadable list is announced LOUDLY at turn end, and never blocks
+
+=== E. session start: his question, not a count of his questions ===
+  PASS  E1. it announces on BOTH channels — the operator's and the model's
+  PASS  E2. it names the top item rather than counting the items
+  PASS  E4. startup accurately explains authorized deferral without fabricating an answer
+  PASS  E3. a repository with no CEO list is announced not at all
+
+=== F. the CLI face gives the same verdict the hooks give ===
+  PASS  F1. ceo-asks-status.sh exits 1 and reports OPEN when he has not been asked
+  FAIL  F2. ...and 0/SATISFIED for the session in which he was
+         rc=1 === CEO-ASK GATE ===
+  repository : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ceo-asks.XXXXXX.rLT4sDmMf3/seat
+  lists     : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ceo-asks.XXXXXX.rLT4sDmMf3/todorepo
+  session    : S1
+  prepared   : 3
+  asked      : 0
+  unasked    : 3
+  verdict    : OPEN
+
+  OPEN/exit 1 is a policy state, not a failed command.
+  If the CEO directed independent work to continue, add this truthful per-spawn line:
+    ceo-todos-deferred: <reason from the CEO's instruction>
+  This leaves the question pending and records no answer. It grants no other guard exemption.
+
+  NOT PUT TO HIM IN SESSION S1 — ask ONE of these with AskUserQuestion:
+
+    1.1  Apple signing and developer enrollment
+         Apple signing and developer enrollment? Answer = a ruling recorded in ceo-decisions.md — individual enrollment, company enrollment, or an explicit not yet. Open q/wiki/packaging-and-signing.md (15 minutes).
+
+    1.2  The call-transcription default
+         The call-transcription default? Answer = a ruling recorded in ceo-decisions.md — switch the default now, or hold it. Open q/wiki/call-transcription-approach.md (15 minutes).
+
+    2.1  Verify the podcast reference transcript
+         Verify the podcast reference transcript? Answer = every one of the 30 windows carries OK or a written correction. Open q/docs/worksheet.md (30 minutes).
+
+=== G. the wiring: registered, hashed, and rooted like its siblings ===
+  PASS  G1. notice-ceo-asks.sh is registered exactly once in hooks/hooks.json
+  PASS  G1. guard-ceo-ask-first.sh is registered exactly once in hooks/hooks.json
+  PASS  G1. notice-ceo-unasked.sh is registered exactly once in hooks/hooks.json
+  PASS  G1. session-start-ceo-ask.sh is registered exactly once in hooks/hooks.json
+  PASS  G2. notice-ceo-asks is declared in contract-integrity-probe.sh
+  PASS  G2. guard-ceo-ask-first is declared in contract-integrity-probe.sh
+  PASS  G2. notice-ceo-unasked is declared in contract-integrity-probe.sh
+  PASS  G2. session-start-ceo-ask is declared in contract-integrity-probe.sh
+  PASS  G3. notice-ceo-asks.sh carries the byte-identical root-resolution bootstrap
+  PASS  G3. guard-ceo-ask-first.sh carries the byte-identical root-resolution bootstrap
+  PASS  G3. notice-ceo-unasked.sh carries the byte-identical root-resolution bootstrap
+  PASS  G3. session-start-ceo-ask.sh carries the byte-identical root-resolution bootstrap
+  PASS  G4. scripts/lib/ceo-asks.sh is sidecar-hashed by install.sh
+  PASS  G4. scripts/lib/ceo-asks.py is sidecar-hashed by install.sh
+  PASS  G4. scripts/lib/owned-work-policy.sh is sidecar-hashed by install.sh
+  PASS  G4. scripts/lib/owned-dispatch.py is sidecar-hashed by install.sh
+  PASS  G4. scripts/lib/owned-session.py is sidecar-hashed by install.sh
+  PASS  OWN1. independent dispatch proceeds without fabricating an answer or deferral
+  PASS  OWN2. pending decision stays visible without a question quota
+  PASS  OWN3. Stop retains a named nonblocking pending-decision reminder
+  PASS  OWN4. unadopted repositories retain their existing policy
+  PASS  OWN5. unresolved authority holds the affected dispatch
+  PASS  OWN6. an ask receipt and deferral do not authorize dependent work
+  PASS  OWN7. pending registrar verdict is enforced without a marker
+  PASS  OWN8. actual cited answer clears the same dispatch while its TODO remains pending
+  PASS  OWN9. removing the actual answer restores the hold without changing marker or TODO
+  PASS  OWN10. asked but unresolved decisions remain OPEN in the status CLI
+  PASS  OWN11. an ask receipt cannot hide a pending decision reminder
+  PASS  OWN12. an unchanged pending reminder is deduplicated without blocking
+  PASS  OWN13. independent verdict has no competing lexical veto
+  PASS  OWN14. review receives actual pending state, native messages and declared standing records
+  PASS  OWN15. missing native sources remain unverified
+  PASS  OWN16. an answer revoked during review cannot authorize dispatch
+  PASS  OWN17. stale review diagnostics are preserved locally
+  PASS  OWN18. pending record changes during review invalidate the snapshot
+  PASS  OWN19. changed ruling declaration during review invalidates the snapshot
+  PASS  OWN20. sidechain task messages do not become CEO authority
+  PASS  OWN21. source-bound saved CEO ruling survives transcript compaction
+  PASS  OWN22. child dispatch reads a verified parent source binding
+  PASS  OWN23. unmarked child transcript cannot impersonate bound CEO source
+  PASS  OWN24. same answer after revocation retains its new source order
+  PASS  OWN-CFG1. invalid adoption retains the existing deferral behavior and receipt
+  PASS  OWN-CFG2. invalid adoption retains the existing deferral behavior and receipt
+  PASS  OWN-CFG3. invalid adoption retains the existing deferral behavior and receipt
+  PASS  OWN-CFG4. invalid adoption retains the existing deferral behavior and receipt
+  PASS  OWN-CFG5. invalid adoption retains the existing deferral behavior and receipt
+  PASS  OWN-CFG6. invalid adoption retains the existing deferral behavior and receipt
+  PASS  OWN-CFG7. invalid adoption retains the existing deferral behavior and receipt
+  PASS  OWN-CFG8. invalid adoption retains the existing deferral behavior and receipt
+  PASS  OWN-CFG9. invalid adoption retains the existing deferral behavior and receipt
+test_actual_answer_clears_despite_pending_row (__main__.DispatchHost.test_actual_answer_clears_despite_pending_row) ... ok
+test_actual_declared_ruling_clears (__main__.DispatchHost.test_actual_declared_ruling_clears) ... ok
+test_ambiguous_empty_or_boolean_citation_never_certifies (__main__.DispatchHost.test_ambiguous_empty_or_boolean_citation_never_certifies) ... ok
+test_ambiguous_ruling_cannot_clear (__main__.DispatchHost.test_ambiguous_ruling_cannot_clear) ... ok
+test_assistant_is_not_authority (__main__.DispatchHost.test_assistant_is_not_authority) ... ok
+test_authorization_requires_citation (__main__.DispatchHost.test_authorization_requires_citation) ... ok
+test_independent_has_no_question_quota (__main__.DispatchHost.test_independent_has_no_question_quota) ... ok
+test_malformed_fields_never_certify (__main__.DispatchHost.test_malformed_fields_never_certify) ... ok
+test_missing_sources_never_certify (__main__.DispatchHost.test_missing_sources_never_certify) ... ok
+test_pending_is_a_distinct_disposition (__main__.DispatchHost.test_pending_is_a_distinct_disposition) ... ok
+test_removed_answer_cannot_clear (__main__.DispatchHost.test_removed_answer_cannot_clear) ... ok
+test_undeclared_ruling_cannot_clear (__main__.DispatchHost.test_undeclared_ruling_cannot_clear) ... ok
+test_unknown_index_cannot_clear (__main__.DispatchHost.test_unknown_index_cannot_clear) ... ok
+test_wrong_quote_cannot_clear (__main__.DispatchHost.test_wrong_quote_cannot_clear) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.000s
+
+OK
+
+  76 passed, 7 FAILED

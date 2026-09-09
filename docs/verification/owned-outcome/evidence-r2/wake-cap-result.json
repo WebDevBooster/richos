@@ -1,0 +1,29 @@
+{
+  "mode": "wake-cap-transport",
+  "intentional_early_stop_injection": false,
+  "passed": true,
+  "checks": {
+    "one_native_session": true,
+    "one_initial_request": true,
+    "twelve_native_wakes_observed": true,
+    "safety_ceiling_reached": true,
+    "source_identity_unchanged": true
+  },
+  "first": null,
+  "second": null,
+  "audits": 13,
+  "session_ids": [
+    "ab274af3-256e-4393-a8d5-9179d8e921ce"
+  ],
+  "operational_followups": 0,
+  "setup_inputs": [
+    "select-disposable-workspace-trust",
+    "confirm-disposable-workspace-trust"
+  ],
+  "removed_environment_keys": [
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION"
+  ],
+  "observed_native_wakes": 12,
+  "probe_safety_ceiling": 12
+}

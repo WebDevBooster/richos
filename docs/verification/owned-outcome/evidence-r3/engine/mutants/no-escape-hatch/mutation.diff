@@ -1,0 +1,11 @@
+--- base/engine/scripts/hooks/guard-ceo-ask-first.sh
++++ mutant/engine/scripts/hooks/guard-ceo-ask-first.sh
+@@ -255,7 +255,7 @@
+         exit 0 ;;
+ esac
+ 
+-if [ -n "$DEFER_MARKER" ]; then
++if [ -n "" ]; then
+     # Auditable fallback opt-out taken. Best-effort log — never fail a spawn
+     # because logging failed; the marker itself is the audit trail.
+     LOG_DIR="$ENTITY_ROOT/.claude/state"

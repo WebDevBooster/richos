@@ -83,12 +83,30 @@ case "$RRC" in
         exit 2 ;;
 esac
 
+. "$SCRIPT_DIR/lib/owned-work-policy.sh"
+OWNED_POLICY=0
+if owned_work_policy "$ROOT"; then OWNED_POLICY=1; fi
 ARC=0
-ca_assess "$ROOT" "$SESSION" || ARC=$?
+if [ "$OWNED_POLICY" -eq 1 ]; then
+    ca_assess "$ROOT" "" || ARC=$?
+else
+    ca_assess "$ROOT" "$SESSION" || ARC=$?
+fi
 if [ "$ARC" -ge 2 ]; then
     echo "=== CEO-ASK GATE: BROKEN ==="
     echo "  ${CA_BROKEN:-the predicate could not run}"
     exit 2
+fi
+
+if [ "$OWNED_POLICY" -eq 1 ]; then
+    if [ "${CA_PREPARED:-0}" -gt 0 ]; then
+        echo "CEO DECISIONS PENDING / OPEN: independent authorized work may proceed."
+        echo "Only dependent deliverables wait. An ask receipt is not a CEO answer."
+        printf '%s\n' "$CA_ASK_LINES"
+        exit 1
+    fi
+    echo "No prepared CEO decisions are pending. This status grants no new authority."
+    exit 0
 fi
 
 echo "=== CEO-ASK GATE ==="

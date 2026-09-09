@@ -1,0 +1,11 @@
+Evidence directory: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-7kdkrxvs
+PASS enqueue
+PASS resume
+PASS slow-registration
+PASS disposition-corrupt
+PASS disposition-discussion
+PASS disposition-missing-enqueue
+PASS disposition-missing-resume
+PASS disposition-interrupted-enqueue (intentional app interruption before disposition)
+PASS disposition-interrupted-resume
+PASS actual desktop: 9 exercised phase(s): enqueue, resume, slow-registration, disposition-corrupt, disposition-discussion, disposition-missing-enqueue, disposition-missing-resume, disposition-interrupted-enqueue, disposition-interrupted-resume.

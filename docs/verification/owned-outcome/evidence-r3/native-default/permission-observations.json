@@ -1,0 +1,41 @@
+{
+  "calls": [
+    {
+      "mode": "permission",
+      "input": {
+        "session_id": "30b35616-213e-489f-8263-ab8963e9b5dd",
+        "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-9bwy4lxz-workspace/30b35616-213e-489f-8263-ab8963e9b5dd.jsonl",
+        "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/workspace",
+        "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-9bwy4lxz-workspace/30b35616-213e-489f-8263-ab8963e9b5dd/scratchpad",
+        "prompt_id": "6c150869-0b04-4e0c-8df2-fc6e00c7edf1",
+        "permission_mode": "acceptEdits",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -e -o pipefail\ngit status --porcelain && echo \"---baseline hashes---\" && shasum requirements.md backlog.md README.md CEO-TODOs.md ceo-items.md decision-D7.md",
+          "description": "Record baseline of protected files"
+        },
+        "permission_suggestions": [
+          {
+            "type": "addRules",
+            "rules": [
+              {
+                "toolName": "Bash",
+                "ruleContent": "shasum requirements.md backlog.md README.md CEO-TODOs.md ceo-items.md decision-D7.md"
+              }
+            ],
+            "behavior": "allow",
+            "destination": "localSettings"
+          }
+        ]
+      },
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "time": 1788900300.3554938
+    }
+  ]
+}

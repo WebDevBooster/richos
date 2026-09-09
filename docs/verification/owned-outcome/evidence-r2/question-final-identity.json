@@ -1,0 +1,9 @@
+{
+  "runner": "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/target/debug/richos-run",
+  "runner_sha256": "3361900a156fe5eb8a08a1aa569ed831c4e1dff426ed81b7ae39cd5571174357",
+  "provider": "/Users/alex/.local/bin/claude",
+  "provider_realpath": "/Users/alex/.local/share/claude/versions/2.1.263",
+  "provider_version_exit": 0,
+  "provider_version": "2.1.263 (Claude Code)",
+  "owned_doctrine_sha256": "42e2d5a72b8c0afb98a63f43ee6768b15296e925eee7a11388c7603a2cffc426"
+}

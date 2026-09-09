@@ -1,0 +1,10 @@
+Evidence directory: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-9winh3cg
+PASS update-owned
+PASS enqueue
+PASS resume
+PASS recover-notice
+PASS correct-live
+PASS slow-registration
+PASS pending-cancel
+PASS independent-work
+FAIL registration-failures: Registration failures did not retain scheduled recovery and report

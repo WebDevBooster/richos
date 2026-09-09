@@ -1,0 +1,12 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+error[E0583]: file not found for module `native_permission`
+   --> crates/richos-core/src/lib.rs:161:1
+    |
+161 | pub mod native_permission;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: to create the module `native_permission`, create file "crates/richos-core/src/native_permission.rs" or "crates/richos-core/src/native_permission/mod.rs"
+    = note: if there is a `mod native_permission` elsewhere in the crate already, import it with `use crate::...` instead
+
+For more information about this error, try `rustc --explain E0583`.
+error: could not compile `richos-core` (lib test) due to 1 previous error

@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/ceo-asks.sh
++++ mutant/engine/scripts/lib/ceo-asks.sh
+@@ -423,7 +423,7 @@
+             # today. An empty session id on either side never matches: a record
+             # that cannot be attributed to this session is not evidence about
+             # this session.
+-            if not sid or str(rec.get("session_id") or "") != sid:
++            if False:
+                 continue
+             asks.append(rec)
+ except FileNotFoundError:

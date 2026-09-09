@@ -1,4 +1,10 @@
-# RichOS durable work: tenth review
+# RichOS durable work: architecture and review history
+
+The September 8 continuation correction is documented in
+[Owned outcome completion](../docs/verification/owned-outcome/REVISION-2.md).
+That report covers the separate native Claude adapter, recovery corrections,
+current verification and activation limits. Earlier audit observations below are
+historical measurements; the current behavior is stated explicitly here.
 
 ## Problem and target
 
@@ -8,8 +14,10 @@ completion. Routine execution choices belong to Rich. CEO authority is needed
 for material business decisions, including whether to spend more resources on
 work that repeatedly fails to converge.
 
-This branch targets RichOS desktop. The original incident occurred in a Claude
-Code team in femcboost; this change installs no hooks there. The one-refusal limit discussed in the first proposal was a local engine policy.
+The original implementation targeted RichOS desktop. The incident occurred in a
+Claude Code team in femcboost. The September 8 correction adds an optional native
+continuation adapter, tested in disposable workspaces; it is not installed in
+femcboost by preparing this branch. The one-refusal limit discussed in the first proposal was a local engine policy.
 Claude Code does have a documented limit of eight consecutive Stop-hook blocks,
 confirmed from the [raw hooks reference](https://code.claude.com/docs/en/hooks.md)
 on 2026-09-05. The ordinary RichOS conversation lease excludes settings sources
@@ -59,8 +67,9 @@ concise prose paragraph, without headings, lists or filesystem paths. The full
 CEO request and previous scope remain in the contract, so brevity does not discard
 constraints. Failed-start reports receive a plain-language status, never the raw
 registration error or component names. Diagnostics remain in the saved request.
-The CEO can send the request again for another attempt; the report cannot claim
-ongoing recovery or blame the wording of the original brief.
+The September 8 correction retains scheduled recovery after registration failure.
+The CEO does not need to resend the request. A report describes the unfinished
+state and scheduled retry without blaming the original brief.
 
 A separate registrar receives the CEO message, Rich's delivered reply, the last
 six CEO/reply pairs and the conversation's assignment snapshots as JSON data.
@@ -72,17 +81,22 @@ are denied. The settings exclusion is limited to this tool-free transcriber;
 acting workers retain configured user, project and local restrictions.
 
 Registration makes separate claims about CEO intent and Rich's commitment. The
-host requires nonempty contiguous quotes from both current messages, allowing whitespace differences and checks their
-consistency. Discussion with a commitment, action without one, invented targets,
-missing pending decisions and unknown fields are rejected. Corrections must
+host requires contiguous quotes from the current messages, allowing whitespace
+differences and checks their consistency. An actually empty interrupted reply
+permits an empty reply quote only without a claimed Rich commitment. Discussion
+with a commitment, invented targets, missing pending decisions and unknown fields
+are rejected. An authorized action remains work even if Rich asks whether to start.
+Corrections must
 identify their assignment. The registrar cannot produce task descriptions or
 acceptance criteria: the host copies the **entire request and Rich reply** into
 the execution and review contract, preserving negative constraints. Amendments
-also retain the previous scope except where the CEO explicitly changes it.
+also retain the complete previous scope chain except where the CEO explicitly
+changes it. Pending requests are valid amendment and cancellation targets.
 
 Rich's priming requires a concise acknowledgment of the deliverable and essential
-constraints. Only a missing-scope result permits one targeted scope repair
-through Rich. Ordinary registration never calls or re-primes his lease. Reports
+constraints. Routine discovery does not require a scope restatement or Rich's
+acceptance of an already authorized action. Ordinary registration never calls or
+re-primes his lease. Reports
 reuse an already primed conversation; a scope change primes the appropriate
 thread, tracked independently of the thread selected in the UI.
 
@@ -105,14 +119,13 @@ pays registration, independent checks and a worker if needed.
 
 ## Failure bounds and retained ownership
 
-Registration permits at most three attempts, charged durably **before** inference.
-A crash cannot erase a charged attempt. Failures wait 30 seconds before retry.
-Missing scope permits at most one additional Rich clarification within that
-registration budget. At exhaustion, the request remains saved and unfinished,
-a plain-language report states the unfinished status and next step; automatic registration stops. It does
-not ask the CEO to debug the registrar. A later corrected request can proceed;
-fixing and replaying the failed inbox entry is an operator repair, not a hidden
-infinite retry loop. No worker starts from an invalid registration.
+Registration attempts and retry deadlines are saved **before** inference. A crash
+cannot erase a charged attempt or bypass recovery spacing. Failures wait 30 seconds
+for the first three attempts, then one hour. Recovery remains scheduled rather
+than abandoning the request or requiring resubmission. This is an ongoing,
+rate-limited retry policy, not a finite registration budget. No worker starts from
+an invalid registration. A later unresolved instruction fences an older unstarted
+request until it can be classified, preventing stale work after cancellation.
 
 Autonomous execution uses a persisted resource budget of ten cycles per task
 between explicit CEO authorizations. A cycle includes a worker attempt when
@@ -126,8 +139,10 @@ resource authorization. The actual answer and receipt are retained verbatim.
 
 This is a cycle and time-budget limit, not a dollar cap. Generated plans allow
 at most 1,800 seconds per worker and 300 seconds per check. A one-task desktop
-contract therefore allows at most ten workers and ten checks per authorization
-batch, usually fewer because the first cycle checks existing results. Native
+contract therefore allows at most ten worker attempts and ten verification cycles
+per authorization batch, usually fewer because the first cycle checks existing
+results. A proposed CEO escalation receives a second read-only challenge within
+its verification cycle, so ten cycles can involve more than ten inspector calls. Native
 startup and conversation/report turns have their own transport behavior.
 Actual monetary charges depend on the provider and context.
 

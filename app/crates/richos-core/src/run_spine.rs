@@ -51,6 +51,14 @@ impl Cognition for ScopedLease<'_> {
 }
 
 impl RunHost for SpineRunHost<'_> {
+    fn permission_context(&mut self, context: crate::permission::Context) -> Result<(), String> {
+        if self.worker.is_none() {
+            self.worker = Some(Box::new(crate::native::NativeCognition::start_managed(
+                &crate::native::resolve_claude_bin(), &context.workspace).map_err(|e| e.to_string())?));
+        }
+        self.worker.as_mut().unwrap().set_managed_permission_context(context).map_err(|e| e.to_string())
+    }
+
     fn updated(&mut self, snapshot: &RunSnapshot) {
         if let Some(callback) = &mut self.on_update {
             callback(snapshot);

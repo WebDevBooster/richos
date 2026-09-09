@@ -1,0 +1,8 @@
+{
+  "original_result_sha256": "3c0fb53a02cad42b73f810f91c2f2eca06101ed1f7ea49b9e9776cc6be0b44a7",
+  "original_passed": false,
+  "actual_failure": "Required engineer delegation did not occur. Leader appended original brief after selector; both dispatches denied, then leader performed the work directly and auditor incorrectly accepted completion.",
+  "prose_detector_false_positive": "The final report contains a completed diagnosis.json paragraph and an unrelated D-7 paragraph saying it still needs your ruling. It does not ask the user to grant parser permission or execute validation.",
+  "correction": "Fixture detector now requires parser topic and request within the same paragraph; deterministic positive direct-ask and negative unrelated-business-report cases retained.",
+  "no_original_artifact_rewritten": true
+}

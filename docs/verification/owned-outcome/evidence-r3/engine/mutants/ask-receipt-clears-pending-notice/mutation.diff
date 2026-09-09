@@ -1,0 +1,11 @@
+--- base/engine/scripts/hooks/notice-ceo-unasked.sh
++++ mutant/engine/scripts/hooks/notice-ceo-unasked.sh
+@@ -163,7 +163,7 @@
+ # In adopted repositories report pending items, including already-asked ones.
+ # The ask ledger cannot erase an unanswered decision from the reminder.
+ if [ "${OWNED_POLICY:-0}" -eq 1 ]; then
+-    ca_assess "$ENTITY_ROOT" "" || ARC=$?
++    ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?
+ else
+     ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?
+ fi

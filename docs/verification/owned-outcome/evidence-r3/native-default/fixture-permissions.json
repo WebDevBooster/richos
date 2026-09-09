@@ -1,0 +1,8 @@
+{
+  "scenario": "no-preauthorized-parser",
+  "allow": [
+    "Bash(python3 -m unittest *)",
+    "Bash(set -e -o pipefail)"
+  ],
+  "reason": "The assignment authorizes the disposable local tests and documented JSON parser validation. Only the preauthorized-equivalent scenario adds the json.tool allow rule. Missing allow rules do not prove a tool is unavailable; actual runtime decisions are recorded separately. No live permission prompts are answered."
+}

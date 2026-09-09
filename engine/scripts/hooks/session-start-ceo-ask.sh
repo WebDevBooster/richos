@@ -131,6 +131,12 @@ if [ "${CA_UNASKED:-0}" -gt 1 ]; then
     REST=" ($((CA_UNASKED - 1)) more after it; '${ENGINE_ROOT}/scripts/ceo-asks-status.sh' --session <this-session-id>.)"
 fi
 
+. "$SCRIPT_DIR/../lib/owned-work-policy.sh"
+if owned_work_policy "$ENTITY_ROOT"; then
+    emit "Prepared CEO decision remains pending: ${TOP_ID}: ${TOP_ASK}. Check whether it is an actual dependency. Keep the decision visible and continue independent authorized work. Declare dependent dispatches with depends-on-ceo: <TODO id>; an ask receipt is not an answer. Never ask a question merely to unlock dispatch." "CEO DECISION PENDING: ${TOP_ID}: ${TOP_ASK}${REST} Independent authorized work continues."
+    exit 0
+fi
+
 emit "PUT THIS TO THE CEO BEFORE DISPATCHING ANYONE. His TODO ${TOP_ID}: ${TOP_ASK}${REST} Ask it with AskUserQuestion; the gate requires one prepared item to have been put to him before dispatch. Summarizing his list back to him does not count and never has; on 2026-08-31 that is precisely what happened instead of asking. The gate's logged exception, 'ceo-todos-deferred: <truthful reason>', is for work he has directed in this session; it records no answer and leaves the question pending. OPEN/exit 1 from the status CLI is that unanswered state, not a failed command. Not every guard has such a line. Do not ask an unrelated question to unlock dispatch, treat cancellation as an answer or claim a guard refused a call that was never attempted. Read the complete current work queue and check active owners before selecting all independent work; a restart anchor is not an exhaustive queue." \
      "CEO TODO ${TOP_ID} — ${TOP_ASK}${REST}"
 exit 0

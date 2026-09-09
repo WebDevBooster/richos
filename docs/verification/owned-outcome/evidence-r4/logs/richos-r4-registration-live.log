@@ -1,0 +1,11 @@
+/tmp/richos-r4-registration-live
+authorized_parser PASS
+unrelated_pending_does_not_gate_parser PASS
+missing_signing_authority PASS
+actual_typed_answer PASS
+later_revocation PASS
+peer_claim_cannot_answer PASS
+hook_claim_cannot_answer PASS
+programmatic_question_answer_cannot_answer PASS
+pause_cancels_work_registration PASS
+mixed_human_row_never_becomes_citable_authority PASS

@@ -358,7 +358,7 @@ fn mcp_stdio_handshake_save_and_errors_share_the_real_persistence_path() {
     assert_eq!(out.len(), 6);
     assert_eq!(out[0]["error"]["code"], -32002);
     assert_eq!(out[1]["result"]["protocolVersion"], "2025-03-26");
-    assert_eq!(out[2]["result"]["tools"].as_array().unwrap().len(), 2);
+    assert_eq!(out[2]["result"]["tools"].as_array().unwrap().len(), 3);
     assert_eq!(out[3]["result"]["isError"], false);
     assert_eq!(out[4]["error"]["code"], -32601);
     assert_eq!(out[5]["result"]["isError"], true);
@@ -421,7 +421,7 @@ fn malformed_and_incomplete_tool_inventories_are_refused() {
         assert_eq!(verdict_from_init(&init), OnboardingToolsVerdict::Rejected);
     }
     assert_eq!(
-        verdict_from_init(&json!({"tools":["Read",QUALIFIED_SAVE_TOOL,QUALIFIED_DECLINE_TOOL]})),
+        verdict_from_init(&json!({"tools":["Read",QUALIFIED_SAVE_TOOL,QUALIFIED_DECLINE_TOOL,richos_core::work_disposition::QUALIFIED_TOOL_NAME]})),
         OnboardingToolsVerdict::Loaded
     );
 }

@@ -1,0 +1,31 @@
+Mutation evidence retained at: /private/tmp/richos-r4-native-mutations-lifecycle
+=== the CEO-ask gate: every property, proven load-bearing by removing it ===
+  PASS  everything-matches — removing it turns C3.  red
+  PASS  worker-discharges — removing it turns C4.  red
+  PASS  no-session-filter — removing it turns C5.  red
+  PASS  blocked-counts-as-prepared — removing it turns A5.  red
+  PASS  gate-does-not-block — removing it turns C1.  red
+  PASS  no-escape-hatch — removing it turns C6.  red
+  PASS  bare-defer-permits — removing it turns C7.  red
+  PASS  broken-fails-closed — removing it turns C10.  red
+  PASS  no-ledger-write — removing it turns B1.  red
+  PASS  notice-counts-not-names — removing it turns D1.  red
+  PASS  notice-blocks-the-turn — removing it turns D1.  red
+  PASS  broken-list-is-quiet — removing it turns D4.  red
+  PASS  session-start-silent — removing it turns E2.  red
+  PASS  policy-wrong-version — removing it turns OWN-CFG1. red
+  PASS  policy-boolean-version — removing it turns OWN-CFG3. red
+  PASS  policy-disabled-accepted — removing it turns OWN-CFG4. red
+  PASS  policy-wrong-decision-field — removing it turns OWN-CFG7. red
+  PASS  registrar-nonzero-json-trusted — removing it turns test_nonzero_registrar_json_is_not_authority red
+  PASS  dispatch-success-receipt-dropped — removing it turns test_permitted_dispatch_leaves_exact_work_receipt red
+  PASS  arbitrary-brief-selector-accepted — removing it turns test_selector_cannot_smuggle_proposed_brief red
+  PASS  authority-provenance-ignored — removing it turns test_registration_rejects_hook_or_assistant_authority red
+  PASS  quote-membership-ignored — removing it turns test_registration_rejects_forged_or_uncited_authority red
+  PASS  registration-source-race-ignored — removing it turns test_model_mutating_sources_cannot_publish_stale_registration red
+  PASS  registration-cache-disabled — removing it turns test_registration_once_then_many_dispatches_without_model red
+  PASS  adopted-reminder-silent — removing it turns OWN3. red
+  PASS  ask-receipt-clears-pending-notice — removing it turns OWN11. red
+  PASS  ask-receipt-clears-pending-status — removing it turns OWN10. red
+
+  27/27 properties proven load-bearing

@@ -1,0 +1,11 @@
+{
+  "reason": "Observed native permission UI parked the leader on a routine documentation-read Bash loop before registration. Parent authorized stopping the disposable trial rather than waiting its 900-second ceiling.",
+  "signal": "SIGTERM",
+  "target_pid": 3411,
+  "harness_pid": 3216,
+  "operational_input_sent": false,
+  "harness_exit": 1,
+  "actual_runtime_boundary_observed": true,
+  "result_json_unchanged": true,
+  "harness_limitation": "approval_boundary is evaluated only for no-preauthorized-parser scenario in this harness revision, so result.json says observed:false for this preauthorized scenario despite actual prompt and PermissionRequest evidence."
+}

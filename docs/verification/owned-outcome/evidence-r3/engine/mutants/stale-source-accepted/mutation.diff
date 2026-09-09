@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/owned-dispatch.py
++++ mutant/engine/scripts/lib/owned-dispatch.py
+@@ -150,7 +150,7 @@
+             raise ValueError('Dispatch registrar did not return a successful review')
+         kind = validate(data, json.loads(result.stdout))
+         latest_config, latest_data = collect(root, payload)
+-        if latest_config != config or latest_data != data:
++        if False:
+             raise ValueError('Source authority changed during dispatch review')
+         record(root, data, kind, diagnostics)
+         if kind == 'pending':

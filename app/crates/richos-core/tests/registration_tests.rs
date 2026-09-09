@@ -11,9 +11,9 @@ fn value(intent: Intent, committed: bool) -> Registration {
 }
 
 #[test]
-fn neither_false_none_nor_unaccepted_work_crosses_the_consistency_floor() {
+fn discussion_cannot_discard_commitment_but_rich_cannot_veto_authorized_work() {
     assert!(validate(value(Intent::Discussion, true), "CEO", "Rich", "", &[]).is_err());
-    assert!(validate(value(Intent::Work, false), "CEO", "Rich", "", &[]).is_err());
+    assert!(matches!(validate(value(Intent::Work, false), "CEO", "Rich", "", &[]).unwrap().0, Handoff::Work { .. }));
     assert!(matches!(
         validate(value(Intent::Discussion, false), "CEO", "Rich", "", &[])
             .unwrap()
@@ -40,7 +40,7 @@ fn registration_cannot_fabricate_quotes_or_missing_targets() {
     assert!(validate(v, "CEO", "Rich", "", &[]).is_err());
 }
 #[test]
-fn the_contract_preserves_every_byte_including_negative_constraints_and_tail() {
+fn the_contract_preserves_ceo_constraints_and_tail_without_promoting_richs_reply() {
     let request = "CEO: Build the report. Do not contact anyone. Do not change payroll.";
     let reply = "Rich: I will deliver report.txt covering every request. Do not send it.";
     let tail = "CEO: Use last quarter's approved figures.";
@@ -49,19 +49,19 @@ fn the_contract_preserves_every_byte_including_negative_constraints_and_tail() {
         panic!()
     };
     assert!(goal.contains(request));
-    assert!(goal.contains(reply));
+    assert!(!goal.contains(reply));
     assert!(tasks[0].criteria.contains(request));
-    assert!(tasks[0].criteria.contains(reply));
+    assert!(!tasks[0].criteria.contains(reply));
     assert!(tasks[0].criteria.contains(tail));
     assert!(tasks[0].description.contains(request));
 }
 #[test]
-fn missing_scope_is_distinct_from_permission_and_schema_refuses_synthesized_tasks() {
+fn discovery_is_owned_without_model_generated_acceptance_criteria() {
     let mut v = value(Intent::Work, true);
     v.scope_complete = false;
-    assert!(validate(v, "CEO", "Rich", "", &[])
-        .unwrap_err()
-        .starts_with("MISSING_SCOPE:"));
+    let Handoff::Work { tasks, .. } = validate(v, "CEO", "Rich", "", &[]).unwrap().0 else { panic!() };
+    assert!(tasks[0].criteria.contains("CEO"));
+    assert!(!tasks[0].criteria.contains("Rich\n"));
     let mut json = serde_json::to_value(value(Intent::Work, true)).unwrap();
     json["tasks"] = serde_json::json!([]);
     assert!(serde_json::from_value::<Registration>(json).is_err());
@@ -80,9 +80,9 @@ fn missing_scope_is_distinct_from_permission_and_schema_refuses_synthesized_task
 }
 
 #[test]
-fn markdown_quote_provenance_tolerates_whitespace_but_preserves_full_contract() {
+fn markdown_quote_provenance_tolerates_whitespace_but_preserves_ceo_contract() {
     let request =
-        "Handle this: create hello.txt containing exactly Hello Rich. Do not create other files.";
+        "Handle this: create hello.txt containing exactly Hello Rich with no trailing newline. Do not create other files.";
     let reply="I've got this one.\n\n**Deliverable:** a single file, `hello.txt`.\r\n\r\n**Acceptance constraints:**\n- Exactly `Hello Rich`.\n- No trailing newline.\n- No other files.\n\nI'll confirm once verified.";
     let mut v = value(Intent::Work, true);
     v.request_quote = request.into();
@@ -92,8 +92,8 @@ fn markdown_quote_provenance_tolerates_whitespace_but_preserves_full_contract() 
         panic!()
     };
     assert!(
-        tasks[0].criteria.contains(reply),
-        "quote normalization must not rewrite the execution contract"
+        !tasks[0].criteria.contains(reply),
+        "acknowledgment evidence must not become an independent execution contract"
     );
     assert!(tasks[0].criteria.contains(request));
 }
@@ -179,4 +179,79 @@ fn production_work_contract_keeps_only_the_two_onboarding_operations_inline() {
         "An unrelated action requested alongside the interview still follows the work rule"
     ));
     assert!(ONBOARDING_REGISTRATION_RULE.contains("DATA.onboarding_tool_result is true"));
+}
+
+#[test]
+fn interrupted_empty_reply_cannot_veto_work_or_fabricate_commitment() {
+    let mut v = value(Intent::Work, false);
+    v.reply_quote.clear();
+    assert!(matches!(validate(v, "CEO", "", "", &[]).unwrap().0, Handoff::Work { .. }));
+    let mut v = value(Intent::Work, true);
+    v.reply_quote.clear();
+    assert!(validate(v, "CEO", "", "", &[]).is_err());
+    let mut v = value(Intent::Work, false);
+    v.reply_quote.clear();
+    assert!(validate(v, "CEO", "Actual reply", "", &[]).is_err());
+}
+
+#[test]
+fn repeated_corrections_keep_original_constraints_after_context_eviction() {
+    use richos_core::{autonomy, run::RunController};
+    let temp = std::env::temp_dir().join(format!("richos-registration-review-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&temp).unwrap();
+    let goal = "Original CEO requirement: Do not publish. Preserve payroll.";
+    let task = autonomy::WorkItem { id: "deliver".into(), description: goal.into(), criteria: goal.into(), depends_on: vec![] };
+    let plan = autonomy::plan(temp.as_path(), goal, goal, vec![task]).unwrap();
+    let mut ctl = RunController::create(&temp.as_path().join("run.jsonl"), plan).unwrap();
+    for i in 0..3 {
+        let mut v = value(Intent::Amend, false);
+        v.target_run_id = Some(ctl.snapshot().id.clone());
+        let Handoff::Amend { goal, tasks } = validate(v, "CEO: Change the format", "Rich: Recorded", "", &[ctl.snapshot().clone()]).unwrap().0 else { panic!() };
+        assert!(goal.contains("Do not publish. Preserve payroll."));
+        assert!(tasks[0].criteria.contains("Do not publish. Preserve payroll."));
+        ctl.amend(&format!("correction-{i}"), autonomy::plan(temp.as_path(), "Change format", &goal, tasks).unwrap()).unwrap();
+    }
+    std::fs::remove_dir_all(temp).unwrap();
+}
+
+#[test]
+fn unsolicited_offer_stays_out_of_worker_and_inspector_contracts() {
+    let request="Create hello.txt containing exactly Hello Rich with no trailing newline. Do not create other files.";
+    let reply="I will create hello.txt and verify its bytes. Separately, choose an onboarding interview slot: today or tomorrow.";
+    let mut v=value(Intent::Work,true);
+    v.request_quote="Create hello.txt".into();
+    v.reply_quote="I will create hello.txt and verify its bytes.".into();
+    let Handoff::Work { goal, tasks }=validate(v,request,reply,"",&[]).unwrap().0 else {panic!()};
+    let plan=richos_core::autonomy::plan(std::path::Path::new("/tmp"),request,&goal,tasks).unwrap();
+    assert!(plan.goal.contains(request));
+    assert!(!plan.goal.contains("choose an onboarding interview slot"));
+    for task in &plan.tasks {
+        assert!(task.prompt.contains(request));
+        assert!(!task.prompt.contains("today or tomorrow"));
+        for check in &task.checks {
+            let outcome:richos_core::autonomy::Outcome=serde_json::from_str(&check.argv[1]).unwrap();
+            assert_eq!(outcome.authority,request);
+            for text in [&outcome.goal,&outcome.task,&outcome.criteria] {
+                assert!(text.contains(request));
+                assert!(!text.contains("today or tomorrow"));
+            }
+        }
+    }
+}
+
+#[test]
+fn anaphoric_acceptance_keeps_prior_proposal_and_ceo_constraints_as_reference() {
+    let request="Use that draft plan. Do not contact anyone.";
+    let tail="Rich: The plan is to write proposal.txt using the approved figures.\nCEO: Keep it local; no publishing.\nRich: I can also interview you about the company when you want.";
+    let reply="I will handle the approved draft. I can also schedule that interview.";
+    let mut v=value(Intent::Work,true);
+    v.request_quote="Use that draft plan.".into();v.reply_quote="I will handle the approved draft.".into();
+    let Handoff::Work { goal,tasks }=validate(v,request,reply,tail,&[]).unwrap().0 else {panic!()};
+    assert!(goal.contains(request));
+    assert!(goal.contains(tail));
+    assert!(tasks[0].description.contains("proposal.txt using the approved figures"));
+    assert!(tasks[0].criteria.contains("Keep it local; no publishing."));
+    assert!(goal.contains("only where the CEO accepted that proposal"));
+    assert!(goal.contains("Unaccepted suggestions and optional onboarding invitations are not deliverables or pending CEO decisions"));
+    assert!(!goal.contains("I can also schedule that interview."));
 }

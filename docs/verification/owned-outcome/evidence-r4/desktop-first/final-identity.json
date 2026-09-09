@@ -1,0 +1,8 @@
+{
+  "sha256": {
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/src-tauri/target/debug/richos-tauri": "f48bbbded9dc58143e34935204d7afa06118de276c0c19466ccfbfad10886d9c",
+    "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-work-desktop.py": "c347f02c758cc08b079bfb155f6cfcabdc5ad649000778470b21147ecb01e5da",
+    "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-p_xf9cb4/native-fixture": "c9c37ae85c1c3c561eece035a899246908057c74a7de341bb46ad370fcb5cbc7"
+  },
+  "unchanged": true
+}

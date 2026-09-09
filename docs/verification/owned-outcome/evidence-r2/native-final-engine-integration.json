@@ -1,0 +1,26 @@
+{
+  "scope": "targeted decision-policy hooks, not full-engine adoption",
+  "hooks": [
+    [
+      "SessionStart",
+      null,
+      "session-start-ceo-ask.sh"
+    ],
+    [
+      "PreToolUse",
+      "Agent",
+      "guard-ceo-ask-first.sh"
+    ],
+    [
+      "PostToolUse",
+      "AskUserQuestion",
+      "notice-ceo-asks.sh"
+    ],
+    [
+      "Stop",
+      null,
+      "notice-ceo-unasked.sh"
+    ]
+  ],
+  "wrapper_adoption_marker": ".ceo-todos"
+}

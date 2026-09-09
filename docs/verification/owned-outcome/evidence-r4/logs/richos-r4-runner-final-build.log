@@ -1,0 +1,7 @@
+   Compiling libc v0.2.189
+   Compiling getrandom v0.4.3
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling uuid v1.26.0
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.01s

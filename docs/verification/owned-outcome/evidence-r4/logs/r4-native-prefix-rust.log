@@ -1,0 +1,20 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.09s
+     Running unittests src/lib.rs (app/target/debug/deps/richos_core-f3641f3814acf25f)
+
+running 12 tests
+test native_permission::tests::fake_human_or_inspector_receipt_cannot_escalate ... ok
+test native_permission::tests::ordinary_recovery_has_no_permission_fields ... ok
+test native_permission::tests::general_scope_is_not_exact_operation_authority ... ok
+test native_permission::tests::native_refusal_needs_later_cited_reconsideration_not_old_grant ... ok
+test native_permission::tests::actual_distinct_failed_alternative_is_required ... ok
+test native_permission::tests::exact_human_operation_exposes_native_prompt_without_grant ... ok
+test native_permission::tests::observed_fixed_safety_prefix_preserves_literal_source_requirement ... ok
+test native_permission::tests::prefixed_current_command_is_not_distinct_from_original_failed_call ... ok
+test native_permission::tests::cosmetic_bash_description_is_not_a_distinct_failed_alternative ... ok
+test native_permission::tests::unknown_prior_prompt_requires_cited_new_effects_receipt ... ok
+test native_permission::tests::prefix_cannot_invent_origin_or_allow_extra_commands ... ok
+test native_permission::tests::worker_receipt_binding_prevents_borrowing_a_failure ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 576 filtered out; finished in 0.00s
+

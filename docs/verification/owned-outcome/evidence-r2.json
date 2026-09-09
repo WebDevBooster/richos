@@ -1,0 +1,274 @@
+{
+  "revision": "R2 corrections after external Sage/Fable review of b80f9978",
+  "branch": "codex/owned-outcome-completion",
+  "parent_commit": "b80f9978507a1dd63b7baa86fff4181c362ce70d",
+  "deployment": "Not merged, pushed or installed. No running production session changed.",
+  "evidence_policy": "Raw model transcripts remain in private temporary directories. Packaged logs only trim trailing whitespace at end of file. Historical R1 evidence remains unchanged. Source hashes identify this final tree; each live sample carries its own captured identity.",
+  "deterministic_validation": {
+    "core": {
+      "command": "/Users/alex/.cargo/bin/cargo test --manifest-path app/Cargo.toml -p richos-core",
+      "ordinary_passed": 1034,
+      "ordinary_ignored": 4,
+      "doc_passed": 5,
+      "process_exit": 0,
+      "log": "evidence-r2/core.log"
+    },
+    "desktop_pending": {
+      "command": "/Users/alex/.cargo/bin/cargo test --manifest-path app/src-tauri/Cargo.toml pending_instruction_tests",
+      "passed": 3,
+      "process_exit": 0,
+      "log": "evidence-r2/pending.log",
+      "note": "Separate Tauri test run, not included in core count."
+    },
+    "desktop": {
+      "command": "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright python3 app/scripts/test-owned-work-desktop.py",
+      "phases_passed": 13,
+      "process_exit": 0,
+      "log": "evidence-r2/desktop.log",
+      "raw_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-feza4anj"
+    },
+    "adapter": {
+      "command": "python3 engine/scripts/lib/owned-session.test.py",
+      "passed": 30,
+      "process_exit": 0,
+      "log": "evidence-r2/adapter.log"
+    },
+    "engine": {
+      "command": "bash engine/scripts/hooks/ceo-asks.test.sh",
+      "passed": 71,
+      "mutants_killed": 24,
+      "process_exit": 0,
+      "log": "evidence-r2/engine.log",
+      "captured_sources": "engine-dependency-r2-results.json"
+    },
+    "escalation_and_question_protocol": {
+      "command": "python3 app/scripts/test-owned-escalation.py",
+      "escalation_passed": 11,
+      "question_protocol_passed": 5,
+      "process_exit": 0,
+      "log": "evidence-r2/escalation.log"
+    },
+    "ui": {
+      "command": "RICHOS_PLAYWRIGHT=/Users/alex/ab/richos/app/ui/tests/node_modules/playwright /opt/homebrew/bin/node app/ui/tests/runs.js",
+      "passed": 29,
+      "process_exit": 0,
+      "log": "evidence-r2/ui-runs.log"
+    },
+    "docs": {
+      "command": "/opt/homebrew/bin/node app/ui/tests/docs-claims.js",
+      "passed": 6,
+      "process_exit": 0,
+      "log": "evidence-r2/docs-claims.log"
+    },
+    "controller_mutations": {
+      "mutants_killed": 20,
+      "status": "Carried forward unchanged from R1 and reproduced by external review, not re-run in R2."
+    },
+    "parser_receipt_recognizer": {
+      "command": "python3 app/scripts/test-owned-wake-native.py --self-test-parser",
+      "passed": 9,
+      "process_exit": 0,
+      "log": "evidence-r2/parser-recognizer.log",
+      "scope": "Bounded recognizer for observed Python or jq validation in this fixture, not a general shell proof engine."
+    }
+  },
+  "builds": {
+    "runner": {
+      "command": "/Users/alex/.cargo/bin/cargo build --manifest-path app/Cargo.toml -p richos-core --bin richos-run",
+      "process_exit": 0,
+      "log": "evidence-r2/runner-build.log",
+      "sha256": "3361900a156fe5eb8a08a1aa569ed831c4e1dff426ed81b7ae39cd5571174357"
+    },
+    "desktop": {
+      "command": "/Users/alex/.cargo/bin/cargo build --manifest-path app/src-tauri/Cargo.toml",
+      "process_exit": 0,
+      "log": "evidence-r2/desktop-build.log",
+      "sha256": "49fd3d0c8dd2232d841e797a7ef6c8669e6343d4b18fda843c9bb1deed60d949"
+    }
+  },
+  "live_measurements": {
+    "doctrine_only": {
+      "final": "evidence-r2/doctrine-final-summary.json",
+      "initial_red_samples": "evidence-r2/doctrine-initial-summary.json",
+      "identity": "evidence-r2/doctrine-final-identity.json",
+      "scope": "One sample per scenario per changed doctrine version. No hooks. Both final M1-M6 GREEN, zero nudges. Voided ballots disclosed in logs; not universal reliability proof."
+    },
+    "question_endpoint": {
+      "final": "evidence-r2/question-final-results.json",
+      "identity": "evidence-r2/question-final-identity.json",
+      "passed": 3,
+      "attempts_per_case": 1,
+      "initial": "evidence-r2/question-initial-results.json"
+    },
+    "wake_transport": {
+      "result": "evidence-r2/wake-cap-result.json",
+      "scope": "12 native async wake reminders, one session, explicit 13th Stop ceiling. Transport lower bound, no unlimited guarantee."
+    },
+    "negative_required_execution_replay": {
+      "result": "evidence-r2/negative-replay-final.json",
+      "passed": true,
+      "expected_and_actual": "incomplete",
+      "raw_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-required-check-replay-final-wcb6v3xv",
+      "prior_leader_only": "evidence-r2/negative-replay-leader-only.json"
+    },
+    "native_recovered_before_diagnostic_fix": {
+      "result": "evidence-r2/native-recovered-re-evaluated.json",
+      "original": "evidence-r2/native-recovered-original.json",
+      "identity": "evidence-r2/native-recovered-identity.json",
+      "raw_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-lokegetc",
+      "passed_checks": 18,
+      "operational_followups": 0,
+      "native_wakes": 4,
+      "outcome_audits": 5,
+      "question_audits": 1,
+      "note": "Initially reported FAIL because harness recognized only Python parsers. Actual native jq equivalent succeeded; original bytes preserved and saved receipts re-evaluated. Generic permission feedback caused four wasteful loops before completion."
+    },
+    "native_final": {
+      "command": "python3 app/scripts/test-owned-wake-native.py --assignment",
+      "process_exit": 0,
+      "result": "evidence-r2/native-final-result.json",
+      "identity": "evidence-r2/native-final-identity.json",
+      "narrative": "evidence-r2/native-final-narrative.md",
+      "raw_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-1cxli909",
+      "passed_checks": 18,
+      "operational_followups": 0,
+      "native_wakes": 2,
+      "outcome_audits": 4,
+      "scope": "Final adapter, actual child refusal feedback, real same-session completion and successful native parser. Targeted engine decision hooks only. One sample, not universal reliability proof.",
+      "remaining_requirement": "Native ordinary prose still emitted a routine question before recovery. Does not meet literal zero-routine-question requirement; completed without any answer."
+    }
+  },
+  "failed_or_invalid_attempts": [
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-sho728x9",
+      "status": "Aborted, mixed source identity; not a measured pass. Also exposed child permission prompt stall, fixed before final trial."
+    },
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-u4tlpdb3",
+      "status": "FAIL. Original harness passed and auditor completed despite missing required native parser execution. Original retained; re-evaluation rejects it. Actual receipts and stricter completion rule added afterward.",
+      "original": "evidence-r2/native-false-completion-original.json",
+      "re_evaluation": "evidence-r2/native-false-completion-re-evaluated.json",
+      "identity": "evidence-r2/native-false-completion-identity.json"
+    },
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-doctrine-gates-5vf4hr0u",
+      "status": "Both initial doctrine-only samples RED. Drove loaded-record destination and individual correction evidence requirements. Preserved in initial summary/logs."
+    },
+    {
+      "root": "/tmp/unmanaged-assignment-1788891733",
+      "status": "Unexpected gate --help default invocation stopped before live assignment. Not counted as a sample."
+    },
+    {
+      "log": "evidence-r2/adapter-initial-component-fixture-error.log",
+      "status": "Initial new test assumed permission event captured a user prompt. Capture correctly left source empty. Assertion corrected to require no invented CEO authority, then all 30 tests passed."
+    }
+  ],
+  "review": "Sage independently read the adapter, installer and audit CLI changes after implementation. No blocking authority/completion issue found. Same agent authored engine changes, so that portion is not independent review. Optional repeated-question inspection costs retained in IMPROVEMENTS.md.",
+  "limitations": [
+    "Native ordinary reply prose can still contain a routine question before automatic correction. The question-tool boundary does not filter streamed prose. Literal zero-routine-question promise is not fully met.",
+    "No process executes after both hosts close; no OS service added.",
+    "Native ownership resumes in the same session. No automatic new-session transfer or native-to-RichOS migration.",
+    "Explicit dependency declarations are mechanical; bounded prose checks are not an arbitrary-language authority classifier.",
+    "Five initial outcome audits then hourly recovery is pacing, not a total cost cap. Question inspections are separate paid calls.",
+    "Observed tool receipts strengthen evidence but model verdicts remain fallible; missing/truncated evidence cannot prove successful execution.",
+    "Native fixture exercises adapter/verifier and targeted engine decision hooks, not full engine deployment."
+  ],
+  "source_sha256": {
+    "app/crates/richos-core/doctrine/inner-doctrine.md": "fa27cc22cb064fdba249282140d4bc4c4c8c90af3556f2572d23b8a044047707",
+    "app/crates/richos-core/doctrine/owned-outcome.md": "42e2d5a72b8c0afb98a63f43ee6768b15296e925eee7a11388c7603a2cffc426",
+    "app/crates/richos-core/src/autonomy.rs": "d2a810f391d0b5b67e9cfccb43383ce8e2ddd6f5c81687fa934699d90b991456",
+    "app/crates/richos-core/src/bin/richos-run.rs": "c7624c883509cd82ea49c9d7ed3036511adf8f29cae17d515dee61c4fbb45e59",
+    "app/crates/richos-core/src/native.rs": "3dffcc10a1cd914b0708c179f8f01c09d1dda27f357303f26af1698b1efad2b0",
+    "app/crates/richos-core/src/registration.rs": "4d73590cd47c69a15829b523e5567df5dfeb96619e8c055558a4de595bbd90df",
+    "app/crates/richos-core/src/run.rs": "79cbb25da5380af6b889f7adcab9509aa9488e267c60ba5c989521ed1a786d64",
+    "app/crates/richos-core/src/run_host.rs": "c33c89ebdfd4332c25f24eb8a2b62a414b6944909fa9368193b9ccffb9563f9e",
+    "app/crates/richos-core/tests/action_ledger_tests.rs": "1a9124d879cddbe632a39813b8995c31af6d374855428fa4c66e7b5d541ac9f4",
+    "app/crates/richos-core/tests/registration_tests.rs": "bd4d47b385a6eb5df76f905ea4404dffc9a00bd584ba30e1d5338222027eed50",
+    "app/crates/richos-core/tests/run_tests.rs": "d97639b937f3e9d33ebf5561c3c44aa8addb44f199fac3711f914af3f696b507",
+    "app/scripts/test-managed-run-mutations.py": "a18ad2e08df9976944b5f29f24c7161e6ffc920c34a1178bab7f1a56bb4f3a20",
+    "app/scripts/test-owned-escalation.py": "aafd4c053fcf6e5bbd432c6daee9e88fe8e13b113b92996f99f160c6cc17a783",
+    "app/scripts/test-owned-outcome-native.py": "46dd5e75c36a8682fa7b605fc45afbad4f9d48af4cb0a8d8f6dccd9c847e71e2",
+    "app/scripts/test-owned-question-native.py": "6f6aadc3994d409a4aac604767cfa7158f48accb8a6370e378ac784f581239da",
+    "app/scripts/test-owned-wake-native.py": "4f91add43806dce5b5add4539e15595c2a6c6a523236f6e894ed80fdc886774b",
+    "app/scripts/test-owned-work-desktop.py": "d40fc154f3c1f127676f90be7c40b50562b84134a6fe1331482f3dd85daaafa4",
+    "app/src-tauri/src/owned_work.rs": "65b220836d22ac0f2ca91bba0c7ee28458b64f786bf273212a91044e66a1ec3d",
+    "engine/scripts/ceo-asks-status.sh": "693bdd1dff2680a187a7562b6efaecfb1252ad31a4453457e2510bbd44691582",
+    "engine/scripts/hooks/ceo-asks.mutation.sh": "9c22ab520b23172470c2ffe708b7af341aef4c19c32a526d4387daca9ba42a78",
+    "engine/scripts/hooks/ceo-asks.test.sh": "374fe54c3c9da71b1a9c1a4453004075eada899f4e2978a750ff6b7b11563d81",
+    "engine/scripts/hooks/guard-ceo-ask-first.sh": "02b50879883709b76c1ecfd244e44db36cac127d7648f7ee1088eabcfd3d2e4d",
+    "engine/scripts/hooks/install.sh": "1e2ad056942fa526f5097265e290116c8cc549f4b4c018e3cac037d4388350fa",
+    "engine/scripts/hooks/notice-ceo-unasked.sh": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+    "engine/scripts/hooks/session-start-ceo-ask.sh": "348552c5a7eb55b9caeb34a0121bf4ccd7669fe43070951c93a1354105e344cb",
+    "engine/scripts/install-owned-work.py": "1af736dd3bd304006ba248f22d1f4c080c00db63b98425cfa48fcfde923faf8e",
+    "engine/scripts/lib/owned-session.py": "1394a17449a5b85cc34a9ad07ca4bc3c7acc4edb7a28ddbc0caeaf0a05e75dd0",
+    "engine/scripts/lib/owned-session.test.py": "b4155d3cc6c9f6bc7df4c55bb71b4b2d877ec530efd9fbda653148f2f32b1f11",
+    "engine/scripts/lib/owned-session.test.sh": "d882b790636862bfb244f3c46ae83b83d7e8504d6d44e34864393de14d440262",
+    "engine/scripts/lib/owned-work-policy.sh": "823788184f16b822fc9c1de176eb3b0fe6df2889863c87c1c20d0c9d09e1f611"
+  },
+  "evidence_sha256": {
+    "evidence-r2/adapter-initial-component-fixture-error.log": "afade6d635188fa1b770090fb1db3e6dd952283ef2b22cd8477b96755bb17363",
+    "evidence-r2/adapter.log": "5f1c93da1215453d3243da52979857d78e57e2097aa8c0cb08a30210bb1b2532",
+    "evidence-r2/core.log": "8846390bf24e98c75ad120aacb472047091b11d64ef7ed168fcdc42e29910977",
+    "evidence-r2/desktop-build.log": "99836fbc84c38b93a6a2dd52e1e97fb4b6a26e692f3191144640d4cb4a7be334",
+    "evidence-r2/desktop.log": "abb5ac5dd85b6641533ce3cc1e1f55be62d126aa2da881dcb4792d1b88cf2427",
+    "evidence-r2/docs-claims.log": "9ee350ae589003b756d6ceddc1c1fa3b763398a4d9bf474b143d227423615e4a",
+    "evidence-r2/doctrine-and-question-index.json": "50e2df8e45c7df2bcbe15e7c4b527504451e84b730fdc299b26004d9103f1e1a",
+    "evidence-r2/doctrine-final-identity.json": "c33061781ca7ad9dce97b63fc310d278705c0d31690d3cb9359ae00b73a610c9",
+    "evidence-r2/doctrine-final-rate-limits.log": "6ba55478c7b8e23eaf95028bf827189e47165ecd7f0b59b81fb52f83f376bfd4",
+    "evidence-r2/doctrine-final-shipping-units.log": "f6752515443db58810c6ede44715a943a5135787b7a9f14e2042d834d6e2b64f",
+    "evidence-r2/doctrine-final-summary.json": "8de653dcc809b6063690590954f3e08d1383f619cbdfe2c08bb99fb729a67dd3",
+    "evidence-r2/doctrine-initial-identity.json": "0171ac3e3901468b5d2cc9d91f3160d438f470d653f4321766e9c2920847525e",
+    "evidence-r2/doctrine-initial-rate-limits.log": "08f5b0bc394d089c926294b05224180a177b36784b81969439cffbe41ce0e615",
+    "evidence-r2/doctrine-initial-shipping-units.log": "ac4e2f5f8ac5f45849b29f1766f9d04e0c81f78ac73b7e3913141b1c7bf629ab",
+    "evidence-r2/doctrine-initial-summary.json": "1741710db15e9186475bb9ffe22d6351b792fa2b45ebf6ee8a6fbbb36e78db6c",
+    "evidence-r2/engine.log": "27b2b4d2ab17ed67ddbd4e6959362e1ab5716118b9bffc299659946c466df3c1",
+    "evidence-r2/escalation.log": "7781d914644d8cc5e355cc64601ea3d1b3c72b0aeef9f6a36cf59aa24e1f5fda",
+    "evidence-r2/native-false-completion-identity.json": "4308603672e08c094c8704599e5d1a3019deac13b57749a366b582d59772737e",
+    "evidence-r2/native-false-completion-original.json": "29eb8b0fb45ea46a4fd2a222307d5b5e69af846d8f5cf576077b2947e72a9af6",
+    "evidence-r2/native-false-completion-re-evaluated.json": "a125375b52eccb89c89deb5155f5367976a8f38f02e8087495695dcdce0daeed",
+    "evidence-r2/native-final-engine-integration.json": "6a93b18399e8eacd1954087aa9d656f64d0271264e37c55f6a796ee92c3bd2d7",
+    "evidence-r2/native-final-identity.json": "d2866b8e5b1f56e27198fa9fcaa11c34d43f356f08e11db29c0577b2872809e3",
+    "evidence-r2/native-final-independent-diagnosis.json": "1141a5473170aff3c1ed24dacede815fa8f79457b50c0cd4938533c2cf5b6700",
+    "evidence-r2/native-final-independent-tests.log": "2f0072f4660f928f63394ec5a8a010c86c7916768a58e6d35ccc2fa7cd5d175a",
+    "evidence-r2/native-final-mutant-external.log": "429e8770cea7e40cce284a79c2c956b67f43145b1a0e9476d70b5b8a24e08737",
+    "evidence-r2/native-final-mutant-native.log": "6493fd97a19c6316fce5bd780861d52db390c82cf9e03ac7a45ec915fdc2c9d0",
+    "evidence-r2/native-final-narrative.md": "b5242331c2579b8786aa10ffcb2d2f402fabfe5cef2130e98b29bb41feeea238",
+    "evidence-r2/native-final-parser-receipts.json": "828e1d498fc92a43c5d01727a042984c3eced874da38ff0bb35a1e7f1ce27d04",
+    "evidence-r2/native-final-permissions.json": "2207b52de7d9c12fd27f679b649b222661364db436824519115ed2cc1f14f1f1",
+    "evidence-r2/native-final-request.txt": "b4bf605d2224863077edc3bc1874d66b67b0a10381877042a1d2c3b49a19d2c9",
+    "evidence-r2/native-final-result.json": "89250ccd6bc369d1d14154ad386f108e3fb953fc3a899ef3bbc40ced6fdf7940",
+    "evidence-r2/native-final-routine-question.json": "957fe942ecf5bc571fe44834dedca9997bc89ba40f37c2af34d73c4d86e3029d",
+    "evidence-r2/native-final-snapshot-check.json": "a06f25dfb93bc97f55a76e6b856a939b63caa07f32b6be9c4001168c6469120a",
+    "evidence-r2/native-recovered-excerpts.json": "28dfaa430119b6d11147a03c1d9040f3d3577bb623bd3af39bbd746091127955",
+    "evidence-r2/native-recovered-identity.json": "c3d8f1b43628cc9bf01f9a4b0b3050018a7d58aae78e376f3e28c6d6bca8a593",
+    "evidence-r2/native-recovered-original.json": "6977cc22191d4add95388a711b87be5b59bb577cb1ac489949e36ff568d38d77",
+    "evidence-r2/native-recovered-parser-receipts.json": "4feef183f66362147288360f9af045605ad4a18edc957b1b6e5c1ca09ef0a0c0",
+    "evidence-r2/native-recovered-permission-payloads.json": "e9b96cb1576dcacd288e1538ca10049ff0acb2729c3446ecf45e1152b2f609c5",
+    "evidence-r2/native-recovered-re-evaluated.json": "31d70c1bc6273640dbf554c154dcf48bd7e213a8013455d76e4b98049d3fc1a8",
+    "evidence-r2/native-recovered-snapshot-check.json": "dff7bc39490100a58edd31db1fc6f0fda8d4fa7a1abc877d9eb777750d4d2a87",
+    "evidence-r2/native-refused-parser-receipts.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "evidence-r2/negative-replay-final.json": "67606df27f6a9dc81bbcfdcf91d1f04b1493d771c444b276b1c66d5d4e5c44c6",
+    "evidence-r2/negative-replay-leader-only.json": "cc983e3899d99d3a7df6202481306504c4c27be6be879138afb3f938833790fa",
+    "evidence-r2/parser-recognizer.log": "a9e5bca6f4ca7a4c078bce5e18d1fd8af292805cb71743331204fe255acfaa53",
+    "evidence-r2/pending.log": "e0526d75fd26d17d836c9f239fd7e9950c856ea34dba900e1bc70ee3f29ef9c8",
+    "evidence-r2/question-final-identity.json": "869e7bf3ed69218408ecbd1eb7d1d785a4e4df05bea4ede8c79c9a3dbcb9eae9",
+    "evidence-r2/question-final-results.json": "c9b9737be7e954bf1644f734a006cd60b4284720916046f14a40d1d4f43acca0",
+    "evidence-r2/question-initial-identity.json": "37b66fa05c837c2032907690365d19eae349ba6168ff6872d2eb0050076cefd5",
+    "evidence-r2/question-initial-results.json": "4cddbfc9f9fd632ec1113e04e7c1064bc8b6168680fbbac31d22e7a88dc756e9",
+    "evidence-r2/runner-build.log": "a13905646e2aed93ec6ea9ed6ac91490a4e01f91af0215c3965279a910612149",
+    "evidence-r2/ui-runs.log": "d6e7ec317754f11c04445ed5532174854a6372c407658d45efdedc7e7a8dec8a",
+    "evidence-r2/wake-cap-result.json": "d1c027e89a79af9b23a873a2632d03cbc880afba69e782d60ac03196dbe40107"
+  },
+  "contract_verification": {
+    "date": "2026-09-08",
+    "hooks": "https://code.claude.com/docs/en/hooks",
+    "team_lifecycle": "https://code.claude.com/docs/en/agent-teams",
+    "checked_claims": [
+      "asyncRewake wakes an idle model on exit 2; ordinary async output waits for a next turn.",
+      "Current Stop reference describes an eight-consecutive-block cap for synchronous continuation. The historical one-refusal rule was the engine policy.",
+      "PermissionRequest suggestions are proposed always-allow choices, not granted rules. Structured deny.message returns a refusal to Claude.",
+      "In-process teammates are not restored by resume; team leadership remains session-scoped."
+    ],
+    "limit": "The native transport probe measures at least 12 asynchronous wakes on 2.1.263, not unlimited continuation or cross-session ownership."
+  }
+}

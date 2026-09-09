@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/owned-dispatch.py
++++ mutant/engine/scripts/lib/owned-dispatch.py
+@@ -119,7 +119,7 @@
+         source = None
+         if type(index) is int and 0 <= index < len(data['messages']) and path is None:
+             message = data['messages'][index]
+-            if message['role'] == 'user':
++            if True:
+                 source = message['text']
+         elif index is None and isinstance(path, str):
+             matches = [r for r in data['standing_rulings'] if r['path'] == path]

@@ -1,0 +1,63 @@
+{
+  "scope": "R3 adopted engine dependency correction; no production installation or merge",
+  "controlled_engine": {
+    "passed": 83,
+    "failed": 0,
+    "process_exit": 0,
+    "log": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/richos-ceo-r3-full-final.log"
+  },
+  "python_host_validation": {
+    "passed": 14,
+    "failed": 0,
+    "log": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/richos-ceo-r3-full-final.log"
+  },
+  "mutations": {
+    "killed_at_expected_case": 31,
+    "survived": 0,
+    "evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants"
+  },
+  "final_source_unchanged": true,
+  "source_hashes": {
+    "engine/hooks/hooks.json": "ffdc259d5ffe31cb22a5795a246aac246c555aa89b44db4d53533d55949df091",
+    "engine/scripts/lib/owned-work-policy.sh": "abe21b30be480f22ddc7f71e08f2059890eb67321b96b225d0cc7f44560022aa",
+    "engine/scripts/lib/owned-dispatch.py": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+    "engine/scripts/lib/owned-dispatch.test.py": "6159ce9a9a2fa1744af74cfa26bf12f91e44a76236ebb22d8a67a694845e25af",
+    "engine/scripts/lib/owned-session.py": "77ab8483e032ef5e2e69b32e884b78385b565999e470213f58436a0c0fa822b9",
+    "engine/scripts/hooks/guard-ceo-ask-first.sh": "c523e7ee39387e8242c8c089c4176c7fd66311df97d0979b65383cce5972d473",
+    "engine/scripts/hooks/ceo-asks.test.sh": "ce09f4c8dacbe098baf148884a6be10079fee2ea4be4c8ebf807cfd2018a9b44",
+    "engine/scripts/hooks/ceo-asks.mutation.sh": "85a045485147185900442b04853501816e5ccb41830919b7f87dcf01bbe33ae0",
+    "engine/scripts/hooks/install.sh": "f2137fd4be197a36d126fc885f6329bca0e479dc9b96189738a53beb720ba6be",
+    "app/crates/richos-core/src/dispatch.rs": "a51b5a270cd6d0941389d7b2aa8944a8394b7aec6baac5cc70bd073d91925cef"
+  },
+  "process": {
+    "process_exit": 0,
+    "elapsed_seconds": 511.1,
+    "deadline_seconds": 780,
+    "aggregate_log": "/tmp/richos-ceo-r3-full-final.log",
+    "mutant_evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/mutants"
+  },
+  "superseded_first_full_run": {
+    "process_exit": 1,
+    "mutants_proven": 24,
+    "test_witness_failures": 7,
+    "log": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ceo-r3-final-ejgsh7b8/richos-ceo-r3-full.log",
+    "explanation": "Four config assertions did not distinguish legacy deferral behavior from new-helper refusal; three intended Python failures were not recognized by the shell failure-label matcher. Fixed witnesses then reran full suite once."
+  },
+  "real_tool_free_registrar": {
+    "runs": 15,
+    "exact_kind_passed": 14,
+    "exact_kind_failed": 1,
+    "original_process_exit": 1,
+    "operational_hold_allow_passed": 15,
+    "operational_hold_allow_failed": 0,
+    "evidence": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-dispatch-r3-sql03a_q",
+    "limitation": "Unrelated pending-record case returned authorized with a valid exact CEO citation instead of independent. Original failure retained, separate saved-output host re-evaluation, no model rerun."
+  },
+  "native_timing_difference": {
+    "native_trial_guard_timeout_seconds": 180,
+    "final_timeout_seconds": 240,
+    "subprocess_upper_bound_seconds": 210,
+    "other_guard_difference": "two explanatory comments, no executable guard logic change"
+  },
+  "independence": "This subtask authored the engine correction. It is not an independent review of that code."
+}

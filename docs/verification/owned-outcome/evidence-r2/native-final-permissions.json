@@ -1,0 +1,8 @@
+{
+  "allow": [
+    "Bash(python3 -m unittest *)",
+    "Bash(set -e -o pipefail)",
+    "Bash(python3 -m json.tool diagnosis.json)"
+  ],
+  "reason": "The assignment authorizes the disposable local tests and documented JSON parser validation. Assignment mode preauthorizes the equivalent read-only json.tool operation, leaving inline python -c denied. No live permission prompts are answered."
+}

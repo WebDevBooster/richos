@@ -1,0 +1,32 @@
+
+== Assignment controls in the shipping shell ==
+  PASS  Running work has pinned Pause and End with one closed history disclosure
+  PASS  Every required control is in the viewport at five sizes in both themes
+  PASS  Resource Continue calls the real command contract with assignment and decision identities
+  PASS  Scope changes send the exact typed correction through the decision command
+  PASS  End requires confirmation and uses the question identity while a decision is pending
+  PASS  Business options ask for confirmation and free answers keep their exact wording
+  PASS  Stale-decision failures retain the draft and offer Refresh before technical history
+  PASS  Load errors use friendly copy and harmless recovery comes first
+  PASS  Twenty assignments report all three decisions and put them first with distinct duplicate names
+  PASS  Pause changes the visible status and issues a scoped backend request
+  PASS  Definition of done and file controls are at least 16px
+  PASS  Importing an assignment never executes it
+  PASS  The shared contrast walk measures the real panel in both themes, including open history and picker
+  PASS  Old revisions and other conversations cannot replace the displayed work
+  PASS  Portfolio status refreshes when another assignment needs attention without stealing selection
+  PASS  History and instruction editing preserve visible controls at the smallest viewport
+  PASS  Unreadable assignment recovery requires an explicit confirmation
+  PASS  Long decisions keep question and answers in one uncapped flow with persistent reading controls
+  PASS  The long-question guard rejects both the old cap and a missing reading cue
+  FAIL  The history renders actual Rust registration projections without machine instructions
+          Error
+  PASS  Empty assignments explain the next action without opening history
+  PASS  Duplicate titles use dates before internal references and portfolios have explicit reading cues
+  PASS  History exposes every hidden receipt and imported retry through the shared reading controls
+  PASS  History's overflow check goes red when its reading cue disappears
+  PASS  Attention text stays on the text floor and its separate mark stays on the indicator floor
+  PASS  Dismissal has one unambiguous name and reading cues sit at the cut edge
+  PASS  History keeps distinct checks and gives status and Review decision their own weight
+  PASS  The cut-edge rule is measured and cannot lower its reading button's text floor
+  PASS  Thread changes clear the assignment and its error

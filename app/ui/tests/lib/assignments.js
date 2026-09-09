@@ -34,6 +34,12 @@ async function drive(page, state = "running") {
         if (name === "drive_run") { window.assignmentCurrent.state = "running"; return window.assignmentCurrent; }
         if (name === "retry_run_task") { window.assignmentCurrent.tasks.find(t=>t.id===args.taskId).state="pending";return window.assignmentCurrent; }
         if (name === "end_run") { window.assignmentCurrent.state = "canceled"; return window.assignmentCurrent; }
+        if (name === "respond_run_permission") {
+          if (window.decisionFailure) throw Error(window.decisionFailure);
+          window.assignmentCurrent.state = "ready";
+          for (const t of window.assignmentCurrent.tasks) if (t.id === args.taskId) { t.permission = null; t.state = "pending"; }
+          return window.assignmentCurrent;
+        }
         if (name === "respond_run_decision") {
           if (window.decisionFailure) throw Error(window.decisionFailure);
           window.assignmentCurrent.state = args.action.kind === "end" ? "canceled" : "ready";

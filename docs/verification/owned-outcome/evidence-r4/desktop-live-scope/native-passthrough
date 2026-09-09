@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+import json,os,sys,uuid
+from pathlib import Path
+trace=Path('/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/provider-trace')
+call=str(uuid.uuid4())
+(trace/(call+'.invocation.json')).write_text(json.dumps({'pid':os.getpid(),'cwd':os.getcwd(),'argv':sys.argv[1:],'provider':'/Users/alex/.local/bin/claude'}))
+# exec keeps the provider as the PID owned/canceled by NativeClient. Each tee
+# child closes unused descriptors and exits on EOF; it never emits new bytes.
+for channel,label in [(0,'stdin'),(1,'stdout'),(2,'stderr')]:
+    read_fd,write_fd=os.pipe()
+    if os.fork()==0:
+        source,destination=(channel,write_fd) if channel==0 else (read_fd,channel)
+        os.close(read_fd if channel==0 else write_fd)
+        for unused in (0,1,2):
+            if unused!=channel: os.close(unused)
+        log=os.open(str(trace/(call+'.'+label)),os.O_CREAT|os.O_WRONLY,0o600)
+        try:
+            while True:
+                chunk=os.read(source,65536)
+                if not chunk: break
+                for fd in (log,destination):
+                    remaining=chunk
+                    while remaining:
+                        remaining=remaining[os.write(fd,remaining):]
+        except (BrokenPipeError,OSError): pass
+        finally: os._exit(0)
+    owned=read_fd if channel==0 else write_fd
+    os.close(write_fd if channel==0 else read_fd)
+    os.dup2(owned,channel);os.close(owned)
+os.execv('/Users/alex/.local/bin/claude',['/Users/alex/.local/bin/claude',*sys.argv[1:]])

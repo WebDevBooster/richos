@@ -1,0 +1,19 @@
+Evidence directory: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-escalation-test-xz4_5c5v
+PASS: routine-question
+PASS: corrected-authority
+PASS: completed
+PASS: empty-completion
+PASS: empty-next-work
+PASS: empty-question
+PASS: empty-why_ceo
+PASS: empty-recommendation
+PASS: invalid-options-0
+PASS: invalid-options-1
+PASS: invalid-options-2
+PASS: 11 real native-protocol challenge cases. Routine questions return next work; only validated final authority questions can escalate; original prohibitions reach both reviews.
+PASS: question-routine
+PASS: question-material
+PASS: question-empty-reason
+PASS: question-wrong-boolean
+PASS: question-extra-field
+PASS: 5 native question-review protocol cases; verdicts never grant tool permission or fabricate an answer.

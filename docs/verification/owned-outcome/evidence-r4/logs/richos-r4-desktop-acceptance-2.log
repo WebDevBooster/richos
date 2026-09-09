@@ -1,0 +1,21 @@
+Evidence directory: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-ijl8zmdk
+PASS update-owned
+PASS enqueue
+PASS resume
+PASS recover-notice
+PASS correct-live
+PASS slow-registration
+PASS pending-cancel
+PASS independent-work
+PASS registration-failures
+PASS registration-failures-restart
+PASS registration-recovery
+PASS end-live
+PASS panel-decisions
+PASS disposition-corrupt
+PASS disposition-discussion
+PASS disposition-missing-enqueue
+PASS disposition-missing-resume
+PASS disposition-interrupted-enqueue (intentional app interruption before disposition)
+PASS disposition-interrupted-resume
+PASS actual desktop: 19 exercised phase(s): update-owned, enqueue, resume, recover-notice, correct-live, slow-registration, pending-cancel, independent-work, registration-failures, registration-failures-restart, registration-recovery, end-live, panel-decisions, disposition-corrupt, disposition-discussion, disposition-missing-enqueue, disposition-missing-resume, disposition-interrupted-enqueue, disposition-interrupted-resume.

@@ -1,0 +1,107 @@
+{
+  "passed": true,
+  "checks": {
+    "native_approval_boundary_preserved": true,
+    "no_operational_followups_measured": true,
+    "no_false_completion": true,
+    "source_identity_unchanged": true,
+    "auditor_binary_unchanged": true
+  },
+  "original_result_unchanged": "e2717f48c62890a5777ab4df75e4db9856c20c67247a5c0ac77cfef92d7343b4",
+  "originals_sha256": {
+    "result.json": "e2717f48c62890a5777ab4df75e4db9856c20c67247a5c0ac77cfef92d7343b4",
+    "adapter-hooks.jsonl": "1443bf0cd3a796e36265158030f67b45750cd1be39703f90c5ed514f46b1a9c9",
+    "terminal.log": "5f104c6a1f0dcc959df51a04c8703a4b5fb8cca24730bf8ac19d51398b650644",
+    "terminal-events.jsonl": "be7c3b7ae9e9b11fbb4e284928c2c84d20c41168ce70a9cfc0113717f4b2eab7",
+    "input-events.jsonl": "f69cf98b960599f735394f194a21389ae5ffd29e2073737ea963559ea6bb66b6",
+    "source-identity.json": "99cc3f5428fc51e0bbce6b3aea3880e780e9ff9554cba6a477eabbb20efe48a3",
+    "runtime-snapshot-identity.json": "13d869275045523dba098c9408e46a1ec807b60a120891c8fc225a0c07bb4577"
+  },
+  "outcome": "permission_required",
+  "operational_followups": 0,
+  "boundary": {
+    "observed": true,
+    "native_approval_ui_visible": true,
+    "passthrough_requests": [
+      {
+        "mode": "permission",
+        "input": {
+          "session_id": "ee734f73-8d50-483f-9e5b-024f404cf13e",
+          "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-gx6rw1a9-workspace/ee734f73-8d50-483f-9e5b-024f404cf13e.jsonl",
+          "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-gx6rw1a9/workspace",
+          "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-gx6rw1a9-workspace/ee734f73-8d50-483f-9e5b-024f404cf13e/scratchpad",
+          "prompt_id": "e72d178b-80cd-4ca6-96c3-b2ab82ff4e25",
+          "permission_mode": "acceptEdits",
+          "effort": {
+            "level": "high"
+          },
+          "hook_event_name": "PermissionRequest",
+          "tool_name": "Bash",
+          "tool_input": {
+            "command": "set -e -o pipefail\npython3 -m json.tool diagnosis.json",
+            "description": "Execute the required diagnosis.json verification command"
+          },
+          "permission_suggestions": [
+            {
+              "type": "addRules",
+              "rules": [
+                {
+                  "toolName": "Bash",
+                  "ruleContent": "python3 -m json.tool diagnosis.json"
+                }
+              ],
+              "behavior": "allow",
+              "destination": "localSettings"
+            }
+          ]
+        },
+        "stdout": "",
+        "stderr": "",
+        "exit": 0,
+        "time": 1788942837.471848
+      }
+    ],
+    "correlated_terminal_evidence": [
+      {
+        "permission_event_time": 1788942837.471848,
+        "terminal_start": 252914,
+        "command": "set -e -o pipefail\npython3 -m json.tool diagnosis.json",
+        "terminal_evidence": "\u001b[?25l\u001b[2D\u001b[4B\r\u001b[8A\u2736\r\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[2C\u001b[4A\u001b[?25h\u001b]0;\u2733 Local project repair and diagnosis\u0007\u001b[?25l\u001b[2D\u001b[4B\r\u001b[8A\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\r\u001b[1C\u001b[1BBash command\u001b[15G\u001b[K\r\u001b[1C\u001b[1BTip:\u001b[7Gauto\u001b[12Gmode\u001b[17Ghandles\u001b[25Gthese\u001b[31Gprompts\u001b[39Gfor\u001b[43Gyou\u001b[47G\u2014\u001b[49Gchoose\u001b[56G\"switch\u001b[64Gto\u001b[67Gauto\u001b[72Gmode\"\u001b[78Gbelow\r\u001b[1B\u001b[K\r\u001b[1B  \u001b[4G\u2502\u001b[6Gset\u001b[10G-e\u001b[13G-o\u001b[16Gpipefail\r\u001b[1B   \u2502 python3 -m json.tool diagnosis.json\u001b[K\r\u001b[2C\u001b[1B Execute the required diagnosis.json verification command\u001b[K\r\u001b[2C\u001b[1B\u001b[K\r\r\n\u001b[2GThis\u001b[7Gcommand\u001b[15Grequires\u001b[24Gapproval\r\r\n\r\r\n\u001b[2GDo\u001b[5Gyou\u001b[9Gwant\u001b[14Gto\u001b[17Gproceed?\r\r\n\u001b[2G\u276f\u001b[4G1.\u001b[7GYes\r\r\n\u001b[4G2.\u001b[7GYes,\u001b[12Gand\u001b[16Gdon\u2019t\u001b[22Gask\u001b[26Gagain\u001b[32Gfor:\u001b[37Gpython3\u001b[45G-m\u001b[48Gjson.tool\u001b[58Gdiagnosis.json\r\r\n\u001b[4G3.\u001b[7GYes,\u001b[12Gand\u001b[16Gswitch\u001b[23Gto\u001b[26Gauto\u001b[31Gmode\u001b[36G\u00b7\u001b[38Gauto\u001b[43Gmode\u001b[48Ghandles\u001b[56Gthese\u001b[62Gprompts\u001b[70Gfor\u001b[74Gyou\r\r\n\u001b[4G4.\u001b[7GNo\r\r\n\r\r\n\u001b[2GEsc\u001b[6Gto\u001b[9Gcancel\u001b[16G\u00b7\u001b[18GTab\u001b[22Gto\u001b[25Gamend\r\r\n\u001b[1C\u001b[6A",
+        "native_invocation": {
+          "invocation_id": "toolu_01FXohiZoEBtooS6xqG7TZ7Q",
+          "pretool_time": 1788942816.438764,
+          "host_prompt_time": 1788942837.463735,
+          "last_terminal_time": 1788942816.521288,
+          "original_input": {
+            "command": "python3 -m json.tool diagnosis.json",
+            "description": "Execute the required diagnosis.json verification command"
+          },
+          "effective_input": {
+            "command": "set -e -o pipefail\npython3 -m json.tool diagnosis.json",
+            "description": "Execute the required diagnosis.json verification command"
+          }
+        }
+      }
+    ],
+    "basis": "Actual native PermissionRequest callback with no adapter decision and current command UI. UI must follow callback return or be an unchanged frame drawn during the exact PreToolUse invocation backed by its completed host prompt ticket. Earlier setup UI is excluded."
+  },
+  "final_restriction_proof": {
+    "original_input": {
+      "command": "python3 -m json.tool diagnosis.json",
+      "description": "Execute the required diagnosis.json verification command"
+    },
+    "effective_input": {
+      "command": "set -e -o pipefail\npython3 -m json.tool diagnosis.json",
+      "description": "Execute the required diagnosis.json verification command"
+    },
+    "equal_except_fixed_prefix_and_description": true,
+    "actual_final_python_normalization_passed": true,
+    "required_command_present_in_verified_native_human_source": true,
+    "adapter_sha256": "4d06e2187cc194b97769f3a2fdbe49c534c56280ab29852d0eb43a4d99c1968c",
+    "rust_sha256": "2f02c6b0d7c5ff36f601b6996a712a275b4208800acb990f1bbd98646c740c16"
+  },
+  "limit": "Native rendered the current permission UI during the hook, before callback completion. No terminal change followed completed native_prompt and no answer was supplied. This proves permission_required, not task completion or zero transient UI.",
+  "provider_rerun": false,
+  "terminal_cutoff_before_recorded_operator_SIGTERM": 1788943002.683135,
+  "terminal_bytes_at_cutoff": 254209
+}

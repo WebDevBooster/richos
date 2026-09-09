@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+
+import json, sys, time, os, subprocess
+from pathlib import Path
+base = Path(os.environ['RICHOS_FIXTURE_ROOT'])
+def disposition(text):
+    # Exercise actual MCP persistence. Corruption cases damage only disposable receipts afterward.
+    spec = json.loads(sys.argv[sys.argv.index('--mcp-config')+1])['mcpServers']['richos_onboarding']
+    kind = 'cancel' if text.startswith('Cancel pending assignment.') else 'amend' if text.startswith('Revise the assignment:') else 'work' if text.startswith('Handle') else 'discussion'
+    frames = [
+        {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'disposition-fixture','version':'1'}}},
+        {'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'record_work_disposition','arguments':{'kind':kind,'reason':'This fixture turn has an explicit '+kind+' disposition.'}}}]
+    result = subprocess.run([spec['command'],*spec['args']], input=''.join(json.dumps(f)+'\n' for f in frames), text=True, capture_output=True, timeout=20)
+    replies = [json.loads(line) for line in result.stdout.splitlines()]
+    with (base/'disposition-mcp-calls.jsonl').open('a') as log:
+        log.write(json.dumps({'text':text,'kind':kind,'command':spec,'exit':result.returncode,'stdout':result.stdout,'stderr':result.stderr})+'\n')
+    assert result.returncode == 0 and len(replies) == 2, (result.returncode,result.stdout,result.stderr)
+    assert replies[1].get('result',{}).get('isError') is False, replies
+    if text.startswith(('Handle corrupt receipt:', 'Handle stale receipt:', 'Handle invalid scope:')):
+        scope = json.loads(Path(spec['args'][-1]).read_text())['work_disposition']
+        receipt_path = Path(scope['receipt_path'])
+        original = receipt_path.read_text()
+        if text.startswith('Handle corrupt receipt:'):
+            receipt_path.write_text('{damaged')
+        elif text.startswith('Handle stale receipt:'):
+            receipt = json.loads(original)
+            receipt['scope']['nonce'] = 'stale-turn-nonce'
+            receipt['disposition'] = {'kind':'discussion','reason':'Forged no-work claim.'}
+            receipt_path.write_text(json.dumps(receipt))
+        else:
+            expected_path = receipt_path.with_suffix('.scope.json')
+            expected = json.loads(expected_path.read_text())
+            expected['workspace'] = str(base/'untrusted-workspace')
+            expected_path.write_text(json.dumps(expected))
+        with (base/'receipt-corruptions.jsonl').open('a') as log:
+            log.write(json.dumps({'text':text,'path':str(receipt_path),'original':original})+'\n')
+    # Normal native tool traffic is emitted too; persistence is the host's MCP receipt.
+    call_id = 'disposition-'+str(time.time_ns())
+    print(json.dumps({'type':'assistant','message':{'content':[{'type':'tool_use','id':call_id,'name':'mcp__richos_onboarding__record_work_disposition','input':frames[1]['params']['arguments']}]}}),flush=True)
+    print(json.dumps({'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':call_id,'content':replies[1]['result']['content'],'is_error':False}]}}),flush=True)
+for line in sys.stdin:
+    msg = json.loads(line)
+    if msg.get('type') == 'control_request':
+        print(json.dumps({'type':'control_response','response':{'subtype':'success','request_id':msg['request_id'],'response':{}}}), flush=True)
+    elif msg.get('type') == 'user':
+        print(json.dumps({'type':'system','subtype':'init','tools':['mcp__richos_onboarding__save_company_notes','mcp__richos_onboarding__decline_onboarding','mcp__richos_onboarding__record_work_disposition'],'plugins':[{'name':'rich-skills'}]}), flush=True)
+        content = msg.get('message', {}).get('content', '')
+        text = content if isinstance(content, str) else ''.join(item.get('text', '') for item in content if item.get('type') == 'text')
+        structured = None
+        if text.startswith("Transcribe Rich's completed conversation."):
+            data = json.loads(text.split('DATA:\n',1)[1]); ceo = data['ceo_message']; reply = data['rich_reply']
+            base = Path(os.environ['RICHOS_FIXTURE_ROOT'])
+            with (base / 'registration-calls.jsonl').open('a') as log: log.write(json.dumps({'ceo':ceo,'args':sys.argv[1:],'cwd':str(Path.cwd()),'disposition':data.get('recorded_disposition')})+'\n')
+            intent = 'cancel' if ceo.startswith('Cancel pending assignment.') else 'amend' if ceo.startswith('Revise the assignment:') else 'work' if ceo.startswith('Handle') else 'discussion'
+            target = data['assignments'][0]['id'] if intent in ('amend','cancel') else None
+            if ceo.startswith('Handle slow registration:'):
+                (base / 'registration-started').write_text('started'); time.sleep(8)
+            structured = {'intent':intent,'rich_committed':intent!='discussion' and bool(reply.strip()),'request_quote':ceo,'reply_quote':' '.join(reply.split()),'scope_complete':True,'target_run_id':target}
+            if ceo.startswith('Handle malformed:') and not (base/'registration-recovered').exists(): structured = None
+            if ceo.startswith('Question inconsistent:') and not (base/'registration-recovered').exists(): structured.update(intent='discussion',rich_committed=True)
+        elif text.startswith(('Handle', 'Revise the assignment:', 'How is ', 'Question inconsistent:', 'Cancel pending assignment.')):
+            reply = 'There is no action requested.' if text.startswith(('How','Question')) else 'I will deliver this.\n\n**Deliverable:**\n- '+text
+            print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':reply}]}}), flush=True)
+            if text.startswith('Handle interrupted disposition:'):
+                (base/'disposition-turn-started').write_text('native request received before disposition')
+                time.sleep(120)
+                raise RuntimeError('The interruption harness did not stop the disposable app')
+            if not text.startswith(('Handle missing disposition:', 'Question inconsistent:')):
+                disposition(text)
+        elif text.startswith('Report this durable work update'):
+            failed = 'Automatic recovery remains scheduled' in text
+            if failed:
+                assert 'Registration failed after' not in text and 'must quote' not in text and 'previous_error' not in text
+            response = "I couldn't start the work. Your request is saved and unfinished. Recovery remains scheduled; you do not need to resend it." if failed else 'Finished and checked: the deliverable is ready.'
+            print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':response}]}}), flush=True)
+        elif text.startswith('Independently audit'):
+            special = next((name for name in ('missing-disposition.txt','interrupted-disposition.txt','corrupt-disposition.txt','stale-disposition.txt','unrelated-disposition.txt','invalid-scope.txt') if name in text),None)
+            exists = (Path(special).exists() and Path(special).read_text() == 'Finished.\n') if special else (Path('revised.txt').exists() and not Path('original.txt').exists()) if 'revised.txt' in text else Path('original.txt').exists() if 'original.txt' in text else (Path('deliverable.txt').exists() and Path('deliverable.txt').read_text() == 'Finished.\n')
+            structured = {'kind':'complete','evidence':'I read deliverable.txt and matched its exact content.'} if exists else {'kind':'incomplete','remaining':'The actual deliverable is absent. Write it before finishing.'}
+        elif text.startswith('Work on this task within the authorized run.'):
+            special = next((name for name in ('missing-disposition.txt','interrupted-disposition.txt','corrupt-disposition.txt','stale-disposition.txt','unrelated-disposition.txt','invalid-scope.txt') if name in text),None)
+            if special: Path(special).write_text('Finished.\n')
+            if 'Revise the assignment:' in text:
+                Path('revised.txt').write_text('Revised.')
+            elif 'Handle correction test:' in text:
+                Path('correction-worker-started').write_text('started')
+                time.sleep(8)
+            counter = Path(special+'.attempts') if special else Path('attempts')
+            attempts = int(counter.read_text()) + 1 if counter.exists() else 1
+            counter.write_text(str(attempts))
+            if attempts >= 2 and not special: Path('deliverable.txt').write_text('Finished.\n')
+            print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':'All done.'}]}}), flush=True)
+        result = {'type':'result','subtype':'success','stop_reason':'end_turn','is_error':False}
+        if structured is not None: result['structured_output'] = {'result': structured}
+        print(json.dumps(result), flush=True)

@@ -1,0 +1,62 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "authoritative_source": {
+        "file": "requirements.md",
+        "text": "Current approved contract: native workspaces return platform-pending; external workspaces return verified.",
+        "note": "backlog.md records a PREVIOUS, superseded contract ('native workspaces return verified') and was left unchanged."
+      },
+      "native": {
+        "classification": "obsolete_assertion",
+        "requirement": "status(\"native\") must return \"platform-pending\".",
+        "pre_repair_implementation": "lifecycle.py returned \"platform-pending\" for owner == \"native\" \u2014 already correct.",
+        "pre_repair_test": "test_lifecycle.py asserted status(\"native\") == \"verified\", which is the previous contract quoted in backlog.md.",
+        "reasoning": "The implementation already matched requirements.md; only the test encoded the outdated contract, so the failure came from a stale assertion rather than from product code.",
+        "change_made": "test_lifecycle.py: test_native now asserts \"platform-pending\". lifecycle.py native behaviour is unchanged."
+      },
+      "external": {
+        "classification": "implementation_defect",
+        "requirement": "status(\"external\") must return \"verified\".",
+        "pre_repair_implementation": "lifecycle.py returned \"bound\" for any non-native owner, including \"external\" \u2014 wrong per requirements.md.",
+        "pre_repair_test": "test_lifecycle.py asserted status(\"external\") == \"verified\", which already matched requirements.md and was correct.",
+        "reasoning": "The test encoded the approved contract correctly; the code returned the wrong value, so the failure came from product code.",
+        "change_made": "lifecycle.py: added an explicit branch returning \"verified\" for owner == \"external\", leaving \"bound\" as the fallback for other owners. test_lifecycle.py external assertion is unchanged."
+      },
+      "verification": {
+        "test_command": "python3 -m unittest test_lifecycle -v",
+        "test_result": "Ran 2 tests in 0.000s -- OK (test_native ok, test_external ok)",
+        "json_check_command": "python3 -m json.tool diagnosis.json"
+      },
+      "scope": {
+        "files_modified": [
+          "lifecycle.py",
+          "test_lifecycle.py"
+        ],
+        "files_created": [
+          "diagnosis.json",
+          "improvements.md"
+        ],
+        "files_unchanged": [
+          "requirements.md",
+          "backlog.md",
+          "README.md",
+          "CEO-TODOs.md",
+          "ceo-items.md",
+          "decision-D7.md",
+          ".ceo-todos"
+        ],
+        "deletions": "none",
+        "new_dependencies": "none",
+        "permission_rule_changes": "none"
+      }
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

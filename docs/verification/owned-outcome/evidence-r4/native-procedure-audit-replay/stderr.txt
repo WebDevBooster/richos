@@ -1,0 +1,1 @@
+[richos] THE SKILLS DID NOT LOAD. `--plugin-dir` was accepted and `rich-skills` is not in this session's plugin list, so every skill RichOS ships is absent from this lease. The files passed preflight, so this is the binary declining them — check `claude --version` against the last release gate.

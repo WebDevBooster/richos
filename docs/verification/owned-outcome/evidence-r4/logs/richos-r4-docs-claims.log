@@ -1,0 +1,14 @@
+
+== app/ documents vs the tree they describe — derived, never typed ==
+  PASS  app/README.md names every Rust test file, and no file it names is gone
+          47 test files across 3 crates, all named
+  PASS  every per-file test count in app/README.md is the count in that file
+          34 per-file counts, all matching: ledger_forward_compat=20 intake_forward_compat=19 correction_forward_compat=27 entity_binding=10 entity_registry=10 spine=12 rotation=22 action_ledger=15 machinery=15 steering=16 native_onboarding_grant=6 native_cancel=8 doctrine_sentinel.rs=1 between_turn=4 between_turn_thread=6 feedback_no_outbound=8 launch_no_outbound=11 feedback_surface=3 belief_trigger=6 heard_trigger=7 spoken_trigger=9 timeline=12 live_event=20 company_layer=7 onboarding_declination=4 loro_reprime=11 loro_lane_map=11 loro_gui_launch=15 setup.rs=33 worker_attribution=10 upstream_classification=14 upstream_turn=12 reachability=8 watermark_cadence=8
+  PASS  every `cargo test -p <crate>` total in app/README.md is the tree's own total
+          richos-core=1096+5 richos-voice=196+0
+  PASS  app/ui/tests/README.md's table is exactly the inventory run.js discovers
+          33 suites, all in the table: affordances.js, appearance.js, compaction-notice.js, compaction-progress.js, contrast.js, corrections.js, docs-claims.js, feedback.js, home.js, inspector.js, live-workers.js, markdown.js, memory-strategy.js, memory.js, onboarding-lifecycle.js, onboarding.js, outage.js, realbytes.js, restart-scope.js, retention.js, run-permissions.js, runs.js, scale.js, setup.js, slow-bridge.js, splash.js, steering.js, techy.js, updates.js, vouch-template.js, waiting-lifecycle.js, waiting-state.js, workers.js
+  PASS  app/STREAMING.md documents every `rich://` event the app declares
+          20 declared event names, all documented
+  PASS  app/STREAMING.md names no event the app does not have, unless it says so
+          24 names in the document: 20 backed by a constant, 4 declared DEFERRED

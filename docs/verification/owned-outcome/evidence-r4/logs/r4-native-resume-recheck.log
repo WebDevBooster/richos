@@ -1,0 +1,43 @@
+{
+  "original_result_sha256": "81916e8b22d9fdd73dc970df05cb4bdb8a630ac3868f9f601ec143325cca22bb",
+  "re_evaluator_sha256": "4fdd4d2ce23434a8b20cbc491914dec9588f55d4b24a2481d9ada34e9a2711e8",
+  "original_passed": false,
+  "passed": true,
+  "checks": {
+    "same_native_leader": true,
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": true,
+    "source_identity_unchanged": true,
+    "no_operational_followups_measured": true,
+    "actual_auditor_completed": true,
+    "no_routine_parser_prose_asks": true,
+    "documented_json_parser_check_executed_natively": true,
+    "portable_native_dispatch_adapter_exercised": true,
+    "host_registered_brief_supplied_without_permission_grant": true,
+    "host_registered_brief_reaches_native_child": true,
+    "registration_once_for_single_human_assignment": true,
+    "successful_dispatch_has_registered_work_receipt": true,
+    "verified_human_source_retained": true,
+    "actual_engine_pending_notice_exercised": true,
+    "auditor_binary_unchanged": true,
+    "diagnosis_correct": true,
+    "both_test_methods_retained": true,
+    "independent_tests_pass": true,
+    "actual_behavior_matches_contract": true,
+    "coverage_rejects_native_regression": true,
+    "coverage_rejects_external_regression": true,
+    "scope_preserved": true
+  },
+  "input_measurement": {
+    "recorded_operational_inputs": [],
+    "transcript_unexpected_inputs": [],
+    "transcript_initial_count": 1,
+    "argv_initial_count": 1,
+    "matched_system_messages": 2,
+    "operational_followups": 0,
+    "confirmed": true
+  },
+  "reason": "Successful native SendMessage resumed an actually launched child; paired toolUseResult.resumedAgentId and sourceToolAssistantUUID bind the resulting native task-notification. No operator wrote an operational input.",
+  "original_artifacts_unchanged": true
+}

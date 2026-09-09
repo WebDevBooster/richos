@@ -1,0 +1,132 @@
+{
+  "original_result": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-dispatch-r3-sql03a_q/result.json",
+  "original_exact_kind_passed": 14,
+  "original_exact_kind_total": 15,
+  "original_process_exit": 1,
+  "interpretation": "Operational re-evaluation of saved outputs only. No rerun. Authorized vs independent kind distinction remains imperfect in one case.",
+  "original_source_unchanged": true,
+  "host_validator_sha256": "7da5eb8306169e6b4a281af9f9097d0f2446690244315ac24b27869b769219e6",
+  "results": [
+    {
+      "name": "independent_negation",
+      "expected_kind": "independent",
+      "actual_kind": "independent",
+      "host_validated": true,
+      "operation": "allow",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "independent_nothing_blocked",
+      "expected_kind": "independent",
+      "actual_kind": "independent",
+      "host_validated": true,
+      "operation": "allow",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "independent_history",
+      "expected_kind": "independent",
+      "actual_kind": "independent",
+      "host_validated": true,
+      "operation": "allow",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "pending_contraction",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "pending_pronoun_ruling",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "pending_ordinary_waiting",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "pending_original_review",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "asked_is_not_answered",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "actual_answer_same_pending_row",
+      "expected_kind": "authorized",
+      "actual_kind": "authorized",
+      "host_validated": true,
+      "operation": "allow",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "wrong_scope_answer",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "revoked_answer",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "declared_ruling_same_pending_row",
+      "expected_kind": "authorized",
+      "actual_kind": "authorized",
+      "host_validated": true,
+      "operation": "allow",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "removed_ruling_same_pending_row",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "pending_record_relevant",
+      "expected_kind": "pending",
+      "actual_kind": "pending",
+      "host_validated": true,
+      "operation": "hold",
+      "operational_assertion_passed": true
+    },
+    {
+      "name": "pending_record_unrelated",
+      "expected_kind": "independent",
+      "actual_kind": "authorized",
+      "host_validated": true,
+      "operation": "allow",
+      "operational_assertion_passed": true
+    }
+  ],
+  "operational_passed": true
+}

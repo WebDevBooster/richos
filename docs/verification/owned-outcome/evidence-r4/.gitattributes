@@ -1,0 +1,4 @@
+# Keep raw evidence byte-identical. Authored code and documents retain normal checks.
+*.log -whitespace
+*.diff -whitespace
+out.txt -whitespace

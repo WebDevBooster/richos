@@ -1,0 +1,391 @@
+{
+  "kind": "one changed-source real-provider desktop trial after actual scope-boundary correction",
+  "prior_trial": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-v2fhgxxv",
+  "artifact_complete": true,
+  "artifact_bytes_hex": "48656c6c6f2052696368",
+  "workspace_files": [
+    "hello.txt"
+  ],
+  "workspace_directories": [
+    ".claude",
+    ".claude/.cc-writes"
+  ],
+  "source_user_messages": 1,
+  "operator_followups": 0,
+  "request_count": 1,
+  "registration_attempts": 1,
+  "run_count": 1,
+  "run_worker_attempts": 1,
+  "receipt_binding_matches_expected_scope": true,
+  "disposition": {
+    "kind": "work",
+    "target": null,
+    "reason": "CEO asked for a file named hello.txt containing exactly the text Hello Rich with no trailing newline, and no other files created."
+  },
+  "current_rich_reply_absent_from_worker_scope": true,
+  "provider_process_counts": {
+    "registrar": 1,
+    "inspector": 2,
+    "worker": 1,
+    "chat": 1
+  },
+  "provider_user_prompt_counts": {
+    "registrar": 1,
+    "worker": 1,
+    "chat": 3,
+    "inspector": 2
+  },
+  "runtime_permission_denials": 0,
+  "question_tool_calls": 0,
+  "manual_behavior_review": {
+    "blocking_routine_ceo_question_observed": false,
+    "unrelated_onboarding_offer_in_visible_chat": false,
+    "unrelated_decision_style_onboarding_options_in_worker_report": false,
+    "clean_no_extra_decision_narrative": true,
+    "note": "Reviewed all visible Rich messages and worker text in this one trial. No operational approval, command choice, follow-up or optional onboarding decision was requested. This is one sample, not a universal behavioral guarantee. Final wording said nothing besides the file, but two empty native metadata directories exist; exactly one file exists."
+  },
+  "calls": [
+    {
+      "id": "6066ca6c-31dc-445b-8e53-af40b8751f5a",
+      "role": "registrar",
+      "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-registrar-c60e69f3-2e49-4bd9-aace-4df9459018d1",
+      "user_prompt_count": 1,
+      "tools": [
+        {
+          "id": "toolu_01BmXAvQ3h7M32G4eJBEn2fh",
+          "name": "StructuredOutput",
+          "input": {
+            "result": {
+              "intent": "work",
+              "rich_committed": true,
+              "request_quote": "Do not create other files.",
+              "reply_quote": "I've got this one.",
+              "scope_complete": true,
+              "target_run_id": null
+            }
+          }
+        }
+      ],
+      "assistant_text": [],
+      "results": [
+        {
+          "subtype": "success",
+          "structured_output": {
+            "result": {
+              "intent": "work",
+              "rich_committed": true,
+              "request_quote": "Do not create other files.",
+              "reply_quote": "I've got this one.",
+              "scope_complete": true,
+              "target_run_id": null
+            }
+          }
+        }
+      ],
+      "runtime_denials": []
+    },
+    {
+      "id": "74f353aa-78e1-4755-bc67-fbe5ac712ecc",
+      "role": "inspector",
+      "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company",
+      "user_prompt_count": 1,
+      "tools": [
+        {
+          "id": "toolu_018CQ3EHS9sUbsMjf9hCjcB9",
+          "name": "Glob",
+          "input": {
+            "pattern": "**/*",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company"
+          }
+        },
+        {
+          "id": "toolu_016Bi4Yhy1DfUwQz4sKjGyBC",
+          "name": "Glob",
+          "input": {
+            "pattern": "**/hello.txt"
+          }
+        },
+        {
+          "id": "toolu_019zHWgVUPeRqUid6Ah2RC4V",
+          "name": "Read",
+          "input": {
+            "file_path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company/hello.txt"
+          }
+        },
+        {
+          "id": "toolu_01NwCvrVPjeQRMSgUY4L67Pb",
+          "name": "Grep",
+          "input": {
+            "pattern": "\\A\\QHello Rich\\E\\z",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company/hello.txt",
+            "output_mode": "count",
+            "multiline": true
+          }
+        },
+        {
+          "id": "toolu_01ADqvn82ujYkW8trAzKJH8X",
+          "name": "Grep",
+          "input": {
+            "pattern": "\\AHello Rich\\z",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company/hello.txt",
+            "output_mode": "count",
+            "multiline": true
+          }
+        },
+        {
+          "id": "toolu_015WabfRE9whwMM4sx1R8FLz",
+          "name": "Grep",
+          "input": {
+            "pattern": "\\AHello Rich\\n\\z",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company/hello.txt",
+            "output_mode": "count",
+            "multiline": true
+          }
+        },
+        {
+          "id": "toolu_01Xjh4TYPY2wCV3pHat2JtfT",
+          "name": "Glob",
+          "input": {
+            "pattern": "**/.*",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company"
+          }
+        },
+        {
+          "id": "toolu_01HMJfBvBNuJJLJcMsVD5k4M",
+          "name": "Glob",
+          "input": {
+            "pattern": "**/*",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk"
+          }
+        },
+        {
+          "id": "toolu_017RDDxoWzzTfxzC6V7HDZ8B",
+          "name": "StructuredOutput",
+          "input": {
+            "result": {
+              "kind": "complete",
+              "evidence": "Inspected /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company. (1) hello.txt exists (Glob '**/*' and '**/hello.txt'). (2) Read shows single line 'Hello Rich'. (3) Byte-exactness and absence of trailing newline verified by executed anchored multiline regex checks on the raw file: pattern '\\AHello Rich\\z' -> 1 match (hello.txt:1, 'Found 1 total occurrence'), proving the entire file haystack is exactly 'Hello Rich' with nothing following; pattern '\\AHello Rich\\n\\z' -> 0 matches ('Found 0 total occurrences'), proving no trailing LF. (4) Negative constraint 'do not create other files' satisfied: Glob '**/*' in the workspace returns only hello.txt and Glob '**/.*' returns no hidden files, so the workspace contains exactly one file. Parent directory could not be enumerated (reads outside the working directory are blocked by permissions.blockReadsOutsideWorkingDirectories), but the deliverable and its constraint are scoped to this workspace. No delegation/independent-review procedure was specified in this verbatim contract, so no separate implementer/reviewer receipt is required; all stated acceptance constraints are met."
+            }
+          }
+        }
+      ],
+      "assistant_text": [
+        "I'll inspect the workspace to verify the actual deliverable.",
+        "Verified independently by direct inspection.\n\n**Findings**\n\n- **File exists**: `hello.txt` at the workspace root (`/private/var/folders/.../company/hello.txt`), found via Glob.\n- **Exact content**: `Read` shows a single line `Hello Rich`. To rule out a trailing newline (which `Read`'s `cat -n` rendering cannot distinguish), I ran two anchored multiline regex checks against the raw bytes:\n  - `\\AHello Rich\\z` \u2192 **1 match** (whole-file haystack is exactly `Hello Rich`, nothing after the `h`).\n  - `\\AHello Rich\\n\\z` \u2192 **0 matches** (confirms no trailing LF).\n  - Together these establish the file is exactly the 10 bytes `Hello Rich`, no trailing newline, no leading content.\n- **No other files created**: `**/*` in the workspace returns only `hello.txt`; `**/.*` returns no hidden files. The negative constraint holds. (I could not enumerate the parent directory \u2014 reads outside the working directory are blocked \u2014 but the CEO's constraint scopes to the workspace where the deliverable was requested.)\n\nNo delegation/review procedure was specified in this contract, so no separate implementation-vs-review receipt is required. All acceptance constraints are satisfied."
+      ],
+      "results": [
+        {
+          "subtype": "success",
+          "structured_output": {
+            "result": {
+              "kind": "complete",
+              "evidence": "Inspected /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company. (1) hello.txt exists (Glob '**/*' and '**/hello.txt'). (2) Read shows single line 'Hello Rich'. (3) Byte-exactness and absence of trailing newline verified by executed anchored multiline regex checks on the raw file: pattern '\\AHello Rich\\z' -> 1 match (hello.txt:1, 'Found 1 total occurrence'), proving the entire file haystack is exactly 'Hello Rich' with nothing following; pattern '\\AHello Rich\\n\\z' -> 0 matches ('Found 0 total occurrences'), proving no trailing LF. (4) Negative constraint 'do not create other files' satisfied: Glob '**/*' in the workspace returns only hello.txt and Glob '**/.*' returns no hidden files, so the workspace contains exactly one file. Parent directory could not be enumerated (reads outside the working directory are blocked by permissions.blockReadsOutsideWorkingDirectories), but the deliverable and its constraint are scoped to this workspace. No delegation/independent-review procedure was specified in this verbatim contract, so no separate implementer/reviewer receipt is required; all stated acceptance constraints are met."
+            }
+          }
+        }
+      ],
+      "runtime_denials": []
+    },
+    {
+      "id": "79471bb8-7c76-4d34-a0ed-bc70a37ff15d",
+      "role": "inspector",
+      "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company",
+      "user_prompt_count": 1,
+      "tools": [
+        {
+          "id": "toolu_01HGjMvzGuHSaNG1WrppihDr",
+          "name": "Glob",
+          "input": {
+            "pattern": "**/*",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company"
+          }
+        },
+        {
+          "id": "toolu_01J2BvCEVn6vn3cgKa9wrixm",
+          "name": "Glob",
+          "input": {
+            "pattern": "**/hello.txt"
+          }
+        },
+        {
+          "id": "toolu_017SabjCtjtij64rDUuPUbmX",
+          "name": "Glob",
+          "input": {
+            "pattern": "**/*.txt",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk"
+          }
+        },
+        {
+          "id": "toolu_01E5rj94yTRASaGGy9GY9qYC",
+          "name": "Read",
+          "input": {
+            "file_path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company/hello.txt"
+          }
+        },
+        {
+          "id": "toolu_011uGSb2z66LWGvwtjNaZcKH",
+          "name": "Glob",
+          "input": {
+            "pattern": "{.*,**/.*,*}",
+            "path": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company"
+          }
+        },
+        {
+          "id": "toolu_01Up5UaqW89X818UnoxHgMfZ",
+          "name": "StructuredOutput",
+          "input": {
+            "result": {
+              "kind": "incomplete",
+              "remaining": "The deliverable was never created. Independent inspection of the working directory /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company found it completely empty: `Glob **/*` returned 'No files found', `Glob {.*,**/.*,*}` (hidden files included) returned 'No files found', `Glob **/hello.txt` returned 'No files found', and a direct Read of company/hello.txt returned 'File does not exist.' There is no hello.txt, and no backlog entry, task record, delegation receipt or review receipt anywhere in the workspace, so there is zero artifact evidence of any work performed. The 'do not create other files' prohibition is unviolated only vacuously, because nothing at all was created; the content requirement (exactly 'Hello Rich' with no trailing newline) has no artifact to verify against. Concrete remaining work: (1) create the single file at company/hello.txt containing exactly the 10 bytes 'Hello Rich' with no trailing newline and no other content \u2014 note the Write tool appends nothing but should be checked, so prefer a method that guarantees no terminal 0x0a byte; (2) verify the bytes after writing, e.g. `wc -c company/hello.txt` must report 10 and `xxd company/hello.txt | tail -1` must end in 0x68 ('h'), not 0x0a; (3) confirm no additional files were produced by re-running a directory listing including dotfiles and checking the result is exactly one entry, hello.txt. Environment constraints for the implementer: reads outside .../company are blocked by permissions.blockReadsOutsideWorkingDirectories, so the file must live at company/hello.txt; the RichOS engine is stood down (no orchestration.config at the root), so no guard blocked or would block this write \u2014 the absence of the file is not attributable to enforcement."
+            }
+          }
+        }
+      ],
+      "assistant_text": [
+        "I'll inspect the workspace to verify the actual deliverable.",
+        "**Verdict: incomplete.** The required artifact does not exist.\n\n**What I inspected**\n- `Glob **/*` in `/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company` \u2192 *No files found*. The working directory is empty.\n- `Glob {.*,**/.*,*}` (hidden files included) \u2192 *No files found*. Confirms nothing was written, not even dotfiles.\n- `Glob **/hello.txt` \u2192 *No files found*.\n- Direct `Read` of `company/hello.txt` \u2192 *File does not exist.*\n- No backlog, task record, delegation receipt, or review receipt exists in the workspace to inspect \u2014 there is no evidence of any work product at all.\n\nTwo constraints are therefore unverifiable-by-absence rather than satisfied: the content constraint (`Hello Rich`, no trailing newline) has no artifact to check, and the \"do not create other files\" prohibition is trivially unviolated only because nothing was created.\n\nNote on the environment for whoever picks this up: reads outside `.../company` are blocked by `permissions.blockReadsOutsideWorkingDirectories`, so the file must be created at `company/hello.txt`. The engine is stood down (no `orchestration.config`), so no guard would have blocked the write."
+      ],
+      "results": [
+        {
+          "subtype": "success",
+          "structured_output": {
+            "result": {
+              "kind": "incomplete",
+              "remaining": "The deliverable was never created. Independent inspection of the working directory /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company found it completely empty: `Glob **/*` returned 'No files found', `Glob {.*,**/.*,*}` (hidden files included) returned 'No files found', `Glob **/hello.txt` returned 'No files found', and a direct Read of company/hello.txt returned 'File does not exist.' There is no hello.txt, and no backlog entry, task record, delegation receipt or review receipt anywhere in the workspace, so there is zero artifact evidence of any work performed. The 'do not create other files' prohibition is unviolated only vacuously, because nothing at all was created; the content requirement (exactly 'Hello Rich' with no trailing newline) has no artifact to verify against. Concrete remaining work: (1) create the single file at company/hello.txt containing exactly the 10 bytes 'Hello Rich' with no trailing newline and no other content \u2014 note the Write tool appends nothing but should be checked, so prefer a method that guarantees no terminal 0x0a byte; (2) verify the bytes after writing, e.g. `wc -c company/hello.txt` must report 10 and `xxd company/hello.txt | tail -1` must end in 0x68 ('h'), not 0x0a; (3) confirm no additional files were produced by re-running a directory listing including dotfiles and checking the result is exactly one entry, hello.txt. Environment constraints for the implementer: reads outside .../company are blocked by permissions.blockReadsOutsideWorkingDirectories, so the file must live at company/hello.txt; the RichOS engine is stood down (no orchestration.config at the root), so no guard blocked or would block this write \u2014 the absence of the file is not attributable to enforcement."
+            }
+          }
+        }
+      ],
+      "runtime_denials": []
+    },
+    {
+      "id": "b381881f-03c7-453a-91f1-da112df06993",
+      "role": "worker",
+      "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company",
+      "user_prompt_count": 1,
+      "tools": [
+        {
+          "id": "toolu_01VQnM2z12f2Cfee5WS72CmS",
+          "name": "Bash",
+          "input": {
+            "command": "pwd && ls -la",
+            "description": "List workspace contents including dotfiles"
+          }
+        },
+        {
+          "id": "toolu_01CP778zK9g1BkqPVNb1SdnT",
+          "name": "Bash",
+          "input": {
+            "command": "printf 'Hello Rich' > hello.txt && wc -c < hello.txt && xxd hello.txt",
+            "description": "Create hello.txt and dump its bytes"
+          }
+        },
+        {
+          "id": "toolu_011ZUfz7zWRiJ1aQWRJsNZZ5",
+          "name": "Bash",
+          "input": {
+            "command": "ls -la && echo \"--- full tree ---\" && find . -mindepth 1 | sort && echo \"--- last byte ---\" && tail -c 1 hello.txt | xxd",
+            "description": "Verify directory contents and final byte"
+          }
+        },
+        {
+          "id": "toolu_01XbGCcHvw4jYYsxXCHUe81p",
+          "name": "Bash",
+          "input": {
+            "command": "ls -la .claude .claude/.cc-writes 2>&1",
+            "description": "Inspect .claude directory timestamps"
+          }
+        }
+      ],
+      "assistant_text": [
+        "I'll inspect the workspace first, then create the file and verify its exact bytes.",
+        "Done and verified.\n\n**Deliverable:** `hello.txt` at `/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company/hello.txt`\n\n**Evidence (executed, not described):**\n- Written with `printf 'Hello Rich' > hello.txt` \u2014 `printf` emits no terminal newline, unlike `echo`.\n- `wc -c` \u2192 **10** bytes, exactly the length of `Hello Rich`.\n- `xxd hello.txt` \u2192 `4865 6c6c 6f20 5269 6368` = `H e l l o \u2420 R i c h`. No leading, trailing or embedded extra bytes.\n- `tail -c 1 | xxd` \u2192 `68` (`h`), not `0a`. No trailing newline confirmed at the byte level.\n\n**\"Do not create other files\" \u2014 verified, not assumed:**\n- Pre-write listing (08:52): only `.claude/` present, workspace otherwise empty.\n- Post-write `find .` returns exactly three entries: `./hello.txt`, `./.claude`, `./.claude/.cc-writes`. The latter two are empty harness-owned directories timestamped 08:52, i.e. before my 08:53 write, and contain no files. I created exactly one filesystem entry: `hello.txt`.\n\n**One deviation I made deliberately, so you can see it:** the run instructions asked me to record result evidence as an artifact in the workspace. That would have required writing a second file, which your explicit \"do not create other files\" forbids. Your prohibition takes precedence, so the evidence is in this report rather than on disk.\n\n**On the prior attempt:** the earlier report that the deliverable was never created was accurate at the time \u2014 the workspace was genuinely empty, and its stated cause (nothing was written; no guard blocked anything, since the RichOS engine is stood down with no `orchestration.config` at this root) matches what I found. That was a real gap in execution, not an obsolete check or an environment failure, and it is now closed."
+      ],
+      "results": [
+        {
+          "subtype": "success",
+          "structured_output": null
+        }
+      ],
+      "runtime_denials": []
+    },
+    {
+      "id": "c80276cb-17e3-4f4d-95af-10e41e611099",
+      "role": "chat",
+      "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/company",
+      "user_prompt_count": 3,
+      "tools": [
+        {
+          "id": "toolu_01DMwuwF71euR5otUSxnoqAP",
+          "name": "ToolSearch",
+          "input": {
+            "query": "select:mcp__richos_onboarding__record_work_disposition",
+            "max_results": 1
+          }
+        },
+        {
+          "id": "toolu_011c3Fy4ey9L1jbWtzcb9ycB",
+          "name": "mcp__richos_onboarding__record_work_disposition",
+          "input": {
+            "kind": "work",
+            "reason": "CEO asked for a file named hello.txt containing exactly the text Hello Rich with no trailing newline, and no other files created."
+          }
+        }
+      ],
+      "assistant_text": [
+        "CONTEXT_READY",
+        "I've got this one. The deliverable is a single file named hello.txt whose entire contents are the text Hello Rich, with no trailing newline and no other characters before or after it, and nothing else is to be created or changed alongside it \u2014 one file only. I'll confirm once it's actually written and checked.",
+        "Done. hello.txt exists in your working folder and contains exactly Hello Rich with no trailing newline \u2014 I checked the file's raw contents, not just how it looks. Nothing else was created: that folder now holds that one file and nothing besides."
+      ],
+      "results": [
+        {
+          "subtype": "success",
+          "structured_output": null
+        },
+        {
+          "subtype": "success",
+          "structured_output": null
+        },
+        {
+          "subtype": "success",
+          "structured_output": null
+        }
+      ],
+      "runtime_denials": []
+    }
+  ],
+  "identity": {
+    "sha256": {
+      "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/src-tauri/target/debug/richos-tauri": "65baa8bd8ec5ef34d6b4c2dd086d655c463b02a45db96b3506c0c3c8e2ef2e7a",
+      "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-work-desktop.py": "fd09c918921784ecf7ec8e1c15b5f36a701a74dc2fe581e00da76f1961e9900c",
+      "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/native-fixture": "a9074a0f4a6fb35c35779f6a3b845735f9c086361b43c06406f3a548ed73802f",
+      "/Users/alex/.local/share/claude/versions/2.1.266": "553d1b9e9e7068b275c0a783c7e139ff6503096f286e674c8c919379fb0eca62",
+      "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-78r77odk/native-passthrough": "79981982a6f25deac212563438296d93bcb4ab71ed1fa431e999caab54a34494"
+    },
+    "unchanged": true
+  },
+  "compiled_source_sha256": "a4b984c1e2222d3f4c520c9e3c0b79b3b7c4f4af2475e2d6c45f8dfbb0d50d3c",
+  "compiled_sources_still_current": false,
+  "post_build_source_differences": {
+    "app/crates/richos-core/src/native_permission.rs": {
+      "compiled_source_sha256": "63c3f85514f0802bfbf353c0b1daa65857f6eff3298404bd6da68983e173a299",
+      "current_source_sha256": "e221b278a5d4b32b6b33f807e65b16a80d54a828a7f92f0359b12ef992feb523"
+    },
+    "app/src-tauri/src/run_view.rs": {
+      "compiled_source_sha256": "dfaeaee5aaba78e90e3fbe4cb0fc3462ec9994cfda05d35594a498305f489370",
+      "current_source_sha256": "7326d3a2e2897e1e2ea37f405c5e9e9eedd0a58922480042e2c6894b5618cf4a"
+    }
+  },
+  "post_build_change_notes": {
+    "app/crates/richos-core/src/native_permission.rs": "Later change excludes cosmetic Bash description only from first-attempt/failed-alternative semantic comparison. Exact full input remains invocation-bound. This module is called only by richos-run native_permission endpoint, not the managed desktop execution path. Root separately verified its 9 tests.",
+    "app/src-tauri/src/run_view.rs": "Later display-only correction recognizes new CEO-source and historical accepted-scope envelopes. It fixes assignment titles/history without changing execution or review authority. Covered by the real Rust projection probe and shipping WebKit panel tests, not a repeated paid desktop trial.",
+    "app/ui/runs.js": "Display-only history compatibility: current CEO-sourced instructions render once; distinct historical Rich acknowledgments remain visible. Verified in 29/29 shipping WebKit panel checks after the trial."
+  },
+  "post_build_verification": {
+    "rust_projection_probe": "/tmp/richos-r4-run-view-tests-2.log",
+    "webkit_panel": "/tmp/richos-r4-ui-runs-fixed-3.log",
+    "webkit_checks_passed": 29,
+    "projection_mutations": "/tmp/richos-r4-projection-mutations-fixed.log",
+    "compiled_mutants_rejected": 3
+  }
+}

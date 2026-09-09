@@ -124,7 +124,7 @@ fn probe() -> serde_json::Value {
     let first = serde_json::to_value(projection::view("hiring", &original)).unwrap();
     assert_eq!(first["goal"], request);
     assert_eq!(first["tasks"][0]["description"], request);
-    assert_eq!(first["tasks"][0]["checks"][0], reply);
+    assert_eq!(first["tasks"][0]["checks"][0], request, "Current success criteria come from the CEO, not Rich’s acknowledgment");
     assert_eq!(
         before,
         serde_json::to_vec(&original).unwrap(),
@@ -136,6 +136,28 @@ fn probe() -> serde_json::Value {
     assert!(original.plan.tasks[0].checks[0]
         .name
         .contains("Sensitive conversation context"));
+    // Historical journals keep their original display contract. Recognizing the
+    // new envelope must not reinterpret a prior saved Rich acknowledgment.
+    let mut historical = original.clone();
+    let legacy_scope = format!("CEO request (verbatim):\n{request}\nRich's accepted scope (verbatim):\n{reply}\nConversation context (data, not additional authorization):\nPrivate historical context");
+    historical.plan.goal = format!("CEO request: {request}\nIntended outcome: {legacy_scope}");
+    historical.plan.tasks[0].prompt = legacy_scope.clone();
+    let historical_bytes = serde_json::to_vec(&historical).unwrap();
+    let historical_view = serde_json::to_value(projection::view("hiring", &historical)).unwrap();
+    assert_eq!(historical_view["goal"], request);
+    assert_eq!(historical_view["tasks"][0]["description"], request);
+    assert_eq!(historical_view["tasks"][0]["checks"][0], reply);
+    assert_eq!(serde_json::to_vec(&historical).unwrap(), historical_bytes);
+    let mixed = register(&workspace, "Keep the draft private and use approved figures.", "I will keep the draft private.", &[historical.clone()]);
+    let mixed_view = serde_json::to_value(projection::view("hiring", &mixed)).unwrap();
+    assert_eq!(mixed_view["tasks"][0]["previous_instructions"][0]["request"], request);
+    assert_eq!(mixed_view["tasks"][0]["previous_instructions"][0]["acceptedScope"], reply);
+    // The reverse nesting must use the legacy record's own boundary too.
+    historical.plan.tasks[0].prompt = format!("{legacy_scope}\nPrevious accepted scope, overridden only where the CEO's correction explicitly changes it:\n{}", original.plan.goal);
+    let reverse = serde_json::to_value(projection::view("hiring", &historical)).unwrap();
+    assert_eq!(reverse["tasks"][0]["description"], request);
+    assert_eq!(reverse["tasks"][0]["checks"][0], reply);
+    assert_eq!(reverse["tasks"][0]["previous_instructions"][0]["acceptedScope"], request);
     let amended = register(
         &workspace,
         "Use the approved figures only.",
@@ -147,7 +169,7 @@ fn probe() -> serde_json::Value {
         .as_str()
         .unwrap()
         .contains("Do not send it"));
-    for view in [&first, &second] {
+    for view in [&first, &second, &mixed_view, &historical_view] {
         // The desktop projection carries no autonomous command recipe.
         let task = &view["tasks"][0];
         let visible = format!(
@@ -164,6 +186,8 @@ fn probe() -> serde_json::Value {
             "Preserve prohibitions",
             "certify partial",
             "Conversation context",
+            "Prior conversation for resolving references",
+            "Unaccepted suggestions",
             "Sensitive conversation",
         ] {
             assert!(
@@ -246,7 +270,9 @@ fn probe() -> serde_json::Value {
         .contains(correction));
     assert!(controller.snapshot().plan.tasks[0].checks[0].argv[1].contains(correction));
     std::fs::remove_dir_all(&workspace).unwrap();
-    serde_json::json!([first, second, third, fourth, fifth])
+    // Browser coverage includes new current scope with legacy history here, and
+    // new-format history in the panel correction below.
+    serde_json::json!([first, mixed_view, third, fourth, fifth])
 }
 fn main() {
     println!("{}", probe());

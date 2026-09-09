@@ -190,6 +190,8 @@ pub struct RunSnapshot {
     pub decisions: Vec<String>,
     #[serde(default)]
     pub decision_receipts: Vec<String>,
+    #[serde(default)]
+    pub permissions: Vec<crate::permission::Operation>,
 }
 
 /// A pending question projected from durable evidence, including older journals.
@@ -218,7 +220,7 @@ impl RunSnapshot {
     pub fn decision(&self, i: usize) -> Option<RunDecision> {
         use sha2::{Digest, Sha256};
         let task = self.tasks.get(i)?;
-        if self.canceled || task.state != TaskState::NeedsDecision { return None; }
+        if self.canceled || task.state != TaskState::NeedsDecision || self.permissions.iter().any(|p| p.task_id == self.plan.tasks[i].id) { return None; }
         let raw = task.evidence.iter().rev()
             .find_map(|e| e.split_once(crate::autonomy::DECISION).map(|(_, s)| s))
             .unwrap_or("");
@@ -292,6 +294,7 @@ impl RunSnapshot {
 /// nor a provider's end_turn can produce Passed.
 pub trait RunHost {
     fn updated(&mut self, _snapshot: &RunSnapshot) {}
+    fn permission_context(&mut self, _context: crate::permission::Context) -> Result<(), String> { Ok(()) }
     fn execute(
         &mut self,
         plan: &RunPlan,
@@ -334,6 +337,7 @@ impl Drop for LockedFile {
 /// One process holds an OS lock for the writer's lifetime. Snapshots are
 /// persisted as synced journal lines before external execution starts.
 pub struct RunController {
+    journal: PathBuf,
     file: LockedFile,
     snapshot: RunSnapshot,
     poisoned: bool,
@@ -386,6 +390,7 @@ impl RunController {
             })
             .collect();
         let mut this = Self {
+            journal: path.to_path_buf(),
             file,
             poisoned: false,
             snapshot: RunSnapshot {
@@ -401,6 +406,7 @@ impl RunController {
                 created_at: crate::util::now_millis(),
                 decisions: vec![],
                 decision_receipts: vec![],
+                permissions: vec![],
             },
         };
         this.save()?;
@@ -455,11 +461,14 @@ impl RunController {
         let snapshot = last.ok_or_else(|| RunError::Invalid("Empty run journal.".into()))?;
         snapshot.plan.validate_structure()?;
         let mut this = Self {
+            journal: path.to_path_buf(),
             file,
             snapshot,
             poisoned: false,
         };
-        let mut recovered = false;
+        let pending_permissions = this.snapshot.permissions.len();
+        this.refresh_permissions()?;
+        let mut recovered = pending_permissions != this.snapshot.permissions.len();
         for t in &mut this.snapshot.tasks {
             if matches!(t.state, TaskState::Running | TaskState::Verifying) {
                 t.state = TaskState::NeedsAttention;
@@ -517,6 +526,8 @@ impl RunController {
             .ok_or_else(|| RunError::Invalid("This decision has changed. Refresh before answering.".into()))?;
         let answer = match action {
             DecisionAction::End => {
+                crate::permission::invalidate(&self.journal).map_err(RunError::Invalid)?;
+                self.snapshot.permissions.clear();
                 self.snapshot.canceled = true;
                 self.snapshot.decisions.push(format!("CEO ended the assignment while answering: {}", d.question));
                 self.snapshot.decision_receipts.push(receipt);
@@ -547,6 +558,35 @@ impl RunController {
         self.apply_answer(i, &receipt, &answer)
     }
 
+    /// Typed approval of an exact host-captured operation. Conversation answers never call this.
+    pub fn respond_to_permission(&mut self, task_id: &str, operation_id: &str, action: crate::permission::Action) -> Result<(), RunError> {
+        if !self.snapshot.plan.tasks.iter().any(|t| t.id == task_id) { return Err(RunError::Invalid("Unknown task".into())); }
+        let operation = self.snapshot.permissions.iter().find(|p| p.task_id == task_id && p.id == operation_id)
+            .cloned().ok_or_else(|| RunError::Invalid("This permission request changed. Refresh the assignment.".into()))?;
+        let context = crate::permission::Context::new(&self.journal, &self.snapshot, task_id).map_err(RunError::Invalid)?;
+        context.respond(&operation, action.clone()).map_err(RunError::Invalid)?;
+        self.refresh_permissions()?;
+        self.save()
+    }
+
+    fn refresh_permissions(&mut self) -> Result<(), RunError> {
+        if self.snapshot.paused || self.snapshot.canceled { return Ok(()); }
+        for operation in self.snapshot.permissions.clone() {
+            let context = crate::permission::Context::new(&self.journal, &self.snapshot, &operation.task_id).map_err(RunError::Invalid)?;
+            if let Some(action) = context.resolved(&operation).map_err(RunError::Invalid)? {
+                self.snapshot.permissions.retain(|p| p.id != operation.id);
+                if let Some(i) = self.snapshot.plan.tasks.iter().position(|t| t.id == operation.task_id) {
+                    let task = &mut self.snapshot.tasks[i];
+                    task.state = TaskState::Pending;
+                    task.retry_at = 0;
+                    task.review_pending = false;
+                    task.evidence.push(format!("Host permission decision: {:?}. Exact operation: {}. Inspect existing effects before acting. This changes no other tool permission. A previously consumed approval cannot be replayed; inspect its effects instead.", action, serde_json::to_string(&operation).unwrap()));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn apply_answer(&mut self, i: usize, receipt: &str, answer: &str) -> Result<(), RunError> {
         self.snapshot.decisions.push(answer.into());
         self.snapshot.decision_receipts.push(receipt.into());
@@ -568,6 +608,23 @@ impl RunController {
             }
         }
         self.save()
+    }
+
+    /// Answer the exact question that was pending at the original CEO source.
+    /// The caller must classify actual answer authority first. In particular,
+    /// recovery-resource questions require explicit affirmative authorization of
+    /// that allowance, never a refusal or an ambiguous response. This method
+    /// grants no tool permissions and retains the CEO's original words.
+    pub fn answer_bound_decision(&mut self, receipt: &str, task_id: &str, decision_id: &str, answer: &str) -> Result<(), RunError> {
+        if self.snapshot.decision_receipts.iter().any(|id| id == receipt) { return Ok(()); }
+        if receipt.trim().is_empty() || answer.trim().is_empty() || answer.len() > 32000 || self.snapshot.canceled {
+            return Err(RunError::Invalid("The original decision answer is unavailable.".into()));
+        }
+        let i = self.snapshot.plan.tasks.iter().position(|t| t.id == task_id)
+            .ok_or_else(|| RunError::Invalid("The original decision task is no longer available.".into()))?;
+        self.snapshot.decision(i).filter(|d| d.id == decision_id)
+            .ok_or_else(|| RunError::Invalid("The original question has changed; this answer cannot authorize its replacement.".into()))?;
+        self.apply_answer(i, receipt, answer)
     }
 
     /// The host calls this only after classifying an actual CEO answer to a
@@ -596,7 +653,7 @@ impl RunController {
             ));
         }
         let pending: Vec<_> = self.snapshot.tasks.iter().enumerate()
-            .filter(|(_, t)| t.state == TaskState::NeedsDecision).map(|(i, _)| i).collect();
+            .filter(|(i, t)| t.state == TaskState::NeedsDecision && self.snapshot.decision(*i).is_some()).map(|(i, _)| i).collect();
         if pending.len() != 1 {
             return Err(RunError::Invalid("More than one decision is pending. Answer each question in the assignment panel.".into()));
         }
@@ -614,6 +671,7 @@ impl RunController {
                         "\nCEO decisions (verbatim):\n{}",
                         self.snapshot.decisions.join("\n")
                     ));
+                    outcome.authority.push_str(&format!("\nCEO decisions (verbatim):\n{}", self.snapshot.decisions.join("\n")));
                     *encoded = serde_json::to_string(&outcome).unwrap();
                 }
             }
@@ -621,7 +679,18 @@ impl RunController {
         check
     }
 
-    pub fn amend(&mut self, receipt: &str, mut plan: RunPlan) -> Result<(), RunError> {
+    pub fn amend(&mut self, receipt: &str, plan: RunPlan) -> Result<(), RunError> {
+        self.amend_with_pause(receipt, plan, false)
+    }
+
+    /// Persist the correction and explicit pause together. Saving the correction
+    /// first would allow restart recovery to run before a second pause write.
+    pub fn amend_with_pause(
+        &mut self,
+        receipt: &str,
+        mut plan: RunPlan,
+        paused: bool,
+    ) -> Result<(), RunError> {
         if self.snapshot.decision_receipts.iter().any(|r| r == receipt) {
             return Ok(());
         }
@@ -631,14 +700,41 @@ impl RunController {
             ));
         }
         plan.validate()?;
+        // A correction narrows or changes the existing contract. Keep its original
+        // host-retained authority available to later escalation checks. Narrative
+        // goals, worker observations and Rich's reply never fill this source field.
+        let mut previous_authority = Vec::new();
+        for check in self.snapshot.plan.tasks.iter().flat_map(|t| &t.checks) {
+            if check.argv.first().map(String::as_str) != Some(crate::autonomy::REVIEW) { continue; }
+            if let Some(outcome) = check.argv.get(1).and_then(|s| serde_json::from_str::<crate::autonomy::Outcome>(s).ok()) {
+                if !outcome.authority.trim().is_empty() && !previous_authority.contains(&outcome.authority) {
+                    previous_authority.push(outcome.authority);
+                }
+            }
+        }
+        if !previous_authority.is_empty() {
+            for check in plan.tasks.iter_mut().flat_map(|t| &mut t.checks) {
+                if check.argv.first().map(String::as_str) != Some(crate::autonomy::REVIEW) { continue; }
+                let encoded = check.argv.get_mut(1).ok_or_else(|| RunError::Invalid("The revised assignment has no review contract.".into()))?;
+                let mut outcome: crate::autonomy::Outcome = serde_json::from_str(encoded)?;
+                if !previous_authority.contains(&outcome.authority) {
+                    outcome.authority = format!("{}\n\n{}", previous_authority.join("\n\n"), outcome.authority);
+                } else {
+                    outcome.authority = previous_authority.join("\n\n");
+                }
+                *encoded = serde_json::to_string(&outcome)?;
+            }
+        }
         plan.goal.push_str(
             "\nThis is a revised assignment. Inspect existing effects before making changes.",
         );
         self.snapshot.tasks = plan.tasks.iter().map(|_| TaskProgress { state: TaskState::Pending, attempts: 0, evidence: vec!["Assignment revised by Rich from the CEO's correction. Reconcile existing effects first.".into()], retry_at: 0, review_pending: true, review_failures: 0, recovery_cycles: 0 }).collect();
         self.snapshot.plan = plan;
+        crate::permission::invalidate(&self.journal).map_err(RunError::Invalid)?;
+        self.snapshot.permissions.clear();
         self.snapshot.plan_revision += 1;
         self.snapshot.decision_receipts.push(receipt.into());
-        self.snapshot.paused = false;
+        self.snapshot.paused = paused;
         self.save()
     }
 
@@ -660,6 +756,14 @@ impl RunController {
     }
 
     pub fn pause(&mut self, paused: bool) -> Result<(), RunError> {
+        if paused {
+            crate::permission::invalidate(&self.journal).map_err(RunError::Invalid)?;
+            for operation in self.snapshot.permissions.drain(..) {
+                if let Some(i) = self.snapshot.plan.tasks.iter().position(|t| t.id == operation.task_id) {
+                    self.snapshot.tasks[i].state = TaskState::NeedsAttention;
+                }
+            }
+        }
         self.snapshot.paused = paused;
         if !paused && self.snapshot.plan.autonomous() {
             for task in &mut self.snapshot.tasks {
@@ -673,6 +777,8 @@ impl RunController {
     }
 
     pub fn cancel(&mut self) -> Result<(), RunError> {
+        crate::permission::invalidate(&self.journal).map_err(RunError::Invalid)?;
+        self.snapshot.permissions.clear();
         self.snapshot.canceled = true;
         self.save()
     }
@@ -714,6 +820,7 @@ impl RunController {
             self.pause(true)?;
             host.updated(&self.snapshot);
         }
+        self.refresh_permissions()?;
         let Some(i) = self.snapshot.next() else {
             return Ok(self.snapshot.state());
         };
@@ -756,18 +863,19 @@ impl RunController {
                 self.snapshot.decisions.join("\n")
             ));
         }
+        let permission_context = crate::permission::Context::new(&self.journal, &self.snapshot, &self.snapshot.plan.tasks[i].id).map_err(RunError::Invalid)?;
         let result = if review_only {
             Ok(())
         } else {
-            host.execute(
+            host.permission_context(permission_context.clone()).and_then(|_| host.execute(
                 &effective_plan,
                 &self.snapshot.plan.tasks[i],
                 &self.snapshot.tasks[i].evidence,
-            )
+            ))
         };
         if result.is_err() && !self.snapshot.plan.autonomous() {
             self.snapshot.tasks[i].state = TaskState::NeedsAttention;
-            self.snapshot.tasks[i].evidence = vec![result.unwrap_err()];
+            self.snapshot.tasks[i].evidence = vec![crate::autonomy::untrusted_review_text(&result.unwrap_err())];
         } else if host.paused() {
             // Execution may have changed external state. Pausing cannot requeue
             // it implicitly and cause a duplicate action on resume.
@@ -785,12 +893,13 @@ impl RunController {
             let mut retry_review = false;
             for c in &self.snapshot.plan.tasks[i].checks {
                 match host.verify(&self.snapshot.plan.workspace, &self.effective_check(c)) {
-                    Ok(e) => evidence.push(format!("{}: {e}", c.name)),
+                    Ok(e) => evidence.push(format!("{}: {}", crate::autonomy::untrusted_review_text(&c.name), crate::autonomy::untrusted_review_text(&e))),
                     Err(e) => {
                         passed = false;
+                        let e = check_error(c, &e);
                         pending_decision |= e.starts_with(crate::autonomy::DECISION);
                         retry_review |= e.starts_with(crate::autonomy::REVIEW_RETRY);
-                        evidence.push(format!("{}: {e}", c.name));
+                        evidence.push(format!("{}: {e}", crate::autonomy::untrusted_review_text(&c.name)));
                     }
                 }
                 if host.paused() {
@@ -837,6 +946,15 @@ impl RunController {
                 self.snapshot.paused = true;
             }
         }
+        // Only incomplete work exposes a captured native permission request. A worker
+        // which found a permitted alternative finishes without an unnecessary CEO ask.
+        if !review_only && !host.paused() && !self.snapshot.paused && self.snapshot.tasks[i].state != TaskState::Passed {
+            if let Some(operation) = permission_context.pending().map_err(RunError::Invalid)? {
+                self.snapshot.permissions.retain(|p| p.task_id != operation.task_id);
+                self.snapshot.permissions.push(operation);
+                self.snapshot.tasks[i].state = TaskState::NeedsDecision;
+            }
+        }
         // The last task may have broken an earlier result. Completion is a
         // verdict about the final workspace, not a collection of old greens.
         if self
@@ -851,12 +969,17 @@ impl RunController {
                 }
                 let mut evidence = vec![];
                 let mut passed = true;
+                let mut retry_review = false;
+                let mut decision = false;
                 for c in &self.snapshot.plan.tasks[j].checks {
                     match host.verify(&self.snapshot.plan.workspace, &self.effective_check(c)) {
-                        Ok(e) => evidence.push(format!("{}: {e}", c.name)),
+                        Ok(e) => evidence.push(format!("{}: {}", crate::autonomy::untrusted_review_text(&c.name), crate::autonomy::untrusted_review_text(&e))),
                         Err(e) => {
                             passed = false;
-                            evidence.push(format!("{}: {e}", c.name));
+                            let e = check_error(c, &e);
+                            retry_review |= e.starts_with(crate::autonomy::REVIEW_RETRY);
+                            decision |= e.starts_with(crate::autonomy::DECISION);
+                            evidence.push(format!("{}: {e}", crate::autonomy::untrusted_review_text(&c.name)));
                         }
                     }
                     if host.paused() {
@@ -864,12 +987,7 @@ impl RunController {
                         break;
                     }
                 }
-                self.snapshot.tasks[j].review_pending = evidence
-                    .iter()
-                    .any(|e| e.contains(crate::autonomy::REVIEW_RETRY));
-                let decision = evidence
-                    .iter()
-                    .any(|e| e.contains(crate::autonomy::DECISION));
+                self.snapshot.tasks[j].review_pending = retry_review;
                 self.snapshot.tasks[j].evidence = evidence;
                 if !passed {
                     self.snapshot.tasks[j].state = if decision {
@@ -899,9 +1017,21 @@ impl RunController {
                 }
             }
         }
+        self.refresh_permissions()?;
+        if self.snapshot.paused { self.pause(true)?; }
         self.save()?;
         host.updated(&self.snapshot);
         Ok(self.snapshot.state())
+    }
+}
+
+/// Only the declarative review adapter can return host-owned control markers.
+/// Ordinary command output and worker failures are retained as inert evidence.
+fn check_error(check: &Check, error: &str) -> String {
+    if check.argv.first().map(String::as_str) == Some(crate::autonomy::REVIEW) {
+        error.to_owned()
+    } else {
+        crate::autonomy::untrusted_review_text(error)
     }
 }
 
@@ -918,6 +1048,24 @@ pub fn read_snapshot(path: &Path) -> Result<RunSnapshot, RunError> {
         return Err(RunError::Invalid("Invalid run snapshot.".into()));
     }
     Ok(s)
+}
+
+/// Read the latest committed question/contract that existed at the source time.
+/// This is a read-only historical lookup: never recovers a controller or treats a
+/// partial final append as a record. Callers must handle equal-timestamp ambiguity.
+pub fn read_snapshot_at(path: &Path, at_millis: u64) -> Result<Option<RunSnapshot>, RunError> {
+    let bytes = std::fs::read(path)?;
+    let Some(end) = bytes.iter().rposition(|b| *b == b'\n') else { return Ok(None); };
+    let text = std::str::from_utf8(&bytes[..=end]).map_err(|e| RunError::Invalid(e.to_string()))?;
+    let mut selected = None;
+    for line in text.lines() {
+        let snapshot: RunSnapshot = serde_json::from_str(line)?;
+        if snapshot.version != 1 || snapshot.tasks.len() != snapshot.plan.tasks.len() || snapshot.tasks.is_empty() {
+            return Err(RunError::Invalid("Invalid historical run snapshot.".into()));
+        }
+        if snapshot.updated_at <= at_millis { selected = Some(snapshot); }
+    }
+    Ok(selected)
 }
 
 /// Preserve an unreadable journal verbatim so an operator can prepare a fresh

@@ -93,13 +93,14 @@ function docTestCount(file) {
   return n;
 }
 
-function rustFiles(dir) {
+function rustFiles(dir, recursive = false) {
   if (!fs.existsSync(dir)) return [];
   return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith(".rs"))
-    .sort()
-    .map((f) => path.join(dir, f));
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) => entry.isDirectory()
+      ? (recursive ? rustFiles(path.join(dir, entry.name), true) : [])
+      : (entry.name.endsWith(".rs") ? [path.join(dir, entry.name)] : []))
+    .sort();
 }
 
 function crateNames() {
@@ -206,7 +207,8 @@ async function main() {
         wrong.push(`${c.crate}: no such crate`);
         continue;
       }
-      const files = [...rustFiles(path.join(crateDir, "src")), ...rustFiles(path.join(crateDir, "tests"))];
+      // Cargo also runs unit tests in src/bin and nested source modules.
+      const files = [...rustFiles(path.join(crateDir, "src"), true), ...rustFiles(path.join(crateDir, "tests"))];
       assert(files.length > 0, `EMPTY INVENTORY: no .rs files under ${crateDir}`);
       const total = files.reduce((n, f) => n + testCount(f), 0);
       const ignored = files.reduce((n, f) => n + (read(f).match(/^\s*#\[ignore(?:\s*=.*?)?\]/gm) || []).length, 0);
@@ -214,7 +216,7 @@ async function main() {
         const line = c.line;
         assert(line.includes(`${total - ignored} direct, ${ignored} ignored`), "README must distinguish direct tests from ignored checks");
       }
-      const docs = rustFiles(path.join(crateDir, "src")).reduce((n, f) => n + docTestCount(f), 0);
+      const docs = rustFiles(path.join(crateDir, "src"), true).reduce((n, f) => n + docTestCount(f), 0);
       if (total !== c.tests) wrong.push(`${c.crate}: README says ${c.tests} tests, the tree has ${total}`);
       if (c.docTests !== null && docs !== c.docTests) {
         wrong.push(`${c.crate}: README says ${c.docTests} doc-tests, the tree has ${docs}`);

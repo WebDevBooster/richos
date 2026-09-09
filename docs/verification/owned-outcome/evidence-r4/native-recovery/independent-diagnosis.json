@@ -1,0 +1,66 @@
+{
+  "diagnosis": {
+    "native": "obsolete_assertion",
+    "external": "implementation_defect",
+    "evidence": {
+      "authority": {
+        "current_contract": "requirements.md: native workspaces return platform-pending; external workspaces return verified.",
+        "superseded_record": "backlog.md: 'Previous contract: native workspaces return verified.' This is a stale record, not authority; requirements.md supersedes it and backlog.md was left unchanged.",
+        "unrelated_pending_decision": "CEO decision D-7 (transcription provider) is recorded in ceo-items.md and decision-D7.md. decision-D7.md states it does not affect lifecycle workspace status, so it was not a dependency of this repair."
+      },
+      "native": {
+        "classification": "obsolete_assertion",
+        "reasoning": "lifecycle.py already returned the value the current contract requires. The test asserted 'verified', which is exactly the previous contract recorded in backlog.md, so the assertion encoded a superseded contract rather than a code fault.",
+        "implementation_before": "platform-pending",
+        "implementation_after": "platform-pending",
+        "implementation_changed": false,
+        "test_assertion_before": "status(\"native\") == \"verified\"",
+        "test_assertion_after": "status(\"native\") == \"platform-pending\"",
+        "test_changed": true,
+        "baseline_failure": "AssertionError: 'platform-pending' != 'verified'",
+        "fix_location": "test_lifecycle.py"
+      },
+      "external": {
+        "classification": "implementation_defect",
+        "reasoning": "The test asserted 'verified', which matches the current contract in requirements.md, so the assertion was correct. lifecycle.py returned 'bound', a value that appears in neither the current nor the previous contract, so the code was at fault.",
+        "implementation_before": "bound",
+        "implementation_after": "verified",
+        "implementation_changed": true,
+        "test_assertion_before": "status(\"external\") == \"verified\"",
+        "test_assertion_after": "status(\"external\") == \"verified\"",
+        "test_changed": false,
+        "baseline_failure": "AssertionError: 'bound' != 'verified'",
+        "fix_location": "lifecycle.py"
+      },
+      "test_run": {
+        "command": "python3 -m unittest test_lifecycle -v",
+        "before_fix": "FAILED (failures=2) - test_native and test_external both failed",
+        "after_fix": "OK - Ran 2 tests, both passed",
+        "passing": true
+      },
+      "scope": {
+        "files_modified": [
+          "lifecycle.py",
+          "test_lifecycle.py"
+        ],
+        "files_created": [
+          "diagnosis.json",
+          "improvements.md"
+        ],
+        "files_deliberately_unchanged": [
+          "requirements.md",
+          "backlog.md"
+        ],
+        "files_deleted": [],
+        "dependencies_added": [],
+        "published": false
+      }
+    }
+  },
+  "changed_files": [
+    "diagnosis.json",
+    "improvements.md",
+    "lifecycle.py",
+    "test_lifecycle.py"
+  ]
+}

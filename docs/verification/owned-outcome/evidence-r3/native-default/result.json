@@ -1,0 +1,97 @@
+{
+  "mode": "assignment-only-real-auditor",
+  "intentional_early_stop_injection": false,
+  "passed": true,
+  "checks": {
+    "native_approval_boundary_preserved": true,
+    "no_operational_followups_measured": true,
+    "no_false_completion": true,
+    "source_identity_unchanged": true,
+    "auditor_binary_unchanged": true
+  },
+  "first": null,
+  "second": null,
+  "audits": 1,
+  "session_ids": [
+    "30b35616-213e-489f-8263-ab8963e9b5dd"
+  ],
+  "operational_followups": 0,
+  "input_measurement_confirmed": true,
+  "outcome": "permission_required",
+  "completion_checks": {
+    "same_native_leader": true,
+    "one_initial_request": true,
+    "synthetic_feedback_not_ceo_scope": true,
+    "completion_saved": false,
+    "source_identity_unchanged": true,
+    "no_operational_followups_measured": true,
+    "actual_auditor_completed": false,
+    "no_routine_parser_prose_asks": true,
+    "documented_json_parser_check_executed_natively": false,
+    "actual_engine_dispatch_guard_exercised": true,
+    "actual_engine_pending_notice_exercised": false,
+    "auditor_binary_unchanged": true,
+    "independent_validation_completed": false
+  },
+  "artifact_completion_verified": false,
+  "approval_boundary": {
+    "observed": true,
+    "native_approval_ui_visible": true,
+    "passthrough_requests": [
+      {
+        "mode": "permission",
+        "input": {
+          "session_id": "30b35616-213e-489f-8263-ab8963e9b5dd",
+          "transcript_path": "/Users/alex/.claude/projects/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-9bwy4lxz-workspace/30b35616-213e-489f-8263-ab8963e9b5dd.jsonl",
+          "cwd": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-9bwy4lxz/workspace",
+          "scratchpad_dir": "/private/tmp/claude-501/-private-var-folders-mx-w46p9btx1t17wv9tbsq885qw0000gn-T-richos-owned-wake-native-9bwy4lxz-workspace/30b35616-213e-489f-8263-ab8963e9b5dd/scratchpad",
+          "prompt_id": "6c150869-0b04-4e0c-8df2-fc6e00c7edf1",
+          "permission_mode": "acceptEdits",
+          "effort": {
+            "level": "high"
+          },
+          "hook_event_name": "PermissionRequest",
+          "tool_name": "Bash",
+          "tool_input": {
+            "command": "set -e -o pipefail\ngit status --porcelain && echo \"---baseline hashes---\" && shasum requirements.md backlog.md README.md CEO-TODOs.md ceo-items.md decision-D7.md",
+            "description": "Record baseline of protected files"
+          },
+          "permission_suggestions": [
+            {
+              "type": "addRules",
+              "rules": [
+                {
+                  "toolName": "Bash",
+                  "ruleContent": "shasum requirements.md backlog.md README.md CEO-TODOs.md ceo-items.md decision-D7.md"
+                }
+              ],
+              "behavior": "allow",
+              "destination": "localSettings"
+            }
+          ]
+        },
+        "stdout": "",
+        "stderr": "",
+        "exit": 0,
+        "time": 1788900300.3554938
+      }
+    ],
+    "basis": "Actual native PermissionRequest callback with no adapter decision plus visible native approval UI; no auditor inference."
+  },
+  "permission_policy_requested": null,
+  "permission_policy_effective": "native",
+  "routine_parser_prose_asks": [],
+  "permission_scenario": "no-preauthorized-parser",
+  "setup_inputs": [
+    "select-disposable-workspace-trust",
+    "confirm-disposable-workspace-trust"
+  ],
+  "removed_environment_keys": [
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION"
+  ],
+  "observed_native_wakes": 0,
+  "probe_safety_ceiling": null,
+  "permission_denials": [],
+  "question_reviews": []
+}

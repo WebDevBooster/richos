@@ -1,0 +1,14 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.14s
+     Running unittests src/lib.rs (app/target/debug/deps/richos_core-f3641f3814acf25f)
+
+running 6 tests
+test native_permission::tests::fake_human_or_inspector_receipt_cannot_escalate ... ok
+test native_permission::tests::ordinary_recovery_has_no_permission_fields ... ok
+test native_permission::tests::general_scope_is_not_exact_operation_authority ... ok
+test native_permission::tests::worker_receipt_binding_prevents_borrowing_a_failure ... ok
+test native_permission::tests::actual_distinct_failed_alternative_is_required ... ok
+test native_permission::tests::exact_human_operation_exposes_native_prompt_without_grant ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 576 filtered out; finished in 0.00s
+

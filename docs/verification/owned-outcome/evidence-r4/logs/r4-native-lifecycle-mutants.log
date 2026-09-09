@@ -1,0 +1,34 @@
+{
+  "source_sha256": "0d9b19c0c160a4cd0095c2eba0547e41236d3b04008a79e1021e6d21542416c9",
+  "tests_sha256": "2c4c52e6d0cf542e3d00cf7efaa3e6ad4e340c046640ba1a1258d2d207658654",
+  "mutants": [
+    {
+      "name": "pending-cancellation",
+      "test": "test_pending_native_hook_cancellation_fences_inflight_permission",
+      "killed": true,
+      "failures": 1,
+      "errors": 0
+    },
+    {
+      "name": "review-reservation",
+      "test": "test_concurrent_permission_review_reserves_one_ticket_before_model",
+      "killed": false,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "success-never-reopens",
+      "test": "test_successful_native_prompt_can_be_revalidated_for_a_new_invocation",
+      "killed": true,
+      "failures": 1,
+      "errors": 0
+    },
+    {
+      "name": "refusal-ignored",
+      "test": "test_native_refusal_requires_later_verified_reconsideration",
+      "killed": true,
+      "failures": 1,
+      "errors": 0
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+--- base/engine/scripts/hooks/notice-ceo-asks.sh
++++ mutant/engine/scripts/hooks/notice-ceo-asks.sh
+@@ -258,7 +258,7 @@
+     "agent_id": agent_id,
+     # A worker asking its own clarifying question has not put the CEOs prepared
+     # decision to him. Recorded, and explicitly worth nothing.
+-    "discharges": bool(verdict == "MATCH" and not agent_id),
++    "discharges": bool(verdict == "MATCH"),
+ }
+ try:
+     with open(os.environ["CA_LEDGER"], "a", encoding="utf-8") as fh:

@@ -1,0 +1,38 @@
+................F.....FF.........................
+======================================================================
+FAIL: test_legacy_config_and_broken_child_observer_preserve_native_permission_flow (__main__.Owned.test_legacy_config_and_broken_child_observer_preserve_native_permission_flow)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 462, in test_legacy_config_and_broken_child_observer_preserve_native_permission_flow
+    self.assertEqual(self.invoke('permission').stdout, '')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '{"hookSpecificOutput": {"hookEventName": [508 chars]}}\n' != ''
+- {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": "This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry the same refused call or weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact.", "interrupt": false}}}
+
+
+======================================================================
+FAIL: test_native_child_keeps_native_permission_flow_without_creating_another_owner (__main__.Owned.test_native_child_keeps_native_permission_flow_without_creating_another_owner)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 611, in test_native_child_keeps_native_permission_flow_without_creating_another_owner
+    self.assertEqual(result.stdout, '')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+AssertionError: '{"hookSpecificOutput": {"hookEventName": [508 chars]}}\n' != ''
+- {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": "This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry the same refused call or weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact.", "interrupt": false}}}
+
+
+======================================================================
+FAIL: test_native_permission_request_is_observed_without_denying_or_granting (__main__.Owned.test_native_permission_request_is_observed_without_denying_or_granting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/engine/scripts/lib/owned-session.test.py", line 411, in test_native_permission_request_is_observed_without_denying_or_granting
+    self.assertEqual(result.stdout, '', 'passthrough cannot emit any hook permission decision')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '{"hookSpecificOutput": {"hookEventName": [508 chars]}}\n' != ''
+- {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": "This tool call is not preauthorized. Use an already permitted tool or command for routine work; do not retry the same refused call or weaken permissions. Finish independent work. If actual additional authority is essential, explain that material decision with options and a recommendation. For ordinary file inspection, use permitted Read/Glob/Grep operations instead of a shell wrapper. Keep required validation intact.", "interrupt": false}}}
+ : passthrough cannot emit any hook permission decision
+
+----------------------------------------------------------------------
+Ran 49 tests in 1.651s
+
+FAILED (failures=3)

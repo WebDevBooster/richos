@@ -1,0 +1,11 @@
+--- base/engine/scripts/lib/owned-dispatch.py
++++ mutant/engine/scripts/lib/owned-dispatch.py
+@@ -98,7 +98,7 @@
+         unavailable = not messages
+     except (OSError, ValueError, TypeError, KeyError):
+         unavailable = True
+-    data = {'proposed_dispatch': payload['tool_input'], 'pending_items': pending,
++    data = {'proposed_dispatch': payload['tool_input'], 'pending_items': [],
+             'messages': messages, 'standing_rulings': sources, 'source_unavailable': unavailable}
+     return config, data
+ 

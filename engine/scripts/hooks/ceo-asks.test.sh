@@ -8,8 +8,8 @@
 # a richos-hq list) and a suite that only ever tested the single-repo case
 # would pass over the configuration that actually ships.
 #
-# The SHIPPED hooks are driven with synthetic payloads. Nothing is stubbed
-# except the entity root (RICHOS_ENTITY_ROOT), which is the one thing a test
+# The SHIPPED hooks are driven with synthetic payloads. The adopted dependency cases use an explicit controlled registrar fixture.
+# Legacy machinery only overrides the entity root (RICHOS_ENTITY_ROOT), which is the one thing a test
 # must not share with the live session.
 #
 # THE PROPERTY THIS SUITE EXISTS TO PIN, above all the others:
@@ -48,7 +48,7 @@ for h in notice-ceo-asks.sh guard-ceo-ask-first.sh notice-ceo-unasked.sh session
     chmod +x "$ENGINE/scripts/hooks/$h"
 done
 for l in ceo-asks.sh ceo-asks.py ceo-todos.sh ceo-todos.py resolve-roots.sh \
-         resolve-main-checkout.sh stop-hook-notice.sh cold-open-prompt.md; do
+         resolve-main-checkout.sh stop-hook-notice.sh cold-open-prompt.md owned-work-policy.sh owned-dispatch.py owned-session.py ceo-ruled.sh ceo-ruled.py; do
     cp "$SRC_DIR/../lib/$l" "$ENGINE/scripts/lib/$l" 2>/dev/null || true
 done
 cp "$ENGINE_SRC/scripts/ceo-asks-status.sh" "$ENGINE/scripts/"
@@ -177,6 +177,7 @@ print(json.dumps({
     "tool_name": "Agent",
     "session_id": os.environ["CA_S"],
     "cwd": os.environ["CA_CWD"],
+    "transcript_path": os.environ["CA_CWD"] + "/native-transcript.jsonl",
     "tool_input": {
         "subagent_type": "dev",
         "name": "dev-sonnet-t1",
@@ -608,13 +609,105 @@ for h in notice-ceo-asks.sh guard-ceo-ask-first.sh notice-ceo-unasked.sh session
     fi
 done
 
-for f in scripts/lib/ceo-asks.sh scripts/lib/ceo-asks.py; do
+for f in scripts/lib/ceo-asks.sh scripts/lib/ceo-asks.py scripts/lib/owned-work-policy.sh scripts/lib/owned-dispatch.py scripts/lib/owned-session.py; do
     if grep -q "$(basename "$f")" "$SRC_DIR/install.sh" 2>/dev/null; then
         ok "G4. $f is sidecar-hashed by install.sh"
     else
         bad "G4. $f is sidecar-hashed by install.sh" "install.sh does not name it, so the integrity probe cannot notice it changing"
     fi
 done
+
+# Dependency adoption preserves pending decisions without inventing authority.
+write_record
+write_seat_config "$TODOREPO"
+reset_ledger
+rm -f "$DEFERS"
+OWN_CONFIG="$SEAT/.claude/owned-work.json"
+# Native registration fixture uses observed human provenance, not prose labels.
+export RICHOS_OWNED_STATE_DIR="$SANDBOX/owned-state"
+cat > "$SEAT/dispatch-fixture" <<'PYRUN'
+#!/usr/bin/env python3
+import json,sys
+x=json.load(sys.stdin)
+m=next(m for m in x['messages'] if m['role']=='user')
+print(json.dumps({'work':[{'brief':'Repair and verify the local defect. Do not publish.', 'citations':[{'source_id':m['source_id'],'quote':m['text']}]}],'pending':['Signing remains undecided.']}))
+PYRUN
+chmod +x "$SEAT/dispatch-fixture"
+write_owned_config() {
+    python3 - "$OWN_CONFIG" "$SEAT/dispatch-fixture" <<'PYCONFIG'
+import json,sys
+open(sys.argv[1],'w').write(json.dumps({'version':1,'enabled':True,'decision_policy':'dependency','runner':sys.argv[2]}))
+PYCONFIG
+}
+python3 - "$SEAT/native-transcript.jsonl" <<'PYSOURCE'
+import json,sys
+open(sys.argv[1],'w').write(json.dumps({'type':'user','uuid':'ceo-1','promptId':'prompt-1','origin':{'kind':'human'},'promptSource':'typed','message':{'content':'Repair the local defect. Do not publish. Signing remains undecided.'}})+'\n')
+PYSOURCE
+write_owned_config
+run_hook "$GATE" "$(agent_payload OWNED "Repair the local defect")"
+if [ "$RC" -eq 2 ] && [[ "$ERR" == *"HOST REGISTERED WORK"* ]]; then
+    ok "OWN-REGISTER. first scope registration provides host-owned work selectors"
+else bad "OWN-REGISTER. registration did not produce a usable host ledger" "rc=$RC $ERR"; fi
+OWN_ID="$(python3 - "$RICHOS_OWNED_STATE_DIR" <<'PYID'
+import json,sys
+from pathlib import Path
+for p in Path(sys.argv[1]).glob('*.authorization.json'):
+ print(json.loads(p.read_text())['work'][0]['id']); break
+PYID
+)"
+run_hook "$GATE" "$(agent_payload OWNED "owned-work:$OWN_ID")"
+if [ "$RC" -eq 0 ] && [[ "$OUT" == *"updatedInput"* ]] && [ ! -s "$LEDGER" ] && [ ! -s "$DEFERS" ]; then
+    ok "OWN1. registered independent dispatch receives its host-owned brief"
+else bad "OWN1. registered independent work was blocked or not rewritten" "rc=$RC $OUT $ERR"; fi
+run_hook "$SSTART" '{}'
+if [[ "$OUT" == *"actual dependency"* ]] && [[ "$OUT" == *"CEO DECISION PENDING"* ]] && [[ "$OUT" != *"BEFORE DISPATCHING ANYONE"* ]]; then
+    ok "OWN2. pending decision stays visible without a question quota"
+else bad "OWN2. startup suppressed pending decision or retained quota" "$OUT $ERR"; fi
+run_hook "$STOPN" "$(stop_payload OWNED)"
+if [ "$RC" -eq 0 ] && [[ "$OUT" == *"CEO DECISION PENDING"* ]] && [[ "$OUT" == *"1.1"* ]] && [[ "$OUT" != *"AskUserQuestion"* ]]; then
+    ok "OWN3. Stop retains a named nonblocking pending-decision reminder"
+else bad "OWN3. Stop suppressed pending decision or resurrected quota" "$OUT"; fi
+rm -f "$OWN_CONFIG"
+run_hook "$GATE" "$(agent_payload OWNED "Repair the local defect")"
+if [ "$RC" -eq 2 ]; then ok "OWN4. unadopted repositories retain existing policy";
+else bad "OWN4. adoption leaked into unadopted repository" "rc=$RC $ERR"; fi
+write_owned_config
+run_hook "$WITNESS" "$(ask_payload OWNED - "$Q_SIGNING" "$L_SIGNING" "$D_SIGNING")"
+OUT="$(bash "$STATUS" "$SEAT" --session OWNED 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && [[ "$OUT" == *"PENDING / OPEN"* ]] && [[ "$OUT" == *"1.1"* ]]; then
+    ok "OWN10. asked but unresolved decisions remain OPEN in the status CLI"
+else bad "OWN10. pending status was falsely cleared" "rc=$RC $OUT"; fi
+rm -rf "$SEAT/.claude/state/stop-hook-notices"
+run_hook "$STOPN" "$(stop_payload OWNED)"
+if [ "$RC" -eq 0 ] && [[ "$OUT" == *"CEO DECISION PENDING: 1.1"* ]]; then
+    ok "OWN11. an ask receipt cannot hide a pending decision reminder"
+else bad "OWN11. unanswered item disappeared after an ask" "$OUT $ERR"; fi
+run_hook "$STOPN" "$(stop_payload OWNED)"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+    ok "OWN12. unchanged pending reminder is deduplicated without blocking"
+else bad "OWN12. unchanged pending reminder repeated or blocked" "$OUT $ERR"; fi
+reset_ledger
+policy_rejected() {
+    printf '%s\n' "$2" > "$OWN_CONFIG"
+    rm -f "$DEFERS"
+    run_hook "$GATE" "$(agent_payload OWNED $'Repair the authorized implementation defect.\nceo-todos-deferred: preserve the existing authorized-work deferral')"
+    if [ "$RC" -eq 0 ] && [ -s "$DEFERS" ]; then
+        ok "$1. invalid adoption retains the existing deferral behavior and receipt"
+    else bad "$1. invalid adoption changed the existing policy" "rc=$RC $ERR"; fi
+}
+policy_rejected OWN-CFG1 '{"version":2,"enabled":true,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG2 '{"enabled":true,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG3 '{"version":true,"enabled":true,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG4 '{"version":1,"enabled":false,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG5 '{"version":1,"enabled":"true","decision_policy":"dependency"}'
+policy_rejected OWN-CFG6 '{"version":1,"decision_policy":"dependency"}'
+policy_rejected OWN-CFG7 '{"version":1,"enabled":true,"decision_policy":"quota"}'
+policy_rejected OWN-CFG8 '{"version":1,"enabled":true}'
+policy_rejected OWN-CFG9 '[]'
+rm -f "$OWN_CONFIG"
+
+# Source-membership checks are separate from model interpretation.
+python3 "$SRC_DIR/../lib/owned-dispatch.test.py" || FAIL=$((FAIL + 1))
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # Until 2026-09-05 it ran from NOTHING. run-all-tests.sh discovers *.test.sh;

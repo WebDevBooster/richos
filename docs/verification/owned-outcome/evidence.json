@@ -1,0 +1,165 @@
+{
+  "date": "2026-09-08",
+  "branch": "codex/owned-outcome-completion",
+  "tested_base": "28f07ab53a3dc8835eab49c670584120560ab3b9",
+  "scope": "Implementation in an isolated worktree; no production adoption, merge, push or installed app replacement.",
+  "checks": {
+    "core": {
+      "process_exit": 0,
+      "ordinary_passed": 1034,
+      "ignored": 4,
+      "doc_passed": 5,
+      "log": "evidence/core.log"
+    },
+    "controller_mutations": {
+      "process_exit": 0,
+      "intended_failures": 20,
+      "total": 20
+    },
+    "adapter": {
+      "process_exit": 0,
+      "passed": 17
+    },
+    "engine_policy": {
+      "process_exit": 0,
+      "cases_passed": 51,
+      "mutation_properties_passed": 13
+    },
+    "escalation_native_protocol_scripted_provider": {
+      "process_exit": 0,
+      "passed": 11
+    },
+    "desktop_pending_unit": {
+      "process_exit": 0,
+      "passed": 3
+    },
+    "desktop_actual_app_scripted_provider": {
+      "passed_phases": 13,
+      "log": "evidence/desktop.log",
+      "raw_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-obe9mals",
+      "retry_clock": "Fixture advances persisted deadlines only for recovery; no hour-long wait claimed.",
+      "process_exit": 0
+    },
+    "assignment_webkit": {
+      "process_exit": 0,
+      "passed": 29
+    },
+    "documentation_claims": {
+      "process_exit": 0,
+      "passed": 6
+    },
+    "real_cli": {
+      "process_exits": [
+        0,
+        0
+      ],
+      "passed": 2,
+      "operational_followups": 0,
+      "rescored": true,
+      "raw_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-outcome-native-do2dq5t3",
+      "results": "evidence/cli-results.json",
+      "original_measurement": "evidence/cli-initial-results.json"
+    },
+    "native_transport_deterministic_auditor": {
+      "process_exit": 0,
+      "passed": 10,
+      "raw_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-r237fdo7"
+    },
+    "native_composed_real_auditor": {
+      "process_exit": 0,
+      "passed": 15,
+      "operational_followups": 0,
+      "intentional_initial_early_stop": true,
+      "raw_root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-rxt0x6g1",
+      "result": "evidence/native-result.json",
+      "identity": "evidence/native-source-identity.json",
+      "test_execution": "External harness executed two tests and two coverage mutants. Auditor inspected code; it did not run tests."
+    }
+  },
+  "failed_attempts": [
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-outcome-native-auaputqv",
+      "reason": "Calibration exposed generated task expansion, unrequested coverage and optional follow-up; implementation corrected afterward."
+    },
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-outcome-native-do2dq5t3",
+      "reason": "Initial evaluator required unrequested JSON nesting. Failed measurements retained before semantic-layout rescoring and independent test execution."
+    },
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-yyl7zz87",
+      "reason": "Marker newline mismatch and synthetic transport feedback entering source authority; source filtering corrected and regression-tested."
+    },
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-e0fqxlhq",
+      "reason": "Narrow test permission absent from disposable fixture; no operational permission response supplied."
+    },
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-wake-native-_fyejrik",
+      "reason": "Behavior passed but shared auditor binary changed during trial; identity failed. Final trial executes immutable snapshot."
+    },
+    {
+      "root": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-9winh3cg",
+      "reason": "Two independent malformed-provider fixtures used one conversation, correctly invoking cancellation safety fence. Separate conversations preserve original retry/restart assertions."
+    }
+  ],
+  "source_sha256": {
+    "app/crates/richos-core/src/autonomy.rs": "d2a810f391d0b5b67e9cfccb43383ce8e2ddd6f5c81687fa934699d90b991456",
+    "app/crates/richos-core/src/bin/richos-run.rs": "3c81b79cdf45d5f2ed33f17be02205d059c76c38979c12fa29abda520f278447",
+    "app/crates/richos-core/src/native.rs": "3dffcc10a1cd914b0708c179f8f01c09d1dda27f357303f26af1698b1efad2b0",
+    "app/crates/richos-core/src/registration.rs": "4d73590cd47c69a15829b523e5567df5dfeb96619e8c055558a4de595bbd90df",
+    "app/crates/richos-core/src/run.rs": "79cbb25da5380af6b889f7adcab9509aa9488e267c60ba5c989521ed1a786d64",
+    "app/crates/richos-core/src/run_host.rs": "c33c89ebdfd4332c25f24eb8a2b62a414b6944909fa9368193b9ccffb9563f9e",
+    "app/crates/richos-core/tests/action_ledger_tests.rs": "41fef48472f486814e3df7bb179282485f1dd3d05ad9329d6ee0797352401447",
+    "app/crates/richos-core/tests/registration_tests.rs": "bd4d47b385a6eb5df76f905ea4404dffc9a00bd584ba30e1d5338222027eed50",
+    "app/crates/richos-core/tests/run_tests.rs": "d97639b937f3e9d33ebf5561c3c44aa8addb44f199fac3711f914af3f696b507",
+    "app/scripts/test-managed-run-mutations.py": "a18ad2e08df9976944b5f29f24c7161e6ffc920c34a1178bab7f1a56bb4f3a20",
+    "app/scripts/test-owned-escalation.py": "b1af889ca79f51b51741e58070800ace24e53908a0c84a74753bad8d5c93085e",
+    "app/scripts/test-owned-outcome-native.py": "46dd5e75c36a8682fa7b605fc45afbad4f9d48af4cb0a8d8f6dccd9c847e71e2",
+    "app/scripts/test-owned-wake-native.py": "0294f02c47af44e3ecd8e3d281b28d887f12c93d51c2c18db9a5fcc68a856d1c",
+    "app/scripts/test-owned-work-desktop.py": "d40fc154f3c1f127676f90be7c40b50562b84134a6fe1331482f3dd85daaafa4",
+    "app/src-tauri/src/owned_work.rs": "65b220836d22ac0f2ca91bba0c7ee28458b64f786bf273212a91044e66a1ec3d",
+    "engine/scripts/ceo-asks-status.sh": "2686a7a6f7a17e047b34f0ffe5c49e0875da333d2015837713bebaf651a612a9",
+    "engine/scripts/hooks/ceo-asks.mutation.sh": "550190fa97e61a67d4ff9c867839881d9fd157198f43524292c8317850e46b5e",
+    "engine/scripts/hooks/ceo-asks.test.sh": "c52bc708b1cc2ee9730596c15d53bdd650a08fc539d0e8a741169fe8e0f5bd58",
+    "engine/scripts/hooks/guard-ceo-ask-first.sh": "d66c3385d9f34400d67df8b7c4af935ba097bf91ae9eafa964de447d2c250d84",
+    "engine/scripts/hooks/notice-ceo-unasked.sh": "9420bd9e549a3ea5ced66c224588abf7bb7f15bcb766ee3778711ec3e1c0ddc9",
+    "engine/scripts/hooks/session-start-ceo-ask.sh": "1081efc41efdb0cae4f17f02f0ad9a6761e5fc03c6b7757d9edf9489abe82485",
+    "engine/scripts/install-owned-work.py": "577215eda84cbb39d0525ba6137936909fde59b77c6116358dc122e168b17f87",
+    "engine/scripts/lib/owned-session.py": "14e07c2220f119de578cba89acbb0fb34b738d85ac2c86c9733413cf786da88b",
+    "engine/scripts/lib/owned-session.test.py": "64de3396e16533c66096c606ef290b35e28547dc198645175576b67650f5f0c4",
+    "engine/scripts/lib/owned-session.test.sh": "d882b790636862bfb244f3c46ae83b83d7e8504d6d44e34864393de14d440262",
+    "engine/scripts/lib/owned-work-policy.sh": "183f96b108475e62f731d33844e2745023a4d037bf769be31b80d70f518ddc87",
+    "app/crates/richos-core/doctrine/inner-doctrine.md": "bf109313423a7d9feafe8fdffacce7491e05db4425d1ca159324b5ca679fee45",
+    "app/crates/richos-core/doctrine/owned-outcome.md": "c91df9f79cc0b0091f9fc1db1184869bff43de435581f54f56a0336ceea3160d"
+  },
+  "attached_evidence_sha256": {
+    "evidence/adapter.log": "0ae5e74f409e1b4264f86d3d6b95e6bec9581c8b3588d1e18fa2ae7c1b415cac",
+    "evidence/assignment-webkit.log": "d6e7ec317754f11c04445ed5532174854a6372c407658d45efdedc7e7a8dec8a",
+    "evidence/cli-initial-results.json": "e668fa8e07225ca692355b93bdd8e2431e0f2e9a104979c6f692901fa8ac8bde",
+    "evidence/cli-rescore-tests-0.log": "2f0072f4660f928f63394ec5a8a010c86c7916768a58e6d35ccc2fa7cd5d175a",
+    "evidence/cli-rescore-tests-1.log": "2f0072f4660f928f63394ec5a8a010c86c7916768a58e6d35ccc2fa7cd5d175a",
+    "evidence/cli-results.json": "bc5388232d948a5cd34ba0a0ee410cd599a73f17e8c8b3acedc9b57bf6b8d038",
+    "evidence/controller-mutations.log": "e39d6a4e7c7e6a1a1d10359c7076e0e7f9b21699afbe1ba5010fb65416a6ffc4",
+    "evidence/core.log": "c5cbd701374d869ad2c93161049c626b2888bb1f31726cf0d4f0b50be320dfef",
+    "evidence/desktop-first-failed.log": "4af84c993ce8d92b0f62d52c6a91de74f06413984eb68946e6c36f4f06fe7d3f",
+    "evidence/desktop.log": "f4ac656ac5ec2fd9a0c5d3e4512bf376b25611251308b9c7c46708e3df6794e5",
+    "evidence/docs-claims.log": "9ee350ae589003b756d6ceddc1c1fa3b763398a4d9bf474b143d227423615e4a",
+    "evidence/escalation.log": "5dc8292ef39607204e868fa512aa2862f847b96c644990d81297c5b02bf6828c",
+    "evidence/native-fixture-permissions.json": "9556d973c5b0daabc02430b4e5a8c3de5ddfdf8ec5a859eafa4d94dc84894e8a",
+    "evidence/native-independent-tests.log": "2f0072f4660f928f63394ec5a8a010c86c7916768a58e6d35ccc2fa7cd5d175a",
+    "evidence/native-mutant-external.log": "a6b08de1ae3ba6a37120ef0042955d28efb85f234cc8a58677daccffad91c227",
+    "evidence/native-mutant-native.log": "35334d4ad3598fdc080951c4675c9334bd312f8f0392b998634e824b48c24843",
+    "evidence/native-result.json": "629e31531a35f42a7ba7c6ad6d2a93e8e0befc06f00264d537c6018668bc4a5b",
+    "evidence/native-source-identity.json": "2feed8bb27b6728171cb8fb5e9ea3ade7396ab83abe9feb76143e89ab004561c",
+    "evidence/pending.log": "a812a0f010361e872673f141b9e52a56f3aac4801dc20dd79a985d0168ea5f80",
+    "evidence/policy.log": "0dfed72e7ef53d4fbbadc939dda667d86e4bc5be10838bd4822639f778e400be"
+  },
+  "limits": [
+    "No OS service when both hosts are quit",
+    "Native obligations belong to the same workspace and Claude session identity",
+    "No installed femcboost acceptance claimed",
+    "Model review can still misclassify scope, authority or evidence",
+    "Native auditing has failure backoff, not a total spending ceiling"
+  ],
+  "evidence_copy_note": "Shared log copies normalize terminal blank lines; raw local evidence remains unchanged."
+}

@@ -1,0 +1,20 @@
+Evidence directory: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-escalation-test-682el397
+PASS: routine-question
+PASS: corrected-authority
+PASS: forged-source
+PASS: independent-work-remains
+PASS: recoverable
+PASS: raw-decision
+PASS: empty-question
+PASS: empty-why_ceo
+PASS: empty-recommendation
+PASS: empty-source_quote
+PASS: invalid-options-0
+PASS: invalid-options-1
+PASS: invalid-options-2
+PASS: question-routine-question
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/scripts/test-owned-escalation.py", line 76, in <module>
+    assert r.returncode==0 and json.loads(r.stdout)['allow'] is True,(name,r.stdout,r.stderr)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('corrected-authority', '', 'Run did not complete: No complete response matched the required schema.\n')

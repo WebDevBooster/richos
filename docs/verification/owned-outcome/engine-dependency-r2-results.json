@@ -1,0 +1,17 @@
+{
+  "command": "bash engine/scripts/hooks/ceo-asks.test.sh",
+  "exit": 0,
+  "cases": 71,
+  "mutants_killed": 24,
+  "log": "/tmp/richos-ceo-dependency-r3-full.log",
+  "sources_sha256": {
+    "engine/scripts/lib/owned-work-policy.sh": "823788184f16b822fc9c1de176eb3b0fe6df2889863c87c1c20d0c9d09e1f611",
+    "engine/scripts/hooks/guard-ceo-ask-first.sh": "02b50879883709b76c1ecfd244e44db36cac127d7648f7ee1088eabcfd3d2e4d",
+    "engine/scripts/hooks/notice-ceo-unasked.sh": "ebe25ef5c28f650bb7852dd72caf17c041416d85b97a9d56be28af2397c0d841",
+    "engine/scripts/hooks/session-start-ceo-ask.sh": "348552c5a7eb55b9caeb34a0121bf4ccd7669fe43070951c93a1354105e344cb",
+    "engine/scripts/ceo-asks-status.sh": "693bdd1dff2680a187a7562b6efaecfb1252ad31a4453457e2510bbd44691582",
+    "engine/scripts/hooks/ceo-asks.test.sh": "374fe54c3c9da71b1a9c1a4453004075eada899f4e2978a750ff6b7b11563d81",
+    "engine/scripts/hooks/ceo-asks.mutation.sh": "9c22ab520b23172470c2ffe708b7af341aef4c19c32a526d4387daca9ba42a78",
+    "engine/scripts/hooks/install.sh": "1e2ad056942fa526f5097265e290116c8cc549f4b4c018e3cac037d4388350fa"
+  }
+}

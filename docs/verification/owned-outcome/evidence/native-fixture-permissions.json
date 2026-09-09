@@ -1,0 +1,7 @@
+{
+  "allow": [
+    "Bash(python3 -m unittest *)",
+    "Bash(set -e -o pipefail)"
+  ],
+  "reason": "Initial request authorizes running only the disposable local unittest suite; no live permission prompts are answered."
+}

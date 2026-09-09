@@ -1,0 +1,20 @@
+[richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: /Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/src-tauri/target/debug/richos-tauri is not inside a .app bundle; this boot writes to /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-p_xf9cb4/data, and an install writes to /Users/alex/Library/Application Support/com.richos.app; a program is holding this process (parent pid 51313), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
+[richos] launch: crash-restart (start -, 1 window(s))
+[richos] company registry: 2 companies from /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-p_xf9cb4/data/entities.json
+[richos] company registry: 2 compan(ies), /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-p_xf9cb4/data/entities.json (file)
+[richos] central folder: /Users/alex/myrichos (present)
+[richos] company: fixture (via RICHOS_ENTITY)
+[richos] onboarding fixture: nothing on file and no declination — Rich will offer the interview
+[richos] loro Tier C: compiling from /Users/alex/Library/Application Support/RichOS/loro-root (via the loro-root pointer in Application Support), node /opt/homebrew/bin/node
+[richos] loro correction desk: writing to /Users/alex/Library/Application Support/RichOS/loro-root via /Users/alex/Library/Application Support/RichOS/loro-root/loro/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] loro lane: entity "fixture" -> lane "fixture" dropped: this corpus has no lane "fixture" (it has: deeply, femcboost, gpt-exporter, prospects, richos, webinar-booster); "fixture" reads the CEO layer
+[richos] loro lane: entity "other" -> lane "other" dropped: this corpus has no lane "other" (it has: deeply, femcboost, gpt-exporter, prospects, richos, webinar-booster); "other" reads the CEO layer
+[richos] loro lane: this corpus has partitions (deeply, femcboost, gpt-exporter, prospects, richos, webinar-booster) but fixture, other are bound to none of them — every slice for them will be REFUSED by the cross-entity guard. Give the company a partition of its own name, or set RICHOS_LORO_LANES.
+[richos] loro lane: no lane narrowing in force — every company reads the CEO layer, which is the whole of an unpartitioned corpus.
+[richos] engine directory: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-p_xf9cb4/company (via RICHOS_ENGINE_DIR)
+[richos] compute connection: starts with the first cancellable request over /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-p_xf9cb4/native-fixture
+[richos] first-run setup: the RichOS engine is NOT installed — looked in: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-owned-desktop-p_xf9cb4/company ($RICHOS_ENGINE_DIR)
+[richos] first-run setup: this build carries NO engine pin, so it cannot install one. Build with RICHOS_ENGINE_VERSION / RICHOS_ENGINE_URL / RICHOS_ENGINE_SHA256 set.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
+[richos] home field: 170 object(s) of 715 record(s) at /Users/alex/Library/Application Support/RichOS/loro-root, 124 link(s), 46 source(s), 8 question(s) asked. Whether that replaces the demonstration is home.js's HOME_FIELD_MIN_OBJECTS, not this line.

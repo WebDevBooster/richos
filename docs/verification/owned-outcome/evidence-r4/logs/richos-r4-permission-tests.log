@@ -1,0 +1,24 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-owned-outcome-completion/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.42s
+     Running unittests src/lib.rs (app/target/debug/deps/richos_core-f3641f3814acf25f)
+
+running 16 tests
+test permission::tests::a_successful_permitted_alternative_does_not_ask_for_unused_operation ... ok
+test permission::tests::corrupt_authority_storage_never_falls_back_to_allow ... ok
+test permission::tests::current_hard_deny_refuses_even_a_callback_after_approval ... ok
+test permission::tests::duplicate_approval_and_changed_display_are_rejected ... ok
+test permission::tests::a_changed_ceo_answer_invalidates_previous_operation_authority ... ok
+test permission::tests::exact_grant_is_consumed_before_allow_and_cannot_replay_after_restart ... ok
+test permission::tests::changed_input_task_workspace_and_revision_do_not_consume_a_grant ... ok
+test permission::tests::worker_writable_journal_and_sandbox_escape_are_never_approvable ... ok
+test permission::tests::external_pause_and_end_intent_prevent_consumption_before_controller_boundary ... ok
+test permission::tests::durable_response_is_reconciled_after_restart_without_an_operational_nudge ... ok
+test permission::tests::controller_displays_actual_request_business_answer_cannot_grant_and_typed_response_resumes ... ok
+test permission::tests::retained_write_expansions_cannot_expose_the_host_grant_store ... ok
+test permission::tests::settings_change_expires_pending_request_and_does_not_strand_it ... ok
+test permission::tests::rejection_stays_denied_but_different_operation_can_be_requested ... ok
+test permission::tests::simultaneous_callbacks_can_consume_only_one_approval ... ok
+test permission::tests::pause_cancel_and_scope_changes_expire_unused_grants ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 557 filtered out; finished in 0.62s
+
