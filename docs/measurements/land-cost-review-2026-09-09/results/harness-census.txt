@@ -1,0 +1,9 @@
+harnesses using the library's mutant() loop : 29
+harnesses with their OWN loop               : 4
+--- own-loop harnesses (Sage#2 said there are FOUR) ---
+  guard-worktree-isolation.mutation.sh
+  guard-worktree-removal.mutation.sh
+  root-contract.mutation.sh
+  session-evidence.mutation.sh
+=== mutant declarations via library mutant() lines ===
+427

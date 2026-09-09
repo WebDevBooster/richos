@@ -1,0 +1,52 @@
+=== contract-integrity.test.sh ===
+################################################################################
+#  SCOPED RUN — THIS IS NOT A FULL PASS AND MUST NOT BE READ AS ONE.
+#  sections in scope: MT
+#  A land needs the full suite. Run with no arguments for that.
+################################################################################
+
+  PASS  MT1.model-tiers-undeclared-fails
+  PASS  MT1b.the-refusal-names-the-blank-declaration
+  PASS  MT2.model-tiers-alias-set-drifts-from-allowed-models-fails
+  PASS  MT2b.the-refusal-names-the-unranked-alias
+  PASS  MT3.doctrine-quotes-a-different-order-fails
+  PASS  MT3b.the-refusal-names-both-orders
+  PASS  MT4.doctrine-says-downgrade-without-quoting-the-data-fails
+  PASS  MT4b.the-refusal-names-the-missing-quotation
+  PASS  MT5.control-declared-and-quoted-passes-the-layer
+
+=== summary ===
+passed: 9
+failed: 0
+
+################################################################################
+#  SCOPED RUN — NOT A FULL PASS. 158 case(s) DID NOT RUN.
+#  ran: MT
+#  did NOT run:
+  base (11): 1.committed-source-passes 2.install-noop-rc-0 2.post-install-probe-rc-0 3.hook-removed-fails 4.wrong-path-fails 5.double-install-idempotent 5.double-install-probe-still-rc-0 6.install-source-missing-rc-2 7.canonical-source-untouched-by-install SC1.every-registered-hook-starts-in-a-sandbox SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1 
+  M (7): M1.duplicated-registration-fails M2.migration-removes-duplicate-settings-json M2.post-migration-probe-passes M2b.migration-second-run-noop M3.machine-specific-probe-passes M3.machine-specific-settings-json-hooks-stripped-config-kept M4.intra-file-duplication-fails 
+  shim (6): 10.symlink-to-outside-fails 11.canonical-with-trailing-args-passes 11b.shim-with-trailing-args-fails 12.canonical-fresh-clone-passes 8.shim-at-wrong-path-fails 9.canonical-path-wrong-hash-fails 
+  manifest (10): 13.tamper-canonical-guard-fails 14.tamper-canonical-agent-fails 14a.tamper-guard-worktree-isolation-fails 14b.tamper-reader-teammate-hint-fails 14c.chain-entry-missing-fails 14d.chain-out-of-order-fails 15.inline-shim-replace-fails 16.manifest-missing-fails 17.manifest-wrong-hash-fails 18.install-idempotent-manifests 
+  worktree (4): 19.git-main-checkout-passes 19b.layer-N-tracked-pass-line-present 20.git-worktree-invocation-passes 21.worktree-probe-targets-main-settings 
+  N (4): 32.git-untracked-ignored-settings-local-fails 32b.layer-N-names-the-git-add-f-fix 33.git-untracked-not-ignored-warns-rc-0 33b.layer-N-warns-when-not-yet-committed 
+  python3 (4): 22.install-no-python3-refuses 22b.install-no-python3-stderr-names-python3 23.probe-no-python3-refuses 23b.probe-no-python3-stderr-names-python3 
+  config (14): 24.install-missing-env-flag-refuses 24b.install-missing-env-flag-names-the-key 24c.install-missing-env-flag-must-not-write-settings-json 25.install-missing-baseref-refuses 25b.install-missing-baseref-names-the-key 26.probe-catches-env-flag-removed-post-install 26b.probe-names-the-missing-env-flag 27.probe-catches-baseref-removed-post-install 27b.probe-names-the-missing-baseref 28.both-keys-correct-probe-passes 28b.layer-I-explicit-pass-line-present 28c.layer-J-explicit-pass-line-present 28d.layer-K-explicit-pass-line-present 28e.layer-M-explicit-pass-line-present 
+  K (8): 29.secrets-scanner-not-wired-fails 29b.probe-names-the-missing-secrets-scanner 30.secrets-scanner-tampered-fails 30b.probe-names-the-hash-mismatch 31.secrets-scanner-broken-then-reinstalled-fails 31b.functional-canary-catches-broken-scanner-despite-matching-hash 31c.dead-secrets-scanner-fails-layer-K 31d.layer-K-says-failing-to-start-not-failing-to-catch 
+  P (12): 34.definition-drift-pair-intact-probe-rc-0 34b.layer-P-pass-line-present 35.definition-snapshotter-unwired-fails-layerP 35b.layer-P-names-the-missing-snapshotter 36.definition-drift-guard-unwired-fails 37.definition-drift-guard-tampered-fails 37b.definition-snapshotter-tampered-fails-layerP 38.definition-drift-guard-gutted-fails-layerP-canary 38b.definition-drift-guard-overblocks-fails-layerP-canary 38c.layer-P-names-the-over-block 39.definition-snapshotter-duplicated-fails 40.definition-drift-guard-suite-passes 
+  Q (18): 41.reaper-chain-intact-probe-rc-0 41b.layer-Q-pass-line-present 41c.broken-recovery-fixture-fails-probe 41d.broken-recovery-fixture-is-explained 42.reaper-wrapper-unwired-fails-layerQ 42b.layer-Q-names-the-missing-wrapper 43.reaper-wrapper-tampered-fails-layerQ 44.reaper-script-tampered-fails-layerQ 44b.reaper-sidecar-missing-fails-layerQ 44c.layer-Q-names-the-missing-manifest 45.reaper-gutted-fails-layerQ-canary 45b.layer-Q-names-the-gutted-sweep 45c.reaper-overreaches-fails-layerQ-canary 45d.layer-Q-names-the-destroyed-work 46.reaper-wrapper-duplicated-fails 47.install-mints-reaper-chain-sidecars 47b.post-install-probe-passes 48.reaper-wrapper-suite-passes 
+  Qscope (13): 49.agent-finish-trigger-revived-fails-layerQ 49b.layer-Q-names-the-revived-agent-finish-trigger 50.wrapper-with-execute-fails-layerQ 50b.layer-Q-names-the-revived-sweep 50c.wrapper-without-reconciler-fails-layerQ 50d.layer-Q-names-the-gutted-recovery 51.owner-liveness-gate-removed-fails-layerQ4 51b.layer-Q4-names-the-live-worktree-selected 51c.layer-Q-top-arm-stays-GREEN-and-Q4-is-the-ONLY-red 52.discovery-removed-fails-layerQ4 52b.layer-Q4-names-the-blind-sweep 53.reaper-scope-and-safety-suite-passes 54.reconciler-suite-passes 
+  S (6): S1.worktree-removal-guard-not-wired-fails S1b.layer-S-is-the-layer-that-caught-it S2.worktree-removal-guard-wired-twice-fails S3.gutted-worktree-removal-guard-fails S4.sanctioned-helper-missing-fails S4b.layer-S-names-the-missing-helper 
+  IP (10): IP1.interactive-prompt-guard-not-wired-fails IP1b.layer-IP-is-the-layer-that-caught-it IP2.interactive-prompt-guard-wired-twice-fails IP3.gutted-interactive-prompt-guard-fails IP4.shape-table-missing-fails IP4b.layer-IP-names-the-missing-shape-table IP5.dead-guard-that-refuses-everything-fails-despite-matching-hash IP5b.layer-IP-says-failing-to-start-not-failing-to-catch IP6.interactive-prompt-guard-suite-passes IP7.interactive-prompt-mutations-all-load-bearing 
+  IL (11): IL1.idle-land-gate-not-wired-fails IL1b.layer-IL-is-the-layer-that-caught-it IL2.missing-analyzer-fails IL2b.layer-IL-names-the-missing-analyzer IL3.replaced-analyzer-fails-on-the-hash IL4.gutted-gate-fails-despite-matching-hash IL4b.layer-IL-says-it-is-registered-but-not-enforcing IL5.gate-that-refuses-everything-fails-despite-matching-hash IL5b.layer-IL-says-refusing-everything-not-deciding IL6.idle-land-gate-suite-passes IL7.idle-land-mutations-all-load-bearing 
+  CL (2): CL1.claim-gate-suite-passes CL2.claim-gate-mutations-all-load-bearing 
+  RI (3): IN2.inflight-notify-mutations-all-load-bearing RI1.resume-isolation-suite-passes RI2.resume-isolation-mutations-all-load-bearing 
+  WTR (1): WTR1.worktree-removal-mutations-all-load-bearing 
+  MC (9): MC1.no-ceiling-declared-warns-and-does-not-fail MC1b.the-warning-names-the-missing-declaration MC2.unrankable-ceiling-fails MC2b.the-refusal-names-the-unrankable-ceiling MC3.doctrine-quotes-a-different-ceiling-fails MC3b.the-refusal-names-both-ceilings MC4.dead-ceiling-guard-is-caught MC4b.the-refusal-says-the-guard-did-not-refuse MC5.control-declared-and-quoted-passes-the-layer 
+  MC6 (1): MC6.model-ceiling-mutations-all-load-bearing 
+  WTI (1): WTI1.staffing-gate-mutations-all-load-bearing 
+  MF (1): MF1.mechanical-findings-mutations-all-load-bearing 
+  SA (2): SA1.stated-actions-gate-suite-passes SA2.stated-actions-mutations-all-load-bearing 
+#
+#  Exit code 3 means scoped-and-green. It is not 0 and must not be treated
+#  as one. Re-run with no arguments before landing anything.
+################################################################################

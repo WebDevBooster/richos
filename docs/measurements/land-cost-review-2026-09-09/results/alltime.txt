@@ -1,0 +1,9 @@
+transcripts on disk: 1715
+ALL-TIME, all transcripts (1715 with >=2 events)
+  invoking calls        :   42.3 h  n=2821   <-- comparable to Sage#1 "46.9 h / 2,649 calls"
+  polling-a-suite calls :   69.6 h  n=1291   <-- EXCLUDED by Sage#1, counted by Sage#2
+  invoking + polling    :  111.9 h
+  Sage#2 regex total    :  119.9 h
+ACTIVE-time sensitivity to the idle threshold:
+  idle cut 10 min (Sage#1): 503.5 h
+  idle cut 15 min (Sage#2): 561.2 h
