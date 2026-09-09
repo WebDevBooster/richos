@@ -160,6 +160,101 @@ fi
 "$HELPER" "$REPO" norm-opus-ct9 --pid 1 --session cafebabe-0000-4000-8000-000000000009 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ -d "$SANDBOX/repo-wt/norm-opus-ct9" ] && ok "C20  the same call with an explicit --session succeeds (positive control for 5)" || bad "C20  explicit session rc=$rc"
 
+# 6. THE ROLLBACK'S FALLBACK PATH — the half C17 cannot reach.
+#
+#    C17 only exercises the case where the worktree removal SUCCEEDS. The
+#    rollback's first line is `<removal> || rm -rf "$DIR"`, and that fallback
+#    arm behaved differently: it leaves the tree's admin registration in
+#    <main>/.git/worktrees/<id>, and git then REFUSES the branch delete on the
+#    next line with "cannot delete branch used by worktree at ...". That line
+#    swallowed its status and the function printed "ROLLED BACK" regardless,
+#    so a failed creation reported a cleanup that had not happened. Both
+#    halves are covered here.
+#
+#    The failure is injected with a `git` shim on PATH that forwards every
+#    call to the real git except the ones named in SHIM_FAIL. Making the real
+#    removal fail on demand is not otherwise reachable from a test, and an
+#    unreachable failure path is how this one stayed wrong.
+SHIM="$SANDBOX/shim"
+mkdir -p "$SHIM"
+REAL_GIT="$(command -v git)"
+cat >"$SHIM/git" <<SHIMEOF
+#!/usr/bin/env bash
+# Forwards to the real git; fails only the subcommands named in SHIM_FAIL.
+args=("\$@"); sub=""; rest=""
+i=0
+while [ \$i -lt \${#args[@]} ]; do
+    case "\${args[\$i]}" in
+        -C|-c) i=\$((i + 2)); continue ;;
+        -*)    i=\$((i + 1)); continue ;;
+        *)     sub="\${args[\$i]}"; rest="\${args[\$((i + 1))]:-}"; break ;;
+    esac
+done
+case " \${SHIM_FAIL:-} " in
+    *" worktree-remove "*)
+        [ "\$sub" = "worktree" ] && [ "\$rest" = "remove" ] && {
+            echo "shim: simulated worktree-removal failure" >&2; exit 1; } ;;
+esac
+case " \${SHIM_FAIL:-} " in
+    *" branch-delete "*)
+        [ "\$sub" = "branch" ] && [ "\$rest" = "-D" ] && {
+            echo "shim: simulated branch-delete failure" >&2; exit 1; } ;;
+esac
+exec "$REAL_GIT" "\$@"
+SHIMEOF
+chmod +x "$SHIM/git"
+
+# Positive control for the shim itself: with SHIM_FAIL empty it must be
+# indistinguishable from real git, or every verdict below is about the shim.
+if PATH="$SHIM:$PATH" git -C "$REPO" rev-parse --verify -q HEAD >/dev/null \
+   && [ "$(PATH="$SHIM:$PATH" SHIM_FAIL="worktree-remove" git -C "$REPO" worktree remove --force /nonexistent >/dev/null 2>&1; echo $?)" -eq 1 ]; then
+    ok "C21  the git shim passes real calls through and fails only the named subcommand (control)"
+else
+    bad "C21  shim control: passthrough or injection is not behaving"
+fi
+
+# 6a. Removal fails -> the fallback runs -> rollback is still COMPLETE.
+N1="$(grep -c . "$RICHOS_WORKTREE_LEDGER")"
+OUT="$(PATH="$SHIM:$PATH" SHIM_FAIL="worktree-remove" \
+       RICHOS_WORKTREE_LEDGER=/nonexistent-dir/ledger.jsonl "$HELPER" "$REPO" norm-opus-ct21 2>&1)"; rc=$?
+if [ "$rc" -eq 5 ] && [ ! -e "$SANDBOX/repo-wt/norm-opus-ct21" ] && printf '%s' "$OUT" | grep -q 'ROLLED BACK' \
+   && ! git -C "$REPO" rev-parse --verify -q refs/heads/norm-opus-ct21 >/dev/null \
+   && ! git -C "$REPO" worktree list --porcelain | grep -q 'norm-opus-ct21' \
+   && [ ! -d "$REPO/.git/worktrees/norm-opus-ct21" ]; then
+    ok "C22  removal failing does NOT strand the branch: the fallback drops only THIS tree's registration, branch and admin dir gone, exit 5"
+else
+    bad "C22  fallback rollback (rc=$rc): $OUT / admin=$(ls "$REPO/.git/worktrees" 2>/dev/null | tr '\n' ' ')"
+fi
+[ "$(grep -c . "$RICHOS_WORKTREE_LEDGER")" -eq "$N1" ] && ok "C23  the fallback rollback wrote nothing to the real ledger" || bad "C23  fallback rollback wrote to the ledger"
+
+# 6b. AN UNRELATED registration whose directory is merely absent must SURVIVE
+#     the rollback. This is the harm a bulk `git worktree prune` would do, and
+#     the reason the targeted delete is targeted.
+git -C "$REPO" worktree add -q "$SANDBOX/bystander" -b bystander-opus-ct1
+rm -rf "$SANDBOX/bystander"          # dir gone, registration deliberately left
+OUT="$(PATH="$SHIM:$PATH" SHIM_FAIL="worktree-remove" \
+       RICHOS_WORKTREE_LEDGER=/nonexistent-dir/ledger.jsonl "$HELPER" "$REPO" norm-opus-ct22 2>&1)"; rc=$?
+if [ "$rc" -eq 5 ] && git -C "$REPO" rev-parse --verify -q refs/heads/bystander-opus-ct1 >/dev/null \
+   && [ -d "$REPO/.git/worktrees/bystander" ]; then
+    ok "C24  an unrelated registration whose directory is absent SURVIVES the rollback (no bulk prune)"
+else
+    bad "C24  bystander (rc=$rc): admin=$(ls "$REPO/.git/worktrees" 2>/dev/null | tr '\n' ' ')"
+fi
+
+# 6c. WHEN THE CLEANUP CANNOT COMPLETE, SAY SO. Report the artifact, never the
+#     command: the branch delete is made to fail, so the branch survives, so
+#     the message must name it and the exit code must not be the success code.
+OUT="$(PATH="$SHIM:$PATH" SHIM_FAIL="worktree-remove branch-delete" \
+       RICHOS_WORKTREE_LEDGER=/nonexistent-dir/ledger.jsonl "$HELPER" "$REPO" norm-opus-ct23 2>&1)"; rc=$?
+if [ "$rc" -eq 6 ] && printf '%s' "$OUT" | grep -q 'ROLLBACK INCOMPLETE' \
+   && printf '%s' "$OUT" | grep -q 'branch: *norm-opus-ct23' \
+   && ! printf '%s' "$OUT" | grep -q 'ROLLED BACK'; then
+    ok "C25  a rollback that could NOT finish exits 6 and names what survived — it never claims a cleanup it did not achieve"
+else
+    bad "C25  incomplete rollback (rc=$rc): $OUT"
+fi
+git -C "$REPO" branch -D norm-opus-ct23 >/dev/null 2>&1 || true
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== create-teammate-worktree tests: $FAIL FAILED, $PASS passed ==="
