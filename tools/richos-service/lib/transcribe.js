@@ -6,8 +6,10 @@
  * is transcribed independently, so every segment is ALREADY speaker-attributed by channel
  * (me / others) before the merge — no diarization model involved.
  *
- * Default model `large-v3-turbo` per the benchmark: ~3.9 min per call-hour on the M4, ~2 GB RAM,
- * zero hallucination at defaults (the model benchmark, 2026-08-24).
+ * The default model is whatever `config.js` DEFAULT_TIER resolves to — `large-v3-turbo-q5_0`
+ * since 2026-09-10 (CEO decision page §10). It is NOT restated here, because a comment naming a
+ * model is a second declaration of the default that no test can keep honest. Full turbo remains
+ * selectable: `--tier turbo`, or `--model large-v3-turbo`.
  */
 
 import fs from 'node:fs';
@@ -125,7 +127,7 @@ export function checkToolchain(modelPath, modelId) {
  *
  * It now returns what actually ran, e.g.
  *
- *   whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo@1fc70f774d38
+ *   whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo-q5_0@394221709cd5
  *
  * so "which binary and which weights produced this transcript" is answerable from the string
  * alone, and the structured form (`record.pipeline.toolchain`) carries the full hashes.

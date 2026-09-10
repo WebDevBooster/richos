@@ -6,7 +6,7 @@
  *
  *   1. RECONCILE GUARD  -> anomaly? LOUD alarm, pipeline.status="anomaly", STOP. Never silent.
  *   2. NORMALIZE (ffmpeg)   stereo contract -> me.wav / others.wav @ 16 kHz mono
- *   3. TRANSCRIBE (whisper) large-v3-turbo per channel, with timestamps
+ *   3. TRANSCRIBE (whisper) the DEFAULT_TIER model per channel, with timestamps
  *   4. MERGE by timestamp   + fold in caption speaker labels -> verification.json
  *   3.5 HALLUCINATION GUARD four decode-failure classes; loop / stutter / silence-fabrication are
  *                           repaired, and the ordinal-insertion class is repaired PER MARKER where
@@ -96,7 +96,7 @@ function writeRecord(sessionDir, record) {
  */
 export function runPipeline(sessionDir, opts = {}) {
   const now = opts.now || Date.now();
-  // P5 tiering: `tier` (turbo|max|low-resource|quantized) or a raw `model` id both resolve here to a
+  // P5 tiering: `tier` (quantized*|turbo|max|low-resource, * = default) or a raw `model` id both resolve here to a
   // concrete { model, decodeArgs, repetitionGuard }. `model` stays supported for backward compat.
   const tier = resolveTier(opts.tier || opts.model);
   const model = tier.model;

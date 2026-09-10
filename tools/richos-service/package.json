@@ -4,7 +4,7 @@
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
-  "description": "RichOS local service (P1). The native, no-network process outside the browser: native-messaging host + drop-zone watcher + the surface-independent transcription pipeline (ffmpeg normalize -> whisper.cpp large-v3-turbo per channel -> merge + caption fold-in -> loro-correction seam -> transcript.md + verification + ingest ledger + retranscribe). Reuses the extension's pure reconcile logic verbatim.",
+  "description": "RichOS local service (P1). The native, no-network process outside the browser: native-messaging host + drop-zone watcher + the surface-independent transcription pipeline (ffmpeg normalize -> whisper.cpp large-v3-turbo-q5_0 per channel -> merge + caption fold-in -> loro-correction seam -> transcript.md + verification + ingest ledger + retranscribe). Reuses the extension's pure reconcile logic verbatim.",
   "bin": {
     "richos-service": "bin/richos-service.js"
   },
