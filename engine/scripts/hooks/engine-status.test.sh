@@ -500,6 +500,21 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # list, plus contract-integrity.test.sh's own sandbox chain. All eight carry it,
 # so unlike the notice-unlanded-branches note above, this one leaves no
 # inventory owing.
+# guard-owned-state.sh, added 2026-09-10: the standing-ownership gate on
+# PreToolUse[Agent]. It refuses ONE dispatch per session while the oldest
+# system whose health the orchestrator owns — CI, worktree reclamation,
+# unacknowledged escalations, ECS capture, staging freshness, unlanded work —
+# is standing with nothing done about it. It exists because every defect the
+# founder found himself on 2026-09-10 was UNASSIGNED, and because the worst of
+# them was already printed in that session's own start-up notice and was read
+# past: surfacing had already been tried and had already failed. The OTHER
+# inventories were derived the way the note further up says rather than
+# guessed: `grep -rln guard-stale-staging engine/` named hooks/hooks.json,
+# .claude/settings.local.json, this set, README.md's guard table, and in
+# contract-integrity-probe.sh the BR_EXPECTED spec table, the BR2 Agent-chain
+# order, CANONICAL_AGENT_CHAIN and the double-registration list, plus
+# contract-integrity.test.sh's own sandbox chain. All nine carry it, so this
+# note leaves no inventory owing.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -519,6 +534,7 @@ guard-inflight-notify.sh
 guard-interactive-prompt.sh
 guard-main-checkout-writes.sh
 guard-model-ceiling.sh
+guard-owned-state.sh
 guard-publication-commits.sh
 guard-publication-writes.sh
 guard-resume-isolation.sh
