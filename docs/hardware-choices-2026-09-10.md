@@ -77,7 +77,7 @@ Part 2 matters more than this list.
 | # | Site | Choice | Verdict |
 |---|---|---|---|
 | [D1](#d1) | `stt.rs:245`, `config.js:601` | whisper decode threads, `-t 4` | **DEFECT** — right with Metal, costs 19.2 % without |
-| [D2](#d2) | `tauri.conf.json:14-15` | initial window 1400 × 880 | **DEFECT** — 320 pt wider than one of the CEO's own displays |
+| [D2](#d2) | `tauri.conf.json:14-15` | initial window 1400 × 880 | **DEFECT** — 320 pt wider than one of the CEO's own displays. **Repaired the same day**; see the note at the end of [D2](#d2) |
 | [D3](#d3) | `journal.rs:96` | raw-audio budget, 2 GiB | **DEFECT** — never asks how much disk exists |
 | [D4](#d4) | `aec.rs:172` | AEC delay search, 512 ms | **DEFECT** — sized for a wired desktop, fails silently past it |
 | [D5](#d5) | `transcribe.js:165,239` | `DEFAULT_MODEL` fallback | **LATENT** — a live bypass of the resolver, held off by convention |
@@ -227,6 +227,34 @@ one of the three screens on his desk today, RichOS opens with 320 points of itse
   1400, the app opens off-screen on the most popular Mac Apple sells. **The structural finding does
   not depend on that number**: the app chooses a window size without asking how big the screen is,
   and there is already one screen on the CEO's own desk where the answer is wrong.
+
+**REPAIRED — 2026-09-10, and this note is part of the record rather than a replacement for it.**
+The verdict above stands as it was measured; what follows is what was done about it.
+
+`app/src-tauri/src/window_geometry.rs` derives the size and position from the work area of the
+display the window opens on. `app/src-tauri/src/main.rs::read_displays` is the first code in
+`app/src-tauri/src/` that asks the host anything, which retires the **0** in this document's own
+method table for that tree. The constant is demoted to a *preference*: a ceiling on a display big
+enough to hold it, and the last resort when no display can be read at all. Quoted as the code
+computes them, on the three displays measured above:
+
+```
+  BenQ GC2870    1920 x 1080 pt  ->  1400 x 880 at (260,126)   unchanged — the value was right here
+  HP E243        1080 x 1920 pt  ->  1032 x 880 at ( 24,546)   was 320 pt off the edge
+  VA2246 SERIES  1920 x 1080 pt  ->  1400 x 880 at (260,126)   unchanged
+```
+
+`1032 = 1080 − 2 × 24` (a 24 pt margin per side). Reproduce with
+`cargo run --example window_placement` from `app/src-tauri` — it reads the real panels and opens no
+window.
+
+**The `unverified:` line above stops mattering, which is better than answering it.** Whatever a
+13-inch Air's default width turns out to be, a panel narrower than the preference now derives its
+own: `cargo run --example window_placement -- 1280x832@2` chooses `1232 × 732`.
+
+**What is still not proven:** no window was opened. Only a real launch on those three displays
+settles that the platform places it where this arithmetic says, and that needs the CEO's screen at a
+time he chooses.
 
 <a id="d3"></a>
 ### D3 — a 2 GiB disk budget on a machine whose disk was never measured

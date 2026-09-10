@@ -2850,6 +2850,7 @@ name = "richos-voice"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "libc",
  "serde_json",
  "sha2",
 ]
