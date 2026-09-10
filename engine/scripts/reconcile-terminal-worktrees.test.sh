@@ -487,9 +487,16 @@ git -C "$ENTITY" worktree add -q -b "worktree-agent-$A19" "$NAT19"
 T start --session-id "$SID" --agent-id "$A19" --cwd "$ENTITY" >/dev/null
 T claim --session-id "$SID" --agent-id "$A19" --ingress WorktreeRemove --detail "$NAT19" >/dev/null 2>&1
 RICHOS_PENDING_TERMINAL_GRACE=0 R >/dev/null 2>&1
-FB19="$(T show --session-id "$SID" --agent-id "$A19" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print(len(m), m[0]["path"] if m else "-", d.get("state"), (d.get("terminal") or {}).get("ingress"))')"
-[ "$FB19" = "1 $NAT19 terminal WorktreeRemove" ] && [ -d "$NAT19" ] \
-    && ok "C28c the exact native path a WorktreeRemove named (first_path) is verified and left for Claude cleanup even though the start fact named the main checkout" || bad "C28c fallback=[$FB19] native=$([ -e "$NAT19" ] && echo present || echo gone)"
+FB19="$(T show --session-id "$SID" --agent-id "$A19" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print(len(m), m[0]["path"] if m else "-", (d.get("terminal") or {}).get("ingress"))')"
+# ROUND 11 (2026-09-10): the subject of this case is IDENTITY -- the member is
+# the exact path first_path named, not the main checkout the start fact named --
+# and that is what is asserted below. It used to add "and left for Claude
+# cleanup", which for a CLEAN, integrated, unlocked member of an agent the
+# platform said stopped is the 24-hour gap. C28b, whose fallback member carries
+# untracked bytes, is the retention twin and still retains.
+[ "$FB19" = "1 $NAT19 WorktreeRemove" ] && [ ! -e "$NAT19" ] \
+    && ! git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A19" \
+    && ok "C28c the exact native path a WorktreeRemove named (first_path) is the member, not the main checkout the start fact named -- and being clean and integrated it is reclaimed in that pass" || bad "C28c fallback=[$FB19] native=$([ -e "$NAT19" ] && echo present || echo gone)"
 
 # --- 12. index capture must SUCCEED, or the member is not captured -------------
 # (review 2026-09-03, blocker 2). A failed `git ls-files -s` used to be
