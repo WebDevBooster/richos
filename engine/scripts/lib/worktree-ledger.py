@@ -274,6 +274,80 @@ def assignment_workspaces(session_id, agent_id, teammate=""):
     return paths, teammate
 
 
+def agent_id_from_worktree(path):
+    """The agent id a NATIVE isolation worktree path names, or "".
+
+    `.claude/worktrees/agent-<id>` is created by the harness for one agent and
+    is never handed to a second one, so its basename is a durable statement of
+    ownership that survives in every payload carrying a `cwd`.
+    """
+    base = os.path.basename((path or "").rstrip("/"))
+    return base[len("agent-"):] if base.startswith("agent-") else ""
+
+
+def resolve_assignment(session_id, agent_id, worktree, teammate=""):
+    """(paths, teammate, key) — PREFER THE KEY THAT RESOLVES, NOT THE KEY THAT
+    IS PRESENT.
+
+    ===================================================================
+    WHY THIS EXISTS — the completion above was correct and never fired
+    ===================================================================
+    `assignment_workspaces()` resolves an assignment from the platform's agent
+    id, and every one of its lookups is right. It produced nothing for two days
+    because the id it was handed is not the id anything was registered under.
+
+    The SubagentStop payload's `agent_id` is a PER-RUN identifier. Measured on
+    this machine 2026-09-10 over the live ledger: 211 DISTINCT payload agent
+    ids appear on finish rows for the single worktree `agent-a42c90096292136f0`
+    — one per turn that agent took. Of 15,889 finish rows, 62 (0.4%) carry a
+    payload id that any registration has ever mentioned, while 2,908 (18.3%)
+    carry a `cwd` whose `agent-<id>` basename does. One row, written live:
+
+        {"agent_id": "a6eed94731c6acd7c", ...,
+         "worktree": ".../worktrees/agent-a2de3c7d8d8590224"}
+
+        assignment_workspaces(session, 'a6eed94731c6acd7c') -> '',              0 folders
+        assignment_workspaces(session, 'a2de3c7d8d8590224') -> 'zach-opus-unl1', 2 folders
+
+    The two ids in that one row are the same agent. The registry key is the one
+    in the PATH.
+
+    ===================================================================
+    THE RULE, AND WHY IT IS NOT "PREFER THE CWD"
+    ===================================================================
+    The writers already had a fallback — use the `cwd` basename `if not
+    agent_id` — which is PREFER-THE-PRESENT: a present-but-meaningless id beat
+    an absent one, and the payload always carries one, so the fallback was
+    dead code. The condition that matters is not "is there an id" but "does
+    this id name an assignment anybody registered". So: try the record's own
+    id; if it resolves, it wins and nothing changes. Only when it resolves
+    NOTHING is the path's id tried, and only if THAT resolves is it used.
+
+    This is a resolution, never an inference. Two keys are consulted, both are
+    registry lookups, and when neither hits, the row is written incomplete
+    rather than completed with a guess — a blank field is a hole in the record
+    and an invented one is a lie about ownership.
+
+    ADVISORY, AND STILL ADVISORY. The row this completes is a breadcrumb;
+    `judge()` prints finish signals as "advisory, never decisive" and
+    reclamation is anchored on the sealed transaction's terminal record. A
+    truer breadcrumb is not a new authority, and nothing here may be read as
+    a termination — the agent whose run ended can be woken again.
+    """
+    agent_id = (agent_id or "").strip()
+    paths, name = ([], teammate or "")
+    if agent_id:
+        paths, name = assignment_workspaces(session_id, agent_id, teammate)
+        if paths or (name and not teammate):
+            return paths, name, agent_id
+    owner = agent_id_from_worktree(worktree)
+    if owner and owner != agent_id:
+        owned, owned_name = assignment_workspaces(session_id, owner, teammate)
+        if owned or (owned_name and not teammate):
+            return owned, owned_name, owner
+    return paths, name, agent_id
+
+
 def append(record, path=None):
     """Append one record DURABLY: the line is fsynced before this returns
     True, and the containing directory is fsynced so a fresh file's entry
@@ -287,14 +361,24 @@ def append(record, path=None):
     # exactly as the caller wrote it.
     try:
         if (isinstance(record, dict) and record.get("event") in ("finished", "terminated")
-                and (record.get("agent_id") or "").strip() and not record.get("workspaces")):
-            found, teammate = assignment_workspaces(record.get("session_id") or "",
-                                                    (record.get("agent_id") or "").strip(),
-                                                    record.get("teammate") or "")
+                and not record.get("workspaces")
+                and ((record.get("agent_id") or "").strip() or (record.get("worktree") or "").strip())):
+            found, teammate, key = resolve_assignment(record.get("session_id") or "",
+                                                      record.get("agent_id") or "",
+                                                      record.get("worktree") or record.get("cwd") or "",
+                                                      record.get("teammate") or "")
             if found:
                 record = dict(record, workspaces=found)
             if teammate and not (record.get("teammate") or "").strip():
                 record = dict(record, teammate=teammate)
+            # BOTH ids are kept, and `agent_id` is NEVER overwritten. The
+            # payload's id is a true fact about the RUN that ended; the owning
+            # id is a true fact about the ASSIGNMENT. Recording which key the
+            # completion actually used is what makes this row auditable later
+            # instead of a field that appeared by magic — and it is why an
+            # existing reader of `agent_id` cannot change meaning under it.
+            if key and (found or teammate) and key != (record.get("agent_id") or "").strip():
+                record = dict(record, owner_agent_id=key)
     except Exception:
         pass
     path = path or ledger_path()
