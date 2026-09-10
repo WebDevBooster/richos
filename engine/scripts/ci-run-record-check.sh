@@ -55,11 +55,14 @@
 # Usage:
 #   ci-run-record-check.sh --repo <owner/name> --workflow <file.yml>
 #                          [--branch main] [--grace-minutes 20] [--limit 100]
-#                          [--since YYYY-MM-DD]
+#                          [--since YYYY-MM-DD | YYYY-MM-DDTHH:MM:SSZ]
 #
-#   --since is the day the `push:` trigger was restored. Pushes before it
-#   correctly have no run and are counted, named in one line, and not failed
-#   on — without it this check is red on its first execution over 95 historical
+#   --since is the moment the `push:` trigger was restored — a full timestamp,
+#   because a day is the wrong grain: on 2026-09-10 the restoring commit is
+#   00:46Z and the first run it produced is 04:11Z, and the seven pushes in
+#   between have no run and never can (round 14). Pushes before it correctly
+#   have no run and are counted, named in one line, and not failed on —
+#   without it this check is red on its first execution over 95 historical
 #   pushes, and a check that is red on arrival is a check nobody reads.
 #
 #   Offline / testing — every source can be supplied as a file, so the logic is
