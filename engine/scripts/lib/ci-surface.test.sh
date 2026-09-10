@@ -297,6 +297,89 @@ else
     bad "S9   ci-status.sh is missing at $STATUS, so neither S9 nor S10 was proven"
 fi
 
+# --- S11 / S12 -------------------------------------------------------------
+# THE READER'S TREATMENT OF A FAILING CALL, which is the whole difference
+# between a watch that is trustworthy and a watch that is quiet.
+#
+#   S11 A TRANSIENT FAILURE IS RETRIED AND THE PASS IS NOT DEGRADED BY IT. The
+#       first unattended pass lost a 14 KB read to a 25-second timeout — the
+#       endpoint was not slow, GitHub was. Retrying is NOT raising the timeout:
+#       the per-attempt deadline is unchanged.
+#   S12 A REAL FAILURE IS NOT RETRIED AND IS NOT HIDDEN. A 404 is an answer;
+#       attempting it three times wastes the pass and reports the same thing.
+#       It must be recorded, once, with its cause.
+#   S13 ONE PASS ASKS A URL ONCE. Several workflows in a repository need the
+#       same tip commit, and a dead endpoint must be attempted once rather than
+#       once per workflow — the 2026-09-10 document carried the same failing
+#       compare under two different workflows.
+BIN="$SANDBOX/bin"
+mkdir -p "$BIN"
+cat > "$BIN/gh" <<'GH'
+#!/usr/bin/env python3
+# Fails with whatever GH_FAIL_MODE says, for GH_FAIL_TIMES attempts, then
+# answers. Every attempt is recorded so the test can count them.
+import json, os, sys
+counter = os.environ["GH_COUNTER"]
+n = 0
+if os.path.exists(counter):
+    n = int(open(counter).read() or "0")
+n += 1
+open(counter, "w").write(str(n))
+mode = os.environ.get("GH_FAIL_MODE", "none")
+times = int(os.environ.get("GH_FAIL_TIMES", "0"))
+if n <= times:
+    if mode == "transient":
+        sys.stderr.write("gh: HTTP 502 Bad Gateway (https://api.github.com)\n")
+    else:
+        sys.stderr.write("gh: Not Found (HTTP 404)\n")
+    sys.exit(1)
+print(json.dumps({"ok": True, "attempt": n}))
+GH
+chmod +x "$BIN/gh"
+
+probe_api() {  # probe_api <fail-mode> <fail-times> <retries> -> "<data-ok>|<attempts>|<retried>|<failures>"
+    GH_COUNTER="$SANDBOX/gh-count" GH_FAIL_MODE="$1" GH_FAIL_TIMES="$2" \
+    PATH="$BIN:$PATH" HOME="$SANDBOX/home" python3 - "$SURFACE" "$3" <<'PY'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("cs", sys.argv[1])
+cs = importlib.util.module_from_spec(spec); spec.loader.exec_module(cs)
+api = cs.Api(cache_mode="off", timeout=5, retries=int(sys.argv[2]))
+# Two workflows asking the same question, which is the coalescing case.
+data, err = api.get("repos/o/r/commits?sha=main&per_page=1")
+again, _ = api.get("repos/o/r/commits?sha=main&per_page=1")
+attempts = int(open(os.environ["GH_COUNTER"]).read() or "0")
+r = api.report()
+print("%s|%d|%d|%d|%d" % (bool(data), attempts, len(r["retried"]), len(r["failures"]),
+                          r["coalesced"]))
+PY
+}
+
+rm -f "$SANDBOX/gh-count"
+R="$(probe_api transient 2 2)"
+if [ "$R" = "True|3|1|0|1" ]; then
+    ok "S11  a transient failure is retried, the answer is returned, the retry is counted and NOTHING is reported as a failure"
+else
+    bad "S11  got <$R>, expected 'True|3|1|0|1' (data|gh attempts|retried|failures|coalesced)"
+fi
+
+rm -f "$SANDBOX/gh-count"
+R="$(probe_api hard 9 2)"
+case "$R" in
+    "False|1|0|1|1")
+        ok "S12  a 404 is attempted ONCE, recorded once, and never retried into a wasted pass" ;;
+    *)
+        bad "S12  got <$R>, expected 'False|1|0|1|1' — a permanent failure was retried or was swallowed" ;;
+esac
+
+rm -f "$SANDBOX/gh-count"
+R="$(probe_api transient 9 1)"
+case "$R" in
+    "False|2|0|1|1")
+        ok "S13  a dead endpoint is attempted to the retry limit, then reported ONCE however many callers ask" ;;
+    *)
+        bad "S13  got <$R>, expected 'False|2|0|1|1'" ;;
+esac
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "=== ci-surface tests: all $PASS passed ==="
