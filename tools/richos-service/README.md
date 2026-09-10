@@ -73,6 +73,13 @@ session dir (closed)
       · -ojf adds per-TOKEN offsets. It is output verbosity, not a decode parameter (it sits
         outside whisperArgs() with -of), and it is required: without per-word times the deletion
         detector at 3.7 has to score coverage on segment extents, which is measurably wrong.
+      · THE EXACT COMMAND LINE, captured from a real run rather than read off the source:
+        -m <model> -f <wav> -l en -t 4 -mc 0 -oj -np -fa -ojf -of <base>
+        Every one of those values, and every flag whisper-cli accepts that is deliberately NOT
+        passed, is decided with its evidence in
+        docs/measurements/whisper-settings-2026-09-10/whisper-settings-decisions.md — the table
+        the CEO's standing rule of 2026-09-10 requires ("never a third-party default unless the
+        default is PROVEN best"). Add a flag here and a unit test fails until the table names it.
  3.5 HALLUCINATION GUARD  silence fabrication REMOVED; repetition loop / sliding stutter collapsed;
                       ordinal insertion DETECTED
  3.6 DIARIZATION SEAM     opt-in; default identity
