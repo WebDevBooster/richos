@@ -373,6 +373,16 @@ HOOK_FILES+=(
     # already answered, in his own words, in a file this session wrote.
     "$REPO_ROOT/scripts/lib/ceo-ruled.sh"
     "$REPO_ROOT/scripts/lib/ceo-ruled.py"
+    # The PREMISE predicate, both halves, and the argument is the same sentence
+    # with one twist: this pair decides nothing, so a tampered copy does not
+    # open a gate — it removes the only step between "this is true" and "so he
+    # must decide it". guard-ceo-ruled-ask.sh's first check delegates to these
+    # two files entirely, and premise-ask.sh also writes the ledger that records
+    # whether any question was ever changed by being checked. A reverted copy
+    # would leave the gate wired, hashed, executable, examining nothing, and
+    # producing a ledger that looks maintained.
+    "$REPO_ROOT/scripts/lib/premise-ask.sh"
+    "$REPO_ROOT/scripts/lib/premise-ask.py"
     # The publication-COMPLETENESS predicate, in both its halves. Not hooks, and
     # not under scripts/lib/ either — they are also CI's step 7, which is the
     # point: guard-completeness-commits.sh runs THIS script rather than carrying

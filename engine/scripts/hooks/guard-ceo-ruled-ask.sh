@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 #
-# guard-ceo-ruled-ask.sh — BLOCKING PreToolUse guard on the AskUserQuestion tool.
+# guard-ceo-ruled-ask.sh — the PreToolUse gate on the AskUserQuestion tool.
+#
+# TWO CHECKS, ONE TOOL, ONE REGISTRATION — the shape verify-agent-prompt.sh
+# already carries for Agent spawns:
+#
+#   1. THE PREMISE CHECK (2026-09-10, not blocking) — before a question reaches
+#      him, ONE interruption per episode asking what it changes for him, with
+#      what the question does and does not carry printed beside it. Re-issuing
+#      passes. Argument and corpus: scripts/lib/premise-ask.sh and
+#      scripts/hooks/premise-ask.corpus.md. It is second in this file and
+#      FIRST at runtime, deliberately — see the block itself.
+#   2. THE ALREADY-RULED CHECK (2026-09-02, blocking) — refuses to put a
+#      question to the CEO whose subject the record has already ruled, and
+#      names the ruling. Everything below documents this one.
 #
 # REFUSES TO PUT A QUESTION TO THE CEO WHOSE SUBJECT THE RECORD HAS ALREADY
 # RULED — AND NAMES THE RULING.
@@ -125,6 +138,175 @@ if ! resolve_entity_root "$INPUT"; then
     exit 0
 fi
 ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+
+# ===========================================================================
+# CHECK 2 OF 2 — THE PREMISE CHECK (2026-09-10)
+# ===========================================================================
+# WHY IT LIVES IN THIS FILE. It is a second, different check on the same tool,
+# which is the shape verify-agent-prompt.sh already carries for Agent spawns —
+# seven checks, one gate, one registration. It is also the only shape that is
+# LIVE THE MOMENT THIS BRANCH MERGES: what a session snapshots is WHICH hooks
+# are registered, and this one already is, so its body is read at every
+# invocation. A new hook file would have needed a new registration, an entry in
+# contract-integrity-probe.sh's inventory, and a fresh session before it
+# protected anybody.
+#
+# WHAT IT REFUSES: nothing, ever, permanently. It interrupts a question at most
+# once per episode and prints what that question does and does not carry. The
+# corpus behind that decision — 85 real questions, four measured predicates,
+# and the two of 2026-09-10 that sit in the TOP DECILE for premise richness —
+# is scripts/hooks/premise-ask.corpus.md, and the argument is
+# scripts/lib/premise-ask.sh. Read either before changing this.
+#
+# IT RUNS BEFORE THE ALREADY-RULED CHECK, deliberately: that check needs the
+# CEO's rulings record to resolve and stands down when it cannot, and the
+# premise question — why is this worth his time — is worth asking even in a
+# repository whose rulings file is missing or broken.
+_PA_LIB="$SCRIPT_DIR/../lib/premise-ask.sh"
+if [ ! -f "$_PA_LIB" ]; then
+    announce_broken "PREMISE CHECK IS OFF: scripts/lib/premise-ask.sh is missing at $_PA_LIB. Questions to the CEO are going through unexamined — a clean run and an absent check must never look the same."
+else
+    # shellcheck source=../lib/premise-ask.sh
+    . "$_PA_LIB"
+
+    PA_META="$(printf '%s' "$INPUT" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    if d.get("tool_name") not in (None, "", "AskUserQuestion"):
+        raise ValueError("not an AskUserQuestion call")
+    print("OK\t%s\t%s" % (str(d.get("session_id", "") or ""),
+                          str(d.get("agent_id", "") or "")))
+except Exception:
+    print("PARSEFAIL\t\t")
+' 2>/dev/null || printf 'PARSEFAIL\t\t')"
+
+    PA_STATUS="$(printf '%s' "$PA_META" | cut -f1)"
+    PA_SESSION="$(printf '%s' "$PA_META" | cut -f2)"
+    PA_AGENT="$(printf '%s' "$PA_META" | cut -f3)"
+
+    # A worker's clarifying question is not the orchestrator putting a decision
+    # to the CEO. An unreadable payload is not checked and says so — with no
+    # text there is nothing to report on, and refusing on that would block a
+    # question nobody could then permit.
+    if [ "$PA_STATUS" = "PARSEFAIL" ]; then
+        announce_broken "PREMISE CHECK: could not parse this AskUserQuestion call, so it was not examined. This ONE question is unchecked."
+    elif [ -n "$PA_AGENT" ]; then
+        :
+    elif ! pa_require; then
+        announce_broken "PREMISE CHECK IS OFF: $PA_BROKEN. Questions to the CEO are going through unexamined."
+    else
+        PA_GOV=0
+        pa_governed "$ENTITY_ROOT" || PA_GOV=$?
+        if [ "$PA_GOV" -eq 2 ]; then
+            announce_broken "PREMISE CHECK IS OFF: ${PA_REASON}. A declared-but-unreadable CEO record is not an absent one."
+        elif [ "$PA_GOV" -eq 0 ]; then
+            PA_QLIST="$(pa_questions_of "$INPUT")"
+            if [ -n "$PA_QLIST" ]; then
+                PA_QF="$(mktemp -t premise-ask-q.XXXXXX)" || PA_QF=""
+                PA_WF="$(mktemp -t premise-ask-w.XXXXXX)" || PA_WF=""
+                PA_OUT="$(mktemp -t premise-ask-out.XXXXXX)" || PA_OUT=""
+                PA_REPORT="$(mktemp -t premise-ask-report.XXXXXX)" || PA_REPORT=""
+                if [ -n "$PA_QF" ] && [ -n "$PA_WF" ] && [ -n "$PA_OUT" ] && [ -n "$PA_REPORT" ]; then
+                    trap 'rm -f "$PA_QF" "$PA_WF" "$PA_OUT" "$PA_REPORT"' EXIT
+                    PA_ANY_CHECK=0
+                    PA_CODES=""
+                    PA_HEADER=""
+                    PA_ALLTEXT=""
+                    PA_DECLARED=""
+                    while IFS=$'\t' read -r PA_IDX PA_QTEXT PA_WTEXT; do
+                        [ -n "${PA_WTEXT:-}" ] || continue
+                        printf '%s' "$PA_QTEXT" | tr '\001' '\n' > "$PA_QF"
+                        printf '%s' "$PA_WTEXT" | tr '\001' '\n' > "$PA_WF"
+                        [ -n "$PA_HEADER" ] || PA_HEADER="$(head -n1 "$PA_QF" 2>/dev/null || true)"
+                        PA_ALLTEXT="$PA_ALLTEXT$(cat "$PA_WF")"
+                        if ! pa_check "$PA_QF" "$PA_WF" > "$PA_OUT" 2>/dev/null; then
+                            announce_broken "PREMISE CHECK IS DEGRADED: ${PA_BROKEN:-the predicate could not run}. This question was not examined."
+                            continue
+                        fi
+                        if grep -q '^MARKER	' "$PA_OUT"; then
+                            PA_DECLARED="$(grep -m1 '^MARKER	' "$PA_OUT" | cut -f3)"
+                            continue
+                        fi
+                        [ "$(grep -m1 '^VERDICT	' "$PA_OUT" | cut -f2)" = "CHECK" ] || continue
+                        PA_ANY_CHECK=1
+                        {
+                            printf '  QUESTION %s\n' "$((PA_IDX + 1))"
+                            while IFS=$'\t' read -r PA_K PA_F1 PA_F2; do
+                                [ "$PA_K" = "FINDING" ] || continue
+                                PA_CODES="$PA_CODES$PA_F1,"
+                                printf '    %s\n      %s\n' "$PA_F1" "$PA_F2"
+                            done < "$PA_OUT"
+                            printf '\n'
+                        } >> "$PA_REPORT"
+                    done <<PA_QLIST_EOF
+$PA_QLIST
+PA_QLIST_EOF
+
+                    if [ -n "$PA_DECLARED" ]; then
+                        pa_record "$ENTITY_ROOT" "$PA_SESSION" "DECLARED" "$PA_HEADER" "premise-unverified" "$PA_ALLTEXT"
+                    elif [ "$PA_ANY_CHECK" -eq 1 ]; then
+                        if pa_standdown_active "$ENTITY_ROOT" "$PA_SESSION"; then
+                            pa_record "$ENTITY_ROOT" "$PA_SESSION" "STOOD-DOWN" "$PA_HEADER" "$PA_CODES" "$PA_ALLTEXT"
+                        else
+                            pa_standdown_arm "$ENTITY_ROOT" "$PA_SESSION"
+                            pa_record "$ENTITY_ROOT" "$PA_SESSION" "CHECKED" "$PA_HEADER" "$PA_CODES" "$PA_ALLTEXT"
+                            {
+                                echo "=== BEFORE HE READS THIS: WHAT DOES IT CHANGE FOR HIM? ==="
+                                echo ""
+                                echo "  2026-09-10. Two questions reached him that could not affect him."
+                                echo "  One asked what to promise about a capability that turned out to be"
+                                echo "  a safety net for my own misjudgment. The other rested on work"
+                                echo "  surviving him QUITTING MID-FLIGHT — and when he asked how often he"
+                                echo "  had ever done that, nobody had looked. The log said ZERO, across"
+                                echo "  its whole history. A probe had constructed the scenario in a"
+                                echo "  sandbox and I had put it to him as a blocker."
+                                echo ""
+                                echo "  THIS IS NOT A REFUSAL AND NOTHING IS BLOCKED. Re-issue the call —"
+                                echo "  changed or unchanged — and it goes straight through, this time and"
+                                echo "  for the next ${PA_STANDDOWN_SECONDS}s. The check exists because no"
+                                echo "  predicate can answer the question below; it was measured against"
+                                echo "  all 85 real questions on this machine and both of that day's"
+                                echo "  failures read BETTER than average (premise-ask.corpus.md)."
+                                echo ""
+                                echo "  ANSWER THESE THREE, THEN SEND IT:"
+                                echo "    1. What is TRUE that makes this worth his time — and is it in"
+                                echo "       the question's own text, where he reads it?"
+                                echo "    2. If that fact is about something HAPPENING, what measured that"
+                                echo "       it happens? Run the command. A probe in a sandbox is not"
+                                echo "       evidence that it occurs."
+                                echo "    3. Does his answer change what gets BUILT, PROMISED or SPENT?"
+                                echo "       If both options end in the same work, it is not his."
+                                echo ""
+                                if [ -s "$PA_REPORT" ]; then
+                                    echo "  WHAT THIS PARTICULAR QUESTION CARRIES:"
+                                    echo ""
+                                    cat "$PA_REPORT"
+                                fi
+                                echo "  IF THE PREMISE IS GENUINELY UNMEASURED, SAY SO IN THE QUESTION"
+                                echo "  ITSELF, on its own line — the marked form is the rule, not an"
+                                echo "  evasion of it, and it skips this check entirely:"
+                                echo ""
+                                echo "    premise-unverified: <what is unknown and what would settle it>"
+                                echo ""
+                                echo "  A bare marker exempts nothing. Every question, checked or not, is"
+                                echo "  logged to .claude/state/$PA_LEDGER_NAME with whether the re-issue"
+                                echo "  changed anything — so if this check ever becomes a reflex, the"
+                                echo "  numbers will say so."
+                                echo "(hook: scripts/hooks/guard-ceo-ruled-ask.sh, premise check)"
+                            } >&2
+                            exit 2
+                        fi
+                    else
+                        pa_record "$ENTITY_ROOT" "$PA_SESSION" "UNGATED" "$PA_HEADER" "" "$PA_ALLTEXT"
+                    fi
+                    rm -f "$PA_QF" "$PA_WF" "$PA_OUT" "$PA_REPORT"
+                    trap - EXIT
+                fi
+            fi
+        fi
+    fi
+fi
 
 _CR_LIB="$SCRIPT_DIR/../lib/ceo-ruled.sh"
 if [ ! -f "$_CR_LIB" ]; then
