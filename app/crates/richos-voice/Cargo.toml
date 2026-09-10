@@ -50,6 +50,10 @@ name = "toolchain_probe"
 path = "examples/toolchain_probe.rs"
 
 [[example]]
+name = "model_resolution"
+path = "examples/model_resolution.rs"
+
+[[example]]
 name = "noaudio_live"
 path = "examples/noaudio_live.rs"
 
