@@ -1,0 +1,4 @@
+daily-workspace-cleanup	rc=0	wall=401s	scripts/daily-workspace-cleanup.test.sh	HEAD=6597f674
+worktree-transactions	rc=0	wall=120s	scripts/lib/worktree-transactions.test.sh	HEAD=6597f674
+terminalize-agent-worktrees	rc=0	wall=167s	scripts/hooks/terminalize-agent-worktrees.test.sh	HEAD=6597f674
+reconcile-terminal-worktrees.mutation	rc=0	wall=375s	scripts/reconcile-terminal-worktrees.mutation.sh	HEAD=6597f674
