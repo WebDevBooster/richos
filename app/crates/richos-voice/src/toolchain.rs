@@ -672,6 +672,13 @@ mod tests {
             pinned_sha256("large-v3-turbo").as_deref(),
             Some("1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69")
         );
+        // The call-transcription default since 2026-09-10 (CEO decision page §10). It was already
+        // in the shared table as the More accurate dictation model; what changed is that this
+        // crate now shares a lock with a service that decodes CALLS with these weights too.
+        assert_eq!(
+            pinned_sha256("large-v3-turbo-q5_0").as_deref(),
+            Some("394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2")
+        );
         assert_eq!(pinned_sha256("no-such-model"), None);
         assert_eq!(reference_version().as_deref(), Some("1.9.1"));
     }
@@ -766,8 +773,16 @@ mod tests {
         // The strongest available check on the hashing itself: where a pinned model happens to be
         // on this machine, its hash must equal the pin. Skipped, never faked, when it is absent —
         // a test that quietly passes on a missing file proves nothing.
+        //
+        // ORDER MATTERS, because the loop returns after the first candidate that exists: the
+        // shipping CALL-transcription default goes first, so on a machine carrying several pinned
+        // models the one this product actually decodes with is the one that gets hashed. That
+        // default moved to large-v3-turbo-q5_0 on 2026-09-10 (CEO decision page §10); before then
+        // this list did not contain it at all. Cost is one hash either way — 1.05 s on the
+        // 574,041,195-byte file against 0.93 s on small.en, measured on this M4.
         let home = std::env::var("HOME").unwrap_or_default();
         for (id, p) in [
+            ("large-v3-turbo-q5_0", format!("{home}/Models/Whisper/ggml-large-v3-turbo-q5_0.bin")),
             ("small.en", format!("{home}/Models/Whisper/ggml-small.en.bin")),
             ("small.en", format!("{home}/.config/open-wispr/models/ggml-small.en.bin")),
             ("large-v3-turbo", format!("{home}/Models/Whisper/ggml-large-v3-turbo.bin")),
