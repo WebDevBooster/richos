@@ -38,6 +38,12 @@
 #   4  broken by          the commit proven, by execution, to have made it red
 #   5  failing            the case names, so a NEW failure in the same unit is visible as new
 #   6  why                what would un-skip it, in one sentence, for whoever picks it up
+#   7  when (OPTIONAL)    a shell predicate saying WHERE the row applies. Empty or absent means
+#                         everywhere, so a row without it means exactly what it always did. Where
+#                         the predicate is false the unit is judged NORMALLY, rule 2 included, so
+#                         a host that does not have the defect still gets a real verdict. A
+#                         predicate that cannot be evaluated is treated as APPLYING and says so:
+#                         failing open would rebuild the skip list one broken expression at a time.
 #
 #
 # ===========================================================================
@@ -73,3 +79,4 @@
 # The next entry starts the same way: a bisect, a date, an expiry, and a
 # sentence somebody else can act on.
 # ===========================================================================
+scripts/lib/worktree-ledger.test.sh	2026-09-10	2026-09-24	unknown	the bound-members-fallback mutant (L28 expected red, L29 goes red instead)	RED ONLY ON git >= 2.55, which is what ubuntu-latest ships; GREEN on 2.43 and on 2.52. The base suite passes 37/37 on every host — it is the MUTATION HARNESS that fails, which is the harness doing its job: the bound-members-fallback mutant forces the registration fallback, and under 2.55 that returns [] for the L29 fixture instead of the registrations it returns under 2.43, so L29 goes red and L28 does not. Isolated to ONE variable by execution: the same ubuntu:24.04 image with git from the git-core PPA reproduces it, and the same image with 2.43 does not. Seen twice on the runner (34425677957 shard 11, 34432651037 shard 4). NOT diagnosed further because it is worktree-lifecycle internals, which the lead ruled on 2026-09-10 are not to be edited from the CI side. UN-SKIP by finding why read_all() yields no registration for that fixture under 2.55 and fixing it, then deleting this row — which rule 2 will demand the first time it passes.	test "$(git --version | awk '{print $3}' | awk -F. '{printf "%d%03d", $1, $2}')" -ge 2055

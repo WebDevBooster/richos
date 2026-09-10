@@ -265,25 +265,47 @@ once was arguing with myself. The affected set is a SUBSET of the full inventory
 construction, so `affected` is now skipped whenever `shards` runs, and `affected-coverage` says
 so out loud rather than going quiet. 26 jobs becomes 14.
 
-**2. `scripts/lib/worktree-ledger.test.sh` case L29 failed once, and could not be reproduced.**
-Stated at the precision the evidence supports, because "flake" is a conclusion and not an
-observation:
+**2. `scripts/lib/worktree-ledger.test.sh` is red on git >= 2.55 — which is what every GitHub
+runner ships.** This was written up first as an unreproducible one-off. It then failed a SECOND
+time, on a different shard and a different commit, and one variable isolated it:
 
-- it FAILED on the runner, in shard 11, while 24 matrix jobs contended — `L29 bound-members
-  sealed: []`, with its mutation harness reporting "the suite went red, but NOT at L28 (so the
-  red is unrelated)";
-- it PASSES standalone on Linux, 37/37, in the `ubuntu:24.04` container;
-- it PASSES on Linux in **the whole of shard 11, in the same order** — 15/16 plus the one
-  declared KNOWN-RED — which rules out the interaction a sharded runner could plausibly have
-  introduced, and that was the hypothesis worth eliminating first;
-- it was **not** among the four reds of run `34396549904` on 2026-09-09, so if it is a real
-  defect it is new, which is precisely the inflow this whole design is for.
+| host | git | the `bound-members-fallback` mutant |
+|---|---|---|
+| `ubuntu:24.04` container | 2.43.0 | **passes** — removing the fallback turns L28 red, as the harness expects |
+| the same image + git-core PPA | 2.55.0 | **fails** — L29 goes red returning `[]`, and L28 does not |
+| the development Mac | 2.52.0 | passes |
+| `ubuntu-latest` | **2.55.0** | fails, twice: run `34425677957` shard 11, run `34432651037` shard 4 |
 
-**`unverified:` whether it is a contended-runner flake or a runner-specific defect. What would
-settle it is a re-run of that shard on a quieter runner** — which the 26-to-14 job reduction
-above makes materially more likely — and it is deliberately NOT put in `ci-known-red.tsv`: that
-table is for defects somebody has diagnosed, and putting an undiagnosed intermittent in it would
-turn a table with a negative control into a place to file things nobody understands.
+**The BASE suite passes 37/37 on every host.** Only the mutation harness catches it, which is
+that harness earning its cost — and what it reports is precise: the mutant forces the
+registration fallback unconditionally, and under 2.55 that returns `[]` for the L29 fixture
+where under 2.43 it returns registrations. So `read_all()` yields no registration for that
+fixture under the newer git.
+
+**Four hypotheses were killed by execution before that one survived**, each cheaper to assert
+than to test: not a flake (twice, different shards, different commits); not an ordering
+interaction introduced by sharding (the whole of shard 11, in the same order, is green on
+Linux — the hypothesis worth killing first, because it would have been a defect in this work);
+not TMPDIR shape (plain, real, symlinked, and the runner's own `/home/runner/work/_temp`, all
+pass); and not the seal (a hand-built fixture seals a correctly bound native member under 2.55).
+
+It is DECLARED rather than fixed, because it is worktree-lifecycle internals and the lead ruled
+those off-limits to the CI side on 2026-09-10 — `esc-20260910T033915Z-df18e8fe`.
+
+**And it needed a capability the known-red table did not have.** An unconditional row would have
+been correct on the runner and a LIE on the development Mac, where rule 2 would then have fired
+on every local full pass with "declared red, but it PASSED". So a row may now carry a seventh
+column: a shell predicate saying WHERE it applies.
+
+- Empty or absent means everywhere, so every existing row means exactly what it always did
+  (case S18e).
+- Where the predicate is false the unit is judged **normally, rule 2 included** — a host without
+  the defect gets a real verdict rather than a tolerated one (S18b, S18c).
+- A predicate that cannot be evaluated is treated as **applying**, and says so. Failing open
+  would rebuild the skip list one broken shell expression at a time (S18d).
+
+A mechanism that can only say "red everywhere" describes a defect shape that is not the common
+one; this tree already carries launchd-only and darwin-only cases.
 
 And the line that is the point of the whole design, from `affected-coverage`:
 

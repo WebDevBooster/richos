@@ -35,6 +35,12 @@
 #   S13  --verify-receipts FAILS when a unit has two receipts.
 #   S14  --verify-receipts FAILS on an empty receipt set rather than certifying
 #        a plan against nothing.
+#   S18  A CONDITIONAL known-red row applies only where its predicate holds. In
+#        force it behaves as S6; dormant, the unit is judged NORMALLY — rule 2
+#        included, so a host without the defect still gets a real verdict rather
+#        than a tolerated one. A predicate that cannot be evaluated is treated as
+#        APPLYING and says so, because failing open would rebuild the skip list
+#        one broken expression at a time.
 #   S16  --units-file WITH --shard packs that set and runs shard i of it. This
 #        is the affected gate on a large diff: this work's own first push
 #        selected 54 units costing ~100 minutes serial, which would have been
@@ -353,6 +359,61 @@ else
     bad "S17b rc=$RC — a restricted run's receipts certified the whole inventory, which certifies nothing"
     sed 's/^/          /' "$SANDBOX/out"
 fi
+
+# --- S18: conditional rows -------------------------------------------------
+KR="$E/scripts/lib/ci-known-red.tsv"
+FUT="$(python3 -c 'import datetime; print((datetime.date.today() + datetime.timedelta(days=30)).isoformat())')"
+
+# in force: the predicate holds, the failing unit is tolerated
+printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tconditional\ttrue\n' "$FUT" > "$KR"
+RC="$(run_shard --only-units scripts/lib/red.test.sh)"
+if [ "$RC" = "0" ] && grep -q 'KNOWN-RED' "$SANDBOX/out" && grep -q 'applies only where' "$SANDBOX/out"; then
+    ok "S18a a conditional row IN FORCE behaves as an unconditional one, and prints its condition"
+else
+    bad "S18a rc=$RC"; sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# dormant: the predicate is false, so the failing unit FAILS normally
+printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tconditional\tfalse\n' "$FUT" > "$KR"
+RC="$(run_shard --only-units scripts/lib/red.test.sh)"
+if [ "$RC" = "1" ] && ! grep -q 'KNOWN-RED' "$SANDBOX/out"; then
+    ok "S18b a DORMANT row does not tolerate anything — the unit fails normally"
+else
+    bad "S18b rc=$RC — a row whose condition is false still suppressed a failure"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# dormant + the unit PASSES: rule 2 must NOT fire, or the developer's machine
+# goes red over a defect that only exists on the runner. This is the case the
+# whole seventh column exists for.
+printf 'scripts/lib/green.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tconditional\tfalse\n' "$FUT" > "$KR"
+RC="$(run_shard --only-units scripts/lib/green.test.sh)"
+if [ "$RC" = "0" ] && ! grep -q 'declares this unit red' "$SANDBOX/out"; then
+    ok "S18c a DORMANT row over a PASSING unit is silent — rule 2 does not fire where the row does not apply"
+else
+    bad "S18c rc=$RC — rule 2 fired on a host the row does not describe, which is why the column exists"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# an unevaluable predicate must NOT fail open
+printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tconditional\tif [ ; then\n' "$FUT" > "$KR"
+RC="$(run_shard --only-units scripts/lib/red.test.sh)"
+if [ "$RC" = "0" ] && grep -q 'not valid shell' "$SANDBOX/out"; then
+    ok "S18d an unevaluable condition is treated as APPLYING and says so, rather than failing open"
+else
+    bad "S18d rc=$RC — a broken condition changed the verdict silently"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# and a six-column row still means what it always did
+printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tno condition at all\n' "$FUT" > "$KR"
+RC="$(run_shard --only-units scripts/lib/red.test.sh)"
+if [ "$RC" = "0" ] && grep -q 'KNOWN-RED' "$SANDBOX/out"; then
+    ok "S18e a six-column row is unconditional, exactly as before the column existed"
+else
+    bad "S18e rc=$RC — adding the column changed the meaning of existing rows"
+fi
+rm -f "$KR"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

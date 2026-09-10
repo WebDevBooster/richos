@@ -63,6 +63,12 @@
 #
 #   1. a declared unit that fails is reported KNOWN-RED and does not fail the
 #      job — but it is printed, every run, with its expiry;
+#   0. and a row may carry a CONDITION saying where it applies at all, because
+#      the first entry that needed one was red on git >= 2.55 and green on 2.43
+#      and 2.52 — an unconditional row would have been right on the runner and a
+#      lie on the developer's machine, where rule 2 would then fire on every
+#      local pass. Where the condition is false the unit is judged normally,
+#      rule 2 included;
 #   2. a declared unit that PASSES fails the job. The defect is fixed and the
 #      entry is now a lie; delete it. This is the negative control, and without
 #      it the table would silently outlive everything in it;
@@ -150,7 +156,7 @@ sha_now() {
 # ---------------------------------------------------------------------------
 # the known-red table
 # ---------------------------------------------------------------------------
-# id <TAB> classified <TAB> expires <TAB> broken-by <TAB> failing <TAB> why
+# id <TAB> classified <TAB> expires <TAB> broken-by <TAB> failing <TAB> why [<TAB> when]
 kr_field() { # <unit-id> <column>
     [ -f "$KNOWN_RED" ] || return 1
     awk -F'\t' -v want="$1" -v col="$2" '
@@ -158,7 +164,45 @@ kr_field() { # <unit-id> <column>
         $1 == want { print $col; found=1; exit }
         END { exit(found ? 0 : 1) }' "$KNOWN_RED"
 }
-kr_declared() { kr_field "$1" 1 >/dev/null 2>&1; }
+
+# THE OPTIONAL SEVENTH COLUMN: a shell predicate saying WHERE the row applies.
+#
+# Added 2026-09-10, because the first entry that needed it proved the table
+# could not describe a real defect. `scripts/lib/worktree-ledger.test.sh` is red
+# on git >= 2.55 — which is what `ubuntu-latest` ships — and GREEN on 2.43 and
+# on 2.52. An unconditional row would therefore be correct on the runner and a
+# LIE on the machine the engine is developed on, where rule 2 would fire on
+# every local full pass with "declared red, but it PASSED". A mechanism that can
+# only say "red everywhere" describes a defect shape that is not the common one:
+# this tree already carries launchd-only and darwin-only cases.
+#
+# Empty or absent means the row always applies, so every existing row keeps its
+# meaning. A predicate that exits NON-ZERO means the row does not apply here and
+# the unit is judged normally — including rule 2, so a host where the defect
+# does not exist still gets a real verdict rather than a tolerated one.
+#
+# AN UNRUNNABLE PREDICATE IS NOT A PASS. If the condition cannot be evaluated,
+# the row is treated as APPLYING and the reason is printed: a condition that
+# silently fails open would turn the whole table back into a skip list, one
+# broken shell expression at a time.
+kr_applies() { # <unit-id> — 0 when the row is in force here
+    local cond
+    cond="$(kr_field "$1" 7 2>/dev/null || true)"
+    [ -n "$cond" ] || return 0
+    if bash -c "$cond" >/dev/null 2>&1; then
+        return 0
+    fi
+    # distinguish "predicate said no" from "predicate could not run"
+    if ! bash -n -c "$cond" >/dev/null 2>&1; then
+        printf '%sWARNING%s ci-shard.sh: the known-red condition for %s is not valid shell (%s);\n' \
+            "$C_YEL" "$C_RESET" "$1" "$cond" >&2
+        printf '        treating the row as APPLYING rather than failing open.\n' >&2
+        return 0
+    fi
+    return 1
+}
+
+kr_declared() { kr_field "$1" 1 >/dev/null 2>&1 && kr_applies "$1"; }
 kr_expired()  { # <unit-id> — 0 when today is past the expiry
     local exp; exp="$(kr_field "$1" 3 2>/dev/null)" || return 1
     [ -n "$exp" ] || return 1
@@ -342,6 +386,8 @@ while IFS= read -r id; do
             KNOWNRED=$((KNOWNRED + 1))
             printf '        declared %s, broken by %s: %s\n' \
                 "$(kr_field "$id" 2)" "$(kr_field "$id" 4)" "$(kr_field "$id" 6)"
+            CONDW="$(kr_field "$id" 7 2>/dev/null || true)"
+            [ -n "$CONDW" ] && printf '        applies only where: %s\n' "$CONDW"
             printf '        failing: %s\n' "$(kr_field "$id" 5)"
             ;;
         KNOWN-RED-EXPIRED)
