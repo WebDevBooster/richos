@@ -636,26 +636,59 @@ def processes_using(path):
     tool that sees a cwd `pgrep -f` cannot; 0.85 s on a 3.3 GB tree), plus
     pids whose argv names it. Never this process or its ancestors. Nothing is
     killed: a process in a terminal tree is a HOLD, written on the member.
-    RICHOS_DAILY_PROCESSES stands in for the table in tests ("none" = empty):
-    newline-separated "<pid> <command line>" rows."""
+
+    FAILS CLOSED, and this is the whole point of the function. Until
+    2026-09-10 every exception from `lsof` or `ps` -- a timeout, a missing
+    binary, a permission error -- was swallowed and the caller received an
+    empty list, which it reads as "nothing is holding this" and proceeds to
+    remove the workspace. A failure to LOOK became a statement that there was
+    NOTHING TO SEE: type A of the failure record's own taxonomy (absence
+    reading as success), sitting inside the one predicate whose entire job is
+    to refuse. On this machine seven workspaces were protected from removal by
+    exactly one `com.apple.Virtualization.VirtualMachine` process that only
+    `lsof` can see; on the day `lsof` was slow they would have been deleted.
+
+    So a probe that could not answer RAISES, naming the tool and the failure,
+    and every caller already turns that into a hold. A hold costs a night; the
+    other answer costs a workspace.
+
+    RICHOS_DAILY_PROCESSES stands in for the table in tests ("none" = empty,
+    "unavailable" = the probe itself failed): newline-separated
+    "<pid> <command line>" rows.
+    """
     override = os.environ.get('RICHOS_DAILY_PROCESSES')
     if override is not None:
+        if override.strip() == 'unavailable':
+            raise RuntimeError('RETRY, not a verdict: could not determine whether any process is '
+                               'standing in %s (the process table was declared unavailable). A '
+                               'probe that could not look never reports an empty tree' % path)
         rows = [line.strip().partition(' ') for line in override.splitlines() if line.strip() and line.strip() != 'none']
         return sorted({int(pid) for pid, _sep, cmd in rows if pid.isdigit() and path in cmd})
     pids = set()
     try:
         res = subprocess.run(['lsof', '-t', '+D', path], capture_output=True, text=True, timeout=120)
+        # lsof exits 1 with no output when nothing holds the path: that is an
+        # ANSWER, not a failure, and it is the only nonzero exit accepted here.
+        if res.returncode not in (0, 1):
+            raise RuntimeError('lsof exited %s: %s' % (res.returncode, (res.stderr or '').strip()[:200]))
         pids.update(int(tok) for tok in res.stdout.split() if tok.isdigit())
-    except Exception:
-        pass
+    except Exception as error:
+        raise RuntimeError('RETRY, not a verdict: could not determine whether any process is standing '
+                           'in %s -- lsof did not answer (%s: %s). A probe that could not look never '
+                           'reports an empty tree, so this workspace is HELD until it can'
+                           % (path, type(error).__name__, str(error)[:200]))
     try:
         res = subprocess.run(['ps', '-axo', 'pid=,command='], capture_output=True, text=True, timeout=20)
+        if res.returncode != 0:
+            raise RuntimeError('ps exited %s' % res.returncode)
         for line in res.stdout.splitlines():
             parts = line.strip().split(None, 1)
             if len(parts) == 2 and parts[0].isdigit() and path in parts[1]:
                 pids.add(int(parts[0]))
-    except Exception:
-        pass
+    except Exception as error:
+        raise RuntimeError('RETRY, not a verdict: could not read the process table while deciding '
+                           'whether anything is standing in %s (%s: %s); this workspace is HELD'
+                           % (path, type(error).__name__, str(error)[:200]))
     me = os.getpid()
     ancestors = set()
     p = os.getppid()
@@ -667,6 +700,12 @@ def processes_using(path):
             r = subprocess.run(['ps', '-o', 'ppid=', '-p', str(p)], capture_output=True, text=True, timeout=5)
             p = int(r.stdout.strip() or '1')
         except Exception:
+            # A walk that stops early is the SAFE direction and is therefore
+            # not an error: it shrinks the exclusion set, so an ancestor whose
+            # cwd is inside the tree (this lane runs inside the stop hook, so
+            # that is a real shape) is counted as a holder and the workspace is
+            # HELD. The failing direction would be to exclude a pid we could
+            # not prove is ours, and nothing here does that.
             break
     return sorted(x for x in pids if x != me and x not in ancestors)
 

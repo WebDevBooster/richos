@@ -90,6 +90,33 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(self.assess()[0],'remove')
         self.assert_reclaimed(self.run_cleanup())
 
+    def test_a_process_probe_that_cannot_look_HOLDS_and_never_reports_an_empty_tree(self):
+        # FRANK'S D3 / SAGE, 2026-09-10. processes_using() swallowed every
+        # lsof and ps exception and returned an empty list, so a TIMEOUT, a
+        # missing binary or a permission error arrived at the caller wearing
+        # the costume of "nothing is holding this workspace" — absence reading
+        # as success (type A), inside the one predicate whose entire job is to
+        # refuse. Seven workspaces on the operator's machine were held by a
+        # single com.apple.Virtualization.VirtualMachine process that only
+        # lsof can see; on the day lsof was slow they would have been deleted.
+        #
+        # This is the positive probe FIRST (the negative test must be able to
+        # fail for the right reason): with a working probe the same workspace
+        # reclaims. Then the probe cannot answer, and everything refuses.
+        self.assertEqual(self.assess()[0],'remove')
+        with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'unavailable'}):
+            with self.assertRaisesRegex(RuntimeError,'could not determine whether any process'):
+                daily.processes_using(str(self.work))
+            decision,reason=self.assess()
+            self.assertEqual(decision,'hold')
+            self.assertIn('could not determine whether any process',reason)
+            self.assertIn('RETRY, not a verdict',reason)
+            with self.assertRaisesRegex(Exception,'could not determine whether any process'):
+                self.run_cleanup()
+        self.assert_kept()
+        # and the hold clears by itself the moment the probe answers again
+        self.assert_reclaimed(self.run_cleanup())
+
     def test_dirty_staged_and_untracked_refuse(self):
         for kind in ('dirty','staged','untracked'):
             with self.subTest(kind=kind):

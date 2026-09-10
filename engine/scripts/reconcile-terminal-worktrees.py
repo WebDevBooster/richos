@@ -206,7 +206,16 @@ def build_manifest(root, disposable):
 def processes_using(paths):
     """pids whose cwd or open files resolve inside any of the given paths
     (lsof, the measured tool that sees a cwd `pgrep -f` cannot), plus pids
-    whose argv names one of them. Never this process or its parents."""
+    whose argv names one of them. Never this process or its parents.
+
+    FAILS CLOSED (2026-09-10). This is the sibling of the identical defect in
+    daily-workspace-cleanup.processes_using: a swallowed `lsof` failure
+    returned an empty set, the caller killed nothing, and `left` was empty, so
+    "the probe could not look" arrived at the next step wearing the costume of
+    "nobody is writing here". The settle-interval manifest comparison below is
+    a real second line of defense and it is not a reason to keep the first one
+    broken.
+    """
     pids = set()
     existing = [p for p in paths if p and os.path.exists(p)]
     if not existing:
@@ -214,19 +223,27 @@ def processes_using(paths):
     try:
         res = subprocess.run(["lsof", "-t"] + sum([["+D", p] for p in existing], []),
                              capture_output=True, text=True, timeout=60)
+        # exit 1 with no output is lsof's ANSWER that nothing holds the paths.
+        if res.returncode not in (0, 1):
+            raise RuntimeError("lsof exited %s: %s" % (res.returncode, (res.stderr or "").strip()[:200]))
         for tok in res.stdout.split():
             if tok.isdigit():
                 pids.add(int(tok))
-    except Exception:
-        pass
+    except Exception as error:
+        raise RuntimeError("could not determine which processes are using %s -- lsof did not answer "
+                           "(%s: %s); refusing to treat that as an empty tree"
+                           % (", ".join(existing), type(error).__name__, str(error)[:200]))
     try:
         res = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=20)
+        if res.returncode != 0:
+            raise RuntimeError("ps exited %s" % res.returncode)
         for line in res.stdout.splitlines():
             parts = line.strip().split(None, 1)
             if len(parts) == 2 and parts[0].isdigit() and any(p in parts[1] for p in existing):
                 pids.add(int(parts[0]))
-    except Exception:
-        pass
+    except Exception as error:
+        raise RuntimeError("could not read the process table while deciding what is using %s "
+                           "(%s: %s)" % (", ".join(existing), type(error).__name__, str(error)[:200]))
     me = os.getpid()
     ancestors = set()
     p = os.getppid()
