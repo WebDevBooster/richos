@@ -74,24 +74,29 @@ rather than about a path being quiet.
   T3  witnessed lock release.  A persisted `terminated` witness for the exact
       path ("native isolation worktree registered and unlocked").
 
-  T4  no-session-alive.  The workspace is one of the DECLARED OWNED SHAPES
-      (scripts/lib/workspace-shapes.py, OWNED_WORKSPACE_SHAPES) and NO
-      orchestrator session is alive on this machine at all — every registered
-      session pid is gone and no `claude` process is in the table. T2 says
-      "this owner's process is gone" and needs a record naming the owner; T4
-      says "no owner of any kind exists", which needs no record. That is what
-      makes it the answer to a workspace whose record was never written: on
-      2026-09-10 `richos-hq-wt/zach-opus-red1` was merged, clean, unlocked,
-      landed, and named by NOTHING in the ledger or the transaction store, so
-      every sanctioned tool refused it forever.
+  T4  CRASH RECOVERY — no orchestrator session alive.  THE ONLY FALLBACK, and
+      it exists for one failure: a session that DIES between the two events
+      that matter (registered at spawn, finished at the end) never writes the
+      second one, so folders it registered would sit forever with no finish
+      event ever coming.
+
+      Its precondition is the REGISTRATION, not a name or a shape: this
+      engine only ever reclaims what it registered itself, and a folder no
+      record names is not ours to look at. On top of that, NO orchestrator
+      session may be alive on this machine at all — every registered session
+      pid gone and no `claude` process in the table. T2 says "this owner's
+      process is gone" and needs a record naming the owner; T4 says "no owner
+      of any kind exists", which covers a registration whose owning session
+      is not identifiable at all.
 
       IT CANNOT DESTROY A LIVE AGENT'S WORK BECAUSE THERE IS NO LIVE AGENT.
       That is the whole safety argument, and it is a kernel fact of the same
-      KIND as T2 rather than an observation a sweep made. The allow-list is a
-      PRECONDITION and never the evidence: prefixed-and-merged-and-clean is
-      the ordinary state of a running worker (a hand-rolled worktree takes no
-      lock, a tree is clean between commits, and the orchestrator lands
-      branches mid-assignment), so the shape alone authorizes nothing.
+      KIND as T2 rather than an observation a sweep made.
+
+      IT MUST STAY RARE. The failure this project actually had is that the
+      recovery path became the main path: nine rounds of inference existed
+      because a fact the system HELD was being thrown away. The main path is
+      the finish event, and this is the shoulder beside it.
 
 **T1, T2 or T4 authorizes. T3 NEVER authorizes.** T3 is recorded beside the
 claim as corroboration and nothing else. That is deliberate and it is the
@@ -407,9 +412,26 @@ def owner_evidence(records, path):
 
     uncertain = [s for s in statuses if s[3] == "unknown"]
     if uncertain:
+        # T4 — CRASH RECOVERY, and this is the exact place it belongs. An owner
+        # that can be IDENTIFIED is already answered: alive refuses above, gone
+        # or reused authorizes on T2 below. What is left here is a folder THIS
+        # ENGINE REGISTERED whose owner cannot be identified at all — the
+        # session died before it could record enough to be recognized. For that
+        # one case, "no orchestrator session is alive anywhere" answers the
+        # question the missing identity cannot: nothing can return to it.
+        none_alive, why = _ledger_no_session_alive()
+        if none_alive:
+            return "T4", ("crash-recovery (no-session-alive): this folder is on record as ours and its "
+                          "owner cannot be identified (%s), and %s. Every agent of every session is a "
+                          "thread of a session process, so with no session process anywhere there is no "
+                          "owner that could return to it and no finish event that could still arrive. "
+                          "This is the fallback for a session that died between registration and finish, "
+                          "and it is meant to be rare."
+                          % ("session %s pid %s" % (uncertain[0][0][:8] or "unrecorded", uncertain[0][1]), why))
         sid, pid, _start, _st = uncertain[0]
         return None, ("session %s pid %s has UNKNOWN process identity; retain its worktree "
-                      "until owner termination is established" % (sid[:8] or "unrecorded", pid))
+                      "until owner termination is established [crash-recovery precondition unmet: %s]"
+                      % (sid[:8] or "unrecorded", pid, why))
 
     # T1 — the transaction store marks the agent id terminal.
     for aid in aids:
@@ -434,17 +456,6 @@ def owner_evidence(records, path):
             corroboration.append("T3 witness (never authorizing): %s at %s for agent %s"
                                  % (t.get("reason") or t.get("witness") or "?", t.get("ts"), aid))
 
-    # T4 — no orchestrator session is alive AT ALL, and this is one of ours.
-    kind, shape_why = _owned_shape(path)
-    if kind:
-        none_alive, why = _ledger_no_session_alive()
-        if none_alive:
-            return "T4", ("no-session-alive: %s, and %s. Every agent of every session is a thread of "
-                          "a session process, so with no session process anywhere there is no owner "
-                          "that could return to this workspace. The shape is the PRECONDITION and "
-                          "never the evidence." % (shape_why, why))
-        corroboration.append("T4 precondition unmet: " + why)
-
     if not aids:
         return None, ("no ownership record: nothing in the ledger or the transaction store names %s, "
                       "and absence of a record is never a claim%s"
@@ -460,19 +471,6 @@ def _ledger_no_session_alive():
     return wl.no_session_alive()
 
 
-def _owned_shape(path):
-    """(kind, reason) when this path is a DECLARED owned shape, else (None, why).
-    The branch and the repository are asked of git, never assembled from the
-    path."""
-    try:
-        shapes = _load("workspace_shapes", os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                        "workspace-shapes.py"))
-        branch = tx.branch_of(path)
-        repo = tx.main_checkout_of(path)
-        kind, why = shapes.classify(path, branch, repo)
-        return (kind if kind in shapes.OWNED_KINDS else None), why
-    except Exception as error:
-        return None, "the declared shape could not be read (%s)" % error
 
 
 # --------------------------------------------------------------------------

@@ -511,83 +511,83 @@ else
 fi
 
 # ===========================================================================
-# 9. T4 — no orchestrator session alive at all (2026-09-10)
+# 9. T4 — CRASH RECOVERY: a folder we registered whose owner cannot be
+#    identified, and no orchestrator session alive anywhere (2026-09-10)
 # ===========================================================================
-# The hole T4 answers, measured that day: richos-hq-wt/zach-opus-red1 was
-# merged, clean, unlocked and landed, and NOTHING in the ledger or the
-# transaction store named it, so every sanctioned tool refused it forever.
-# T2 needs a record naming the owner; T4 needs no record, because it is
-# universally quantified — no session process exists, so no owner exists.
+# THE ONLY FALLBACK, and deliberately the narrowest one. An owner that can be
+# IDENTIFIED is already answered: alive refuses, gone or reused authorizes on
+# T2. What is left is a folder THIS ENGINE REGISTERED whose owning session died
+# before it recorded enough to be recognized. For that one case, "no session
+# process exists anywhere" answers what the missing identity cannot.
 #
-# The allow-list is the PRECONDITION and never the evidence: A72 and A73 are
-# the two halves of that sentence.
+# It must stay rare: the failure this project actually had is that the recovery
+# path became the main path. The main path is the finish event.
 WT_OWNED="$SANDBOX/repo-wt"
 mkdir -p "$WT_OWNED"
 git -C "$REPO" worktree add -q -b "cc/zach-opus-t4" "$WT_OWNED/zach-opus-t4"
+# registered by us, with NO session pid: the owner cannot be identified at all
+# A session id used NOWHERE ELSE and with no pid on any row: T2 answers a
+# session it can identify, and this one cannot be identified at all. That is
+# the residue T4 exists for -- and the fact that T2 catches the ordinary crash
+# (a recorded pid that is gone) is why this tier stays rare.
+SID_UNIDENTIFIED="00000000-0000-4000-8000-0000000unkn"
+L record registered --teammate zach-opus-t4 --worktree "$WT_OWNED/zach-opus-t4" --repo "$REPO" \
+    --branch cc/zach-opus-t4 --session-id "$SID_UNIDENTIFIED" --class hand-rolled --source test >/dev/null
 export RICHOS_SESSIONS_DIR="$SANDBOX/no-sessions"
 mkdir -p "$RICHOS_SESSIONS_DIR"
 
-# A70. THE POSITIVE — allow-listed, no record at all, and no session anywhere.
 export RICHOS_SESSION_PROCESSES=none
 V="$(verdict "$WT_OWNED/zach-opus-t4")"
 R="$(reason "$WT_OWNED/zach-opus-t4")"
-if [ "$V" = "ADOPTABLE T4" ] && printf '%s' "$R" | grep -q 'no-session-alive' \
-   && printf '%s' "$R" | grep -q "this engine's own prefix" \
+if [ "$V" = "ADOPTABLE T4" ] && printf '%s' "$R" | grep -q 'crash-recovery' \
+   && printf '%s' "$R" | grep -q 'on record as ours' \
    && printf '%s' "$R" | grep -q 'no claude process is in the table'; then
-    ok "A70  an ALLOW-LISTED worktree no record names is adoptable on T4 when no orchestrator session is alive, and the reason states the precondition in its own words"
+    ok "A70  a folder WE REGISTERED whose owner cannot be identified is adoptable on T4 when no orchestrator session is alive, and the reason states the precondition in its own words"
 else
-    bad "A70  expected 'ADOPTABLE T4', got '$V' — $R"
+    bad "A70  expected 'ADOPTABLE T4', got '$V' -- $R"
 fi
 
-# A71. THE NEGATIVE the whole tier rests on: one session alive REFUSES, and the
-# refusal names the precondition rather than going quiet.
 export RICHOS_SESSION_PROCESSES="4242 claude"
 V="$(verdict "$WT_OWNED/zach-opus-t4")"
 R="$(reason "$WT_OWNED/zach-opus-t4")"
-if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'T4 precondition unmet' \
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'crash-recovery precondition unmet' \
    && printf '%s' "$R" | grep -q 'claude process is running as pid 4242'; then
-    ok "A71  ...and ONE claude process anywhere refuses it, naming the unmet precondition (the tier is a kernel fact, not a quiet directory)"
+    ok "A71  ...and ONE claude process anywhere refuses it, naming the unmet precondition (a kernel fact, never a quiet directory)"
 else
-    bad "A71  expected a T4 refusal naming the live process, got '$V' — $R"
+    bad "A71  expected a crash-recovery refusal naming the live process, got '$V' -- $R"
 fi
 
-# A71b. A REGISTERED session with a running pid refuses it too — the registry
-# and the process table are two independent reads and either one answers no.
 printf '{"pid": %s, "sessionId": "00000000-0000-4000-8000-0000000000t4"}\n' "$LIVE_PID" \
     >"$RICHOS_SESSIONS_DIR/$LIVE_PID.json"
 export RICHOS_SESSION_PROCESSES=none
 V="$(verdict "$WT_OWNED/zach-opus-t4")"
 R="$(reason "$WT_OWNED/zach-opus-t4")"
 if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'registered to running pid'; then
-    ok "A71b a live entry in the harness's own session registry refuses it even with an empty process table"
+    ok "A71b a live entry in the harness's own session registry refuses it even with an empty process table (two independent reads, either one answers no)"
 else
-    bad "A71b expected a registry refusal, got '$V' — $R"
+    bad "A71b expected a registry refusal, got '$V' -- $R"
 fi
 rm -f "$RICHOS_SESSIONS_DIR/$LIVE_PID.json"
 
-# A72. THE SHAPE IS A PRECONDITION, NOT EVIDENCE: a worktree that is NOT a
-# declared owned shape is still refused with no session alive anywhere.
 export RICHOS_SESSION_PROCESSES=none
 V="$(verdict "$WT/unlisted")"
 R="$(reason "$WT/unlisted")"
 if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'absence of a record is never a claim'; then
-    ok "A72  a worktree OFF the allow-list is refused even with no session alive: T4 adds a precondition, it does not remove the record"
+    ok "A72  a folder THIS ENGINE NEVER REGISTERED is refused even with no session alive: crash recovery reclaims what we wrote down, never what we found"
 else
-    bad "A72  expected the no-record refusal for an unlisted shape, got '$V' — $R"
+    bad "A72  expected the no-record refusal for an unregistered folder, got '$V' -- $R"
 fi
 
-# A73. And a codex workspace is refused BY NAME, with no session alive and a
-# perfect tree — the CEO ruling of 2026-09-10, which an allow-list would
-# otherwise satisfy silently (ceo-decisions.md section 31 asks for the words).
+# A73. And that is exactly what protects the CEO's codex folders
+# (ceo-decisions.md section 31): they were never registered by us, so they are
+# never candidates -- by construction rather than by a name check.
 git -C "$REPO" worktree add -q -b "codex/t4" "$WT_OWNED/codex-t4"
-export RICHOS_SESSION_PROCESSES=none
 R="$(reason "$WT_OWNED/codex-t4")"
 V="$(verdict "$WT_OWNED/codex-t4")"
-if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'absence of a record is never a claim' \
-   && ! printf '%s' "$R" | grep -q 'ADOPTABLE'; then
-    ok "A73  a codex workspace is never adopted, with no session alive and a perfect tree (it is off the allow-list, and the reclaim lane refuses it by name)"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'absence of a record is never a claim'; then
+    ok "A73  a codex workspace is never adopted, with no session alive and a perfect tree, because nothing ever registered it"
 else
-    bad "A73  expected a codex refusal, got '$V' — $R"
+    bad "A73  expected a no-record refusal for the codex tree, got '$V' -- $R"
 fi
 unset RICHOS_SESSIONS_DIR RICHOS_SESSION_PROCESSES
 

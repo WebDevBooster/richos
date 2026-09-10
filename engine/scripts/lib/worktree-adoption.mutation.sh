@@ -103,10 +103,10 @@ mutant hermetic-rooting-removed "A40" "$F" \
     "a suite that overrode only the transaction store would read the OPERATOR'S REAL ownership ledger and rename a live engineer's worktree into a temporary directory."
 
 # --- the record is the enumeration, never a directory scan --------------------
-mutant t4-without-the-allow-list "A72" "$F" \
-    "    kind, shape_why = _owned_shape(path){NL}    if kind:" \
-    "    kind, shape_why = 'any', 'mutant: every shape is ours'{NL}    if kind:" \
-    "T4 would authorize ANY worktree with no owner on record once no session is alive -- a stranger's directory, a CI checkout, anything under a repository this engine merely knows about. The allow-list is what bounds the tier to workspaces somebody declared ours."
+mutant t4-without-a-registration "A72" "$F" \
+    "    uncertain = [s for s in statuses if s[3] == \"unknown\"]{NL}    if uncertain:" \
+    "    uncertain = [s for s in statuses if s[3] == \"unknown\"] or [(\"\", None, \"\", \"unknown\")]{NL}    if uncertain:" \
+    "crash recovery would reach a folder THIS ENGINE NEVER REGISTERED -- a stranger's directory, a CI checkout, one of the CEO's codex worktrees -- because the registration is the only thing that puts a folder in front of the tier at all."
 
 mutant t4-ignores-a-live-session "A71" "$F" \
     "        none_alive, why = _ledger_no_session_alive(){NL}        if none_alive:" \

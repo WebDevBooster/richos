@@ -164,6 +164,7 @@ pid with one of those records is UNKNOWN, never proof of reuse or termination.
 
 import argparse
 import json
+import importlib.util
 import os
 import re
 import subprocess
@@ -194,12 +195,108 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def assignment_workspaces(session_id, agent_id, teammate=""):
+    """Every folder this assignment holds, keyed by the platform's own agent
+    id, for an ADVISORY record. (paths, teammate).
+
+    THE GAP THIS FILLS, measured 2026-09-10 over 15,728 finish rows in this
+    ledger: ZERO named a cross-repository (`<repo>-wt/`) workspace, and
+    15,728 carried a BLANK teammate. The exit hooks write the agent's `cwd`,
+    which is its native isolation worktree, so an assignment holding four
+    folders was recorded as holding one — and the one field that could have
+    joined it to the other three (the teammate name the cross-repo folders are
+    named after) was never populated, because the SubagentStop payload does
+    not carry it.
+
+    The entry side already had all of it. 65 agents had folders registered at
+    spawn that day and 61 of them had more than one, native paired with its
+    cross-repo siblings, keyed by agent id. So this resolves rather than
+    guesses: the sealed transaction's members first (authoritative), then this
+    ledger's own rows for the SAME agent id, and finally — only when exactly
+    one agent id has ever been recorded for that teammate in this session —
+    the id-less preparation rows that `create-teammate-worktree.sh` writes
+    before any spawn exists to carry an id.
+
+    ADVISORY, AND IT STAYS ADVISORY. `judge()` prints finish signals as
+    "advisory, never decisive" and adoption quotes T3 without authorizing.
+    Reclamation is anchored on the transaction's terminal record, which the
+    same event writes about every member. Measured the same day: zach-opus-dor1
+    has ZERO finish rows of any kind and its transaction is sealed, terminal
+    and carrying all four of its workspaces. This makes the human-legible
+    record true; it does not make it powerful.
+    """
+    paths, seen = [], set()
+
+    def add(p):
+        if not p or not isinstance(p, str):
+            return
+        real = os.path.realpath(p)
+        if real not in seen:
+            seen.add(real)
+            paths.append(p)
+
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("tx", os.path.join(here, "worktree-transactions.py"))
+        tx = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tx)
+        transaction = tx.load_tx(session_id, agent_id) if (session_id and agent_id) else None
+    except Exception:
+        transaction = None
+    if transaction:
+        teammate = teammate or (transaction.get("teammate") or "")
+        for member in transaction.get("members") or []:
+            add(member.get("path"))
+
+    try:
+        rows = read_all()
+    except Exception:
+        rows = []
+    owner_ids = set()
+    for row in rows:
+        if row.get("event") not in OWNERSHIP_EVENTS or (row.get("session_id") or "") != session_id:
+            continue
+        rid = (row.get("agent_id") or "").strip()
+        if rid == agent_id:
+            add(row.get("worktree"))
+            teammate = teammate or (row.get("teammate") or "")
+        elif rid and teammate and row.get("teammate") == teammate:
+            owner_ids.add(rid)
+    if teammate and not owner_ids:
+        # No OTHER agent id has ever been recorded for this teammate in this
+        # session, so its id-less preparations are this assignment's. A second
+        # id makes the name ambiguous and nothing id-less is taken.
+        for row in rows:
+            if row.get("event") not in OWNERSHIP_EVENTS or (row.get("session_id") or "") != session_id:
+                continue
+            if not (row.get("agent_id") or "").strip() and row.get("teammate") == teammate:
+                add(row.get("worktree"))
+    return paths, teammate
+
+
 def append(record, path=None):
     """Append one record DURABLY: the line is fsynced before this returns
     True, and the containing directory is fsynced so a fresh file's entry
     survives a crash. Returns True on success; never raises. A `prepared`
     record that is not on disk when the worker is spawned is a spawn that
     cannot be bound, so "written" here has to mean written."""
+    # A FINISH ROW COMPLETES ITSELF, HERE, so the three hooks that write one
+    # (worker-ended, teammate-idle, task-completed) all get it and none of them
+    # grows a second writer. Best-effort by construction: a terminal event must
+    # never be prevented by bookkeeping, so every failure below leaves the row
+    # exactly as the caller wrote it.
+    try:
+        if (isinstance(record, dict) and record.get("event") in ("finished", "terminated")
+                and (record.get("agent_id") or "").strip() and not record.get("workspaces")):
+            found, teammate = assignment_workspaces(record.get("session_id") or "",
+                                                    (record.get("agent_id") or "").strip(),
+                                                    record.get("teammate") or "")
+            if found:
+                record = dict(record, workspaces=found)
+            if teammate and not (record.get("teammate") or "").strip():
+                record = dict(record, teammate=teammate)
+    except Exception:
+        pass
     path = path or ledger_path()
     rec = dict(record)
     rec.setdefault("ts", now_iso())

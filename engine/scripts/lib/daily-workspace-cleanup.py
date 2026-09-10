@@ -146,88 +146,16 @@ def _adopted_owns_row(transaction, member, row):
     return os.path.realpath(row.get('worktree') or '') == os.path.realpath(member.get('path') or '')
 
 
-# ---------------------------------------------------------------------------
-# THE CODEX EXCLUSION — a standing CEO ruling, enforced as a REFUSAL
-# ---------------------------------------------------------------------------
-# The CEO, 2026-09-10: don't touch any workspace starting with `codex/` unless
-# he expressly says to remove one of those things.
-#
-# Nine of them were standing when the ruling was given and eight were MERGED
-# and CLEAN — the exact state this lane reclaims. They survived only because
-# they carry no ownership record, and this lane never acts without one, so
-# they were never in its scope. THAT IS NOT A PROTECTION, IT IS A COINCIDENCE
-# OF THE SAFETY MODEL, and the moment anything reclaims by facts-on-disk
-# rather than by record it becomes false. So the refusal is written here,
-# named, ahead of the rule that would need it.
-#
-# IT IS A REFUSAL AND NOT A SKIP. A codex workspace is reported as excluded by
-# the ruling, with its own reason; it is never counted clean and never quietly
-# absent. Absence reading as success is the defect this whole round is about.
-#
-# THE ONLY OVERRIDE IS HIS WORD FOR ONE NAMED WORKSPACE: an exact absolute
-# path in CODEX_RELEASED_WORKSPACES in orchestration.config — one committed,
-# diffable line naming one workspace. There is no flag, no environment
-# variable and no reason string that unlocks the class.
-
-def codex_released(path, repo=None):
-    """Exact absolute paths the CEO has expressly released, one at a time."""
-    declared = config_value('CODEX_RELEASED_WORKSPACES', '', repo).split()
-    try:
-        real = os.path.realpath(path or '')
-    except (TypeError, ValueError):
-        return False
-    for candidate in declared:
-        try:
-            if os.path.realpath(candidate) == real and real:
-                return True
-        except (TypeError, ValueError):
-            continue
-    return False
-
-
-def codex_excluded(path, branch='', repo=None):
-    """(excluded, reason). BOTH shapes, because two of the nine live outside
-    any `-wt/` directory and a branch-only test would miss them:
-
-      * the path — any component named `.codex` (`~/.codex/worktrees/...`),
-        or a workspace directory named `codex` / `codex-...` / `codex_...`;
-      * the branch — `codex/...` or `codex-...`, with or without refs/heads/.
-
-    Over-matching here costs a workspace that is kept; under-matching costs
-    the CEO's work. The refusal is deliberately the wider of the two.
-    """
-    path = path or ''
-    parts = [p for p in str(path).split(os.sep) if p]
-    base = parts[-1] if parts else ''
-    ref = str(branch or '')
-    if ref.startswith('refs/heads/'):
-        ref = ref[len('refs/heads/'):]
-    hit = ''
-    if '.codex' in parts:
-        hit = 'the path lies under a .codex directory'
-    elif base == 'codex' or base.startswith('codex-') or base.startswith('codex_'):
-        hit = 'the workspace directory is named %r' % base
-    elif ref == 'codex' or ref.startswith('codex/') or ref.startswith('codex-'):
-        hit = 'the branch is %r' % ref
-    if not hit:
-        return False, ''
-    if codex_released(path, repo):
-        return False, ''
-    return True, ('excluded by CEO ruling 2026-09-10 (do not touch codex workspaces): %s. '
-                  'It is refused, not skipped, and only his express word for this exact path '
-                  '(CODEX_RELEASED_WORKSPACES in orchestration.config) releases it.' % hit)
-
-
 def owner_check(tx, transaction, member):
     """Positive terminal fact plus fresh complete competing-reservation veto.
 
-    The codex exclusion is checked FIRST, before ownership is even considered:
-    a standing ruling about whose work it is does not depend on what this
-    engine knows about it.
+    A workspace this engine never registered reaches none of this: it is not a
+    member of any transaction, so it is never a candidate. That is how the
+    CEO's codex ruling (ceo-decisions.md section 31) is satisfied here — by
+    construction rather than by a name check, because Codex's folders were
+    never registered by us. Measured 2026-09-10: 0 codex paths in any
+    transaction manifest, 0 codex rows in the ownership ledger.
     """
-    excluded, why = codex_excluded(member.get('path'), member.get('branch'), member.get('repo'))
-    if excluded:
-        raise RuntimeError(why)
     if not terminal_fact(transaction):
         raise RuntimeError('exact sealed native terminal ownership required')
     sid, aid = transaction['session_id'], transaction['agent_id']
@@ -560,8 +488,9 @@ def _release_unattributable_lock(repo, path, row):
         raise RuntimeError('lock names a pid; not this route')
     pids = processes_using(path)
     if pids:
-        raise RuntimeError('process(es) %s still use %s; the lock is retained'
-                           % (','.join(str(p) for p in pids), path))
+        raise RuntimeError('RETRY, not a verdict: process(es) %s are standing in %s, so the lock is '
+                           'retained. Nothing here kills a process'
+                           % (describe_processes(pids), path))
     _git(repo, 'worktree', 'unlock', '--', path)
 
 
@@ -746,6 +675,30 @@ def processes_using(path):
 # git
 # ---------------------------------------------------------------------------
 
+def describe_processes(pids):
+    """`4242 (sleep), 91043 (zsh)` — the holder NAMED, not a bare number.
+
+    A folder another process has open is a RETRY, not a judgment, and it must
+    never enter the same vocabulary as liveness. Measured 2026-09-10: seven
+    workspaces on this machine were held by ONE
+    `com.apple.Virtualization.VirtualMachine` process with directory handles
+    inside them. Reported as "undecidable" that is a shrug; reported with the
+    pid and the command it is the one thing an operator can act on, and the
+    hold clears by itself when they do.
+    """
+    out = []
+    for pid in pids:
+        name = ""
+        try:
+            res = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)],
+                                 capture_output=True, text=True, timeout=10)
+            name = os.path.basename((res.stdout or "").strip())
+        except Exception:
+            name = ""
+        out.append("%s (%s)" % (pid, name) if name else str(pid))
+    return ", ".join(out)
+
+
 def _git(repo, *args, allowed=(0,)):
     return _load('completion-proof').git(repo, *args, allowed=allowed).stdout.decode('utf-8')
 
@@ -928,7 +881,9 @@ def assess(tx, transaction, index):
             return 'hold', 'exact unlocked registration required'
         pids = processes_using(member['path'])
         if pids:
-            return 'hold', 'process(es) %s still use the tree' % ','.join(str(p) for p in pids)
+            return 'hold', ('RETRY, not a verdict: process(es) %s are standing in the tree. '
+                            'Nothing here kills a process; the hold clears when they leave'
+                            % describe_processes(pids))
         keep, residue = partition_ignored(ignored_files(member['path']), disposable_paths(repo))
         return 'remove', '%s; ignored: %d disposable dropped, %d archived first' % (why if tx.platform_native(member) else 'clean, integrated, unlocked', len(keep), len(residue))
     except Exception as error:
@@ -995,7 +950,9 @@ def reconcile(tx, transaction, index, immediate=False):
             raise RuntimeError('exact unlocked registration required')
         pids = processes_using(member['path'])
         if pids:
-            raise RuntimeError('process(es) %s still use %s; retained' % (','.join(str(p) for p in pids), member['path']))
+            raise RuntimeError('RETRY, not a verdict: process(es) %s are standing in %s. Nothing here '
+                               'kills a process; the hold clears when they leave'
+                               % (describe_processes(pids), member['path']))
         keep, residue = partition_ignored(ignored_files(member['path']), disposable_paths(repo))
         residue_record = archive_residue(tx, transaction, index, member['path'], residue) if residue else None
         owner_check(tx, transaction, member)

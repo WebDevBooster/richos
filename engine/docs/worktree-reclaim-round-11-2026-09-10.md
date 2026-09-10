@@ -105,50 +105,95 @@ by session `44276098` on 2026-09-02 were still holding
 `richos-wt/zach-opus-prem1` eight days later; nothing keyed to them could ever
 retire them.
 
-## 3. What the `cc/` prefix does, and what it does not
+## 3. The exit event now names every folder, and one design was cut
 
-`create-teammate-worktree.sh` now names the branch `cc/<teammate>`. The
-DIRECTORY keeps the bare name: eight places in `scripts/lib/inflight.py` name
-"worktree basename" as an identity source, and the `-wt/` location already
-marks these unambiguously.
+**The finish event described one folder out of four and named nobody.**
+Measured over 15,728 finish rows in the ownership ledger:
 
-**It closes the world.** `OWNED_WORKSPACE_SHAPES` declares three shapes —
-`cc-branch`, `native-agent`, `legacy-teammate` — and everything else is NOT
-OURS, which is a decision rather than an unknown. `legacy-teammate` is how the
-33 workspaces already on disk are not stranded off the list; retiring it later
-is one word in a config file.
+```
+finished rows naming a CROSS-REPOSITORY (<repo>-wt/) workspace :      0
+finished rows naming a NATIVE worktree                         : 10,749
+finished rows with a BLANK teammate                            : 15,728
+```
 
-**It is scope and never permission, and this is the load-bearing sentence of
-the round.** A facts-on-disk rule — prefixed, merged, clean, unlocked,
-therefore remove — would destroy a running agent's work on an ordinary day. A
-cross-repository worktree takes NO lock by construction, a tree is clean
-between commits, and this orchestrator lands teammate branches
-**mid-assignment** as standing practice. The worktree this document was written
-in became merged-and-clean-and-unlocked-and-listed the moment its branch was
-landed. That is the 2026-08-24 incident with the record removed instead of
-misread.
+Both follow from the payload: `cwd` is the agent's native isolation worktree,
+and SubagentStop carries none of the name keys the hooks look for. The entry
+side always had the whole set — 65 agents had folders registered at spawn that
+day and **61 of them had more than one**. So `worktree-ledger.append()` now
+completes a finish row from the record this engine already holds: the teammate,
+and every folder of the assignment. It lives in the ledger so all three writers
+(worker-ended, teammate-idle, task-completed) get it and none of them grows a
+second writer. `worktree` still carries the native cwd exactly as before.
 
-**Measured, which is why it is one new tier rather than a new rule.** Of 33
-standing worktrees, a facts-on-disk authority would newly decide exactly
-**one** — `richos-hq-wt/zach-opus-red1`, named by nothing in the ledger or the
-transaction store. Everything else was already decided by the ownership record
-once the holes above were closed. So authority gains **T4 no-session-alive**:
-an allow-listed workspace with no owner on record is adoptable when no
-orchestrator session is alive at all. It cannot destroy a live agent's work
-because there is no live agent.
+**The row is ADVISORY and stays advisory.** `judge()` prints finish signals as
+"advisory, never decisive"; adoption quotes T3 without authorizing. Reclamation
+is anchored on the transaction's terminal record, which the same event writes
+about every member — and the proof that this is the anchor rather than the
+ledger row is `zach-opus-dor1`: **zero finish rows of any kind**, and its
+transaction sealed, terminal, carrying all four of its workspaces.
+
+### What was cut, and why the cut was right
+
+A closed-world allow-list (`cc-branch` / `native-agent` / `legacy-teammate`), a
+report over every worktree on the machine, and a named `codex` refusal were
+built and then **removed on the same day**. The reasoning that removed them is
+better than the reasoning that built them:
+
+**this engine only ever reclaims what it registered itself**, so there is no
+open world to bound. A folder nothing registered is not refused — it is never
+reached. That is a stronger guarantee than an allow-list and it needs no
+machinery, and it is also how the CEO's codex ruling
+(`richos-hq/wiki/ceo-decisions.md` section 31) is satisfied here: measured the
+same day, **0 codex paths in any transaction manifest and 0 codex rows in the
+ownership ledger**, for nine standing codex worktrees. Two cases assert exactly
+that, one at each door into the lane.
+
+**The `cc/` branch prefix stays** — the CEO asked for it, it is one line in
+`create-teammate-worktree.sh`, and it makes his terminal legible. It is not a
+safety mechanism and nothing here treats it as one.
+
+**The residual risk of the cut, stated plainly:** the codex protection now
+rests on Codex's folders never being registered by this engine's tooling. If
+anyone ever registers one with `create-teammate-worktree.sh`, it becomes a
+candidate like any other, and only the ruling — not the code — says it should
+not be.
+
+**And one workspace stays forever because of the cut.**
+`richos-hq-wt/zach-opus-red1` is merged, clean, landed and named by NOTHING in
+either store. The allow-list would have decided it; registration-only will not.
+It is one row on his screen, and it is the honest price of "we only remove what
+we wrote down".
+
+## 3b. The one fallback, and it is narrow on purpose
+
+Adoption gains **T4 — crash recovery**, for the single failure the two-event
+model cannot cover on its own: a session that dies between registering a folder
+and finishing it. Its preconditions are a folder THIS ENGINE REGISTERED whose
+owner cannot be IDENTIFIED at all, and NO orchestrator session alive on this
+machine — every registered session pid gone and no `claude` process in the
+table.
+
+It is deliberately the narrowest thing that closes the hole. An owner that can
+be identified is already answered: alive refuses, and **gone or reused
+authorizes on T2, which is the ordinary crash**. It cannot destroy a live
+agent's work because there is no live agent, and it is a kernel fact of the same
+KIND as T2 rather than an observation a sweep made.
+
+It must stay rare. The failure this project actually had is that the recovery
+path became the main path: nine rounds of inference existed because a fact the
+system HELD was being thrown away. The main path is the finish event.
 
 ## 4. The result on this machine
 
 ```
 reconcile-terminal-worktrees.py --preview           (after)
   === preview: remove=6 branch-only=2 observe=0 hold=14 ===
-
-workspace-scope.sh
-  === 42 worktree(s) across 6 repositories, every one decided:
-      EXCLUDED=13, NOT-OURS=1, OURS-HELD=22, OURS-READY=6 ===
 ```
 
-`observe=6` — the "platform-owned; session alive" class — is now `observe=0`.
+`observe=6` — the "platform-owned; session alive" class, six finished agents'
+workspaces held because the orchestrator was running — is now `observe=0`. Of
+the fourteen holds, seven are the VM's open handles, two are uncommitted work,
+and the rest are unmerged branches that must never be swept.
 
 ## 5. The residue, stated rather than rounded away
 
@@ -156,8 +201,11 @@ workspace-scope.sh
 `com.apple.Virtualization.VirtualMachine`, pid 1483, holds open directory
 handles inside them (12 in `deeply-wt/zach-opus-dor2`, 4 in the
 `claude-orchestration-kit-wt` one). No cleanup rule of any design may remove a
-tree a process has open. The report names the pid and the command, because that
-is a true cause with an owner outside this system and an operator can close it.
+tree a process has open. **That is a RETRY, not a verdict, and it now says so
+in those words** with the pid and the command on the member — it must never
+enter the same vocabulary as liveness, because "an operator has a VM open" and
+"we cannot tell whether the owner is alive" are different sentences and only
+one of them clears by itself.
 
 **Two are merged but DIRTY** — `richos-wt/sage-fable-r7` and
 `femcboost/.claude/worktrees/agent-a8922391964bc8c3b` — carrying uncommitted

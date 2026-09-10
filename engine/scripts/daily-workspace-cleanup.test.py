@@ -147,7 +147,7 @@ class Cleanup(unittest.TestCase):
     def test_process_standing_in_the_tree_holds_it_and_nothing_is_killed(self):
         with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'4242 /bin/sleep 300 '+str(self.work)}):
             self.assertEqual(self.assess()[0],'hold')
-            with self.assertRaisesRegex(RuntimeError,'4242 still use'):self.run_cleanup()
+            with self.assertRaisesRegex(RuntimeError,r'RETRY, not a verdict: process\(es\) 4242'):self.run_cleanup()
         self.assert_kept()
 
     def test_unintegrated_refuses(self):
@@ -276,46 +276,29 @@ class Cleanup(unittest.TestCase):
             decision,why=self.assess();self.assertEqual(decision,'observe');self.assertIn('inconsistently rooted',why)
         self.assert_kept()
 
-    def test_a_codex_workspace_is_REFUSED_by_the_ceo_ruling_even_when_perfectly_clean(self):
-        # STANDING CEO RULING 2026-09-10. Eight of the nine codex workspaces
-        # standing that day were MERGED and CLEAN — this lane's remove state
-        # exactly. They were safe only because they carry no ownership record,
-        # which is a coincidence of the safety model rather than a protection.
-        # Here the record EXISTS and the tree is perfect, and it is still
-        # refused: a refusal that says so, never a silent skip.
-        for path, branch in (('codex-rollback-owned-outcome', 'codex/rollback'),
-                             ('worker', 'codex/rollback'),
-                             ('.codex/worktrees/06e6/repo', 'main')):
-            with self.subTest(shape=path):
-                self.record['members'][0].update({'path': str(self.root / path), 'branch': branch})
-                tx.atomic_write_json(tx.tx_path(SID, AID), self.record)
-                decision, reason = self.assess()
-                self.assertEqual(decision, 'hold')
-                self.assertIn('excluded by CEO ruling', reason)
-                with self.assertRaisesRegex(Exception, 'excluded by CEO ruling'):
-                    self.run_cleanup()
-                self.assertTrue(self.work.is_dir())
+    def test_a_workspace_this_engine_never_registered_is_never_a_candidate(self):
+        # THIS is what protects the CEO's codex folders (ceo-decisions.md 31),
+        # and it is structural rather than asserted: the lane acts only on
+        # MEMBERS of a transaction, so a workspace nothing registered is not
+        # refused -- it is never reached. Measured 2026-09-10: 0 codex paths in
+        # any transaction manifest and 0 codex rows in the ownership ledger,
+        # for nine standing codex worktrees, eight of them merged and clean.
+        stranger = self.root / 'codex-rollback-owned-outcome'
+        self.git(self.repo, 'worktree', 'add', '-b', 'codex/rollback', str(stranger))
+        self.assertNotIn(os.path.realpath(str(stranger)), set(tx.member_paths()))
+        with tx.tx_lock(SID, AID):
+            daily.reconcile(tx, tx.load_tx(SID, AID), 0)
+        self.assertTrue(stranger.is_dir())
+        self.assertIn('refs/heads/codex/rollback', self.git(self.repo, 'show-ref'))
 
-    def test_only_his_express_word_for_one_exact_path_releases_a_codex_workspace(self):
-        codex = self.root / 'codex-rollback-owned-outcome'
-        self.assertTrue(daily.codex_excluded(str(codex), 'codex/rollback')[0])
-        # a DIFFERENT path being released does not release this one
-        with patch.object(daily, 'config_value',
-                          lambda key, default, repo=None: str(self.root / 'codex-something-else')
-                          if key == 'CODEX_RELEASED_WORKSPACES' else default):
-            self.assertTrue(daily.codex_excluded(str(codex), 'codex/rollback')[0])
-        with patch.object(daily, 'config_value',
-                          lambda key, default, repo=None: str(codex)
-                          if key == 'CODEX_RELEASED_WORKSPACES' else default):
-            self.assertFalse(daily.codex_excluded(str(codex), 'codex/rollback')[0])
-
-    def test_a_codex_workspace_is_never_bound_into_a_manifest(self):
-        later = self._second_workspace('codex-late')
-        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
-                        worktree=str(later), branch='codex-late', ts='2026-01-02T00:00:00+00:00')
+    def test_a_workspace_this_engine_never_registered_is_not_bound_by_the_binder_either(self):
+        # The other door into the lane. Late binding takes a path only from a
+        # ledger row of THIS session; a folder nobody registered has no row, so
+        # it joins nothing and stays exactly where it is.
+        stranger = self._second_workspace('codex-late')
         result = tx.bind_late_members(SID, AID)
         self.assertEqual(len(result['members']), 1)
-        self.assertTrue(later.is_dir())
+        self.assertTrue(stranger.is_dir())
 
     def _second_workspace(self, name='later'):
         """A workspace created AFTER the seal, exactly as an orchestrator does
@@ -476,7 +459,7 @@ class Cleanup(unittest.TestCase):
         self.make_native()
         self.git(self.repo,'worktree','lock',str(self.work))
         with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'4242 /bin/sleep 300 '+str(self.work)}):
-            with self.assertRaisesRegex(RuntimeError,'4242 still use'):self.run_cleanup()
+            with self.assertRaisesRegex(RuntimeError,r'RETRY, not a verdict: process\(es\) 4242'):self.run_cleanup()
         self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
 
     def test_a_lock_naming_a_live_pid_is_never_released_by_that_route(self):

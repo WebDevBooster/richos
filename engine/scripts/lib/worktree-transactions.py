@@ -1504,16 +1504,6 @@ def bind_late_members(session_id, agent_id):
                 if not member:
                     sys.stderr.write("late member %s not bound: %s\n" % (path, why))
                     continue
-                # A codex workspace is never taken into a manifest either:
-                # the refusal belongs at the door as well as at the gate
-                # (CEO ruling 2026-09-10).
-                try:
-                    excluded, why = _daily().codex_excluded(member.get("path"), member.get("branch"), member.get("repo"))
-                except Exception:
-                    excluded, why = True, "the codex exclusion could not be evaluated; refusing to bind"
-                if excluded:
-                    sys.stderr.write("late member %s NOT bound: %s\n" % (path, why))
-                    continue
                 member["cleanup_policy"] = "integrated-daily"
                 member["bound_late"] = {"ts": now_iso(), "ledger_event": row.get("event"),
                                         "ledger_ts": row.get("ts"),
