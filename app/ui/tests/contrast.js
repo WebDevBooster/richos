@@ -1370,6 +1370,18 @@ async function main() {
   const PANELS = await declaredPanels(browser);
 
   const perSurface = {};
+
+  // THE SHELL'S OWN COUNTS, CAPTURED FROM THIS RUN, so every other surface's floor can be
+  // told the difference between "this surface got thinner" and "the whole app did". See the
+  // long note at the floor assertion below; `shell` is asserted to be the first surface
+  // walked because everything after it reads these two numbers.
+  assert(
+    SURFACES[0].name === "shell",
+    "`shell` is no longer the first surface walked. Every other floor is relative to it, so " +
+      "it has to be measured before they are checked."
+  );
+  let shellNow = null;
+
   for (const surface of SURFACES) {
     await run.check("9." + surface.name + "  " + surface.what, async () => {
       const lines = [];
@@ -1459,18 +1471,72 @@ async function main() {
       // a cleaner walk — the failure mode where "nobody checked" reads as "somebody checked
       // and it was fine". BOTH numbers are floored: `considered` catches a surface that
       // stopped rendering, `checked` catches one that still renders but became unmeasurable.
+      //
+      // ---------------------------------------------------------------------------------
+      // AND IT IS COMPENSATED FOR SHELL-WIDE DRIFT — 2026-09-10, after four days of red.
+      //
+      // Every one of these numbers is a count of the WHOLE PAGE, and every surface but the
+      // shell is the shell PLUS something. So a change to shared chrome moves all 27 at
+      // once, and a floor set to yesterday's number fires on the next unrelated edit.
+      //
+      // THAT IS NOT A HYPOTHETICAL. Commit 8397c530 removed the experimental orchestration
+      // UI on CEO order. The shell went from 96 of 418 nodes to 92 of 412 — four fewer
+      // measured, six fewer considered — and `first-run-notice` and `first-run-unusable`
+      // went red, reporting "the driver did not reach the state it was written for" about
+      // two panels that were painting perfectly. Measured with the floors lifted, both walk
+      // in full and report 0 new and 0 worsened; the panels' own contribution over the shell
+      // was +10 and +4 measured nodes on 2026-09-06 and is +10 and +4 today. Nothing about
+      // them changed. Their floors had two nodes of slack and the shell took six.
+      //
+      // The other 25 survived on luck rather than design, and the spread proves nobody ever
+      // chose a margin: slack ran from 2 nodes on the floors set that week to 208 on
+      // `search`, and `opening-screen` sat at 0 of 228 against an actual 0 of 412 — a floor
+      // 184 nodes below the thing it was guarding, which could not have caught anything.
+      //
+      // So the floors are all re-derived from ONE run, and the assertion subtracts whatever
+      // the SHELL lost in the same run before comparing. Shrink only: a shell that grows
+      // does not raise anyone's floor, because a surface collapsing is still a surface
+      // collapsing.
+      //
+      // WHAT IT STILL CATCHES, which is the only thing that makes it a floor and not a
+      // formality. A driver that stops reaching its state leaves the bare shell behind, and
+      // the bare shell is BELOW every floor here even after full compensation — including
+      // the thinnest panel in the set, `first-run-unusable`, whose 4 nodes still clear the
+      // 3-node tolerance. Check 9's negative control at the end of this file proves that on
+      // a real surface rather than asserting it here.
+      // ---------------------------------------------------------------------------------
       const floor = debt.surfaceFloors[surface.name];
       assert(floor !== undefined, surface.name + " has no floor in contrast-debt.json — add one rather than letting a surface that stops rendering read as clean");
+      // TOP-LEVEL, NOT INSIDE `surfaceFloors`: check 10b reconciles the walk inventory
+      // against `Object.keys(debt.surfaceFloors)` and every key there has to be a surface.
+      const ref = debt.floorReference;
       assert(
-        considered >= floor.considered,
+        ref && ref.shell && typeof ref.tolerance === "number",
+        "contrast-debt.json has no `floorReference` — the floors below are relative to the " +
+          "shell measured in the run that set them, and cannot be compensated without it"
+      );
+      const TOL = ref.tolerance;
+      // Shrink only, and zero for the shell itself: the shell is the reference, not a thing
+      // measured against it.
+      const driftQ = surface.name === "shell" ? 0 : Math.max(0, ref.shell.considered - shellNow.considered);
+      const driftC = surface.name === "shell" ? 0 : Math.max(0, ref.shell.checked - shellNow.checked);
+      const floorQ = floor.considered - driftQ - TOL;
+      const floorC = floor.checked - driftC - TOL;
+      const how = (d) =>
+        d ? " (baseline lowered by " + d + " for a shell that lost that many, plus " + TOL + " tolerance)"
+          : " (plus " + TOL + " tolerance)";
+      assert(
+        considered >= floorQ,
         surface.name + " found only " + considered + " text node(s) across both themes but its floor is " +
-          floor.considered + " — the driver did not reach the state it was written for, so a clean result here proves nothing"
+          floorQ + how(driftQ) + " — the driver did not reach the state it was written for, so a clean " +
+          "result here proves nothing"
       );
       assert(
-        checked >= floor.checked,
-        surface.name + " measured only " + checked + " node(s) across both themes but its floor is " + floor.checked +
-          " — the surface still renders, but less of it can be measured than when the floor was set"
+        checked >= floorC,
+        surface.name + " measured only " + checked + " node(s) across both themes but its floor is " + floorC +
+          how(driftC) + " — the surface still renders, but less of it can be measured than when the floor was set"
       );
+      if (surface.name === "shell") shellNow = { checked: checked, considered: considered };
       assert(
         newOnes === 0 && worse === 0,
         newOnes + " NEW and " + worse + " WORSENED contrast failure(s) on " + surface.name + ":\n" + lines.join("\n")
@@ -1479,6 +1545,78 @@ async function main() {
         " known-debt hit(s), 0 new, 0 worsened" + (curtain ? " — " + curtain : "");
     });
   }
+
+  // ---- 9z. the floors are proven able to fail --------------------------------------------
+
+  await run.check("9z  NEGATIVE CONTROL: a surface that collapsed to the bare shell FAILS its floor", async () => {
+    // THE CONTROL THE FLOORS NEVER HAD, and the reason they were worth nothing for a year
+    // before they were worth too much for four days.
+    //
+    // A floor is a claim that a driver reaching a thinner state than the one it was written
+    // for gets caught. Nobody had ever checked that claim, and it was FALSE for most of this
+    // list: `opening-screen` sat at 0 of 228 against an actual 0 of 412, so its driver could
+    // have failed completely and cleared its floor by 184 nodes. `search` had 208 to spare.
+    // Those are not floors, they are decorations — and a decoration is worse than nothing,
+    // because it reads like a guard in a diff.
+    //
+    // What a failed driver actually leaves behind is the shell it opened and never changed.
+    // So that is what is tested, against every floor at once. `drift` is deliberately not
+    // applied: it only ever LOWERS a floor, and a control that lowered the bar before
+    // clearing it would be proving the easy case. The floors are tested at full height with
+    // only the declared tolerance conceded. The shell used is the one measured in THIS run,
+    // so this re-proves itself against the real app every time rather than against numbers
+    // somebody typed.
+    // AND THREE OF THEM CANNOT, WHICH THIS CONTROL FOUND AND WHICH IS DECLARED RATHER THAN
+    // QUIETLY EXCLUDED. `considered` counts every text node in the DOM, hidden or not, so a
+    // panel that ships in `index.html` and is merely unhidden by its driver ADDS NOTHING to
+    // either number — the popover's words were already on the page, obscured. For those
+    // surfaces no whole-page count can distinguish "driver opened it" from "driver did
+    // nothing", and saying so is the only honest option: a floor listed as a guard that
+    // cannot fail is exactly the "nobody checked" that reads as "somebody checked".
+    //
+    // Each one names what proves its driver arrived INSTEAD, in `floorReference.cannotBite`,
+    // and the set is asserted EXACTLY — a new surface that cannot bite has to be declared,
+    // and a declared one that starts biting has to come off the list.
+    const ref = debt.floorReference;
+    const survivors = [];
+    for (const surface of SURFACES) {
+      if (surface.name === "shell") continue;
+      const floor = debt.surfaceFloors[surface.name];
+      const floorQ = floor.considered - ref.tolerance;
+      const floorC = floor.checked - ref.tolerance;
+      // Would the bare shell — this run's own — have cleared this surface's floor?
+      if (shellNow.considered >= floorQ && shellNow.checked >= floorC) survivors.push(surface.name);
+    }
+    const declared = Object.keys(ref.cannotBite || {}).sort();
+    assertEqual(
+      survivors.filter((n) => !declared.includes(n)),
+      [],
+      "these surfaces' floors would be cleared by the BARE SHELL, so a driver that never " +
+        "reached its state would pass them. Either re-derive the floor from a run that " +
+        "actually opened the surface, or — if the surface genuinely adds no text node to the " +
+        "DOM — declare it in `floorReference.cannotBite` and name what proves its driver " +
+        "arrived instead"
+    );
+    assertEqual(
+      declared.filter((n) => !survivors.includes(n)),
+      [],
+      "a surface is declared unable to fail its floor and its floor CAN now fail. Take it " +
+        "off `cannotBite` — a stale exemption is a guard nobody is getting"
+    );
+    for (const n of declared) {
+      assert(
+        typeof ref.cannotBite[n] === "string" && ref.cannotBite[n].length > 40,
+        n + " is declared in `cannotBite` with no reason. The declaration IS the check here"
+      );
+    }
+    return (
+      SURFACES.length - 1 - declared.length + " surface floor(s) proven able to fail: the " +
+      "bare shell measured in this run (" + shellNow.checked + " of " + shellNow.considered +
+      ") is below every one of them, tolerance " + ref.tolerance + " included. " +
+      declared.length + " declared unable to, each naming what proves its driver arrived " +
+      "instead: " + declared.join(", ")
+    );
+  });
 
   // ---- 10. the dark run is not a fiction --------------------------------------------------
 

@@ -42,119 +42,134 @@
       "why": "The worker inspector's scrim, on the same footing as the rail's. The inspector ITSELF is walked (surface `inspector`, 146 nodes measured) — it is only the sheet beside it that carries nothing to measure."
     }
   ],
-  "surfaceFloors": {
+  "floorReference": {
+    "//": "THE ONE RUN EVERY FLOOR BELOW WAS MEASURED IN, and the reason the floors are relative to it. Each `surfaceFloors` entry is a count of the WHOLE PAGE, and every surface but `shell` is the shell plus something — so a change to shared chrome moves all 27 at once. On 2026-09-10 exactly that happened: commit 8397c530 removed the experimental orchestration UI on CEO order, the shell went from 96 of 418 nodes to 92 of 412, and the two floors with the least slack went red about panels that were painting perfectly. Check 9 now subtracts whatever the shell lost in the SAME run before comparing, so shared-chrome drift moves both sides together. Shrink only — a shell that grows raises nobody's floor. Re-derive all of these together, from one run, or not at all: a floor measured against a different shell than this one is the defect this key exists to end.",
+    "measuredOn": "tom-opus-ui1 at 6c02225a, local macOS + Playwright WebKit, two consecutive runs byte-identical on all 27 surfaces",
+    "tolerance": 3,
+    "toleranceWhy": "Three nodes, and the number is bounded from both sides rather than picked. BELOW: the thinnest panel in the set, `first-run-unusable`, contributes 4 measured and 4 considered nodes over the bare shell, so a tolerance of 3 still fails if that panel vanishes — which is the whole job. ABOVE: measured surface-over-shell deltas moved by at most 2 between the 2026-09-06 runner run and this local one, across four days of product change and a different machine, so 3 covers the observed spread with one to spare.",
     "shell": {
-      "checked": 78,
-      "considered": 228
-    },
-    "settings-tooltip": {
-      "//": "The shell with the settings button hovered, so the node floor is the shell's own (78/228 — this surface measures 90 of 408 today, exactly as `shell` does). The floor that actually belongs to THIS surface is not a node count: it is check 11b, which requires `style.css`'s `.setbtn::after` content string to be MEASURED in both themes rather than reported hidden, and fails if this driver stops reaching the hover state.",
-      "checked": 78,
-      "considered": 228
-    },
-    "thread": {
-      "checked": 90,
-      "considered": 244
-    },
-    "corrections": {
-      "checked": 44,
-      "considered": 262
-    },
-    "feedback": {
-      "checked": 20,
-      "considered": 238
-    },
-    "search": {
-      "checked": 66,
-      "considered": 292
-    },
-    "inspector": {
-      "checked": 146,
-      "considered": 314
-    },
-    "technical-view": {
-      "checked": 134,
-      "considered": 280
-    },
-    "unbound": {
-      "checked": 84,
-      "considered": 236
-    },
-    "settings": {
-      "//": "74 -> 72 on 2026-09-01, when the app stopped borrowing the platform's typeface and started shipping its own. Inter's metrics are not SF Pro's, so the rail's thread rows sit at slightly different heights, and ONE MORE nav-thread-title now falls underneath the assertiveness popover. Diffed node by node rather than assumed: `considered` is 132 per theme before and after, `invisible` is 77 before and after, and the single lost path is li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title, which moves from measured into `obscured` (its recorded example goes from \"Partner book review\" to \"Q4 hiring\"). Nothing stopped rendering, which is the failure this floor exists to catch (see mutation 9b in contrast.js: `.nav-thread-title { display: none }`). Check 11 still passes, which is the proof that matters here — every obscured node is measured on some other surface, so no contrast coverage was lost, only relocated.",
-      "checked": 72,
-      "considered": 252
-    },
-    "history-notice": {
-      "//": "Added 2026-09-05 with the tolerant ledger reader. The shell walk is 90 of 408; this is 94 of 412, and the delta is exactly the notice: two paragraphs, both themes, both MEASURED rather than filed invisible or obscured. Computed before the walk ran and unchanged by it: headline --attention on --surface-raised is 7.05:1 dark and 6.19:1 light, detail --ink on --surface-raised is 13.02:1 dark and 17.02:1 light, and the --attention border (a non-text indicator, floor 3:1) is 7.05:1 / 7.88:1 dark and 6.19:1 / 5.42:1 light against the panel and the ground behind it. Nothing here is exempt; the sentence explaining why part of his history is missing is the last text in this app anyone should have to squint at.",
-      "checked": 94,
-      "considered": 412
-    },
-    "opening-screen": {
-      "checked": 0,
-      "considered": 228
-    },
-    "updates-available": {
-      "checked": 104,
-      "considered": 246
-    },
-    "updates-downloading": {
-      "checked": 104,
-      "considered": 246
-    },
-    "updates-failed": {
-      "checked": 108,
-      "considered": 248
-    },
-    "updates-waiting": {
       "checked": 92,
       "considered": 412
     },
-    "company-picker": {
-      "checked": 20,
-      "considered": 268
+    "cannotBite": {
+      "opening-screen": "Its floor is 0 of 412 and the bare shell is 92 of 412, so no lower bound on this surface can catch a driver that failed. That is not slack, it is the surface: the opening screen is drawn almost entirely in SVG and contributes exactly ONE HTML text line, which check 9 already reports as unprovable. WHAT PROVES ITS DRIVER ARRIVED INSTEAD: the driver holds the curtain and check 9 prints the curtain's own state with the result — `curtain up and state.reason still null`, read from `RichSplash.state()`. A driver that missed the curtain gets a non-null reason and the check says so by name.",
+      "settings": "The assertiveness popover ships in index.html and its driver only unhides it, so it adds no text node to the DOM: 412 considered before and after. Its measured count goes DOWN (74 against the shell's 92) because the popover obscures part of the shell, which means the bare shell clears the floor from above rather than falling below it. WHAT PROVES ITS DRIVER ARRIVED INSTEAD: `waitForSelector('#assertiveness-popover:not([hidden])')` followed by `overlaySettled`, both of which throw rather than continuing quietly.",
+      "settings-tooltip": "The one surface whose whole subject is a string the STYLESHEET renders, in a `::after` pseudo-element — which is not a DOM text node at all, so its counts are the shell's exactly, 92 of 412. A floor over DOM text nodes cannot see the thing this surface exists to measure. WHAT PROVES ITS DRIVER ARRIVED INSTEAD: `pseudoOpaque(p, '.setbtn', '::after')` reads the pseudo-element's own computed opacity and throws if the tooltip never became opaque, and check 11b separately asserts every authored `content` string was measured."
+    }
+  },
+  "surfaceFloors": {
+    "shell": {
+      "checked": 92,
+      "considered": 412
     },
-    "company-blocked": {
-      "checked": 70,
-      "considered": 268
+    "settings-tooltip": {
+      "//": "The shell with the settings button hovered, so the node floor is the shell's own (78/228 — this surface measures 90 of 408 today, exactly as `shell` does). The floor that actually belongs to THIS surface is not a node count: it is check 11b, which requires `style.css`'s `.setbtn::after` content string to be MEASURED in both themes rather than reported hidden, and fails if this driver stops reaching the hover state.",
+      "checked": 92,
+      "considered": 412
     },
-    "memory-setup": {
-      "checked": 12,
-      "considered": 268
+    "thread": {
+      "checked": 104,
+      "considered": 428
     },
-    "memory-no-compiler": {
-      "checked": 10,
-      "considered": 268
+    "corrections": {
+      "checked": 46,
+      "considered": 446
     },
-    "setup-sheet": {
-      "checked": 20,
-      "considered": 394
+    "feedback": {
+      "checked": 22,
+      "considered": 422
     },
-    "setup-blocked": {
-      "checked": 18,
-      "considered": 394
+    "search": {
+      "checked": 92,
+      "considered": 500
     },
-    "entity-view": {
-      "checked": 110,
-      "considered": 436
+    "inspector": {
+      "checked": 158,
+      "considered": 496
     },
-    "thread-menu": {
+    "technical-view": {
+      "checked": 148,
+      "considered": 464
+    },
+    "unbound": {
       "checked": 98,
+      "considered": 420
+    },
+    "settings": {
+      "//": "74 -> 72 on 2026-09-01, when the app stopped borrowing the platform's typeface and started shipping its own. Inter's metrics are not SF Pro's, so the rail's thread rows sit at slightly different heights, and ONE MORE nav-thread-title now falls underneath the assertiveness popover. Diffed node by node rather than assumed: `considered` is 132 per theme before and after, `invisible` is 77 before and after, and the single lost path is li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title, which moves from measured into `obscured` (its recorded example goes from \"Partner book review\" to \"Q4 hiring\"). Nothing stopped rendering, which is the failure this floor exists to catch (see mutation 9b in contrast.js: `.nav-thread-title { display: none }`). Check 11 still passes, which is the proof that matters here — every obscured node is measured on some other surface, so no contrast coverage was lost, only relocated.",
+      "checked": 74,
+      "considered": 412
+    },
+    "history-notice": {
+      "//": "Added 2026-09-05 with the tolerant ledger reader. The shell walk is 90 of 408; this is 94 of 412, and the delta is exactly the notice: two paragraphs, both themes, both MEASURED rather than filed invisible or obscured. Computed before the walk ran and unchanged by it: headline --attention on --surface-raised is 7.05:1 dark and 6.19:1 light, detail --ink on --surface-raised is 13.02:1 dark and 17.02:1 light, and the --attention border (a non-text indicator, floor 3:1) is 7.05:1 / 7.88:1 dark and 6.19:1 / 5.42:1 light against the panel and the ground behind it. Nothing here is exempt; the sentence explaining why part of his history is missing is the last text in this app anyone should have to squint at.",
+      "checked": 96,
+      "considered": 416
+    },
+    "opening-screen": {
+      "checked": 0,
+      "considered": 412
+    },
+    "updates-available": {
+      "checked": 126,
+      "considered": 416
+    },
+    "updates-downloading": {
+      "checked": 124,
       "considered": 414
     },
+    "updates-failed": {
+      "checked": 128,
+      "considered": 416
+    },
+    "updates-waiting": {
+      "checked": 94,
+      "considered": 416
+    },
+    "company-picker": {
+      "checked": 40,
+      "considered": 432
+    },
+    "company-blocked": {
+      "checked": 82,
+      "considered": 432
+    },
+    "memory-setup": {
+      "checked": 14,
+      "considered": 416
+    },
+    "memory-no-compiler": {
+      "checked": 12,
+      "considered": 416
+    },
+    "setup-sheet": {
+      "checked": 22,
+      "considered": 424
+    },
+    "setup-blocked": {
+      "checked": 20,
+      "considered": 424
+    },
+    "entity-view": {
+      "checked": 112,
+      "considered": 440
+    },
+    "thread-menu": {
+      "checked": 100,
+      "considered": 418
+    },
     "techy-nothing-recorded": {
-      "checked": 116,
-      "considered": 430
+      "checked": 118,
+      "considered": 434
     },
     "first-run-notice": {
       "//": "Added 2026-09-06 with the first-run notice. The shell walk is 96 of 418 in the same run; this is 106 of 424, and the delta is exactly the panel — a headline, two paragraphs and two controls, both themes, every one MEASURED rather than filed invisible, obscured or unprovable. Computed against the surfaces they are actually painted on before the walk ran, and unchanged by it: headline and body --ink on --surface-raised are 13.02:1 dark and 17.02:1 light; the consequence line --ink-soft on the same panel is 6.09:1 dark and 6.24:1 light; the Start label --on-gold on --accent is 7.68:1 dark and 4.72:1 light with its fill at 6.87:1 / 3.60:1 against the panel; the Not now label is --ink and its edge --line-control at 4.09:1 / 3.82:1; and the panel's own --line-control border, a non-text indicator with a 3:1 floor, is 4.57:1 dark and 3.35:1 light against the pane behind it. NOTHING HERE IS EXEMPT AND NOTHING CLAIMS TO BE — including the consequence line, which is the only place the effect of the second control is stated, and which is exactly the sort of line an exemption gets claimed for.",
-      "checked": 106,
-      "considered": 424
+      "checked": 102,
+      "considered": 418
     },
     "first-run-unusable": {
       "//": "Added 2026-09-06 beside it, and a SEPARATE surface rather than the same one twice: this state paints different ink. 100 of 422 against the shell's 96 of 418 — two paragraphs, both themes. The headline and the panel border are --attention, the app's one 'needs your hand' color, computed 7.05:1 dark and 6.19:1 light on the panel and 7.88:1 / 5.42:1 against the pane behind it; the body is --ink at 13.02:1 / 17.02:1. It draws NO control, so it contributes no indicator beyond that border — which is the point of the state rather than an omission: no button could fix a file the app cannot read.",
-      "checked": 100,
-      "considered": 422
+      "checked": 96,
+      "considered": 416
     }
   },
   "signatures": {}
