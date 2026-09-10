@@ -1,0 +1,169 @@
+# owned-systems.declaration — WHAT THE ORCHESTRATOR OWNS THE HEALTH OF,
+#                             DECLARED AS DATA.
+#
+# ===========================================================================
+# THE GAP THIS FILLS, IN THE FOUNDER'S OWN WORDS
+# ===========================================================================
+# 2026-09-10. He was told the owned-outcome PRD was the answer to why he keeps
+# finding defects himself, and he answered:
+#
+#     "even if that PRD were to get magically implemented within the next 5
+#      seconds, that still doesn't fully answer the questions I previously
+#      raised, does it?"
+#
+# He was right, and the reason is structural. That PRD's job statement begins
+# "The CEO tells Rich... 'Handle this!'" — the whole machine is triggered by an
+# ASSIGNMENT and carries that assignment's outcome to completion. Its scope
+# section puts "cleaning unrelated repositories" explicitly out of bounds.
+#
+# EVERY DEFECT HE FOUND HIMSELF THAT DAY WAS UNASSIGNED. Nobody told anyone to
+# check CI. Nobody assigned "notice 30 GB of worktrees that nothing will ever
+# reclaim". Nobody assigned "notice your own hook text is printing on his
+# screen". A perfectly implemented PRD would not have found a workflow red for
+# thirteen days, because no assignment ever pointed at it.
+#
+# AND THE SECOND HALF IS WORSE: SOME OF IT WAS ALREADY IN FRONT OF HIM AND WAS
+# READ PAST. That session's own SessionStart notice said, in as many words,
+# "worktree reconciler: BLOCKED (46 member(s) cannot proceed by waiting) —
+# terminal members with a directory present=29 ... live workers positively
+# present=0", and the session carried on. SURFACING WAS NEVER THE FAILURE.
+# Nothing made a known-bad state COST anything.
+#
+# ===========================================================================
+# WHY THIS IS ONE FILE OF DATA AND NOT A PARAGRAPH IN A SKILL
+# ===========================================================================
+# A list of systems maintained by memory is a second record of the same fact,
+# and scripts/lib/registered-hooks.sh carries this project's proof of what that
+# produces: a guard count typed in two places drifted twice in two days and
+# announced a full, reassuring "14/14" over a stale inventory. So the inventory
+# lives HERE, once, in the shape orchestration.config uses for the model tiers:
+# one declaration, quoted by consumers, never a second copy that drifts.
+#
+# Consumers:
+#   scripts/lib/owned-systems.py        the parser, the runner, the verdict
+#   scripts/owned-state.sh              the operator's report (positive probe)
+#   scripts/hooks/guard-owned-state.sh  the gate that makes it cost something
+#
+# Located by OWNED_SYSTEMS_DECLARATION in orchestration.config. An adopting
+# repository may ship its own file at that path to extend or replace these
+# rows; the ENGINE's copy is the default, and a row is silent in a repository
+# whose `jurisdiction:` line does not hold there.
+#
+# ===========================================================================
+# FORMAT — blank-line-separated records of `key: value`
+# ===========================================================================
+#   id            short, stable, and the token an ack has to name. Never
+#                 renamed casually: a rename orphans the ack history that
+#                 notice-waiver-repetition.py reads.
+#   title         one line, for a person.
+#   jurisdiction  a shell command. Exit 0 -> this system exists in THIS
+#                 repository. Non-zero -> the row is silent here, and silence
+#                 is right: most repositories on this machine have no staging
+#                 and no ECS, and a nag about a system they never adopted is
+#                 the noise this engine already decided not to make. OMITTED
+#                 means always in jurisdiction.
+#   check         the command that DECIDES. Exit 0 = HEALTHY. Any non-zero =
+#                 UNHEALTHY. A command whose program is not on disk = UNKNOWN,
+#                 named, and NEVER healthy — "the check passed" and "the check
+#                 is absent" must never produce the same verdict.
+#                 Several commands may be given, separated by ` :: `, in
+#                 PREFERENCE ORDER: the first whose program exists is the one
+#                 that runs, and the report always names which one answered.
+#                 That is how a check being built right now is consumed the day
+#                 it lands — by DELETING a fallback from this file, with no
+#                 consumer touched.
+#   unknown-exit  one exit code that means "the check could not decide" rather
+#                 than "the check found something". PER ROW, never global,
+#                 because the tools genuinely disagree: escalate.sh reserves 2
+#                 for an unreadable ledger while the ECS capture status uses 2
+#                 for a real finding. A global convention would have read one
+#                 of them backwards, and reading a finding as "unknown" is how
+#                 a defect goes quiet. Omitted -> every non-zero is UNHEALTHY.
+#   evidence      an extended regular expression. Lines of the check's output
+#                 that match it are the evidence quoted in the refusal. Omitted
+#                 -> the first four non-blank lines.
+#   match         an extended regular expression over an Agent spawn prompt.
+#                 A dispatch that matches is ADDRESSING this system, so it is
+#                 allowed and it discharges the demand. This is what keeps the
+#                 gate from being a wall: the natural reply to being refused —
+#                 putting somebody on the problem — is the thing that clears it.
+#   timeout       seconds. A check that overruns is UNKNOWN, named. Default 45.
+#                 This is a budget, not a preference: the gate runs on a
+#                 PreToolUse path and a hook that spends a minute is a hook
+#                 that gets switched off.
+#   why           the incident that put this row here. One line. A row with no
+#                 incident behind it is a row somebody will delete correctly.
+#
+# `{engine}` and `{entity}` expand to the engine root and the governed
+# repository root. Nothing else is substituted.
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY NOT HERE
+# ===========================================================================
+#   PREPARED CEO DECISIONS — guard-ceo-ask-first.sh already blocks the same
+#     event on that exact fact. Two gates on one fact is double jeopardy: the
+#     second one only ever fires when the first already did, so it can teach
+#     nothing and can only add a second waiver to type.
+#   DISK HEADROOM — a symptom of `worktrees`, not a system. Two rows that go
+#     red together train the eye to clear both without reading either.
+#   THE CONTRACT INTEGRITY PROBE — the right thing to watch and the wrong thing
+#     to watch HERE: it is minutes of work, far outside a PreToolUse budget,
+#     and engine-status.sh already announces a broken install at every session
+#     start. If it earns a row it needs a cached-verdict lane of its own.
+
+id: ci
+title: Continuous integration across every governed repository
+check: python3 {engine}/scripts/lib/ci-surface.py --branch main :: bash {engine}/scripts/owned-state-checks/ci-latest-on-main.sh
+unknown-exit: 2
+evidence: (RED|SLOW|STALE|NEVER-RUN|SKIPPED|HOLLOW|FINDING|UNDECLARED|last green)
+match: (\bCI\b|workflow|ci-surface|engine-self-verify|ui-suite-ci|packaging-ci|app-spine-ci|app-voice-ci|github actions|red on main)
+timeout: 120
+why: Three workflows were red on main for 13, 10 and 4 days and the founder was the one who noticed.
+
+id: worktrees
+title: Worktree reclamation — the reconciler that runs daily and reclaims nothing
+jurisdiction: test -f {engine}/scripts/reconcile-terminal-worktrees.py
+check: python3 {engine}/scripts/reconcile-terminal-worktrees.py --status
+evidence: (blocked|"done"|removed|terminal_pending_cleanup|members_blocked_on_a_condition|terminal_members_with_a_directory_present|sealed_native_missing)
+match: (reconcil|worktree|reclaim|reap|disk space|stale branch)
+timeout: 90
+why: Its own SessionStart notice said BLOCKED, 46 members, on the day 30 GB across 42 directories was sitting unreclaimed, and the session read past it.
+
+id: escalations
+title: Escalations raised by teammates and never acknowledged
+jurisdiction: test -f {engine}/scripts/escalate.sh
+check: bash {engine}/scripts/escalate.sh list
+unknown-exit: 2
+evidence: (OUTSTANDING|^=== esc-|^  title|^  raised)
+match: (escalat|esc-2026|escalate\.sh|--disposition)
+timeout: 45
+why: Two teammates escalated correctly on 2026-09-02 and were found two days later by somebody counting directories; the channel now delivers, and an undelivered answer is the same failure one step later.
+
+id: ecs
+title: Executive Continuity System capture health
+jurisdiction: test -x {entity}/scripts/ecs/ecs
+check: {entity}/scripts/ecs/ecs capture-status
+evidence: (capture_complete|historical_unresolved|unresolved|meaning_verified)
+match: (\bECS\b|capture-status|continuity|rehydrate)
+timeout: 60
+why: Its own status reports capture_complete false and a historical backlog in the hundreds, and nothing has ever been required to act on that number.
+
+id: staging
+title: Staging freshness against main
+jurisdiction: bash {engine}/scripts/owned-state-checks/staging-current.sh --root {entity} --declared
+check: bash {engine}/scripts/owned-state-checks/staging-current.sh --root {entity}
+unknown-exit: 2
+evidence: (STALE|NO RECORD|behind|commit)
+match: (staging|deploy|deploy-avelor|deploy-staging|staging-record)
+timeout: 45
+why: The rule that staging must be current before the next product run has always been a paragraph, and a paragraph is a promise.
+
+id: unlanded
+title: Committed work stranded on a branch that never reached main
+jurisdiction: test -f {engine}/scripts/unlanded-branches-lint.sh
+check: bash {engine}/scripts/unlanded-branches-lint.sh {entity} --line
+unknown-exit: 2
+evidence: (UNLANDED|branch|commit)
+match: (unlanded|land the|merge the branch|strand)
+timeout: 60
+why: Added by this row's author, not by the brief — `git status` clean and `main == origin/main` are both TRUE while a teammate's finished commits sit unmerged, which is the same absence-reads-as-success shape as every other row here.
