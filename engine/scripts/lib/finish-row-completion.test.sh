@@ -29,6 +29,30 @@
 # finish rows of any kind and its transaction is sealed, terminal and carrying
 # all four of its workspaces. F5 is that boundary, asserted.
 #
+# ===========================================================================
+# THE SECOND DEFECT — this file was GREEN while the fix produced NOTHING
+# ===========================================================================
+# F1-F8 all send a payload whose `agent_id` IS the owner. The platform has
+# never emitted one. `SubagentStop`'s agent_id is a PER-RUN identifier, so the
+# completion resolved a key nothing is registered under and returned empty on
+# essentially every row it ever ran on. Re-measured 2026-09-10, later the same
+# day, over 15,889 finish rows:
+#
+#   rows whose PAYLOAD id any registration has ever mentioned :    62  (0.4%)
+#   rows whose cwd's `agent-<id>` basename does               : 2,908 (18.3%)
+#   rows naming a teammate                                    :     4  (0.03%)
+#   distinct payload agent ids on ONE worktree's finish rows   :   211
+#
+# The fix is one sentence — PREFER THE KEY THAT RESOLVES, NOT THE KEY THAT IS
+# PRESENT — and F9-F14 are the cases that can see it, because they send the
+# real shape: a per-run id in the payload, the owner's id in the path, the two
+# different. F1-F8 are kept exactly as they were and become the negative case:
+# a payload id that genuinely IS the owner must still win.
+#
+# And because this suite was green for two days while covering nothing, it does
+# not certify itself: finish-row-completion.mutation.sh removes one property at
+# a time from the shipped source and demands the NAMED case go red.
+#
 # Run directly: scripts/lib/finish-row-completion.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -238,7 +262,7 @@ fi
 RC="$(fire_run teammate-idle-handoff.sh TeammateIdle a00000000000fr90 a99999999run0010)"
 ROW="$(last_row)"
 if [ "$RC" = "0" ] && names_all "$ROW" zach-opus-fr90; then
-    ok "F10 the same for the second writer, with no line of its own -- the resolution is in the ledger, where all three hooks already converge"
+    ok "F10  the same for the second writer, with no line of its own -- the resolution is in the ledger, where all three hooks already converge"
 else
     bad "F10  row=$ROW rc=$RC"
 fi
@@ -309,4 +333,13 @@ if [ "$FAIL" -gt 0 ]; then
     exit 1
 fi
 echo "=== finish-row completion tests: all $PASS passed ==="
+
+# This suite was green for two days while the thing it covers produced nothing,
+# so it does not get to certify itself: the harness removes one property at a
+# time from the shipped source and demands the NAMED case go red. It is invoked
+# here so the runner that discovers *.test.sh runs it too — a harness nobody
+# runs proves nothing about anything.
+if [ -f "$SCRIPT_DIR/finish-row-completion.mutation.sh" ]; then
+    bash "$SCRIPT_DIR/finish-row-completion.mutation.sh" || exit 1
+fi
 exit 0
