@@ -44,6 +44,7 @@ import re
 import stat
 import subprocess
 import tarfile
+import time
 
 HERE = Path(__file__).resolve().parent
 ENGINE_ROOT = HERE.parent.parent
@@ -833,3 +834,115 @@ def reconcile(tx, transaction, index):
     return tx.update_member(sid, aid, index, daily_cleanup=saved, state='removed',
                             closed='integrated-daily-cleanup', blocked=False,
                             retry_after_epoch=0, last_error=None)
+
+
+# ---------------------------------------------------------------------------
+# THE IMMEDIATE LANE — reclaim IN the terminal event, not on a timer
+# ---------------------------------------------------------------------------
+# The CEO, 2026-09-10: "WHEN THE FUCK WILL ALL THE FINISHED GARBAGE START
+# GETTING CLEANED UP AUTOMATICALLY AND STOP WASTING MY FUCKING TIME?"
+#
+# The terminal ingress already fired at exactly the right moment and then
+# handed the reclamation to a job that runs at 04:00. So the system learned an
+# agent was finished immediately and acted on it up to 24 hours later. This is
+# the same lane the nightly reconciler runs — the same proof, the same
+# refusals, the same journal — called from the ingress itself. reconcile() is
+# unchanged and the nightly pass is unchanged; it remains the backstop for
+# everything this deliberately skips (a crash, a killed process, a machine
+# that slept, a hold that clears later).
+
+
+def unlock_wait_seconds(repo=None):
+    """How long the ingress waits, inside the stop event, for Claude Code to
+    take its own lock off. Committed data a reviewer can read and an entity
+    can narrow, never a constant hidden in code. Measured on this machine
+    2026-09-10: the platform removed the lock 0.37s and 1.06s after the two
+    SubagentStop events on record, so the default is generous rather than
+    hopeful — and a wait that expires costs nothing but the nightly backstop."""
+    try:
+        return max(0.0, float(config_value('IMMEDIATE_RECLAIM_WAIT_SECONDS', '5', repo)))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+def _lock_bearing_member(transaction, member):
+    """The member whose registration carries the platform's lock for this
+    agent: its native isolation worktree if it has one (a cross-repository
+    worktree carries NO agent lock — checking it for liveness is the 2026-08-24
+    incident), else the member itself."""
+    for candidate in transaction.get('members') or []:
+        if candidate.get('class') == 'native':
+            return candidate
+    return member
+
+
+def await_platform_release(tx, transaction, member, deadline):
+    """(released, reason). Wait, bounded, for the PLATFORM to take off its own
+    lock. Never unlocks anything: see platform_released_its_lock for who holds
+    it and why it is not ours. An expired wait is a deferral, never a
+    reason to proceed."""
+    holder = _lock_bearing_member(transaction, member)
+    proof_api = _load('completion-proof')
+    repo, path = holder.get('repo') or '', holder.get('path') or ''
+    if not repo or not path:
+        return False, 'member has no repository or path'
+    while True:
+        if not os.path.lexists(path):
+            return True, 'the platform has removed this workspace itself'
+        released, why = platform_released_its_lock(holder, proof_api.registry(repo).get(path))
+        if released or time.time() >= deadline:
+            return released, why
+        time.sleep(0.1)
+
+
+def reclaim_now(tx, transaction, index, deadline=None):
+    """Capture, verify and remove this member's workspace in the terminal
+    event itself. Returns (outcome, detail) with outcome one of
+
+        reclaimed   the workspace is gone and its branch is resolved, now
+        deferred    a refusal, a hold or an expired wait — the nightly
+                    reconciler retries it with everything it always did
+        skipped     not this lane's member at all
+
+    NEVER RAISES. A terminal event must not be prevented by a cleanup, and a
+    worker must never be kept alive by this function's own failure. Every
+    outcome is written onto the member as `immediate_reclaim` so the ingress's
+    decision is a line in the record and not an inference. Nothing here weakens
+    a refusal: the decision is reconcile()'s, unmodified.
+    """
+    member = transaction['members'][index]
+    sid, aid = transaction['session_id'], transaction['agent_id']
+
+    def journal(outcome, detail):
+        try:
+            tx.update_member(sid, aid, index, immediate_reclaim={
+                'version': 1, 'outcome': outcome, 'reason': str(detail)[:400],
+                'ts': datetime.now().astimezone().isoformat()})
+        except Exception:
+            pass
+        return outcome, detail
+
+    try:
+        if member.get('class') == 'managed-image':
+            return 'skipped', 'managed image is not an ordinary worktree'
+        if member.get('quarantine') or member.get('quarantine_path'):
+            return 'skipped', 'historical quarantine needs separate authorized maintenance'
+        if member.get('cleanup_policy') != 'integrated-daily':
+            return 'skipped', 'historical record keeps its own recovery protocol'
+        if (member.get('daily_cleanup') or {}).get('phase') == 'complete':
+            return 'skipped', 'already reclaimed'
+        stopped, why = platform_said_the_agent_stopped(tx, transaction)
+        if not stopped:
+            return journal('deferred', why)
+        if deadline is None:
+            deadline = time.time() + unlock_wait_seconds(member.get('repo'))
+        released, lock_why = await_platform_release(tx, transaction, member, deadline)
+        if not released:
+            return journal('deferred', lock_why)
+        reconcile(tx, tx.load_tx(sid, aid), index)
+    except Exception as error:
+        return journal('deferred', error)
+    after = tx.load_tx(sid, aid)['members'][index]
+    if (after.get('daily_cleanup') or {}).get('phase') == 'complete':
+        return journal('reclaimed', 'workspace removed and branch resolved in the terminal event')
+    return journal('deferred', after.get('last_error') or 'the lane did not complete this member')

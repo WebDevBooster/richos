@@ -17,6 +17,12 @@ def load(name):
 
 daily = load('daily-workspace-cleanup')
 tx = load('worktree-transactions')
+
+
+def _load_registry(repo, path):
+    """The exact `git worktree list` row for one path, as the lane reads it."""
+    return load('completion-proof').registry(str(repo)).get(str(path)) or {}
+
 SID = 'daily-test-session'
 AID = 'abcdef123456'
 DEAD_PID = 999999
@@ -382,20 +388,57 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(tx.metrics()['terminal_pending_cleanup'],1)
         self.assertEqual((self.work/'file').read_text(),'unfinished\n')
 
-    def test_native_ingress_proof_survives_platform_removal_and_dispatches(self):
+    def test_native_terminal_ingress_reclaims_in_the_same_event(self):
+        # ROUND 11. This case used to terminalize, then remove the checkout by
+        # hand, then run the NIGHTLY reconciler to finish the job — which is
+        # exactly the 24-hour gap the CEO was looking at. The ingress now does
+        # it: one call, workspace gone, branch resolved, nothing pending.
         self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code'})
         tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
         tx.terminalize(SID,AID)
-        self.assertIn('daily_cleanup',tx.load_tx(SID,AID)['members'][0])
-        self.git(self.repo,'worktree','remove',str(self.work))
-        tx.observe_platform_native(SID,AID,0)
-        self.assertEqual(tx.metrics()['terminal_pending_cleanup'],1)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'reclaimed')
+        self.assertEqual(member['daily_cleanup']['phase'],'complete')
+        self.assertFalse(self.work.exists())
+        self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'), 'refs/heads/main\n')
+        self.assertEqual(tx.metrics()['terminal_pending_cleanup'],0)
+        # and the nightly pass over the same record is a no-op, not a retry
         spec=importlib.util.spec_from_file_location('daily_reconciler',HERE/'reconcile-terminal-worktrees.py')
         rec=importlib.util.module_from_spec(spec);spec.loader.exec_module(rec)
         rec.reconcile_transaction(tx.load_tx(SID,AID))
         self.assertEqual(tx.load_tx(SID,AID)['members'][0]['daily_cleanup']['phase'],'complete')
-        self.assertEqual(tx.metrics()['terminal_pending_cleanup'],0)
-        self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'), 'refs/heads/main\n')
+
+    def test_hand_rolled_terminal_ingress_reclaims_in_the_same_event(self):
+        # The cross-repository worktree — 48 of 53 on this machine — takes the
+        # same route from the same event. It carries no platform lock, so the
+        # ingress has nothing to wait for.
+        tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'reclaimed')
+        self.assertFalse(self.work.exists())
+        self.assertNotIn('refs/heads/worker',self.git(self.repo,'show-ref'))
+
+    def test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it(self):
+        # WHO HOLDS THE LOCK, AND MAY THE ENGINE RELEASE IT? Claude Code holds
+        # it; its pid is the SESSION's, shared by every agent of that session,
+        # so it can never speak about one agent. It is not ours. The ingress
+        # therefore WAITS for the platform's own release, bounded, and defers
+        # if it does not come — the lock is still on the tree afterwards, and
+        # the workspace is untouched.
+        self.make_native(lock_pid=os.getpid())
+        with patch.dict(os.environ,{}):
+            with patch.object(daily,'unlock_wait_seconds',lambda repo=None:0.3):
+                tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('still holds its own lock',member['immediate_reclaim']['reason'])
+        self.assert_kept()
+        self.assertIn('locked',_load_registry(self.repo,self.work))
+        # the platform releases it; the NEXT terminal ingress reclaims at once
+        self.git(self.repo,'worktree','unlock',str(self.work))
+        tx.terminalize(SID,AID)
+        self.assertEqual(tx.load_tx(SID,AID)['members'][0]['immediate_reclaim']['outcome'],'reclaimed')
+        self.assertFalse(self.work.exists())
 
     def test_branch_reserved_elsewhere_is_retained(self):
         second=self.root/'other-checkout'

@@ -29,6 +29,10 @@ lib/daily-workspace-cleanup.py	assess	class	structural	literal(managed-image)
 lib/daily-workspace-cleanup.py	assess	quarantine	structural	truthy
 lib/daily-workspace-cleanup.py	assess	quarantine_path	structural	truthy
 lib/daily-workspace-cleanup.py	owner_check	class	structural	literal(native)
+lib/daily-workspace-cleanup.py	reclaim_now	class	structural	literal(managed-image)
+lib/daily-workspace-cleanup.py	reclaim_now	cleanup_policy	route	literal(integrated-daily)
+lib/daily-workspace-cleanup.py	reclaim_now	quarantine	structural	truthy
+lib/daily-workspace-cleanup.py	reclaim_now	quarantine_path	structural	truthy
 lib/daily-workspace-cleanup.py	reconcile	class	structural	literal(managed-image)
 lib/daily-workspace-cleanup.py	reconcile	head	structural	truthy
 lib/daily-workspace-cleanup.py	reconcile	quarantine	structural	truthy

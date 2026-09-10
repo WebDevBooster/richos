@@ -43,6 +43,7 @@ mutation_begin "daily-workspace-cleanup (the reclaim lane)" "scripts/daily-works
 
 D="scripts/lib/daily-workspace-cleanup.py"
 P="scripts/lib/completion-proof.py"
+X="scripts/lib/worktree-transactions.py"
 
 mutant residue-archive-skipped "test_ignored_disposable_is_dropped_and_ignored_residue_is_archived_verified_then_reclaimed" "$D" \
     "        residue_record = archive_residue(tx, transaction, index, member['path'], residue) if residue else None" \
@@ -91,6 +92,21 @@ mutant platform-ground-widened "test_native_of_an_engine_derived_terminal_fact_s
     "PLATFORM_TERMINAL_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'TaskStop')" \
     "PLATFORM_TERMINAL_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'TaskStop', 'Adoption', 'NativeMemberGone')" \
     "this engine's OWN derivation of terminality would be read as the platform saying the worker stopped, and a running session's checkout would be taken out of its hands on evidence the platform never gave."
+
+mutant ingress-hands-native-back-to-the-nightly "test_native_terminal_ingress_reclaims_in_the_same_event" "$X" \
+    "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                _reclaim_in_event(session_id, agent_id, i)" \
+    "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                pass" \
+    "a finished agent's NATIVE checkout would be recorded at the terminal event and reclaimed up to 24 hours later by the 04:00 job — the gap the CEO was looking at on 2026-09-10."
+
+mutant ingress-hands-hand-rolled-back-to-the-nightly "test_hand_rolled_terminal_ingress_reclaims_in_the_same_event" "$X" \
+    "            # always did, and the nightly pass retries.{NL}            _reclaim_in_event(session_id, agent_id, i)" \
+    "            # always did, and the nightly pass retries.{NL}            pass" \
+    "the same gap for the CROSS-REPOSITORY worktree, which is 48 of the 53 worktrees on this machine."
+
+mutant ingress-ignores-the-platform-lock "test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it" "$D" \
+    "        released, why = platform_released_its_lock(holder, proof_api.registry(repo).get(path))" \
+    "        released, why = True, 'mutant: the platform lock is ignored'" \
+    "the ingress would walk past a lock Claude Code still holds instead of waiting for the platform's own release — the tree survives on the liveness veto behind it, but the engine would be deciding a question that is the platform's."
 
 mutant untracked-refusal-removed "test_dirty_staged_and_untracked_refuse" "$P" \
     "    if git(path,'ls-files','--others','--exclude-standard','-z').stdout:{NL}        raise CompletionError" \

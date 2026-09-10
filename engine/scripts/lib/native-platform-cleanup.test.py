@@ -73,12 +73,22 @@ class Tests(unittest.TestCase):
     def test_legacy_entrypoints_cannot_quarantine_platform_owned_member(self):
         tx.save_ref(self.sid,self.aid,0);tx.quarantine(self.sid,self.aid,0);tx.close_absent(self.sid,self.aid,0,'caller mistake')
         self.assertTrue(self.path.is_dir());self.assertEqual(self.current()['state'],'platform-pending')
-    def test_reconciler_waits_for_platform_without_mutation(self):
+    def test_reconciler_waits_for_platform_while_it_holds_its_own_lock(self):
+        # ROUND 11 (2026-09-10). This case used to assert that a platform-owned
+        # checkout is NEVER mutated and waits for the platform to remove it —
+        # which, with the platform leaving finished agents' checkouts on disk
+        # all day, meant waiting forever. What it protects is preserved
+        # exactly: while CLAUDE CODE HOLDS ITS OWN LOCK nothing is touched.
+        # The engine never removes that lock; when the platform releases it,
+        # the very next pass reclaims a finished agent's clean workspace.
+        self.git('worktree','lock','--reason','claude agent agent-'+self.aid+' (pid %d start fixture)'%os.getpid(),str(self.path))
         with mock.patch.object(r,'retry_backoff',return_value=(0,0)):
             r.reconcile_transaction(tx.load_tx(self.sid,self.aid))
             self.assertTrue(self.path.is_dir());self.assertEqual(self.current()['state'],'platform-pending')
-            self.git('worktree','remove',str(self.path));r.reconcile_transaction(tx.load_tx(self.sid,self.aid))
-        self.assertEqual(self.current()['state'],'removed')
+            self.assertIn(str(self.path),self.git('worktree','list','--porcelain'))
+            self.git('worktree','unlock',str(self.path))
+            r.reconcile_transaction(tx.load_tx(self.sid,self.aid))
+        self.assertFalse(self.path.exists());self.assertEqual(self.current()['state'],'removed')
     def test_symbolic_or_changed_recovery_ref_cannot_redirect_or_overwrite(self):
         ref=tx.backup_ref(self.sid,self.aid,'native');before=self.git('rev-parse','main')
         self.git('symbolic-ref',ref,'refs/heads/main')

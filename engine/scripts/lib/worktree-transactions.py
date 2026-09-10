@@ -1344,12 +1344,64 @@ def quarantine(session_id, agent_id, index):
     return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar, **both_fields)
 
 
-def terminalize(session_id, agent_id, first_path=None):
-    """Persist terminal progress for the exact bound members, native first.
+class _ModuleSelf(object):
+    """A live view of THIS module's namespace.
 
-    New native members preserve their commit and await Claude-owned removal.
+    The reclaim lane takes the transactions module as its first argument, and
+    this file is loaded BY PATH (importlib.spec_from_file_location) from a
+    dozen callers, so it is not in sys.modules under any stable name and
+    cannot look itself up. Attribute reads go straight to the current
+    globals, so nothing here can go stale.
+    """
+
+    def __getattr__(self, name):
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(name)
+
+
+_SELF = _ModuleSelf()
+_DAILY_MOD = None
+
+
+def _daily():
+    """The reclaim lane, loaded once per process. Kept here rather than
+    imported at module scope so a missing or broken lane can never stop a
+    terminal event from being RECORDED — the record is the part nothing may
+    lose."""
+    global _DAILY_MOD
+    if _DAILY_MOD is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "daily_workspace_cleanup",
+            os.path.join(os.path.dirname(__file__), "daily-workspace-cleanup.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _DAILY_MOD = mod
+    return _DAILY_MOD
+
+
+def terminalize(session_id, agent_id, first_path=None):
+    """Persist terminal progress for the exact bound members, native first,
+    AND RECLAIM WHAT IS ALREADY CLEAN — in this event, not on a timer.
+
     Managed images delegate to their daemon. Historical linked worktrees keep
     the quarantine/capture route and its explicit erasure refusal.
+
+    ROUND 11 (2026-09-10). This function used to record ownership and stop:
+    "the daily reconciler rechecks clean integration before non-force
+    removal". So the system learned an agent was finished immediately and
+    acted on it up to 24 hours later. It now calls the SAME lane the nightly
+    reconciler calls (daily-workspace-cleanup.reclaim_now -> reconcile), with
+    every refusal intact and the decision still the lane's. Anything the lane
+    refuses, or that is still locked when the bounded wait expires, is left
+    exactly as it was for the nightly backstop — which is unchanged and still
+    covers the crash, the killed process and the machine that slept.
+
+    The record is written FIRST and the reclaim cannot disturb it: a failure
+    in the lane is caught, journalled on the member and never raised, because
+    a terminal event must never be prevented by a cleanup.
     """
     tx = load_tx(session_id, agent_id)
     if not tx or not tx.get("terminal"):
@@ -1374,11 +1426,7 @@ def terminalize(session_id, agent_id, first_path=None):
                 try:
                     if member.get("cleanup_policy") != "integrated-daily":
                         raise ValueError("historical native member")
-                    import importlib.util
-                    spec = importlib.util.spec_from_file_location("daily_workspace_cleanup", os.path.join(os.path.dirname(__file__), "daily-workspace-cleanup.py"))
-                    daily = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(daily)
-                    proof = daily.remember_native(member)
+                    proof = _daily().remember_native(member)
                     update_member(session_id, agent_id, i, daily_cleanup=proof)
                 except Exception:
                     # A failed clean proof cannot prevent Claude-owned cleanup
@@ -1388,6 +1436,7 @@ def terminalize(session_id, agent_id, first_path=None):
                     observe_platform_native(session_id, agent_id, i)
                 except Exception as error:
                     _soft_failure(session_id, agent_id, i, str(error))
+                _reclaim_in_event(session_id, agent_id, i)
                 continue
             if member.get('class') == 'managed-image':
                 if member.get('state') == 'removed':
@@ -1399,14 +1448,30 @@ def terminalize(session_id, agent_id, first_path=None):
                 except Exception as error:
                     update_member(session_id, agent_id, i, last_error=str(error), last_attempt=now_iso())
                 continue
-            # Ordinary terminal ingress records ownership only. The daily
-            # reconciler rechecks clean integration before non-force removal.
-            # Dirty or unfinished bytes stay at their original path.
             if member.get("cleanup_policy") != "integrated-daily":
                 # Historical records retain their original recovery protocol.
                 save_ref(session_id, agent_id, i)
                 quarantine(session_id, agent_id, i)
+                continue
+            # The ordinary terminal ingress RECLAIMS what is already clean and
+            # integrated, here, in this event. Dirty or unfinished bytes stay
+            # at their original path — the lane refuses them exactly as it
+            # always did, and the nightly pass retries.
+            _reclaim_in_event(session_id, agent_id, i)
         return load_tx(session_id, agent_id)
+
+
+def _reclaim_in_event(session_id, agent_id, index):
+    """Run the reclaim lane for ONE member and swallow everything. The lane
+    itself never raises; this is the second belt, because the caller is a
+    platform terminal event and the record it just wrote is what matters."""
+    try:
+        outcome, detail = _daily().reclaim_now(_SELF, load_tx(session_id, agent_id), index)
+    except Exception as error:  # pragma: no cover - defended twice deliberately
+        sys.stderr.write("immediate reclaim for %s/%s member %d raised: %s\n"
+                         % (session_id[:8], agent_id, index, error))
+        return None, str(error)
+    return outcome, detail
 
 
 def close_if_empty(session_id, agent_id):
