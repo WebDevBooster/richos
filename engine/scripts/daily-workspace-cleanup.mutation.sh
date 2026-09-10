@@ -46,9 +46,19 @@ P="scripts/lib/completion-proof.py"
 X="scripts/lib/worktree-transactions.py"
 
 mutant residue-archive-skipped "test_ignored_disposable_is_dropped_and_ignored_residue_is_archived_verified_then_reclaimed" "$D" \
-    "        residue_record = archive_residue(tx, transaction, index, member['path'], residue) if residue else None" \
-    "        residue_record = None" \
+    "        residue_record, residue_archived = (archive_residue(tx, transaction, index, member['path'], residue){NL}                                            if residue else (None, {}))" \
+    "        residue_record, residue_archived = None, residue_manifest(member['path'], residue) if residue else {}" \
     "an ignored file the disposable policy does not name would go with the tree and no copy would exist — PF9: git worktree remove deletes ignored files without refusing."
+
+mutant nested-repository-dropped-as-disposable "test_a_nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" "$D" \
+    "    return is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')" \
+    "    return False" \
+    "a clone an agent made under an ignored vendor/, .cache/ or node_modules/ -- with commits nowhere else -- would be classified disposable by its PARENT's name and deleted by the non-force removal with no copy taken. Frank R1, round two: reproduced under the lane's own binary, the only loss path found in two rounds."
+
+mutant ignored-last-look-removed "test_an_ignored_file_written_after_the_archive_HOLDS_the_removal" "$D" \
+    "        unchanged, why_changed = residue_last_look(member['path'], repo, residue_archived)" \
+    "        unchanged, why_changed = True, ''" \
+    "an ignored file written between the archive and the rm -- by a writer the process probe did not see -- would be deleted with the tree while the journal named a verified archive that does not hold it (Sage D3, round two)."
 
 mutant residue-verification-skipped "test_unverifiable_residue_archive_holds_the_tree" "$D" \
     "    verify_residue_archive(tar_path, manifest)" \

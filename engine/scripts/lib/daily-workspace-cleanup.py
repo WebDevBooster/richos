@@ -645,14 +645,51 @@ def workspace_is_free_to_remove(tx, transaction, member, row):
 # ---------------------------------------------------------------------------
 
 def ignored_files(path):
+    """Every ignored path under `path`, one entry per FILE -- except where git
+    meets a NESTED REPOSITORY, which `ls-files --others --ignored` (without
+    --directory) reports as ONE directory entry with a trailing slash and
+    does not descend into. Measured 2026-09-10 under the lane's own binary
+    (completion-proof.GIT = /Library/Developer/CommandLineTools/usr/bin/git,
+    `git version 2.50.1 (Apple Git-155)`): a clone at `vendor/lib` inside an
+    ignored `vendor/` lists as `['extra', 'vendor/lib/', 'vendor/plain-ignored']`.
+    The trailing slash is therefore the signature of a nested repository, and
+    is_nested_repository() reads it as exactly that."""
     raw = _load('completion-proof').git(path, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z').stdout
     return [os.fsdecode(x) for x in raw.split(b'\0') if x]
+
+
+def is_nested_repository(rel):
+    """A trailing slash from ignored_files() is a directory git would not
+    enter: a nested repository (its own `.git`, its own commits)."""
+    return rel.endswith('/')
+
+
+def never_disposable(rel):
+    """FRANK R1 (round two, 2026-09-10), THE ONLY LOSS PATH FOUND IN TWO ROUNDS
+    OF REVIEW. partition_ignored() sent a path to the dropped set when ANY of
+    its components was on the disposable list -- and a nested repository under
+    `vendor/`, `.cache/`, `build/` or `node_modules/` arrives here as a single
+    directory entry whose parent component is on that list, so a clone an
+    agent made there, WITH ITS COMMITS, was classified disposable by its
+    parent's name, archived by nobody, and deleted by the non-force removal
+    that follows (reproduced: `nested: (0, '') | exists after: False`). The
+    disposable list's own bar is "a build reproduces it from what is
+    committed"; no build reproduces somebody's commits.
+
+    So two things are never disposable, whatever their parent is called: a
+    nested repository (the trailing-slash entry), and any path carrying a
+    `.git` component. Both go to the residue, which is archived and verified
+    before anything is removed -- or, if the archive cannot take them, HELD.
+    """
+    return is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')
 
 
 def partition_ignored(files, disposable):
     keep, residue = [], []
     for rel in files:
-        if any(component in disposable for component in rel.split('/')):
+        if never_disposable(rel):
+            residue.append(rel)
+        elif any(component in disposable for component in rel.split('/')):
             keep.append(rel)
         else:
             residue.append(rel)
@@ -695,26 +732,70 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def archive_residue(tx, transaction, index, path, residue):
-    """Archive every ignored, non-disposable file under `path` into the
-    capture store, re-read the archive and verify every entry against its
-    manifest, and return the record the journal carries. Raises on any
-    mismatch — an unverified archive never authorizes a removal."""
-    _assert_capture_rooting(tx)
-    cdir = _capture_dir(tx, transaction, index)
-    _private_dirs(tx.capture_root(), cdir)
-    manifest = {}
-    total = 0
+def _expand_residue(path, residue):
+    """The residue as filesystem objects: every plain entry as itself, and
+    every NESTED REPOSITORY entry (trailing slash) expanded to every object
+    under it -- directories, files and symlinks, `.git` included, symlinks
+    never followed. Returns [(rel, kind)], with `rel` never carrying a
+    trailing slash. Anything that is not a directory, a regular file or a
+    symlink raises: the archive cannot take it, so the workspace is HELD."""
+    out = []
     for rel in sorted(residue):
+        if not is_nested_repository(rel):
+            out.append((rel, None))
+            continue
+        top = os.path.join(path, rel.rstrip('/'))
+        if os.path.islink(top) or not os.path.isdir(top):
+            raise RuntimeError('ignored entry %s is listed as a directory but is not one; retained' % rel)
+        for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
+            reldir = os.path.relpath(dirpath, path)
+            out.append((reldir, 'dir'))
+            # os.walk lists a symlink-to-directory in dirnames and (with
+            # followlinks=False) never enters it; it is archived AS a symlink.
+            for name in sorted(dirnames):
+                if os.path.islink(os.path.join(dirpath, name)):
+                    out.append((os.path.join(reldir, name), None))
+            for name in sorted(filenames):
+                out.append((os.path.join(reldir, name), None))
+    return out
+
+
+def residue_manifest(path, residue):
+    """The manifest of the residue AS IT IS ON DISK NOW: kind, mode, size and
+    digest of every object. Computed once for the archive and ONCE MORE
+    immediately before the removal (Sage D3, round two, 2026-09-10): the
+    archive was verified against the manifest at archive time, and nothing
+    re-listed or re-digested the ignored files before the `rm`, so a writer
+    that started after the process probe and wrote an ignored file inside the
+    archive-to-remove window lost those bytes. The tracked side already had
+    its last look; this is the ignored side's."""
+    manifest = {}
+    for rel, kind in _expand_residue(path, residue):
         full = os.path.join(path, rel)
         info = os.lstat(full)
         if stat.S_ISLNK(info.st_mode):
             manifest[rel] = {'kind': 'symlink', 'target': os.readlink(full), 'mode': info.st_mode & 0o7777}
+        elif stat.S_ISDIR(info.st_mode) and kind == 'dir':
+            manifest[rel] = {'kind': 'dir', 'mode': info.st_mode & 0o7777}
         elif stat.S_ISREG(info.st_mode):
             manifest[rel] = {'kind': 'file', 'size': info.st_size, 'mode': info.st_mode & 0o7777, 'sha256': _sha256(full)}
-            total += info.st_size
         else:
-            raise RuntimeError('ignored residue %s is neither a file nor a symlink; retained' % rel)
+            raise RuntimeError('ignored residue %s is neither a file, a directory of a nested repository, nor a symlink; retained' % rel)
+    return manifest
+
+
+def archive_residue(tx, transaction, index, path, residue):
+    """Archive every ignored, non-disposable object under `path` into the
+    capture store -- a nested repository whole, `.git` and all -- re-read the
+    archive and verify every entry against its manifest, and return the record
+    the journal carries plus the manifest itself (for the last look before
+    the removal). Raises on any mismatch — an unverified archive never
+    authorizes a removal."""
+    _assert_capture_rooting(tx)
+    cdir = _capture_dir(tx, transaction, index)
+    _private_dirs(tx.capture_root(), cdir)
+    manifest = residue_manifest(path, residue)
+    total = sum(e['size'] for e in manifest.values() if e['kind'] == 'file')
     tar_path = os.path.join(cdir, 'ignored-residue.tar')
     tmp = tar_path + '.tmp'
     if os.path.lexists(tmp):
@@ -725,6 +806,11 @@ def archive_residue(tx, transaction, index, path, residue):
             entry = manifest[rel]
             if entry['kind'] == 'file':
                 tar.add(os.path.join(path, rel), arcname=rel, recursive=False)
+            elif entry['kind'] == 'dir':
+                ti = tarfile.TarInfo(rel)
+                ti.type = tarfile.DIRTYPE
+                ti.mode = entry['mode']
+                tar.addfile(ti)
             else:
                 ti = tarfile.TarInfo(rel)
                 ti.type = tarfile.SYMTYPE
@@ -735,9 +821,18 @@ def archive_residue(tx, transaction, index, path, residue):
         os.fsync(raw.fileno())
     os.replace(tmp, tar_path)
     verify_residue_archive(tar_path, manifest)
-    record = {'archive': tar_path, 'files': len(manifest), 'bytes': total,
+    nested = sorted(rel.rstrip('/') for rel in residue if is_nested_repository(rel))
+    record = {'archive': tar_path,
+              'files': sum(1 for e in manifest.values() if e['kind'] != 'dir'),
+              'directories': sum(1 for e in manifest.values() if e['kind'] == 'dir'),
+              'bytes': total,
               'manifest_sha256': hashlib.sha256(json.dumps(manifest, sort_keys=True).encode('utf-8')).hexdigest(),
               'archived_ts': tx.now_iso()}
+    if nested:
+        # A PERSON SHOULD KNOW A REPOSITORY WENT INTO THE ARCHIVE. Its commits
+        # are in there, verified, and nowhere else the engine knows of.
+        record['nested_repositories'] = nested[:20]
+        record['nested_repository_count'] = len(nested)
     # WHAT WENT IN THAT A PERSON SHOULD KNOW ABOUT (Frank D13, 2026-09-10).
     # The residue archive is where a workspace's IGNORED files go, and `.env`
     # files are ignored by construction — 51 archives on this machine, at least
@@ -757,7 +852,27 @@ def archive_residue(tx, transaction, index, path, residue):
         record['secret_bearing'] = secretish[:20]
         record['secret_bearing_count'] = len(secretish)
     tx.atomic_write_json(os.path.join(cdir, 'ignored-residue.json'), {'manifest': manifest, 'record': record})
-    return record
+    return record, manifest
+
+
+def residue_last_look(path, repo, archived_manifest):
+    """(unchanged, reason) — THE LAST LOOK ON THE IGNORED SIDE (Sage D3).
+    Re-list the ignored files and re-derive their manifest immediately before
+    `git worktree remove`; anything the archive does not hold byte for byte
+    is a RETRY. `archived_manifest` is {} when nothing was archived, and a
+    residue that has appeared since is a difference like any other. A new
+    DISPOSABLE file is not: by the committed policy a build reproduces it."""
+    _keep, residue = partition_ignored(ignored_files(path), disposable_paths(repo))
+    now = residue_manifest(path, residue) if residue else {}
+    archived = archived_manifest or {}
+    if now == archived:
+        return True, ''
+    added = sorted(set(now) - set(archived))
+    gone = sorted(set(archived) - set(now))
+    changed = sorted(rel for rel in set(now) & set(archived) if now[rel] != archived[rel])
+    return False, ('the ignored bytes changed between the archive and the removal (%d added, %d gone, '
+                   '%d changed; e.g. %s); the archive no longer matches the tree, so nothing is removed'
+                   % (len(added), len(gone), len(changed), (added + changed + gone)[:3]))
 
 
 # Filenames that conventionally hold credentials. A NAME check, deliberately:
@@ -788,7 +903,10 @@ def verify_residue_archive(tar_path, manifest):
                 raise RuntimeError('residue archive lacks %s' % rel)
             if (ti.mode & 0o7777) != info['mode']:
                 raise RuntimeError('residue archive mode mismatch for %s' % rel)
-            if info['kind'] == 'file':
+            if info['kind'] == 'dir':
+                if not ti.isdir():
+                    raise RuntimeError('residue archive type mismatch for directory %s' % rel)
+            elif info['kind'] == 'file':
                 if not ti.isreg() or ti.size != info['size']:
                     raise RuntimeError('residue archive size/type mismatch for %s' % rel)
                 h = hashlib.sha256()
@@ -1174,25 +1292,44 @@ def reconcile(tx, transaction, index):
                                'kills a process; the hold clears when they leave'
                                % (describe_processes(pids), member['path']))
         keep, residue = partition_ignored(ignored_files(member['path']), disposable_paths(repo))
-        residue_record = archive_residue(tx, transaction, index, member['path'], residue) if residue else None
+        residue_record, residue_archived = (archive_residue(tx, transaction, index, member['path'], residue)
+                                            if residue else (None, {}))
         owner_check(tx, transaction, member)
         proof_api.verify_member_proof(proof)
         # THE LAST LOOK, AFTER THE ARCHIVE AND BEFORE THE REMOVAL. Archiving a
-        # large residue takes seconds, and a restart can begin inside them: the
-        # platform re-locks the worktree BEFORE the run starts (measured, 43 ms
-        # and 49 ms ahead of the SubagentStart hook on two live agents), so
-        # re-reading the registration here is a present-tense check and not a
-        # guess. It is deliberately belt AND braces: `git worktree remove`
-        # without --force refuses a locked worktree by itself ("cannot remove a
-        # locked working tree", exit 128, git 2.52.0, measured), so the race
-        # closes even if this check is somehow skipped — but a refusal that
-        # says WHY is worth more to whoever reads the journal than git's.
+        # large residue takes seconds, and a restart can begin inside them.
+        # Re-reading the registration here is a present-tense check of the
+        # lock, and `git worktree remove` without --force refuses a locked
+        # worktree by itself ("fatal: cannot remove a locked working tree",
+        # exit 128 -- measured 2026-09-10 under completion-proof.GIT, Apple
+        # Git 2.50.1, and under Homebrew git 2.52.0; both refuse).
+        #
+        # WHAT THIS CHECK IS NOT (corrected round 13, 2026-09-10, after both
+        # reviewers): it is NOT the thing that makes a restart survivable.
+        # The sentence that stood here -- "the platform re-locks the worktree
+        # BEFORE the run starts (measured, 43 ms and 49 ms ...)" -- was
+        # measured on two INITIAL starts. Whether the platform re-takes a
+        # RELEASED lock for a RESTARTED run has not been observed on this
+        # machine, and the four restarts into trees the reaper had witnessed
+        # unlocked (q1, inf1, gate1, own1 at 14:34:37Z) left no artifact that
+        # says either way: `restart-after-terminal-measure.py --locks`. So
+        # this look catches a lock that IS there; it promises nothing about a
+        # lock that is not. What protects the unlocked-restart case is named
+        # in owner_check (row 5, from two sources) and in the write barrier
+        # (guard-sealed-worktree.sh refuses a terminal agent every tool), and
+        # the ancestor gate re-verified on the line above.
         fresh = proof_api.registry(repo).get(member['path'])
         if not fresh or 'locked' in fresh or 'prunable' in fresh:
             raise RuntimeError(
                 'RETRY, not a verdict: the platform holds this workspace again as of this instant '
                 '(%s). Something started in it while the reclaim was preparing; nothing is removed'
                 % ('re-locked' if fresh and 'locked' in fresh else 'registration changed'))
+        # THE LAST LOOK ON THE IGNORED SIDE (Sage D3): the archive was verified
+        # when it was written; the tree may have moved since. Nothing is
+        # removed that the archive does not hold byte for byte.
+        unchanged, why_changed = residue_last_look(member['path'], repo, residue_archived)
+        if not unchanged:
+            raise RuntimeError('RETRY, not a verdict: ' + why_changed)
         saved = dict(saved, ignored_disposable=len(keep), ignored_residue=residue_record)
         tx.update_member(sid, aid, index, daily_cleanup=saved, cleanup_policy='integrated-daily')
         _git(repo, 'worktree', 'remove', '--', member['path'])

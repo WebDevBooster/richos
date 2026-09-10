@@ -169,6 +169,95 @@ class Cleanup(unittest.TestCase):
         self.assertTrue(str(residue['archive']).startswith(str(self.root/'captures')))
         self.assertFalse(list((self.root/'captures').rglob('x.pyc')))
 
+    def test_a_nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped(self):
+        # FRANK R1, ROUND TWO -- the only loss path found in two rounds of
+        # review. `git ls-files --others --ignored --exclude-standard` reports a
+        # nested repository as ONE directory entry (`vendor/lib/`), and
+        # partition_ignored() dropped any path with a disposable component, so
+        # a clone under an ignored vendor/ was classified disposable by its
+        # parent's name, archived by nobody, and deleted by the non-force
+        # removal -- commits nowhere else, gone. Reproduced under the lane's
+        # binary: `nested: (0, '') | exists after: False`.
+        (self.repo/'.git/info/exclude').write_text('vendor/\n')
+        nested=self.work/'vendor'/'lib';nested.mkdir(parents=True)
+        self.git(nested,'init','-q','-b','main');self.git(nested,'config','user.name','Fixture');self.git(nested,'config','user.email','fixture@example.invalid')
+        (nested/'only-here').write_text('commits nobody else holds\n');self.git(nested,'add','only-here');self.git(nested,'commit','-q','-m','only here')
+        nested_head=self.git(nested,'rev-parse','HEAD').strip()
+        (self.work/'vendor'/'plain-ignored').write_text('a disposable file beside it\n')
+        # the premise, asserted rather than assumed: git lists the nested
+        # repository as a trailing-slash entry and the plain file as itself
+        listed=daily.ignored_files(str(self.work))
+        self.assertIn('vendor/lib/',listed);self.assertIn('vendor/plain-ignored',listed)
+        keep,residue=daily.partition_ignored(listed,daily.disposable_paths(str(self.repo)))
+        self.assertEqual((keep,residue),(['vendor/plain-ignored'],['vendor/lib/']))
+        # and a `.git` component is never disposable whatever it sits under
+        self.assertEqual(daily.partition_ignored(['node_modules/x/.git/HEAD'],{'node_modules'}),([],['node_modules/x/.git/HEAD']))
+        decision,reason=self.assess();self.assertEqual(decision,'remove');self.assertIn('1 archived first',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        journal=result['members'][0]['daily_cleanup']
+        self.assertEqual(journal['ignored_disposable'],1)
+        residue=journal['ignored_residue']
+        self.assertEqual(residue['nested_repositories'],['vendor/lib'])
+        self.assertEqual(residue['nested_repository_count'],1)
+        with tarfile.open(residue['archive']) as tar:
+            names=tar.getnames()
+            self.assertIn('vendor/lib/only-here',names)
+            # THE COMMIT ITSELF is in the archive: the loose object of the
+            # nested HEAD, under its own .git, byte-identical and verified.
+            self.assertIn('vendor/lib/.git/objects/%s/%s'%(nested_head[:2],nested_head[2:]),names)
+            self.assertIn('vendor/lib/.git',names)                      # a directory entry
+            self.assertTrue(tar.getmember('vendor/lib/.git').isdir())
+            self.assertNotIn('vendor/plain-ignored',names)              # the disposable file was dropped
+        self.assertGreater(residue['directories'],0)
+        # restore it and prove the commit is reachable again
+        dest=self.root/'restore';dest.mkdir()
+        with tarfile.open(residue['archive']) as tar:
+            tar.extractall(dest)
+        self.assertEqual(self.git(dest/'vendor'/'lib','rev-parse','HEAD').strip(),nested_head)
+        self.assertEqual(self.git(dest/'vendor'/'lib','cat-file','-p','HEAD:only-here'),'commits nobody else holds\n')
+
+    def test_an_ignored_file_written_after_the_archive_HOLDS_the_removal(self):
+        # SAGE D3, ROUND TWO. reconcile() archived and verified the residue,
+        # then re-checked the tracked side and the lock -- and never the
+        # ignored side -- before `git worktree remove`, which does not refuse
+        # on ignored changes. A writer the process probe did not see (one that
+        # started after the probe, or whose handle closed between writes)
+        # writing an ignored file in that window lost those bytes. Same
+        # last-look shape as the tracked side, on the ignored side.
+        (self.repo/'.git/info/exclude').write_text('extra\nlate\n')
+        (self.work/'extra').write_bytes(b'archived\n')
+        real_archive=daily.archive_residue
+        work=self.work
+        def write_during_preparation(*a,**k):
+            out=real_archive(*a,**k)
+            (work/'late').write_bytes(b'written after the archive\n')
+            return out
+        with patch.object(daily,'archive_residue',write_during_preparation):
+            with self.assertRaisesRegex(RuntimeError,'ignored bytes changed between the archive and the removal'):
+                self.run_cleanup()
+        self.assert_kept();self.assertTrue((self.work/'late').exists())
+        # the same shape when NOTHING was archived and a residue appears late
+        (self.work/'extra').unlink();(self.work/'late').unlink()
+        def write_late_file(*a,**k):
+            raise AssertionError('archive_residue must not be called with no residue')
+        real_partition=daily.partition_ignored
+        calls=[]
+        def partition_then_write(files,disposable):
+            calls.append(1)
+            out=real_partition(files,disposable)
+            if len(calls)==1:
+                (work/'late').write_bytes(b'appeared after the first listing\n')
+            return out
+        with patch.object(daily,'partition_ignored',partition_then_write):
+            with self.assertRaisesRegex(RuntimeError,'1 added'):
+                self.run_cleanup()
+        self.assert_kept()
+        # and with the tree quiet, the same workspace reclaims and the late
+        # file is in the archive rather than under the rubble
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        with tarfile.open(result['members'][0]['daily_cleanup']['ignored_residue']['archive']) as tar:
+            self.assertEqual(tar.getnames(),['late'])
+
     def test_a_secret_bearing_file_is_ARCHIVED_and_NAMED_never_silently_dropped(self):
         # FRANK D13, 2026-09-10. The residue archive is where a workspace's
         # IGNORED files go, and `.env` files are ignored by construction: 51
