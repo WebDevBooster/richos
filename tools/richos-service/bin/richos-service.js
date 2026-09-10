@@ -19,6 +19,7 @@
  *   richos-service models                # the pin table: what is installed, what verifies, what it would cost
  *   richos-service verify-model <id>     # hash a model already on disk against its pinned sha256
  *   richos-service fetch-model <id>      # download it, verify it, and install it only if it verifies
+ *   richos-service toolchain             # which binary, which ggml backends, which weights — and did they change
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
  * Common flags: --zone <dir> (override the drop zone), --model <id>.
@@ -31,7 +32,8 @@ import { runPipeline } from '../lib/pipeline.js';
 import { scanZone, watch } from '../lib/watcher.js';
 import { decideClaimOnDisk, findPromotableOnDisk, markSuperseded } from '../lib/coordination.js';
 import { dropZone, ffmpegBin, whisperBin, resolveModel, resolveModelChecked, modelSearchDirs, resolveTier, MODEL_TIERS, DEFAULT_TIER, DEFAULT_MODEL, REPO_ROOT } from '../lib/config.js';
-import { MODEL_PINS, PIN_FILE, PINS_VERIFIED_ON, pinFor, pinnedModelIds, provenanceLine, isSingleWitness, human } from '../lib/model-catalog.js';
+import { MODEL_PINS, PIN_FILE, PINS_VERIFIED_ON, TOOLCHAIN_REFERENCE, pinFor, pinnedModelIds, provenanceLine, isSingleWitness, human } from '../lib/model-catalog.js';
+import { resolveToolchain, lockPath as toolchainLockPath } from '../lib/toolchain.js';
 import { modelStatus, downloadModel } from '../lib/model-fetch.js';
 import { inspectFile } from '../lib/model-integrity.js';
 import { assertEvidenceOutsideProductRepo } from '../lib/workspace/privacy.js';
@@ -507,6 +509,72 @@ function main() {
       break;
     }
 
+    // The toolchain lock: WHAT is about to decode, and is it what decoded last time. Read-only by
+    // default — `--relock` is the one way to accept a change on purpose, and it is a separate verb
+    // because "accept whatever is there now" happening as a side effect of an inspection is how a
+    // guard gets silently disarmed.
+    case 'toolchain': {
+      const relock = flag('relock') === true;
+      const recheck = flag('recheck') === true;
+      const resolvedTier = resolveTier(tier || model);
+      let binPath;
+      try {
+        binPath = whisperBin();
+      } catch (err) {
+        console.error(`whisper-cli: MISSING — ${String(err.message || err)}`);
+        process.exit(1);
+      }
+      let modelPath;
+      try {
+        modelPath = resolveModel(resolvedTier.model);
+      } catch (err) {
+        console.error(`model: MISSING — ${String(err.message || err)}`);
+        process.exit(1);
+      }
+      const file = toolchainLockPath();
+      if (relock) {
+        try {
+          fs.rmSync(file, { force: true });
+          console.log(`removed the previous lock at ${file} — re-locking from what is installed now`);
+        } catch (err) {
+          console.error(`could not remove ${file}: ${String(err.message || err)}`);
+          process.exit(1);
+        }
+      }
+      const r = resolveToolchain({
+        binPath,
+        modelPath,
+        modelId: resolvedTier.model,
+        lockFile: file,
+        // `--recheck` re-hashes the model even when the (path, size, mtime, inode, device) tuple
+        // says nothing moved. That tuple is what keeps a 3.1 s hash of a 1.6 GB model off every
+        // decode; this is the verb that pays it deliberately.
+        force: recheck,
+        memo: false,
+      });
+      const t = r.toolchain;
+      console.log(`lock file:  ${file}${r.firstRun ? '  (did not exist — written now)' : ''}`);
+      console.log(`reference:  whisper.cpp ${TOOLCHAIN_REFERENCE?.whisperCppVersion} / ggml ${TOOLCHAIN_REFERENCE?.ggmlFormulaVersion}, measured ${TOOLCHAIN_REFERENCE?.measuredOn}`);
+      console.log('');
+      console.log(`whisper-cli:  ${t.bin.realPath || t.bin.path}`);
+      console.log(`              version ${t.bin.version || 'NOT REPORTED (this build does not answer --version)'}`);
+      console.log(`              sha256 ${t.bin.sha256}  (${t.bin.bytes} bytes)`);
+      for (const b of t.backends) console.log(`ggml ${b.name.padEnd(8)} sha256 ${b.sha256}  ${b.path}`);
+      if (!t.backends.length) console.log('ggml backends: none reported on the version probe');
+      console.log('');
+      console.log(`model:        ${t.model.id}  ${t.model.path}`);
+      console.log(`              sha256 ${t.model.sha256 || 'UNREADABLE'}  (${t.model.hashed === 'cached' ? 'from the lock cache — pass --recheck to re-hash' : 'hashed just now'})`);
+      console.log(`              ${t.model.pinned ? 'pinned in model-pins.json' : 'NOT PINNED — no source hash to check it against'}`);
+      console.log('');
+      console.log(`verdict:      ${r.verdict.toUpperCase()}${r.toolchain.strict ? '  (strict mode: every warning is a refusal)' : ''}`);
+      for (const m of r.messages) console.log(`  - ${m}`);
+      // Exit 1 on refuse only. A warning is real and printed, and it is not a broken machine —
+      // making `toolchain` exit non-zero on a Homebrew upgrade would put it in the same class as a
+      // missing binary in anything that scripts it.
+      process.exit(r.verdict === 'refuse' ? 1 : 0);
+      break;
+    }
+
     case 'doctor': {
       let ok = true;
       try {
@@ -564,6 +632,7 @@ function main() {
           '  richos-service models [--dir d] [--deep]           # the pin table + what is installed',
           '  richos-service verify-model <id> [--dir d]         # hash it against its pinned sha256',
           '  richos-service fetch-model <id> [--dir d]          # download, verify, install only if it verifies',
+          '  richos-service toolchain [--tier t] [--recheck] [--relock]   # which binary, which backends, which weights',
           '  richos-service doctor',
         ].join('\n'),
       );

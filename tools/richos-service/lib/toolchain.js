@@ -348,9 +348,17 @@ export function describeFinding(f) {
         `now ${f.nowVersion ? `version ${f.nowVersion}` : 'an unversioned build'} sha256 ${s(f.now)}` +
         `${f.nowPath ? ` at ${f.nowPath}` : ''}. ` +
         `Decode defaults are a property of a build: whisper.cpp defaults flash attention ON, and losing it is ` +
-        `worth 1.57 WER points measured on this project's own corpus. This transcript was produced by the NEW ` +
-        `binary and is attributed to it in the session record. If this was a deliberate upgrade, nothing needs ` +
-        `doing — the new identity is now the locked one.`
+        `worth 1.57 WER points measured on this project's own corpus. ` +
+        // The two severities need two different last sentences. Under strict mode nothing was
+        // transcribed, and telling a reader their transcript "was produced by the new binary"
+        // when no transcript exists is the kind of confidently wrong sentence that costs a
+        // message its authority.
+        (f.severity === 'refuse'
+          ? `RICHOS_WHISPER_STRICT_TOOLCHAIN is set, so this is a REFUSAL and nothing was transcribed: the audio ` +
+            `is untouched and retained. Put the locked build back, or accept this one with ` +
+            `\`richos-service toolchain --relock\`.`
+          : `This transcript was produced by the NEW binary and is attributed to it in the session record. If ` +
+            `this was a deliberate upgrade, nothing needs doing — the new identity is now the locked one.`)
       );
     case TOOLCHAIN_FINDING.BACKEND_CHANGED:
       return (
