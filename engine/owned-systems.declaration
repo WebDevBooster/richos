@@ -120,7 +120,7 @@
 
 id: ci
 title: Continuous integration across every governed repository
-check: bash {engine}/scripts/ci-status.sh
+check: bash {engine}/scripts/ci-status.sh --offline
 unknown-exit: 2 3
 evidence: (\.yml.*\[active|RED for|NO GREEN RUN|NEVER RUN|never passed|concluded)
 match: (\bCI\b|workflow|ci-surface|ci-status|engine-self-verify|ui-suite-ci|packaging-ci|app-spine-ci|app-voice-ci|github actions|red on main)
@@ -174,3 +174,12 @@ evidence: (UNLANDED|branch|commit)
 match: (unlanded|land the|merge the branch|strand)
 timeout: 60
 why: Added by this row's author, not by the brief — `git status` clean and `main == origin/main` are both TRUE while a teammate's finished commits sit unmerged, which is the same absence-reads-as-success shape as every other row here.
+
+id: executables
+title: Every script something is configured to run is actually runnable
+check: python3 {engine}/scripts/owned-state-checks/registered-executables.py --entity {entity} --engine {engine}
+unknown-exit: 2
+evidence: (MISSING|NOT RUNNABLE)
+match: (executable|chmod|not runnable|registered script|launchd|scheduled job)
+timeout: 45
+why: Three scripts were committed 644 on one day — two wired guards that loaded nothing while the session banner read a confident 60/62, and the entry point of a scheduled job; none was red, none was reported, and every test that ran, ran.

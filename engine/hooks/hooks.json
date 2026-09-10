@@ -132,7 +132,7 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-owned-state.sh",
-            "timeout": 120
+            "timeout": 60
           }
         ]
       },

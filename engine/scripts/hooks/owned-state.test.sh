@@ -469,5 +469,65 @@ else
 fi
 
 echo ""
+echo "=== 6. the registered-executables check, two-sided ==="
+
+# THE NEGATIVE CONTROL COMES FIRST, deliberately. A check whose only evidence
+# is "it says everything is fine on a machine where everything is fine" is the
+# scanner-over-an-empty-corpus this engine keeps catching in itself. The defect
+# it exists for is a REAL one from 2026-09-10 — three scripts committed 644 —
+# so the first thing proven is that it sees exactly that.
+XCHECK="$ENGINE_ROOT/scripts/owned-state-checks/registered-executables.py"
+XB="$SB/xsandbox"
+mkdir -p "$XB/engine/hooks" "$XB/engine/scripts/hooks" "$XB/entity/.claude" "$XB/agents"
+
+printf '#!/usr/bin/env bash\nexit 0\n' >"$XB/engine/scripts/hooks/runnable.sh"
+chmod +x "$XB/engine/scripts/hooks/runnable.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$XB/engine/scripts/hooks/no-bit.sh"
+chmod 644 "$XB/engine/scripts/hooks/no-bit.sh"
+
+cat >"$XB/engine/hooks/hooks.json" <<'HJ'
+{"hooks": {"PreToolUse": [{"matcher": "Agent", "hooks": [
+  {"type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/runnable.sh"},
+  {"type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-bit.sh"}
+]}]}}
+HJ
+
+RC=0
+OUT="$(python3 "$XCHECK" --entity "$XB/entity" --engine "$XB/engine" --launch-agents "$XB/agents" 2>&1)" || RC=$?
+if [ "$RC" -eq 1 ] \
+   && printf '%s' "$OUT" | grep -q 'NOT RUNNABLE.*no-bit.sh' \
+   && ! printf '%s' "$OUT" | grep -q 'runnable.sh —'; then
+    ok "6a  NEGATIVE CONTROL: a wired hook with no executable bit is NAMED, and its runnable sibling is not"
+else
+    bad "6a  the 644 defect of 2026-09-10 would not have been caught" "rc=$RC"
+fi
+
+chmod +x "$XB/engine/scripts/hooks/no-bit.sh"
+RC=0
+OUT="$(python3 "$XCHECK" --entity "$XB/entity" --engine "$XB/engine" --launch-agents "$XB/agents" 2>&1)" || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'exist and are executable'; then
+    ok "6b  and it goes green the moment the bit is set — the check tracks the fact, not the file list"
+else
+    bad "6b  a fully executable surface did not pass" "rc=$RC"
+fi
+
+rm -f "$XB/engine/scripts/hooks/no-bit.sh"
+RC=0
+OUT="$(python3 "$XCHECK" --entity "$XB/entity" --engine "$XB/engine" --launch-agents "$XB/agents" 2>&1)" || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'MISSING.*no-bit.sh'; then
+    ok "6c  a wired hook that is not on disk at all is a different sentence from one that is not runnable"
+else
+    bad "6c  a missing wired hook was not distinguished" "rc=$RC"
+fi
+
+RC=0
+OUT="$(python3 "$XCHECK" --entity "$SB/nowhere" --engine "$SB/nowhere" --launch-agents "$XB/agents" 2>&1)" || RC=$?
+if [ "$RC" -eq 2 ]; then
+    ok "6d  no readable registration surface is UNKNOWN, never a clean bill of health"
+else
+    bad "6d  an unreadable surface reported a verdict" "rc=$RC"
+fi
+
+echo ""
 printf '  %s passed, %s FAILED\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
