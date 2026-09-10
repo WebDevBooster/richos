@@ -451,6 +451,11 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/notice-land-disposition.sh",
+            "timeout": 25
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/notice-ceo-unasked.sh",
             "timeout": 25
           },

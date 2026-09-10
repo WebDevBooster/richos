@@ -433,6 +433,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-land-disposition.sh",
+            "timeout": 25
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-ceo-unasked.sh",
             "timeout": 25
           },

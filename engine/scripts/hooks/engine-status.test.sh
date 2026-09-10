@@ -487,6 +487,27 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # still has to be added to R_ROOTED_HOOKS. Nothing goes red without it -- that
 # list is typed, not derived -- which is exactly why it is written down here
 # instead of left to be noticed.
+# THAT DEBT IS SETTLED, 2026-09-10: R_ROOTED_HOOKS now carries
+# `notice-unlanded-branches` and `notice-land-disposition` both.
+# notice-land-disposition.sh, added 2026-09-10 on Stop, and it is the OTHER
+# half of the hook above rather than a louder version of it. That one answers
+# "is anything ahead of main that nobody holds" -- a fact about branches. This
+# one answers "is anything OWED" -- a fact about records: finished work is
+# LANDED, or it is HELD FOR A REASON SOMEBODY WROTE DOWN, and there is no third
+# state. The third state is what happened four days after the incident above:
+# five finished agents, five workspaces held because their branches were
+# unmerged, no land, no deadline, no demand, and nobody the hold belonged to.
+# The founder found them in his own IDE. Every mechanism involved was behaving
+# correctly -- holding an unmerged branch is right, and the branch notice had
+# already reported them, once, accurately, that morning. What was missing was a
+# requirement on the work. The FOUR inventories a Stop registration has to
+# reach were derived the way the note above says rather than guessed:
+# hooks/hooks.json, .claude/settings.local.json, this set, and the probe (both
+# its Layer R list and its BR registration table). ALL FOUR CARRY IT, so this
+# one leaves no inventory owing. The second surface was found by
+# stop-hook-visibility.test.sh case 1b rather than by memory -- a hook on one
+# surface and not the other is enforcement that exists in one installation mode
+# and not the other.
 # shell-evidence.sh was registered on 2026-09-06 to preserve Bash pipeline and
 # sequence failures; acknowledge it here as well as in the derived probe inventory.
 # guard-stale-staging.sh, added 2026-09-06: the staging-staleness gate on
@@ -574,6 +595,7 @@ notice-escalations.sh
 notice-hook-staleness.sh
 notice-inflight-acks.sh
 notice-inflight-sends.sh
+notice-land-disposition.sh
 notice-mechanical-findings.sh
 notice-unasked-deferral.sh
 notice-unlanded-branches.sh
