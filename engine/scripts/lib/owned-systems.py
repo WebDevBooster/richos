@@ -406,18 +406,49 @@ def session_dispositions(entity_root, session_id):
 
 
 def record_disposition(entity_root, session_id, system, how, reason, agent=""):
+    """Append the disposition, and — when it is a WAIVER — to the ack ledger too.
+
+    TWO EXPLICIT APPEND SITES, EACH NAMING ITS LEDGER ON ITS OWN LINE, and that
+    is not style. notice-waiver-repetition.py discovers escape-hatch ledgers by
+    reading every engine script for an append site whose target RESOLVES to a
+    *.log basename — it has no typed list of ledgers, deliberately, because a
+    typed list is the thing that falls behind. The first version of this
+    function wrote both files from one loop over a variable, so the analyzer
+    could not resolve either name and its own lint reported them as "ON DISK,
+    CLAIMED BY NO GUARD". The gate's refusal text PROMISES the operator that a
+    repeated excuse gets named, and that promise was false for as long as this
+    loop was clever. Verified by running the lint, not by reading the analyzer.
+
+    Both ledgers now classify as hatches, and the dispositions one is arguably
+    over-classified because it also records dispatches that ADDRESSED a system,
+    which are not waivers at all. That is the direction the analyzer's own
+    header says it chooses to fail in: an over-classified record costs the
+    operator a line he can dismiss, an under-classified hatch is a defect
+    nobody is told about."""
     at = iso(now())
     row = "at=%s\tsession=%s\tsystem=%s\thow=%s\tagent=%s\treason=%s\n" % (
         at, session_id, system, how, agent, reason.replace("\t", " ").replace("\n", " "))
     ok = True
-    for name in (DISPOSITION_LOG_NAME,) + ((ACK_LOG_NAME,) if how == "ack" else ()):
-        path = state_path(entity_root, name)
+
+    disposition_path = state_path(entity_root, DISPOSITION_LOG_NAME)
+    try:
+        os.makedirs(os.path.dirname(disposition_path), exist_ok=True)
+        with open(disposition_path, "a", encoding="utf-8") as fh:  # ledger: owned-state-dispositions.log
+            fh.write(row)
+    except OSError:
+        ok = False
+
+    if how == "ack":
+        # The waiver ledger. An operator who gives the same reason for the same
+        # system session after session is named by notice-waiver-repetition.py.
+        ack_path = state_path(entity_root, ACK_LOG_NAME)
         try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "a", encoding="utf-8") as fh:
+            os.makedirs(os.path.dirname(ack_path), exist_ok=True)
+            with open(ack_path, "a", encoding="utf-8") as fh:  # ledger: owned-state-acks.log
                 fh.write(row)
         except OSError:
             ok = False
+
     return ok
 
 
