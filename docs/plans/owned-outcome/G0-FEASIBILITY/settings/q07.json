@@ -1,0 +1,39 @@
+{
+ "hooks": {
+  "Stop": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/hooks/stopmark.sh /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q07-stop.jsonl /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q07-marks 0",
+      "timeout": 15
+     }
+    ]
+   }
+  ],
+  "PreToolUse": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/hooks/record.sh /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q07-pretooluse.jsonl 0 \"\" 0",
+      "timeout": 15
+     }
+    ],
+    "matcher": "Bash"
+   }
+  ],
+  "PermissionRequest": [
+   {
+    "matcher": "Bash",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/hooks/permreq.sh /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q07-permreq.jsonl 6 deny",
+      "timeout": 30
+     }
+    ]
+   }
+  ]
+ }
+}

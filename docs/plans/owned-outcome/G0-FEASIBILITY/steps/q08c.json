@@ -1,0 +1,48 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Spawn exactly one teammate named worker-a using the general-purpose agent type, with this brief passed verbatim as its prompt: \"\"\"Brief for worker-a (G0 handoff probe). Working directory: the current one. Reproduction: run `ls \"/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dir with spaces\"` once and report its exit code. Then run exactly `sleep 250` with the Bash tool (this is the marker command; do not shorten it). Then create the file worker-done-C.txt in the current directory with the single line WORKER DONE. Negative constraint: do NOT modify BACKLOG.md. Handoff: reply with one line WORKER DONE C and stop.\"\"\" After spawning it, end your turn immediately with the single line SPAWNED (do not wait, do not poll). When worker-a reports back, reply with one line LEAD SAW: <its exact final line>."
+ },
+ {
+  "sleep": 1.0
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q08c-marks/stop-1",
+  "timeout": 120
+ },
+ {
+  "mark": "lead-idle-1"
+ },
+ {
+  "sleep": 6
+ },
+ {
+  "shell": "pgrep -fl 'sleep 250' || echo no-sleep-250"
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "closepty",
+  "timeout": 45
+ },
+ {
+  "shell": "sleep 3; pgrep -fl 'sleep 250' || echo no-sleep-250-after-close; pgrep -fl 'versions/2.1.267' | grep -v pgrep || echo no-claude-procs; ls /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q08c"
+ },
+ {
+  "shell": "sleep 20; pgrep -fl 'sleep 250' || echo no-sleep-250-after-23s"
+ }
+]

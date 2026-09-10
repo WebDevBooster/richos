@@ -1,0 +1,44 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Reply with the single word PONG and nothing else."
+ },
+ {
+  "sleep": 1.0
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "sleep": 9
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "send": "\u0003"
+ },
+ {
+  "sleep": 0.5
+ },
+ {
+  "send": "\u0003"
+ },
+ {
+  "sleep": 0.5
+ },
+ {
+  "exit": "ctrlc",
+  "timeout": 30
+ }
+]

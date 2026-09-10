@@ -1,0 +1,36 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Use the AskUserQuestion tool to ask me which filename to use for the output (options: alpha.txt or beta.txt). If the tool is refused or unavailable, do not ask in plain text; instead reply with one line: TOOL-REFUSED: <reason>."
+ },
+ {
+  "sleep": 0.8
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q05b-marks/stop-1",
+  "timeout": 150
+ },
+ {
+  "sleep": 2.5
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "/exit",
+  "timeout": 45
+ }
+]

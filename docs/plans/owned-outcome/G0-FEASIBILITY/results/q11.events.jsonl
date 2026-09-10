@@ -1,0 +1,341 @@
+{"pid": 57406, "args": ["--model", "haiku", "--setting-sources", "", "--settings", "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/settings/q11.json", "--session-id", "803fabf2-57e8-481f-a726-63b9371dd73b"], "kind": "spawn", "ts_ms": 1789025138663, "rel_ms": 0}
+{"kind": "out", "ts_ms": 1789025138836, "rel_ms": 173, "n": 13, "text": ""}
+{"kind": "out", "ts_ms": 1789025138841, "rel_ms": 178, "n": 6, "text": ""}
+{"kind": "out", "ts_ms": 1789025138841, "rel_ms": 178, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789025138846, "rel_ms": 183, "n": 1024, "text": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nAccessingworkspace:\n\n/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q11\n\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyourowncode,awell-knownopensourceproject,orworkfrom\nyourteam).Ifnot,takeamomenttoreviewwhat'sinthisfolderfirst.\n\nClaudeCode'll\u001b[1"}
+{"kind": "auto-trust-down-enter", "ts_ms": 1789025139859, "rel_ms": 1196}
+{"kind": "out", "ts_ms": 1789025139859, "rel_ms": 1196, "n": 416, "text": "7Gbeabletoread,edit,andexecutefileshere.\n\nSecurityguide\n\n\u276fNo,exit\nYes,Itrustthisfolder\n\nEntertoconfirm\u00b7Esctocancel\n   No, exit \u276fYes, I trust this folder\n\n\n "}
+{"kind": "out", "ts_ms": 1789025139861, "rel_ms": 1198, "n": 33, "text": ""}
+{"kind": "out", "ts_ms": 1789025139862, "rel_ms": 1199, "n": 284, "text": ""}
+{"kind": "out", "ts_ms": 1789025139887, "rel_ms": 1224, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789025139888, "rel_ms": 1225, "n": 8, "text": ""}
+{"kind": "out", "ts_ms": 1789025140190, "rel_ms": 1527, "n": 33, "text": ""}
+{"kind": "out", "ts_ms": 1789025140222, "rel_ms": 1559, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789025140227, "rel_ms": 1564, "n": 20, "text": ""}
+{"kind": "out", "ts_ms": 1789025140239, "rel_ms": 1576, "n": 1024, "text": "\u2597 \u2597   \u2596 \u2596ClaudeCodev2.1.267\n       Haiku4.5\u00b7ClaudeMax\n\u2598\u2598\u259d\u259d/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q11\n\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u276f\u00a0Try\"createautillogging.pythat...\"\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"}
+{"kind": "out", "ts_ms": 1789025140242, "rel_ms": 1579, "n": 494, "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f5\u23f5automodeon (shift+tabtocycle)\u00b7\u2190foragents/rcconnecting\u2026\n "}
+{"pattern": "for\\s*shortcuts|for\\s*agents", "found": true, "kind": "expect", "ts_ms": 1789025140242, "rel_ms": 1579}
+{"kind": "out", "ts_ms": 1789025140292, "rel_ms": 1629, "n": 230, "text": " \u23f8 manual mode on \u00b7 ? for shortuts \u00b7\u2190for agents  auto mode unavailable for this model\n/rcconnecting\u2026\n "}
+{"kind": "out", "ts_ms": 1789025140296, "rel_ms": 1633, "n": 8, "text": ""}
+{"kind": "out", "ts_ms": 1789025141028, "rel_ms": 2365, "n": 72, "text": "             /rc\n "}
+{"label": "prompt-send", "kind": "mark", "ts_ms": 1789025142280, "rel_ms": 3617}
+{"text": "Run exactly this command with the Bash tool: ls \"/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dir with spaces\" . Then reply with one line: LISTED <exit code>. Do not retry.", "kind": "send", "ts_ms": 1789025142609, "rel_ms": 3946}
+{"kind": "out", "ts_ms": 1789025142614, "rel_ms": 3951, "n": 891, "text": " Run exactly this command with the Bashtool:ls  \"/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dir with spaces\" . Then reply with one line: LISTED <exit code>. Do not retry.\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeonautomodeunavailableforthismodel\n/rc\n "}
+{"text": "\r", "kind": "send", "ts_ms": 1789025143986, "rel_ms": 5323}
+{"kind": "out", "ts_ms": 1789025144016, "rel_ms": 5353, "n": 20, "text": ""}
+{"kind": "out", "ts_ms": 1789025144020, "rel_ms": 5357, "n": 1024, "text": "\u276f Run exactly this command with the Bash tool: ls                                                                                             \"/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dir with spaces\" . Then reply with one    line: LISTED <exit code>. Do not retry.                                                                                                    \u273d Cerebrating\u2026  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\ufffd"}
+{"kind": "out", "ts_ms": 1789025144020, "rel_ms": 5357, "n": 731, "text": "\ufffd\u2500\u2500\u2500\u2500\u2500\u2500\n\u276f\u00a0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeon\u00b7esctointerrupt\u00b7\u2190foragentsautomodeunavailableforthismodel\n/rc\n "}
+{"kind": "out", "ts_ms": 1789025144105, "rel_ms": 5442, "n": 67, "text": "\u273b\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025144231, "rel_ms": 5568, "n": 67, "text": "\u2736\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025144445, "rel_ms": 5782, "n": 67, "text": "\u2733\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025144553, "rel_ms": 5890, "n": 67, "text": "\u2722\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025144679, "rel_ms": 6016, "n": 66, "text": "\u00b7\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025144712, "rel_ms": 6049, "n": 83, "text": " Proofing\u2026 \n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025144816, "rel_ms": 6153, "n": 38, "text": ""}
+{"kind": "out", "ts_ms": 1789025144925, "rel_ms": 6262, "n": 107, "text": " (0s \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025144977, "rel_ms": 6314, "n": 38, "text": ""}
+{"kind": "out", "ts_ms": 1789025145013, "rel_ms": 6350, "n": 70, "text": " 1\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025145121, "rel_ms": 6458, "n": 91, "text": "\u2722thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025145229, "rel_ms": 6566, "n": 67, "text": "\u2733\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025145460, "rel_ms": 6797, "n": 67, "text": "\u2736\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025145569, "rel_ms": 6906, "n": 67, "text": "\u273b\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025145677, "rel_ms": 7014, "n": 91, "text": "\u273dthinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025145898, "rel_ms": 7235, "n": 77, "text": " thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025145939, "rel_ms": 7276, "n": 38, "text": ""}
+{"kind": "out", "ts_ms": 1789025146021, "rel_ms": 7358, "n": 70, "text": " 2\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146130, "rel_ms": 7467, "n": 91, "text": "\u273bthinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146235, "rel_ms": 7572, "n": 147, "text": "\u2736\u2193 25 tokens \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146356, "rel_ms": 7693, "n": 85, "text": "\u273363\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146463, "rel_ms": 7800, "n": 71, "text": " 88\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146568, "rel_ms": 7905, "n": 128, "text": "\u2722113 tokens \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146695, "rel_ms": 8032, "n": 127, "text": "\u00b7\u202638thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146797, "rel_ms": 8134, "n": 71, "text": " 75\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146901, "rel_ms": 8238, "n": 38, "text": ""}
+{"kind": "out", "ts_ms": 1789025146909, "rel_ms": 8246, "n": 84, "text": " thought for 1s)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146926, "rel_ms": 8263, "n": 87, "text": " g94\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025146996, "rel_ms": 8333, "n": 1024, "text": " Listing 1 directory\u2026 (ctrl+oto expand)  \u23bf  $ ls \"/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dir with spaces\" .\u00b7 Proofing\u2026 (2s \u00b7 \u2193194 tokens \u00b7 thought for 1s)\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u276f\u00a0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"}
+{"kind": "out", "ts_ms": 1789025146997, "rel_ms": 8334, "n": 537, "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeon\u00b7esctointerrupt\u00b7\u2190foragentsautomodeunavailableforthismodel\n/rc\n "}
+{"kind": "out", "ts_ms": 1789025147019, "rel_ms": 8356, "n": 92, "text": " Proofin3\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025147030, "rel_ms": 8367, "n": 38, "text": ""}
+{"kind": "out", "ts_ms": 1789025147037, "rel_ms": 8374, "n": 1024, "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Bash command  \u2502ls\"/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dirwithspaces\".   Run the specified ls command  Doyouwanttoproceed?\n\u276f1.Yes\n2.Yes,allowreadingfrom/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dirwith\u001b"}
+{"kind": "out", "ts_ms": 1789025147037, "rel_ms": 8374, "n": 175, "text": "[22m\nspacesfromthisproject\n3.No\n\nEsctocancel\u00b7Tabtoamend\n "}
+{"kind": "out", "ts_ms": 1789025147365, "rel_ms": 8702, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025147970, "rel_ms": 9307, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025148576, "rel_ms": 9913, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025149186, "rel_ms": 10523, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025149793, "rel_ms": 11130, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025150398, "rel_ms": 11735, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025151003, "rel_ms": 12340, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025151612, "rel_ms": 12949, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025152220, "rel_ms": 13557, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025152823, "rel_ms": 14160, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025153114, "rel_ms": 14451, "n": 1, "text": "\u0007"}
+{"kind": "out", "ts_ms": 1789025153442, "rel_ms": 14779, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025154047, "rel_ms": 15384, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025154653, "rel_ms": 15990, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025155255, "rel_ms": 16592, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025155865, "rel_ms": 17202, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025156476, "rel_ms": 17813, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025157079, "rel_ms": 18416, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025157687, "rel_ms": 19024, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025158307, "rel_ms": 19644, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025158907, "rel_ms": 20244, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025159513, "rel_ms": 20850, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025160120, "rel_ms": 21457, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025160743, "rel_ms": 22080, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025161350, "rel_ms": 22687, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025161952, "rel_ms": 23289, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025162561, "rel_ms": 23898, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025163169, "rel_ms": 24506, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025163780, "rel_ms": 25117, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025164386, "rel_ms": 25723, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025164999, "rel_ms": 26336, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025165602, "rel_ms": 26939, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025166210, "rel_ms": 27547, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025166813, "rel_ms": 28150, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025167417, "rel_ms": 28754, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025168025, "rel_ms": 29362, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025168634, "rel_ms": 29971, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025169243, "rel_ms": 30580, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025169847, "rel_ms": 31184, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025170471, "rel_ms": 31808, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025171079, "rel_ms": 32416, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025171673, "rel_ms": 33010, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025172285, "rel_ms": 33622, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025172899, "rel_ms": 34236, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025173501, "rel_ms": 34838, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025174110, "rel_ms": 35447, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025174718, "rel_ms": 36055, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025175328, "rel_ms": 36665, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025175940, "rel_ms": 37277, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025176545, "rel_ms": 37882, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025177154, "rel_ms": 38491, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025177766, "rel_ms": 39103, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025178369, "rel_ms": 39706, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025178977, "rel_ms": 40314, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025179582, "rel_ms": 40919, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025180193, "rel_ms": 41530, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025180800, "rel_ms": 42137, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025181401, "rel_ms": 42738, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025182008, "rel_ms": 43345, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025182618, "rel_ms": 43955, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025183224, "rel_ms": 44561, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025183835, "rel_ms": 45172, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025185049, "rel_ms": 46386, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025185658, "rel_ms": 46995, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025186267, "rel_ms": 47604, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025186878, "rel_ms": 48215, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025187485, "rel_ms": 48822, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025188103, "rel_ms": 49440, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025188705, "rel_ms": 50042, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025189310, "rel_ms": 50647, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025189915, "rel_ms": 51252, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025190519, "rel_ms": 51856, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025191131, "rel_ms": 52468, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025191740, "rel_ms": 53077, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025192345, "rel_ms": 53682, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025192954, "rel_ms": 54291, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025193564, "rel_ms": 54901, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025194171, "rel_ms": 55508, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025194782, "rel_ms": 56119, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025195400, "rel_ms": 56737, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025195992, "rel_ms": 57329, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025196616, "rel_ms": 57953, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025197221, "rel_ms": 58558, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025197829, "rel_ms": 59166, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025198430, "rel_ms": 59767, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025199037, "rel_ms": 60374, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025199642, "rel_ms": 60979, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025200263, "rel_ms": 61600, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025200864, "rel_ms": 62201, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025201467, "rel_ms": 62804, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025202074, "rel_ms": 63411, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025202680, "rel_ms": 64017, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025203288, "rel_ms": 64625, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025203902, "rel_ms": 65239, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025204506, "rel_ms": 65843, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025205112, "rel_ms": 66449, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025205722, "rel_ms": 67059, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025206328, "rel_ms": 67665, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025206939, "rel_ms": 68276, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025207547, "rel_ms": 68884, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025208152, "rel_ms": 69489, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025208779, "rel_ms": 70116, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025209367, "rel_ms": 70704, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025209976, "rel_ms": 71313, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025210583, "rel_ms": 71920, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025211207, "rel_ms": 72544, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025211814, "rel_ms": 73151, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025212422, "rel_ms": 73759, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025213016, "rel_ms": 74353, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025213639, "rel_ms": 74976, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025214247, "rel_ms": 75584, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025214855, "rel_ms": 76192, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025215463, "rel_ms": 76800, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025216072, "rel_ms": 77409, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025216678, "rel_ms": 78015, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025217285, "rel_ms": 78622, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025217895, "rel_ms": 79232, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025218503, "rel_ms": 79840, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025219111, "rel_ms": 80448, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025219715, "rel_ms": 81052, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025220323, "rel_ms": 81660, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025220932, "rel_ms": 82269, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025221539, "rel_ms": 82876, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025222146, "rel_ms": 83483, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025222755, "rel_ms": 84092, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025223364, "rel_ms": 84701, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025223963, "rel_ms": 85300, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025224584, "rel_ms": 85921, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025225190, "rel_ms": 86527, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025225799, "rel_ms": 87136, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025226402, "rel_ms": 87739, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025227009, "rel_ms": 88346, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025227622, "rel_ms": 88959, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025228225, "rel_ms": 89562, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025228831, "rel_ms": 90168, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025229434, "rel_ms": 90771, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025230649, "rel_ms": 91986, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025231260, "rel_ms": 92597, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025231872, "rel_ms": 93209, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025232479, "rel_ms": 93816, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025233085, "rel_ms": 94422, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025233689, "rel_ms": 95026, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025234300, "rel_ms": 95637, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025234909, "rel_ms": 96246, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025235517, "rel_ms": 96854, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025236123, "rel_ms": 97460, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025236735, "rel_ms": 98072, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025237339, "rel_ms": 98676, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025237949, "rel_ms": 99286, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025238557, "rel_ms": 99894, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025239167, "rel_ms": 100504, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025239771, "rel_ms": 101108, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025240388, "rel_ms": 101725, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025240994, "rel_ms": 102331, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025241600, "rel_ms": 102937, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025242208, "rel_ms": 103545, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025242819, "rel_ms": 104156, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025243422, "rel_ms": 104759, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025244031, "rel_ms": 105368, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025244634, "rel_ms": 105971, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025245243, "rel_ms": 106580, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025245861, "rel_ms": 107198, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025246469, "rel_ms": 107806, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025247070, "rel_ms": 108407, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025247678, "rel_ms": 109015, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025248287, "rel_ms": 109624, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025248893, "rel_ms": 110230, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025249501, "rel_ms": 110838, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025250110, "rel_ms": 111447, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025250714, "rel_ms": 112051, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025251321, "rel_ms": 112658, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025251926, "rel_ms": 113263, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025252535, "rel_ms": 113872, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025253143, "rel_ms": 114480, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025253766, "rel_ms": 115103, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025254375, "rel_ms": 115712, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025254984, "rel_ms": 116321, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025255574, "rel_ms": 116911, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025256183, "rel_ms": 117520, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025256792, "rel_ms": 118129, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025257398, "rel_ms": 118735, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025258011, "rel_ms": 119348, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025258618, "rel_ms": 119955, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025259225, "rel_ms": 120562, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025259831, "rel_ms": 121168, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025260451, "rel_ms": 121788, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025261062, "rel_ms": 122399, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025261671, "rel_ms": 123008, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025262263, "rel_ms": 123600, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025262888, "rel_ms": 124225, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025263478, "rel_ms": 124815, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025264100, "rel_ms": 125437, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025264704, "rel_ms": 126041, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025265311, "rel_ms": 126648, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025265920, "rel_ms": 127257, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025266529, "rel_ms": 127866, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025267138, "rel_ms": 128475, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025267745, "rel_ms": 129082, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025268346, "rel_ms": 129683, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025268967, "rel_ms": 130304, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025269574, "rel_ms": 130911, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025270179, "rel_ms": 131516, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025270783, "rel_ms": 132120, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025271394, "rel_ms": 132731, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025272001, "rel_ms": 133338, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025272606, "rel_ms": 133943, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025273216, "rel_ms": 134553, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025273824, "rel_ms": 135161, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025274431, "rel_ms": 135768, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025275040, "rel_ms": 136377, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025276254, "rel_ms": 137591, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025276857, "rel_ms": 138194, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025277478, "rel_ms": 138815, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025278085, "rel_ms": 139422, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025278689, "rel_ms": 140026, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025279300, "rel_ms": 140637, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025279910, "rel_ms": 141247, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025280512, "rel_ms": 141849, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025281124, "rel_ms": 142461, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025281732, "rel_ms": 143069, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025282335, "rel_ms": 143672, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025282945, "rel_ms": 144282, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025283548, "rel_ms": 144885, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025284156, "rel_ms": 145493, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025284766, "rel_ms": 146103, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025285375, "rel_ms": 146712, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025285984, "rel_ms": 147321, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025286591, "rel_ms": 147928, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025287199, "rel_ms": 148536, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025287800, "rel_ms": 149137, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025288410, "rel_ms": 149747, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025289020, "rel_ms": 150357, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025289628, "rel_ms": 150965, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025290234, "rel_ms": 151571, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025290841, "rel_ms": 152178, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025291461, "rel_ms": 152798, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025292072, "rel_ms": 153409, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025292677, "rel_ms": 154014, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025293282, "rel_ms": 154619, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025293887, "rel_ms": 155224, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"path": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q11-marks/stop-1", "found": false, "kind": "waitfile", "ts_ms": 1789025294097, "rel_ms": 155434}
+{"label": "after-wait", "kind": "mark", "ts_ms": 1789025294097, "rel_ms": 155434}
+{"kind": "out", "ts_ms": 1789025294495, "rel_ms": 155832, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025295102, "rel_ms": 156439, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025295712, "rel_ms": 157049, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025296316, "rel_ms": 157653, "n": 74, "text": "\u23fa\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025296928, "rel_ms": 158265, "n": 72, "text": " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n "}
+{"label": "exit", "kind": "mark", "ts_ms": 1789025297129, "rel_ms": 158466}
+{"how": "/exit", "kind": "exit-request", "ts_ms": 1789025297129, "rel_ms": 158466}
+{"text": "/exit", "kind": "send", "ts_ms": 1789025297129, "rel_ms": 158466}
+{"text": "\r", "kind": "send", "ts_ms": 1789025297439, "rel_ms": 158776}
+{"kind": "out", "ts_ms": 1789025297440, "rel_ms": 158777, "n": 4, "text": "\u000f"}
+{"kind": "out", "ts_ms": 1789025297474, "rel_ms": 158811, "n": 38, "text": ""}
+{"kind": "out", "ts_ms": 1789025297478, "rel_ms": 158815, "n": 1024, "text": "\u2736 Proofing\u2026 (3s \u00b7 \u2193 279 tokens) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u276f\u00a0\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\ufffd"}
+{"kind": "out", "ts_ms": 1789025297478, "rel_ms": 158815, "n": 251, "text": "\ufffd\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u23f8 manual mode on \u00b7 esc to interrupt \u00b7 \u2190 for agents/rc "}
+{"kind": "out", "ts_ms": 1789025297560, "rel_ms": 158897, "n": 84, "text": "\u23fa\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025297667, "rel_ms": 159004, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025297881, "rel_ms": 159218, "n": 77, "text": " Proofing\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298004, "rel_ms": 159341, "n": 77, "text": " Proofing\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298110, "rel_ms": 159447, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298144, "rel_ms": 159481, "n": 69, "text": " \n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298216, "rel_ms": 159553, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298233, "rel_ms": 159570, "n": 69, "text": " ing\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298342, "rel_ms": 159679, "n": 84, "text": " fg\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298427, "rel_ms": 159764, "n": 68, "text": " 4\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298435, "rel_ms": 159772, "n": 38, "text": ""}
+{"kind": "out", "ts_ms": 1789025298445, "rel_ms": 159782, "n": 102, "text": "  \u00b7 thinking)\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298463, "rel_ms": 159800, "n": 97, "text": "\u2733on\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298553, "rel_ms": 159890, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298677, "rel_ms": 160014, "n": 120, "text": "\u00b7oithinking\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298747, "rel_ms": 160084, "n": 71, "text": "\u23fa\n\n\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298895, "rel_ms": 160232, "n": 107, "text": " rfthinking\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298957, "rel_ms": 160294, "n": 1024, "text": " Listed 1 directory (ctrl+o to expand)\u23faLISTED0\u00b7Proofing\u2026 (4s \u00b7 \u2193279 tokens \u00b7 thinking)\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u276f\u00a0\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\ufffd"}
+{"kind": "out", "ts_ms": 1789025298957, "rel_ms": 160294, "n": 324, "text": "\ufffd\ufffd\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeon\u00b7esctointerrupt\u00b7\u2190foragents/rc\n "}
+{"kind": "out", "ts_ms": 1789025298972, "rel_ms": 160309, "n": 187, "text": " Pfing\u2026running stop hook4s \u00b7 \u2193 279 tokens \u00b7 thinking)\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789025298998, "rel_ms": 160335, "n": 38, "text": ""}
+{"kind": "out", "ts_ms": 1789025298999, "rel_ms": 160336, "n": 160, "text": "\u273bSaut\u00e9ed for 4s \u00b7 done 8:28\u276f\u00a0 ? for shortcuts \u00b7 \u2190 for agents \n "}
+{"after_ms": 30354, "kind": "exit-timeout", "ts_ms": 1789025327483, "rel_ms": 188820}
+{"kind": "sigkill", "ts_ms": 1789025327489, "rel_ms": 188826}
+{"kind": "done", "ts_ms": 1789025327489, "rel_ms": 188826}

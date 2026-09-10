@@ -1,0 +1,27 @@
+{
+ "hooks": {
+  "Stop": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/hooks/stopmark.sh /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q07b-stop.jsonl /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q07b-marks 0",
+      "timeout": 15
+     }
+    ]
+   }
+  ],
+  "PermissionRequest": [
+   {
+    "matcher": "Bash",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/hooks/permreq.sh /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q07b-permreq.jsonl 0 fail",
+      "timeout": 15
+     }
+    ]
+   }
+  ]
+ }
+}

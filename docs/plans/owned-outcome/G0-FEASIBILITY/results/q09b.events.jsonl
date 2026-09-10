@@ -1,0 +1,354 @@
+{"pid": 61465, "args": ["--model", "haiku", "--setting-sources", "", "--settings", "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/settings/q09b.json", "--session-id", "ee658839-1bbd-40fe-b92c-32433cd0ba8f"], "kind": "spawn", "ts_ms": 1789023641353, "rel_ms": 1}
+{"kind": "out", "ts_ms": 1789023641508, "rel_ms": 156, "n": 13, "text": ""}
+{"kind": "out", "ts_ms": 1789023641512, "rel_ms": 160, "n": 6, "text": ""}
+{"kind": "out", "ts_ms": 1789023641513, "rel_ms": 161, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789023641517, "rel_ms": 165, "n": 1024, "text": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nAccessingworkspace:\n\n/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q09b\n\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyourowncode,awell-knownopensourceproject,orworkfrom\nyourteam).Ifnot,takeamomenttoreviewwhat'sinthisfolderfirst.\n\nClaudeCode'll\u001b["}
+{"kind": "auto-trust-down-enter", "ts_ms": 1789023642535, "rel_ms": 1183}
+{"kind": "out", "ts_ms": 1789023642535, "rel_ms": 1183, "n": 417, "text": "17Gbeabletoread,edit,andexecutefileshere.\n\nSecurityguide\n\n\u276fNo,exit\nYes,Itrustthisfolder\n\nEntertoconfirm\u00b7Esctocancel\n   No, exit \u276fYes, I trust this folder\n\n\n "}
+{"kind": "out", "ts_ms": 1789023642538, "rel_ms": 1186, "n": 33, "text": ""}
+{"kind": "out", "ts_ms": 1789023642540, "rel_ms": 1188, "n": 284, "text": ""}
+{"kind": "out", "ts_ms": 1789023642569, "rel_ms": 1217, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789023642570, "rel_ms": 1218, "n": 5, "text": ""}
+{"kind": "out", "ts_ms": 1789023642570, "rel_ms": 1218, "n": 3, "text": ""}
+{"kind": "out", "ts_ms": 1789023642857, "rel_ms": 1505, "n": 33, "text": ""}
+{"kind": "out", "ts_ms": 1789023642892, "rel_ms": 1540, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789023642897, "rel_ms": 1545, "n": 20, "text": ""}
+{"kind": "out", "ts_ms": 1789023642909, "rel_ms": 1557, "n": 1024, "text": "\u2597 \u2597   \u2596 \u2596ClaudeCodev2.1.267\n       Haiku4.5\u00b7ClaudeMax\n\u2598\u2598\u259d\u259d/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q09b\n\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u276f\u00a0Try\"refactor<filepath>\"\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"}
+{"kind": "out", "ts_ms": 1789023642909, "rel_ms": 1557, "n": 470, "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f5\u23f5automodeon (shift+tabtocycle)\u00b7\u2190foragents/rcconnecting\u2026\n "}
+{"pattern": "for\\s*shortcuts|for\\s*agents", "found": true, "kind": "expect", "ts_ms": 1789023642909, "rel_ms": 1557}
+{"kind": "out", "ts_ms": 1789023642971, "rel_ms": 1619, "n": 230, "text": " \u23f8 manual mode on \u00b7 ? for shortuts \u00b7\u2190for agents  auto mode unavailable for this model\n/rcconnecting\u2026\n "}
+{"kind": "out", "ts_ms": 1789023642976, "rel_ms": 1624, "n": 8, "text": ""}
+{"kind": "out", "ts_ms": 1789023643513, "rel_ms": 2161, "n": 72, "text": "             /rc\n "}
+{"label": "prompt-send", "kind": "mark", "ts_ms": 1789023644959, "rel_ms": 3607}
+{"text": "Reply with the single word PONG and nothing else.", "kind": "send", "ts_ms": 1789023645266, "rel_ms": 3914}
+{"kind": "out", "ts_ms": 1789023645271, "rel_ms": 3919, "n": 151, "text": " Reply with the single wordPONGandnothingelse.                                  \n\n "}
+{"text": "\r", "kind": "send", "ts_ms": 1789023646416, "rel_ms": 5064}
+{"kind": "out", "ts_ms": 1789023646446, "rel_ms": 5094, "n": 20, "text": ""}
+{"kind": "out", "ts_ms": 1789023646449, "rel_ms": 5097, "n": 1024, "text": "\u276f Reply with the single word PONG and nothing else.                                                                                         \u273d Transmogrifying\u2026  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u276f\u00a0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\ufffd"}
+{"kind": "out", "ts_ms": 1789023646449, "rel_ms": 5097, "n": 433, "text": "\ufffd\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeon\u00b7esctointerrupt\u00b7\u2190foragentsautomodeunavailableforthismodel\n/rc\n "}
+{"kind": "out", "ts_ms": 1789023646554, "rel_ms": 5202, "n": 85, "text": " Tn\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023646783, "rel_ms": 5431, "n": 72, "text": "\u273ba\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023646889, "rel_ms": 5537, "n": 67, "text": "\u2736\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647013, "rel_ms": 5661, "n": 69, "text": " r\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647117, "rel_ms": 5765, "n": 72, "text": "\u2733T\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647132, "rel_ms": 5780, "n": 87, "text": " fiuring\u2026 \n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647195, "rel_ms": 5843, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023647237, "rel_ms": 5885, "n": 67, "text": "\u2722\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647357, "rel_ms": 6005, "n": 120, "text": "\u00b7(0s \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647408, "rel_ms": 6056, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023647460, "rel_ms": 6108, "n": 70, "text": " 1\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647495, "rel_ms": 6143, "n": 879, "text": "\u23faPONG\u00b7 Transfiguring\u2026 (1s \u00b7 thinking)\u276f\u00a0\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeon\u00b7esctointerrupt\u00b7\u2190foragentsautomodeunavailableforthismodel\n/rc\n "}
+{"kind": "out", "ts_ms": 1789023647518, "rel_ms": 6166, "n": 158, "text": " Transfiguring\u2026running stop hook \u00b7 1s \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647572, "rel_ms": 6220, "n": 164, "text": " Transfiguring\u2026\u2193 25 tokens \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647675, "rel_ms": 6323, "n": 71, "text": " 50\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647797, "rel_ms": 6445, "n": 108, "text": "\u27227thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023647898, "rel_ms": 6546, "n": 85, "text": "\u273385\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648022, "rel_ms": 6670, "n": 71, "text": " 91\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648127, "rel_ms": 6775, "n": 84, "text": "\u27363\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648233, "rel_ms": 6881, "n": 84, "text": "\u273b4\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648361, "rel_ms": 7009, "n": 108, "text": "\u273d7thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648369, "rel_ms": 7017, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023648459, "rel_ms": 7107, "n": 76, "text": " 28\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648584, "rel_ms": 7232, "n": 145, "text": " Transfiguring\u2026100 tokens \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648692, "rel_ms": 7340, "n": 101, "text": " Transfiguring\u20261\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648799, "rel_ms": 7447, "n": 108, "text": "\u273b3thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023648908, "rel_ms": 7556, "n": 84, "text": "\u27365\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649031, "rel_ms": 7679, "n": 84, "text": "\u27336\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649139, "rel_ms": 7787, "n": 70, "text": " 8\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649245, "rel_ms": 7893, "n": 67, "text": "\u2722\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649331, "rel_ms": 7979, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023649342, "rel_ms": 7990, "n": 84, "text": " thought for 1s)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649359, "rel_ms": 8007, "n": 66, "text": "\u00b7\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649477, "rel_ms": 8125, "n": 101, "text": " Transfiguring\u20263\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649585, "rel_ms": 8233, "n": 84, "text": " Transfiguring\u2026\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649816, "rel_ms": 8464, "n": 67, "text": "\u2722\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023649924, "rel_ms": 8572, "n": 67, "text": "\u2733\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023650028, "rel_ms": 8676, "n": 67, "text": "\u2736\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023650258, "rel_ms": 8906, "n": 67, "text": "\u273b\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023650292, "rel_ms": 8940, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023650364, "rel_ms": 9012, "n": 67, "text": "\u273d\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023650473, "rel_ms": 9121, "n": 70, "text": " 4\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023650597, "rel_ms": 9245, "n": 84, "text": " Transfiguring\u2026\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023650704, "rel_ms": 9352, "n": 84, "text": " Transfiguring\u2026\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023650813, "rel_ms": 9461, "n": 67, "text": "\u273b\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023650924, "rel_ms": 9572, "n": 109, "text": "                                  /rc "}
+{"kind": "out", "ts_ms": 1789023650941, "rel_ms": 9589, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023651033, "rel_ms": 9681, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023651157, "rel_ms": 9805, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023651254, "rel_ms": 9902, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023651344, "rel_ms": 9992, "n": 71, "text": " )\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023651400, "rel_ms": 10048, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023651487, "rel_ms": 10135, "n": 99, "text": " Transfiguring\u20265\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023651824, "rel_ms": 10472, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023651929, "rel_ms": 10577, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023652051, "rel_ms": 10699, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023652156, "rel_ms": 10804, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023652215, "rel_ms": 10863, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023652390, "rel_ms": 11038, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023652497, "rel_ms": 11145, "n": 68, "text": " 6\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023652603, "rel_ms": 11251, "n": 82, "text": " Transfiguring\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023652712, "rel_ms": 11360, "n": 82, "text": " Transfiguring\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023652832, "rel_ms": 11480, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023652937, "rel_ms": 11585, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023653062, "rel_ms": 11710, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023653169, "rel_ms": 11817, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023653177, "rel_ms": 11825, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023653397, "rel_ms": 12045, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023653503, "rel_ms": 12151, "n": 99, "text": " Transfiguring\u20267\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023653730, "rel_ms": 12378, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023653960, "rel_ms": 12608, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023654067, "rel_ms": 12715, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023654138, "rel_ms": 12786, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023654175, "rel_ms": 12823, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023654404, "rel_ms": 13052, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023654509, "rel_ms": 13157, "n": 68, "text": " 8\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023654614, "rel_ms": 13262, "n": 82, "text": " Transfiguring\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023654740, "rel_ms": 13388, "n": 85, "text": "\u273bTransfiguring\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023654954, "rel_ms": 13602, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023655078, "rel_ms": 13726, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023655099, "rel_ms": 13747, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023655184, "rel_ms": 13832, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023655413, "rel_ms": 14061, "n": 95, "text": "\u00b7Transfiguring\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023655520, "rel_ms": 14168, "n": 99, "text": " Transfiguring\u20269\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023655749, "rel_ms": 14397, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023655960, "rel_ms": 14608, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023656061, "rel_ms": 14709, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023656083, "rel_ms": 14731, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023656189, "rel_ms": 14837, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023656424, "rel_ms": 15072, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023656530, "rel_ms": 15178, "n": 105, "text": " 10s \u00b7 \u2193 108 tokens)\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023656637, "rel_ms": 15285, "n": 82, "text": " Transfiguring\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023656743, "rel_ms": 15391, "n": 85, "text": "\u273bTransfiguring\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023656972, "rel_ms": 15620, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023657022, "rel_ms": 15670, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023657095, "rel_ms": 15743, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023657202, "rel_ms": 15850, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023657418, "rel_ms": 16066, "n": 95, "text": "\u00b7Transfiguring\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023657543, "rel_ms": 16191, "n": 99, "text": " Transfiguring\u20261\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023657753, "rel_ms": 16401, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023657982, "rel_ms": 16630, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023657983, "rel_ms": 16631, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023658087, "rel_ms": 16735, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023658213, "rel_ms": 16861, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023658314, "rel_ms": 16962, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023658429, "rel_ms": 17077, "n": 68, "text": " 2\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023658760, "rel_ms": 17408, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023658944, "rel_ms": 17592, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023658993, "rel_ms": 17641, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023659101, "rel_ms": 17749, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023659209, "rel_ms": 17857, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023659332, "rel_ms": 17980, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023659442, "rel_ms": 18090, "n": 68, "text": " 3\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023659774, "rel_ms": 18422, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023659905, "rel_ms": 18553, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023660001, "rel_ms": 18649, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023660108, "rel_ms": 18756, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023660231, "rel_ms": 18879, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023660339, "rel_ms": 18987, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023660444, "rel_ms": 19092, "n": 68, "text": " 4\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023660779, "rel_ms": 19427, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023660867, "rel_ms": 19515, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023660901, "rel_ms": 19549, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023661114, "rel_ms": 19762, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023661240, "rel_ms": 19888, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023661346, "rel_ms": 19994, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023661453, "rel_ms": 20101, "n": 68, "text": " 5\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023661788, "rel_ms": 20436, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023661828, "rel_ms": 20476, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023661911, "rel_ms": 20559, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023662122, "rel_ms": 20770, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023662243, "rel_ms": 20891, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023662350, "rel_ms": 20998, "n": 86, "text": "\u273dTransfiguring\u2026 \n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023662458, "rel_ms": 21106, "n": 68, "text": " 6\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023662790, "rel_ms": 21438, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023662797, "rel_ms": 21445, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023662919, "rel_ms": 21567, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023663026, "rel_ms": 21674, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023663242, "rel_ms": 21890, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023663368, "rel_ms": 22016, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023663476, "rel_ms": 22124, "n": 68, "text": " 7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023663583, "rel_ms": 22231, "n": 85, "text": "\u00b7Transfiguring\u2026 \n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023663752, "rel_ms": 22400, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023663810, "rel_ms": 22458, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023663916, "rel_ms": 22564, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023664038, "rel_ms": 22686, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023664252, "rel_ms": 22900, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023664376, "rel_ms": 23024, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023664486, "rel_ms": 23134, "n": 68, "text": " 8\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023664714, "rel_ms": 23362, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023664821, "rel_ms": 23469, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023664924, "rel_ms": 23572, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023665047, "rel_ms": 23695, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023665151, "rel_ms": 23799, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023665384, "rel_ms": 24032, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023665492, "rel_ms": 24140, "n": 68, "text": " 9\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023665675, "rel_ms": 24323, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023665830, "rel_ms": 24478, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023665933, "rel_ms": 24581, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023666038, "rel_ms": 24686, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023666164, "rel_ms": 24812, "n": 86, "text": "\u273bTransfiguring\u2026 \n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023666378, "rel_ms": 25026, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023666487, "rel_ms": 25135, "n": 69, "text": " 20\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023666637, "rel_ms": 25285, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023666840, "rel_ms": 25488, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023666947, "rel_ms": 25595, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023667055, "rel_ms": 25703, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023667163, "rel_ms": 25811, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023667391, "rel_ms": 26039, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023667499, "rel_ms": 26147, "n": 68, "text": " 1\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023667599, "rel_ms": 26247, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023667729, "rel_ms": 26377, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023667959, "rel_ms": 26607, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023668064, "rel_ms": 26712, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023668170, "rel_ms": 26818, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023668401, "rel_ms": 27049, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023668503, "rel_ms": 27151, "n": 68, "text": " 2\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023668561, "rel_ms": 27209, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023668733, "rel_ms": 27381, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023668962, "rel_ms": 27610, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023669066, "rel_ms": 27714, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023669189, "rel_ms": 27837, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023669405, "rel_ms": 28053, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023669512, "rel_ms": 28160, "n": 68, "text": " 3\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023669523, "rel_ms": 28171, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023669743, "rel_ms": 28391, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023669973, "rel_ms": 28621, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023670076, "rel_ms": 28724, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023670182, "rel_ms": 28830, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023670414, "rel_ms": 29062, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023670485, "rel_ms": 29133, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023670522, "rel_ms": 29170, "n": 68, "text": " 4\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023670750, "rel_ms": 29398, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023670981, "rel_ms": 29629, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023671087, "rel_ms": 29735, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023671196, "rel_ms": 29844, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023671427, "rel_ms": 30075, "n": 81, "text": "\u00b75\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023671445, "rel_ms": 30093, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023671761, "rel_ms": 30409, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023671997, "rel_ms": 30645, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023672101, "rel_ms": 30749, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023672207, "rel_ms": 30855, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023672315, "rel_ms": 30963, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023672408, "rel_ms": 31056, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023672438, "rel_ms": 31086, "n": 68, "text": " 6\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023672772, "rel_ms": 31420, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023673000, "rel_ms": 31648, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023673108, "rel_ms": 31756, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023673216, "rel_ms": 31864, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023673325, "rel_ms": 31973, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023673370, "rel_ms": 32018, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023673431, "rel_ms": 32079, "n": 68, "text": " 7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023673770, "rel_ms": 32418, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023674000, "rel_ms": 32648, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023674108, "rel_ms": 32756, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023674215, "rel_ms": 32863, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023674332, "rel_ms": 32980, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023674340, "rel_ms": 32988, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023674449, "rel_ms": 33097, "n": 68, "text": " 8\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023674781, "rel_ms": 33429, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023674890, "rel_ms": 33538, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023675124, "rel_ms": 33772, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023675233, "rel_ms": 33881, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023675293, "rel_ms": 33941, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023675338, "rel_ms": 33986, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023675447, "rel_ms": 34095, "n": 68, "text": " 9\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023675787, "rel_ms": 34435, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023675910, "rel_ms": 34558, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023676125, "rel_ms": 34773, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023676232, "rel_ms": 34880, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023676254, "rel_ms": 34902, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023676358, "rel_ms": 35006, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023676466, "rel_ms": 35114, "n": 69, "text": " 30\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023676803, "rel_ms": 35451, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023676911, "rel_ms": 35559, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023677019, "rel_ms": 35667, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023677216, "rel_ms": 35864, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023677252, "rel_ms": 35900, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023677359, "rel_ms": 36007, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023677469, "rel_ms": 36117, "n": 68, "text": " 1\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023677808, "rel_ms": 36456, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023677913, "rel_ms": 36561, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023678038, "rel_ms": 36686, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023678178, "rel_ms": 36826, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023678251, "rel_ms": 36899, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023678358, "rel_ms": 37006, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023678485, "rel_ms": 37133, "n": 68, "text": " 2\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023678821, "rel_ms": 37469, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023678929, "rel_ms": 37577, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023679032, "rel_ms": 37680, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023679139, "rel_ms": 37787, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023679158, "rel_ms": 37806, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023679370, "rel_ms": 38018, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023679480, "rel_ms": 38128, "n": 68, "text": " 3\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023679816, "rel_ms": 38464, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023679939, "rel_ms": 38587, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023680042, "rel_ms": 38690, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023680100, "rel_ms": 38748, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023680166, "rel_ms": 38814, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023680379, "rel_ms": 39027, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023680488, "rel_ms": 39136, "n": 68, "text": " 4\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023680839, "rel_ms": 39487, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023680943, "rel_ms": 39591, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023681050, "rel_ms": 39698, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023681062, "rel_ms": 39710, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023681169, "rel_ms": 39817, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023681399, "rel_ms": 40047, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023681510, "rel_ms": 40158, "n": 68, "text": " 5\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023681724, "rel_ms": 40372, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023681956, "rel_ms": 40604, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023682024, "rel_ms": 40672, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023682062, "rel_ms": 40710, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023682170, "rel_ms": 40818, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023682401, "rel_ms": 41049, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023682511, "rel_ms": 41159, "n": 68, "text": " 6\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023682740, "rel_ms": 41388, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023682968, "rel_ms": 41616, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023682986, "rel_ms": 41634, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023683074, "rel_ms": 41722, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023683182, "rel_ms": 41830, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023683411, "rel_ms": 42059, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023683518, "rel_ms": 42166, "n": 68, "text": " 7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023683748, "rel_ms": 42396, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023683946, "rel_ms": 42594, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023683958, "rel_ms": 42606, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023684083, "rel_ms": 42731, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023684191, "rel_ms": 42839, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023684423, "rel_ms": 43071, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023684528, "rel_ms": 43176, "n": 68, "text": " 8\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023684744, "rel_ms": 43392, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023684907, "rel_ms": 43555, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023684978, "rel_ms": 43626, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023685083, "rel_ms": 43731, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023685190, "rel_ms": 43838, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023685419, "rel_ms": 44067, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023685542, "rel_ms": 44190, "n": 68, "text": " 9\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023685755, "rel_ms": 44403, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023685869, "rel_ms": 44517, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023685981, "rel_ms": 44629, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023686086, "rel_ms": 44734, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023686212, "rel_ms": 44860, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023686318, "rel_ms": 44966, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023686425, "rel_ms": 45073, "n": 69, "text": " 40\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023686764, "rel_ms": 45412, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023686831, "rel_ms": 45479, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023686997, "rel_ms": 45645, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023687105, "rel_ms": 45753, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023687210, "rel_ms": 45858, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023687333, "rel_ms": 45981, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023687439, "rel_ms": 46087, "n": 68, "text": " 1\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789023687553, "rel_ms": 46201, "n": 19, "text": ""}
+{"kind": "out", "ts_ms": 1789023687561, "rel_ms": 46210, "n": 162, "text": "\u273bBaked for 41s \u00b7 doe 8:01\u276f\u00a0 ? for shortcuts \u00b7 \u2190 for agents \n "}
+{"seconds": 4, "reached": true, "kind": "quiet", "ts_ms": 1789023691734, "rel_ms": 50382}
+{"label": "exit", "kind": "mark", "ts_ms": 1789023691734, "rel_ms": 50382}
+{"how": "ctrlc", "kind": "exit-request", "ts_ms": 1789023691734, "rel_ms": 50382}
+{"text": "\u0003", "kind": "send", "ts_ms": 1789023691734, "rel_ms": 50382}
+{"text": "\u0003", "kind": "send", "ts_ms": 1789023692144, "rel_ms": 50792}
+{"kind": "out", "ts_ms": 1789023692144, "rel_ms": 50792, "n": 113, "text": "\u000f Press Ctrl-C againto exit                       \n "}
+{"kind": "out", "ts_ms": 1789023692144, "rel_ms": 50792, "n": 32, "text": ""}
+{"kind": "out", "ts_ms": 1789023692145, "rel_ms": 50793, "n": 8, "text": ""}
+{"kind": "out", "ts_ms": 1789023692145, "rel_ms": 50793, "n": 50, "text": "\u000f"}
+{"kind": "out", "ts_ms": 1789023692145, "rel_ms": 50793, "n": 5, "text": ""}
+{"kind": "out", "ts_ms": 1789023692145, "rel_ms": 50793, "n": 119, "text": "\nResume this session with:\nclaude --resume ee658839-1bbd-40fe-b92c-32433cd0ba8f\n"}
+{"status": 0, "kind": "exit", "ts_ms": 1789023693052, "rel_ms": 51700}
+{"after_ms": 1318, "status": 0, "kind": "exited", "ts_ms": 1789023693052, "rel_ms": 51700}
+{"kind": "done", "ts_ms": 1789023693053, "rel_ms": 51701}
