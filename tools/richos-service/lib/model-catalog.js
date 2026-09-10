@@ -42,6 +42,29 @@ export const GGML_MAGIC_HEX = RAW.ggmlMagicHex;
 export const PINS_VERIFIED_ON = RAW.verifiedOn;
 
 /**
+ * The REFERENCE BUILD — whisper-cli and the ggml backends every decode setting was measured on.
+ *
+ * Deliberately weaker than a model pin, and the file says why in as many words: a Homebrew binary's
+ * sha256 is a property of an arch and a bottle revision, so this is what a run is COMPARED and
+ * ATTRIBUTED to, never a requirement a second machine would fail. Enforcement is the per-machine
+ * lock in `toolchain.js`. Frozen shallowly-plus-arrays so a consumer cannot edit the table it read.
+ * @type {{measuredOn: string, whisperCppVersion: string, ggmlFormulaVersion: string,
+ *         referenceHost: string, referenceBinary: object, referenceBackends: object[],
+ *         knownOtherBuilds: object[]}|null}
+ */
+export const TOOLCHAIN_REFERENCE = RAW.toolchain
+  ? Object.freeze({
+      measuredOn: RAW.toolchain.measuredOn,
+      whisperCppVersion: RAW.toolchain.whisperCppVersion,
+      ggmlFormulaVersion: RAW.toolchain.ggmlFormulaVersion,
+      referenceHost: RAW.toolchain.referenceHost,
+      referenceBinary: Object.freeze({ ...RAW.toolchain.referenceBinary }),
+      referenceBackends: Object.freeze((RAW.toolchain.referenceBackends || []).map((b) => Object.freeze({ ...b }))),
+      knownOtherBuilds: Object.freeze((RAW.toolchain.knownOtherBuilds || []).map((b) => Object.freeze({ ...b }))),
+    })
+  : null;
+
+/**
  * Every pinned model, in the order the table lists them (smallest first).
  * @typedef {{id: string, file: string, bytes: number, sha256: string,
  *            provenance: string[], witness: string, note: string}} ModelPin

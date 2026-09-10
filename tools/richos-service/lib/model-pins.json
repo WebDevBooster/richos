@@ -15,11 +15,79 @@
     "small.en-q5_1 is the exception and its `witness` field says so in as many words.",
     "",
     "Read by lib/model-catalog.js and by tools/richos-hud/fetch-dictation-models.sh. The test",
-    "suite asserts those two readers agree, so the shell copy can never drift from this file."
+    "suite asserts those two readers agree, so the shell copy can never drift from this file.",
+    "",
+    "2026-09-10: the `toolchain` block below joins it. Weights were pinned here and the BINARY that",
+    "reads them was not, which is the exposure the whisper settings decision table named in its §4.",
+    "It lives in this file and not a second one on purpose: two registries of truth is how the",
+    "second unpinned consumer happened in the first place."
   ],
   "baseUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main",
   "ggmlMagicHex": "6c6d6767",
   "verifiedOn": "2026-08-31",
+  "toolchain": {
+    "_comment": [
+      "THE REFERENCE BUILD — the one every decode setting RichOS ships was measured against.",
+      "",
+      "This is NOT a requirement and it deliberately cannot be one. `whisper-cli` arrives from",
+      "Homebrew, so its sha256 is a property of an arch, an OS version and a bottle revision; a",
+      "source pin that every machine but this one fails is a pin nobody keeps. What IS enforced is",
+      "a per-machine trust-on-first-use lock (~/.config/richos/whisper-toolchain.lock.json), and a",
+      "mismatch against THAT warns loudly and names both identities. A mismatch against a MODEL pin",
+      "above refuses, because that table does have authority over what the bytes should be.",
+      "",
+      "`whisperCppVersion` is what a run's `--version` is compared to, so that a transcript produced",
+      "on a different build is attributed to that build rather than to the table's numbers.",
+      "",
+      "MEASURED, not transcribed from a formula file, 2026-09-10 on this M4:",
+      "  shasum -a 256 /opt/homebrew/bin/whisper-cli",
+      "    7dc20e3106d70746d61c419646d9bf87f726a5df7da562e26e8529067119f7b8  (654,720 B)",
+      "  /opt/homebrew/Cellar/whisper-cpp/1.9.1/bin/whisper-cli --version",
+      "    exit 0, stdout: whisper.cpp version: 1.9.1",
+      "  /opt/homebrew/Cellar/whisper-cpp/1.8.3/bin/whisper-cli --version",
+      "    exit 0, stdout EMPTY, stderr: error: unknown argument: --version",
+      "",
+      "That second measurement is why the sha256 is the identity and the version string is a label:",
+      "1.8.3 REJECTS --version and still exits 0, so a probe trusting the exit code sees success",
+      "and an empty version — indistinguishable from a build that simply has none."
+    ],
+    "measuredOn": "2026-09-10",
+    "whisperCppVersion": "1.9.1",
+    "ggmlFormulaVersion": "0.17.0",
+    "referenceHost": "Apple M4, macOS 24.6.0, Homebrew arm64",
+    "referenceBinary": {
+      "path": "/opt/homebrew/bin/whisper-cli",
+      "realPath": "/opt/homebrew/Cellar/whisper-cpp/1.9.1/bin/whisper-cli",
+      "bytes": 654720,
+      "sha256": "7dc20e3106d70746d61c419646d9bf87f726a5df7da562e26e8529067119f7b8"
+    },
+    "referenceBackends": [
+      {
+        "name": "BLAS",
+        "path": "/opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so",
+        "sha256": "4b599af7ec58e36c9467a4c0cba210cfccda9c48fe237b495c0de1daab8b405f"
+      },
+      {
+        "name": "MTL",
+        "path": "/opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so",
+        "sha256": "9bbe5cfc4c23147d6c12041d2fa4b358ef62b4f96f8ce9fd44c70d0c1116c5c4"
+      },
+      {
+        "name": "CPU",
+        "path": "/opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so",
+        "sha256": "8b5c7e0a42d27b9d1432e3ebca2cb8f4d959c36147651f031ef0a099b7f978d6"
+      }
+    ],
+    "knownOtherBuilds": [
+      {
+        "version": "1.8.3",
+        "realPath": "/opt/homebrew/Cellar/whisper-cpp/1.8.3/libexec/bin/whisper-cli",
+        "bytes": 651128,
+        "sha256": "595da05cb412fd923ad66ce680b46d968f39be2c7156ae952d49ed0ace93d006",
+        "note": "Also on this machine. Does NOT support --version: exits 0 with empty stdout and 'error: unknown argument: --version' on stderr. The substitution the toolchain test fires against."
+      }
+    ]
+  },
   "models": [
     {
       "id": "tiny.en",
