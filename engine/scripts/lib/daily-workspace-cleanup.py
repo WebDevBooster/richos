@@ -1023,3 +1023,92 @@ def reclaim_now(tx, transaction, index, deadline=None):
     if (after.get('daily_cleanup') or {}).get('phase') == 'complete':
         return journal('reclaimed', 'workspace removed and branch resolved in the terminal event')
     return journal('deferred', after.get('last_error') or 'the lane did not complete this member')
+
+
+def sweep_seconds(repo=None):
+    """Wall-clock budget for one sweep, and the shortest gap between two.
+    Committed data: a hook that runs on every subagent stop must be able to
+    say what it costs. Defaults are deliberately small — the sweep is a
+    catch-up, and the event that owns a member reclaims it first."""
+    def number(key, default):
+        try:
+            return max(0.0, float(config_value(key, default, repo)))
+        except (TypeError, ValueError):
+            return float(default)
+    return number('IMMEDIATE_RECLAIM_SWEEP_SECONDS', '10'), number('IMMEDIATE_RECLAIM_SWEEP_INTERVAL_SECONDS', '15')
+
+
+def _sweep_marker(tx, session_id):
+    return os.path.join(tx.session_dir(session_id), 'last-sweep')
+
+
+def sweep_session(tx, session_id):
+    """Finish what an EARLIER terminal event could not, from THIS one.
+
+    WHY THIS EXISTS. The ingress reclaims its own agent's workspace in its own
+    event, and waits, bounded, for the platform to release its lock. If that
+    wait expires — the platform released late, a process was still in the
+    tree, git was busy — the member would otherwise sit until the 04:00 job,
+    which is the 24-hour gap all over again for the unlucky case.
+
+    So every terminal event, including one for an agent that owns no worktree
+    at all (a helper subagent, of which this machine records over a thousand a
+    session), first spends a small budget finishing this session's deferred
+    members. Nothing here is a timer and nothing here is new authority: it is
+    the same reclaim_now, on members already recorded terminal, refusing
+    everything it always refused. It does not wait for a lock — a sweep takes
+    what is ready and leaves the rest to the next event.
+
+    Returns [(path, outcome, reason)] for what it touched. Never raises.
+    """
+    out = []
+    try:
+        budget, interval = sweep_seconds()
+        marker = _sweep_marker(tx, session_id)
+        now = time.time()
+        try:
+            if interval > 0 and now - os.path.getmtime(marker) < interval:
+                return out
+        except OSError:
+            pass
+        candidates = []
+        for name in sorted(os.listdir(tx.session_dir(session_id))):
+            if not name.endswith('.json'):
+                continue
+            transaction = tx.read_json(os.path.join(tx.session_dir(session_id), name))
+            if not transaction or transaction.get('record') != 'transaction' or not terminal_fact(transaction):
+                continue
+            for index, member in enumerate(transaction.get('members') or []):
+                if member.get('cleanup_policy') != 'integrated-daily':
+                    continue
+                if (member.get('daily_cleanup') or {}).get('phase') == 'complete':
+                    continue
+                if not os.path.lexists(member.get('path') or ''):
+                    continue
+                candidates.append((transaction['agent_id'], index, member.get('path')))
+        if not candidates:
+            return out
+        try:
+            with open(marker, 'a'):
+                os.utime(marker, None)
+        except OSError:
+            pass
+        deadline = now + budget
+        for aid, index, path in candidates:
+            if time.time() >= deadline:
+                break
+            try:
+                with tx.tx_lock(session_id, aid, timeout=1):
+                    transaction = tx.load_tx(session_id, aid)
+                    if not transaction:
+                        continue
+                    # deadline in the PAST: a sweep never waits for a lock,
+                    # it takes what the platform has already released.
+                    outcome, reason = reclaim_now(tx, transaction, index, deadline=0)
+            except Exception as error:
+                outcome, reason = 'deferred', str(error)
+            out.append((path, outcome, reason))
+    except Exception:
+        return out
+    return out
+

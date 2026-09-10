@@ -38,6 +38,7 @@ lib/daily-workspace-cleanup.py	reconcile	head	structural	truthy
 lib/daily-workspace-cleanup.py	reconcile	quarantine	structural	truthy
 lib/daily-workspace-cleanup.py	reconcile	quarantine_path	structural	truthy
 lib/daily-workspace-cleanup.py	remember_native	daily_cleanup	structural	truthy
+lib/daily-workspace-cleanup.py	sweep_session	cleanup_policy	route	literal(integrated-daily)
 lib/shell-worktree-sparse.py	_record_refusal	class	structural	literal(native)
 lib/shell-worktree-sparse.py	_record_refusal	sparse	structural	is-none
 lib/shell-worktree-sparse.py	eligible	class	structural	literal(native)

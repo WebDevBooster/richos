@@ -366,6 +366,10 @@ rm -rf "$NOLIB"
 # through this same ingress. E6 is the nightly backstop still reclaiming what
 # the ingress deliberately skipped.
 SEAL_MODERN=1
+# The entity narrows the committed wait to nothing: these cases are about
+# WHAT is decided, not about how long the ingress is willing to wait for a
+# lock, and the per-entity override is the supported way to say so.
+printf 'IMMEDIATE_RECLAIM_WAIT_SECONDS=0\n' >"$ENTITY/orchestration.config"
 say_elapsed() { printf '        [%s -> %s, %ss]\n' "$1" "$2" "$3"; }
 
 # E1  the clean case, both member classes, in the event
@@ -444,7 +448,50 @@ python3 "$SCRIPT_DIR/../reconcile-terminal-worktrees.py" --agent "$SID/$A11" --q
 [ -d "$E2" ] && [ -d "$E3" ] && [ "$(cat "$E3/seed.txt")" = "unfinished" ] \
     && ok "E7  ...and the nightly pass refuses the unmerged and the uncommitted exactly as the ingress did" \
     || bad "E7  unmerged=$([ -d "$E2" ] && echo kept || echo GONE) dirty=$([ -d "$E3" ] && echo kept || echo GONE)"
+# E8  a LATER terminal event finishes what an earlier one deferred
+# The ingress waits a bounded moment for the platform's lock and then defers.
+# Without this, that member waits for the 04:00 job. With it, the next terminal
+# event in the session -- including one for an agent that owns no worktree at
+# all, which is most of them -- reclaims it as its first act.
+A14="a000000000000t14"
+seal "$A14" dev-opus-t14
+E8="$ENTITY/.claude/worktrees/agent-$A14"
+git -C "$ENTITY" worktree lock --reason "claude agent agent-$A14 (pid $$ start fixture)" "$E8"
+run "$(stop_payload "$A14")"
+E8_DEFERRED=$([ -d "$E8" ] && echo yes || echo no)
+git -C "$ENTITY" worktree unlock "$E8"        # the platform releases it, late
+rm -f "$SANDBOX/tx/$SID/last-sweep"           # the sweep's rate limit, not its authority
+# a terminal event for an agent this session never recorded: no claim, no
+# mutation of its own -- and the catch-up still runs
+run "$(stop_payload "a000000000000nada")"
+if [ "$E8_DEFERRED" = yes ] && [ "$RC" -eq 0 ] && [ ! -e "$E8" ] \
+   && ! git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A14"; then
+    ok "E8  a member the ingress DEFERRED is reclaimed by the next terminal event, not by the nightly job -- even an event for an agent that owns no worktree"
+    printf '        [%s]\n' "$(printf '%s' "$OUT" | grep -o 'catch-up: [a-z]* [^ ]*' | head -1)"
+else
+    bad "E8  deferred=$E8_DEFERRED rc=$RC present=$([ -e "$E8" ] && echo yes || echo no) out=${OUT:0:200}"
+fi
+
+# E9  the catch-up sweeps only what is ALREADY terminal, and refuses the rest
+rm -f "$SANDBOX/tx/$SID/last-sweep"
+run "$(stop_payload "a000000000000nada2")"
+[ "$RC" -eq 0 ] && [ -d "$E2" ] && [ -d "$E3" ] && [ -d "$E5" ] \
+    && ok "E9  the catch-up leaves the unmerged, the uncommitted and the unrecorded exactly where they are" \
+    || bad "E9  rc=$RC unmerged=$([ -d "$E2" ] && echo kept || echo GONE) dirty=$([ -d "$E3" ] && echo kept || echo GONE) unrecorded=$([ -d "$E5" ] && echo kept || echo GONE)"
+# E10 a LIVE agent's workspace -- sealed, clean, integrated, and with NO
+# terminal record -- survives a catch-up run by somebody else's event. This is
+# what protects a running teammate from the sweep, and it is enforced
+# downstream of the sweep's own filter, by the terminal fact itself.
+A15="a000000000000t15"
+seal "$A15" dev-opus-t15
+E10="$ENTITY/.claude/worktrees/agent-$A15"
+rm -f "$SANDBOX/tx/$SID/last-sweep"
+run "$(stop_payload "a000000000000nada3")"
+[ "$RC" -eq 0 ] && [ -d "$E10" ] && git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A15" \
+    && ok "E10 a LIVE agent's workspace (sealed, clean, integrated, NO terminal record) survives a catch-up belonging to another event" \
+    || bad "E10 rc=$RC present=$([ -d "$E10" ] && echo yes || echo NO)"
 SEAL_MODERN=0
+rm -f "$ENTITY/orchestration.config"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
