@@ -766,18 +766,44 @@ if ! command -v cargo >/dev/null 2>&1; then
   fi
 fi
 
-echo "  ... building richos-tauri (the artifact under test is built here, never assumed)"
-if ! ( cd "$APP_DIR/src-tauri" && cargo build --quiet --bin richos-tauri ); then
-  echo "gui-boot.test.sh: richos-tauri did not build. Refusing to report a boot result." >&2
-  exit 2
-fi
-
 GUI_APP_DIR="$APP_DIR"
 GUI_ENGINE_DIR="$REPO_DIR/engine"
 GUI_BINARY="$APP_DIR/src-tauri/target/debug/richos-tauri"
 export GUI_APP_DIR GUI_ENGINE_DIR GUI_BINARY
 # shellcheck source=lib/gui-launch.sh
 . "$DIR/lib/gui-launch.sh"
+
+# THE HOST QUESTION IS ASKED BEFORE THE EXPENSIVE ONE, and it did not used to be.
+#
+# `gui_machine` needs a loro checkout to copy 37 files out of, and on a host that has none
+# there is no answer to be had — B0 onwards cannot run at all. That check used to happen
+# AFTER a cold `cargo build --bin richos-tauri`, so a host that was always going to say "I
+# cannot answer" paid for the whole build first and then said it. Measured on a GitHub
+# `macos-latest` runner on 2026-09-10 (run `34444955517`): 98 seconds of build, then
+# `gui_compiler_source: no loro checkout on this machine to copy from`. On a 10x-billed
+# runner that is 16 minutes of billed time for a result that was decided before the first
+# crate compiled.
+#
+# The build still happens, and it still happens before anything is asserted about a boot —
+# only the free question now comes first. Nothing about the verdict changes on a machine
+# that HAS the compiler.
+if ! GUI_SRC="$(gui_compiler_source 2>&1)"; then
+  printf '%s\n' "$GUI_SRC" >&2
+  echo "gui-boot.test.sh: no machine can be built here, so there is no boot to hold to account." >&2
+  echo "                  That is a fact about THIS MACHINE, not a verdict about the code." >&2
+  exit 2
+fi
+
+echo "  ... building richos-tauri (the artifact under test is built here, never assumed)"
+if ! ( cd "$APP_DIR/src-tauri" && cargo build --quiet --bin richos-tauri ); then
+  # EXIT 1, NOT 2, AND THE DIFFERENCE IS THE WHOLE POINT OF THE TWO CODES. Exit 2 from this
+  # suite means "this host cannot answer" and `run-tests.sh` will tolerate it when a caller
+  # has declared the gap. A binary that does not compile is not a fact about the host; it is
+  # a verdict about the code, and it must be able to stop a build even on a runner that is
+  # allowed to skip the boot.
+  echo "gui-boot.test.sh: richos-tauri did not build. That is a verdict about the CODE." >&2
+  exit 1
+fi
 
 MACHINE="$TMP/machine"
 if MOUT="$(gui_machine "$MACHINE" 2>&1)"; then
