@@ -75,6 +75,7 @@ make_sandbox() {
     cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" \
        "$SCRIPT_DIR/../lib/worktree-transactions.py" "$SCRIPT_DIR/../lib/worktree-ledger.py" \
        "$SCRIPT_DIR/../lib/agent-liveness.py" "$SCRIPT_DIR/../lib/workspace-retire.py" \
+       "$SCRIPT_DIR/../lib/unevaluated-notice.sh" \
        "$root/scripts/lib/"
     chmod +x "$root/scripts/hooks/detect-nonnative-worktree.sh"
     # The spawn-intent guard-worktree-isolation.sh would have written for this
@@ -197,6 +198,39 @@ echo "=== detect-nonnative-worktree tests ==="
 # --- non-Agent tool passes through untouched ---
 ROOT="$(make_sandbox)"
 run_case "non-Agent tool" 0 "$ROOT" '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
+rm -rf "$ROOT"
+
+# --- a payload this hook CANNOT READ is waved through, and SAYS SO -----------
+# `TOOL_NAME=$(... || true)` gives an unreadable payload the same empty string a
+# non-Agent call gets, so until 2026-09-10 the two took one silent exit 0. This
+# hook is the BINDER: when it skips, guard-sealed-worktree.sh refuses that
+# agent's every write afterwards, and nothing anywhere said why. PostToolUse
+# cannot undo a spawn, so the exit stays 0 — what is asserted here is that it is
+# no longer silent, on all three degraded shapes.
+ROOT="$(make_sandbox)"
+for _shape in empty truncated non-json; do
+    case "$_shape" in
+        empty)     _payload="" ;;
+        truncated) _payload='{"tool_name":"Agent","tool_input":{"subagent_ty' ;;
+        *)         _payload='this is not JSON, it is a sentence' ;;
+    esac
+    run_case "unreadable payload ($_shape) is allowed, not blocked" 0 "$ROOT" "$_payload"
+    run_case_msg "unreadable payload ($_shape) SAYS the spawn was not examined" \
+        "could not read this call" "$ROOT" "$_payload"
+done
+# THE CONTROL, and without it the three above are satisfied by a hook that
+# announces on every call it ever sees.
+_CTL_OUT="$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls"}}' \
+    | RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKTREE_TX_DIR="$ROOT/tx" \
+      RICHOS_WORKTREE_LEDGER="$ROOT/wt-ledger.jsonl" \
+      "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 || true)"
+if printf '%s' "$_CTL_OUT" | grep -q "could not read this call"; then
+    printf '  FAIL  a payload it COULD read is not announced (it spoke anyway)\n'
+    FAIL=$((FAIL + 1))
+else
+    printf '  PASS  a payload it COULD read is not announced — silence stays correct on the happy path\n'
+    PASS=$((PASS + 1))
+fi
 rm -rf "$ROOT"
 
 # --- (a) file-capable, no isolation, no marker -> exit 2 warning ---
