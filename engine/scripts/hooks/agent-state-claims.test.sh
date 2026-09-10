@@ -173,12 +173,35 @@ verdict() { python3 "$LIB_PY" --entity "$ENTITY" --owner "$1" --format triple | 
     || bad "A4 absent -> NOT-ALIVE" "got $(verdict "$ID_ABSENT")"
 
 # A locked worktree whose lock line carries no pid at all.
+# INVERTED 2026-09-10. This asserted NOT-ALIVE until three RUNNING agents on
+# this machine were answered NOT-ALIVE through exactly this branch: their lock
+# reasons had been emptied by an unlock/re-lock (`git worktree lock` with no
+# --reason writes an empty file), and an empty lock names nobody. A HELD lock
+# is the platform saying the workspace may still be in use; a resolver that
+# reads it as death is permissive in the one direction that destroys work.
+# INDETERMINATE is this module's own honest outcome for "I cannot tell", and
+# the remover refuses on it.
 WT_NOPID="$ENTITY/.claude/worktrees/agent-a5555555555555555"
 git -C "$ENTITY" worktree add -q -b wt-nopid "$WT_NOPID" >/dev/null 2>&1
 git -C "$ENTITY" worktree lock --reason "claude agent agent-a5555555555555555 (no pid here)" "$WT_NOPID" >/dev/null 2>&1
-[ "$(verdict a5555555555555555)" = "NOT-ALIVE" ] \
-    && ok "A5 locked but the lock line carries NO pid -> NOT-ALIVE" \
-    || bad "A5 lock without pid -> NOT-ALIVE" "got $(verdict a5555555555555555)"
+[ "$(verdict a5555555555555555)" = "INDETERMINATE" ] \
+    && ok "A5 locked but the lock line carries NO pid -> INDETERMINATE (a held lock this cannot attribute is never read as death)" \
+    || bad "A5 lock without pid -> INDETERMINATE" "got $(verdict a5555555555555555)"
+
+# A5b the same worktree with an EMPTY lock reason, which is the exact artifact
+# measured on this machine at 11:25 on 2026-09-10 for three live agents.
+WT_EMPTY="$ENTITY/.claude/worktrees/agent-a7777777777777777"
+git -C "$ENTITY" worktree add -q -b wt-empty "$WT_EMPTY" >/dev/null 2>&1
+git -C "$ENTITY" worktree lock "$WT_EMPTY" >/dev/null 2>&1
+[ "$(verdict a7777777777777777)" = "INDETERMINATE" ] \
+    && ok "A5b locked with an EMPTY reason (the measured artifact) -> INDETERMINATE, not NOT-ALIVE" \
+    || bad "A5b empty lock reason -> INDETERMINATE" "got $(verdict a7777777777777777)"
+
+# A5c the positive control: the SAME shape with a live pid on it still reads
+# ALIVE, so A5/A5b are about attribution and not about locks in general.
+[ "$(verdict "$ID_LIVE")" = "ALIVE" ] \
+    && ok "A5c a lock naming a RUNNING pid still reads ALIVE (the inversion above is about attribution, not about locks)" \
+    || bad "A5c live lock -> ALIVE" "got $(verdict "$ID_LIVE")"
 
 # Accepts a worktree PATH as well as an id.
 [ "$(python3 "$LIB_PY" --entity "$ENTITY" --owner "$WT_LIVE" --format triple | cut -f1)" = "ALIVE" ] \

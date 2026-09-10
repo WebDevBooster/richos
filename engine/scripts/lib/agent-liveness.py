@@ -36,10 +36,15 @@ main checkout, is locked with a LIVE pid.
 
     absent / unregistered worktree ......... NOT-ALIVE
     registered but UNLOCKED ................ NOT-ALIVE
-    locked, lock line carries no pid ....... NOT-ALIVE
+    locked, lock line carries no pid ....... INDETERMINATE  (see below)
     locked, pid parsed, pid is dead ........ NOT-ALIVE (stale lock)
     locked, pid parsed, pid is running ..... ALIVE
     git could not be queried ............... INDETERMINATE
+
+The third row said NOT-ALIVE until 2026-09-10, when it was measured answering
+that for three RUNNING agents at once -- Claude Code's lock file is sometimes
+EMPTY, and an empty lock names nobody. The row is now INDETERMINATE, which is
+this file's own honest outcome and the one it promises never to collapse.
 
 INDETERMINATE IS A REAL OUTCOME AND IS NEVER COLLAPSED. The remover treats it
 as "refuse" and the claim guard treats it as "say nothing", and those are
@@ -431,9 +436,41 @@ def resolve(entity_root, target):
 
     m = LOCK_PID_RE.search(locked)
     if not m:
-        rec["verdict"] = NOT_ALIVE
-        rec["reason"] = ("entity worktree %s is locked but the lock line carries "
-                         "no pid (%r)" % (path, locked))
+        # MEASURED 2026-09-10, and it INVERTED this verdict. At 11:25 that day
+        # every RUNNING agent on this machine reached exactly this branch and
+        # was answered NOT-ALIVE: three live isolation worktrees, present,
+        # registered and locked, whose lock line was the bare word `locked`.
+        #
+        # The parser is not at fault -- git 2.52.0 reports a lock reason
+        # faithfully in --porcelain and in --porcelain -z, for a lock taken by
+        # `git worktree lock --reason` and for a lock file written directly
+        # (both measured in a sandbox the same hour). Nor was the platform:
+        # the orchestrator had unlocked all three at 11:24:02 and re-locked
+        # them at 11:24:11 (a 20ms poller caught both edges), and
+        # `git worktree lock` WITHOUT --reason writes an EMPTY reason file,
+        # destroying the platform's own
+        #     claude agent agent-a42c90096292136f0 (pid 8799 start Thu Sep 10 ...)
+        #
+        # THE CAUSE DOES NOT MATTER TO THIS BRANCH, and that is the point. Any
+        # hand, any tool, any future platform revision can leave a lock with no
+        # pid on it, and this verdict is what decides whether a workspace may
+        # be destroyed.
+        #
+        # A HELD LOCK IS THE PLATFORM SAYING THE WORKSPACE MAY STILL BE IN USE.
+        # With no pid on it, this file cannot tell whether the holder runs --
+        # and INDETERMINATE is the honest answer this module already keeps for
+        # exactly that, "never collapsed" by its own rule. Answering NOT-ALIVE
+        # made the one implementation of "is this agent alive?" PERMISSIVE for
+        # every live agent, which is worse than absent: absence prompts a
+        # check and a false negative does not. The remover refuses on
+        # INDETERMINATE, the claim guard says nothing, and the reclaim lane has
+        # its own positive-evidence route for a lock the platform never
+        # releases (daily-workspace-cleanup.py, the agent ground).
+        rec["verdict"] = INDETERMINATE
+        rec["reason"] = ("entity worktree %s is LOCKED and the lock line carries no pid "
+                         "(%r) -- the platform is holding it and this cannot say who; "
+                         "an empty lock reason has been observed on RUNNING agents "
+                         "(2026-09-10)" % (path, locked))
         _attach_sources(rec)
         return rec
 
