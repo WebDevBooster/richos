@@ -344,14 +344,23 @@ fn the_ledgers_partial_coverage_is_stated_rather_than_overclaimed() {
     // re-spent on every rotation (inner-doctrine design §4.2 item 3, §5.1). A test that had
     // simply been deleted alongside the sentence it checked would have retired a guarantee
     // while looking like a tidy-up, so this one names the same fact in its new home.
+    //
+    // THE SENTENCE GREW A SECOND HALF ON 2026-09-08 AND THESE PINS MOVED WITH IT. It used to
+    // say only that the record was INCOMPLETE, which left "an entry is proof" standing alone —
+    // and a present entry that had stopped being true was then something the successor was
+    // instructed to believe. The asymmetry below is still the one this test was written for;
+    // the clause about an entry not proving the present is the half that was missing. The line
+    // breaks are part of the pins because the file is wrapped prose and the exact sentence is
+    // what is being held, exactly as `An\nentry` was held before.
     let doctrine = richos_core::doctrine::render(&richos_core::doctrine::DoctrineIdentity::default());
     assert!(doctrine.contains("That record is partial"), "{doctrine}");
     assert!(
-        doctrine.contains("An\nentry in it is proof the thing happened; the absence of an entry is not proof that it did not."),
-        "the ledger's asymmetry must be stated, not implied:\n{doctrine}"
+        doctrine.contains("An entry in it is proof the thing happened; it is not proof the thing is\nstill true, and the absence of an entry is not proof that it did not."),
+        "the ledger's asymmetry must be stated, not implied — and an entry must not be read as \
+         proof of the present:\n{doctrine}"
     );
-    assert!(doctrine.contains("never tell him nothing was done"), "{doctrine}");
-    assert!(doctrine.contains("Say you are not certain, and offer to check."), "{doctrine}");
+    assert!(doctrine.contains("never tell him nothing\nwas done"), "{doctrine}");
+    assert!(doctrine.contains("Say you are\nnot certain, and offer to check."), "{doctrine}");
 
     // And the turn keeps ONLY what a system prompt cannot say: which conversation this is,
     // and that the ledger meant is the one printed below. §5.1's acceptance condition is that

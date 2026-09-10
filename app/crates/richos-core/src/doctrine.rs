@@ -418,6 +418,47 @@ mod tests {
         );
     }
 
+    /// **A PRESENT ENTRY THAT HAS STOPPED BEING TRUE IS ITS OWN FAILURE, AND THE FILE USED TO
+    /// HAVE NO WORD FOR IT.** Until 2026-09-08 the record clause warned only that the record
+    /// was INCOMPLETE — "an entry in it is proof the thing happened" stood alone — so a
+    /// successor reading a row that had gone false since it was written would have believed it,
+    /// correctly, by instruction. Measured on the operator side the same week: a list saying
+    /// "do this" for finished work, a row calling five suites red when none of them were, an
+    /// escalation resting on a workflow it named as disabled while that workflow was running.
+    ///
+    /// Both halves are asserted because either one alone leaves the defect standing. Knowing an
+    /// entry can be old is useless without saying WHICH of the two findings this is — the thing
+    /// is broken, or the description of it is old — and that difference is the chief
+    /// executive's to be told rather than his to work out.
+    #[test]
+    fn an_entry_is_evidence_about_when_it_was_written_and_the_two_findings_are_named_apart() {
+        let rendered = render(&DoctrineIdentity::default());
+        assert!(
+            rendered.contains("it is not proof the thing is\nstill true"),
+            "an entry must not be offered as proof of the present:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("look at\nthe thing itself first"),
+            "resting an answer on a stored entry must send it to the thing itself:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("If you have not, say so as you answer."),
+            "and an unchecked answer must say that it is unchecked:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("Either the thing is broken, or the thing is fine and\nwhat was said about it is old."),
+            "broken and out of date are two findings, not one:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("not his job to work out which one this is"),
+            "the difference is his to be told, never his to derive:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("If you cannot tell yet, say that, and say what"),
+            "and not knowing which one it is must itself be sayable:\n{rendered}"
+        );
+    }
+
     /// It is re-sent on every request of every turn, so its length is a permanent tax. §4.3
     /// sets the budget at 4 KB and says why: the discipline of a budget is what keeps six
     /// rules from acquiring paragraphs.
