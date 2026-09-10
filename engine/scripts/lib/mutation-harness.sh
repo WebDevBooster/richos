@@ -277,6 +277,10 @@ mutation_end() {
     # collected here and a worker that left no exit code counts as a FAILURE —
     # see mutation-pool.sh. So a killed mutant cannot quietly leave the tally.
     mut_pool_drain
+    # A harness that declared mutants and ran NONE must not exit 0 — see
+    # mut_pool_require_submissions for the run where exactly that happened and
+    # every layer above it agreed.
+    mut_pool_require_submissions "$MUT_SUITE's mutation harness"
     MUT_PASS="$MUT_POOL_PASS"
     MUT_FAIL="$MUT_POOL_FAIL"
     local wall=$(( $(sw_now_ms) - MUT_WALL_T0 ))

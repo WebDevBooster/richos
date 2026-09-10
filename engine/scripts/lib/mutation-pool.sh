@@ -104,6 +104,9 @@
 
 MUT_POOL_DIR=""
 MUT_POOL_N=0
+# Slots include notes; MUT_POOL_SUBMITTED counts only real mutants, which is what
+# the report line and the zero-mutant refusal must be about.
+MUT_POOL_SUBMITTED=0
 MUT_POOL_JOBS=1
 MUT_POOL_PASS=0
 MUT_POOL_FAIL=0
@@ -145,6 +148,7 @@ mut_pool_init() {
     MUT_POOL_DIR="$(cd "$(mktemp -d -t mutation-pool.XXXXXX)" && pwd -P)" || {
         echo "FATAL: mut_pool_init: could not create a pool directory" >&2; exit 2; }
     MUT_POOL_N=0
+    MUT_POOL_SUBMITTED=0
     MUT_POOL_PASS=0
     MUT_POOL_FAIL=0
     MUT_POOL_SLOWEST=""
@@ -238,6 +242,7 @@ mut_pool_submit() {
         sleep 0.05
     done
     MUT_POOL_N=$(( MUT_POOL_N + 1 ))
+    MUT_POOL_SUBMITTED=$(( MUT_POOL_SUBMITTED + 1 ))
     local seq
     seq="$(printf '%04d' "$MUT_POOL_N")"
     printf '%s' "$label" >"$MUT_POOL_DIR/$seq.label"
@@ -263,6 +268,32 @@ mut_pool_submit() {
     # Written for two consumers: a stuck run can be attributed to a process, and
     # the kill-proofing evidence needs a real signal delivered to a real worker.
     printf '%s' "$!" >"$MUT_POOL_DIR/$seq.pid"
+    return 0
+}
+
+# mut_pool_note <text> — a line that keeps its PLACE in the report without being
+# a mutant.
+#
+# Deferred output moves anything printed between declarations. claim-roles prints
+#     === the state-claim arms, proven load-bearing by removing them ===
+# between its two groups of mutants; with the results collected at the drain, a
+# plain `echo` there floats to the top of the report and ends up introducing
+# every mutant instead of the eleven it belongs to. Nothing about the verdicts
+# changes, which is exactly why it would have survived review — a heading over
+# the wrong group is wrong in a way no exit code can express.
+#
+# A note takes a slot so ordering is the same mechanism as everything else, and
+# carries rc=note so the tally skips it. It is NOT counted as a mutant.
+mut_pool_note() {
+    [ -n "$MUT_POOL_DIR" ] || { echo "FATAL: mut_pool_note before mut_pool_init" >&2; exit 2; }
+    MUT_POOL_N=$(( MUT_POOL_N + 1 ))
+    local seq
+    seq="$(printf '%04d' "$MUT_POOL_N")"
+    printf '%s' "note" >"$MUT_POOL_DIR/$seq.label"
+    printf '%s\n' "$1" >"$MUT_POOL_DIR/$seq.out"
+    printf '%s' "note" >"$MUT_POOL_DIR/$seq.rc"
+    : >"$MUT_POOL_DIR/$seq.pid"
+    : >"$MUT_POOL_DIR/$seq.done"
     return 0
 }
 
@@ -302,7 +333,10 @@ mut_pool_drain() {
             # `^  PASS` / `^  FAIL  <name>` keeps matching byte for byte.
             cat "$MUT_POOL_DIR/$seq.out"
         fi
-        if [ -z "$rc" ]; then
+        if [ "$rc" = "note" ]; then
+            # A heading, not a mutant: printed in place, counted in neither column.
+            :
+        elif [ -z "$rc" ]; then
             printf '  FAIL  %s — NO RESULT: the worker left no exit code (killed, OOM, or out of disk).\n' "$label"
             printf '          This is counted as a failure. A mutant that did not run has proven nothing,\n'
             printf '          and a tally that omitted it would be green over an inventory that never ran.\n'
@@ -329,7 +363,7 @@ mut_pool_report_line() { # <wall-ms>
     slow_ms="${MUT_POOL_SLOWEST%% *}"
     slow_label="${MUT_POOL_SLOWEST#* }"
     printf '  [%s mutant(s), %s at a time, wall %s' \
-        "$MUT_POOL_N" "$MUT_POOL_JOBS" "$(sw_fmt "$wall")"
+        "$MUT_POOL_SUBMITTED" "$MUT_POOL_JOBS" "$(sw_fmt "$wall")"
     if [ -n "$MUT_POOL_SLOWEST" ]; then
         printf ', slowest %s %s' "$(sw_fmt "$slow_ms")" "$slow_label"
     fi
@@ -346,5 +380,38 @@ mut_pool_report_line() { # <wall-ms>
 mut_pool_cleanup() {
     [ -n "$MUT_POOL_DIR" ] && rm -rf "$MUT_POOL_DIR"
     MUT_POOL_DIR=""
+    return 0
+}
+
+# mut_pool_require_submissions <context> — a harness that DECLARED mutants and
+# ran NONE must never exit 0.
+#
+# THIS EXISTS BECAUSE IT HAPPENED. interactive-prompt.mutation.sh passes each
+# patch to `mutant` on STDIN via a heredoc. Converted naively, its thirteen
+# mutants all failed to receive their patch, the pool drained zero submissions,
+# and the harness printed
+#
+#     === interactive-prompt mutations: all 0 properties proven load-bearing ===
+#
+# and EXITED 0. Every layer above it agreed: `bash -n` passed, because a green
+# run over nothing is syntactically perfect, and contract-integrity's IP7 case
+# reads only the harness's exit code, so IP7 would have gone green over thirteen
+# mutants that never ran. That is this engine's founding defect — a reassuring
+# fraction over an inventory that was never there — reintroduced by the commit
+# that was supposed to make the inventory run faster.
+#
+# The count is not compared against a declared total, because a harness that
+# declares its own expected number can drift. Zero is the only number that is
+# unambiguously wrong, and it is the one that actually occurred.
+mut_pool_require_submissions() {
+    local ctx="${1:-this harness}"
+    if [ "$MUT_POOL_SUBMITTED" -eq 0 ]; then
+        echo "ERROR: $ctx submitted NO mutants to the pool." >&2
+        echo "       A harness that declares mutants and runs none must not report success:" >&2
+        echo "       'all 0 properties proven load-bearing' is a green tick over an empty" >&2
+        echo "       inventory, and every caller above reads only this exit code." >&2
+        echo "       Look for a mutant loop that was not wired to mut_pool_submit." >&2
+        exit 2
+    fi
     return 0
 }

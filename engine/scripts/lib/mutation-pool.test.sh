@@ -321,6 +321,47 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# P10: a note keeps its PLACE and is not counted as a mutant
+# ---------------------------------------------------------------------------
+# Deferred output moves anything printed between declarations. claim-roles prints
+# a section heading between its two groups of mutants; as a plain `echo` it
+# floated to the top and introduced every mutant instead of the eleven below it.
+# Nothing about the verdicts changed, which is why it would have survived review.
+body_p10() { printf '  PASS  %s\n' "$1"; return 0; }
+mut_pool_init 4
+mut_pool_submit one  body_p10 one
+mut_pool_note "--- HEADING ---"
+mut_pool_submit two  body_p10 two
+mut_pool_drain >"$SANDBOX/p10.out" 2>&1
+P10_SEEN="$(grep -oE 'one|--- HEADING ---|two' "$SANDBOX/p10.out" | tr '\n' '|')"
+if [ "$P10_SEEN" = "one|--- HEADING ---|two|" ]; then
+    ok "P10. a-note-keeps-its-place-between-mutants"
+else
+    bad "P10. a-note-keeps-its-place-between-mutants" "sequence was '$P10_SEEN'"
+fi
+if [ "$MUT_POOL_PASS" -eq 2 ] && [ "$MUT_POOL_FAIL" -eq 0 ] && [ "$MUT_POOL_SUBMITTED" -eq 2 ]; then
+    ok "P10b. a-note-is-not-counted-as-a-mutant (2 submitted, 2 pass, 0 fail)"
+else
+    bad "P10b. a-note-is-not-counted-as-a-mutant" \
+        "submitted=$MUT_POOL_SUBMITTED pass=$MUT_POOL_PASS fail=$MUT_POOL_FAIL, wanted 2/2/0"
+fi
+mut_pool_cleanup
+
+# P10c: a pool of NOTHING BUT NOTES has submitted no mutants, and the zero-mutant
+# refusal must still fire. Otherwise a harness whose mutants all failed to wire
+# up could satisfy the refusal with a heading.
+mut_pool_init 2
+mut_pool_note "just a heading"
+mut_pool_drain >/dev/null 2>&1
+if [ "$MUT_POOL_SUBMITTED" -eq 0 ]; then
+    ok "P10c. notes-alone-do-not-satisfy-the-zero-mutant-refusal"
+else
+    bad "P10c. notes-alone-do-not-satisfy-the-zero-mutant-refusal" \
+        "MUT_POOL_SUBMITTED=$MUT_POOL_SUBMITTED after only a note"
+fi
+mut_pool_cleanup
+
+# ---------------------------------------------------------------------------
 # P9: silent bodies and an empty pool
 # ---------------------------------------------------------------------------
 body_silent() { return 0; }
