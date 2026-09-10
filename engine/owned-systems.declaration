@@ -124,7 +124,7 @@ id: worktrees
 title: Worktree reclamation — the reconciler that runs daily and reclaims nothing
 jurisdiction: test -f {engine}/scripts/reconcile-terminal-worktrees.py
 check: python3 {engine}/scripts/reconcile-terminal-worktrees.py --status
-evidence: (blocked|"done"|removed|terminal_pending_cleanup|members_blocked_on_a_condition|terminal_members_with_a_directory_present|sealed_native_missing)
+evidence: (blocked|"done"|removed|terminal_pending_cleanup|members_blocked_on_a_condition|terminal_members_with_a_directory_present|sealed_native_missing|overdue)
 match: (reconcil|worktree|reclaim|reap|disk space|stale branch)
 timeout: 90
 why: Its own SessionStart notice said BLOCKED, 46 members, on the day 30 GB across 42 directories was sitting unreclaimed, and the session read past it.
