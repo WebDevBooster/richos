@@ -1,0 +1,29 @@
+PREVIEW branch-only /Users/alex/ab/femcboost/.claude/worktrees/agent-a2a9161bf0c3538b6 — d0eef867/a2a9161bf0c3538b6 frank-fable-cert1 — workspace already gone; branch by exact compare-and-set
+PREVIEW branch-only /Users/alex/ab/femcboost/.claude/worktrees/agent-a2bdb6c0d690737aa — d0eef867/a2bdb6c0d690737aa sage-fable-cert1 — workspace already gone; branch by exact compare-and-set
+PREVIEW remove /Users/alex/ab/femcboost/.claude/worktrees/agent-a2de3c7d8d8590224 — d0eef867/a2de3c7d8d8590224 zach-opus-unl1 — session d0eef867: recorded pid(s) 8799 gone or reused; no running registration; ignored: 0 disposable dropped, 2 archived first
+PREVIEW remove /Users/alex/ab/richos-wt/zach-opus-unl1 — d0eef867/a2de3c7d8d8590224 zach-opus-unl1 — clean, integrated, unlocked; ignored: 17 disposable dropped, 3 archived first
+PREVIEW remove /Users/alex/ab/femcboost/.claude/worktrees/agent-a446bbe852076df83 — d0eef867/a446bbe852076df83 zach-fable-fix2 — session d0eef867: recorded pid(s) 8799 gone or reused; no running registration; ignored: 0 disposable dropped, 2 archived first
+PREVIEW remove /Users/alex/ab/richos-wt/zach-fable-fix2 — d0eef867/a446bbe852076df83 zach-fable-fix2 — clean, integrated, unlocked; ignored: 11 disposable dropped, 1 archived first
+PREVIEW remove /Users/alex/ab/femcboost/.claude/worktrees/agent-a97f2c691c34e2c0f — d0eef867/a97f2c691c34e2c0f zach-opus-fix1 — session d0eef867: recorded pid(s) 8799 gone or reused; no running registration; ignored: 0 disposable dropped, 2 archived first
+PREVIEW remove /Users/alex/ab/richos-wt/zach-opus-fix1 — d0eef867/a97f2c691c34e2c0f zach-opus-fix1 — clean, integrated, unlocked; ignored: 16 disposable dropped, 117 archived first
+PREVIEW remove /Users/alex/ab/femcboost/.claude/worktrees/agent-aa2e08d7c39345d84 — d0eef867/aa2e08d7c39345d84 sage-fable-cert2 — session d0eef867: recorded pid(s) 8799 gone or reused; no running registration; ignored: 0 disposable dropped, 2 archived first
+PREVIEW remove /Users/alex/ab/richos-wt/sage-fable-cert2 — d0eef867/aa2e08d7c39345d84 sage-fable-cert2 — clean, integrated, unlocked; ignored: 21 disposable dropped, 1 archived first
+PREVIEW hold /Users/alex/ab/claude-orchestration-kit-wt/zach-opus-dor1 — d0eef867/ae5b21e418fc9c421 zach-opus-dor1 — RETRY, not a verdict: process(es) 1483 (com.apple.Virtualization.VirtualMachine) are standing in the tree. Nothing here kills a process; the hold clears when they leave
+PREVIEW hold /Users/alex/ab/deeply-wt/zach-opus-dor1 — d0eef867/ae5b21e418fc9c421 zach-opus-dor1 — RETRY, not a verdict: process(es) 1483 (com.apple.Virtualization.VirtualMachine) are standing in the tree. Nothing here kills a process; the hold clears when they leave
+PREVIEW branch-only /Users/alex/ab/femcboost/.claude/worktrees/agent-aeb4b3b8c09514c02 — d0eef867/aeb4b3b8c09514c02 frank-fable-cert2 — workspace already gone; branch by exact compare-and-set
+PREVIEW hold /Users/alex/ab/claude-orchestration-kit-wt/zach-opus-dor2 — d0eef867/af3b228967dc2b627 zach-opus-dor2 — RETRY, not a verdict: process(es) 1483 (com.apple.Virtualization.VirtualMachine) are standing in the tree. Nothing here kills a process; the hold clears when they leave
+PREVIEW hold /Users/alex/ab/deeply-wt/zach-opus-dor2 — d0eef867/af3b228967dc2b627 zach-opus-dor2 — RETRY, not a verdict: process(es) 1483 (com.apple.Virtualization.VirtualMachine) are standing in the tree. Nothing here kills a process; the hold clears when they leave
+
+EXCLUDED BY CEO RULING (ceo-decisions.md section 31) — never removed, never counted as clean, and never the reason anything else is refused (9):
+  EXCLUDED /Users/alex/.codex/worktrees/06e6/femcboost — codex/structural-failure-report
+  EXCLUDED /Users/alex/.codex/worktrees/67ec/femcboost — codex/inherited-publication-failure-report
+  EXCLUDED /Users/alex/ab/femcboost-wt/codex-rollback-owned-outcome — codex/rollback-owned-outcome
+  EXCLUDED /Users/alex/ab/richos-wt/codex-owned-outcome-completion — codex/owned-outcome-completion
+  EXCLUDED /Users/alex/ab/richos-wt/codex-owned-outcome-live-repair — codex/owned-outcome-live-repair
+  EXCLUDED /Users/alex/ab/richos-wt/codex-owned-outcome-prd — codex/owned-outcome-prd
+  EXCLUDED /Users/alex/ab/richos-wt/codex-resumable-outcome-verification — codex/resumable-outcome-verification
+  EXCLUDED /Users/alex/ab/richos-wt/codex-rollback-owned-outcome — codex/rollback-owned-outcome
+  EXCLUDED /Users/alex/ab/richos-hq-wt/codex-rollback-owned-outcome — codex/rollback-owned-outcome
+NOT EXAMINED — registered in a repository this lane touches, owned by no transaction of this engine (0):
+  (none)
+=== preview: remove=8 branch-only=3 observe=0 hold=4 excluded=9 not-examined=0 ===
