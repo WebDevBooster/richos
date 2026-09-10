@@ -78,6 +78,29 @@ def text(path,*args): return git(path,*args).stdout.decode('utf-8').strip()
 def direct(path,ref):
     if git(path,'symbolic-ref','-q',ref,allowed=(0,1)).returncode==0:
         raise CompletionError('Integration and delivery branches must be direct refs')
+    # A TRUNK THAT IS NOT `main` IS A NAMED CONDITION, NOT A GIT MYSTERY
+    # (2026-09-10). prove_member hard-codes integration='refs/heads/main' and
+    # validate_member_schema refuses any other, so on a `master` repository
+    # this raised 'Git proof could not complete' — fail-closed, which is right,
+    # with a reason that sends the reader looking for a broken git. It is not
+    # broken: this lane only understands `main`, and worktree-adoption G7 uses
+    # the repository's own HEAD instead, so the two lanes answer differently
+    # about the same tree. Saying so is not a fix for that divergence; it is
+    # the difference between a hold somebody can act on and one they cannot.
+    if git(path,'show-ref','--verify','--quiet',ref,allowed=(0,1)).returncode:
+        head=''
+        try:
+            raw=git(path,'symbolic-ref','--short','-q','HEAD',allowed=(0,1)).stdout
+            if isinstance(raw,bytes): raw = raw.decode('utf-8','replace')
+            head=(raw or '').strip()
+        except Exception:
+            head=''
+        raise CompletionError(
+            'This repository has no %s. The reclamation lane understands `main` and nothing else, '
+            'so a repository whose trunk is %s is HELD rather than examined — deliberately, because '
+            'guessing the trunk is how a lane deletes work from a branch nobody integrated into. '
+            'It is not a broken repository and there is nothing to repair here.'
+            % (ref, ('`%s`' % head) if head else 'something else'))
     value=text(path,'rev-parse','--verify',ref)
     if not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})',value): raise CompletionError('Invalid Git object identity')
     return value
@@ -246,7 +269,40 @@ def verify_member_proof(proof,path_present=True):
         if identity(Path(proof[key]))!=proof['identities'][key]:raise CompletionError('Canonical identity changed')
     main=direct(repo,proof['integration_ref'])
     if git(repo,'merge-base','--is-ancestor',proof['head'],main,allowed=(0,1)).returncode:
-        raise CompletionError('Current canonical main no longer contains the delivery')
+        # THE VERDICT IS RIGHT AND THE OLD REASON WAS MISLEADING (2026-09-10).
+        # Refusing here is correct under R3 and both reviewers confirmed it:
+        # only a tip PROVEN an ancestor of the integration branch is ever
+        # removed, so a workspace whose commits main does not contain is held,
+        # which is the whole protection. What the message did not say is that
+        # there are two ways to arrive here and they need different actions:
+        #
+        #   * the work never landed        -> land it, or write a disposition;
+        #   * the work landed by SQUASH or REBASE -> the content is on main
+        #     under a DIFFERENT commit, so this branch tip can never become an
+        #     ancestor and this member will be held forever with no way to
+        #     self-close. That is a real hold, not a bug, and the operator has
+        #     to retire the branch deliberately.
+        #
+        # `git cherry` answers which one, by patch id, and is a reader.
+        equivalent = ''
+        try:
+            out = git(repo,'cherry',proof['integration_ref'],proof['head'],allowed=(0,1)).stdout
+            if isinstance(out,bytes): out = out.decode('utf-8','replace')
+            lines = [l for l in (out or '').splitlines() if l.strip()]
+            if lines and all(l.startswith('-') for l in lines):
+                equivalent = (' EVERY commit on this branch is already on %s under a DIFFERENT sha '
+                              '(git cherry: %d of %d equivalent), so it landed by squash or rebase '
+                              'and this tip can NEVER become an ancestor. This member will be held '
+                              'forever unless the branch is retired deliberately.'
+                              % (proof['integration_ref'], len(lines), len(lines)))
+            elif lines:
+                kept = sum(1 for l in lines if l.startswith('+'))
+                equivalent = (' %d of %d commits on this branch are NOT on %s by patch id, so this '
+                              'is unlanded work rather than a squash landing.'
+                              % (kept, len(lines), proof['integration_ref']))
+        except Exception:
+            equivalent = ' (whether it landed under a different sha could not be determined here.)'
+        raise CompletionError('Current canonical main no longer contains the delivery.' + equivalent)
     if proof['branch']:
         if git(repo,'symbolic-ref','-q',proof['branch'],allowed=(0,1)).returncode==0:
             raise CompletionError('Owned branch became symbolic; direct reference required')

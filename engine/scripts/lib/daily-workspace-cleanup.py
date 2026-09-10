@@ -738,8 +738,38 @@ def archive_residue(tx, transaction, index, path, residue):
     record = {'archive': tar_path, 'files': len(manifest), 'bytes': total,
               'manifest_sha256': hashlib.sha256(json.dumps(manifest, sort_keys=True).encode('utf-8')).hexdigest(),
               'archived_ts': tx.now_iso()}
+    # WHAT WENT IN THAT A PERSON SHOULD KNOW ABOUT (Frank D13, 2026-09-10).
+    # The residue archive is where a workspace's IGNORED files go, and `.env`
+    # files are ignored by construction — 51 archives on this machine, at least
+    # 15 holding avelor/.env.local and fitapp/.env.local. Today those carry
+    # only PUBLIC_CONVEX_URL / PUBLIC_CONVEX_SITE_URL, so nothing has leaked;
+    # the mechanism would archive a real secret with exactly the same care,
+    # forever, in a store scan-secrets.sh does not watch.
+    #
+    # NOTHING IS DROPPED. "Nothing ignored is discarded without a copy" is the
+    # invariant this archive exists to keep, and silently filtering a file out
+    # of it would be a deletion wearing a security justification. So the
+    # archive is unchanged and the FACT is surfaced: the journal names how many
+    # secret-bearing filenames went in and what they were, where an operator
+    # reads it. Knowing beats guessing; guessing is what made this invisible.
+    secretish = sorted(rel for rel in manifest if _looks_secret_bearing(rel))
+    if secretish:
+        record['secret_bearing'] = secretish[:20]
+        record['secret_bearing_count'] = len(secretish)
     tx.atomic_write_json(os.path.join(cdir, 'ignored-residue.json'), {'manifest': manifest, 'record': record})
     return record
+
+
+# Filenames that conventionally hold credentials. A NAME check, deliberately:
+# reading the bytes to classify them would mean this lane parsing secrets, and
+# the point is to tell an operator WHERE to look, not to judge what is inside.
+SECRET_BEARING_NAMES = ('.env', '.envrc', '.netrc', 'credentials', 'id_rsa', 'id_ed25519',
+                        '.pem', '.p12', '.keystore', '.jks', 'secrets')
+
+
+def _looks_secret_bearing(rel):
+    base = os.path.basename(rel).lower()
+    return any(base == n or base.startswith(n + '.') or base.endswith(n) for n in SECRET_BEARING_NAMES)
 
 
 def verify_residue_archive(tar_path, manifest):

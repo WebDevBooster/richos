@@ -167,8 +167,8 @@ mutant untracked-refusal-removed "test_dirty_staged_and_untracked_refuse" "$P" \
     "an untracked file — work nobody committed — would be deleted with the tree."
 
 mutant unintegrated-tree-removed "test_unintegrated_refuses" "$P" \
-    "    if git(repo,'merge-base','--is-ancestor',proof['head'],main,allowed=(0,1)).returncode:{NL}        raise CompletionError('Current canonical main no longer contains the delivery')" \
-    "    if False:{NL}        raise CompletionError('Current canonical main no longer contains the delivery')" \
+    "    if git(repo,'merge-base','--is-ancestor',proof['head'],main,allowed=(0,1)).returncode:{NL}        # THE VERDICT IS RIGHT AND THE OLD REASON WAS MISLEADING (2026-09-10)." \
+    "    if False:{NL}        # THE VERDICT IS RIGHT AND THE OLD REASON WAS MISLEADING (2026-09-10)." \
     "a worktree whose commits main does not contain would be removed and its branch deleted — unlanded work gone."
 
 mutation_end

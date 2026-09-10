@@ -101,6 +101,63 @@ class Completion(unittest.TestCase):
             proof.verify_member_proof(member)
         self.merge();proof.verify_member_proof(member)
         self.assertEqual(proof.complete(self.payload)['members'][0]['head'],self.git(self.repo,'rev-parse','main'))
+    def test_a_squash_landing_is_held_and_the_reason_SAYS_it_was_a_squash(self):
+        # SAGE D6 / FRANK, 2026-09-10. A squash-landed or rebased branch can
+        # never become an ancestor of main, so it is held FOREVER with
+        # "Current canonical main no longer contains the delivery" — a sentence
+        # that reads as "this never landed" and sends the reader to land work
+        # that is already on main under a different sha.
+        #
+        # THE VERDICT IS UNCHANGED AND MUST BE. Only a tip proven an ancestor
+        # is ever removed; that is the protection both reviewers confirmed
+        # held, and nothing here relaxes it. What changed is that the reason
+        # now distinguishes the two ways of arriving, because they need
+        # different actions from a person.
+        (self.worker/'tracked').write_text('deliverable\n');self.commit()
+        member=proof.complete(self.payload)['members'][0]
+        # squash-land it: the content is on main under a DIFFERENT commit
+        self.git(self.repo,'merge','--squash','worker')
+        self.git(self.repo,'commit','-m','squashed the delivery')
+        with self.assertRaises(proof.CompletionError) as caught:
+            proof.verify_member_proof(member)
+        message=str(caught.exception)
+        self.assertIn('no longer contains the delivery',message)
+        self.assertIn('squash or rebase',message)
+        self.assertIn('held forever',message)
+
+    def test_genuinely_unlanded_work_says_UNLANDED_not_squashed(self):
+        # The negative control for the case above. Without it, "squash" could
+        # be printed on every refusal and the message would carry no
+        # information at all.
+        (self.worker/'tracked').write_text('deliverable\n');self.commit()
+        member=proof.complete(self.payload)['members'][0]
+        with self.assertRaises(proof.CompletionError) as caught:
+            proof.verify_member_proof(member)
+        message=str(caught.exception)
+        self.assertIn('no longer contains the delivery',message)
+        self.assertIn('unlanded work',message)
+        self.assertNotIn('squash or rebase',message)
+
+    def test_a_repository_whose_trunk_is_not_main_is_HELD_and_says_why(self):
+        # SAGE D6. prove_member hard-codes integration='refs/heads/main', so on
+        # a `master` repository direct() raised 'Git proof could not complete'
+        # — fail-closed, which is right, with a reason that sends the reader
+        # looking for a broken git. It is not broken: this lane understands
+        # `main` and nothing else, and guessing the trunk is how a lane deletes
+        # work from a branch nobody integrated into.
+        other=self.root/'master-repo';other.mkdir()
+        self.git(other,'init','-b','master')
+        self.git(other,'config','user.name','Fixture');self.git(other,'config','user.email','f@example.invalid')
+        (other/'f').write_text('base\n');self.git(other,'add','.');self.git(other,'commit','-m','base')
+        wt=self.root/'master-worker';self.git(other,'worktree','add','-b','topic',str(wt))
+        with self.assertRaises(proof.CompletionError) as caught:
+            proof.prove_member(dict(path=str(wt),repo=str(other),branch='topic',
+                                    **{'class':'hand-rolled'}))
+        message=str(caught.exception)
+        self.assertIn('has no refs/heads/main',message)
+        self.assertIn('`master`',message)
+        self.assertIn('nothing to repair',message)
+
     def test_actual_unfinished_merge_and_operation_markers_refuse(self):
         self.git(self.repo,'branch','side')
         self.git(self.repo,'commit','--allow-empty','-m','main advance')

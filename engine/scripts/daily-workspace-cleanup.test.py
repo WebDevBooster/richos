@@ -169,6 +169,41 @@ class Cleanup(unittest.TestCase):
         self.assertTrue(str(residue['archive']).startswith(str(self.root/'captures')))
         self.assertFalse(list((self.root/'captures').rglob('x.pyc')))
 
+    def test_a_secret_bearing_file_is_ARCHIVED_and_NAMED_never_silently_dropped(self):
+        # FRANK D13, 2026-09-10. The residue archive is where a workspace's
+        # IGNORED files go, and `.env` files are ignored by construction: 51
+        # archives on the operator's machine, at least 15 holding
+        # avelor/.env.local and fitapp/.env.local. Those carry only public
+        # Convex URLs today, so nothing has leaked — and the mechanism would
+        # archive a real secret with exactly the same care, forever, in a store
+        # scan-secrets.sh does not watch.
+        #
+        # THE FIX IS NOT A FILTER. "Nothing ignored is discarded without a
+        # copy" is the invariant this archive exists to keep, and quietly
+        # dropping a file would be a deletion wearing a security
+        # justification. The file goes in AND the journal names it.
+        (self.repo/'.git/info/exclude').write_text('.env.local\nnotes.txt\n')
+        (self.work/'.env.local').write_bytes(b'PUBLIC_CONVEX_URL=https://example.invalid\n')
+        (self.work/'notes.txt').write_bytes(b'ordinary ignored bytes\n')
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        residue=result['members'][0]['daily_cleanup']['ignored_residue']
+        self.assertEqual(residue['files'],2)
+        # ARCHIVED, byte for byte — the invariant is not weakened
+        with tarfile.open(residue['archive']) as tar:
+            self.assertEqual(sorted(tar.getnames()),['.env.local','notes.txt'])
+            self.assertEqual(tar.extractfile('.env.local').read(),
+                             b'PUBLIC_CONVEX_URL=https://example.invalid\n')
+        # ...and NAMED, so an operator knows where to look
+        self.assertEqual(residue['secret_bearing'],['.env.local'])
+        self.assertEqual(residue['secret_bearing_count'],1)
+        # the negative control: an ordinary ignored file is not named, so the
+        # report means something rather than flagging everything
+        self.assertNotIn('notes.txt',residue['secret_bearing'])
+        for name in ('.env','.env.production','id_rsa','app.pem','secrets'):
+            self.assertTrue(daily._looks_secret_bearing('sub/dir/'+name),name)
+        for name in ('README.md','environment.md','index.js'):
+            self.assertFalse(daily._looks_secret_bearing(name),name)
+
     def test_ignored_only_disposable_records_no_archive(self):
         (self.repo/'.git/info/exclude').write_text('__pycache__/\n')
         cache=self.work/'__pycache__';cache.mkdir();(cache/'x.pyc').write_bytes(b'\x00')
