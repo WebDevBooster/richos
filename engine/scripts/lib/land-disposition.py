@@ -180,8 +180,14 @@ OUTPUT
 ===========================================================================
 --format json (default) | text | hook | line. `--demand` is the only mode that
 writes; without it this is strictly a report, which is how it should be run by
-hand while reading. Exit 0 always for json/text/hook; `line` exits 3 when there
-is something to say.
+hand while reading.
+
+THE EXIT CODE MEANS THE SAME THING IN EVERY FORMAT, deliberately: 0 nothing is
+owed, 3 something is owed, 4 nothing could be examined. A caller that wants the
+verdict never has to parse the report, and the report and the code can never
+disagree because they are produced from one sweep. 4 is not 0 for the reason
+this whole file exists -- an unexamined main and a clean one must not share an
+answer.
 """
 
 import argparse
@@ -725,12 +731,22 @@ def main(argv=None):
     result = run(args.entity_root, args.session, args.ledger, args.extra_repos,
                  threshold, args.demand, args.escalation_ledger)
 
+    # ONE SWEEP, ONE VERDICT, EVERY FORMAT. Computed before rendering so the
+    # printed report and the exit code are two views of the same result rather
+    # than two runs that can disagree.
+    if result["status"] in ("cannot-run", "stand-down"):
+        verdict = 4
+    elif result["n_undisposed"] or result["n_demanded"] or result["undecided"]:
+        verdict = 3
+    else:
+        verdict = 0
+
     if args.format == "json":
         sys.stdout.write(json.dumps(result, indent=2) + "\n")
-        return 0
+        return verdict
     if args.format == "text":
         sys.stdout.write(text_report(result) + "\n")
-        return 0
+        return verdict
     if args.format == "hook":
         def one(v):
             return str(v).replace("\n", " ").replace("\t", " ")
@@ -746,11 +762,10 @@ def main(argv=None):
                      ("KEY", result["key"]),
                      ("SUMMARY", result["summary"])):
             sys.stdout.write("%s\t%s\n" % (k, one(v)))
-        return 0
+        return verdict
     if result["summary"]:
         sys.stdout.write(result["summary"] + "\n")
-        return 3
-    return 0
+    return verdict
 
 
 if __name__ == "__main__":
