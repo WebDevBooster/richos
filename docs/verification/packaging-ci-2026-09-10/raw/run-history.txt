@@ -1,0 +1,18 @@
+$ gh run list --workflow packaging-ci.yml --limit 12    # richos, 2026-09-10
+completed	success	packaging-ci runs again: a pinned Tauri CLI, one declared gap, and th…	packaging-ci	zach-opus-red1	push	34446378461	6m54s	2026-09-10T06:41:58Z
+completed	failure	packaging-ci	packaging-ci	main	workflow_dispatch	34444955517	2m50s	2026-09-10T06:23:05Z
+completed	failure	One definition of a teammate's name, so the in-flight sweep stops dem…	packaging-ci	main	push	33459952385	21s	2026-09-01T01:45:19Z
+completed	failure	The release script's own signature check failed every correctly signe…	packaging-ci	main	push	33458892765	19s	2026-09-01T01:28:42Z
+completed	failure	The grants survive a rebuild: two code hashes, one designated require…	packaging-ci	main	push	33458861829	20s	2026-09-01T01:28:13Z
+completed	failure	Merge the ACP adapter deletion: RichOS drives the native binary, and …	packaging-ci	main	push	33444391946	5s	2026-08-31T22:03:32Z
+completed	failure	Merge the updater: RichOS updated itself, and refused the two builds …	packaging-ci	main	push	33443866992	5s	2026-08-31T21:56:57Z
+completed	failure	Merge what actually ships: 20 MB of screenshots out of the binary, an…	packaging-ci	main	push	33409004020	5s	2026-08-31T15:32:17Z
+completed	failure	Merge the Developer ID path: everything provable without a certificat…	packaging-ci	main	push	33401956763	5s	2026-08-31T14:19:29Z
+
+$ gh run list --workflow windows-companion-ci.yml --limit 6   # richos
+completed	success	windows-companion-ci	windows-companion-ci	zach-opus-red1	workflow_dispatch	34446415551	1m21s	2026-09-10T06:42:26Z
+completed	success	Hold the two new doctrine clauses with a test that bites	windows-companion-ci	orphaned/echo-opus-dr1-2026-09-08	push	34338378537	1m12s	2026-09-09T10:05:57Z
+completed	success	The packaging and icon documents describe the tree that actually shipped	windows-companion-ci	main	push	33901290800	48s	2026-09-04T17:34:20Z
+completed	success	1.0.2: the setup sheet cannot be dismissed into a dead app, and answe…	windows-companion-ci	v1.0.2	push	33898940625	55s	2026-09-04T17:08:13Z
+completed	success	1.0.1: the first message works, voice cannot pretend, and the window …	windows-companion-ci	v1.0.1	push	33892649203	56s	2026-09-04T15:59:57Z
+completed	success	The application is 1.0.0, because that is what this launch is called	windows-companion-ci	v1.0.0	push	33883012626	1m1s	2026-09-04T14:18:58Z

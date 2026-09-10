@@ -1,0 +1,238 @@
+9 suite(s) discovered under /Users/runner/work/richos/richos/app/scripts
+  declared host gap: gui-boot.test.sh — the boot fixture copies the loro compiler (bin/loro-context.mjs, bin/loro-write.mjs), which is not tracked in this repository — it lives in the private record repository. A public runner cannot have it, so there is no machine to boot on and no verdict to reach. Measured on this runner, 2026-09-10, run 34444955517.
+
+--- frontend-payload.test.sh
+
+=== P. what ships as the frontend ===
+  PASS  P1 tauri.conf.json sets build.frontendDist (../ui-dist)
+  PASS  P2 frontendDist is not the source tree app/ui
+  PASS  P3 the staged frontend directory is git-ignored
+  PASS  P4 build.rs stages the frontend, so a plain cargo build cannot bypass it
+  PASS  P5 the exclusion list names tests
+  PASS  P6 the exclusion list names node_modules
+  PASS  P7 the staging refuses rather than warns
+  PASS  P8 the screenshots are still in the repository (12 shots-* directories)
+  ....  P9/P10 no staged tree at /Users/runner/work/richos/richos/app/ui-dist — nothing has been built on this machine yet.
+        Not counted as a pass. Run the packaging path — app/scripts/package-app.sh
+        (or 'cargo tauri build' from app/src-tauri), not a plain 'cargo build'.
+
+=== frontend-payload tests: all 8 passed ===
+
+--- gui-boot.test.sh
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  A6 all 28 lines declared unaccountable are still unaccounted
+gui_compiler_source: no loro checkout on this machine to copy from. Looked at
+  $RICHOS_LORO_SOURCE, the loro-tools install, and the corpus pointer's own loro/.
+gui-boot.test.sh: no machine can be built here, so there is no boot to hold to account.
+                  That is a fact about THIS MACHINE, not a verdict about the code.
+
+--- make-engine-asset.test.sh
+  PASS  L1 a repository with no root LICENSE is REFUSED, by name
+  PASS  L2 a repository with no third-party notices is REFUSED, by name
+  PASS  L3 a complete fixture builds an archive
+  PASS  L4 the archive contains engine/LICENSE
+  PASS  L5 the archived LICENSE is byte-identical to the repository's root LICENSE
+  PASS  L6 the archive contains engine/THIRD-PARTY-NOTICES.md
+  PASS  L7 bundled third-party license files survive into the archive
+  PASS  L8 a skill declaring a license with no license file beside it is REFUSED
+  PASS  L9 the real root LICENSE is the canonical AGPL v3 text
+  PASS  L10 the real repository has docs/legal/THIRD-PARTY-NOTICES.md
+  PASS  L11 the real engine carries 17 bundled license files (16 known bundled works)
+  PASS  L12 the real archive builds deterministically and carries the canonical LICENSE
+  PASS  L13 the digest survives a different umask and a different timezone (c121b783fbe39c4583b543dc855b690dd332a10f2ad4e9201cf5796e79595826)
+  PASS  L14 every member of the real archive is a file git tracks (755 members)
+  PASS  L15 gitignored files in the source engine do not reach the archive
+  PASS  L16 an archive carrying an untracked member is REFUSED, and the member is named
+  PASS  L17 a missing members check REFUSES the build rather than skipping the check
+  PASS  L18 building outside a git checkout is REFUSED, not silently fallen back from
+
+=== make-engine-asset tests: all 18 passed ===
+
+--- make-release.test.sh
+
+=== R. the release chain refuses out of order ===
+  PASS  R1 plan names the version (1.0.3) and the endpoint, and creates nothing
+  PASS  R2 verify-engine with no pin refuses
+  PASS  R3 verify-engine against a URL that serves nothing refuses
+  PASS  R4 verify-engine against bytes that are not the pinned bytes refuses
+  PASS  R5 verify-engine against the pinned bytes writes a receipt naming that digest
+  PASS  R5a app with no deny-list refuses at the names gate, before the pin
+  PASS  R6 app with no pin refuses
+  PASS  R7 app with a pin and no receipt refuses
+  PASS  R8 app with a receipt for a different digest refuses
+  PASS  R9 app with a good receipt and no signing key refuses
+  PASS  R10 verify-release with nothing staged refuses
+
+=== make-release.test.sh: all 11 passed ===
+
+--- package-app.test.sh
+
+=== A. arguments ===
+  PASS  A1 an unknown argument is refused
+  PASS  A2 --sign takes only the two modes
+  PASS  A3 --help shows the notarize form
+
+=== B. identity discovery ===
+  PASS  B1 [shim] no Developer ID identity -> refuse, and name the setup scripts
+  PASS  B2 a pinned identity the machine does not report -> refuse
+  PASS  B3 [shim] exactly one identity is DISCOVERED
+  PASS  B3b [shim] ...and the dry run says WHERE the identity came from
+  PASS  B4 [shim] two identities -> refuse rather than sort
+  PASS  B5 [shim] an identity on the machine does not make a plain run use it
+
+=== C. notary credentials ===
+  PASS  C1 [shim] notarize with no credentials -> refuse
+  PASS  C2 [shim] half an API key -> refuse, naming the missing halves
+  PASS  C3 [shim] a key path that does not exist -> refuse
+  PASS  C4 [shim] a notary key inside a git worktree -> refuse
+  PASS  C5 [shim] a world-readable notary key -> refuse
+  PASS  C6 [shim] a complete API key resolves
+  PASS  C7 [shim] a keychain profile resolves
+  PASS  C8 [shim] APPLE_ID/PASSWORD/TEAM_ID are NOT a credential path here
+
+=== D. verify_bundle, against a real signed bundle ===
+  PASS  D1 a real ad-hoc bundle verifies in adhoc mode
+  PASS  D2 ...and fails in developer-id mode on all EIGHT grounds, four of them on the requirement
+  PASS  D3 a bundle with no shipped icon fails
+  PASS  D4 a shipped icon this repository did not generate fails
+  PASS  D5 no NSMicrophoneUsageDescription fails
+  PASS  D6 a bundle whose signature was removed fails
+  PASS  D7 --expect-notarized runs the stapled-ticket check
+
+=== Z. this suite touched nothing of the operator's ===
+  PASS  Z the real keychain's codesigning inventory is identical before and after
+
+=== package-app tests: all 25 passed ===
+
+--- rebuild-survival.test.sh
+
+=== G. the harness ===
+  PASS  G1 an unknown command is refused
+  PASS  G2 record without a label is refused
+  PASS  G3 a record directory inside a git worktree is refused
+  PASS  G4 a real ad-hoc bundle records its cdhash, signature kind and requirement
+  PASS  G5 comparing against a record that does not exist is refused
+  PASS  G6 two ad-hoc builds -> cannot pass, and the certificate is named as the fix
+  PASS  G7 the same bytes twice is INCONCLUSIVE, and says it is not a pass
+  PASS  G8 identical identifier-and-team requirements -> layer 1 passes
+  PASS  G9 ...and refuses to let layer 1 be read as the acceptance test
+  PASS  G10 requirements that differ -> FAIL
+  PASS  G11 a grant held by N and not by N+1 -> FAIL
+  PASS  G12 an unreadable TCC database -> INCOMPLETE, never a guessed pass
+  PASS  G13 layer 3 is always named as not machine-checkable
+  PASS  G14 status with no certificate -> exit 4, naming what the test needs
+  PASS  G15 a requirement printed WITHOUT the leading '# ' is read (the Developer ID form)
+  PASS  G16 a real signature records as 'developer-id', not as 'none'
+  PASS  G17 two unread requirements are INCOMPLETE, never a silent identical
+
+=== rebuild-survival tests: all 17 passed ===
+
+--- run-tests.test.sh
+
+=== H. the harness's host-gap allowance ===
+  PASS  H1 an undeclared gap is refused
+  PASS  H2 a declared gap with a reason is green, and the summary names it and its reason
+  PASS  H3 a declaration with no reason is refused
+  PASS  H4 a declaration whose suite answered is refused
+  PASS  H5 a real failure outranks a declared gap
+  PASS  H6 with no gap and no failure the original summary is unchanged
+  PASS  H7 an empty inventory is refused, never 'all 0 suites passed'
+
+=== run-tests tests: all 7 passed ===
+
+--- signing-setup.test.sh
+
+=== E. make-signing-csr.sh ===
+  PASS  E1 a key directory inside a git worktree is refused
+  PASS  E2 RSA 2048, sha256WithRSAEncryption, key mode 600 in a 700 directory
+  PASS  E3 a second run refuses and leaves the existing key byte-identical
+  PASS  E4 --force does overwrite, so E3's refusal is a decision and not an inability
+  PASS  E5 a country code that is not two upper-case letters is refused
+  PASS  E6 --show on an empty directory says so rather than inventing a state
+  PASS  E7 --show reports the subject of the CSR that exists
+
+=== F. install-signing-cert.sh ===
+  PASS  F1 no argument -> refuse
+  PASS  F2 a .cer that does not exist -> refuse
+  PASS  F3 no private key -> refuse, and say why a .cer alone is useless
+  PASS  F4 a certificate issued against a different key -> refuse on the modulus
+  PASS  F5 a Developer ID INSTALLER certificate is refused, by name
+  PASS  F6 [shim] the matching, correctly-typed certificate reaches 'installed and usable'
+  PASS  F7 [shim] ...and the Team ID is read out of the identity string
+  PASS  F8 the passphrase-less PKCS#12 was removed after the import
+  PASS  F9 [shim] an import that reports success but yields NO identity is a FAILURE
+
+=== G. the defects of 2026-09-01 ===
+  PASS  G1 codesign accepts src-tauri/Entitlements.plist (plutil -lint would accept a broken one)
+  PASS  G1b ...and it is well-formed XML by a strict parser, which is the underlying property
+  PASS  G2 every 'security import' passes -P explicitly, so none of them can prompt
+  PASS  G3 an encrypted private key is refused, non-interactively, before any keychain call
+  PASS  G4 the openssl on PATH is never used; the pinned one is, and the run still succeeds
+  PASS  G5 an openssl that exits 0 and leaves a 0-byte file is caught at that step
+  PASS  G6 a 0-byte .cer is refused as unreadable, at the conversion
+  PASS  G7 an empty --keychain is a FAILURE even when login holds an identity
+  PASS  G8 [shim] --check lists the identity line itself under its own heading
+  PASS  G9 [shim] --check exits NON-ZERO when this machine cannot sign
+  PASS  G10 no PKCS#12 is built, so no passphrase has to travel anywhere
+
+=== Z. this suite touched nothing of the operator's ===
+  PASS  Z the real keychain's codesigning inventory is identical before and after
+
+=== signing-setup tests: all 28 passed ===
+
+--- updater-setup.test.sh
+
+=== A. the updater signing key, and the refusals ===
+  PASS  A1 --updater with no key refuses, and says there is no fallback
+  PASS  A2 a key path that does not exist refuses
+  PASS  A3 a key inside a git worktree refuses
+  PASS  A4 a world-readable key refuses
+  PASS  A5 a real key, outside a repo, mode 600, resolves
+  PASS  A6 ...and no manifest is written without RICHOS_UPDATE_BASE_URL
+  PASS  A7 ...and names the base URL when it is set
+
+=== B. the shipped configuration ===
+  PASS  B1 bundle.createUpdaterArtifacts is on — without it no update artifact is ever made
+  PASS  B2 the endpoint is the one GitHub Releases manifest URL, over https
+  PASS  B2b the endpoint is a real, resolvable shape — no .invalid, no {{templates}} a static host cannot fill
+  PASS  B3 the pubkey decodes to a minisign public key
+  PASS  B4 the webview holds NO updater permission, and the capability file says why
+  PASS  B5 the build always passes --no-sign, so the bundler never signs a tarball of an unsigned app
+  PASS  B6 tauri.conf.json carries no version, so src-tauri/Cargo.toml (1.0.3) is the only place it is written
+  PASS  B7 package-app.sh creates the staged frontend directory, so a fresh clone can be packaged
+
+=== C. the archive builder, against a real bundle skeleton ===
+  PASS  C1 every member is rooted at the one .app (the updater DROPS the first component)
+  PASS  C2 the executable bit survives (without it the installed app cannot launch)
+  PASS  C3 symlinks stay symlinks (a framework's Current/ is one, and copying it doubles the bundle)
+  PASS  C4 no AppleDouble members — bsdtar's xattr sidecars are not in here
+  PASS  C5 verify passes its own output
+
+=== D. the archive verifier refuses what it should ===
+  PASS  D1 two roots -> refused (the updater drops only the FIRST component)
+  PASS  D2 no Info.plist -> refused (it would extract into an empty bundle)
+  PASS  D3 an AppleDouble member -> refused
+  PASS  D4 nothing executable -> refused (the installed app cannot launch)
+
+=== E. the signature verifier — the check the signer's exit code does not make ===
+  PASS  E1 a good pair VERIFIES against the pubkey in the config
+  PASS  E2 a TAMPERED artifact is REFUSED
+  PASS  E3 a well-formed signature from ANOTHER key is REFUSED
+
+=== G. the update manifest, judged by the type that judges it on a customer's Mac ===
+  PASS  G1 a well-formed manifest VERIFIES against the plugin's own RemoteRelease
+  PASS  G2 no entry for this platform -> REFUSED
+  PASS  G3 the manifest's signature is not the .sig beside the archive -> REFUSED
+  PASS  G4 a manifest announcing the wrong URL -> REFUSED
+  PASS  G5 an http download URL -> REFUSED
+  PASS  G6 a version that is not strictly greater -> REFUSED
+
+=== updater-setup.test.sh: all 33 passed ===
+
+=== app/scripts: 8 of 9 suites passed — 147 checks — 1 could not run on this host: gui-boot.test.sh ===

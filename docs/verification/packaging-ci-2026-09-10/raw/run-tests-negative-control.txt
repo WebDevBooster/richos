@@ -1,0 +1,20 @@
+$ git show 101c5e11^:app/scripts/run-tests.sh  > <box>/run-tests.sh   # the harness with no allowance
+$ cp app/scripts/run-tests.test.sh              <box>/
+$ bash <box>/run-tests.test.sh
+
+
+=== H. the harness's host-gap allowance ===
+  FAIL  H1 an undeclared gap is refused
+         exit 1, wanted 2. Output: 3 suite(s) discovered under /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/run-tests-test.XXXXXX.ha4e38uuhr/box  --- aaa.test.sh === aaa tests: all 3 passed ===  --- bbb.test.sh === bbb tests: all 2
+  FAIL  H2 a declared gap with a reason is green
+         exit 1, wanted 0
+  FAIL  H3 a declaration with no reason is refused
+         exit 1, wanted 2. Output: 3 suite(s) discovered under /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/run-tests-test.XXXXXX.ha4e38uuhr/box  --- aaa.test.sh === aaa tests: all 3 passed ===  --- bbb.test.sh === bbb tests: all 2
+  FAIL  H4 a declaration whose suite answered is refused
+         exit 0, wanted 2. Output: 2 suite(s) discovered under /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/run-tests-test.XXXXXX.ha4e38uuhr/box  --- aaa.test.sh === aaa tests: all 3 passed ===  --- bbb.test.sh === bbb tests: all 2
+  PASS  H5 a real failure outranks a declared gap
+  PASS  H6 with no gap and no failure the original summary is unchanged
+  PASS  H7 an empty inventory is refused, never 'all 0 suites passed'
+
+=== run-tests.test.sh: 4 FAILED, 3 passed ===
+rc=1
