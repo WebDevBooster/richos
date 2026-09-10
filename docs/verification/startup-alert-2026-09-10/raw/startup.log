@@ -1,0 +1,8 @@
+==== 2026-09-10T09:00:04Z RichOS 1.0.3 pid 50793 ====
+executable: /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/e2e2/RichOS-startup-failure-proof.app/Contents/MacOS/richos-tauri
+failure: application startup: invalid bundle version
+
+==== 2026-09-10T09:00:08Z RichOS 1.0.3 pid 51735 ====
+executable: /tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/e2e2/RichOS-startup-failure-proof.app/Contents/MacOS/richos-tauri
+failure: application startup: invalid bundle version
+

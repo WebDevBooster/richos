@@ -1,0 +1,5 @@
+headline               paper=rgb(232, 232, 231) ink=rgb(53, 53, 52) ratio=10.02:1
+body text              paper=rgb(232, 232, 231) ink=rgb(53, 53, 52) ratio=10.02:1
+log path               paper=rgb(232, 232, 231) ink=rgb(63, 63, 62) ratio=8.60:1
+Show Details button    paper=rgb(206, 206, 205) ink=rgb(61, 61, 61) ratio=6.90:1
+OK button (default)    paper=rgb(3, 124, 255) ink=rgb(255, 255, 255) ratio=3.94:1
