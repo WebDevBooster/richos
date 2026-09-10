@@ -160,6 +160,66 @@ rather than staying silent about them -- silence would be indistinguishable
 from not having looked.
 
 ===========================================================================
+WHAT THIS CANNOT SEE -- named here rather than left to be discovered
+===========================================================================
+Every one of these is a real gap. They are written down because the failure
+this file exists to remove was a mechanism behaving correctly while nobody
+could see what it was not covering.
+
+  WORK THAT WAS NEVER COMMITTED. The subject here is a BRANCH. An agent that
+  finishes without committing leaves no artifact, so there is no finding and no
+  demand. One agent lost an entire session's work that way on the morning of
+  2026-09-10, and nothing in this file would have made a sound. That failure
+  belongs to the commit-as-you-go discipline and to the idle gate, not here.
+
+  A LANDING THAT IS NOT AN ANCESTOR. Satisfaction is `merge-base
+  --is-ancestor`, so a branch landed by SQUASH or REBASE produces a new commit
+  with a different sha, the recorded tip never becomes an ancestor, and the
+  demand stands until somebody acknowledges it by hand. It is a false positive
+  that CANNOT close itself. Two things make it tolerable rather than invisible:
+  this project lands with `git merge` (the lander's own sequence says so), and
+  the reclamation lane already gates deletion on exactly the same test -- so a
+  squashed branch is a thing that lane is already refusing to reclaim, and the
+  two agree rather than disagreeing quietly.
+
+  A LOCK NOTHING RELEASES. Liveness is inherited whole from
+  unlanded-branches.py: a locked worktree is ALIVE. If the harness ever leaves
+  a lock behind after its agent ends, that branch is silent here forever. The
+  failure is toward SILENCE, which is the direction this whole file argues
+  against, so it is stated rather than glossed -- and it is bounded, because a
+  lingering lock is a condition `remove-agent-worktree.sh` and the reaper both
+  already treat as a defect.
+
+  A REPOSITORY NOBODY REGISTERED. The repository set is the entity root plus
+  the ones this SESSION registered a worktree in, plus
+  UNLANDED_BRANCHES_EXTRA_REPOS. Work in a repository this session has never
+  touched is invisible. The cross-repository case that matters is covered --
+  create-teammate-worktree.sh registers -- but a repository worked in by hand
+  is not.
+
+  WHETHER A STATED REASON IS TRUE, OR STILL TRUE. A hold is a string a person
+  wrote. Nothing here checks it is honest, and nothing REOPENS a held item when
+  its reason expires: "waiting on a decision that is the CEO's" closes the
+  demand permanently, including on the day after he decides. A string match is
+  not comprehension and this file does not pretend otherwise -- the same
+  sentence escalations.py uses about its own acknowledgements.
+
+  WHETHER LANDING IS THE RIGHT ANSWER. This asks for a DISPOSITION, never for a
+  merge. On 2026-09-10 two of the five had real conflicts, one over a test count
+  where BOTH sides were wrong -- 984 against 1035, measured 985. Automating
+  that would have written falsehoods into the tree.
+
+  A TRUNK THAT IS NOT `main` OR `master`. Anything else is reported as a
+  repository this cannot answer for, never as a clean one.
+
+  THE FOUNDER HIMSELF. The demand reaches the ORCHESTRATOR -- through the
+  turn-end line, through session start, and through a ledger that outlives both.
+  It does not reach the founder's screen. The guarantee this buys is "the
+  orchestrator cannot not know", which is the right guarantee, because the
+  founder finding it himself is the thing being fixed rather than the mechanism
+  being relied on.
+
+===========================================================================
 WHAT THIS NEVER DOES
 ===========================================================================
 IT NEVER SWEEPS, DELETES, MERGES OR MOVES ANYTHING. Its entire write surface is
