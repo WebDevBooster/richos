@@ -654,12 +654,20 @@ CONCEAL_PY_EOF
     CONCEAL_ACK_REASON="$(printf '%s' "$CONCEAL_ACK_REASON" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
     CONCEAL_ACK_OK=0
     if [ -n "$CONCEAL_ACK_REASON" ]; then
-      # Substantive: at least three words and twelve characters, and not one of
-      # the content-free fillers that would make the marker a rubber stamp.
+      # Substantive: at least three words AND twelve characters. "yes", "ok",
+      # "n/a" and "it is" all fail it; a sentence that names what is being
+      # withheld and why cannot.
+      #
+      # A BLACKLIST OF FILLER PHRASES WAS WRITTEN HERE AND THEN DELETED,
+      # because the mutation harness proved it decided nothing: every filler it
+      # listed ("yes", "see above", "as discussed") was already refused by the
+      # word count, so removing the blacklist turned no case red. Dead code in a
+      # guard is worse than absent code — it reads like a second line of defense
+      # and is not one. The bar is the word count, and the word count is
+      # provable (conceal.mutation.sh / filler-ack-exempts).
       CONCEAL_ACK_WORDS="$(printf '%s' "$CONCEAL_ACK_REASON" | wc -w | tr -d '[:space:]')"
       CONCEAL_ACK_CHARS="${#CONCEAL_ACK_REASON}"
-      if [ "$CONCEAL_ACK_WORDS" -ge 3 ] && [ "$CONCEAL_ACK_CHARS" -ge 12 ] \
-         && ! printf '%s' "$CONCEAL_ACK_REASON" | grep -iqE '^(yes|ok|okay|n/?a|none|see above|as discussed|as agreed|because|reason|approved|it is fine|fine|tbd|todo)[[:punct:][:space:]]*$'; then
+      if [ "$CONCEAL_ACK_WORDS" -ge 3 ] && [ "$CONCEAL_ACK_CHARS" -ge 12 ]; then
         CONCEAL_ACK_OK=1
       fi
     fi
