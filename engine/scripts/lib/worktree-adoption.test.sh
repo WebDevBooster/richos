@@ -511,25 +511,25 @@ else
 fi
 
 # ===========================================================================
-# 9. T4 — CRASH RECOVERY: a folder we registered whose owner cannot be
-#    identified, and no orchestrator session alive anywhere (2026-09-10)
+# 9. T4 RETIRED (round 14, 2026-09-11): a folder we registered whose owner
+#    cannot be identified is RETAINED, whatever the process table says
 # ===========================================================================
-# THE ONLY FALLBACK, and deliberately the narrowest one. An owner that can be
-# IDENTIFIED is already answered: alive refuses, gone or reused authorizes on
-# T2. What is left is a folder THIS ENGINE REGISTERED whose owning session died
-# before it recorded enough to be recognized. For that one case, "no session
-# process exists anywhere" answers what the missing identity cannot.
-#
-# It must stay rare: the failure this project actually had is that the recovery
-# path became the main path. The main path is the finish event.
+# From 2026-09-10 14:39Z this section asserted the opposite: that such a
+# folder was ADOPTABLE on "crash recovery" when no `claude` process was in the
+# table. Sage's round-three review (D2) showed that tier authorized exactly
+# what scripts/lib/process-identity.test.py says must never authorize — a
+# running pid with a malformed or legacy start token, a registration with no
+# identity at all — on the strength of a process-NAME scan, and that its
+# verdict depended on which machine ran it (green here, 21 failures in CI).
+# The coordinator chose the narrowing. These cases now pin the refusal in
+# every shape the old tier authorized: an empty table, a live `claude` in the
+# table, and a live registry entry. Same verdict all three times, because the
+# process table is no longer consulted for an owner that cannot be identified.
 WT_OWNED="$SANDBOX/repo-wt"
 mkdir -p "$WT_OWNED"
 git -C "$REPO" worktree add -q -b "cc/zach-opus-t4" "$WT_OWNED/zach-opus-t4"
-# registered by us, with NO session pid: the owner cannot be identified at all
-# A session id used NOWHERE ELSE and with no pid on any row: T2 answers a
-# session it can identify, and this one cannot be identified at all. That is
-# the residue T4 exists for -- and the fact that T2 catches the ordinary crash
-# (a recorded pid that is gone) is why this tier stays rare.
+# registered by us, with NO session pid on any row: the owner cannot be
+# identified at all. T2 answers a session it can identify; this one it cannot.
 SID_UNIDENTIFIED="00000000-0000-4000-8000-0000000unkn"
 L record registered --teammate zach-opus-t4 --worktree "$WT_OWNED/zach-opus-t4" --repo "$REPO" \
     --branch cc/zach-opus-t4 --session-id "$SID_UNIDENTIFIED" --class hand-rolled --source test >/dev/null
@@ -539,33 +539,33 @@ mkdir -p "$RICHOS_SESSIONS_DIR"
 export RICHOS_SESSION_PROCESSES=none
 V="$(verdict "$WT_OWNED/zach-opus-t4")"
 R="$(reason "$WT_OWNED/zach-opus-t4")"
-if [ "$V" = "ADOPTABLE T4" ] && printf '%s' "$R" | grep -q 'crash-recovery' \
-   && printf '%s' "$R" | grep -q 'on record as ours' \
-   && printf '%s' "$R" | grep -q 'no claude process is in the table'; then
-    ok "A70  a folder WE REGISTERED whose owner cannot be identified is adoptable on T4 when no orchestrator session is alive, and the reason states the precondition in its own words"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'UNKNOWN process identity' \
+   && printf '%s' "$R" | grep -q 'never authorized' \
+   && ! printf '%s' "$R" | grep -q 'crash-recovery (no-session-alive)' \
+   && ! printf '%s' "$V" | grep -q 'T4'; then
+    ok "A70  a folder WE REGISTERED whose owner cannot be identified is RETAINED with an EMPTY process table — the shape the retired T4 tier used to authorize (CI, and the operator's machine at 04:00)"
 else
-    bad "A70  expected 'ADOPTABLE T4', got '$V' -- $R"
+    bad "A70  expected a refusal naming the unknown identity and no T4, got '$V' -- $R"
 fi
 
 export RICHOS_SESSION_PROCESSES="4242 claude"
-V="$(verdict "$WT_OWNED/zach-opus-t4")"
-R="$(reason "$WT_OWNED/zach-opus-t4")"
-if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'crash-recovery precondition unmet' \
-   && printf '%s' "$R" | grep -q 'claude process is running as pid 4242'; then
-    ok "A71  ...and ONE claude process anywhere refuses it, naming the unmet precondition (a kernel fact, never a quiet directory)"
+V2="$(verdict "$WT_OWNED/zach-opus-t4")"
+R2="$(reason "$WT_OWNED/zach-opus-t4")"
+if [ "$V2" = "$V" ] && [ "$R2" = "$R" ] && ! printf '%s' "$R2" | grep -q '4242'; then
+    ok "A71  ...and the SAME verdict and the SAME reason with a live claude process in the table: the process-name scan is not consulted for an unidentifiable owner in either direction"
 else
-    bad "A71  expected a crash-recovery refusal naming the live process, got '$V' -- $R"
+    bad "A71  expected an identical refusal that never names pid 4242, got '$V2' -- $R2"
 fi
 
 printf '{"pid": %s, "sessionId": "00000000-0000-4000-8000-0000000000t4"}\n' "$LIVE_PID" \
     >"$RICHOS_SESSIONS_DIR/$LIVE_PID.json"
 export RICHOS_SESSION_PROCESSES=none
-V="$(verdict "$WT_OWNED/zach-opus-t4")"
-R="$(reason "$WT_OWNED/zach-opus-t4")"
-if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'registered to running pid'; then
-    ok "A71b a live entry in the harness's own session registry refuses it even with an empty process table (two independent reads, either one answers no)"
+V3="$(verdict "$WT_OWNED/zach-opus-t4")"
+R3="$(reason "$WT_OWNED/zach-opus-t4")"
+if [ "$V3" = "$V" ] && [ "$R3" = "$R" ]; then
+    ok "A71b ...and the same again with a live entry in the harness's session registry: the verdict is a fact about THIS owner's identity, never about which machine runs the suite"
 else
-    bad "A71b expected a registry refusal, got '$V' -- $R"
+    bad "A71b expected the identical refusal, got '$V3' -- $R3"
 fi
 rm -f "$RICHOS_SESSIONS_DIR/$LIVE_PID.json"
 
