@@ -93,6 +93,11 @@ mutant worktreeremove-unsealed-ignored "R21d" "$H" \
     '            aid = ""' \
     "the harness's removal of an unsealed agent's native worktree would be nobody's terminal event; the agent's prepared external members would leak."
 
+mutant post-terminal-stop-unrecorded "R40" "$H" \
+    '        tx.note_after_terminal(sid, aid, "stop", ingress)' \
+    '        pass' \
+    "the stop that closes a post-terminal run would never be written by the only hook that sees it; with the platform's event log as the second source the lane would still close the run when that log is present, and hold FOREVER when it is not (a session predating the event log, or a row the platform never wrote) -- Frank R2, round two: this branch had no test and no mutant."
+
 mutant pending-for-nobody "R21e" "$L" \
     '            if AGENT_ID_RE.match(agent_id or "") and (read_bound(session_id, agent_id) or read_start(session_id, agent_id)):' \
     '            if AGENT_ID_RE.match(agent_id or ""):' \

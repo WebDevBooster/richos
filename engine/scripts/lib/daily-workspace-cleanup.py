@@ -308,12 +308,12 @@ def owner_check(tx, transaction, member):
     # and this is the refusal that reads them. It covers EVERY member class,
     # which the native lock below cannot: a cross-repository worktree carries
     # no platform lock at all, and that is where the work actually lives.
-    if tx.running_after_terminal(transaction):
-        raise RuntimeError(
-            'RETRY, not a verdict: the platform started agent %s again after its terminal record '
-            'and that run is still open (the last observed lifecycle event is a start). Its '
-            'workspaces are held until the run ends. This is the fact round 11 assumed could not '
-            'happen; it is measured, and it is now refused rather than assumed away' % (aid[:8] or '?'))
+    #
+    # ROUND 13: read from TWO sources, voided by the session's death, and aged
+    # (post_terminal_run_open) — a hold that could never clear is Type J.
+    run_open, why_open = post_terminal_run_open(tx, transaction)
+    if run_open:
+        raise RuntimeError(why_open)
     # A live native lock vetoes everything above it. Never use the
     # cross-repository worktree as that lock.
     native = [m for m in transaction['members'] if m.get('class') == 'native']
@@ -321,6 +321,82 @@ def owner_check(tx, transaction, member):
     live = _load('agent-liveness').resolve(entity, aid)
     if live.get('verdict') != 'NOT-ALIVE':
         raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason')))
+
+
+# ---------------------------------------------------------------------------
+# row 5 — a post-terminal run is open (or is not, or cannot be any more)
+# ---------------------------------------------------------------------------
+
+def post_terminal_run_stale_seconds(repo=None):
+    """How old an open post-terminal run may be before the hold names the
+    operator remedy instead of "until the run ends". Committed data. Every
+    post-terminal run observed on this machine to 2026-09-10 lasted under a
+    minute (fix1: 49 s and 17 s); an hour is far outside the population."""
+    try:
+        return max(0.0, float(config_value('POST_TERMINAL_RUN_STALE_SECONDS', '3600', repo)))
+    except (TypeError, ValueError):
+        return 3600.0
+
+
+def post_terminal_run_open(tx, transaction):
+    """(open, reason) — ROW 5 OF THE DECISION TABLE, with the two things
+    Frank R2 found missing from the first version: a SECOND SOURCE and a way
+    for the hold to END.
+
+    `running_after_terminal` used to read one source (the transaction's own
+    notes, written under a 5-second flock that a sweep or the nightly pass
+    holds for a whole reclaim) and had no expiry: a stop note lost to that
+    flock, or a session that died mid-run, held every workspace of the agent
+    FOREVER while the journal called it a RETRY and said "until the run ends"
+    — a reason false the moment the run had ended. Type J of the failure
+    record, in code written the day the record was published.
+
+    Three changes, each named in the reason it produces:
+
+      1. TWO SOURCES. `running_after_terminal` now merges the notes with the
+         platform's own event log (WorkerStarted / WorkerRunEnded for this
+         registration id), so a lost stop note is closed by the platform's
+         row and a lost start note is opened by it.
+      2. THE SESSION'S DEATH VOIDS IT. A run lives inside its session's
+         process; a session provably gone (row 10a's evidence, every recorded
+         pid gone or reused and no running registration) cannot have a run
+         open, whatever the last note says. session_gone overrides.
+      3. AGE. A run open longer than POST_TERMINAL_RUN_STALE_SECONDS is still
+         a hold — this lane never deletes on a guess — but the reason stops
+         saying "until the run ends" and names what a person can do: confirm
+         from the process table and the event log, then record the stop the
+         hooks missed (`worktree-transactions.py note-after-terminal`). That
+         is an operator asserting a fact into the record, the same shape as
+         `git worktree unlock`, not a flag that unlocks the class.
+    """
+    if not tx.running_after_terminal(transaction):
+        return False, ''
+    aid = transaction.get('agent_id') or ''
+    gone, why_gone = session_gone(transaction, tx)
+    if gone:
+        return False, ('a post-terminal run of agent %s was recorded open, but %s — a run cannot outlive '
+                       'its session, so the hold is void' % (aid[:8] or '?', why_gone))
+    since = tx.open_run_since(transaction)
+    age = (datetime.now(timezone.utc) - since).total_seconds() if since else 0.0
+    stale = post_terminal_run_stale_seconds()
+    if since and age > stale:
+        return True, (
+            'RETRY, not a verdict: the platform started agent %s again after its terminal record and '
+            'neither the transaction nor the platform\'s event log shows that run ending — it has been '
+            'open for %.0f s, longer than POST_TERMINAL_RUN_STALE_SECONDS (%.0f). This lane never '
+            'deletes on a guess, so the workspaces stay held; the remedy is a PERSON: confirm nothing '
+            'of this agent is running (`ps`, `agent-liveness.sh`, `restart-after-terminal-measure.py`), '
+            'then record the stop both sources missed: `worktree-transactions.py note-after-terminal '
+            '--session-id %s --agent-id %s --kind stop --detail operator`. If the whole session is '
+            'over, this hold clears by itself once its processes are gone'
+            % (aid[:8] or '?', age, stale, transaction.get('session_id') or '?', aid))
+    return True, (
+        'RETRY, not a verdict: the platform started agent %s again after its terminal record '
+        'and that run is still open (the last observed lifecycle event, in the transaction or the '
+        'platform\'s event log, is a start%s). Its workspaces are held until the run ends, the '
+        'session ends, or the hold ages past POST_TERMINAL_RUN_STALE_SECONDS and names an operator. '
+        'This is the fact round 11 assumed could not happen; it is measured, and it is refused '
+        'rather than assumed away' % (aid[:8] or '?', (' at %s' % since.isoformat(timespec='seconds')) if since else ''))
 
 
 # ---------------------------------------------------------------------------
@@ -1526,10 +1602,9 @@ def reclaim_now(tx, transaction, index, deadline=None):
             return 'skipped', 'historical record keeps its own recovery protocol'
         if (member.get('daily_cleanup') or {}).get('phase') == 'complete':
             return 'skipped', 'already reclaimed'
-        if tx.running_after_terminal(transaction):
-            return journal('deferred',
-                           'the platform started this agent again after its terminal record and '
-                           'that run is still open; no workspace of an agent mid-run is touched')
+        run_open, why_open = post_terminal_run_open(tx, transaction)
+        if run_open:
+            return journal('deferred', why_open)
         candidate, why = platform_recorded_a_stop(tx, transaction)
         if not candidate:
             return journal('deferred', why)

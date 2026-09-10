@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -774,6 +775,107 @@ class Cleanup(unittest.TestCase):
         self.assertTrue(tx.restarted_after_terminal(tx.load_tx(SID,AID)))
         counts=tx.load_tx(SID,AID)['after_terminal_counts']
         self.assertEqual((counts['start'],counts['stop']),(1,1))
+        self.assertEqual(self.assess()[0],'remove')
+        self.assert_reclaimed(self.run_cleanup())
+
+    def _terminal_at(self, when):
+        self.record['terminal']['ts']=when.isoformat()
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+
+    def _event_log(self, rows, agent_id=AID, session_id=SID):
+        """Rows in the platform's own worker event log, the shape
+        worker-started-handoff.sh / worker-ended-handoff.sh write."""
+        team=self.root/'teams'/('session-'+session_id[:8]);team.mkdir(parents=True,exist_ok=True)
+        with open(team/'worker-events.jsonl','a') as stream:
+            for when,event in rows:
+                stream.write(json.dumps({'timestamp':when.isoformat(),'event':event,'agent_id':agent_id,
+                                         'session_id':session_id,'source_hook':'fixture'})+'\n')
+
+    def test_a_lost_stop_note_is_closed_by_the_platforms_own_event_log_and_a_lost_start_note_is_opened_by_it(self):
+        # FRANK R2 / R4, ROUND TWO. The post-terminal notes are written under
+        # a 5-second flock that a catch-up sweep or the nightly pass holds for
+        # a whole reclaim; a note that loses that race is announced on stderr
+        # and lost. With ONE source and no expiry, a lost stop note held every
+        # workspace of the agent forever while the journal called it a RETRY;
+        # a lost start note left the restart invisible to the lane. The
+        # platform writes both events in its own log, keyed by the
+        # registration id (Sage H3: all eleven restarts on record), and that
+        # log is now the second source.
+        from datetime import datetime,timezone,timedelta
+        t0=datetime.now(timezone.utc)-timedelta(seconds=60)
+        self._terminal_at(t0)
+        # HERMETIC: a redirected store never reads the operator's real log
+        # unless the log is NAMED (the rule session_id_gone applies to the ledger)
+        self.assertIsNone(tx.lifecycle_teams_dir())
+        with patch.dict(os.environ,{'RICHOS_TEAMS_DIR':str(self.root/'teams')}):
+            self.assertEqual(self.assess()[0],'remove')
+            # rows for ANOTHER agent, and for this agent in ANOTHER session, never count: the join is exact
+            self._event_log([(t0+timedelta(seconds=5),'WorkerStarted')],agent_id='abcdef999999')
+            self._event_log([(t0+timedelta(seconds=5),'WorkerStarted')],session_id='other-session')
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            # (a) THE LOST START NOTE: only the platform's log saw the restart
+            self._event_log([(t0+timedelta(seconds=10),'WorkerStarted')])
+            self.assertTrue(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self.assertTrue(tx.restarted_after_terminal(tx.load_tx(SID,AID)))
+            decision,reason=self.assess();self.assertEqual(decision,'hold');self.assertIn('again after its terminal record',reason)
+            self.assertIn("platform's event log",reason)
+            self.assert_kept()
+            # (b) THE LOST STOP NOTE: the transaction's last note is a start,
+            # the platform's log says the run ended after it
+            tx.note_after_terminal(SID,AID,'start','/cwd')
+            self.assertTrue(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self._event_log([(datetime.now(timezone.utc)+timedelta(seconds=1),'WorkerRunEnded')])
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self.assertTrue(tx.restarted_after_terminal(tx.load_tx(SID,AID)))
+            self.assertEqual([(kind,src) for _when,kind,src in tx.post_terminal_events(tx.load_tx(SID,AID))],
+                             [('start','events'),('start','notes'),('stop','events')])
+            self.assertEqual(self.assess()[0],'remove')
+            self.assert_reclaimed(self.run_cleanup())
+
+    def test_a_post_terminal_run_cannot_outlive_its_session(self):
+        # FRANK R2 (2): row 5 preceded row 10a, so `session_gone` never
+        # overrode it — a session that died mid-run held the workspace on a
+        # note nothing could ever close. A run lives inside its session's
+        # process: a session provably gone (every recorded pid gone or reused,
+        # no running registration) voids the open run.
+        self.assertEqual(self.assess()[0],'remove')
+        tx.note_after_terminal(SID,AID,'start','/cwd')
+        # the session is running (this process is its recorded identity): held
+        self.ledger_row(session_pid=os.getpid(),pid_start='')
+        decision,reason=self.assess();self.assertEqual(decision,'hold');self.assertIn('again after its terminal record',reason)
+        self.assert_kept()
+        # the session is provably gone: the open run is void, the reason says so
+        (self.root/'ledger.jsonl').write_text('')
+        self.ledger_row(session_pid=DEAD_PID,pid_start='')
+        self.assertTrue(daily.session_gone(tx.load_tx(SID,AID),tx)[0])
+        run_open,why=daily.post_terminal_run_open(tx,tx.load_tx(SID,AID))
+        self.assertFalse(run_open);self.assertIn('cannot outlive its session',why)
+        self.assertEqual(self.assess()[0],'remove')
+        self.assert_reclaimed(self.run_cleanup())
+
+    def test_a_stale_open_run_names_the_operator_remedy_and_the_remedy_works(self):
+        # FRANK R2 (4): a hold older than a bound names the remedy instead of
+        # "until the run ends". Every post-terminal run observed on this
+        # machine lasted under a minute; this one has been open two hours.
+        from datetime import datetime,timezone,timedelta
+        old=(datetime.now(timezone.utc)-timedelta(hours=2)).isoformat()
+        self.record['after_terminal']=[{'kind':'start','ts':old,'detail':'/cwd'}]
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        decision,reason=self.assess()
+        self.assertEqual(decision,'hold')
+        self.assertIn('POST_TERMINAL_RUN_STALE_SECONDS',reason);self.assertIn('note-after-terminal',reason)
+        self.assertIn('the remedy is a PERSON',reason);self.assertNotIn('held until the run ends',reason)
+        self.assert_kept()
+        with tx.tx_lock(SID,AID):
+            outcome,why=daily.reclaim_now(tx,tx.load_tx(SID,AID),0)
+        self.assertEqual(outcome,'deferred');self.assertIn('note-after-terminal',str(why))
+        # a person confirms and records the stop both sources missed, through
+        # the exact command the reason names
+        r=subprocess.run(['python3',str(HERE/'lib'/'worktree-transactions.py'),'note-after-terminal',
+                          '--session-id',SID,'--agent-id',AID,'--kind','stop','--detail','operator'],
+                         capture_output=True,text=True)
+        self.assertEqual(r.returncode,0,r.stderr)
+        self.assertEqual(json.loads(r.stdout)['after_terminal_counts'],{'start':1,'stop':1})
         self.assertEqual(self.assess()[0],'remove')
         self.assert_reclaimed(self.run_cleanup())
 

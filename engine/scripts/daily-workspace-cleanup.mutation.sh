@@ -127,9 +127,25 @@ mutant ingress-ignores-the-platform-lock "test_ingress_waits_for_the_platform_to
 # whose negative direction is covered by the mutants below instead.
 
 mutant restart-after-terminal-ignored "test_a_restart_after_terminal_is_recorded_and_HOLDS_every_workspace_of_that_agent" "$D" \
-    "    if tx.running_after_terminal(transaction):" \
-    "    if False:" \
+    "    if not tx.running_after_terminal(transaction):{NL}        return False, ''" \
+    "    if True:{NL}        return False, ''" \
     "the workspace of an agent the platform has STARTED AGAIN, mid-run, would be removed under it. Ten of the 66 workspace-owning terminal agents on this machine restarted after their terminal record; round 11 authorized deletion on the premise that none could."
+
+# ROUND 13 (2026-09-10), Frank R2/R4: row 5 had one source and no expiry.
+mutant second-source-ignored "test_a_lost_stop_note_is_closed_by_the_platforms_own_event_log_and_a_lost_start_note_is_opened_by_it" "$X" \
+    "    out.extend(platform_lifecycle_after(transaction.get(\"session_id\") or \"\",{NL}                                        transaction.get(\"agent_id\") or \"\", terminal_ts))" \
+    "    pass  # mutant: the platform's own event log is never consulted" \
+    "a stop note lost to the 5-second flock a sweep holds for a whole reclaim would leave the run open in the record FOREVER, and a lost start note would leave a restart invisible to the lane; the platform wrote both events down in its own log and nothing would read it (Type J: a claim with no condition that voids it)."
+
+mutant session-death-does-not-void-an-open-run "test_a_post_terminal_run_cannot_outlive_its_session" "$D" \
+    "    if gone:{NL}        return False, ('a post-terminal run of agent %s was recorded open, but %s" \
+    "    if False:{NL}        return False, ('a post-terminal run of agent %s was recorded open, but %s" \
+    "a session that died with a post-terminal run open would hold that agent's workspaces forever on a note nothing could ever close — a run cannot outlive the process it ran in."
+
+mutant stale-hold-never-names-a-person "test_a_stale_open_run_names_the_operator_remedy_and_the_remedy_works" "$D" \
+    "    if since and age > stale:" \
+    "    if False:" \
+    "a run open for hours past anything ever observed would keep saying 'held until the run ends' — the RETRY vocabulary over a hold that has no way to clear — instead of naming what a person can check and do."
 
 mutant process-probe-fails-open-again "test_a_process_probe_that_cannot_look_HOLDS_and_never_reports_an_empty_tree" "$D" \
     "    except Exception as error:{NL}        raise RuntimeError('RETRY, not a verdict: could not determine whether any process is standing '" \
