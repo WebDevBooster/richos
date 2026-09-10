@@ -113,7 +113,28 @@ name: ui-suite-ci
 # SHA somebody can name — the same sentence app-spine-ci.yml and windows-companion-ci.yml each
 # carry, for the same reason.
 #
-# HOW LONG IT TAKES, MEASURED, AND WHY THE MATRIX IS SEVEN WIDE. The arithmetic is written
+# THE SHA IS c220052b, RUN 34453797475, 2026-09-10, and this is the run this file's numbers
+# are quoted against:
+#
+#   ✓ ui-suite: 31/31 discovered suite(s) ran, all green, all at c220052b3a9e…
+#     554 checks observed. serial cost 1530 s across 5 shard(s).
+#
+#   shards (1) +0s 113s · (4) +0s 211s · (5) +0s 426s · (2) +2s 455s · (3) +4s 476s
+#   coverage +489s 16s · WALL CLOCK 512 s (8.5 min) against the 1816 s serial job it replaces
+#
+# All five shards started within four seconds of each other, which is the uncontended case the
+# five-wide matrix is sized for, and the longest came in at 476s against the packing's
+# predicted 495s. Two earlier green runs on the same branch took 902s and 815s while the macOS
+# pool was busy; that spread is the pool's, not the packing's, and it is why `ci-budget` above
+# is 25m rather than something tight enough to look impressive.
+#
+# BEFORE THIS RUN THE WORKFLOW HAD BEEN RED FOR FOUR DAYS — every run since 2026-09-06T18:22Z
+# (44 failures against 16 successes in the last 60), on three suites: affordances.js, which had
+# a removed button's id typed into it in five places; contrast.js, whose absolute whole-page
+# node floors tripped on an unrelated removal from the shell; and docs-claims.js, which was
+# right, and caught app/README.md claiming 196 richos-voice tests where the tree has 210.
+#
+# HOW LONG IT TAKES, MEASURED, AND WHY THE MATRIX IS FIVE WIDE. The arithmetic is written
 # down where the decision was made, so whoever revisits it is not estimating.
 #
 # THE PARAGRAPH THAT STOOD HERE WAS THE 2026-09-05 VERSION OF THIS ONE, and it is worth saying
