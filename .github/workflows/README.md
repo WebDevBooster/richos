@@ -1,6 +1,6 @@
 # What runs in this directory, what does not, and why
 
-**State on 2026-09-10.** Eight workflows, seven of them firing on their own.
+**State on 2026-09-10.** Eight workflows, all eight firing on their own.
 
 - **Enabled:** `app-spine-ci`, `app-voice-ci`, `ui-suite-ci` and `windows-companion-ci`, on
   pushes and pull requests, each behind its own path filter.
@@ -12,7 +12,22 @@
   DROPPED rather than failed — is in `engine/docs/ci-sharding.md`.
 - **Added 2026-09-10:** `engine-run-record`, every six hours. It is the only file here that asks
   whether a verification HAPPENED rather than whether it passed.
-- **Disabled in the file:** `packaging-ci` alone, for the measured reason in the table below.
+- **Enabled 2026-09-10:** `packaging-ci`, on pushes and pull requests behind a path filter, after
+  nine days in which it ran not once. It was stopped in **two** places and each of them alone was
+  enough: the `push`/`pull_request` triggers had been removed from the file on 2026-09-04, **and**
+  it was `disabled_manually` at the Actions API — the last of the five switched off over the
+  2026-09-01 billing block never to be switched back on. The second one also voided the first
+  one's escape hatch: `gh workflow run packaging-ci.yml --ref main` answered
+  `HTTP 422: Cannot trigger a 'workflow_dispatch' on a disabled workflow`, so the documented way
+  to demand the gate on a named SHA had never worked. Both are fixed; the file's header carries
+  the measurement, and `docs/verification/packaging-ci-2026-09-10/` carries the runs.
+
+**A workflow's state is not in git.** Six of these files were re-enabled by editing triggers and
+that is visible in a diff; `packaging-ci` also needed a repository SETTING flipped, which is not,
+so it survived a re-enable pass that this document describes. If one is ever switched off at the
+API again, say so in this list on the same day and name the id — the check is one command:
+
+    gh api repos/WebDevBooster/richos/actions/workflows --jq '.workflows[] | "\(.state)\t\(.name)"'
 
 The title of this document read "Why every workflow here is disabled" until 2026-09-05, which was
 true when it was written and had stopped being true on 2026-09-04. The rest of it is the history
@@ -89,12 +104,17 @@ is. Two of them were not fine.** The clone, the commands and the transcripts are
 | `windows-companion-ci` | **enabled** | restore, the `net8.0-windows` build and all 26 core tests pass off Windows; only the `doctor` smoke step needs the runner |
 | `engine-self-verify` | **ENABLED 2026-09-10** | was disabled in the file when this table was written, for the reason kept in the next row's shape: `ci-verify.sh` exited 1 on Linux, 55 of 60 suites. That was true and is superseded. At `4f01e5c7` the pass was 117/121 in 123 minutes (run `34396549904`); it is now twelve parallel shards at ~16 minutes with a coverage job that refuses unless the shards' receipts union to the whole inventory at one commit, plus a diff-scoped `affected` job that is the one to mark required. Of the four reds, two were Linux portability defects and were FIXED; two were contract regressions red identically on macOS, proven by execution to be `6472bb60` and `2afb9703`, were DECLARED with a 14-day expiry rather than skipped, were re-specified by their owner on `zach-opus-cr2` the same day, and had their rows deleted by the known-red table's own negative control — a declared unit that PASSES fails the build. Full account: `engine/docs/ci-sharding.md` |
 | `engine-run-record` | **ADDED 2026-09-10** | on a schedule, every six hours, and it is deliberately NOT a job inside `engine-self-verify`: if that workflow's run was the one dropped, a job inside it did not run either, so a check for absence cannot be hosted by the thing that might be absent. GitHub Free allows 20 concurrent jobs ACCOUNT-WIDE and an exceeded limit DROPS runs rather than queueing them, leaving no record at all — so every tool reading "the latest run" reports an earlier commit's verdict. Measured on 2026-09-10 before the trigger went back: 95 of 98 pushes to main had no run |
-| `packaging-ci` | **DISABLED IN THE FILE** | 3 of its 7 suites cannot pass on a public runner. One of them needs a compiler that lives in the private repository. Its own header carries the measurement and what would re-enable it |
+| `packaging-ci` | **ENABLED 2026-09-10** | the row above it said 3 of 7 suites could not pass on a public runner, and it was RIGHT about the tree it measured on 2026-09-04 and wrong about the cause of two of the three. Re-measured on the runner itself, run `34444955517`: 8 suites, 4 red. Two were the runner image shipping no `cargo-tauri` — an environment defect, fixed by installing a version- and digest-pinned CLI in the job. One was a defect in `make-release.test.sh`, whose R6-R9 could only pass on a machine holding the operator's private named-person deny-list; they now put that gate into a known state and assert its precedence on purpose, as R5a. ONE is genuinely structural and is DECLARED rather than fixed: `gui-boot.test.sh` needs the loro compiler, which is not tracked here. `run-tests.sh` now understands the exit code that suite has always used for "this host cannot answer" — but only for a gap declared by name WITH a reason, and it goes red on an undeclared gap, on a bare declaration, and on a declaration whose suite has started answering. `run-tests.test.sh` executes all seven of those claims on every run. The green run that replaced the seven consecutive reds is named in `docs/verification/packaging-ci-2026-09-10/` |
 | `vouch-pr` | **enabled** | added 2026-09-05, after the flip, so no part of the billing story above applies to it. It runs no suite: it reads `.github/VOUCHED.td` and closes a pull request from an author who is not on it. Never yet executed — see its header, and `docs/verification/pr-trust-gate-2026-09-05/README.md` |
 
 **So the post-flip step is "dispatch three", not "dispatch five".** The two disabled files have had
 their `push` and `pull_request` triggers removed for exactly this reason; dispatching either anyway
 produces a red run that says nothing about going public.
+
+> **Superseded entirely on 2026-09-10.** There is no dispatch step any more: all eight files fire
+> on their own. The paragraph is kept because its reasoning — never dispatch a workflow whose
+> redness would be about the runner rather than the code — is the reason `packaging-ci` took a
+> tauri-cli step, a suite fix and a declared gap rather than a trigger and a hope.
 
 > **Superseded for `engine-self-verify` on 2026-09-10.** Its triggers are back, so it is no longer
 > something to dispatch — it fires on every push, and `engine-run-record` reports any push that got
