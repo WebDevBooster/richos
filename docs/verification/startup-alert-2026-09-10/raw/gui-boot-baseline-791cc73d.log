@@ -1,0 +1,100 @@
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  A6 all 28 lines declared unaccountable are still unaccounted
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+warning: constant `OVERRIDE_ENV` is never used
+   --> src/activation.rs:346:11
+    |
+346 | pub const OVERRIDE_ENV: &str = "RICHOS_ACTIVATION";
+    |           ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OVERRIDE_REGULAR` is never used
+   --> src/activation.rs:348:11
+    |
+348 | pub const OVERRIDE_REGULAR: &str = "regular";
+    |           ^^^^^^^^^^^^^^^^
+
+  PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+         compiler source : /Users/alex/ab/richos-hq/loro
+         corpus          : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.fO2BRONRIO/machine/RichOS/corpus
+         pointer         : Some("/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.fO2BRONRIO/machine/Library/Application Support/RichOS/corpus")
+         loro tools      : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.fO2BRONRIO/machine/Library/Application Support/RichOS/loro-tools (37 files)
+         partitions      : 1
+         registry        : 1 compan(ies) in /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.fO2BRONRIO/machine/Library/Application Support/com.richos.app/entities.json
+         saved company   : northwind in /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.fO2BRONRIO/machine/Library/Application Support/com.richos.app/config.json
+         binary          : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.fO2BRONRIO/machine/Applications/RichOS.app/Contents/MacOS/richos-tauri
+  FAIL  B1 the healthy machine boots to completion
+         [richos] application startup: No such file or directory (os error 2) [gui_boot] the process exited before printing 'boot complete' 
+  --- the boot log, as captured ---
+      [richos] application startup: No such file or directory (os error 2)
+      [gui_boot] the process exited before printing 'boot complete'
+  --- accounting ---
+    UNACCOUNTED  [richos] application startup: No such file or directory (os error 2)
+    NOT RESOLVED  engine directory — nothing in this boot proved it was found.
+                  It should have said: the working directory claude is started in (engine.rs, 970ac5e)
+    NOT RESOLVED  activation — nothing in this boot proved it was found.
+                  It should have said: whether this launch may activate, and why (activation.rs, 2026-09-06)
+    NOT RESOLVED  compute startup policy — nothing in this boot proved it was found.
+                  It should have said: the selected compute command is deferred to the first cancellable request (main.rs)
+    NOT RESOLVED  loro read half — nothing in this boot proved it was found.
+                  It should have said: the corpus and the compiler that reads it (loro.rs, c179cc1)
+    NOT RESOLVED  loro write half — nothing in this boot proved it was found.
+                  It should have said: the corpus a confirmed correction is written to (correction.rs, 49e2cd4)
+    NOT RESOLVED  company — nothing in this boot proved it was found.
+                  It should have said: the entity this launch files work under (main.rs::boot_entity)
+    NOT RESOLVED  company registry — nothing in this boot proved it was found.
+                  It should have said: the company list this install owns, read and trusted (entity.rs::load, 8dde942/ea91fa2)
+    NOT RESOLVED  central folder — nothing in this boot proved it was found.
+                  It should have said: the folder the company layer is read from (company.rs, 2026-09-06)
+    NOT RESOLVED  onboarding — nothing in this boot proved it was found.
+                  It should have said: what he told RichOS about this company, reaching the model (onboarding.rs, 2026-09-06)
+    NOT RESOLVED  first-run setup — nothing in this boot proved it was found.
+                  It should have said: Claude Code and the engine are both installed where setup.rs looks (main.rs:1147, 57cd903)
+    OUT OF SCOPE (not [richos] lines; S1 proves the shell prints none of these):
+      [gui_boot] the process exited before printing 'boot complete'
+  FAIL  B2 every line of a healthy Finder-condition boot is accounted for
+         see the report above
+  PASS  B3 the engine pointer is removed -> caught
+           UNACCOUNTED  [richos] application startup: No such file or directory (os error 2)
+           NOT RESOLVED  engine directory — nothing in this boot proved it was found.
+           NOT RESOLVED  activation — nothing in this boot proved it was found.
+           NOT RESOLVED  compute startup policy — nothing in this boot proved it was found.
+  PASS  B4 the corpus pointer is removed -> caught
+           UNACCOUNTED  [richos] application startup: No such file or directory (os error 2)
+           NOT RESOLVED  engine directory — nothing in this boot proved it was found.
+           NOT RESOLVED  activation — nothing in this boot proved it was found.
+           NOT RESOLVED  compute startup policy — nothing in this boot proved it was found.
+  PASS  B5 the loro tools are removed -> caught
+           UNACCOUNTED  [richos] application startup: No such file or directory (os error 2)
+           NOT RESOLVED  engine directory — nothing in this boot proved it was found.
+           NOT RESOLVED  activation — nothing in this boot proved it was found.
+           NOT RESOLVED  compute startup policy — nothing in this boot proved it was found.
+  PASS  B6 the claude stand-in is removed -> caught
+           UNACCOUNTED  [richos] application startup: No such file or directory (os error 2)
+           NOT RESOLVED  engine directory — nothing in this boot proved it was found.
+           NOT RESOLVED  activation — nothing in this boot proved it was found.
+           NOT RESOLVED  compute startup policy — nothing in this boot proved it was found.
+  FAIL  B6a missing Claude is rejected specifically by first-run setup
+         the executable-readiness proof did not detect the missing Claude stand-in
+  PASS  B7 the saved company is removed -> caught
+           UNACCOUNTED  [richos] application startup: No such file or directory (os error 2)
+           NOT RESOLVED  engine directory — nothing in this boot proved it was found.
+           NOT RESOLVED  activation — nothing in this boot proved it was found.
+           NOT RESOLVED  compute startup policy — nothing in this boot proved it was found.
+  PASS  B8 the company registry is corrupt -> caught
+           UNACCOUNTED  [richos] application startup: No such file or directory (os error 2)
+           NOT RESOLVED  engine directory — nothing in this boot proved it was found.
+           NOT RESOLVED  activation — nothing in this boot proved it was found.
+           NOT RESOLVED  compute startup policy — nothing in this boot proved it was found.
+  PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+  PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+  PASS  Z this run launched 7 app(s) and 0 are still running
+
+=== gui-boot.test.sh: 3 FAILED, 18 passed ===
