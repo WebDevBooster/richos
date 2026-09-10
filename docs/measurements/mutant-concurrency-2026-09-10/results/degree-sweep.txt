@@ -1,0 +1,10 @@
+=== degree sweep: scripts/hooks/guard-model-ceiling.mutation.sh on 10 cores ===
+JOBS             WALL    SPEEDUP         RC
+1             2m23.1s       1.0x          0
+2             1m12.3s       1.9x          0
+4               46.3s       3.0x          0
+6               38.5s       3.7x          0
+8               41.4s       3.4x          0
+10              35.8s       3.9x          0
+12              37.2s       3.8x          0
+SWEEP-COMPLETE

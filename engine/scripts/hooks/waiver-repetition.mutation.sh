@@ -101,7 +101,21 @@ CTRL_N="$(grep -c '  PASS' "$CTRL/out.txt")"
 printf '  CONTROL  unmutated sandbox: %s cases pass, 0 fail — kills below are real\n\n' "$CTRL_N"
 
 # mutant <name> <expected-failing-case> <rel-file> <old> <new> <why>
-mutant() {
+# --- concurrency ------------------------------------------------------------
+# Each mutant builds its own sandbox under $SANDBOX/<name> and runs a whole
+# suite against it, so no two mutants share a path and none of them is ordered
+# against another. They ran one at a time only because a `for` loop is what this
+# harness was first written as. mutation-pool.sh bounds the fan-out, keeps the
+# report in declaration order, and counts a KILLED mutant as a failure rather
+# than letting it vanish from the tally. RICHOS_MUTANT_JOBS overrides the degree.
+# shellcheck source=../lib/stopwatch.sh
+. "$ENGINE_ROOT/scripts/lib/stopwatch.sh"
+# shellcheck source=../lib/mutation-pool.sh
+. "$ENGINE_ROOT/scripts/lib/mutation-pool.sh"
+mut_pool_init
+MUT_WALL_T0="$(sw_now_ms)"
+
+_mutant_body() {
     local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
     local dir="$SANDBOX/$name"
     build "$dir"
@@ -109,7 +123,7 @@ mutant() {
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
         printf '  FAIL  %s — the mutation did not apply\n' "$name"
         sed 's/^/          /' "$dir/mutate.err"
-        FAIL=$((FAIL + 1)); return
+        return 1
     fi
 
     bash "$dir/scripts/hooks/waiver-repetition.test.sh" >"$dir/out.txt" 2>&1
@@ -117,7 +131,7 @@ mutant() {
     if [ "$rc" -eq 0 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
         printf '          %s\n' "$why"
-        FAIL=$((FAIL + 1)); return
+        return 1
     fi
     # THE CASE MATCH IS A LITERAL WITH A BOUNDARY, NOT A BARE REGEX, and that
     # is a correction rather than a style. It used to be `grep -q "FAIL  $want"`,
@@ -149,10 +163,18 @@ mutant() {
     if ! grep -q "FAIL  ${want_re}" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at %s (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
-        FAIL=$((FAIL + 1)); return
+        return 1
     fi
     printf '  PASS  %s — removing it turns "%s" red\n' "$name" "$want"
-    PASS=$((PASS + 1))
+    return 0
+}
+# mutant <name> ... — a SUBMISSION, not an execution. The body above is unchanged
+# except that it returns its verdict instead of incrementing a counter: it runs
+# in a pool worker, which is a subshell, so an increment in there would mutate a
+# copy and be discarded. The pool prints the bodies in DECLARATION order, so this
+# harness's report is byte-identical to the serial one but for the durations.
+mutant() {
+    mut_pool_submit "$1" _mutant_body "$@"
 }
 
 PY_REL="scripts/hooks/notice-waiver-repetition.py"
@@ -279,6 +301,25 @@ mutant "marker-honored" "20b. a marker inside the waivers" "$PY_REL" \
     if "waiver-repetition-ack" in line:
         return None' \
     "the moment a marker in the ledger can suppress a finding, this mechanism has grown the escape hatch it exists to report, and it would be waived like the other 228."
+
+# --- the verdict ------------------------------------------------------------
+# Drained rather than accumulated: PASS/FAIL below come from the workers' exit
+# codes, and a worker that left no exit code is counted as a FAILURE. The tally
+# that follows is unchanged and still decides this harness's exit status.
+# ADDITIVE, NOT ASSIGNMENT, and that is a correction found by measurement rather
+# than by reading: mechanical-findings.mutation.sh scores one case BEFORE its
+# mutants, and `PASS="$MUT_POOL_PASS"` silently discarded it. A tally that
+# overwrites an earlier verdict is a green fraction over a case that ran and was
+# thrown away. Harnesses that score nothing beforehand are unaffected, because
+# adding to zero is assignment.
+mut_pool_drain
+# A harness that declared mutants and ran NONE must not exit 0 -- see
+# mut_pool_require_submissions for the run where exactly that happened.
+mut_pool_require_submissions "$(basename "$0")"
+PASS=$(( PASS + MUT_POOL_PASS ))
+FAIL=$(( FAIL + MUT_POOL_FAIL ))
+mut_pool_report_line "$(( $(sw_now_ms) - MUT_WALL_T0 ))"
+mut_pool_cleanup
 
 echo ""
 echo "  $PASS mutants killed, $FAIL survived"
