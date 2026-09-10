@@ -123,6 +123,25 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 : "${READONLY_ALLOWLIST:=Explore Plan claude-code-guide statusline-setup}"
 : "${SESSION_TEAMS_DIR:=$HOME/.claude/teams}"
 
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# The line below is the textbook case the 2026-09-05 survey named: the
+# extraction ends in `|| true`, so an unreadable payload yields an empty
+# TOOL_NAME and takes the SAME exit 0 that an honest "not an Agent call" takes.
+# For THIS hook that silence is expensive out of proportion to its exit code: it
+# is the BINDER, and an unbound file-capable spawn is refused every write later
+# by guard-sealed-worktree.sh — so the operator would meet the barrier's refusal
+# with no record of the moment the binding was skipped. PostToolUse cannot undo
+# the spawn, so the verdict is unchanged and correct; only the silence changes.
+# scripts/lib/unevaluated-notice.sh carries the measurement and the argument.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "detect-nonnative-worktree.sh" "$INPUT" \
+        "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
+        "whether this spawn is isolated, and whether its worktree could be bound to it"
+fi
+
 TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
 [ "$TOOL_NAME" = "Agent" ] || exit 0
 
