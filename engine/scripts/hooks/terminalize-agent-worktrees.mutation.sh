@@ -16,6 +16,7 @@ mutation_begin "terminalize-agent-worktrees (the terminal ingress)" "scripts/hoo
 
 H="scripts/hooks/terminalize-agent-worktrees.sh"
 L="scripts/lib/worktree-transactions.py"
+C="scripts/lib/daily-workspace-cleanup.py"
 
 mutant worktreeremove-ignored "R14" "$H" \
     'elif event == "WorktreeRemove":{NL}    path = str(d.get("worktree_path") or d.get("path") or d.get("cwd") or "")' \
@@ -26,6 +27,21 @@ mutant worktreeremove-adopts-stranger "R20" "$H" \
     '    try:{NL}        aid = tx.find_by_native_path(sid, path)' \
     '    try:{NL}        aid = tx.find_by_native_path(sid, path) or "a000000000000t01"' \
     "a path RichOS never sealed would be resolved to SOME sealed transaction and acted on — exact-path resolution is what keeps a stranger's directory out of every claim."
+
+# NOT COVERED, stated rather than implied: the catch-up sweep's own
+# `terminal_fact` filter. Removing it does NOT turn the suite red, and that is
+# the correct result rather than a gap in the cases -- the filter chooses which
+# members are worth spending the budget on, and every member it hands to
+# reclaim_now is refused again downstream by platform_said_the_agent_stopped
+# and by owner_check, both of which carry their own mutants in
+# scripts/daily-workspace-cleanup.mutation.sh. E10 is the positive case: a live
+# agent's workspace, with no terminal record, survives a catch-up run by
+# somebody else's event. A mutant that "passes" by removing a cost filter would
+# claim a safety property this file does not own.
+mutant catch-up-sweep-removed "E8" "$C" \
+    "        candidates = []" \
+    "        candidates = []{NL}        return out" \
+    "a member the ingress deferred -- a lock the platform released late, a process that has since left the tree -- would wait for the 04:00 job, which is the 24-hour gap this round exists to close."
 
 mutant claim-not-made "R07" "$H" \
     '    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or (detail if ingress == "TaskStop" else "")))' \

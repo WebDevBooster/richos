@@ -106,6 +106,28 @@ if not sid:
 spec = importlib.util.spec_from_file_location("tx", os.environ["TX_PY"])
 tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
 
+# THE CATCH-UP, BEFORE THIS EVENT'S OWN WORK (round 11, 2026-09-10).
+# The ingress reclaims its own agent's workspace in its own event, and waits a
+# bounded moment for the platform to release its lock. When that wait expires —
+# a late release, a process still in the tree, git busy — the member would sit
+# until the 04:00 job, which is the 24-hour gap again for the unlucky case. So
+# every terminal event first spends a small budget finishing THIS session's
+# deferred members, including an event for an agent that owns no worktree at
+# all (over a thousand a session on this machine). It is the same reclaim, on
+# members already recorded terminal, refusing everything it always refused; it
+# never waits for a lock and it is rate-limited by committed settings. A
+# failure here is announced and never stops the event below.
+try:
+    _daily_spec = importlib.util.spec_from_file_location(
+        "daily_workspace_cleanup",
+        os.path.join(os.path.dirname(os.environ["TX_PY"]), "daily-workspace-cleanup.py"))
+    _daily = importlib.util.module_from_spec(_daily_spec); _daily_spec.loader.exec_module(_daily)
+    for _path, _outcome, _reason in _daily.sweep_session(tx, sid):
+        sys.stderr.write("catch-up: %s %s (%s)\n" % (_outcome, _path, str(_reason)[:160]))
+except Exception as _e:
+    sys.stderr.write("catch-up sweep did not run: %s — this event's own work is unaffected "
+                     "and the nightly reconciler still covers it\n" % _e)
+
 aid = ""
 first_path = None
 if event in ("SubagentStop", ""):

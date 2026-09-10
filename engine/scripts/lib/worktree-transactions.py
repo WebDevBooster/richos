@@ -1344,17 +1344,212 @@ def quarantine(session_id, agent_id, index):
     return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar, **both_fields)
 
 
-def terminalize(session_id, agent_id, first_path=None):
-    """Persist terminal progress for the exact bound members, native first.
+class _ModuleSelf(object):
+    """A live view of THIS module's namespace.
 
-    New native members preserve their commit and await Claude-owned removal.
+    The reclaim lane takes the transactions module as its first argument, and
+    this file is loaded BY PATH (importlib.spec_from_file_location) from a
+    dozen callers, so it is not in sys.modules under any stable name and
+    cannot look itself up. Attribute reads go straight to the current
+    globals, so nothing here can go stale.
+    """
+
+    def __getattr__(self, name):
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(name)
+
+
+_SELF = _ModuleSelf()
+_DAILY_MOD = None
+
+
+def _daily():
+    """The reclaim lane, loaded once per process. Kept here rather than
+    imported at module scope so a missing or broken lane can never stop a
+    terminal event from being RECORDED — the record is the part nothing may
+    lose."""
+    global _DAILY_MOD
+    if _DAILY_MOD is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "daily_workspace_cleanup",
+            os.path.join(os.path.dirname(__file__), "daily-workspace-cleanup.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _DAILY_MOD = mod
+    return _DAILY_MOD
+
+
+def _ledger():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "worktree_ledger", os.path.join(os.path.dirname(__file__), "worktree-ledger.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _teammate_is_unique_in_session(session_id, agent_id, teammate):
+    """Exactly ONE transaction in this session carries this teammate name.
+
+    This is what makes a name-joined ledger row an EXACT join rather than a
+    guess. `guard-worktree-isolation.sh` refuses any spawn whose name has ever
+    been used in the session — active or completed, with no escape hatch — so
+    within one session a teammate name identifies one agent. That is a claim
+    about a guard, so it is CHECKED here rather than trusted: if two
+    transactions in this session carry the name, nothing is bound.
+    """
+    if not teammate:
+        return False
+    found = 0
+    try:
+        names = os.listdir(session_dir(session_id))
+    except OSError:
+        return False
+    for n in names:
+        if not n.endswith(".json"):
+            continue
+        rec = read_json(os.path.join(session_dir(session_id), n))
+        if rec and rec.get("record") == "transaction" and rec.get("teammate") == teammate:
+            found += 1
+    return found == 1
+
+
+def bind_late_members(session_id, agent_id):
+    """Bind workspaces this agent was given AFTER its manifest sealed.
+
+    THE HOLE THIS CLOSES, measured on this machine 2026-09-10. zach-opus-dor2
+    (agent af3b228967dc2b627) had FOUR workspaces. Its manifest sealed at
+    10:56:58 with the two that existed then. Two more were created at 11:03:26
+    and 11:03:29, mid-assignment, by `create-teammate-worktree.sh` — which
+    cannot write an agent id, because the orchestrator runs it BEFORE the
+    spawn. Those two joined no transaction, so no terminal ingress could ever
+    name them, and both were still standing, merged and clean, an hour after
+    the agent finished. Cross-repository worktrees are 48 of 53 on this
+    machine and the second one is routine, so this was not an edge case: it
+    was every workspace after the first, structurally unreclaimable for the
+    life of the session.
+
+    THE JOIN IS EXACT OR IT DOES NOT HAPPEN. A candidate row must be in the
+    ownership ledger, in THIS session, and either
+
+      * carry THIS agent id — the platform's own identity, the strong form; or
+      * carry no agent id at all AND name this transaction's teammate, when
+        exactly one transaction in this session carries that name.
+
+    and then the path must still BE what the row said: the top level of a
+    linked worktree of the named repository, on the named branch
+    (_verify_external_member, the same check the seal itself uses). A path any
+    other transaction already owns is never taken. Nothing is matched by
+    prefix, by directory shape or by what it sits next to.
+
+    Returns the transaction, bound members included. Never raises.
+    """
+    try:
+        tx = load_tx(session_id, agent_id)
+        if not tx or not tx.get("sealed"):
+            return tx
+        # COSTS NOTHING WHEN THERE IS NOTHING NEW. This runs on the stop path,
+        # which fires over a thousand times a session, and a full ledger read
+        # per transaction per event would be a real cost for a rare event. The
+        # ledger is append-only, so its size and mtime are an exact statement
+        # that nothing has been added since the last scan.
+        ledger_file = _ledger().ledger_path()
+        try:
+            stamp = "%s:%s" % (os.path.getmtime(ledger_file), os.path.getsize(ledger_file))
+        except OSError:
+            stamp = ""
+        if stamp and tx.get("late_scan_stamp") == stamp:
+            return tx
+        teammate = tx.get("teammate") or ""
+        owned = set(member_paths())
+        mine = set(norm_path(m.get("path")) for m in (tx.get("members") or []))
+        name_join_ok = _teammate_is_unique_in_session(session_id, agent_id, teammate)
+        candidates = {}
+        for row in _ledger().read_all():
+            if row.get("event") not in ("prepared", "registered"):
+                continue
+            if (row.get("session_id") or "") != session_id:
+                continue
+            row_aid = (row.get("agent_id") or "").strip()
+            if row_aid:
+                if row_aid != agent_id:
+                    continue
+            elif not (name_join_ok and row.get("teammate") == teammate):
+                continue
+            path = norm_path(row.get("worktree") or "")
+            if not path or path in mine or path in owned:
+                continue
+            candidates.setdefault(path, row)
+        if not candidates:
+            if stamp:
+                with tx_lock(session_id, agent_id):
+                    tx = load_tx(session_id, agent_id)
+                    if tx:
+                        tx["late_scan_stamp"] = stamp
+                        atomic_write_json(tx_path(session_id, agent_id), tx)
+            return tx
+        with tx_lock(session_id, agent_id):
+            tx = load_tx(session_id, agent_id)
+            mine = set(norm_path(m.get("path")) for m in (tx.get("members") or []))
+            added = []
+            for path, row in sorted(candidates.items()):
+                if path in mine:
+                    continue
+                member, why = _verify_external_member(
+                    {"class": "hand-rolled", "repo": row.get("repo"), "path": path,
+                     "branch": row.get("branch")})
+                if not member:
+                    sys.stderr.write("late member %s not bound: %s\n" % (path, why))
+                    continue
+                member["cleanup_policy"] = "integrated-daily"
+                member["bound_late"] = {"ts": now_iso(), "ledger_event": row.get("event"),
+                                        "ledger_ts": row.get("ts"),
+                                        "join": "agent-id" if (row.get("agent_id") or "").strip() else "teammate-name"}
+                tx.setdefault("members", []).append(member)
+                added.append(path)
+            if not added:
+                return tx
+            tx["late_bindings"] = (tx.get("late_bindings") or 0) + len(added)
+            tx["late_scan_stamp"] = stamp
+            atomic_write_json(tx_path(session_id, agent_id), tx)
+            sys.stderr.write("bound %d workspace(s) created after the seal: %s\n"
+                             % (len(added), ", ".join(added)))
+            return tx
+    except Exception as error:
+        sys.stderr.write("late binding for %s/%s did not run: %s\n" % (session_id[:8], agent_id, error))
+        return load_tx(session_id, agent_id)
+
+
+def terminalize(session_id, agent_id, first_path=None):
+    """Persist terminal progress for the exact bound members, native first,
+    AND RECLAIM WHAT IS ALREADY CLEAN — in this event, not on a timer.
+
     Managed images delegate to their daemon. Historical linked worktrees keep
     the quarantine/capture route and its explicit erasure refusal.
+
+    ROUND 11 (2026-09-10). This function used to record ownership and stop:
+    "the daily reconciler rechecks clean integration before non-force
+    removal". So the system learned an agent was finished immediately and
+    acted on it up to 24 hours later. It now calls the SAME lane the nightly
+    reconciler calls (daily-workspace-cleanup.reclaim_now -> reconcile), with
+    every refusal intact and the decision still the lane's. Anything the lane
+    refuses, or that is still locked when the bounded wait expires, is left
+    exactly as it was for the nightly backstop — which is unchanged and still
+    covers the crash, the killed process and the machine that slept.
+
+    The record is written FIRST and the reclaim cannot disturb it: a failure
+    in the lane is caught, journalled on the member and never raised, because
+    a terminal event must never be prevented by a cleanup.
     """
     tx = load_tx(session_id, agent_id)
     if not tx or not tx.get("terminal"):
         return tx
     _repair_terminal_indexes(tx)
+    # A workspace created AFTER the seal joins here, or it joins nothing ever.
+    tx = bind_late_members(session_id, agent_id) or tx
     if not tx.get("members"):
         return close_if_empty(session_id, agent_id)
     order = list(range(len(tx["members"])))
@@ -1374,11 +1569,7 @@ def terminalize(session_id, agent_id, first_path=None):
                 try:
                     if member.get("cleanup_policy") != "integrated-daily":
                         raise ValueError("historical native member")
-                    import importlib.util
-                    spec = importlib.util.spec_from_file_location("daily_workspace_cleanup", os.path.join(os.path.dirname(__file__), "daily-workspace-cleanup.py"))
-                    daily = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(daily)
-                    proof = daily.remember_native(member)
+                    proof = _daily().remember_native(member)
                     update_member(session_id, agent_id, i, daily_cleanup=proof)
                 except Exception:
                     # A failed clean proof cannot prevent Claude-owned cleanup
@@ -1388,6 +1579,7 @@ def terminalize(session_id, agent_id, first_path=None):
                     observe_platform_native(session_id, agent_id, i)
                 except Exception as error:
                     _soft_failure(session_id, agent_id, i, str(error))
+                _reclaim_in_event(session_id, agent_id, i)
                 continue
             if member.get('class') == 'managed-image':
                 if member.get('state') == 'removed':
@@ -1399,14 +1591,30 @@ def terminalize(session_id, agent_id, first_path=None):
                 except Exception as error:
                     update_member(session_id, agent_id, i, last_error=str(error), last_attempt=now_iso())
                 continue
-            # Ordinary terminal ingress records ownership only. The daily
-            # reconciler rechecks clean integration before non-force removal.
-            # Dirty or unfinished bytes stay at their original path.
             if member.get("cleanup_policy") != "integrated-daily":
                 # Historical records retain their original recovery protocol.
                 save_ref(session_id, agent_id, i)
                 quarantine(session_id, agent_id, i)
+                continue
+            # The ordinary terminal ingress RECLAIMS what is already clean and
+            # integrated, here, in this event. Dirty or unfinished bytes stay
+            # at their original path — the lane refuses them exactly as it
+            # always did, and the nightly pass retries.
+            _reclaim_in_event(session_id, agent_id, i)
         return load_tx(session_id, agent_id)
+
+
+def _reclaim_in_event(session_id, agent_id, index):
+    """Run the reclaim lane for ONE member and swallow everything. The lane
+    itself never raises; this is the second belt, because the caller is a
+    platform terminal event and the record it just wrote is what matters."""
+    try:
+        outcome, detail = _daily().reclaim_now(_SELF, load_tx(session_id, agent_id), index)
+    except Exception as error:  # pragma: no cover - defended twice deliberately
+        sys.stderr.write("immediate reclaim for %s/%s member %d raised: %s\n"
+                         % (session_id[:8], agent_id, index, error))
+        return None, str(error)
+    return outcome, detail
 
 
 def close_if_empty(session_id, agent_id):

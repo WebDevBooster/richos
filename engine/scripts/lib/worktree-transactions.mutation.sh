@@ -115,8 +115,8 @@ mutant terminal-index-is-truth "T55" "$F" \
     "a crash between the transaction's terminal write and the index write would leave a terminal worker that every guard reads as live — it could write into a quarantine (review 2026-09-03, blocker 5)."
 
 mutant loser-does-not-repair "T56" "$F" \
-    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{AND}        return tx{NL}    _repair_terminal_indexes(tx){NL}    if not tx.get("members"):' \
-    '        if tx.get("terminal"):{NL}            return False, tx{AND}        return tx{NL}    if not tx.get("members"):' \
+    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{AND}        return tx{NL}    _repair_terminal_indexes(tx){NL}    # A workspace created AFTER the seal joins here, or it joins nothing ever.{NL}    tx = bind_late_members(session_id, agent_id) or tx{NL}    if not tx.get("members"):' \
+    '        if tx.get("terminal"):{NL}            return False, tx{AND}        return tx{NL}    # A workspace created AFTER the seal joins here, or it joins nothing ever.{NL}    tx = bind_late_members(session_id, agent_id) or tx{NL}    if not tx.get("members"):' \
     "the losing ingress would see the transaction terminal and return without healing a missing index, and terminalize (the other caller every ingress reaches) would not either; the O(1) guards would stay wrong until a reconciler pass happened to run. Both carry the property, so both are removed at once."
 
 mutant ref-not-saved "T33" "$F" \

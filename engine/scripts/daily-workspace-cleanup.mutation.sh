@@ -22,6 +22,17 @@
 #     by reading, and its positive case
 #     (test_residue_refuses_when_capture_store_is_at_default_...) is in the
 #     suite.
+#   * platform_released_its_lock (round 11). It reads the SAME artifact
+#     owner_check's liveness veto reads — Claude Code's lock on the native
+#     registration — so a mutant that made it lie is caught by the veto, by
+#     _release_dead_lock's no-pid refusal, or by assess's lock-pid branch, and
+#     would prove nothing about the predicate itself. It is kept as a second,
+#     cheaper reading because the immediate lane needs to say WHO is holding
+#     the workspace without running the whole lane, and because a defense in
+#     depth over the one artifact that decides is worth its two lines. Its
+#     positive case (the live lock refuses, the platform's own release lets
+#     the reclaim through) is
+#     test_native_of_a_running_session_is_reclaimed_when_the_platform_releases_its_lock.
 
 set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0
@@ -32,6 +43,7 @@ mutation_begin "daily-workspace-cleanup (the reclaim lane)" "scripts/daily-works
 
 D="scripts/lib/daily-workspace-cleanup.py"
 P="scripts/lib/completion-proof.py"
+X="scripts/lib/worktree-transactions.py"
 
 mutant residue-archive-skipped "test_ignored_disposable_is_dropped_and_ignored_residue_is_archived_verified_then_reclaimed" "$D" \
     "        residue_record = archive_residue(tx, transaction, index, member['path'], residue) if residue else None" \
@@ -43,10 +55,10 @@ mutant residue-verification-skipped "test_unverifiable_residue_archive_holds_the
     "    pass" \
     "a residue archive that did not verify would still authorize the removal it exists to precede."
 
-mutant session-gone-on-any-status "test_native_of_a_running_session_defers_to_the_platform_even_when_unlocked" "$D" \
+mutant session-gone-on-any-status "test_native_of_an_engine_derived_terminal_fact_stays_platform_owned" "$D" \
     "        if status not in ('gone', 'reused'):{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
     "        if False:{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
-    "a native checkout of a RUNNING session would be removed on the strength of a recorded identity alone — a live agent's workspace, which is the failure that ended round 5."
+    "a native checkout of a RUNNING session would be removed on the strength of a recorded identity alone — a live agent's workspace, which is the failure that ended round 5. Round 11 added an agent-sized ground beside this one, so the case pinned here is the one where the agent ground does NOT apply and only the session ground can refuse."
 
 mutant no-identity-means-gone "test_native_with_no_recorded_session_identity_is_not_provably_gone" "$D" \
     "    if not identities:{NL}        return False, 'no process identity recorded for session %s; not provably gone' % sid[:8]" \
@@ -57,7 +69,7 @@ mutant no-identity-means-gone "test_native_with_no_recorded_session_identity_is_
 # owner_check's liveness veto; removing all three is what it takes to make the
 # contradiction case (ledger says gone, lock pid runs) delete a tree.
 mutant dead-lock-check-removed "test_native_lock_held_by_a_running_pid_holds_whatever_the_ledger_says" "$D" \
-    "    if status != 'gone':{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if live.get('verdict') != 'NOT-ALIVE':{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if status not in ('gone', 'reused'):{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
+    "    if status != 'gone':{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if live.get('verdict') != 'NOT-ALIVE' and not _held_by_nobody_over_a_terminal_agent(tx, transaction, live):{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if status not in ('gone', 'reused'):{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
     "    if False:{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if False:{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if False:{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
     "a lock held by a RUNNING pid would be released and the tree removed because a ledger row said the session was gone — a contradiction resolved in favor of deleting."
 
@@ -75,6 +87,51 @@ mutant ingress-set-widened "test_unsupported_competing_terminal_ingress_remains_
     "ACCEPTED_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'NativeMemberGone', 'TaskStop', 'Adoption')" \
     "ACCEPTED_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'NativeMemberGone', 'TaskStop', 'Adoption', 'TaskCompleted')" \
     "an event nobody measured (TaskCompleted, diagnostic only by ruling) would count as a terminal fact and release a competing reservation."
+
+mutant platform-ground-widened "test_native_of_an_engine_derived_terminal_fact_stays_platform_owned" "$D" \
+    "PLATFORM_TERMINAL_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'TaskStop')" \
+    "PLATFORM_TERMINAL_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'TaskStop', 'Adoption', 'NativeMemberGone')" \
+    "this engine's OWN derivation of terminality would be read as the platform saying the worker stopped, and a running session's checkout would be taken out of its hands on evidence the platform never gave."
+
+mutant ingress-hands-native-back-to-the-nightly "test_native_terminal_ingress_reclaims_in_the_same_event" "$X" \
+    "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                _reclaim_in_event(session_id, agent_id, i)" \
+    "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                pass" \
+    "a finished agent's NATIVE checkout would be recorded at the terminal event and reclaimed up to 24 hours later by the 04:00 job — the gap the CEO was looking at on 2026-09-10."
+
+mutant ingress-hands-hand-rolled-back-to-the-nightly "test_hand_rolled_terminal_ingress_reclaims_in_the_same_event" "$X" \
+    "            # always did, and the nightly pass retries.{NL}            _reclaim_in_event(session_id, agent_id, i)" \
+    "            # always did, and the nightly pass retries.{NL}            pass" \
+    "the same gap for the CROSS-REPOSITORY worktree, which is 48 of the 53 worktrees on this machine."
+
+mutant ingress-ignores-the-platform-lock "test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it" "$D" \
+    "        released, why = platform_released_its_lock(holder, proof_api.registry(repo).get(path))" \
+    "        released, why = True, 'mutant: the platform lock is ignored'" \
+    "the ingress would walk past a lock Claude Code still holds instead of waiting for the platform's own release — the tree survives on the liveness veto behind it, but the engine would be deciding a question that is the platform's."
+
+mutant any-lock-treated-as-naming-nobody "test_a_lock_naming_a_live_pid_is_never_released_by_that_route" "$D" \
+    "    return _lock_pid(row.get('locked')) is None" \
+    "    return True" \
+    "EVERY lock would be treated as naming nobody, so the release route meant for an uninformative lock would take one that names a RUNNING pid -- the exact artifact the liveness veto is built on."
+
+mutant nobody-lock-released-with-a-process-in-the-tree "test_process_in_the_tree_holds_a_lock_that_names_nobody" "$D" \
+    "    pids = processes_using(path){NL}    if pids:{NL}        raise RuntimeError('RETRY, not a verdict: process(es) %s are standing in %s, so the lock is '" \
+    "    pids = []{NL}    if pids:{NL}        raise RuntimeError('RETRY, not a verdict: process(es) %s are standing in %s, so the lock is '" \
+    "the lock would come off a tree something is standing in -- the one check that makes releasing it different from ignoring it."
+
+mutant late-binding-removed "test_a_workspace_created_after_the_seal_joins_the_transaction_and_is_reclaimed" "$X" \
+    "    tx = bind_late_members(session_id, agent_id) or tx" \
+    "    pass" \
+    "a workspace given to an agent AFTER its manifest sealed would join no transaction, so no terminal ingress could ever name it -- two of zach-opus-dor2's four workspaces, structurally unreclaimable for the life of the session."
+
+mutant late-binding-joins-an-ambiguous-name "test_a_late_row_is_NOT_bound_when_the_teammate_name_is_ambiguous" "$X" \
+    "    return found == 1" \
+    "    return True" \
+    "a teammate name shared by two transactions in one session would still be treated as an exact join, so one agent's terminal event would bind and reclaim another's workspace."
+
+mutant ownerless-row-of-any-session-retired "test_an_ownerless_row_of_a_LIVE_session_still_reserves" "$D" \
+    "                    gone, _why = session_id_gone(row.get('session_id') or '', tx){NL}                    if gone:{NL}                        continue" \
+    "                    if True:{NL}                        continue" \
+    "a preparation row naming no agent would stop reserving whatever its session was doing -- including a session that is running right now, whose worktree it was written to protect."
 
 mutant untracked-refusal-removed "test_dirty_staged_and_untracked_refuse" "$P" \
     "    if git(path,'ls-files','--others','--exclude-standard','-z').stdout:{NL}        raise CompletionError" \

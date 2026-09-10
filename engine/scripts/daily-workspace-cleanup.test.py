@@ -17,6 +17,12 @@ def load(name):
 
 daily = load('daily-workspace-cleanup')
 tx = load('worktree-transactions')
+
+
+def _load_registry(repo, path):
+    """The exact `git worktree list` row for one path, as the lane reads it."""
+    return load('completion-proof').registry(str(repo)).get(str(path)) or {}
+
 SID = 'daily-test-session'
 AID = 'abcdef123456'
 DEAD_PID = 999999
@@ -141,7 +147,7 @@ class Cleanup(unittest.TestCase):
     def test_process_standing_in_the_tree_holds_it_and_nothing_is_killed(self):
         with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'4242 /bin/sleep 300 '+str(self.work)}):
             self.assertEqual(self.assess()[0],'hold')
-            with self.assertRaisesRegex(RuntimeError,'4242 still use'):self.run_cleanup()
+            with self.assertRaisesRegex(RuntimeError,r'RETRY, not a verdict: process\(es\) 4242'):self.run_cleanup()
         self.assert_kept()
 
     def test_unintegrated_refuses(self):
@@ -187,7 +193,12 @@ class Cleanup(unittest.TestCase):
         with self.assertRaisesRegex(Exception,'unlocked'):self.run_cleanup()
         self.assert_kept()
 
-    def test_native_checkout_remains_platform_owned(self):
+    def test_previously_sealed_native_record_joins_the_lane_and_is_reclaimed(self):
+        # ROUND 11 (2026-09-10). This case asserted `platform-pending` — the
+        # workspace kept until a person or the platform removed the checkout.
+        # A native record sealed before the daily lane existed still joins the
+        # lane on the first pass, and now that its agent is provably over and
+        # the platform has released its own lock, that same pass reclaims it.
         self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code'})
         # historical-fixture-partial: cleanup_policy — this is NOT a historical
         # record and must not become one. The case is about a member that IS
@@ -196,12 +207,27 @@ class Cleanup(unittest.TestCase):
         # sealed before the reconciler had ever reclaimed it.
         self.record['members'][0].pop('cleanup_policy') # Previously sealed native record.
         tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
-        result=self.run_cleanup(); self.assertTrue(self.work.is_dir())
+        result=self.run_cleanup()
         self.assertEqual(result['members'][0]['cleanup_policy'],'integrated-daily')
+        self.assert_reclaimed(result)
+
+    def test_native_of_an_engine_derived_terminal_fact_stays_platform_owned(self):
+        # The ground is the PLATFORM'S statement about one exact agent id.
+        # `Adoption` and `NativeMemberGone` are terminal facts for this lane
+        # but they are the engine's own derivations, so they never take a
+        # running session's checkout out of its hands. Keeping this refusal is
+        # what stops round 11 from becoming "terminal-ish means delete".
+        self.make_native()
+        # A RUNNING session (this process), so the session ground is the one
+        # that must refuse: with no platform statement about the agent, a live
+        # session's checkout stays the platform's.
+        self.ledger_row(session_pid=os.getpid(),pid_start='')
+        self.record['terminal']={'ingress':'Adoption','ts':'fixture'}
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        decision,reason=self.assess()
+        self.assertEqual(decision,'observe');self.assertIn('own derivation',reason)
+        result=self.run_cleanup();self.assertTrue(self.work.is_dir())
         self.assertEqual(result['members'][0]['state'],'platform-pending')
-        self.git(self.repo,'worktree','remove',str(self.work))
-        result=self.run_cleanup();self.assertEqual(result['members'][0]['daily_cleanup']['phase'],'complete')
-        self.assertNotIn('refs/heads/worker',self.git(self.repo,'show-ref'))
 
     def test_native_of_a_provably_gone_session_is_removed_and_its_dead_lock_released(self):
         # P3: the harness of an exited session never removes anything and never
@@ -213,14 +239,28 @@ class Cleanup(unittest.TestCase):
         result=self.run_cleanup();self.assert_reclaimed(result)
         self.assertIn('gone',result['members'][0]['daily_cleanup']['session_gone'])
 
-    def test_native_of_a_running_session_defers_to_the_platform_even_when_unlocked(self):
-        # PF6: an unlocked native tree is the ordinary state of an idle live
-        # teammate between turns. The session's recorded pid is THIS process.
-        self.make_native()
+    def test_native_of_a_running_session_is_reclaimed_when_the_platform_releases_its_lock(self):
+        # PF6 SAID: an unlocked native tree is the ordinary state of an idle
+        # live teammate between turns, so a running session keeps it.
+        # ROUND 11 (2026-09-10): a TERMINAL agent has no between-turns. Its
+        # terminal index makes guard-resume-isolation.sh refuse every resume
+        # with no escape hatch, so the platform cannot give it another turn.
+        # While Claude Code holds its own lock the workspace stays the
+        # platform's and the live-lock veto refuses; the moment the PLATFORM
+        # ITSELF releases that lock, the finished agent's workspace is
+        # reclaimed although its session runs on. This engine never removes
+        # that lock: the release is the platform's signal, not our decision.
+        self.make_native(lock_pid=os.getpid())
         self.ledger_row(session_pid=os.getpid(),pid_start='')
-        self.assertEqual(self.assess()[0],'observe')
-        result=self.run_cleanup();self.assertTrue(self.work.is_dir())
-        self.assertEqual(result['members'][0]['state'],'platform-pending')
+        self.assertEqual(self.assess()[0],'hold')
+        with self.assertRaisesRegex(Exception,'live'):self.run_cleanup()
+        self.assert_kept()
+        self.git(self.repo,'worktree','unlock',str(self.work))
+        decision,reason=self.assess()
+        self.assertEqual(decision,'remove');self.assertIn('cannot return',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        self.assertIn('cannot return',result['members'][0]['daily_cleanup']['agent_over'])
+        self.assertNotIn('session_gone',result['members'][0]['daily_cleanup'])
 
     def test_session_gone_refuses_to_read_the_real_ledger_from_a_sandboxed_store(self):
         # A redirected transaction store with the ownership ledger at its
@@ -236,11 +276,216 @@ class Cleanup(unittest.TestCase):
             decision,why=self.assess();self.assertEqual(decision,'observe');self.assertIn('inconsistently rooted',why)
         self.assert_kept()
 
-    def test_native_with_no_recorded_session_identity_is_not_provably_gone(self):
+    def test_a_workspace_this_engine_never_registered_is_never_a_candidate(self):
+        # THIS is what protects the CEO's codex folders (ceo-decisions.md 31),
+        # and it is structural rather than asserted: the lane acts only on
+        # MEMBERS of a transaction, so a workspace nothing registered is not
+        # refused -- it is never reached. Measured 2026-09-10: 0 codex paths in
+        # any transaction manifest and 0 codex rows in the ownership ledger,
+        # for nine standing codex worktrees, eight of them merged and clean.
+        stranger = self.root / 'codex-rollback-owned-outcome'
+        self.git(self.repo, 'worktree', 'add', '-b', 'codex/rollback', str(stranger))
+        self.assertNotIn(os.path.realpath(str(stranger)), set(tx.member_paths()))
+        with tx.tx_lock(SID, AID):
+            daily.reconcile(tx, tx.load_tx(SID, AID), 0)
+        self.assertTrue(stranger.is_dir())
+        self.assertIn('refs/heads/codex/rollback', self.git(self.repo, 'show-ref'))
+
+    def test_a_workspace_this_engine_never_registered_is_not_bound_by_the_binder_either(self):
+        # The other door into the lane. Late binding takes a path only from a
+        # ledger row of THIS session; a folder nobody registered has no row, so
+        # it joins nothing and stays exactly where it is.
+        stranger = self._second_workspace('codex-late')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 1)
+        self.assertTrue(stranger.is_dir())
+
+    def _second_workspace(self, name='later'):
+        """A workspace created AFTER the seal, exactly as an orchestrator does
+        mid-assignment: a real linked worktree and a `prepared` ledger row that
+        carries NO agent id, because the helper that writes it runs before any
+        spawn and cannot know one."""
+        path = self.root / name
+        self.git(self.repo, 'worktree', 'add', '-b', name, str(path))
+        (path / 'file').write_text('later delivery\n')
+        self.git(path, 'commit', '-am', 'later delivery')
+        self.git(self.repo, 'merge', '--ff-only', name)
+        self.main = self.git(self.repo, 'rev-parse', 'main').strip()
+        return path
+
+    def test_a_workspace_created_after_the_seal_joins_the_transaction_and_is_reclaimed(self):
+        # MEASURED 2026-09-10: zach-opus-dor2 had FOUR workspaces; its manifest
+        # sealed with the two that existed at spawn, and the two created
+        # mid-assignment joined nothing. No terminal ingress could ever name
+        # them, so they stood merged and clean an hour after the agent
+        # finished, and no sanctioned tool could reclaim them. The seal is no
+        # longer the boundary: a ledger row of THIS session naming this
+        # teammate binds its exact path into the transaction.
+        later = self._second_workspace()
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        # NOTHING is bound by hand here: the terminal ingress must do it, or
+        # the mutant that removes the binding from terminalize() proves nothing.
+        result = tx.terminalize(SID, AID)
+        self.assertEqual(len(result['members']), 2)
+        self.assertEqual(result['members'][1]['path'], str(later))
+        self.assertEqual(result['members'][1]['bound_late']['join'], 'teammate-name')
+        self.assertFalse(later.exists())
+        self.assertNotIn('refs/heads/later', self.git(self.repo, 'show-ref'))
+
+    def test_a_late_row_naming_THIS_agent_id_joins_by_the_platform_identity(self):
+        later = self._second_workspace()
+        self.ledger_row(event='registered', agent_id=AID, teammate='somebody-else',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(result['members'][1]['bound_late']['join'], 'agent-id')
+
+    def test_a_late_row_is_NOT_bound_when_the_teammate_name_is_ambiguous(self):
+        # The name join rests on names being unique within a session. That is a
+        # claim about a guard, so it is checked rather than trusted: a second
+        # transaction carrying the same name makes the row un-joinable.
+        later = self._second_workspace()
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        twin = dict(self.record, agent_id='abcdef777777')
+        tx.atomic_write_json(tx.tx_path(SID, 'abcdef777777'), twin)
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 1)
+        self.assertTrue(later.is_dir())
+
+    def test_a_late_row_is_NOT_bound_when_the_path_stopped_being_what_it_said(self):
+        later = self._second_workspace()
+        self.git(later, 'checkout', '-qb', 'somebody-elses-branch')
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 1)
+        self.assertTrue(later.is_dir())
+
+    def test_a_late_row_is_NOT_bound_when_another_transaction_already_owns_the_path(self):
+        later = self._second_workspace()
+        other = dict(self.record, agent_id='abcdef888888', teammate='other-worker', session_id='other-session',
+                     members=[dict(self.record['members'][0], path=str(later), branch='later')])
+        tx.atomic_write_json(tx.tx_path('other-session', 'abcdef888888'), other)
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 1)
+        self.assertTrue(later.is_dir())
+
+    def test_an_ownerless_row_of_a_GONE_session_no_longer_reserves_forever(self):
+        # MEASURED 2026-09-10: two ledger rows written by session 44276098 on
+        # 2026-09-02, carrying no agent id, were still holding
+        # /Users/alex/ab/richos-wt/zach-opus-prem1 eight days later. Nothing
+        # keyed to them could ever retire them: there is no transaction at
+        # (session, '') and there never will be. The only thing that can is
+        # positive evidence that the session is over.
+        self.ledger_row(event='prepared', session_id='dead-session', agent_id=None,
+                        teammate='someone-else', session_pid=DEAD_PID, pid_start='')
+        self.assertEqual(self.assess()[0], 'remove')
+        self.assert_reclaimed(self.run_cleanup())
+
+    def test_an_ownerless_row_of_a_LIVE_session_still_reserves(self):
+        self.ledger_row(event='prepared', session_id='live-session', agent_id=None,
+                        teammate='someone-else', session_pid=os.getpid(), pid_start='')
+        self.assertEqual(self.assess()[0], 'hold')
+        with self.assertRaisesRegex(Exception, 'reservation'):
+            self.run_cleanup()
+        self.assert_kept()
+
+    def test_an_ownerless_row_with_no_recorded_identity_still_reserves(self):
+        # Absence is never evidence, here as everywhere else.
+        self.ledger_row(event='prepared', session_id='unknown-session', agent_id=None,
+                        teammate='someone-else')
+        self.assertEqual(self.assess()[0], 'hold')
+        with self.assertRaisesRegex(Exception, 'reservation'):
+            self.run_cleanup()
+        self.assert_kept()
+
+    def test_lock_that_names_nobody_is_released_by_the_reconciler_on_positive_evidence(self):
+        # THE CEO'S FIRST OBSERVATION, 2026-09-10: "A finished agent's lock is
+        # never released. Five workspaces sat unreclaimable for a working day
+        # ... nothing automatic could EVER have cleared them."
+        # The mechanism, measured: `git worktree lock` with no --reason writes
+        # an EMPTY reason, _release_dead_lock refuses a lock with no pid, and
+        # so the workspace is held by nobody forever. The way out is not to
+        # weaken the lock rule but to have positive evidence beside it: the
+        # platform's own terminal ingress named this exact agent id.
         self.make_native()
+        self.git(self.repo,'worktree','lock',str(self.work))   # no --reason: names nobody
+        row=_load_registry(self.repo,self.work)
+        self.assertIn('locked',row);self.assertEqual(row['locked'],'')
+        self.assertTrue(daily.lock_names_nobody(row))
+        decision,reason=self.assess()
+        self.assertEqual(decision,'remove');self.assertIn('names no process',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        self.assertIn('held by nobody',result['members'][0]['daily_cleanup']['lock_released'])
+
+    def test_lock_that_names_nobody_is_NOT_released_in_the_stop_event_itself(self):
+        # The ingress never releases a lock the platform is holding, whatever
+        # is written on it: in that instant the platform is still putting the
+        # worker down. The nightly pass resolves it; the ingress waits.
+        self.make_native()
+        self.git(self.repo,'worktree','lock',str(self.work))
+        tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('waits for the platform',member['immediate_reclaim']['reason'])
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+        # and the second belt behind the wait: even called directly, the
+        # immediate path refuses to release a lock the platform is holding
+        with tx.tx_lock(SID,AID):
+            with self.assertRaisesRegex(RuntimeError,'ingress waits for the platform'):
+                daily.reconcile(tx,tx.load_tx(SID,AID),0,immediate=True)
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+
+    def test_lock_that_names_nobody_still_refuses_without_the_platform_terminal_fact(self):
+        # Same empty lock, but the terminal fact is the engine's own
+        # derivation. Nothing is released and nothing is removed: the release
+        # rests on the platform having named this agent, never on the lock
+        # being uninformative.
+        self.make_native()
+        self.ledger_row(session_pid=os.getpid(),pid_start='')
+        self.record['terminal']={'ingress':'Adoption','ts':'fixture'}
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        self.git(self.repo,'worktree','lock',str(self.work))
         self.assertEqual(self.assess()[0],'observe')
-        result=self.run_cleanup();self.assertTrue(self.work.is_dir())
-        self.assertEqual(result['members'][0]['state'],'platform-pending')
+        self.run_cleanup()
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+
+    def test_process_in_the_tree_holds_a_lock_that_names_nobody(self):
+        # The release refuses while anything stands in the tree, and nothing
+        # is ever killed to make room for it.
+        self.make_native()
+        self.git(self.repo,'worktree','lock',str(self.work))
+        with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'4242 /bin/sleep 300 '+str(self.work)}):
+            with self.assertRaisesRegex(RuntimeError,r'RETRY, not a verdict: process\(es\) 4242'):self.run_cleanup()
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+
+    def test_a_lock_naming_a_live_pid_is_never_released_by_that_route(self):
+        # The negative control for the whole route: a lock that DOES name a
+        # running pid is refused by the liveness veto, and never reaches the
+        # unattributable path.
+        self.make_native(lock_pid=os.getpid())
+        with self.assertRaisesRegex(Exception,'live'):self.run_cleanup()
+        self.assert_kept()
+        with self.assertRaisesRegex(RuntimeError,'names a pid'):
+            daily._release_unattributable_lock(str(self.repo),str(self.work),
+                                               _load_registry(self.repo,self.work))
+        self.assertIn('locked',_load_registry(self.repo,self.work))
+
+    def test_native_with_no_recorded_session_identity_is_not_provably_gone(self):
+        # session_gone stays exactly as honest as it was: no recorded process
+        # identity is never evidence that a session ended. What changed is
+        # that it is no longer the ONLY ground — the removal below rests on
+        # the agent ground, and the journal names which ground carried it.
+        self.make_native()
+        gone,why=daily.session_gone(tx.load_tx(SID,AID),tx)
+        self.assertFalse(gone);self.assertIn('no process identity recorded',why)
+        self.assertEqual(self.assess()[0],'remove')
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        journal=result['members'][0]['daily_cleanup']
+        self.assertIn('agent_over',journal);self.assertNotIn('session_gone',journal)
 
     def test_native_lock_held_by_a_running_pid_holds_whatever_the_ledger_says(self):
         # The lock is checked on its own pid, independently of the session
@@ -341,20 +586,57 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(tx.metrics()['terminal_pending_cleanup'],1)
         self.assertEqual((self.work/'file').read_text(),'unfinished\n')
 
-    def test_native_ingress_proof_survives_platform_removal_and_dispatches(self):
+    def test_native_terminal_ingress_reclaims_in_the_same_event(self):
+        # ROUND 11. This case used to terminalize, then remove the checkout by
+        # hand, then run the NIGHTLY reconciler to finish the job — which is
+        # exactly the 24-hour gap the CEO was looking at. The ingress now does
+        # it: one call, workspace gone, branch resolved, nothing pending.
         self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code'})
         tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
         tx.terminalize(SID,AID)
-        self.assertIn('daily_cleanup',tx.load_tx(SID,AID)['members'][0])
-        self.git(self.repo,'worktree','remove',str(self.work))
-        tx.observe_platform_native(SID,AID,0)
-        self.assertEqual(tx.metrics()['terminal_pending_cleanup'],1)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'reclaimed')
+        self.assertEqual(member['daily_cleanup']['phase'],'complete')
+        self.assertFalse(self.work.exists())
+        self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'), 'refs/heads/main\n')
+        self.assertEqual(tx.metrics()['terminal_pending_cleanup'],0)
+        # and the nightly pass over the same record is a no-op, not a retry
         spec=importlib.util.spec_from_file_location('daily_reconciler',HERE/'reconcile-terminal-worktrees.py')
         rec=importlib.util.module_from_spec(spec);spec.loader.exec_module(rec)
         rec.reconcile_transaction(tx.load_tx(SID,AID))
         self.assertEqual(tx.load_tx(SID,AID)['members'][0]['daily_cleanup']['phase'],'complete')
-        self.assertEqual(tx.metrics()['terminal_pending_cleanup'],0)
-        self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'), 'refs/heads/main\n')
+
+    def test_hand_rolled_terminal_ingress_reclaims_in_the_same_event(self):
+        # The cross-repository worktree — 48 of 53 on this machine — takes the
+        # same route from the same event. It carries no platform lock, so the
+        # ingress has nothing to wait for.
+        tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'reclaimed')
+        self.assertFalse(self.work.exists())
+        self.assertNotIn('refs/heads/worker',self.git(self.repo,'show-ref'))
+
+    def test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it(self):
+        # WHO HOLDS THE LOCK, AND MAY THE ENGINE RELEASE IT? Claude Code holds
+        # it; its pid is the SESSION's, shared by every agent of that session,
+        # so it can never speak about one agent. It is not ours. The ingress
+        # therefore WAITS for the platform's own release, bounded, and defers
+        # if it does not come — the lock is still on the tree afterwards, and
+        # the workspace is untouched.
+        self.make_native(lock_pid=os.getpid())
+        with patch.dict(os.environ,{}):
+            with patch.object(daily,'unlock_wait_seconds',lambda repo=None:0.3):
+                tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('still holds its own lock',member['immediate_reclaim']['reason'])
+        self.assert_kept()
+        self.assertIn('locked',_load_registry(self.repo,self.work))
+        # the platform releases it; the NEXT terminal ingress reclaims at once
+        self.git(self.repo,'worktree','unlock',str(self.work))
+        tx.terminalize(SID,AID)
+        self.assertEqual(tx.load_tx(SID,AID)['members'][0]['immediate_reclaim']['outcome'],'reclaimed')
+        self.assertFalse(self.work.exists())
 
     def test_branch_reserved_elsewhere_is_retained(self):
         second=self.root/'other-checkout'

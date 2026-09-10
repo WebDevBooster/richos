@@ -74,7 +74,31 @@ rather than about a path being quiet.
   T3  witnessed lock release.  A persisted `terminated` witness for the exact
       path ("native isolation worktree registered and unlocked").
 
-**T1 or T2 authorizes. T3 NEVER authorizes.** T3 is recorded beside the
+  T4  CRASH RECOVERY — no orchestrator session alive.  THE ONLY FALLBACK, and
+      it exists for one failure: a session that DIES between the two events
+      that matter (registered at spawn, finished at the end) never writes the
+      second one, so folders it registered would sit forever with no finish
+      event ever coming.
+
+      Its precondition is the REGISTRATION, not a name or a shape: this
+      engine only ever reclaims what it registered itself, and a folder no
+      record names is not ours to look at. On top of that, NO orchestrator
+      session may be alive on this machine at all — every registered session
+      pid gone and no `claude` process in the table. T2 says "this owner's
+      process is gone" and needs a record naming the owner; T4 says "no owner
+      of any kind exists", which covers a registration whose owning session
+      is not identifiable at all.
+
+      IT CANNOT DESTROY A LIVE AGENT'S WORK BECAUSE THERE IS NO LIVE AGENT.
+      That is the whole safety argument, and it is a kernel fact of the same
+      KIND as T2 rather than an observation a sweep made.
+
+      IT MUST STAY RARE. The failure this project actually had is that the
+      recovery path became the main path: nine rounds of inference existed
+      because a fact the system HELD was being thrown away. The main path is
+      the finish event, and this is the shoulder beside it.
+
+**T1, T2 or T4 authorizes. T3 NEVER authorizes.** T3 is recorded beside the
 claim as corroboration and nothing else. That is deliberate and it is the
 line between this design and the nine that failed: T3 is an observation a
 SWEEP made about a lock, and "the sweep decided the agent was gone" is the
@@ -388,9 +412,26 @@ def owner_evidence(records, path):
 
     uncertain = [s for s in statuses if s[3] == "unknown"]
     if uncertain:
+        # T4 — CRASH RECOVERY, and this is the exact place it belongs. An owner
+        # that can be IDENTIFIED is already answered: alive refuses above, gone
+        # or reused authorizes on T2 below. What is left here is a folder THIS
+        # ENGINE REGISTERED whose owner cannot be identified at all — the
+        # session died before it could record enough to be recognized. For that
+        # one case, "no orchestrator session is alive anywhere" answers the
+        # question the missing identity cannot: nothing can return to it.
+        none_alive, why = _ledger_no_session_alive()
+        if none_alive:
+            return "T4", ("crash-recovery (no-session-alive): this folder is on record as ours and its "
+                          "owner cannot be identified (%s), and %s. Every agent of every session is a "
+                          "thread of a session process, so with no session process anywhere there is no "
+                          "owner that could return to it and no finish event that could still arrive. "
+                          "This is the fallback for a session that died between registration and finish, "
+                          "and it is meant to be rare."
+                          % ("session %s pid %s" % (uncertain[0][0][:8] or "unrecorded", uncertain[0][1]), why))
         sid, pid, _start, _st = uncertain[0]
         return None, ("session %s pid %s has UNKNOWN process identity; retain its worktree "
-                      "until owner termination is established" % (sid[:8] or "unrecorded", pid))
+                      "until owner termination is established [crash-recovery precondition unmet: %s]"
+                      % (sid[:8] or "unrecorded", pid, why))
 
     # T1 — the transaction store marks the agent id terminal.
     for aid in aids:
@@ -417,10 +458,19 @@ def owner_evidence(records, path):
 
     if not aids:
         return None, ("no ownership record: nothing in the ledger or the transaction store names %s, "
-                      "and absence of a record is never a claim" % path)
+                      "and absence of a record is never a claim%s"
+                      % (path, (" [" + "; ".join(corroboration) + "]") if corroboration else ""))
     return None, ("no authorizing evidence for %s (agents %s): T1 needs a terminal transaction, T2 "
                   "needs a host session whose pid is provably gone%s"
                   % (path, ",".join(aids), (" [" + "; ".join(corroboration) + "]") if corroboration else ""))
+
+
+def _ledger_no_session_alive():
+    """Indirection so a test can stand in for the machine's process table
+    without patching the ledger module every consumer shares."""
+    return wl.no_session_alive()
+
+
 
 
 # --------------------------------------------------------------------------

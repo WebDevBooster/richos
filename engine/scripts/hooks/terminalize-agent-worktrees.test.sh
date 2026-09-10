@@ -38,6 +38,12 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 [ -f "$TX_PY" ] || { echo "FATAL: $TX_PY missing" >&2; exit 1; }
 
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+# The reclaim lane reads the ownership ledger and archives ignored residue.
+# Both stores are redirected with the transaction store or the lane refuses
+# to act at all (its hermetic-rooting check): a sandbox must never read the
+# operator's real record, nor write into the operator's real captures.
+export RICHOS_WORKTREE_LEDGER="$SANDBOX/ledger.jsonl"
+export RICHOS_WORKTREE_CAPTURE_DIR="$SANDBOX/captures"
 SID="deadbeef-0000-4000-8000-000000000000"
 # These quarantine/capture regressions replay records from the pre-platform-owner
 # format. New native ownership is covered by native-platform-cleanup.test.py.
@@ -53,10 +59,11 @@ SID="deadbeef-0000-4000-8000-000000000000"
 # historical in name only, and the cases below then assert a route their own
 # fixture no longer selects. Any future key that routes cleanup belongs in
 # this list on the same commit that introduces it.
+SEAL_MODERN=0   # 1 = keep the cleanup-routing keys a real seal stamps
 T() {
     python3 "$TX_PY" "$@"
     local rc=$?
-    if [ "$rc" -eq 0 ] && [ "${1:-}" = seal ]; then
+    if [ "$rc" -eq 0 ] && [ "${1:-}" = seal ] && [ "$SEAL_MODERN" -eq 0 ]; then
         python3 - "$RICHOS_WORKTREE_TX_DIR" <<'HISTORICAL'
 import json, pathlib, sys
 for path in pathlib.Path(sys.argv[1]).glob('*/*.json'):
@@ -184,11 +191,19 @@ fi
 T start --session-id "$SID" --agent-id "$A3" --cwd "$ENTITY/.claude/worktrees/agent-$A3" >/dev/null
 T seal --session-id "$SID" --agent-id "$A3" >/dev/null 2>&1
 ING3="$(T show --session-id "$SID" --agent-id "$A3" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); t=d.get("terminal") or {}; print(t.get("ingress",""), "via" if t.get("via_pending") else "direct")')"
-if [ "$ING3" = "SubagentStop via" ] && [ -d "$ENTITY/.claude/worktrees/agent-$A3" ] && [ ! -e "$(q "$ENTITY/.claude/worktrees/agent-$A3" "$A3")" ] \
+# ROUND 11 (2026-09-10): this is the one case in this file whose record is
+# NOT converted to the historical shape (the converter skips a record that is
+# already terminal), so it is the only one that exercises a MODERN seal — and
+# a modern seal now reclaims in the event instead of leaving the workspace for
+# the 04:00 job. The assertion that it "preserves Claude-owned native cleanup"
+# was the 24-hour gap written down as an expectation.
+if [ "$ING3" = "SubagentStop via" ] && [ ! -e "$ENTITY/.claude/worktrees/agent-$A3" ] \
+   && [ ! -e "$(q "$ENTITY/.claude/worktrees/agent-$A3" "$A3")" ] \
+   && ! git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A3" \
    && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ]; then
-    ok "R21b ...and when the manifest later SEALS, the pending event claims it (ingress SubagentStop, via pending), preserves Claude-owned native cleanup and is consumed"
+    ok "R21b ...and when the manifest later SEALS, the pending event claims it (ingress SubagentStop, via pending), reclaims the clean workspace and its branch in that same event, and is consumed"
 else
-    bad "R21b ingress=[$ING3] orig=$([ -d "$ENTITY/.claude/worktrees/agent-$A3" ] && echo present || echo gone) pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ] && echo kept || echo consumed)"
+    bad "R21b ingress=[$ING3] orig=$([ -e "$ENTITY/.claude/worktrees/agent-$A3" ] && echo present || echo gone) branch=$(git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A3" && echo kept || echo deleted) pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ] && echo kept || echo consumed)"
 fi
 run "$(stop_payload "$A3")"
 [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'resumed the claim' && ok "R21c ...and a later SubagentStop resumes the same transaction (idempotent)" || bad "R21c rc=$RC: ${OUT:0:120}"
@@ -339,6 +354,144 @@ rm -rf "$NOLIB"
 # --- 7. the write barrier and the resume guard read the same terminal index -------
 [ -f "$SANDBOX/tx/terminal/$A1" ] && [ -f "$SANDBOX/tx/terminal-names/$SID/dev-opus-t1" ] \
     && ok "R27  the terminal indexes are on disk where guard-sealed-worktree.sh and guard-resume-isolation.sh read them" || bad "R27  indexes"
+
+# --- 8. THE IMMEDIATE RECLAIM, END TO END THROUGH THIS HOOK ------------------
+# The CEO, 2026-09-10: "WHEN THE FUCK WILL ALL THE FINISHED GARBAGE START
+# GETTING CLEANED UP AUTOMATICALLY AND STOP WASTING MY FUCKING TIME?"
+#
+# Everything below runs the REAL hook on a REAL SubagentStop payload against
+# REAL git repositories, with the sealed record produced by the real CLI. The
+# only thing not real is the harness that would have spawned the worker.
+# E1 is the clean case: gone in the event. E2-E5 are the four refusals, each
+# through this same ingress. E6 is the nightly backstop still reclaiming what
+# the ingress deliberately skipped.
+SEAL_MODERN=1
+# The entity narrows the committed wait to nothing: these cases are about
+# WHAT is decided, not about how long the ingress is willing to wait for a
+# lock, and the per-entity override is the supported way to say so.
+printf 'IMMEDIATE_RECLAIM_WAIT_SECONDS=0\n' >"$ENTITY/orchestration.config"
+say_elapsed() { printf '        [%s -> %s, %ss]\n' "$1" "$2" "$3"; }
+
+# E1  the clean case, both member classes, in the event
+A9="a000000000000t09"
+seal "$A9" dev-opus-t9 "$THIRD:$SANDBOX/third-wt/dev-opus-t9:dev-opus-t9"
+E1_NATIVE="$ENTITY/.claude/worktrees/agent-$A9"; E1_EXT="$SANDBOX/third-wt/dev-opus-t9"
+E1_T0="$(date -u +%H:%M:%S.%N 2>/dev/null || date -u +%H:%M:%S)"; E1_S0="$(python3 -c 'import time;print(time.time())')"
+run "$(stop_payload "$A9")"
+E1_T1="$(date -u +%H:%M:%S.%N 2>/dev/null || date -u +%H:%M:%S)"
+E1_EL="$(python3 -c 'import sys,time;print("%.2f"%(time.time()-float(sys.argv[1])))' "$E1_S0")"
+if [ "$RC" -eq 0 ] && [ ! -e "$E1_NATIVE" ] && [ ! -e "$E1_EXT" ] \
+   && ! git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A9" \
+   && ! git -C "$THIRD" show-ref --verify -q "refs/heads/dev-opus-t9"; then
+    ok "E1  a finished agent's workspaces are GONE and both branches resolved in the stop event itself (native + cross-repository)"
+    say_elapsed "$E1_T0" "$E1_T1" "$E1_EL"
+else
+    bad "E1  rc=$RC native=$([ -e "$E1_NATIVE" ] && echo present || echo gone) external=$([ -e "$E1_EXT" ] && echo present || echo gone) out=${OUT:0:200}"
+fi
+
+# E2  UNMERGED is never swept
+A10="a000000000000t10"
+seal "$A10" dev-opus-t10
+E2="$ENTITY/.claude/worktrees/agent-$A10"
+printf 'undelivered\n' >"$E2/seed.txt"; git -C "$E2" commit -qam 'not in main'
+E2_TIP="$(git -C "$E2" rev-parse HEAD)"
+run "$(stop_payload "$A10")"
+[ "$RC" -eq 0 ] && [ -d "$E2" ] && [ "$(git -C "$ENTITY" rev-parse "refs/heads/worktree-agent-$A10")" = "$E2_TIP" ] \
+    && ok "E2  UNMERGED work is never swept: the workspace and its branch tip survive the ingress" \
+    || bad "E2  rc=$RC present=$([ -d "$E2" ] && echo yes || echo no)"
+
+# E3  UNCOMMITTED work is never destroyed
+A11="a000000000000t11"
+seal "$A11" dev-opus-t11
+E3="$ENTITY/.claude/worktrees/agent-$A11"
+printf 'unfinished\n' >"$E3/seed.txt"; printf 'evidence\n' >"$E3/untracked.txt"
+run "$(stop_payload "$A11")"
+[ "$RC" -eq 0 ] && [ -d "$E3" ] && [ "$(cat "$E3/seed.txt")" = "unfinished" ] && [ -f "$E3/untracked.txt" ] \
+    && ok "E3  UNCOMMITTED work is never destroyed: modified and untracked bytes are exactly where the worker left them" \
+    || bad "E3  rc=$RC present=$([ -d "$E3" ] && echo yes || echo no)"
+
+# E4  a LIVE-LOCKED workspace is never touched, and the lock is never removed
+A12="a000000000000t12"
+seal "$A12" dev-opus-t12
+E4="$ENTITY/.claude/worktrees/agent-$A12"
+git -C "$ENTITY" worktree lock --reason "claude agent agent-$A12 (pid $$ start fixture)" "$E4"
+IMMEDIATE_RECLAIM_WAIT_SECONDS=0 run "$(stop_payload "$A12")"
+E4_REASON="$(python3 -c 'import json,sys;print((json.load(open(sys.argv[1]))["members"][0].get("immediate_reclaim") or {}).get("reason",""))' "$SANDBOX/tx/$SID/$A12.json" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ -d "$E4" ] && git -C "$ENTITY" worktree list --porcelain | grep -q "^locked claude agent agent-$A12"; then
+    ok "E4  a LIVE-LOCKED workspace is untouched and its lock is still the platform's -- this engine never removes it"
+    printf '        [deferral written on the member: %s]\n' "${E4_REASON:0:110}"
+else
+    bad "E4  rc=$RC present=$([ -d "$E4" ] && echo yes || echo no) reason=${E4_REASON:0:120}"
+fi
+
+# E5  NO OWNERSHIP RECORD means nothing is ever swept, not even beside an owned one
+E5="$ENTITY/.claude/worktrees/agent-unrecorded00001"
+git -C "$ENTITY" worktree add -q -b unrecorded "$E5"
+A13="a000000000000t13"
+seal "$A13" dev-opus-t13
+run "$(stop_payload "$A13")"
+[ "$RC" -eq 0 ] && [ -d "$E5" ] && git -C "$ENTITY" show-ref --verify -q refs/heads/unrecorded \
+    && [ ! -e "$ENTITY/.claude/worktrees/agent-$A13" ] \
+    && ok "E5  a workspace with NO ownership record is not swept, while the recorded one beside it is: nothing is ever matched by name, by shape or by what it sits next to" \
+    || bad "E5  rc=$RC unrecorded=$([ -d "$E5" ] && echo present || echo GONE) recorded=$([ -e "$ENTITY/.claude/worktrees/agent-$A13" ] && echo present || echo gone)"
+
+# E6  the nightly backstop still reclaims what the ingress deliberately skipped
+git -C "$ENTITY" worktree unlock "$E4"          # the platform releases its own lock
+python3 "$SCRIPT_DIR/../reconcile-terminal-worktrees.py" --agent "$SID/$A12" --quiet >/dev/null 2>&1
+[ ! -e "$E4" ] && ! git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A12" \
+    && ok "E6  the nightly reconciler still reclaims what the ingress skipped (E4's locked member, once the platform released it) -- the backstop is unchanged and still works" \
+    || bad "E6  present=$([ -e "$E4" ] && echo yes || echo no) branch=$(git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A12" && echo kept || echo deleted)"
+
+# E7  ...and it still refuses what the ingress refused for cause
+python3 "$SCRIPT_DIR/../reconcile-terminal-worktrees.py" --agent "$SID/$A10" --quiet >/dev/null 2>&1
+python3 "$SCRIPT_DIR/../reconcile-terminal-worktrees.py" --agent "$SID/$A11" --quiet >/dev/null 2>&1
+[ -d "$E2" ] && [ -d "$E3" ] && [ "$(cat "$E3/seed.txt")" = "unfinished" ] \
+    && ok "E7  ...and the nightly pass refuses the unmerged and the uncommitted exactly as the ingress did" \
+    || bad "E7  unmerged=$([ -d "$E2" ] && echo kept || echo GONE) dirty=$([ -d "$E3" ] && echo kept || echo GONE)"
+# E8  a LATER terminal event finishes what an earlier one deferred
+# The ingress waits a bounded moment for the platform's lock and then defers.
+# Without this, that member waits for the 04:00 job. With it, the next terminal
+# event in the session -- including one for an agent that owns no worktree at
+# all, which is most of them -- reclaims it as its first act.
+A14="a000000000000t14"
+seal "$A14" dev-opus-t14
+E8="$ENTITY/.claude/worktrees/agent-$A14"
+git -C "$ENTITY" worktree lock --reason "claude agent agent-$A14 (pid $$ start fixture)" "$E8"
+run "$(stop_payload "$A14")"
+E8_DEFERRED=$([ -d "$E8" ] && echo yes || echo no)
+git -C "$ENTITY" worktree unlock "$E8"        # the platform releases it, late
+rm -f "$SANDBOX/tx/$SID/last-sweep"           # the sweep's rate limit, not its authority
+# a terminal event for an agent this session never recorded: no claim, no
+# mutation of its own -- and the catch-up still runs
+run "$(stop_payload "a000000000000nada")"
+if [ "$E8_DEFERRED" = yes ] && [ "$RC" -eq 0 ] && [ ! -e "$E8" ] \
+   && ! git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A14"; then
+    ok "E8  a member the ingress DEFERRED is reclaimed by the next terminal event, not by the nightly job -- even an event for an agent that owns no worktree"
+    printf '        [%s]\n' "$(printf '%s' "$OUT" | grep -o 'catch-up: [a-z]* [^ ]*' | head -1)"
+else
+    bad "E8  deferred=$E8_DEFERRED rc=$RC present=$([ -e "$E8" ] && echo yes || echo no) out=${OUT:0:200}"
+fi
+
+# E9  the catch-up sweeps only what is ALREADY terminal, and refuses the rest
+rm -f "$SANDBOX/tx/$SID/last-sweep"
+run "$(stop_payload "a000000000000nada2")"
+[ "$RC" -eq 0 ] && [ -d "$E2" ] && [ -d "$E3" ] && [ -d "$E5" ] \
+    && ok "E9  the catch-up leaves the unmerged, the uncommitted and the unrecorded exactly where they are" \
+    || bad "E9  rc=$RC unmerged=$([ -d "$E2" ] && echo kept || echo GONE) dirty=$([ -d "$E3" ] && echo kept || echo GONE) unrecorded=$([ -d "$E5" ] && echo kept || echo GONE)"
+# E10 a LIVE agent's workspace -- sealed, clean, integrated, and with NO
+# terminal record -- survives a catch-up run by somebody else's event. This is
+# what protects a running teammate from the sweep, and it is enforced
+# downstream of the sweep's own filter, by the terminal fact itself.
+A15="a000000000000t15"
+seal "$A15" dev-opus-t15
+E10="$ENTITY/.claude/worktrees/agent-$A15"
+rm -f "$SANDBOX/tx/$SID/last-sweep"
+run "$(stop_payload "a000000000000nada3")"
+[ "$RC" -eq 0 ] && [ -d "$E10" ] && git -C "$ENTITY" show-ref --verify -q "refs/heads/worktree-agent-$A15" \
+    && ok "E10 a LIVE agent's workspace (sealed, clean, integrated, NO terminal record) survives a catch-up belonging to another event" \
+    || bad "E10 rc=$RC present=$([ -d "$E10" ] && echo yes || echo NO)"
+SEAL_MODERN=0
+rm -f "$ENTITY/orchestration.config"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

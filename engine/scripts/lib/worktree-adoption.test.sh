@@ -484,10 +484,10 @@ OUT="$(python3 "$REC_PY" --quiet 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && [ ! -e "$WT2/reclaim" ] && ! git -C "$REPO" rev-parse -q --verify refs/heads/reclaim >/dev/null \
    && grep -q '"phase": "complete"' "$TXF2" && grep -q '"state": "removed"' "$TXF2" \
    && grep -q '"ignored_disposable": 1' "$TXF2" \
-   && [ -d "$WT/good" ] && grep -q 'preparation reservation' "$TXF"; then
-    ok "A58  one reconciler run RECLAIMS the adopted tree through the daily lane (worktree removed, branch deleted, the disposable __pycache__ dropped, member removed with phase complete) while a tree whose container a malformed record registered stays HELD with that reason"
+   && [ ! -e "$WT/good" ]; then
+    ok "A58  one reconciler run RECLAIMS the adopted tree through the daily lane (worktree removed, branch deleted, the disposable __pycache__ dropped, member removed with phase complete) -- and so is the tree whose CONTAINER a malformed record registered, because that record names no agent and its session is provably gone (INVERTED 2026-09-10: it used to be HELD by that row forever, and that is the reservation nothing could ever retire)"
 else
-    bad "A58  reclaim: rc=$RC exists=$([ -e "$WT2/reclaim" ] && echo yes || echo no) branch=$(git -C "$REPO" rev-parse -q --verify refs/heads/reclaim 2>/dev/null || echo gone) tx=$(grep -o '"phase": "[^"]*"\|"state": "[^"]*"\|"last_error": "[^"]*"\|"ignored_disposable": [0-9]*' "$TXF2" 2>/dev/null | tr '\n' ' ') good=$([ -d "$WT/good" ] && echo present || echo GONE) good-hold=$(grep -o '"last_error": "[^"]*"' "$TXF" | head -1) out=$(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
+    bad "A58  reclaim: rc=$RC exists=$([ -e "$WT2/reclaim" ] && echo yes || echo no) branch=$(git -C "$REPO" rev-parse -q --verify refs/heads/reclaim 2>/dev/null || echo gone) tx=$(grep -o '"phase": "[^"]*"\|"state": "[^"]*"\|"last_error": "[^"]*"\|"ignored_disposable": [0-9]*' "$TXF2" 2>/dev/null | tr '\n' ' ') good=$([ -e "$WT/good" ] && echo STILL-PRESENT || echo reclaimed) good-hold=$(grep -o '"last_error": "[^"]*"' "$TXF" | head -1) out=$(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
 fi
 
 # A59. --all takes every adoptable candidate and REPORTS the refusals beside
@@ -509,6 +509,87 @@ if printf '%s' "$OUT" | grep -qx "$WT/dirty" && ! printf '%s' "$OUT" | grep -qx 
 else
     bad "A60  candidates: $(printf '%s' "$OUT" | tr '\n' ' ' | head -c 300)"
 fi
+
+# ===========================================================================
+# 9. T4 — CRASH RECOVERY: a folder we registered whose owner cannot be
+#    identified, and no orchestrator session alive anywhere (2026-09-10)
+# ===========================================================================
+# THE ONLY FALLBACK, and deliberately the narrowest one. An owner that can be
+# IDENTIFIED is already answered: alive refuses, gone or reused authorizes on
+# T2. What is left is a folder THIS ENGINE REGISTERED whose owning session died
+# before it recorded enough to be recognized. For that one case, "no session
+# process exists anywhere" answers what the missing identity cannot.
+#
+# It must stay rare: the failure this project actually had is that the recovery
+# path became the main path. The main path is the finish event.
+WT_OWNED="$SANDBOX/repo-wt"
+mkdir -p "$WT_OWNED"
+git -C "$REPO" worktree add -q -b "cc/zach-opus-t4" "$WT_OWNED/zach-opus-t4"
+# registered by us, with NO session pid: the owner cannot be identified at all
+# A session id used NOWHERE ELSE and with no pid on any row: T2 answers a
+# session it can identify, and this one cannot be identified at all. That is
+# the residue T4 exists for -- and the fact that T2 catches the ordinary crash
+# (a recorded pid that is gone) is why this tier stays rare.
+SID_UNIDENTIFIED="00000000-0000-4000-8000-0000000unkn"
+L record registered --teammate zach-opus-t4 --worktree "$WT_OWNED/zach-opus-t4" --repo "$REPO" \
+    --branch cc/zach-opus-t4 --session-id "$SID_UNIDENTIFIED" --class hand-rolled --source test >/dev/null
+export RICHOS_SESSIONS_DIR="$SANDBOX/no-sessions"
+mkdir -p "$RICHOS_SESSIONS_DIR"
+
+export RICHOS_SESSION_PROCESSES=none
+V="$(verdict "$WT_OWNED/zach-opus-t4")"
+R="$(reason "$WT_OWNED/zach-opus-t4")"
+if [ "$V" = "ADOPTABLE T4" ] && printf '%s' "$R" | grep -q 'crash-recovery' \
+   && printf '%s' "$R" | grep -q 'on record as ours' \
+   && printf '%s' "$R" | grep -q 'no claude process is in the table'; then
+    ok "A70  a folder WE REGISTERED whose owner cannot be identified is adoptable on T4 when no orchestrator session is alive, and the reason states the precondition in its own words"
+else
+    bad "A70  expected 'ADOPTABLE T4', got '$V' -- $R"
+fi
+
+export RICHOS_SESSION_PROCESSES="4242 claude"
+V="$(verdict "$WT_OWNED/zach-opus-t4")"
+R="$(reason "$WT_OWNED/zach-opus-t4")"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'crash-recovery precondition unmet' \
+   && printf '%s' "$R" | grep -q 'claude process is running as pid 4242'; then
+    ok "A71  ...and ONE claude process anywhere refuses it, naming the unmet precondition (a kernel fact, never a quiet directory)"
+else
+    bad "A71  expected a crash-recovery refusal naming the live process, got '$V' -- $R"
+fi
+
+printf '{"pid": %s, "sessionId": "00000000-0000-4000-8000-0000000000t4"}\n' "$LIVE_PID" \
+    >"$RICHOS_SESSIONS_DIR/$LIVE_PID.json"
+export RICHOS_SESSION_PROCESSES=none
+V="$(verdict "$WT_OWNED/zach-opus-t4")"
+R="$(reason "$WT_OWNED/zach-opus-t4")"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'registered to running pid'; then
+    ok "A71b a live entry in the harness's own session registry refuses it even with an empty process table (two independent reads, either one answers no)"
+else
+    bad "A71b expected a registry refusal, got '$V' -- $R"
+fi
+rm -f "$RICHOS_SESSIONS_DIR/$LIVE_PID.json"
+
+export RICHOS_SESSION_PROCESSES=none
+V="$(verdict "$WT/unlisted")"
+R="$(reason "$WT/unlisted")"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'absence of a record is never a claim'; then
+    ok "A72  a folder THIS ENGINE NEVER REGISTERED is refused even with no session alive: crash recovery reclaims what we wrote down, never what we found"
+else
+    bad "A72  expected the no-record refusal for an unregistered folder, got '$V' -- $R"
+fi
+
+# A73. And that is exactly what protects the CEO's codex folders
+# (ceo-decisions.md section 31): they were never registered by us, so they are
+# never candidates -- by construction rather than by a name check.
+git -C "$REPO" worktree add -q -b "codex/t4" "$WT_OWNED/codex-t4"
+R="$(reason "$WT_OWNED/codex-t4")"
+V="$(verdict "$WT_OWNED/codex-t4")"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'absence of a record is never a claim'; then
+    ok "A73  a codex workspace is never adopted, with no session alive and a perfect tree, because nothing ever registered it"
+else
+    bad "A73  expected a no-record refusal for the codex tree, got '$V' -- $R"
+fi
+unset RICHOS_SESSIONS_DIR RICHOS_SESSION_PROCESSES
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

@@ -164,6 +164,7 @@ pid with one of those records is UNKNOWN, never proof of reuse or termination.
 
 import argparse
 import json
+import importlib.util
 import os
 import re
 import subprocess
@@ -194,12 +195,108 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def assignment_workspaces(session_id, agent_id, teammate=""):
+    """Every folder this assignment holds, keyed by the platform's own agent
+    id, for an ADVISORY record. (paths, teammate).
+
+    THE GAP THIS FILLS, measured 2026-09-10 over 15,728 finish rows in this
+    ledger: ZERO named a cross-repository (`<repo>-wt/`) workspace, and
+    15,728 carried a BLANK teammate. The exit hooks write the agent's `cwd`,
+    which is its native isolation worktree, so an assignment holding four
+    folders was recorded as holding one — and the one field that could have
+    joined it to the other three (the teammate name the cross-repo folders are
+    named after) was never populated, because the SubagentStop payload does
+    not carry it.
+
+    The entry side already had all of it. 65 agents had folders registered at
+    spawn that day and 61 of them had more than one, native paired with its
+    cross-repo siblings, keyed by agent id. So this resolves rather than
+    guesses: the sealed transaction's members first (authoritative), then this
+    ledger's own rows for the SAME agent id, and finally — only when exactly
+    one agent id has ever been recorded for that teammate in this session —
+    the id-less preparation rows that `create-teammate-worktree.sh` writes
+    before any spawn exists to carry an id.
+
+    ADVISORY, AND IT STAYS ADVISORY. `judge()` prints finish signals as
+    "advisory, never decisive" and adoption quotes T3 without authorizing.
+    Reclamation is anchored on the transaction's terminal record, which the
+    same event writes about every member. Measured the same day: zach-opus-dor1
+    has ZERO finish rows of any kind and its transaction is sealed, terminal
+    and carrying all four of its workspaces. This makes the human-legible
+    record true; it does not make it powerful.
+    """
+    paths, seen = [], set()
+
+    def add(p):
+        if not p or not isinstance(p, str):
+            return
+        real = os.path.realpath(p)
+        if real not in seen:
+            seen.add(real)
+            paths.append(p)
+
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("tx", os.path.join(here, "worktree-transactions.py"))
+        tx = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tx)
+        transaction = tx.load_tx(session_id, agent_id) if (session_id and agent_id) else None
+    except Exception:
+        transaction = None
+    if transaction:
+        teammate = teammate or (transaction.get("teammate") or "")
+        for member in transaction.get("members") or []:
+            add(member.get("path"))
+
+    try:
+        rows = read_all()
+    except Exception:
+        rows = []
+    owner_ids = set()
+    for row in rows:
+        if row.get("event") not in OWNERSHIP_EVENTS or (row.get("session_id") or "") != session_id:
+            continue
+        rid = (row.get("agent_id") or "").strip()
+        if rid == agent_id:
+            add(row.get("worktree"))
+            teammate = teammate or (row.get("teammate") or "")
+        elif rid and teammate and row.get("teammate") == teammate:
+            owner_ids.add(rid)
+    if teammate and not owner_ids:
+        # No OTHER agent id has ever been recorded for this teammate in this
+        # session, so its id-less preparations are this assignment's. A second
+        # id makes the name ambiguous and nothing id-less is taken.
+        for row in rows:
+            if row.get("event") not in OWNERSHIP_EVENTS or (row.get("session_id") or "") != session_id:
+                continue
+            if not (row.get("agent_id") or "").strip() and row.get("teammate") == teammate:
+                add(row.get("worktree"))
+    return paths, teammate
+
+
 def append(record, path=None):
     """Append one record DURABLY: the line is fsynced before this returns
     True, and the containing directory is fsynced so a fresh file's entry
     survives a crash. Returns True on success; never raises. A `prepared`
     record that is not on disk when the worker is spawned is a spawn that
     cannot be bound, so "written" here has to mean written."""
+    # A FINISH ROW COMPLETES ITSELF, HERE, so the three hooks that write one
+    # (worker-ended, teammate-idle, task-completed) all get it and none of them
+    # grows a second writer. Best-effort by construction: a terminal event must
+    # never be prevented by bookkeeping, so every failure below leaves the row
+    # exactly as the caller wrote it.
+    try:
+        if (isinstance(record, dict) and record.get("event") in ("finished", "terminated")
+                and (record.get("agent_id") or "").strip() and not record.get("workspaces")):
+            found, teammate = assignment_workspaces(record.get("session_id") or "",
+                                                    (record.get("agent_id") or "").strip(),
+                                                    record.get("teammate") or "")
+            if found:
+                record = dict(record, workspaces=found)
+            if teammate and not (record.get("teammate") or "").strip():
+                record = dict(record, teammate=teammate)
+    except Exception:
+        pass
     path = path or ledger_path()
     rec = dict(record)
     rec.setdefault("ts", now_iso())
@@ -428,6 +525,55 @@ def session_registry():
         except Exception:
             continue
     return out
+
+
+def no_session_alive():
+    """(none_alive, reason). Is there ANY orchestrator session running?
+
+    Two independent reads, and either one finding a session answers no:
+
+      * the harness's own live-session registry (~/.claude/sessions/<pid>.json)
+        with each pid probed;
+      * the process table, for a `claude` process of any kind.
+
+    Written for adoption tier T4. Its value is that it is universally
+    quantified: T2 says "this owner's process is gone", which needs a record
+    naming the owner, while this says "no owner of any kind exists", which
+    needs no record at all. The second read is deliberately over-inclusive —
+    anything that looks like a session REFUSES — because a false positive here
+    costs a night's delay and a false negative costs somebody's work.
+    """
+    registry = session_registry()
+    for pid, row in registry.items():
+        if _pid_running(pid):
+            return False, ("session %s is registered to running pid %s"
+                           % ((row.get("session_id") or "?")[:8], pid))
+    # RICHOS_SESSION_PROCESSES stands in for the table under test ("none" = an
+    # empty one), the same shape RICHOS_DAILY_PROCESSES uses for the reclaim
+    # lane. Without it this predicate would answer differently on a developer's
+    # machine (a session is running) and in CI (none is), which is a test that
+    # decides nothing.
+    override = os.environ.get("RICHOS_SESSION_PROCESSES")
+    if override is not None:
+        rows = [line.strip() for line in override.splitlines()
+                if line.strip() and line.strip() != "none"]
+    else:
+        try:
+            res = subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True, timeout=20)
+        except Exception as error:
+            return False, "the process table could not be read (%s); not provably session-free" % error
+        if res.returncode != 0:
+            return False, "the process table could not be read (ps exited %d); not provably session-free" % res.returncode
+        rows = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+    for line in rows:
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        command = os.path.basename(parts[1].strip())
+        if command == "claude" or command.startswith("claude"):
+            return False, "a %s process is running as pid %s" % (command, parts[0])
+    return True, ("no session is registered to a running pid (%d registration(s) checked) and no "
+                  "claude process is in the table (%d rows scanned)" % (len(registry), len(rows)))
 
 
 def session_gone_by_exhaustion(session_id, last_write_epoch, tolerance=300.0):

@@ -26,7 +26,7 @@ F="scripts/create-teammate-worktree.sh"
 # statements that DO the rolling back and nothing between them; a reworded
 # comment, or a third statement added later, cannot silently unhook them again.
 mutant no-rollback "C17" "$F" \
-    '    git -C "$MAIN" worktree remove --force "$DIR" >/dev/null 2>&1 || rm -rf "$DIR"{AND}    git -C "$MAIN" branch -D "$NAME" >/dev/null 2>&1 || true' \
+    '    git -C "$MAIN" worktree remove --force "$DIR" >/dev/null 2>&1 || rm -rf "$DIR"{AND}    git -C "$MAIN" branch -D "$BRANCH" >/dev/null 2>&1 || true' \
     '    :{AND}    :' \
     "a tree whose record could not be written would be left on disk — unbindable, unsealable, and never cleaned up: the object the helper exists to prevent."
 
