@@ -1571,9 +1571,45 @@ async function main() {
     }
     assert(before.foot < 1, "mid-ceremony the last stage of the settle has not landed yet (" + before.foot + ")");
     // His first keystroke is one of the three things that make the surface yield.
+    //
+    // THE PINNED READING IS TAKEN INSIDE THE KEYSTROKE, NOT A ROUND TRIP AFTER IT — 2026-09-10.
+    // This was `await page.keyboard.press("a"); await page.evaluate(read)`, and on run
+    // 34471797325 (main, dc6b7965) it went red with `TypeError: null is not an object
+    // (evaluating 'n.querySelector')`: `#splash` was already gone. `yieldNow` pins the
+    // composition synchronously and then removes the whole node `FADE_MS + 40` = 220 ms later
+    // (splash.js, `setTimeout(removeSelf, FADE_MS + 40)`), and a second harness round trip on a
+    // contended runner is not guaranteed to land inside 220 ms — the comment above this call
+    // records one arriving 2,000 ms late. The product was right; the reading was late.
+    //
+    // So the reading is scheduled where it cannot be late, the same move this check made for
+    // its 300 ms sample: a capture-phase `keydown` listener on `window`, registered now and so
+    // AFTER the one `splash.js` registered at start, which the DOM fires in registration order
+    // on the same target and phase. It therefore runs in the same dispatch, immediately after
+    // `yieldNow` has pinned, before any timer can remove the node. Every assertion below is
+    // unchanged; only the instant they read is.
+    // `read` is installed as page source (the same serialization `page.evaluate(read)` used),
+    // because it has to run inside the listener rather than as its own evaluate call.
+    await page.evaluate("window.__readPinned = " + read.toString());
+    await page.evaluate(() => {
+      window.__pinnedAtYield = null;
+      window.addEventListener(
+        "keydown",
+        () => {
+          if (window.__pinnedAtYield !== null) return;
+          window.__pinnedAtYield = document.getElementById("splash") ? window.__readPinned() : { gone: true };
+        },
+        true
+      );
+    });
     await stillUp(page, "the keystroke half of check 8");
     await page.keyboard.press("a");
-    const after = await page.evaluate(read);
+    await page.waitForFunction(() => window.__pinnedAtYield !== null, null, { timeout: 20000 });
+    const after = await page.evaluate(() => window.__pinnedAtYield);
+    assert(
+      !after.gone,
+      "the curtain was gone before the keystroke reached it — this check fell behind the surface, " +
+        "which is a harness fault, not a product one"
+    );
     assert(after.settled, "the surface did not pin itself on the way out");
     assertEqual(after.foot, 1, "pinning left a stage of the settle half-risen");
     assertEqual(after.fill, after.track, "the bar was left standing at a fraction on the way out");
