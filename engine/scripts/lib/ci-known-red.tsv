@@ -1,0 +1,43 @@
+# ci-known-red.tsv — verification units that are RED ON MAIN, declared with a date and an expiry.
+#
+# THIS IS NOT A SKIP LIST, AND THE DIFFERENCE IS ENFORCED RATHER THAN ASSERTED.
+#
+# A skip deletes the question. An entry here keeps the question, keeps running it, prints the
+# answer on every run, and adds two rules that a skip cannot have:
+#
+#   * A DECLARED UNIT THAT PASSES FAILS THE BUILD. The defect is fixed and the row is now a
+#     lie; delete it. Without this the table would silently outlive everything in it, which is
+#     precisely how every skip list in every project becomes permanent.
+#   * AN ENTRY PAST ITS EXPIRY FAILS THE BUILD. The tolerance was time-boxed when it was
+#     granted. Fixing it, or re-declaring it with a new date and a reason, is forced — the one
+#     thing that cannot happen is nothing.
+#
+# Both rules live in scripts/ci-shard.sh and are covered by ci-shard.test.sh.
+#
+# WHY IT EXISTS AT ALL. On 2026-09-10 the `push:` trigger was restored to engine-self-verify
+# after nine days off. Four units were red at the time. Two were Linux portability defects and
+# were FIXED rather than declared — that is the default and it is what should normally happen.
+# The other two are contract regressions in somebody else's live area: red identically on macOS
+# and on Linux, so not a CI finding at all, and re-specifying them means deciding what the new
+# contract IS, which belongs to the engineer who changed it. Leaving them red would put a cross
+# on every commit for a reason unrelated to that commit; deleting their assertions would hide
+# two real defects. So they are declared, dated, and expire.
+#
+# RULED BY THE LEAD, 2026-09-10, and the ruling is the reason these two rows are rows rather
+# than commits: A DEDICATED ENGINEER OWNS BOTH FIXES. Neither of these suites, nor
+# shell-worktree-sparse.py, terminalize-agent-worktrees.sh or worktree-transactions.py, is to be
+# edited from here — two people editing the same lifecycle contract would collide, and the
+# person deciding what the contract now IS is the person who changed it. Both commits below did
+# update SOME suites (worktree-transactions, reap-stale-worktrees, reconcile-terminal-worktrees)
+# and left these two asserting the old contract, which is why the bisect is unambiguous.
+#
+# COLUMNS, tab-separated:
+#   1  unit id            exactly as `scripts/ci-units.sh units` prints it
+#   2  classified         the date this row was written
+#   3  expires            after this date the row FAILS the build
+#   4  broken by          the commit proven, by execution, to have made it red
+#   5  failing            the case names, so a NEW failure in the same unit is visible as new
+#   6  why                what would un-skip it, in one sentence, for whoever picks it up
+#
+scripts/lib/shell-worktree-sparse.test.sh	2026-09-10	2026-09-24	6472bb60	S01 S01c S04 S05 S17 S18	6472bb60 (2026-09-07) made every native member carry cleanup_owner=claude-code and taught shell-worktree-sparse.eligible() to refuse such a member, so no shell is ever sparsified any more; it did not update this suite. Proven by execution: 21/21 pass at 6472bb60^, 6 fail at HEAD, identically on macOS and Linux. A DEDICATED ENGINEER OWNS THIS FIX (lead ruling 2026-09-10); do not edit this suite or shell-worktree-sparse.py from the CI side. UN-SKIP by deciding what the sparsifier should now do with a Claude-owned native shell and re-specifying S01/S04 to match, or by reverting the eligibility clause.
+scripts/hooks/terminalize-agent-worktrees.test.sh	2026-09-10	2026-09-24	2afb9703	R03 R04 R05 R06 R09 R13 R15 R29 R30 R33 R34	2afb9703 (2026-09-08) introduced cleanup_policy=integrated-daily, and terminalize() now takes the save_ref+quarantine route only for a member carrying NEITHER that policy NOR the cleanup_owner marker; this suite still asserts a backup ref and a quarantine for members that now have one. It did not update this suite. Proven by execution: 42/42 pass at 2afb9703^, 11 fail at HEAD, identically on macOS and Linux. A DEDICATED ENGINEER OWNS THIS FIX (lead ruling 2026-09-10); do not edit this suite, terminalize-agent-worktrees.sh or worktree-transactions.py from the CI side. UN-SKIP by re-specifying R03-R34 against the integrated-daily route, or by giving the fixture members that still take the quarantine route.
