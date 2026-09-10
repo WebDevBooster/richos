@@ -509,8 +509,10 @@ for p in d["problems"]:
 print("  read %s (%s), %s workflows seen" % (d.get("read_at"), d.get("source"), d.get("workflows_seen")))
 '
     echo ""
-    echo "  WHY THIS BLOCKS. Red cost nothing here until today, so red persisted: one of these"
-    echo "  workflows was failing for thirteen days and work landed on top of it the whole time."
+    echo "  WHY THIS BLOCKS. Red used to cost nothing here, so red persisted — on 2026-09-10 a"
+    echo "  workflow had been failing for thirteen days with work landing on top of it the whole"
+    echo "  time. (That is the history this gate was built from, not a claim about the list above;"
+    echo "  the ages above are the ones that matter now.)"
     echo "  Landing more onto a failing foundation is the act this refuses — not committing, not"
     echo "  pushing a worktree branch, only a land into ${WATCHED_BRANCH} while ${WATCHED_BRANCH} is red."
     echo ""
