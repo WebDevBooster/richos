@@ -1,0 +1,14 @@
+[richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: a program is holding this process (parent pid 98012), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
+[richos] launch: fresh (start 1, 1 window(s))
+[richos] company registry: 1 company from /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.xVWu2AeZB0/machine/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 1 compan(ies), /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.xVWu2AeZB0/machine/Library/Application Support/com.richos.app/entities.json (file)
+[richos] central folder: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.xVWu2AeZB0/machine/myrichos (present)
+[richos] company: northwind (via the saved choice)
+[richos] onboarding northwind: described — the company layer is in the priming turn
+[richos] loro Tier C: compiling from /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.xVWu2AeZB0/machine/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+[richos] loro correction desk: writing to /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.xVWu2AeZB0/machine/Library/Application Support/RichOS/corpus via /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.xVWu2AeZB0/machine/Library/Application Support/RichOS/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] engine directory: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.xVWu2AeZB0/machine/.claude/richos-engine (via engine install pointer)
+[richos] compute connection: starts with the first cancellable request over /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.xVWu2AeZB0/machine/.local/bin/claude
+[richos] first-run setup: nothing missing.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved

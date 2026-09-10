@@ -1,0 +1,67 @@
+### condition: HOME=/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/echo-gb1-nohost.XXXXXX.Dg8IYo1oRp (no loro-tools, no corpus pointer), RICHOS_LORO_SOURCE unset
+
+### 1. gui-boot.test.sh alone
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  A6 all 28 lines declared unaccountable are still unaccounted
+  PASS  C1 the harness builds a real .app — Contents/MacOS and Contents/Info.plist
+  PASS  C2 the Info.plist carries every key bundle_version reads: CFBundleIdentifier CFBundleShortVersionString
+  PASS  C3 the Info.plist declares com.richos.app, found by the product's own reader
+  PASS  C4 the Info.plist is mode 644, 1 link, 598 bytes, and parses
+gui_compiler_source: no loro checkout on this machine to copy from. Looked at
+  $RICHOS_LORO_SOURCE, the loro-tools install, and the corpus pointer's own loro/.
+gui-boot.test.sh: no machine can be built here, so there is no boot to hold to account.
+                  That is a fact about THIS MACHINE, not a verdict about the code.
+                  C1-C4 above ran regardless: they are what this host CAN answer, and
+                  a failure among them exits 1 rather than claiming a gap.
+GUI_BOOT_EXIT=2
+
+### 2. run-tests.sh with the declaration packaging-ci.yml carries, verbatim
+  declared host gap: gui-boot.test.sh — the boot fixture copies the loro compiler (bin/loro-context.mjs, bin/loro-write.mjs), which is not tracked in this repository — it lives in the private record repository. A public runner cannot have it, so there is no machine to boot on and no verdict to reach. Measured on this runner, 2026-09-10, run 34444955517.
+--- frontend-payload.test.sh
+=== P. what ships as the frontend ===
+=== frontend-payload tests: all 10 passed ===
+--- gui-boot.test.sh
+                  That is a fact about THIS MACHINE, not a verdict about the code.
+                  C1-C4 above ran regardless: they are what this host CAN answer, and
+                  a failure among them exits 1 rather than claiming a gap.
+--- make-engine-asset.test.sh
+=== make-engine-asset tests: all 18 passed ===
+--- make-release.test.sh
+=== R. the release chain refuses out of order ===
+=== make-release.test.sh: all 11 passed ===
+--- package-app.test.sh
+=== A. arguments ===
+=== B. identity discovery ===
+=== C. notary credentials ===
+=== D. verify_bundle, against a real signed bundle ===
+=== Z. this suite touched nothing of the operator's ===
+=== package-app tests: all 25 passed ===
+--- rebuild-survival.test.sh
+=== G. the harness ===
+=== rebuild-survival tests: all 17 passed ===
+--- run-tests.test.sh
+=== H. the harness's host-gap allowance ===
+=== run-tests tests: all 9 passed ===
+--- signing-setup.test.sh
+=== E. make-signing-csr.sh ===
+=== F. install-signing-cert.sh ===
+=== G. the defects of 2026-09-01 ===
+=== Z. this suite touched nothing of the operator's ===
+=== signing-setup tests: all 28 passed ===
+--- updater-setup.test.sh
+=== A. the updater signing key, and the refusals ===
+=== B. the shipped configuration ===
+=== C. the archive builder, against a real bundle skeleton ===
+=== D. the archive verifier refuses what it should ===
+=== E. the signature verifier — the check the signer's exit code does not make ===
+=== G. the update manifest, judged by the type that judges it on a customer's Mac ===
+=== updater-setup.test.sh: all 33 passed ===
+=== app/scripts: 8 of 9 suites passed — 151 checks — 1 could not run on this host: gui-boot.test.sh ===
+    gui-boot.test.sh: the boot fixture copies the loro compiler (bin/loro-context.mjs, bin/loro-write.mjs), which is not tracked in this repository — it lives in the private record repository. A public runner cannot have it, so there is no machine to boot on and no verdict to reach. Measured on this runner, 2026-09-10, run 34444955517.
+RUN_TESTS_EXIT=0

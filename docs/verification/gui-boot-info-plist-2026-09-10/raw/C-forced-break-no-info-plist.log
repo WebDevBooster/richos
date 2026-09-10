@@ -1,0 +1,51 @@
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  A6 all 28 lines declared unaccountable are still unaccounted
+chmod: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/capability/RichOS.app/Contents/Info.plist: No such file or directory
+  FAIL  C1 the harness builds a real .app
+         gui_bundle produced no Info.plist at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/capability/RichOS.app/Contents/Info.plist. A bundle with none is a directory shaped like a bundle: update_startup::prepare reads that file first and main() returns before the boot prints a line.
+  FAIL  C2 the Info.plist carries every key the product's own updater reads
+         missing from gui_bundle_plist: CFBundleIdentifier CFBundleShortVersionString
+/Users/alex/ab/richos-wt/echo-opus-gb1/app/scripts/gui-boot.test.sh: line 932: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/capability/RichOS.app/Contents/Info.plist: No such file or directory
+  FAIL  C3 the Info.plist declares the product's own bundle identifier
+         parse_bundle_identifier's algorithm finds '', and the product requires 'com.richos.app'
+  FAIL  C4 the Info.plist is a file of the shape bundle_plist demands
+         there is no file
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+warning: constant `OVERRIDE_ENV` is never used
+   --> src/activation.rs:346:11
+    |
+346 | pub const OVERRIDE_ENV: &str = "RICHOS_ACTIVATION";
+    |           ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OVERRIDE_REGULAR` is never used
+   --> src/activation.rs:348:11
+    |
+348 | pub const OVERRIDE_REGULAR: &str = "regular";
+    |           ^^^^^^^^^^^^^^^^
+
+gui-boot.test.sh: could not build the machine to boot on:
+  compiler source : /Users/alex/ab/richos-hq/loro
+  corpus          : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/machine/RichOS/corpus
+  pointer         : Some("/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/machine/Library/Application Support/RichOS/corpus")
+  loro tools      : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/machine/Library/Application Support/RichOS/loro-tools (37 files)
+  partitions      : 1
+  registry        : 1 compan(ies) in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/machine/Library/Application Support/com.richos.app/entities.json
+  saved company   : northwind in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/machine/Library/Application Support/com.richos.app/config.json
+  chmod: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.aQV7BMykNU/machine/Applications/RichOS.app/Contents/Info.plist: No such file or directory
+                  That is a fact about THIS MACHINE, not a verdict about the code.
+
+gui-boot.test.sh: 4 case(s) had ALREADY FAILED before this host ran out of answers.
+                  A gap is a claim about the HOST. This run found something wrong with
+                  the SUITE or the CODE, and that outranks it — exit 1, not 2, so no
+                  declared host gap can tolerate it.
+
+=== gui-boot.test.sh: 4 FAILED, 8 passed ===
+EXIT=1

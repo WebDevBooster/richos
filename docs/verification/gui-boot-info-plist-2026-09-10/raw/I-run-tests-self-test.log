@@ -1,0 +1,14 @@
+
+=== H. the harness's host-gap allowance ===
+  PASS  H1 an undeclared gap is refused
+  PASS  H2 a declared gap with a reason is green, and the summary names it and its reason
+  PASS  H3 a declaration with no reason is refused
+  PASS  H4 a declaration whose suite answered is refused
+  PASS  H5 a real failure outranks a declared gap
+  PASS  H6 with no gap and no failure the original summary is unchanged
+  PASS  H8 a declared gap whose suite failed a case is a FAILURE, and the case is quoted
+  PASS  H9 a declared gap that failed nothing is still green
+  PASS  H7 an empty inventory is refused, never 'all 0 suites passed'
+
+=== run-tests tests: all 9 passed ===
+EXIT=0
