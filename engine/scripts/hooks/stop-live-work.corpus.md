@@ -148,7 +148,8 @@ than a marker line like every other ack in this engine.
 
 ## The cheaper truth the incident exposed
 
-**A subagent cannot be paused. It can only be stopped, and stopping it throws
+**TaskStop does not pause, it destroys. A pause is a message telling the teammate
+to commit and hold, after which it idles with its worktree and context intact. Stopping it throws
 away everything it has not committed.**
 
 So when the reason is budget, the action that costs nothing is to **stop

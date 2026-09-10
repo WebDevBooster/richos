@@ -381,18 +381,28 @@ behind it: this is a rule to read before writing, not a refusal to meet after.
 
 ---
 
-## 15. A subagent cannot be paused — only destroyed
+## 15. Stopping a subagent to save budget refunds nothing
 
 **Symptom:** budget is tight, so the running agents get stopped to conserve it.
 Nothing is conserved. The agents that had committed as they went lose almost
 nothing; the ones that had not lose everything, and there is no way to get any
 of it back.
 
-**Why it happens:** "pause" is the word everyone reaches for, and the platform
-has no such verb. `TaskStop` is the only lever, and it is a destructor. The
-mental model of a paused process that resumes where it left off does not
-correspond to anything the harness can do, so the action taken is always
-strictly worse than the action intended.
+**Why it happens:** "pause" is the word everyone reaches for, and `TaskStop` is
+the nearest verb to hand — but `TaskStop` is a destructor, not a pause.
+
+**A pause DOES exist and it is not this.** Message the live teammate: *commit
+what you have, then hold — end your turn, do nothing further, and wait to be
+messaged.* It goes idle, spends nothing further, its worktree persists, and a
+later message wakes it with its full context, which a fresh spawn can never
+recover. Two conditions keep it a pause rather than a kill: nothing reaps the
+worktree, and nothing records the agent complete. **"Stand down" is not that
+message** — it is terminal vocabulary here, and `guard-resume-isolation.sh`
+then refuses to wake the agent for file work.
+
+**This section was first written with the false claim that no pause exists.**
+It said so because the orchestrator briefed it that way, hours after using the
+same false claim to justify destroying two agents' work. Corrected 2026-09-10.
 
 **The arithmetic, which is what makes it a rule rather than a preference:**
 work already in flight has **already been paid for**. The tokens are spent.

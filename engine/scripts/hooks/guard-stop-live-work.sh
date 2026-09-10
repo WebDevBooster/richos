@@ -337,8 +337,10 @@ esac
     echo "  Liveness: ALIVE — ${LIVE_DETAIL:-its isolation worktree lock is held by a running process}"
     echo "  Instruction: ${REASON}"
     echo
-    echo "  A subagent cannot be paused. It can only be stopped, and stopping it"
-    echo "  throws away everything it has not committed. On 2026-09-10 that took"
+    echo "  TaskStop is a destructor, not a pause. To PAUSE, message the teammate:"
+    echo "  commit what you have, then hold - end your turn and wait to be messaged."
+    echo "  It goes idle, keeps its worktree and its context, and one message wakes"
+    echo "  it. Stopping instead throws away everything uncommitted. On 2026-09-10 that took"
     echo "  echo-opus-hw2's entire session — no commits, clean worktree, nothing"
     echo "  recoverable. zach-opus-dor1 survived the same minute only because it"
     echo "  had committed as it went."

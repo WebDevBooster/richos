@@ -42,7 +42,9 @@
 # ===========================================================================
 # BEFORE YOU RUN THIS, THE CHEAPER TRUTH
 # ===========================================================================
-# A subagent cannot be paused. It can only be STOPPED, and stopping it throws
+# TaskStop is a destructor, not a pause. To pause, message the teammate to commit
+# and HOLD; it idles, keeps its worktree and context, and one message wakes it.
+# Stopping instead throws
 # away everything it has not committed. So when the reason is budget, the
 # action that costs nothing is TO STOP DISPATCHING — not to destroy what is
 # already running. Work in flight has already been paid for; killing it
@@ -147,7 +149,8 @@ stop-work-ack recorded for: $TASK
   ledger:     $LOG
   valid for:  15 minutes, this target only, spent on first use
 
-Last check before you make the call: a running agent cannot be paused, only
+Last check before you make the call: to PAUSE, message it to commit and hold -
+it idles and keeps its context. TaskStop does not pause, it destroys; it can only
 destroyed. If what you actually want is to spend less, stop DISPATCHING.
 $TAG
 EOF
