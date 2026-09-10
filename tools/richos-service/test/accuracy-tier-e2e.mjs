@@ -5,8 +5,10 @@
  *   node test/accuracy-tier-e2e.mjs
  *
  * Proves, on real audio through the real pipeline:
- *   1. the QUANTIZED tier runs end-to-end (a quantized .bin transcribes a call to transcript.md);
- *   2. the DEFAULT turbo tier stays clean (no repetition loops on a normal sample);
+ *   1. the DEFAULT tier — `quantized`, i.e. large-v3-turbo-q5_0 since 2026-09-10 (CEO decision
+ *      page §10) — runs end-to-end with NOTHING specified, and decodes at -mc 0;
+ *   2. the OPT-IN full-turbo tier still runs and stays clean, which is the half of that ruling
+ *      that says turbo stops being the default rather than leaving the product;
  *   3. the opt-in MAX tier (guarded large-v3) runs end-to-end IF the large-v3 model is installed —
  *      self-skips otherwise (the 2.9 GB model is not a standard install), with the guard's real
  *      before/after on the benchmark hallucination sample proven separately (see the P5 report).
@@ -101,42 +103,66 @@ function buildSession(id) {
 
 console.log('=== P5 accuracy-tier e2e (real ffmpeg + whisper) ===\n');
 
-// ---- 1) QUANTIZED tier end-to-end ------------------------------------------------------------
-if (tierModelPresent('quantized')) {
-  console.log('--- quantized tier (real) ---');
-  const dir = buildSession('2026-08-24T12-00-00Z--meet--quantized');
-  const r = runPipeline(dir, { zone, tier: 'quantized', now: T0 + 13 * 60 * 1000 });
-  check('quantized tier reached READY', r.status === 'ready', JSON.stringify(r.problems || ''));
-  check('quantized tier wrote transcript.md', fs.existsSync(path.join(dir, 'transcript.md')));
-  const rec = readRecord(dir);
-  check('session.json records tier=quantized + the quantized model', rec.pipeline.tier === 'quantized' && /q\d/.test(rec.pipeline.model),
-    `tier=${rec.pipeline.tier} model=${rec.pipeline.model}`);
-  check('quantized run recorded a repetitionGuard block', !!rec.pipeline.repetitionGuard);
-  if (canSay) check('quantized transcript has real words', rec.pipeline.modelRuns[0].words > 4, `words=${rec.pipeline.modelRuns[0].words}`);
-} else {
-  skip('quantized tier', 'no quantized model installed (build one with `whisper-quantize <turbo.bin> <out> q5_0`)');
-}
-
-// ---- 2) DEFAULT turbo tier stays clean -------------------------------------------------------
-if (tierModelPresent('turbo')) {
-  console.log('\n--- default turbo tier (real) ---');
-  const dir = buildSession('2026-08-24T12-10-00Z--meet--turbo');
+// ---- 1) THE DEFAULT TIER, selected by specifying NOTHING --------------------------------------
+// It is run with no `tier` and no `model` on purpose. Passing `tier: 'quantized'` would prove the
+// quantized tier works and prove NOTHING about what a user who says nothing gets, which is the
+// only thing a default is.
+if (tierModelPresent(null)) {
+  console.log('--- DEFAULT tier (real, nothing specified) ---');
+  const dir = buildSession('2026-08-24T12-00-00Z--meet--default');
   const r = runPipeline(dir, { zone, now: T0 + 13 * 60 * 1000 });
-  check('default (turbo) tier reached READY', r.status === 'ready', JSON.stringify(r.problems || ''));
+  check('default tier reached READY', r.status === 'ready', JSON.stringify(r.problems || ''));
+  check('default tier wrote transcript.md', fs.existsSync(path.join(dir, 'transcript.md')));
   const rec = readRecord(dir);
-  check('default tier is turbo', rec.pipeline.tier === 'turbo' && rec.pipeline.model === 'large-v3-turbo');
+  check('the default is the quantized tier (CEO decision page §10, 2026-09-10)',
+    rec.pipeline.tier === 'quantized' && rec.pipeline.model === 'large-v3-turbo-q5_0',
+    `tier=${rec.pipeline.tier} model=${rec.pipeline.model}`);
+  check('the recorded model is the one resolveTier(null) names — no second source of truth',
+    rec.pipeline.model === resolveTier(null).model, `record=${rec.pipeline.model} config=${resolveTier(null).model}`);
   // THE REGRESSION THIS FILE EXISTS TO CATCH NOW. Until 2026-08-29 the SHIPPING tier decoded with
   // full context carry-over while only the opt-in `max` tier got the cap, and nothing here noticed.
+  // Asserted against whatever the default IS, so moving the default can never move it off the cap.
   check('the DEFAULT tier decodes with NO previous-text conditioning', rec.pipeline.maxContextTokens === 0,
     `maxContextTokens=${rec.pipeline.maxContextTokens} whisperArgs=${JSON.stringify(rec.pipeline.whisperArgs)}`);
-  check('turbo produced NO repetition loop on a normal sample', rec.pipeline.repetitionGuard.detected === false,
+  check('default run recorded a repetitionGuard block', !!rec.pipeline.repetitionGuard);
+  check('the default produced NO repetition loop on a normal sample', rec.pipeline.repetitionGuard.detected === false,
     `removed=${rec.pipeline.repetitionGuard.removedSegments}`);
   // The guard's physical evidence must actually reach it, or the loop class is text-only and can
   // delete genuine repeated speech without anyone being told.
   check('the speech-burst probe reached the guard', !!rec.pipeline.repetitionGuard.speechBurstProbe,
     JSON.stringify(rec.pipeline.repetitionGuard.speechBurstProbe));
+  // The provenance must name the WEIGHTS, not just the binary: "whisper.cpp 1.9.1" is true of a
+  // run on either model, and as of 2026-09-10 which one it was is exactly the thing that changed.
+  check('the provenance line names the model that ran', typeof rec.pipeline.toolchain?.provenance === 'string' &&
+    rec.pipeline.toolchain.provenance.includes(`model:${rec.pipeline.model}@`), rec.pipeline.toolchain?.provenance);
+  check('session.json records the weights with their FULL sha256, not only the 12 in the sentence',
+    rec.pipeline.toolchain?.model?.id === rec.pipeline.model &&
+    /^[0-9a-f]{64}$/.test(String(rec.pipeline.toolchain?.model?.sha256 || '')) &&
+    rec.pipeline.toolchain.model.pinned === true,
+    JSON.stringify(rec.pipeline.toolchain?.model));
+  check('the transcript a person opens names the model', fs.readFileSync(path.join(dir, 'transcript.md'), 'utf8')
+    .includes(`- **Model:** ${rec.pipeline.model}`));
+  if (canSay) check('default transcript has real words', rec.pipeline.modelRuns[0].words > 4, `words=${rec.pipeline.modelRuns[0].words}`);
 } else {
-  skip('turbo tier', 'turbo model not installed');
+  skip('default tier', `the default model (${resolveTier(null).model}) is not installed`);
+}
+
+// ---- 2) OPT-IN full turbo still runs — "not deleted" is a claim, so it gets a run --------------
+if (tierModelPresent('turbo')) {
+  console.log('\n--- opt-in full-turbo tier (real) ---');
+  const dir = buildSession('2026-08-24T12-10-00Z--meet--turbo');
+  const r = runPipeline(dir, { zone, tier: 'turbo', now: T0 + 13 * 60 * 1000 });
+  check('opt-in turbo tier reached READY', r.status === 'ready', JSON.stringify(r.problems || ''));
+  const rec = readRecord(dir);
+  check('--tier turbo still means full large-v3-turbo, exactly as it did before the ruling',
+    rec.pipeline.tier === 'turbo' && rec.pipeline.model === 'large-v3-turbo',
+    `tier=${rec.pipeline.tier} model=${rec.pipeline.model}`);
+  check('the opt-in tier decodes with NO previous-text conditioning either', rec.pipeline.maxContextTokens === 0,
+    `maxContextTokens=${rec.pipeline.maxContextTokens} whisperArgs=${JSON.stringify(rec.pipeline.whisperArgs)}`);
+  check('turbo produced NO repetition loop on a normal sample', rec.pipeline.repetitionGuard.detected === false,
+    `removed=${rec.pipeline.repetitionGuard.removedSegments}`);
+} else {
+  skip('opt-in turbo tier', 'full turbo not installed — `richos-service fetch-model large-v3-turbo`');
 }
 
 // ---- 3) MAX (guarded large-v3) tier, if the model is installed -------------------------------

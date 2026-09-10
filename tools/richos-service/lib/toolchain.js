@@ -6,9 +6,14 @@
  * flag this pipeline passes, and its §4 names the hole it did not close, in its own words:
  * `whisper-cli` and the ggml backends are **unpinned**, and `whisperVersion()` "records nothing
  * that would let anyone notice the change". Every "vendor default" column in that table is a
- * property of ONE build. `-fa` alone is worth 1.57 WER points and is a DEFAULT: a formula bump
- * that flips it costs more accuracy than any tuning decision in the table recovers, and nobody
- * would attribute the regression. This module is the answer to that.
+ * property of ONE build. `-fa` is the worked example: flash attention is whisper.cpp 1.9.1's own
+ * DEFAULT, it is reproducibly 12.5-20.0% faster than `-nfa` on both models, and a formula bump
+ * that flipped it would change every transcript this product produces with nobody able to
+ * attribute the change. (The 1.57-WER-point figure this paragraph used to carry is retired: it
+ * does not reproduce across a corpus re-render and reverses sign on full turbo — the model-choice
+ * measurement 2026-09-10 §2, and CEO decision page §10, which rules it must not be quoted. The
+ * pin is right for the vendor-default reason, which was always the real one.) This module is the
+ * answer to that.
  *
  * ## Two tiers of expectation, deliberately unequal — and the asymmetry IS the design
  *
@@ -52,6 +57,7 @@
  *   whisper-cli            654,720 B        0.01 s / 0.01 s / 0.01 s
  *   ggml backends (x3)     ~2.6 MB total    under 0.05 s
  *   ggml-small.en.bin      487,614,201 B    0.95 s / 0.93 s / 0.93 s
+ *   ggml-large-v3-turbo-q5_0  574,041,195 B  1.05 s / 1.06 s / 1.04 s   <- the call-path default
  *   ggml-large-v3-turbo    1,624,555,275 B  3.13 s / 3.11 s
  *
  * So the **binary and its backends are hashed on EVERY run** — 0.01 s is free, and the binary is
@@ -59,8 +65,11 @@
  * **models are hashed on a cache miss only**, keyed on (path, bytes, mtime, inode, device), because
  * a conversational dictation utterance decodes in 0.47-0.74 s (`stt.rs`) and a 0.93 s hash on every
  * one of them would nearly triple the latency the voice path was tuned for. On the call path the
- * 3.1 s hash is 1.4% of a 226 s decode of 92 minutes, and it is still cached — there is no reason
- * to pay it twice.
+ * hash is a rounding error against the decode — 1.05 s against a 249 s decode of 92 minutes on the
+ * default weights, 0.4% — and it is still cached, because there is no reason to pay it twice.
+ * (The q5_0 row was re-measured on 2026-09-10 rather than inherited when the default moved there:
+ * three `shasum -a 256` runs, 1.05 / 1.06 / 1.04 s, agreeing with the model-choice rig's
+ * 1.05 / 1.06 / 1.06 s. The 3.1 s row is now the OPT-IN tier's cost, not the default's.)
  *
  * **The limit of that cache, stated rather than buried:** a substitution that rewrites a model file
  * in place while restoring its size, mtime, inode AND device would be believed until something
@@ -347,8 +356,8 @@ export function describeFinding(f) {
         `${f.wasPath ? ` at ${f.wasPath}` : ''}${f.lockedOn ? ` (locked ${f.lockedOn})` : ''}; ` +
         `now ${f.nowVersion ? `version ${f.nowVersion}` : 'an unversioned build'} sha256 ${s(f.now)}` +
         `${f.nowPath ? ` at ${f.nowPath}` : ''}. ` +
-        `Decode defaults are a property of a build: whisper.cpp defaults flash attention ON, and losing it is ` +
-        `worth 1.57 WER points measured on this project's own corpus. ` +
+        `Decode defaults are a property of a build: whisper.cpp defaults flash attention ON, and a build that ` +
+        `did not would decode every call differently from the one this machine was set up against. ` +
         // The two severities need two different last sentences. Under strict mode nothing was
         // transcribed, and telling a reader their transcript "was produced by the new binary"
         // when no transcript exists is the kind of confidently wrong sentence that costs a

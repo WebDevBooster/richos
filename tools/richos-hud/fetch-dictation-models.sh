@@ -7,10 +7,17 @@
 #   Fast     (opt-in)  : ggml-small.en.bin              487,614,201 bytes
 #                                              total  1,061,655,396 bytes (1.06 GB)
 #
-# Full ggml-large-v3-turbo.bin (1,624,555,275 bytes) is NOT fetched — it is retired from the
-# dictation path. It stays the default for POST-CALL batch transcription (tools/richos-service),
-# which resolves models from the same directory, so that path is unaffected.
-# Measurements: the dictation-daemon + q5 brief, 2026-08-26
+# THESE TWO FILES ARE NOW THE WHOLE SPEECH PAYLOAD, 2026-09-10. Until today this header said full
+# ggml-large-v3-turbo.bin (1,624,555,275 bytes) "stays the default for POST-CALL batch
+# transcription", and it did. The CEO decision page §10 moved that default to
+# ggml-large-v3-turbo-q5_0 — the SAME file the Accurate dictation mode already needs, resolved out
+# of this SAME directory. So call transcription now costs a first run nothing it was not already
+# paying, and the largest thing RichOS downloads drops from 1,624,555,275 bytes to 574,041,195.
+#
+# Full turbo is NOT deleted and is NOT fetched here. It is pinned in model-pins.json and reachable
+# on demand:  richos-service fetch-model large-v3-turbo
+# Measurements: docs/measurements/whisper-model-choice-2026-09-10/ (the default);
+#               the dictation-daemon + q5 brief, 2026-08-26 (the dictation pair)
 #
 # ---------------------------------------------------------------------------------------------
 # WHAT CHANGED, 2026-08-31: THIS SCRIPT NOW VERIFIES A CRYPTOGRAPHIC HASH.

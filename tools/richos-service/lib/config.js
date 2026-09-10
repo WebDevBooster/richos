@@ -157,13 +157,24 @@ export function whisperBin() {
   return resolveBinary('whisper-cli', 'RICHOS_WHISPER_BIN');
 }
 
-/** Default model id per the model benchmark (2026-08-24). */
-export const DEFAULT_MODEL = 'large-v3-turbo';
-
 /**
  * P5 model-tiering (the system architecture §4.1 + §9-P5). Accuracy/robustness is a function of the
- * host: turbo is the reliable default everywhere; full large-v3 is an OPT-IN "maximum accuracy" tier;
- * quantized/small models are the fallback on weak / non-Apple-Silicon / low-RAM hosts.
+ * host: the quantized turbo is the shipping default everywhere; full turbo and full large-v3 are
+ * OPT-IN accuracy tiers; small.en is the fallback on weak / non-Apple-Silicon / low-RAM hosts.
+ *
+ * THE DEFAULT IS `quantized` SINCE 2026-09-10 — CEO decision page §10, decided by Rich from
+ * `docs/measurements/whisper-model-choice-2026-09-10/`. Memory decided it: 884,981,760 B peak RSS
+ * at call length against full turbo's 2,014,101,504 B, a factor of 2.28, stable across corpus
+ * renders and flags. Two things pushed the same way — full turbo duplicated a 17-word sentence at
+ * call length under `-mc 0` deterministically and the repetition guard KEEPS it, where q5_0 on
+ * identical audio and identical argv emitted it once; and 574,041,195 B against 1,624,555,275 B is
+ * what a new user downloads before the product works at all. What full turbo wins is proper nouns,
+ * on both renders, by 3 then 6 of 66 — which is why the `turbo` tier below is still here.
+ *
+ * TIER IDS NEVER CHANGE MEANING. `turbo` is full `large-v3-turbo` today exactly as it was before
+ * this ruling; what moved is which tier `DEFAULT_TIER` names. A `session.json` written last month
+ * recording `tier: "turbo"` still means the same weights it meant when it was written, which is the
+ * whole reason the default moved by re-pointing a pointer rather than by re-defining a name.
  *
  * A tier is data — { model, decodeArgs, repetitionGuard } — so re-transcription and the opt-in tier
  * pass different values without touching pipeline code. `decodeArgs` are appended to `whisperArgs`.
@@ -196,12 +207,40 @@ export const DEFAULT_MODEL = 'large-v3-turbo';
  * filled with "Thank you." does not spend a day on a decode flag that cannot help.
  */
 export const MODEL_TIERS = {
+  quantized: {
+    model: 'large-v3-turbo-q5_0',
+    decodeArgs: [],
+    repetitionGuard: true,
+    description:
+      'DEFAULT since 2026-09-10 (CEO decision page §10). Quantized turbo. 574,041,195 B on disk vs ' +
+      'full turbo 1,624,555,275 B (-1,050,514,080 B); 884,981,760 B peak RSS at call length vs ' +
+      '2,014,101,504 B (-56.1%) and 1,859,256,320 B vs 2,817,949,696 B (-34.0%) on 92 minutes. ' +
+      'Post-guard WER on two independent renders of the invented 6-call corpus: 2.78% and 2.94%, ' +
+      'against full turbo\'s 3.78% and 2.99% — ahead on both, but by 1.00 point on one render and ' +
+      '0.05 on the other, so NOTHING here is decided on that column. Zero loop findings and zero ' +
+      'fabricated timeline on 184.6 minutes of real audio, same as full turbo, at ' +
+      'MAX_CONTEXT_TOKENS=0. It costs 7.0% wall clock on long form (498.7 s vs 466.1 s for both ' +
+      '92-minute channels) and 3 to 6 proper nouns of 66. Measured 2026-09-10, ' +
+      'docs/measurements/whisper-model-choice-2026-09-10/. The earlier 2026-08-29 result that put ' +
+      'this model far WORSE than full turbo (44.1% of a channel destroyed against 8.6%) was ' +
+      'measured at the old -mc -1 and is superseded: at MAX_CONTEXT_TOKENS=0 those same two ' +
+      'numbers are 0.0% and 0.0%.',
+  },
   turbo: {
     model: 'large-v3-turbo',
     decodeArgs: [],
     repetitionGuard: true,
     description:
-      'DEFAULT. Distilled large-v3; ~3.9 min/call-hour on the M4, ~2 GB RAM. NO hallucination on the ' +
+      'OPT-IN, for proper-noun fidelity. Was the default until 2026-09-10 (CEO decision page ' +
+      '§10); it is no longer what a user gets and it is NOT deleted. Fetch it with ' +
+      '`richos-service fetch-model large-v3-turbo` and select it with `--tier turbo`. It renders ' +
+      '47 and 48 of 66 proper nouns across two corpus renders against the default q5_0 tier\'s 44 ' +
+      'and 42 — the one axis it wins on both renders. It costs 2,014,101,504 B peak RSS at call ' +
+      'length against 884,981,760 B, and 1,624,555,275 B on disk against 574,041,195 B. And on ' +
+      'render A of the invented corpus it emitted one 17-word sentence of the script TWICE, ' +
+      'deterministically, at `-mc 0`, at call length, and repetition-guard.js does not remove it ' +
+      '(the model-choice measurement 2026-09-10, §3). ' +
+      'Distilled large-v3; ~3.9 min/call-hour on the M4. NO hallucination on the ' +
       '213 s benchmark sample — but NOT hallucination-free in general: on an 11-minute NOISY sample ' +
       'it fabricated a running list numeral onto 59 of 88 segments (65% of the call), ' +
       'deterministically in 3/3 runs (measured 2026-08-26, the q5 call-transcription brief). q5_0 did ' +
@@ -229,34 +268,30 @@ export const MODEL_TIERS = {
       'FALLBACK for weak / non-Apple-Silicon / low-RAM hosts. small.en (clean + fast, no hallucination ' +
       'in the benchmark). Point RICHOS_WHISPER_MODEL at a quantized .bin to run the quantized variant.',
   },
-  quantized: {
-    model: 'large-v3-turbo-q5_0',
-    decodeArgs: [],
-    repetitionGuard: true,
-    description:
-      'Quantized turbo. 574,041,195 B on disk vs turbo 1,624,555,275 B (-1.05 GB); 1.00 GB peak RSS ' +
-      'vs 2.12 GB (-53%) on an 11-minute call. Accuracy at call length is INDISTINGUISHABLE from full ' +
-      'turbo, not degraded: identical WER (5.79%, 36 errors) on the 213 s sample, +0.5 WER points on ' +
-      'an 11-minute clean sample, -1.8 points on an 11-minute noisy one. Wall time within +/-4%. No ' +
-      'repetition, stutter or drift artifact in 9 call-length runs, where full turbo produced one. ' +
-      'Measured 2026-08-26 (the q5 call-transcription brief); TTS samples only. AT 92 MINUTES OF REAL ' +
-      'AUDIO THE ORDERING INVERTS: at the old -mc -1 default q5_0 destroyed 44.1% of one channel\'s ' +
-      'timeline against turbo\'s 8.6% (2026-08-29). At MAX_CONTEXT_TOKENS=0 both models yield 0-1 ' +
-      'loop findings per 92-minute channel and the ordering question is no longer load-bearing — ' +
-      'CEO decision 1.3 (turbo vs q5_0 as the default) remains OPEN and is NOT decided here. ' +
-      'Requires the quantized .bin (build once with `whisper-quantize`, or point ' +
-      'RICHOS_WHISPER_MODEL at it).',
-  },
 };
 
-/** The tier chosen when nothing is specified. */
-export const DEFAULT_TIER = 'turbo';
+/**
+ * The tier chosen when nothing is specified — and, through DEFAULT_MODEL below, the ONE place the
+ * shipping model is decided. Moved from `turbo` to `quantized` on 2026-09-10 (CEO decision page §10).
+ */
+export const DEFAULT_TIER = 'quantized';
+
+/**
+ * The default model id. DERIVED from the default tier, never stated a second time.
+ *
+ * It used to be its own literal — `'large-v3-turbo'` — sitting 90 lines above a tier table that
+ * happened to name the same string. Two declarations that agree today are one edit away from a
+ * default that depends on which consumer you ask: `transcribeChannel()` reads this, `runPipeline()`
+ * reads the tier, and nothing made them agree except that both had been written by someone who
+ * remembered the other. Deriving it makes disagreement impossible rather than merely unlikely.
+ */
+export const DEFAULT_MODEL = MODEL_TIERS[DEFAULT_TIER].model;
 
 /**
  * Resolve a tier name OR a raw model id into a concrete { name, model, decodeArgs, repetitionGuard }.
  *
  * - a known tier name -> that tier.
- * - `null`/empty -> the default tier (turbo).
+ * - `null`/empty -> the default tier (DEFAULT_TIER, `quantized` since 2026-09-10).
  * - anything else -> a "custom" tier wrapping the raw model id (backward compat with `--model`).
  *
  * THE GATE MOVED, IT DID NOT GO AWAY. This function used to auto-attach `-mc 0` to a raw bare
@@ -427,12 +462,24 @@ export const MAX_CONTEXT_TOKENS = 0;
  *   -oj     per-segment timestamps the merge needs; the plain text output has none.
  *   -np     progress prints would corrupt the log; the transcript is read from the JSON file.
  *   -fa     FLASH ATTENTION, and it is passed EXPLICITLY although whisper.cpp 1.9.1 already defaults
- *           it on. Measured: `-nfa` costs 1.57 WER points (4.46% against 2.89%, insertions 8 -> 29)
- *           and 18% wall clock, and drops proper-noun hits 46 -> 41 of 66. A setting worth 1.57
- *           points is too valuable to hold by inheritance from a default that a formula bump can
- *           flip; passing it is byte-identical today and cannot silently change. If a future
- *           whisper-cli drops the flag this fails LOUDLY at the exec, which is the failure mode to
- *           want — the alternative is a silent accuracy regression nobody would attribute.
+ *           it on.
+ *
+ *           THE PIN IS RIGHT; THE NUMBER THAT USED TO SIT HERE IS NOT, AND IT IS RETIRED RATHER
+ *           THAN QUIETLY DROPPED. This row said `-nfa` costs 1.57 WER points (4.46% against
+ *           2.89%). Re-run on 2026-09-10 against a fresh corpus render, on BOTH models in one
+ *           sitting: on q5_0 the effect nearly vanishes (2.89% with `-fa` against 2.99% without —
+ *           two errors in 1,905 tokens), and on full turbo it REVERSES SIGN, 3.20% without
+ *           against 4.09% with, i.e. `-nfa` better by 0.89. Both measurements are correct on
+ *           their own audio; what does not survive a corpus re-render is the DIFFERENCE between
+ *           two configurations when one arm is dominated by a single fabrication event. The CEO
+ *           decision page §10 rules that this number must not be quoted. Do not quote it.
+ *
+ *           WHAT DOES REPRODUCE, on both models and both repetitions: `-nfa` is SLOWER — 12.5% to
+ *           20.0% wall clock. And the reason the flag is passed at all was never the number: it is
+ *           whisper.cpp's own default, and a setting held by inheritance from a vendor default can
+ *           be flipped by a formula bump that nobody would attribute. Passing it is byte-identical
+ *           today and cannot silently change. If a future whisper-cli drops the flag this fails
+ *           LOUDLY at the exec, which is the failure mode to want.
  *
  * @param {{model?: string, language?: string, threads?: number, maxContext?: number,
  *          extraArgs?: string[]}} [opts]
@@ -452,7 +499,7 @@ export function whisperArgs(opts = {}) {
     '-mc', String(Number.isFinite(maxContext) ? maxContext : MAX_CONTEXT_TOKENS),
     '-oj',
     '-np', // no progress prints — keep stdout clean for logging
-    '-fa', // flash attention, pinned rather than inherited — worth 1.57 WER points, see above
+    '-fa', // flash attention, pinned rather than inherited so a formula bump cannot flip it silently
     ...(opts.extraArgs || []),
   ];
 }

@@ -98,6 +98,11 @@ class Cleanup(unittest.TestCase):
 
     def test_native_checkout_remains_platform_owned(self):
         self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code'})
+        # historical-fixture-partial: cleanup_policy — this is NOT a historical
+        # record and must not become one. The case is about a member that IS
+        # platform-owned, so cleanup_owner is SET on the line above rather than
+        # stripped; only the daily policy is removed, to model a native record
+        # sealed before the reconciler had ever reclaimed it.
         self.record['members'][0].pop('cleanup_policy') # Previously sealed native record.
         tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
         result=self.run_cleanup(); self.assertTrue(self.work.is_dir())

@@ -1,0 +1,140 @@
+{
+ "turbo": {
+  "loops": 0,
+  "loopSpanSec": 0,
+  "stutters": 0,
+  "insertions": 0,
+  "silenceFabrications": 3,
+  "removed": 3,
+  "findings": [
+   {
+    "call": "call-02-corvane-support",
+    "channel": "me",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   },
+   {
+    "call": "call-03-quilvern-discovery",
+    "channel": "me",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   },
+   {
+    "call": "call-06-northgate-incident",
+    "channel": "others",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   }
+  ],
+  "pre": {
+   "N": 1905,
+   "S": 41,
+   "D": 9,
+   "I": 28
+  },
+  "post": {
+   "N": 1905,
+   "S": 41,
+   "D": 9,
+   "I": 22
+  },
+  "werPre": 0.04094488188976378,
+  "werPost": 0.03779527559055118
+ },
+ "q5": {
+  "loops": 0,
+  "loopSpanSec": 0,
+  "stutters": 0,
+  "insertions": 0,
+  "silenceFabrications": 1,
+  "removed": 1,
+  "findings": [
+   {
+    "call": "call-02-corvane-support",
+    "channel": "me",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   }
+  ],
+  "pre": {
+   "N": 1905,
+   "S": 40,
+   "D": 9,
+   "I": 6
+  },
+  "post": {
+   "N": 1905,
+   "S": 40,
+   "D": 9,
+   "I": 4
+  },
+  "werPre": 0.028871391076115485,
+  "werPost": 0.027821522309711286
+ },
+ "turboNfa": {
+  "loops": 0,
+  "loopSpanSec": 0,
+  "stutters": 0,
+  "insertions": 0,
+  "silenceFabrications": 1,
+  "removed": 1,
+  "findings": [
+   {
+    "call": "call-02-corvane-support",
+    "channel": "me",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   }
+  ],
+  "pre": {
+   "N": 1905,
+   "S": 42,
+   "D": 7,
+   "I": 12
+  },
+  "post": {
+   "N": 1905,
+   "S": 42,
+   "D": 7,
+   "I": 10
+  },
+  "werPre": 0.032020997375328084,
+  "werPost": 0.030971128608923884
+ },
+ "q5Nfa": {
+  "loops": 0,
+  "loopSpanSec": 0,
+  "stutters": 0,
+  "insertions": 0,
+  "silenceFabrications": 1,
+  "removed": 1,
+  "findings": [
+   {
+    "call": "call-02-corvane-support",
+    "channel": "me",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   }
+  ],
+  "pre": {
+   "N": 1905,
+   "S": 39,
+   "D": 10,
+   "I": 8
+  },
+  "post": {
+   "N": 1905,
+   "S": 39,
+   "D": 10,
+   "I": 6
+  },
+  "werPre": 0.029921259842519685,
+  "werPost": 0.028871391076115485
+ }
+}

@@ -1,0 +1,68 @@
+SHORT CALL — 6 invented two-speaker calls, 12 channels, 1,905 scoring tokens.
+Corpus render A. Every row back to back on one render, one binary, one sitting.
+r1 and r2 are the SAME four configurations run in OPPOSITE order.
+
+rep config                        WER    cased     S   D   I   seg  wordT  wall
+r1  large-v3-turbo               4.09%   4.83%   41   9  28   148   1847    78s
+r1  large-v3-turbo-q5_0          2.89%   3.83%   40   9   6   149   1827    80s
+r1  large-v3-turbo  -nfa         3.20%   4.67%   42   7  12   144   1832    90s
+r1  large-v3-turbo-q5_0  -nfa    2.99%   4.15%   39  10   8   143   1827    90s
+r2  large-v3-turbo               4.09%   4.83%   41   9  28   148   1847    75s
+r2  large-v3-turbo-q5_0          2.89%   3.83%   40   9   6   149   1827    79s
+r2  large-v3-turbo  -nfa         3.20%   4.67%   42   7  12   144   1832    90s
+r2  large-v3-turbo-q5_0  -nfa    2.99%   4.15%   39  10   8   143   1827    91s
+
+DETERMINISM — r1 against r2, per configuration
+  large-v3-turbo              IDENTICAL S/D/I/segments/wordTimes   wall 78s vs 75s
+  large-v3-turbo-q5_0         IDENTICAL S/D/I/segments/wordTimes   wall 80s vs 79s
+  large-v3-turbo  -nfa        IDENTICAL S/D/I/segments/wordTimes   wall 90s vs 90s
+  large-v3-turbo-q5_0  -nfa   IDENTICAL S/D/I/segments/wordTimes   wall 90s vs 91s
+
+RENDER STABILITY — the SAME script rendered a second time by `say` (corpus B),
+both models re-run on it. The question is whether the GAP survives a re-render.
+
+render  model                        WER      S   D   I
+  A     large-v3-turbo               4.09%    41   9  28
+  A     large-v3-turbo-q5_0          2.89%    40   9   6
+  B     large-v3-turbo               3.20%    40   8  13
+  B     large-v3-turbo-q5_0          3.04%    44   6   8
+  render A: q5_0 minus turbo = -1.21 WER points
+  render B: q5_0 minus turbo = -0.16 WER points
+
+FABRICATION — the SHIPPING repetition guard over the same decodes,
+with the physical speech-burst probe. Pre/post-guard WER is the same guard run.
+
+render A
+  model                        loops  stutters  silenceFabs  removed   pre-guard WER   post-guard WER
+  large-v3-turbo                  0         0            3        3           4.09%            3.78%
+  large-v3-turbo-q5_0             0         0            1        1           2.89%            2.78%
+  large-v3-turbo  -nfa            0         0            1        1           3.20%            3.10%
+  large-v3-turbo-q5_0  -nfa       0         0            1        1           2.99%            2.89%
+
+render B
+  model                        loops  stutters  silenceFabs  removed   pre-guard WER   post-guard WER
+  large-v3-turbo                  0         0            2        2           3.20%            2.99%
+  large-v3-turbo-q5_0             0         0            1        1           3.04%            2.94%
+
+LONG FORM — 92.3 minutes of REAL two-channel audio, shipping settings, both channels.
+No WER is quoted and none can be: this recording has no verified reference and,
+per the CEO ruling of 2026-09-10, no further recording will ever exist to make one.
+
+model                 ch      seg   words  post-guard  loops  span s  silFab  removed  decode wall
+large-v3-turbo        me      435    3762        3762      0     0.0       2        0         222s
+large-v3-turbo        others  566    6133        6133      0     0.0       0        0         245s
+large-v3-turbo-q5_0   me      439    3706        3700      0     0.0       4        3         237s
+large-v3-turbo-q5_0   others  530    6086        6084      0     0.0       3        2         262s
+
+RESOURCES — peak memory of the whisper-cli process that actually decoded,
+/usr/bin/time -l, BYTES on macOS. The `--version` identity probe is excluded by argv.
+
+scope         model                        peak maxRSS   peak footprint   decode wall
+short call    large-v3-turbo                  1.88 GB          1.77 GB          78 s
+short call    large-v3-turbo-q5_0             0.82 GB          0.79 GB          80 s
+short call    large-v3-turbo  -nfa            1.88 GB          1.78 GB          90 s
+short call    large-v3-turbo-q5_0  -nfa       0.82 GB          0.79 GB          90 s
+92 min me     large-v3-turbo                  2.62 GB          2.68 GB         221 s
+92 min others large-v3-turbo                  2.62 GB          2.71 GB         244 s
+92 min me     large-v3-turbo-q5_0             1.73 GB          1.73 GB         237 s
+92 min others large-v3-turbo-q5_0             1.73 GB          1.70 GB         262 s

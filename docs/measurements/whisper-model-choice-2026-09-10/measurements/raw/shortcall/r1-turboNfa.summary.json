@@ -1,0 +1,32 @@
+{
+ "config": "turboNfa",
+ "label": "full turbo, flash attention OFF",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-nfa"
+ ],
+ "refWords": 1905,
+ "hypWords": 1910,
+ "S": 42,
+ "D": 7,
+ "I": 12,
+ "wer": 0.032020997375328084,
+ "werCase": 0.046719160104986876,
+ "segments": 144,
+ "wordTimes": 1832,
+ "wallSec": 89.514,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np",
+  "-fa"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "turboNfa/argv.jsonl",
+ "whisperVersion": null
+}

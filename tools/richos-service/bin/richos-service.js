@@ -119,10 +119,12 @@ function main() {
     }
 
     case 'tiers': {
-      // List the P5 model tiers (turbo default, max opt-in, low-resource/quantized fallback).
+      // List the P5 model tiers. Which one is DEFAULT is read from DEFAULT_TIER rather than
+      // written here: this line said `turbo` for two weeks after the tier table was rewritten,
+      // and a listing that names the wrong default is worse than one that names none.
       console.log('RichOS model tiers (select with --tier <name>, or a raw --model <id>):\n');
       for (const [name, t] of Object.entries(MODEL_TIERS)) {
-        const flagName = name === 'turbo' ? `${name} (default)` : name;
+        const flagName = name === DEFAULT_TIER ? `${name} (default)` : name;
         console.log(`  ${flagName}\n    model: ${t.model}${t.decodeArgs.length ? `  decode: ${t.decodeArgs.join(' ')}` : ''}`);
         console.log(`    ${t.description}\n`);
       }
@@ -599,8 +601,10 @@ function main() {
         console.log(`            ${found.pin ? `pinned sha256 ${found.pin.sha256.slice(0, 16)}… — run \`richos-service verify-model ${resolvedTier.model}\` to hash it` : 'NOT PINNED — this model has no hash to check against'}`);
         for (const r of found.rejected) console.log(`            rejected: ${r.message}`);
       } catch (err) {
-        // A missing tier model is only fatal if that tier was explicitly requested; the default
-        // turbo model must resolve.
+        // A missing tier model is only fatal if that tier was explicitly requested; the model
+        // DEFAULT_TIER names must resolve. This is what makes a fresh machine that carries only
+        // ggml-large-v3-turbo-q5_0.bin pass: the 1,624,555,275-byte full-turbo file is an opt-in
+        // tier now, so its absence reports "not installed (opt-in tier)" and exits 0.
         const fatal = !tier && !model ? true : resolvedTier.name === DEFAULT_TIER;
         if (fatal) ok = false;
         console.log(`model:      ${fatal ? 'MISSING' : 'not installed (opt-in tier)'} — ${String(err.message || err)}`);
@@ -614,7 +618,7 @@ function main() {
       console.log(
         [
           'usage:',
-          '  richos-service watch [--zone dir] [--tier turbo|max|low-resource|quantized]',
+          `  richos-service watch [--zone dir] [--tier ${Object.keys(MODEL_TIERS).map((n) => (n === DEFAULT_TIER ? `${n}*` : n)).join('|')}]   (* = default)`,
           '  richos-service run <sessionId|dir> [--zone dir] [--tier name | --model id]',
           '  richos-service retranscribe <sessionId|dir> [--tier max | --model id]',
           '  richos-service tiers',

@@ -1,0 +1,71 @@
+{
+ "turbo": {
+  "loops": 0,
+  "loopSpanSec": 0,
+  "stutters": 0,
+  "insertions": 0,
+  "silenceFabrications": 2,
+  "removed": 2,
+  "findings": [
+   {
+    "call": "call-02-corvane-support",
+    "channel": "me",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   },
+   {
+    "call": "call-06-northgate-incident",
+    "channel": "others",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   }
+  ],
+  "pre": {
+   "N": 1905,
+   "S": 40,
+   "D": 8,
+   "I": 13
+  },
+  "post": {
+   "N": 1905,
+   "S": 40,
+   "D": 8,
+   "I": 9
+  },
+  "werPre": 0.032020997375328084,
+  "werPost": 0.029921259842519685
+ },
+ "q5": {
+  "loops": 0,
+  "loopSpanSec": 0,
+  "stutters": 0,
+  "insertions": 0,
+  "silenceFabrications": 1,
+  "removed": 1,
+  "findings": [
+   {
+    "call": "call-02-corvane-support",
+    "channel": "me",
+    "loops": [],
+    "stutters": 0,
+    "silenceFabrications": 1
+   }
+  ],
+  "pre": {
+   "N": 1905,
+   "S": 44,
+   "D": 6,
+   "I": 8
+  },
+  "post": {
+   "N": 1905,
+   "S": 44,
+   "D": 6,
+   "I": 6
+  },
+  "werPre": 0.030446194225721784,
+  "werPost": 0.029396325459317585
+ }
+}
