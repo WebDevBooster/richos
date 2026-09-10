@@ -1,62 +1,66 @@
-# How long each browser suite takes, so `run.js` can pack them into shards.
+# How long each browser suite takes ON THE RUNNER, so `run.js` can pack them into shards.
 #
 # A WEIGHT IS A MEASUREMENT WITH A DATE, NEVER A FACT. These decide which shard a suite lands
 # in and nothing else: coverage is proven from the receipts each shard writes, so a stale
-# weight costs wall clock and cannot cost correctness. That is the whole reason this file is
-# allowed to exist at all — it is the one typed list in this directory, and it is typed
-# because a duration cannot be read off disk. Everything a green run DEPENDS on is still
-# discovered.
+# weight costs wall clock and cannot cost correctness. That is the only reason this file is
+# allowed to exist — it is the one typed list in `app/ui/tests/`, and it is typed because a
+# duration is the one thing that cannot be read off disk. Everything a green run DEPENDS on
+# is still discovered.
 #
-# MEASURED: 31 suites, one serial pass, this machine, 2026-09-10 at 43da6710.
-# Every suite exited 0 in that pass. Two consecutive runs of the heavier suites were
-# within a second of each other, so these are not single-sample noise.
+# MEASURED: run 34448209503, 2026-09-10, `macos-latest`, at 09ada13e — the first green sharded
+# pass. Every number is that run's own receipt for that suite, so they come from ONE execution
+# and are comparable with each other. Numbers stitched from several sources are not.
 #
-#   local serial total   756 s
-#   heaviest suite       110 s (splash.js) — the floor: no shard count gets under it
+#   runner serial total   2155 s
+#   heaviest suite        305 s (splash.js) — the floor: no shard count gets under it
 #
-# AND THEY ARE LOCAL SECONDS, WHICH IS THE THING TO KNOW BEFORE TRUSTING THEM. The same tree
-# took 1792 s serially on `macos-latest` (run 34435558131) against 756 s here, so the runner
-# is roughly 2.4x slower and these numbers are RELATIVE weights that happen to be in seconds.
-# Packing only needs the ratios, which is why this is honest input for the first sharded run
-# and not the last word: re-derive it from that run's own receipts, which carry each suite's
-# wall clock on the runner. Numbers from one execution are comparable with each other and
-# numbers stitched from several sources are not.
+# THESE REPLACED A LOCAL SET, and the size of the correction is the argument for re-deriving
+# them here rather than trusting a laptop. Locally the same 31 suites totalled 756 s and the
+# heaviest was `splash.js` at 110 s; on the runner it is 2155 s and 305 s. The RATIOS moved
+# too, which is what packing actually depends on: `affordances.js` is 7 percent of the local total
+# and 13 percent of the runner's, because runner slowness is not a single constant every suite is
+# multiplied by. A packing computed from local seconds is a packing computed from the wrong
+# shape.
+#
+# RE-DERIVE THEM THE SAME WAY. Every receipt carries its suite's wall clock, so the current
+# numbers are always one command away from the last green run's own log — never a fresh
+# stopwatch, and never a mix of the two.
 #
 # A suite missing from this file is NOT an error. `run.js` packs it as the heaviest known
-# suite and NAMES it in `--plan`, so it lands in the emptiest shard and somebody can see that
-# its weight was assumed. Adding a suite therefore needs no edit here.
+# suite and NAMES it in `--plan`, so it lands in the emptiest shard and the assumption is
+# visible rather than silent. Adding a suite therefore needs no edit here.
 #
 # Longest first, which is also the order the packer walks them in.
 #
 # suite	seconds
-splash.js	110.0
-slow-bridge.js	95.1
-contrast.js	67.6
-affordances.js	55.3
-appearance.js	48.2
-restart-scope.js	38.1
-home.js	31.6
-realbytes.js	30.3
-compaction-progress.js	28.1
-techy.js	27.6
-feedback.js	25.8
-compaction-notice.js	24.3
-corrections.js	24.2
-updates.js	23.9
-waiting-lifecycle.js	22.1
-waiting-state.js	22.1
-setup.js	13.1
-scale.js	11.6
-onboarding.js	10.9
-retention.js	9.9
-memory-strategy.js	8.8
-steering.js	7.9
-memory.js	6.0
-inspector.js	5.1
-onboarding-lifecycle.js	5.0
-workers.js	1.2
-live-workers.js	0.7
-outage.js	0.7
-markdown.js	0.6
-vouch-template.js	0.4
-docs-claims.js	0.1
+splash.js	305
+affordances.js	287
+contrast.js	243
+appearance.js	144
+slow-bridge.js	129
+feedback.js	108
+techy.js	87
+corrections.js	82
+realbytes.js	80
+updates.js	78
+restart-scope.js	65
+waiting-lifecycle.js	58
+compaction-progress.js	54
+onboarding.js	53
+waiting-state.js	51
+home.js	47
+setup.js	39
+compaction-notice.js	37
+retention.js	37
+onboarding-lifecycle.js	27
+scale.js	25
+memory.js	24
+memory-strategy.js	22
+inspector.js	19
+steering.js	19
+workers.js	13
+live-workers.js	10
+outage.js	6
+markdown.js	5
+vouch-template.js	1
+docs-claims.js	0

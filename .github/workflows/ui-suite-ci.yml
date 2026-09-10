@@ -102,34 +102,55 @@ name: ui-suite-ci
 # suite step is 1792s and the whole rest of the job is 24s — checkout 7s, toolchain 1s, `npm ci`
 # 9s with WebKit out of the image cache, nushell 5s, the WebKit probe 1s.
 #
-# THE PACKING. Weights measured in one local serial pass at 43da6710, all 31 suites green,
-# 756.3s total; the runner is ~2.4x slower, so these are relative weights that happen to be in
-# seconds and the ratios are what packing needs. `node run.js --plan=<N>` prints any of these:
+# THE PACKING, from `app/ui/tests/suite-weights.tsv` — every weight a receipt from run
+# 34448209503, the first green sharded pass, so they are ONE run's numbers and comparable with
+# each other. Runner serial total 2155s; heaviest suite `splash.js` at 305s.
+# `node run.js --plan=<N>` prints any of these:
 #
-#   N=4  longest shard 189s      N=6  longest shard 126s
-#   N=5  longest shard 152s      N=7  longest shard 110s   <- the floor, exactly
-#                                N=8  longest shard 110s   <- buys nothing
+#   N=4  longest shard 616s      N=6  longest shard 413s
+#   N=5  longest shard 495s      N=7  longest shard 353s
+#                                N=8  longest shard 310s  <- the floor, splash.js alone
 #
-# SEVEN IS WHERE THE PACKING STOPS BEING THE LIMIT. The floor is the heaviest single suite —
-# `splash.js` at 110s local — because no matrix finishes faster than its longest indivisible
-# unit plus setup. At N=7 the longest shard IS that suite and nothing else, so the only way
-# below this line is to make `splash.js` divisible, not to add runners. N=8 costs a whole extra
-# job's setup for zero wall clock, which is the shape of a number chosen for looking bigger.
+# AND THE PACKING IS NOT WHAT DECIDES N. That was the mistake in the first version of this
+# paragraph, which read a table like the one above, took the smallest longest-shard and set
+# the matrix to seven. Run 34448209503 was green in 902s — a real 2x on the 1816s serial job,
+# and nowhere near the ~400s the table predicts. Its own job timeline says why:
 #
-# WHAT IT COSTS. The 24s of setup is the only thing duplicated, so seven jobs bill about 2.8
-# extra runner-minutes against the serial 30 — under 10% more, for a verdict in single-digit
-# minutes instead of half an hour. macOS minutes are billed at 10x either way.
+#   shards (3) start +  0s   shards (7) start +295s
+#   shards (4) start +  1s   shards (5) start +439s
+#   shards (2) start +  2s   shards (1) start +525s
+#   shards (6) start +  2s
 #
-# THE WALL CLOCK IS NOT PROMISED HERE, and that is deliberate: it is a fact about the packing
-# and the runner, both of which move. It is measured against a run id at the bottom of this
-# header, and `--plan` prints the current expectation from the committed weights on demand.
+# FOUR STARTED; THREE QUEUED, each beginning only as an earlier one finished. GitHub-hosted
+# macOS runners are a small shared pool, and at that moment it was also carrying a SECOND
+# ui-suite-ci run — main moved twice while this one was in flight — plus packaging-ci. So a
+# shard count above what the pool will actually start at once does not buy a shorter wall
+# clock; it buys a second wave, and pays another job's setup for the privilege.
+#
+# FIVE IS THE NUMBER THE POOL WILL RUN AT ONCE. That is why the matrix is five and not the
+# seven the packing table argues for: five shards is one wave, and one wave of 495s beats two
+# waves of 353s. The floor — 305s, `splash.js` — is unreachable at ANY N until that suite
+# becomes divisible, so the distance between 495 and 305 is the honest remaining prize and it
+# is not large enough to be worth a second wave.
+#
+# `concurrency:` ABOVE IS PART OF THE SAME FINDING rather than housekeeping. Two live runs of
+# this workflow compete for the same small pool and make each other slow, which is exactly
+# what was measured.
+#
+# WHAT IT COSTS. Setup is the only thing duplicated — 24s per job, measured on the serial run
+# — so five jobs bill about 1.6 extra runner-minutes against the serial 30. macOS minutes are
+# billed at 10x either way.
+#
+# THE WALL CLOCK IS NOT PROMISED HERE, and that is deliberate: it is a fact about the packing,
+# the runner AND what else is queued, all three of which move. It is measured against a run id
+# at the bottom of this header, and `--plan` prints the packing's own expectation on demand.
 #
 # WHAT IT WOULD COST IN CORRECTNESS, WHICH IS THE PART THAT IS NOT ARITHMETIC. `run.js`'s
 # evidence gate — every discovered suite ran, none skipped, every suite's observed count against the
 # count its own source declares — was a whole-run fact while the run was one process. Split
 # across N jobs it becomes N partial facts plus a job that has to add them up, and the sentence
 # at the top of this file ("HOW THIS CANNOT REPORT A GREEN RUN IT DID NOT EARN") is only true
-# again once that adding-up job exists. A matrix that reports seven greens and no total is a
+# again once that adding-up job exists. A matrix that reports five greens and no total is a
 # weaker gate than one serial red.
 #
 # THAT ADDING-UP JOB NOW EXISTS, and it is the job below called `coverage`. It is written where
@@ -208,6 +229,18 @@ on:
 permissions:
   contents: read
 
+# ONE LIVE RUN PER REF. Measured rather than tidied: run 34448209503 took 902s while sharing
+# the macOS pool with a SECOND ui-suite-ci run and packaging-ci, and three of its seven shards
+# spent their first four to nine minutes queued rather than running. A workflow whose shards
+# compete with its own superseded runs is slow for a reason nobody can see in its own log.
+#
+# Grouped by REF, so branches never stop each other — only a push that supersedes an earlier
+# push of the SAME branch does, which is the case where the older answer had already stopped
+# being the one anybody wanted.
+concurrency:
+  group: ui-suite-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ---------------------------------------------------------------------------------------
   # THE SHARDS. Twelve minutes of nothing happening is what this matrix is for.
@@ -228,11 +261,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Seven, and the number is argued from measurement in the header above rather than
-        # picked: it is the shard count at which the longest shard IS the heaviest single
-        # suite, so the packing stops being the limit and an eighth runner buys nothing.
-        # `node run.js --plan=7` prints this packing from the committed weights.
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        # Five, and the number is argued from a measured run in the header above rather than
+        # from the packing table — which argues for seven and is answering a question the
+        # macOS runner pool overrules. Five shards start at once; a sixth and seventh queue
+        # behind them and turn one wave into two. `node run.js --plan=5` prints this packing.
+        shard: [1, 2, 3, 4, 5]
     defaults:
       run:
         working-directory: app/ui/tests
@@ -303,7 +336,7 @@ jobs:
       # 2m16s. A skip, no checks, or fewer checks than its source declares, by any suite, fails
       # the shard — and separately fails `coverage`, which sees the same records in the receipt.
       - name: This shard's browser suites, under WebKit, with their counts
-        run: npm test -- --shard=${{ matrix.shard }}/7 --receipts=receipts
+        run: npm test -- --shard=${{ matrix.shard }}/5 --receipts=receipts
 
       # THE RECEIPTS UPLOAD EVEN WHEN THE SHARD IS RED, which is the whole point of `if:
       # always()` here. `coverage` has to be able to tell "this suite ran and failed" from
@@ -326,7 +359,7 @@ jobs:
   # header at the top of this file promised and that a matrix, on its own, cannot make.
   #
   # `if: always()` because a red shard is exactly when the full picture is worth having, and
-  # `needs: shards` so it runs after all seven whatever they did.
+  # `needs: shards` so it runs after all five whatever they did.
   # ---------------------------------------------------------------------------------------
   coverage:
     needs: shards
