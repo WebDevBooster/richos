@@ -6,192 +6,194 @@
 # nothing else. That is why this is dated data with provenance rather than a
 # tuned constant.
 #
-# EVERY ROW CARRIES WHERE IT CAME FROM, in the third column, because a duration
-# is only meaningful with its platform and its date attached:
+# EVERY ROW IS FROM ONE RUN: the receipts of run 34434314424, a full sharded pass on
+# `ubuntu-latest` at `cfa8e513`, 2026-09-10. Every unit in the inventory, timed
+# on the hardware CI actually pays on, in a single execution — so these numbers
+# are comparable with each other, which numbers stitched from several sources
+# are not.
 #
-#   linux-run-34423889101   32 units, from the RECEIPTS of run 34423889101
-#                           (2026-09-10, ubuntu-latest, this branch's own
-#                           sharded run). This is the first time the sectioned
-#                           suite's 24 sections have EVER been timed
-#                           individually — until 2026-09-10 that suite ran as
-#                           one unit, so no run could report them.
+#   150 units, 4915 s serial. The largest, and they are what set the
+#   wall clock:
 #
-#   linux-run-34396549904   the rest, read out of the per-suite lines of the
-#                           last whole-suite serial pass (2026-09-09). Covers
-#                           the suites the newer run's diff did not select.
+#        381.6 s  scripts/hooks/contract-integrity.test.sh:WTI
+#        318.7 s  scripts/reconcile-terminal-worktrees.test.sh
+#        297.0 s  scripts/hooks/by-reference.test.sh
+#        265.0 s  scripts/reap-stale-worktrees.test.sh
+#        192.8 s  scripts/hooks/row-currency.test.sh
+#        192.3 s  scripts/hooks/root-contract.test.sh
 #
-# EVERY ROW IS A RUNNER MEASUREMENT. Nothing here is from the development Mac,
-# which is the state this file should always be returned to after a re-measure:
-# the only cost worth packing against is the one CI pays.
+# THE HISTORY OF THIS FILE IS THE ARGUMENT FOR RE-MEASURING IT. It has been
+# rebuilt three times in one day and every version was honestly wrong:
 #
-# THE MACOS SECTION SWEEP THAT SEEDED THIS FILE IS GONE, and the reason is worth
-# keeping: it put WTI at 1500.1 s, taken while the machine carried a load
-# average of 34. The runner says 870.7 s. The quiet-Mac figure recorded on
-# 2026-09-04 was 599 s. Three numbers for one harness, none of them wrong, and
-# only one of them is the cost CI actually pays.
+#   a macOS `--only` sweep       put WTI at 1500.1 s, taken at load average 34
+#   the quiet-Mac record         had the same harness at 599 s (2026-09-04)
+#   run 34423889101's receipts   said 870.7 s, on the runner
+#   THIS run, after mutant       says 381.6 s, because `mutation-pool.sh` landed
+#   concurrency landed           and made the harnesses concurrent
+#
+# Four numbers for one harness, none of them wrong when taken, and only the last
+# is the cost CI pays today. A weight is a measurement with a date, never a fact.
 #
 # A UNIT WITH NO ROW HERE IS NOT FREE. `ci-units.sh` gives it DEFAULT_WEIGHT and
 # packs it as if it were average — never zero, or a batch of new suites all lands
 # in one shard and that shard becomes the wall clock.
 #
-# HOW TO RE-MEASURE, which is the whole point of the labels: the coverage job
-# collects every shard's receipts, and `ci-shard.sh --verify-receipts` prints the
-# serial cost and the longest shard. Read the per-unit durations out of those
-# artifacts and replace these rows with a new run id. The plan changes; nothing
-# else does. `ci-units.sh plan` then prints the longest shard, which is the
-# number `timeout-minutes` should be re-promised against rather than left at
-# whatever survived.
-#
-# Rows for units that no longer exist are dropped when this file is regenerated (scripts/lib/owned-session.test.sh went
-# with the suite it named). A weight for a unit nothing runs is a number nobody can check.
+# HOW TO RE-MEASURE: the coverage job collects every shard's receipts, and
+# `ci-shard.sh --verify-receipts` prints the serial cost and the longest shard.
+# Read the per-unit durations out of those artifacts and replace these rows with
+# the new run id. The plan changes; nothing else does. `ci-units.sh plan` then
+# prints the longest shard, which is the number `timeout-minutes` should be
+# re-promised against rather than left at whatever survived.
 #
 # Columns:  unit-id <TAB> seconds <TAB> source
 #
-gates/unmanaged-assignment/lib/harness.test.sh	0.7	linux-run-34396549904
-scripts/ci-affected-units.test.sh	5.6	linux-run-34423889101
-scripts/ci-run-record-check.test.sh	1.3	linux-run-34423889101
-scripts/ci-shard.test.sh	7.8	linux-run-34423889101
-scripts/ci-units.test.sh	8.1	linux-run-34423889101
-scripts/ci-verify.test.sh	0.3	linux-run-34423889101
-scripts/cold-open.test.sh	3.6	linux-run-34396549904
-scripts/collect-worktree-artifacts.test.sh	3.3	linux-run-34396549904
-scripts/create-teammate-worktree.test.sh	14.1	linux-run-34396549904
-scripts/daily-workspace-cleanup.test.sh	1.7	linux-run-34396549904
-scripts/demo.test.sh	54.3	linux-run-34423889101
-scripts/hooks/agent-state-claims.test.sh	2.5	linux-run-34396549904
-scripts/hooks/by-reference.test.sh	212.2	linux-run-34396549904
-scripts/hooks/ceo-asks.test.sh	340.4	linux-run-34396549904
-scripts/hooks/ceo-inputs.test.sh	3.8	linux-run-34396549904
-scripts/hooks/ceo-ruled.test.sh	24.2	linux-run-34396549904
-scripts/hooks/ceo-todos.test.sh	322.4	linux-run-34396549904
-scripts/hooks/completeness-commits.test.sh	5.0	linux-run-34396549904
-scripts/hooks/contract-integrity.test.sh:CL	148.1	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:IL	196.5	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:IP	209.2	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:K	36.9	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:M	45.9	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:MC	44.6	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:MC6	140.4	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:MF	131.8	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:MT	48.0	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:N	22.2	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:P	81.4	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:Q	78.1	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:Qscope	140.0	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:RI	361.3	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:S	37.8	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:SA	204.6	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:WTI	870.7	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:WTR	101.8	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:base	92.3	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:config	36.1	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:manifest	83.6	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:python3	2.7	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:shim	56.2	linux-run-34423889101
-scripts/hooks/contract-integrity.test.sh:worktree	29.8	linux-run-34423889101
-scripts/hooks/detect-nonnative-worktree.test.sh	105.4	linux-run-34396549904
-scripts/hooks/engine-status.test.sh	2.3	linux-run-34396549904
-scripts/hooks/escalations.test.sh	3.8	linux-run-34396549904
-scripts/hooks/guard-bash-main-writes.test.sh	1.5	linux-run-34396549904
-scripts/hooks/guard-definition-drift.test.sh	3.2	linux-run-34396549904
-scripts/hooks/guard-dialect.test.sh	188.1	linux-run-34396549904
-scripts/hooks/guard-idle-land.test.sh	6.4	linux-run-34396549904
-scripts/hooks/guard-interactive-prompt.test.sh	10.0	linux-run-34396549904
-scripts/hooks/guard-main-checkout-writes.test.sh	1.3	linux-run-34396549904
-scripts/hooks/guard-model-ceiling.test.sh	109.3	linux-run-34396549904
-scripts/hooks/guard-resume-isolation.test.sh	30.3	linux-run-34396549904
-scripts/hooks/guard-sealed-worktree.test.sh	130.1	linux-run-34396549904
-scripts/hooks/guard-stated-actions.test.sh	4.9	linux-run-34396549904
-scripts/hooks/guard-unresolved-claims.test.sh	30.0	linux-run-34396549904
-scripts/hooks/guard-vendoring-commits.test.sh	98.4	linux-run-34396549904
-scripts/hooks/guard-worktree-isolation.test.sh	205.2	linux-run-34396549904
-scripts/hooks/guard-worktree-removal.test.sh	5.1	linux-run-34396549904
-scripts/hooks/hook-staleness.test.sh	2.9	linux-run-34396549904
-scripts/hooks/inflight-ack-durability.test.sh	4.4	linux-run-34396549904
-scripts/hooks/inflight-notify.test.sh	7.2	linux-run-34396549904
-scripts/hooks/install-reconciler-schedule.test.sh	44.4	linux-run-34423889101
-scripts/hooks/lifecycle-payload-transport.test.sh	2.4	linux-run-34396549904
-scripts/hooks/long-payload.test.sh	2.2	linux-run-34396549904
-scripts/hooks/mechanical-findings.test.sh	3.4	linux-run-34396549904
-scripts/hooks/named-persons.test.sh	9.0	linux-run-34396549904
-scripts/hooks/payload-transport.test.sh	4.5	linux-run-34396549904
-scripts/hooks/publication-boundary.test.sh	21.5	linux-run-34396549904
-scripts/hooks/reader-teammate-hint.test.sh	0.9	linux-run-34396549904
-scripts/hooks/record-subagent-start.test.sh	8.1	linux-run-34396549904
-scripts/hooks/root-contract.test.sh	184.7	linux-run-34396549904
-scripts/hooks/row-currency.test.sh	387.4	linux-run-34396549904
-scripts/hooks/scan-secrets.test.sh	7.8	linux-run-34396549904
-scripts/hooks/session-evidence.test.sh	0.9	linux-run-34396549904
-scripts/hooks/session-start-reap-worktrees.test.sh	36.5	linux-run-34396549904
-scripts/hooks/stale-staging.test.sh	147.3	linux-run-34396549904
-scripts/hooks/stop-hook-visibility.test.sh	1.5	linux-run-34396549904
-scripts/hooks/task-completed-handoff.test.sh	2.5	linux-run-34396549904
-scripts/hooks/teammate-idle-handoff.test.sh	0.6	linux-run-34396549904
-scripts/hooks/terminalize-agent-worktrees.test.sh	3.9	linux-run-34396549904
-scripts/hooks/turn-manifest.test.sh	13.8	linux-run-34396549904
-scripts/hooks/unasked-deferral.test.sh	73.4	linux-run-34396549904
-scripts/hooks/unevaluated-notice.test.sh	0.4	linux-run-34396549904
-scripts/hooks/unevaluated-payload.test.sh	17.7	linux-run-34396549904
-scripts/hooks/unlanded-branches.test.sh	27.5	linux-run-34396549904
-scripts/hooks/unstarted-rows.test.sh	178.0	linux-run-34396549904
-scripts/hooks/verify-agent-prompt.test.sh	5.8	linux-run-34396549904
-scripts/hooks/waiver-repetition.test.sh	33.0	linux-run-34396549904
-scripts/hooks/worker-lifecycle.test.sh	1.9	linux-run-34396549904
-scripts/install-ack-protocol.test.sh	0.4	linux-run-34396549904
-scripts/install-escalation-protocol.test.sh	0.2	linux-run-34396549904
-scripts/lib/assert-own-worktree-registered.test.sh	0.2	linux-run-34396549904
-scripts/lib/branch-retirement-safety.test.sh	0.6	linux-run-34396549904
-scripts/lib/bulk-record-transport.test.sh	3.6	linux-run-34396549904
-scripts/lib/cleanup-schedule.test.sh	0.1	linux-run-34396549904
-scripts/lib/completion-proof.test.sh	2.5	linux-run-34396549904
-scripts/lib/durable-filesystem-identity.test.sh	0.1	linux-run-34396549904
-scripts/lib/git-jurisdiction.test.sh	7.3	linux-run-34396549904
-scripts/lib/global-state-witness.test.sh	4.9	linux-run-34396549904
-scripts/lib/leak-canary.test.sh	0.3	linux-run-34396549904
-scripts/lib/legacy-registration-recovery.test.sh	3.6	linux-run-34396549904
-scripts/lib/legacy-workspace-acceptance.test.sh	2.1	linux-run-34396549904
-scripts/lib/legacy-workspace-branch-batches.test.sh	12.1	linux-run-34396549904
-scripts/lib/legacy-workspace-capture.test.sh	4.4	linux-run-34396549904
-scripts/lib/legacy-workspace-expiry.test.sh	6.5	linux-run-34396549904
-scripts/lib/legacy-workspace-gate.test.sh	3.8	linux-run-34396549904
-scripts/lib/legacy-workspace-inspection.test.sh	0.9	linux-run-34396549904
-scripts/lib/legacy-workspace-job.test.sh	8.6	linux-run-34396549904
-scripts/lib/legacy-workspace-maintenance.test.sh	1.1	linux-run-34396549904
-scripts/lib/legacy-workspace-mutation.test.sh	6.9	linux-run-34396549904
-scripts/lib/legacy-workspace-operator-integration.test.sh	2.8	linux-run-34396549904
-scripts/lib/legacy-workspace-operator.acceptance.test.sh	0.1	linux-run-34396549904
-scripts/lib/legacy-workspace-operator.test.sh	1.9	linux-run-34396549904
-scripts/lib/legacy-workspace-orphan.acceptance.test.sh	0.8	linux-run-34396549904
-scripts/lib/legacy-workspace-retirement.test.sh	5.3	linux-run-34396549904
-scripts/lib/legacy-workspace-service.test.sh	0.7	linux-run-34396549904
-scripts/lib/legacy-workspace-snapshot-release.test.sh	0.2	linux-run-34396549904
-scripts/lib/legacy-workspace-storage.acceptance.test.sh	0.1	linux-run-34396549904
-scripts/lib/legacy-workspace-storage.test.sh	2.3	linux-run-34396549904
-scripts/lib/managed-workspace-broker.test.sh	3.4	linux-run-34396549904
-scripts/lib/managed-workspace-failed-creation.test.sh	0.4	linux-run-34396549904
-scripts/lib/managed-workspace-idempotency.test.sh	0.8	linux-run-34396549904
-scripts/lib/managed-workspace-integration.test.sh	0.3	linux-run-34396549904
-scripts/lib/managed-workspace-manager.test.sh	0.7	linux-run-34396549904
-scripts/lib/managed-workspace-volume.test.sh	0.2	linux-run-34396549904
-scripts/lib/mutation-harness.test.sh	0.2	linux-run-34396549904
-scripts/lib/native-platform-cleanup.test.sh	0.8	linux-run-34396549904
-scripts/lib/process-identity.test.sh	1.1	linux-run-34396549904
-scripts/lib/resolve-roots.test.sh	0.5	linux-run-34396549904
-scripts/lib/seat-jurisdiction.test.sh	1.2	linux-run-34396549904
-scripts/lib/shell-worktree-sparse.test.sh	2.2	linux-run-34396549904
-scripts/lib/terminal-branch-cleanup.test.sh	0.8	linux-run-34396549904
-scripts/lib/terminal-branch-shadow.test.sh	1.1	linux-run-34396549904
-scripts/lib/terminal-recovery-shadow.test.sh	2.8	linux-run-34396549904
-scripts/lib/workspace-recovery-metadata.test.sh	0.1	linux-run-34396549904
-scripts/lib/workspace-retire.test.sh	54.7	linux-run-34396549904
-scripts/lib/worktree-adoption.test.sh	39.9	linux-run-34396549904
-scripts/lib/worktree-ledger.test.sh	21.3	linux-run-34396549904
-scripts/lib/worktree-transactions.test.sh	415.9	linux-run-34396549904
-scripts/locate-engine.test.sh	7.9	linux-run-34396549904
-scripts/mutation-inventory.test.sh	0.4	linux-run-34396549904
-scripts/prepare-agent-spawn.test.sh	0.7	linux-run-34396549904
-scripts/provision-claude-md.test.sh	0.6	linux-run-34396549904
-scripts/publication-completeness.test.sh	4.5	linux-run-34396549904
-scripts/reap-stale-worktrees.test.sh	339.3	linux-run-34396549904
-scripts/reconcile-terminal-worktrees.test.sh	1035.9	linux-run-34423889101
-scripts/run-all-tests.test.sh	0.3	linux-run-34396549904
+gates/unmanaged-assignment/lib/harness.test.sh	0.3	linux-run-34434314424
+scripts/ci-affected-units.test.sh	6.0	linux-run-34434314424
+scripts/ci-run-record-check.test.sh	0.9	linux-run-34434314424
+scripts/ci-shard.test.sh	9.5	linux-run-34434314424
+scripts/ci-units.test.sh	7.6	linux-run-34434314424
+scripts/ci-verify.test.sh	0.4	linux-run-34434314424
+scripts/cold-open.test.sh	5.0	linux-run-34434314424
+scripts/collect-worktree-artifacts.test.sh	3.8	linux-run-34434314424
+scripts/create-teammate-worktree.test.sh	10.6	linux-run-34434314424
+scripts/daily-workspace-cleanup.test.sh	2.4	linux-run-34434314424
+scripts/demo.test.sh	69.8	linux-run-34434314424
+scripts/hooks/agent-state-claims.test.sh	3.7	linux-run-34434314424
+scripts/hooks/by-reference.test.sh	297.0	linux-run-34434314424
+scripts/hooks/ceo-asks.test.sh	56.0	linux-run-34434314424
+scripts/hooks/ceo-inputs.test.sh	5.3	linux-run-34434314424
+scripts/hooks/ceo-ruled.test.sh	16.3	linux-run-34434314424
+scripts/hooks/ceo-todos.test.sh	169.8	linux-run-34434314424
+scripts/hooks/completeness-commits.test.sh	5.9	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:CL	76.5	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:IL	110.0	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:IP	125.9	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:K	33.0	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:M	44.1	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:MC	46.2	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:MC6	62.2	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:MF	50.8	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:MT	36.2	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:N	20.1	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:P	75.0	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:Q	75.4	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:Qscope	129.7	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:RI	166.9	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:S	32.3	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:SA	85.0	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:WTI	381.6	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:WTR	42.2	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:base	95.1	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:config	33.6	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:manifest	81.9	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:python3	2.6	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:shim	46.7	linux-run-34434314424
+scripts/hooks/contract-integrity.test.sh:worktree	24.8	linux-run-34434314424
+scripts/hooks/detect-nonnative-worktree.test.sh	70.5	linux-run-34434314424
+scripts/hooks/engine-status.test.sh	2.7	linux-run-34434314424
+scripts/hooks/escalations.test.sh	3.7	linux-run-34434314424
+scripts/hooks/guard-bash-main-writes.test.sh	2.0	linux-run-34434314424
+scripts/hooks/guard-definition-drift.test.sh	4.6	linux-run-34434314424
+scripts/hooks/guard-dialect.test.sh	73.4	linux-run-34434314424
+scripts/hooks/guard-idle-land.test.sh	8.6	linux-run-34434314424
+scripts/hooks/guard-interactive-prompt.test.sh	9.0	linux-run-34434314424
+scripts/hooks/guard-main-checkout-writes.test.sh	1.8	linux-run-34434314424
+scripts/hooks/guard-model-ceiling.test.sh	42.5	linux-run-34434314424
+scripts/hooks/guard-resume-isolation.test.sh	20.6	linux-run-34434314424
+scripts/hooks/guard-sealed-worktree.test.sh	68.3	linux-run-34434314424
+scripts/hooks/guard-stated-actions.test.sh	7.2	linux-run-34434314424
+scripts/hooks/guard-unresolved-claims.test.sh	20.2	linux-run-34434314424
+scripts/hooks/guard-vendoring-commits.test.sh	49.3	linux-run-34434314424
+scripts/hooks/guard-worktree-isolation.test.sh	86.4	linux-run-34434314424
+scripts/hooks/guard-worktree-removal.test.sh	6.9	linux-run-34434314424
+scripts/hooks/hook-staleness.test.sh	3.8	linux-run-34434314424
+scripts/hooks/inflight-ack-durability.test.sh	4.8	linux-run-34434314424
+scripts/hooks/inflight-notify.test.sh	9.7	linux-run-34434314424
+scripts/hooks/install-reconciler-schedule.test.sh	30.0	linux-run-34434314424
+scripts/hooks/lifecycle-payload-transport.test.sh	3.2	linux-run-34434314424
+scripts/hooks/long-payload.test.sh	2.6	linux-run-34434314424
+scripts/hooks/mechanical-findings.test.sh	4.6	linux-run-34434314424
+scripts/hooks/named-persons.test.sh	10.4	linux-run-34434314424
+scripts/hooks/payload-transport.test.sh	6.0	linux-run-34434314424
+scripts/hooks/publication-boundary.test.sh	19.0	linux-run-34434314424
+scripts/hooks/reader-teammate-hint.test.sh	1.2	linux-run-34434314424
+scripts/hooks/record-subagent-start.test.sh	4.5	linux-run-34434314424
+scripts/hooks/root-contract.test.sh	192.3	linux-run-34434314424
+scripts/hooks/row-currency.test.sh	192.8	linux-run-34434314424
+scripts/hooks/scan-secrets.test.sh	8.7	linux-run-34434314424
+scripts/hooks/session-evidence.test.sh	1.1	linux-run-34434314424
+scripts/hooks/session-start-reap-worktrees.test.sh	22.2	linux-run-34434314424
+scripts/hooks/stale-staging.test.sh	88.3	linux-run-34434314424
+scripts/hooks/stop-hook-visibility.test.sh	2.0	linux-run-34434314424
+scripts/hooks/task-completed-handoff.test.sh	3.2	linux-run-34434314424
+scripts/hooks/teammate-idle-handoff.test.sh	0.8	linux-run-34434314424
+scripts/hooks/terminalize-agent-worktrees.test.sh	34.9	linux-run-34434314424
+scripts/hooks/turn-manifest.test.sh	9.6	linux-run-34434314424
+scripts/hooks/unasked-deferral.test.sh	45.9	linux-run-34434314424
+scripts/hooks/unevaluated-notice.test.sh	0.5	linux-run-34434314424
+scripts/hooks/unevaluated-payload.test.sh	22.0	linux-run-34434314424
+scripts/hooks/unlanded-branches.test.sh	15.1	linux-run-34434314424
+scripts/hooks/unstarted-rows.test.sh	110.8	linux-run-34434314424
+scripts/hooks/verify-agent-prompt.test.sh	5.4	linux-run-34434314424
+scripts/hooks/waiver-repetition.test.sh	21.1	linux-run-34434314424
+scripts/hooks/worker-lifecycle.test.sh	2.3	linux-run-34434314424
+scripts/install-ack-protocol.test.sh	0.5	linux-run-34434314424
+scripts/install-escalation-protocol.test.sh	0.3	linux-run-34434314424
+scripts/lib/assert-own-worktree-registered.test.sh	0.1	linux-run-34434314424
+scripts/lib/branch-retirement-safety.test.sh	1.5	linux-run-34434314424
+scripts/lib/bulk-record-transport.test.sh	4.8	linux-run-34434314424
+scripts/lib/cleanup-schedule.test.sh	0.3	linux-run-34434314424
+scripts/lib/completion-proof.test.sh	2.9	linux-run-34434314424
+scripts/lib/durable-filesystem-identity.test.sh	0.9	linux-run-34434314424
+scripts/lib/git-jurisdiction.test.sh	10.6	linux-run-34434314424
+scripts/lib/global-state-witness.test.sh	6.4	linux-run-34434314424
+scripts/lib/leak-canary.test.sh	0.4	linux-run-34434314424
+scripts/lib/legacy-registration-recovery.test.sh	18.6	linux-run-34434314424
+scripts/lib/legacy-workspace-acceptance.test.sh	3.6	linux-run-34434314424
+scripts/lib/legacy-workspace-branch-batches.test.sh	15.1	linux-run-34434314424
+scripts/lib/legacy-workspace-capture.test.sh	3.5	linux-run-34434314424
+scripts/lib/legacy-workspace-expiry.test.sh	6.1	linux-run-34434314424
+scripts/lib/legacy-workspace-gate.test.sh	2.9	linux-run-34434314424
+scripts/lib/legacy-workspace-inspection.test.sh	1.3	linux-run-34434314424
+scripts/lib/legacy-workspace-job.test.sh	8.1	linux-run-34434314424
+scripts/lib/legacy-workspace-maintenance.test.sh	1.3	linux-run-34434314424
+scripts/lib/legacy-workspace-mutation.test.sh	3.9	linux-run-34434314424
+scripts/lib/legacy-workspace-operator-integration.test.sh	1.6	linux-run-34434314424
+scripts/lib/legacy-workspace-operator.acceptance.test.sh	0.3	linux-run-34434314424
+scripts/lib/legacy-workspace-operator.test.sh	1.7	linux-run-34434314424
+scripts/lib/legacy-workspace-orphan.acceptance.test.sh	2.3	linux-run-34434314424
+scripts/lib/legacy-workspace-retirement.test.sh	4.9	linux-run-34434314424
+scripts/lib/legacy-workspace-service.test.sh	0.9	linux-run-34434314424
+scripts/lib/legacy-workspace-snapshot-release.test.sh	0.9	linux-run-34434314424
+scripts/lib/legacy-workspace-storage.acceptance.test.sh	0.1	linux-run-34434314424
+scripts/lib/legacy-workspace-storage.test.sh	3.0	linux-run-34434314424
+scripts/lib/managed-workspace-broker.test.sh	3.4	linux-run-34434314424
+scripts/lib/managed-workspace-failed-creation.test.sh	0.5	linux-run-34434314424
+scripts/lib/managed-workspace-idempotency.test.sh	2.2	linux-run-34434314424
+scripts/lib/managed-workspace-integration.test.sh	0.4	linux-run-34434314424
+scripts/lib/managed-workspace-manager.test.sh	1.0	linux-run-34434314424
+scripts/lib/managed-workspace-volume.test.sh	0.2	linux-run-34434314424
+scripts/lib/mutation-harness.test.sh	0.2	linux-run-34434314424
+scripts/lib/mutation-pool.test.sh	3.0	linux-run-34434314424
+scripts/lib/native-platform-cleanup.test.sh	1.2	linux-run-34434314424
+scripts/lib/process-identity.test.sh	1.4	linux-run-34434314424
+scripts/lib/resolve-roots.test.sh	0.6	linux-run-34434314424
+scripts/lib/seat-jurisdiction.test.sh	1.6	linux-run-34434314424
+scripts/lib/shell-worktree-sparse.test.sh	15.9	linux-run-34434314424
+scripts/lib/stopwatch.test.sh	1.0	linux-run-34434314424
+scripts/lib/terminal-branch-cleanup.test.sh	1.2	linux-run-34434314424
+scripts/lib/terminal-branch-shadow.test.sh	0.9	linux-run-34434314424
+scripts/lib/terminal-recovery-shadow.test.sh	3.7	linux-run-34434314424
+scripts/lib/workspace-recovery-metadata.test.sh	0.1	linux-run-34434314424
+scripts/lib/workspace-retire.test.sh	60.6	linux-run-34434314424
+scripts/lib/worktree-adoption.test.sh	26.5	linux-run-34434314424
+scripts/lib/worktree-ledger.test.sh	12.1	linux-run-34434314424
+scripts/lib/worktree-transactions.test.sh	162.5	linux-run-34434314424
+scripts/locate-engine.test.sh	10.5	linux-run-34434314424
+scripts/mutation-inventory.test.sh	0.6	linux-run-34434314424
+scripts/prepare-agent-spawn.test.sh	0.8	linux-run-34434314424
+scripts/provision-claude-md.test.sh	0.6	linux-run-34434314424
+scripts/publication-completeness.test.sh	4.9	linux-run-34434314424
+scripts/reap-stale-worktrees.test.sh	265.0	linux-run-34434314424
+scripts/reconcile-terminal-worktrees.test.sh	318.7	linux-run-34434314424
+scripts/run-all-tests.test.sh	0.6	linux-run-34434314424

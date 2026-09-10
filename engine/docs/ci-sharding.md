@@ -80,6 +80,24 @@ waits for every affected shard and proves the union, and it is the only one of t
 still reports on a docs-only diff, where `affected` is correctly skipped and the absence of a
 required check would otherwise leave the commit ungated.
 
+**A NEW CHECK NEEDS NO EDIT HERE, and that was tested rather than claimed.** On 2026-09-10 the
+lead asked whether the changed-paths job wanted `engine/scripts/cleanup-routing-contract.py`,
+which had just landed as a standalone script with its own suite. The answer is no, and the
+answer is the design:
+
+```
+$ engine/scripts/ci-units.sh units | grep -c cleanup-routing
+1
+$ engine/scripts/ci-affected-units.sh --paths engine/scripts/cleanup-routing-contract.py
+scripts/cleanup-routing-contract.test.sh
+scripts/lib/worktree-transactions.test.sh
+```
+
+The suite became a unit the moment it landed, because the inventory is discovered from disk; and
+a change to the script selects it twice over, by the sibling rule and by the basename rule.
+Adding a bespoke workflow step would be a typed inventory entry — the one object this engine
+refuses to keep — and it would have to be re-added for every future standalone check.
+
 ### 2. The full pass, sharded, with its coverage PROVEN
 
 `scripts/ci-units.sh` derives the inventory; `scripts/ci-shard.sh` runs a shard of it.
@@ -155,6 +173,23 @@ and a check that is red on arrival is a check nobody reads. Deriving the date fr
 history would be circular — if every run had been dropped there would be no history to derive
 it from.
 
+### The full pass, green — `34434314424`
+
+```
+✓ ci-receipts: 150/150 planned unit(s) ran, all green, all at cfa8e5136f8fb90bb0612ceaaa84c557c0700cd7.
+  1 declared KNOWN-RED (lib/ci-known-red.tsv): scripts/lib/worktree-ledger.test.sh
+  serial cost 4915 s across 12 shard(s); longest shard 633 s (10.6 min).
+```
+
+Twelve shards, 4m54s to 10m49s, every one green. **150 of 150 units named, at one commit**, with
+the single declared exception printed rather than silent. That is the claim this design exists to
+be able to make: not twelve green ticks, but one statement about a set somebody can read.
+
+The 633 s longest shard is what that run's own packing achieved against the PREVIOUS weights;
+re-packed against its own receipts the plan now says 410 s, which is the number the next run will
+demonstrate. `timeout-minutes: 60` is still 5.7x that and should be re-promised against a run,
+not against this sentence.
+
 ## "Required" is a repository setting, and it is NOT set — deliberately left for a decision
 
 The `affected-coverage` job is **the one to mark required**, and nothing here has marked it,
@@ -213,6 +248,8 @@ Every claim above is from a run somebody can open.
 | `34423889101` | push | `e62ab1ae` | **green.** 21 minutes wall clock, 12 affected shards, coverage 32/32. |
 | `34425552226` | push | `a84784d3` | **green in 1 m 11 s.** A three-unit diff produced a THREE-shard matrix, not twelve — the matrix carries only shards that have work. This is the required check at the speed it promises. |
 | `34425677957` | dispatch | `a84784d3` | **the FULL pass, and it is the most useful run of the four.** See below. |
+| `34432651037` | dispatch | `05124e66` | red — `worktree-ledger` again, on a different shard. Two failures is not a flake, and this is the run that turned it into a diagnosis. |
+| `34434314424` | dispatch | `cfa8e513` | **the full pass, GREEN. 150/150 units, all at one commit, longest shard 10m49s.** |
 
 Run `34423889101`, job by job:
 
@@ -454,23 +491,37 @@ is the one that would have been easiest to leave out.
 
 `ci-shard.test.sh` cases S6, S7 and S8 prove all three.
 
-## What the current weights produce, from the runner's own receipts
+## What the current weights produce, from one full pass's receipts
 
 ```
 $ engine/scripts/ci-units.sh plan 12
-148 unit(s), 8404 s serial, 12 shard(s), longest shard 1036 s (17.3 min)
+150 unit(s), 4915 s serial, 12 shard(s), longest shard 410 s (6.8 min)
+the serial pass is 12.0x the longest shard
 ```
 
-**140 minutes of serial verification, 17.3 minutes of wall clock, and every weight above is a
-runner measurement** — the 24 sections from run `34423889101`'s receipts, which is the first
-time they have ever been timed individually, and the remaining suites from run `34396549904`.
-The longest shard is one unit, `reconcile-terminal-worktrees.test.sh` at 1035.9 s, so the
-packing is not the limit and more shards cannot help.
+**82 minutes of serial verification in 6.8 minutes of wall clock, and it began the day as 123
+minutes in one job.** Every weight is from run `34434314424` — a single full sharded pass on
+`ubuntu-latest`, so the numbers are comparable with each other, which numbers stitched from
+several sources are not.
 
-**The macOS sweep that seeded this file was thrown away, and it is worth saying why.** It put
-the WTI section at 1500.1 s, taken while the development machine carried a load average of 34.
-The runner says **870.7 s**. The quiet-Mac figure recorded on 2026-09-04 was **599 s**. Three
-numbers for one mutation harness, none of them wrong, and only one of them is the cost CI pays.
+`12.0x the longest shard` is the number to read: with twelve shards that is perfect scaling, so
+**the packing is now the only limit and no single unit dominates**. The largest indivisible unit
+is the WTI section at 381.6 s, comfortably under the 410 s longest shard.
+
+**The history of that file is the argument for re-measuring it.** It was rebuilt three times in
+one day and every version was honestly wrong:
+
+| when | WTI section | why it changed |
+|---|---|---|
+| a local macOS `--only` sweep | 1500.1 s | taken at load average 34 |
+| the quiet-Mac record, 2026-09-04 | 599 s | a quiet host |
+| run `34423889101` receipts | 870.7 s | the runner, before mutant concurrency |
+| run `34434314424` receipts | **381.6 s** | `mutation-pool.sh` landed and made the harnesses concurrent |
+
+Four numbers for one harness, none of them wrong when taken, and only the last is the cost CI
+pays today. **A weight is a measurement with a date, never a fact** — which is why every row
+carries the run it came from and why `--verify-receipts` prints the serial cost and the longest
+shard on every run.
 
 ## Re-packing the shards against measured cost
 
