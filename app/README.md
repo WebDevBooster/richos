@@ -518,6 +518,19 @@ app/
                               ruling the gate serves is about not getting in the way
   src-tauri/                 the Tauri shell — DETACHED nested workspace (empty [workspace])
     src/main.rs              window + Tauri command bridge to the spine
+    src/window_geometry.rs   HOW BIG THE WINDOW OPENS AND WHERE, derived from the work area
+                              of the display it opens on rather than from a constant
+                              (docs/hardware-choices-2026-09-10.md D2 — 1400 pt on a
+                              1080 pt portrait panel was 320 pt off the edge). No Tauri type
+                              in it, so the arithmetic is unit-testable; the two functions
+                              that talk to the runtime, read_displays and
+                              remember_window_geometry, are in main.rs next to the window.
+                              A saved geometry is restored only if a display present RIGHT
+                              NOW holds the whole window — otherwise it is discarded whole,
+                              never clamped into view
+    examples/window_placement.rs  the dry run: the REAL panels via system_profiler through
+                              the REAL decision, printing what the window would open at,
+                              swept across menu-bar/Dock models. Opens no window
     src/nav.rs               durable rail VIEW state: width, pin, rename, archive (not evidence)
     src/updates.rs           THE UPDATE PATH (RICH-TODOs rows 12 and u1): check, download with
                               throttled progress, VERIFY, install, relaunch; a nine-state
