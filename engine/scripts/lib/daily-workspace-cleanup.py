@@ -204,8 +204,28 @@ def owner_check(tx, transaction, member):
     native = [m for m in transaction['members'] if m.get('class') == 'native']
     entity = native[0]['repo'] if native else member['repo']
     live = _load('agent-liveness').resolve(entity, aid)
-    if live.get('verdict') != 'NOT-ALIVE':
+    if live.get('verdict') != 'NOT-ALIVE' and not _held_by_nobody_over_a_terminal_agent(tx, transaction, live):
         raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason')))
+
+
+def _held_by_nobody_over_a_terminal_agent(tx, transaction, live):
+    """The ONE non-NOT-ALIVE verdict this lane may pass, and it is narrow.
+
+    Since 2026-09-10 agent-liveness answers INDETERMINATE for a lock it cannot
+    attribute, because reading a HELD lock as death made it permissive for
+    every live agent. That correction would otherwise make a workspace held by
+    an empty lock unreclaimable for good. So exactly one shape passes: the
+    verdict is INDETERMINATE *because the lock names nobody*, and the platform
+    has said this exact agent stopped. ALIVE never passes. INDETERMINATE for
+    any other reason — git unqueryable, a pid that could not be probed — never
+    passes, because those are questions with an answer this did not get.
+    """
+    if live.get('verdict') != 'INDETERMINATE':
+        return False
+    evidence = live.get('evidence') or {}
+    if not evidence.get('locked') or evidence.get('pid') is not None:
+        return False
+    return platform_said_the_agent_stopped(tx, transaction)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -362,15 +382,56 @@ def platform_released_its_lock(member, row):
     return True, 'Claude Code has released its own lock on this exact registration'
 
 
+def lock_names_nobody(row):
+    """A lock that is HELD but carries no pid, so it can be attributed to no
+    process and no agent. Measured on this machine 2026-09-10: three live
+    agents' locks were 0 bytes, because `git worktree lock` without --reason
+    writes an empty file and something had unlocked and re-locked them. Any
+    hand or tool can leave one, and `_release_dead_lock` refuses it forever
+    ("locked without a pid; retained") — so a workspace can end up held by
+    nobody, permanently, with nothing automatic able to clear it. That is the
+    CEO's "a finished agent's lock is never released", and this is the
+    predicate that names it."""
+    if not row or 'locked' not in row:
+        return False
+    return _lock_pid(row.get('locked')) is None
+
+
 def agent_workspace_is_reclaimable(tx, transaction, member, row):
-    """(reclaimable, reason) — the agent-sized ground, both halves required."""
+    """(reclaimable, reason) — the agent-sized ground.
+
+    The agent must be over by the platform's own word, and then EITHER the
+    platform has released its lock (the ordinary path: its release is its
+    signal) OR the lock names nobody at all. The second is not a weakening of
+    the first: a lock with a live pid on it still refuses here and still
+    refuses at the liveness veto. It is the answer to a lock nothing can
+    clear, and it is positive evidence rather than an inference from quiet —
+    the platform said this exact agent stopped, and the lock says nothing.
+    """
     stopped, why = platform_said_the_agent_stopped(tx, transaction)
     if not stopped:
         return False, why
     released, lock_why = platform_released_its_lock(member, row)
-    if not released:
-        return False, lock_why
-    return True, why + '; ' + lock_why
+    if released:
+        return True, why + '; ' + lock_why
+    if lock_names_nobody(row):
+        return True, (why + '; the lock held on this workspace carries no pid, so it names no process '
+                      'and no agent, and nothing can ever clear it by the pid route')
+    return False, lock_why
+
+
+def _release_unattributable_lock(repo, path, row):
+    """`git worktree unlock` for a lock that names NOBODY, over an agent the
+    platform has already said stopped. Refuses if the lock names a pid (that
+    is _release_dead_lock's question, not this one) and refuses while any
+    process stands in the tree. Nothing is killed and nothing is forced."""
+    if not lock_names_nobody(row):
+        raise RuntimeError('lock names a pid; not this route')
+    pids = processes_using(path)
+    if pids:
+        raise RuntimeError('process(es) %s still use %s; the lock is retained'
+                           % (','.join(str(p) for p in pids), path))
+    _git(repo, 'worktree', 'unlock', '--', path)
 
 
 # ---------------------------------------------------------------------------
@@ -715,6 +776,7 @@ def assess(tx, transaction, index):
             return 'branch-only', 'workspace already gone; branch by exact compare-and-set'
         repo = member['repo']
         row = proof_api.registry(repo).get(member['path'])
+        ground = 'session_gone'
         if tx.platform_native(member):
             gone, why = session_gone(transaction, tx)
             if not gone:
@@ -723,10 +785,10 @@ def assess(tx, transaction, index):
                 reclaimable, agent_why = agent_workspace_is_reclaimable(tx, transaction, member, row)
                 if not reclaimable:
                     return 'observe', 'platform-owned; ' + why + '; ' + agent_why
-                why = agent_why
+                ground, why = 'agent_over', agent_why
             if not row or 'prunable' in row:
                 return 'hold', 'exact registration required'
-            if 'locked' in row:
+            if 'locked' in row and not (ground == 'agent_over' and lock_names_nobody(row)):
                 pid = _lock_pid(row['locked'])
                 status = _load('worktree-ledger').process_status(pid, None) if pid else 'unknown'
                 if status != 'gone':
@@ -742,7 +804,12 @@ def assess(tx, transaction, index):
         return 'hold', str(error)
 
 
-def reconcile(tx, transaction, index):
+def reconcile(tx, transaction, index, immediate=False):
+    """`immediate` = called from the terminal ingress rather than the nightly
+    pass. It changes exactly one thing: the ingress never releases a lock the
+    platform is holding, however unattributable, because in that instant the
+    platform is still putting the worker down. Every other refusal is
+    identical on both paths, deliberately."""
     member = transaction['members'][index]
     if member.get('class') == 'managed-image':
         raise RuntimeError('managed image is not an ordinary worktree')
@@ -776,9 +843,19 @@ def reconcile(tx, transaction, index):
             if not row or 'prunable' in row:
                 raise RuntimeError('exact registration required')
             if 'locked' in row:
-                # Reached only on the session-gone ground: the agent ground
-                # requires the platform to have released its own lock first.
-                _release_dead_lock(repo, member['path'], row['locked'])
+                if ground == 'agent_over' and lock_names_nobody(row):
+                    # A lock nobody can be behind, over an agent the platform
+                    # said stopped. NOT in the stop event itself: the ingress
+                    # waits for the platform instead, because in that instant
+                    # the platform is still putting the worker down.
+                    if immediate:
+                        raise RuntimeError('the lock on this workspace names nobody; the ingress waits for '
+                                           'the platform rather than releasing it, and the reconciler '
+                                           'resolves it')
+                    _release_unattributable_lock(repo, member['path'], row)
+                    saved = dict(saved, lock_released='held by nobody: ' + repr(row.get('locked')))
+                else:
+                    _release_dead_lock(repo, member['path'], row['locked'])
                 row = proof_api.registry(repo).get(member['path'])
                 if not row or 'locked' in row:
                     raise RuntimeError('lock still present after release; retained')
@@ -939,7 +1016,7 @@ def reclaim_now(tx, transaction, index, deadline=None):
         released, lock_why = await_platform_release(tx, transaction, member, deadline)
         if not released:
             return journal('deferred', lock_why)
-        reconcile(tx, tx.load_tx(sid, aid), index)
+        reconcile(tx, tx.load_tx(sid, aid), index, immediate=True)
     except Exception as error:
         return journal('deferred', error)
     after = tx.load_tx(sid, aid)['members'][index]

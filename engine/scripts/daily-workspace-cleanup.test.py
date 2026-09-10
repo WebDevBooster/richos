@@ -276,6 +276,78 @@ class Cleanup(unittest.TestCase):
             decision,why=self.assess();self.assertEqual(decision,'observe');self.assertIn('inconsistently rooted',why)
         self.assert_kept()
 
+    def test_lock_that_names_nobody_is_released_by_the_reconciler_on_positive_evidence(self):
+        # THE CEO'S FIRST OBSERVATION, 2026-09-10: "A finished agent's lock is
+        # never released. Five workspaces sat unreclaimable for a working day
+        # ... nothing automatic could EVER have cleared them."
+        # The mechanism, measured: `git worktree lock` with no --reason writes
+        # an EMPTY reason, _release_dead_lock refuses a lock with no pid, and
+        # so the workspace is held by nobody forever. The way out is not to
+        # weaken the lock rule but to have positive evidence beside it: the
+        # platform's own terminal ingress named this exact agent id.
+        self.make_native()
+        self.git(self.repo,'worktree','lock',str(self.work))   # no --reason: names nobody
+        row=_load_registry(self.repo,self.work)
+        self.assertIn('locked',row);self.assertEqual(row['locked'],'')
+        self.assertTrue(daily.lock_names_nobody(row))
+        decision,reason=self.assess()
+        self.assertEqual(decision,'remove');self.assertIn('names no process',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        self.assertIn('held by nobody',result['members'][0]['daily_cleanup']['lock_released'])
+
+    def test_lock_that_names_nobody_is_NOT_released_in_the_stop_event_itself(self):
+        # The ingress never releases a lock the platform is holding, whatever
+        # is written on it: in that instant the platform is still putting the
+        # worker down. The nightly pass resolves it; the ingress waits.
+        self.make_native()
+        self.git(self.repo,'worktree','lock',str(self.work))
+        tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('waits for the platform',member['immediate_reclaim']['reason'])
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+        # and the second belt behind the wait: even called directly, the
+        # immediate path refuses to release a lock the platform is holding
+        with tx.tx_lock(SID,AID):
+            with self.assertRaisesRegex(RuntimeError,'ingress waits for the platform'):
+                daily.reconcile(tx,tx.load_tx(SID,AID),0,immediate=True)
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+
+    def test_lock_that_names_nobody_still_refuses_without_the_platform_terminal_fact(self):
+        # Same empty lock, but the terminal fact is the engine's own
+        # derivation. Nothing is released and nothing is removed: the release
+        # rests on the platform having named this agent, never on the lock
+        # being uninformative.
+        self.make_native()
+        self.ledger_row(session_pid=os.getpid(),pid_start='')
+        self.record['terminal']={'ingress':'Adoption','ts':'fixture'}
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        self.git(self.repo,'worktree','lock',str(self.work))
+        self.assertEqual(self.assess()[0],'observe')
+        self.run_cleanup()
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+
+    def test_process_in_the_tree_holds_a_lock_that_names_nobody(self):
+        # The release refuses while anything stands in the tree, and nothing
+        # is ever killed to make room for it.
+        self.make_native()
+        self.git(self.repo,'worktree','lock',str(self.work))
+        with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'4242 /bin/sleep 300 '+str(self.work)}):
+            with self.assertRaisesRegex(RuntimeError,'4242 still use'):self.run_cleanup()
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+
+    def test_a_lock_naming_a_live_pid_is_never_released_by_that_route(self):
+        # The negative control for the whole route: a lock that DOES name a
+        # running pid is refused by the liveness veto, and never reaches the
+        # unattributable path.
+        self.make_native(lock_pid=os.getpid())
+        with self.assertRaisesRegex(Exception,'live'):self.run_cleanup()
+        self.assert_kept()
+        with self.assertRaisesRegex(RuntimeError,'names a pid'):
+            daily._release_unattributable_lock(str(self.repo),str(self.work),
+                                               _load_registry(self.repo,self.work))
+        self.assertIn('locked',_load_registry(self.repo,self.work))
+
     def test_native_with_no_recorded_session_identity_is_not_provably_gone(self):
         # session_gone stays exactly as honest as it was: no recorded process
         # identity is never evidence that a session ended. What changed is

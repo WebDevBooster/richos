@@ -69,7 +69,7 @@ mutant no-identity-means-gone "test_native_with_no_recorded_session_identity_is_
 # owner_check's liveness veto; removing all three is what it takes to make the
 # contradiction case (ledger says gone, lock pid runs) delete a tree.
 mutant dead-lock-check-removed "test_native_lock_held_by_a_running_pid_holds_whatever_the_ledger_says" "$D" \
-    "    if status != 'gone':{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if live.get('verdict') != 'NOT-ALIVE':{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if status not in ('gone', 'reused'):{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
+    "    if status != 'gone':{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if live.get('verdict') != 'NOT-ALIVE' and not _held_by_nobody_over_a_terminal_agent(tx, transaction, live):{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if status not in ('gone', 'reused'):{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
     "    if False:{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if False:{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if False:{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
     "a lock held by a RUNNING pid would be released and the tree removed because a ledger row said the session was gone — a contradiction resolved in favor of deleting."
 
@@ -107,6 +107,16 @@ mutant ingress-ignores-the-platform-lock "test_ingress_waits_for_the_platform_to
     "        released, why = platform_released_its_lock(holder, proof_api.registry(repo).get(path))" \
     "        released, why = True, 'mutant: the platform lock is ignored'" \
     "the ingress would walk past a lock Claude Code still holds instead of waiting for the platform's own release — the tree survives on the liveness veto behind it, but the engine would be deciding a question that is the platform's."
+
+mutant any-lock-treated-as-naming-nobody "test_a_lock_naming_a_live_pid_is_never_released_by_that_route" "$D" \
+    "    return _lock_pid(row.get('locked')) is None" \
+    "    return True" \
+    "EVERY lock would be treated as naming nobody, so the release route meant for an uninformative lock would take one that names a RUNNING pid -- the exact artifact the liveness veto is built on."
+
+mutant nobody-lock-released-with-a-process-in-the-tree "test_process_in_the_tree_holds_a_lock_that_names_nobody" "$D" \
+    "    pids = processes_using(path){NL}    if pids:{NL}        raise RuntimeError('process(es) %s still use %s; the lock is retained'" \
+    "    pids = []{NL}    if pids:{NL}        raise RuntimeError('process(es) %s still use %s; the lock is retained'" \
+    "the lock would come off a tree something is standing in -- the one check that makes releasing it different from ignoring it."
 
 mutant untracked-refusal-removed "test_dirty_staged_and_untracked_refuse" "$P" \
     "    if git(path,'ls-files','--others','--exclude-standard','-z').stdout:{NL}        raise CompletionError" \
