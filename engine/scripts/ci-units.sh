@@ -65,6 +65,14 @@
 #   ci-units.sh shard-count      the declared default shard count
 #   ci-units.sh cmd <unit-id>    the exact argv that runs one unit
 #
+#   --units-file <path>          restrict the inventory to the unit ids in
+#                                <path>, one per line. Applies to units, count,
+#                                shards, plan and matrix, so a diff-scoped set
+#                                is packed by exactly the same planner as the
+#                                whole. An id in the file that is not a unit is
+#                                FATAL: a restriction that silently dropped one
+#                                would plan over less than it was asked for.
+#
 # Exit codes:
 #   0  fine
 #   2  discovery found nothing, or the engine root is unreadable, or bad usage
@@ -127,6 +135,59 @@ _discover_sections() {
     awk '/^if _section [A-Za-z0-9_.-]+; then$/ { id=$3; sub(/;$/, "", id); print id }' "$s"
 }
 
+# ---------------------------------------------------------------------------
+# RESTRICTING THE INVENTORY — added 2026-09-10, because the first real push
+# proved it necessary rather than nice.
+#
+# The `affected` gate was one job running whatever the diff selected. That is
+# fine for a guard-plus-suite diff, and this work's OWN first push selected 54
+# units costing ~100 minutes serial — a change to `contract-integrity-probe.sh`
+# is named in the sectioned suite's preamble, so it selects all 24 sections, and
+# it pulls in `reconcile-terminal-worktrees.test.sh` at 940 s besides. The job
+# would have been killed at its 60-minute timeout, and a required check that
+# dies on a large diff is a required check people learn to ignore.
+#
+# So the packer takes a RESTRICTION: a file of unit ids, and it plans over
+# exactly those. Nothing else changes — same discovery, same weights, same
+# longest-first packing, same determinism — so the affected gate and the full
+# pass are the same mechanism at two scopes rather than two mechanisms that
+# have to be kept in step.
+#
+# AN ID IN THE FILE THAT IS NOT A UNIT IS FATAL. A restriction that silently
+# dropped an unrecognized id would plan over less than it was asked for and
+# exit 0, which is the failure this whole file exists to refuse.
+# ---------------------------------------------------------------------------
+RESTRICT_FILE=""
+
+_apply_restriction() {
+    if [ -z "$RESTRICT_FILE" ]; then cat; return 0; fi
+    [ -f "$RESTRICT_FILE" ] || { echo "ERROR: ci-units.sh: --units-file: no such file: $RESTRICT_FILE" >&2; exit 2; }
+    awk -F'\t' -v want="$RESTRICT_FILE" '
+        BEGIN {
+            n = 0
+            while ((getline line < want) > 0) {
+                gsub(/^[ \t]+|[ \t]+$/, "", line)
+                if (line == "" || substr(line, 1, 1) == "#") continue
+                keep[line] = 1
+                n++
+            }
+            if (n == 0) {
+                print "ERROR: ci-units.sh: --units-file " want " names no unit. Refusing to plan over nothing." > "/dev/stderr"
+                exit 2
+            }
+        }
+        $1 in keep { seen[$1] = 1; print; next }
+        END {
+            missing = 0
+            for (k in keep) if (!(k in seen)) {
+                print "ERROR: ci-units.sh: --units-file names " k ", which is not a unit in this inventory." > "/dev/stderr"
+                missing++
+            }
+            if (missing > 0) exit 2
+        }
+    '
+}
+
 _weight_of() { # <unit-id>
     local id="$1" w=""
     if [ -f "$WEIGHTS" ]; then
@@ -184,7 +245,7 @@ emit_units() {
 # and two runs of this workflow can be compared line by line.
 emit_shards() { # <n>
     local n="$1"
-    emit_units | python3 -c '
+    emit_units | _apply_restriction | python3 -c '
 import sys
 n = int(sys.argv[1])
 units = []
@@ -216,7 +277,7 @@ for i in range(n):
 
 emit_plan() { # <n>
     local n="$1"
-    emit_units | python3 -c '
+    emit_units | _apply_restriction | python3 -c '
 import sys
 n = int(sys.argv[1])
 w = {}
@@ -302,10 +363,24 @@ emit_cmd() { # <unit-id>
 
 CMD="${1:-units}"
 [ "$#" -gt 0 ] && shift
+
+# --units-file <path> may follow any subcommand; it restricts the inventory the
+# planner plans over. Pulled out of the positional arguments so `shards 12
+# --units-file f` and `shards --units-file f 12` both read naturally.
+POSITIONAL=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --units-file) [ "$#" -ge 2 ] || { echo "ERROR: ci-units.sh: --units-file needs a path" >&2; exit 2; }
+                      RESTRICT_FILE="$2"; shift 2 ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- ${POSITIONAL[@]+"${POSITIONAL[@]}"}
+
 case "$CMD" in
-    units)  emit_units ;;
+    units)  emit_units | _apply_restriction ;;
     suites) _discover_suites ;;
-    count)  emit_units | grep -c . ;;
+    count)  emit_units | _apply_restriction | grep -c . ;;
     shards) emit_shards "${1:-$DEFAULT_SHARDS}" ;;
     plan)   emit_plan "${1:-$DEFAULT_SHARDS}" ;;
     matrix) emit_matrix "${1:-$DEFAULT_SHARDS}" ;;

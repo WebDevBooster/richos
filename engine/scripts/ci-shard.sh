@@ -76,7 +76,14 @@
 #   ci-shard.sh --units-file <path>      run the units named in a file
 #   ci-shard.sh --list                   print what would run, run nothing
 #   ci-shard.sh --verify-receipts <dir>  the coverage proof over collected
-#                                        receipts; runs no tests
+#                                        receipts; runs no tests. Add
+#                                        --units-file to certify a RESTRICTED
+#                                        plan (the affected gate's set) rather
+#                                        than the whole inventory.
+#   ci-shard.sh --units-file <f> --shard i/N   pack THAT set into N shards and
+#                                        run shard i — the affected gate on a
+#                                        large diff, through the same planner
+#                                        the full pass uses.
 #   options: --receipt <path>  --verbose  --allow-empty  --shards <n>
 #
 # Exit codes:
@@ -164,7 +171,16 @@ kr_expired()  { # <unit-id> — 0 when today is past the expiry
 if [ -n "$VERIFY_DIR" ]; then
     [ -d "$VERIFY_DIR" ] || die "--verify-receipts: no such directory: $VERIFY_DIR"
     PLAN_FILE="$(mktemp)"; trap 'rm -f "$PLAN_FILE"' EXIT
-    bash "$UNITS_SH" units | cut -f1 | LC_ALL=C sort > "$PLAN_FILE" || die "could not read the planned inventory"
+    # With --units-file the plan being certified is that SET, not the whole
+    # inventory: the affected gate covers what the diff selected, and checking
+    # its receipts against all 148 units would report 94 false absences.
+    if [ -n "$UNITS_FILE" ]; then
+        [ -f "$UNITS_FILE" ] || die "--units-file: no such file: $UNITS_FILE"
+        bash "$UNITS_SH" units --units-file "$UNITS_FILE" | cut -f1 | LC_ALL=C sort > "$PLAN_FILE" \
+            || die "could not read the restricted inventory"
+    else
+        bash "$UNITS_SH" units | cut -f1 | LC_ALL=C sort > "$PLAN_FILE" || die "could not read the planned inventory"
+    fi
     find "$VERIFY_DIR" -type f -name '*.jsonl' -print0 2>/dev/null | xargs -0 cat 2>/dev/null \
         | python3 "$SCRIPT_DIR/lib/ci-receipts.py" verify --plan "$PLAN_FILE"
     exit $?
@@ -178,6 +194,16 @@ trap 'rm -f "$ALL_UNITS" "$SELECTED"' EXIT
 bash "$UNITS_SH" units > "$ALL_UNITS" || die "ci-units.sh failed — the inventory could not be built."
 
 resolve_selection() {
+    # --units-file AND --shard together: pack THAT set and take shard i of it.
+    # The affected gate uses this, so a large diff is spread across machines by
+    # exactly the planner the full pass uses rather than by a second mechanism
+    # that has to be kept in step with it.
+    if [ -n "$UNITS_FILE" ] && [ -n "$SHARD" ]; then
+        [ -f "$UNITS_FILE" ] || die "--units-file: no such file: $UNITS_FILE"
+        bash "$UNITS_SH" shards "$SHARDS" --units-file "$UNITS_FILE" \
+            | awk -F'\t' -v i="$SHARD" '$1 == i { print $2 }' | LC_ALL=C sort
+        return 0
+    fi
     if [ -n "$ONLY_UNITS" ] || [ -n "$UNITS_FILE" ]; then
         {
             printf '%s' "${ONLY_UNITS#,}" | tr ',' '\n'

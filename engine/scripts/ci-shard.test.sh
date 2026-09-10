@@ -35,6 +35,14 @@
 #   S13  --verify-receipts FAILS when a unit has two receipts.
 #   S14  --verify-receipts FAILS on an empty receipt set rather than certifying
 #        a plan against nothing.
+#   S16  --units-file WITH --shard packs that set and runs shard i of it. This
+#        is the affected gate on a large diff: this work's own first push
+#        selected 54 units costing ~100 minutes serial, which would have been
+#        killed at the job's 60-minute timeout.
+#   S17  --verify-receipts --units-file certifies the RESTRICTED plan, and the
+#        same receipts checked against the WHOLE inventory correctly FAIL. Both
+#        directions, because a coverage check that passes against any plan
+#        certifies nothing.
 #   S15  A unit that writes outside its sandbox is caught and named, so the
 #        leak canary is not lost by sharding. This is the 2026-09-05
 #        escalations.test.sh finding, which run-all-tests.sh catches per suite;
@@ -311,6 +319,40 @@ else
     bad "S15  rc=$RC — the per-unit leak canary did not fire"; sed 's/^/          /' "$SANDBOX/out"
 fi
 rm -f "$E/scripts/lib/leaky.test.sh"
+
+# --- S16 / S17: the restricted plan ---------------------------------------
+SUBSET="$SANDBOX/subset.txt"
+printf 'scripts/lib/green.test.sh\n' > "$SUBSET"
+printf 'scripts/hooks/contract-integrity.test.sh:alpha\n' >> "$SUBSET"
+RSUB="$SANDBOX/rsub"; rm -rf "$RSUB"; mkdir -p "$RSUB"
+RC1=0; RC2=0
+bash "$SH" --units-file "$SUBSET" --shard 1/2 --receipt "$RSUB/1.jsonl" >/dev/null 2>&1 || RC1=$?
+bash "$SH" --units-file "$SUBSET" --shard 2/2 --receipt "$RSUB/2.jsonl" >/dev/null 2>&1 || RC2=$?
+RAN="$(cat "$RSUB"/*.jsonl 2>/dev/null | python3 -c '
+import json, sys
+print(" ".join(sorted(json.loads(l)["unit"] for l in sys.stdin if l.strip())))')"
+if [ "$RC1" = "0" ] && [ "$RC2" = "0" ] \
+   && [ "$RAN" = "scripts/hooks/contract-integrity.test.sh:alpha scripts/lib/green.test.sh" ]; then
+    ok "S16  --units-file with --shard packs that set across shards and runs each unit exactly once"
+else
+    bad "S16  rc=$RC1/$RC2 ran: $RAN"
+fi
+
+bash "$SH" --verify-receipts "$RSUB" --units-file "$SUBSET" > "$SANDBOX/out" 2>&1
+RC=$?
+if [ "$RC" = "0" ] && grep -q '2/2 planned unit(s) ran' "$SANDBOX/out"; then
+    ok "S17a --verify-receipts --units-file certifies the restricted plan"
+else
+    bad "S17a rc=$RC"; sed 's/^/          /' "$SANDBOX/out"
+fi
+bash "$SH" --verify-receipts "$RSUB" > "$SANDBOX/out" 2>&1
+RC=$?
+if [ "$RC" = "1" ] && grep -q 'have NO receipt' "$SANDBOX/out"; then
+    ok "S17b the SAME receipts checked against the whole inventory FAIL — the restriction is a real claim, not a waiver"
+else
+    bad "S17b rc=$RC — a restricted run's receipts certified the whole inventory, which certifies nothing"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

@@ -27,8 +27,8 @@ four buys exactly one green run.
 
 ### 1. A fast gate that matches the inflow — `affected`
 
-`scripts/ci-affected-units.sh` maps a diff to the units it can affect and the `affected` job
-runs those. A guard-plus-suite diff is two to five minutes, on Linux, on the push that
+`scripts/ci-affected-units.sh` maps a diff to the units it can affect and the `affected` jobs
+run those, sharded. A guard-plus-suite diff is two to five minutes, on Linux, on the push that
 introduces it — so a new suite gets its first Linux execution from the person who wrote it,
 while they still have the context to fix it.
 
@@ -46,9 +46,39 @@ the push against an empty set. A changed `.sh`/`.py` that no suite names is name
 `--strict`, fails. The remedy is never "add it to an exclusion list here" — the list would
 BE the untested surface. Give it a suite, or make a suite name it.
 
-**Worst case, stated rather than discovered:** a change to the shared fixture at the top of
-`contract-integrity.test.sh` maps to all 24 of its sections, about 40 minutes. That is
-correct — such a change really does affect every section — and it is rare.
+**The worst case was stated, and then the first real push produced it.** A change to the shared
+fixture at the top of `contract-integrity.test.sh` maps to all 24 of its sections; the commits
+in this very branch touch `contract-integrity-probe.sh`, which that suite's preamble names, and
+they pull in `reconcile-terminal-worktrees.test.sh` at 940 s besides. Run `34422722682`, pushed
+2026-09-10, selected **54 units costing ~100 minutes serial** — and the `affected` job was one
+job with a 60-minute timeout. It would have been killed.
+
+**So the affected set is sharded too, by the same planner.** `ci-units.sh --units-file` restricts
+the inventory to a set of ids and packs exactly those; `ci-shard.sh --units-file --shard i/N`
+runs shard *i* of it. Same discovery, same weights, same longest-first packing, same
+determinism — the diff-scoped gate and the full pass are one mechanism at two scopes rather than
+two that have to be kept in step. The same 54 units now pack into twelve shards whose longest is
+940 s: **15.7 minutes, and the longest shard is exactly the largest indivisible unit**, so the
+packing is not the limit.
+
+The matrix carries only shards that HAVE units, so a two-unit diff is two small jobs rather than
+twelve, ten of which would have nothing to run — and a shard that verifies nothing must never
+exit 0.
+
+**An id in the restriction that is not a unit is FATAL** (`ci-units.test.sh` case U13). A
+restriction that silently dropped one would plan over less than it was asked for and still exit
+0, which is this document's whole subject wearing a diff filter.
+
+`affected-coverage` then proves the affected shards covered exactly the set the diff selected —
+checked against the RESTRICTED plan, never the whole inventory, which would report 94 false
+absences and teach everyone to ignore the job. `ci-shard.test.sh` case S17 checks both
+directions: the restricted plan certifies, and the same receipts against the whole inventory
+correctly fail.
+
+**`affected-coverage` is the job to mark required**, not `affected`. It is the one that both
+waits for every affected shard and proves the union, and it is the only one of the two that
+still reports on a docs-only diff, where `affected` is correctly skipped and the absence of a
+required check would otherwise leave the commit ungated.
 
 ### 2. The full pass, sharded, with its coverage PROVEN
 

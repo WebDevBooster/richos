@@ -30,6 +30,13 @@
 #        this tree are committed mode 644, so executing them by path exits 126
 #        — the reason nobody noticed is that run-all-tests.sh also uses bash.
 #   U10  The matrix is valid JSON whose length equals the declared shard count.
+#   U12  A RESTRICTED inventory (--units-file) is packed by the same planner:
+#        the restriction is a partition of exactly the named set, and the ids
+#        outside it do not appear.
+#   U13  An id in the restriction file that is not a unit is FATAL. A
+#        restriction that silently dropped one would plan over less than it was
+#        asked for and still exit 0, which is the failure this whole file is
+#        about, wearing a diff filter.
 #   U11  The matrix contains only shards that HAVE units. Asking for more
 #        shards than there are units must not declare jobs with nothing in
 #        them: a shard that verifies nothing must never exit 0, so such a job
@@ -203,6 +210,36 @@ if [ "$MLEN" = "2" ]; then
     ok "U11  9 shards asked for over 2 units yields a 2-entry matrix — no job is declared with nothing to run"
 else
     bad "U11  matrix length '$MLEN' for 2 units over 9 shards; empty shard jobs would be declared and would fail"
+fi
+
+# --- U12 / U13: the restricted inventory ----------------------------------
+# The affected gate packs the diff's units through this same planner, so the
+# restriction has to be a real partition of exactly the named set.
+RESTRICT="$SANDBOX/restrict.txt"
+{
+    bash "$UNITS" units | cut -f1 | grep -v ':' | head -5
+    bash "$UNITS" units | cut -f1 | grep ':' | head -3
+} > "$RESTRICT"
+WANT_N="$(grep -c . "$RESTRICT" || true)"
+bash "$UNITS" shards 3 --units-file "$RESTRICT" | cut -f2 | LC_ALL=C sort > "$SANDBOX/restricted.planned"
+LC_ALL=C sort "$RESTRICT" > "$SANDBOX/restricted.want"
+DUPES="$(uniq -d < "$SANDBOX/restricted.planned" | grep -c . || true)"
+if diff -q "$SANDBOX/restricted.want" "$SANDBOX/restricted.planned" >/dev/null 2>&1 && [ "${DUPES:-0}" -eq 0 ]; then
+    ok "U12  --units-file packs exactly the $WANT_N named unit(s), each once, and nothing else"
+else
+    bad "U12  the restricted plan is not a partition of the named set (dupes=$DUPES)"
+    diff "$SANDBOX/restricted.want" "$SANDBOX/restricted.planned" | sed 's/^/          /' | head -10
+fi
+
+BAD_RESTRICT="$SANDBOX/bad-restrict.txt"
+{ cat "$RESTRICT"; printf 'scripts/lib/this-unit-does-not-exist.test.sh
+'; } > "$BAD_RESTRICT"
+bash "$UNITS" shards 3 --units-file "$BAD_RESTRICT" > "$SANDBOX/badout" 2>&1
+RC=$?
+if [ "$RC" -eq 2 ] && grep -q 'which is not a unit' "$SANDBOX/badout"; then
+    ok "U13  an id in the restriction that is not a unit is FATAL and is named"
+else
+    bad "U13  rc=$RC — an unknown id was silently dropped, so the gate would plan over less than it was asked for"
 fi
 
 echo ""

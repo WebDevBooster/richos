@@ -54,7 +54,10 @@ name: engine-self-verify
 #      Linux before landing. Fixing a red list buys one green run; the inflow breaks it again
 #      the same week. The `affected` job below runs the suites THIS DIFF can affect, in
 #      minutes, on every push — so a suite gets its first Linux execution on the day it lands,
-#      by the person who wrote it. That is the job to mark required.
+#      by the person who wrote it. `affected-coverage` is the job to mark required — it is the
+#      one that both waits for every affected shard AND proves they covered exactly the set the
+#      diff selected, and it is the only one of the two that still reports on a docs-only diff
+#      where `affected` is correctly skipped.
 #
 #   2. THE FULL PASS, SHARDED, WITH ITS COVERAGE PROVEN. 123 minutes serial becomes ~16
 #      across twelve shards, and the arithmetic is in `engine/scripts/ci-units.sh`. Splitting
@@ -129,6 +132,7 @@ jobs:
       shards: ${{ steps.derive.outputs.shards }}
       affected: ${{ steps.affected.outputs.units }}
       affected_count: ${{ steps.affected.outputs.count }}
+      affected_matrix: ${{ steps.affected.outputs.affected_matrix }}
       run_full: ${{ steps.derive.outputs.run_full }}
     steps:
       - name: Checkout
@@ -186,6 +190,25 @@ jobs:
             cat /tmp/affected.txt
             echo "AFFECTED_EOF"
           } >> "$GITHUB_OUTPUT"
+          # THE AFFECTED SET IS SHARDED TOO, and this work's own first push is
+          # why. It selected 54 units costing ~100 minutes serial — a change to
+          # contract-integrity-probe.sh is named in the sectioned suite's
+          # preamble, so it selects all 24 sections, and pulls in
+          # reconcile-terminal-worktrees.test.sh at 940 s besides. As ONE job it
+          # was killed at the 60-minute timeout, and a required check that dies
+          # on a large diff is a required check people learn to ignore.
+          #
+          # Same planner, restricted to the diff's units. The matrix carries only
+          # shards that HAVE units, so a two-unit diff is two small jobs and not
+          # twelve, ten of which would have nothing to run.
+          if [ "${COUNT:-0}" -gt 0 ]; then
+            AMATRIX="$(scripts/ci-units.sh matrix "$SHARDS" --units-file /tmp/affected.txt)"
+            echo "--- the affected plan ---"
+            scripts/ci-units.sh plan "$SHARDS" --units-file /tmp/affected.txt | tail -4
+          else
+            AMATRIX='[]'
+          fi
+          echo "affected_matrix=$AMATRIX" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # affected — THE REQUIRED CHECK. Fast, on every push and every pull request.
@@ -197,8 +220,18 @@ jobs:
   # is two to five minutes.
   affected:
     needs: plan
+    if: needs.plan.outputs.affected_count != '0'
     runs-on: ubuntu-latest
+    # 60 rather than 150: the longest shard of ANY set is bounded by the largest
+    # indivisible unit, reconcile-terminal-worktrees.test.sh at 940 s on this
+    # hardware. Re-promise it against the longest shard a real run reports, not
+    # against a guess.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.affected_matrix) }}
     defaults:
       run:
         working-directory: engine
@@ -214,23 +247,65 @@ jobs:
         run: |
           git config --global user.name  "engine-self-verify"
           git config --global user.email "engine-self-verify@users.noreply.github.com"
-      - name: Run the units this diff can affect
+      - name: Run shard ${{ matrix.shard }} of the units this diff can affect
         run: |
-          printf '%s\n' '${{ needs.plan.outputs.affected }}' | grep -v '^$' > /tmp/units.txt || true
-          echo "$(grep -c . /tmp/units.txt || echo 0) unit(s) selected by the diff:"
-          cat /tmp/units.txt
-          # --allow-empty because a docs-only diff legitimately selects nothing,
-          # and ci-affected-units.sh has already refused any changed EXECUTABLE
-          # that maps to no suite. Emptiness here is an answer, not a silence.
-          scripts/ci-shard.sh --units-file /tmp/units.txt --allow-empty \
-                              --receipt "/tmp/receipts/affected.jsonl"
+          printf '%s\n' '${{ needs.plan.outputs.affected }}' | grep -v '^$' > /tmp/affected.txt || true
+          echo "$(grep -c . /tmp/affected.txt || echo 0) unit(s) selected by the diff; this job runs shard ${{ matrix.shard }}/${{ matrix.shards }} of them"
+          scripts/ci-shard.sh --units-file /tmp/affected.txt \
+                              --shard "${{ matrix.shard }}/${{ matrix.shards }}" \
+                              --receipt "/tmp/receipts/affected-${{ matrix.shard }}.jsonl"
       - name: Upload the receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: receipt-affected
-          path: /tmp/receipts/affected.jsonl
-          if-no-files-found: ignore
+          name: receipt-affected-${{ matrix.shard }}
+          path: /tmp/receipts/affected-${{ matrix.shard }}.jsonl
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # affected-coverage — the same union proof, over the AFFECTED plan
+  # ---------------------------------------------------------------------------
+  # A diff-scoped gate has the same hole a sharded pass has, and the same fix:
+  # its shards must be shown to have covered exactly the set the diff selected.
+  # Checked against the RESTRICTED plan, never the whole inventory — that would
+  # report 94 false absences and teach everyone to ignore this job.
+  #
+  # It also passes, deliberately, when the diff selected NOTHING: a docs-only
+  # change legitimately has no units, `affected` is skipped, and this job says
+  # so out loud rather than being silently absent.
+  affected-coverage:
+    needs: [plan, affected]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Collect the affected receipts
+        if: needs.plan.outputs.affected_count != '0'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: receipt-affected-*
+          path: /tmp/receipts
+          merge-multiple: true
+      - name: The affected shards must cover exactly what the diff selected
+        working-directory: engine
+        run: |
+          if [ "${{ needs.plan.outputs.affected_count }}" = "0" ]; then
+            echo "This diff selects no unit — a docs-only change, and the correct answer."
+            echo "ci-affected-units.sh has already refused any changed EXECUTABLE that no suite names,"
+            echo "so this emptiness is an answer rather than a silence."
+            exit 0
+          fi
+          printf '%s\n' '${{ needs.plan.outputs.affected }}' | grep -v '^$' > /tmp/affected.txt
+          scripts/ci-shard.sh --verify-receipts /tmp/receipts --units-file /tmp/affected.txt
+          if [ "${{ needs.affected.result }}" != "success" ]; then
+            echo "::error::the affected shards did not all succeed (${{ needs.affected.result }}) — the union above is complete, but at least one unit inside it is red"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # non-suite-steps — everything in ci-verify.sh EXCEPT the suites
