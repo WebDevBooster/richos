@@ -96,9 +96,14 @@ the two-model dictation brief, 2026-08-26.
 
 Full `large-v3-turbo` is **dropped from the dictation path**: measured
 byte-identical transcripts to `q5_0` on 34/36 runs while costing 1.05 GB more
-disk, 1.13 GB more RAM and 0.20–0.27 s more latency. It remains the default for
-post-call batch transcription (`tools/richos-service`), which this patch does
-not touch.
+disk, 1.13 GB more RAM and 0.20–0.27 s more latency.
+
+**And as of 2026-09-10 it is no longer the post-call batch default either** (the
+CEO decision page §10). `tools/richos-service` now defaults to the same
+`large-v3-turbo-q5_0` this table's Accurate mode already uses, out of the same
+shared directory — so the two capabilities are one 574,041,195-byte file rather
+than two files totalling 2,198,596,470 B. Full turbo stays fetchable on demand
+with `richos-service fetch-model large-v3-turbo`.
 
 ### What the patch changes
 
@@ -149,8 +154,15 @@ Downloads both `.bin` files into one shared directory (default
 `app/crates/richos-voice` already resolve, so one copy serves all three whisper
 consumers), verifying exact byte size and GGML magic before installing. Total
 **1,061,655,396 bytes (1.06 GB)** — still 563 MB less than shipping full
-`large-v3-turbo` alone. A missing model is otherwise downloaded on first use by
-open-wispr's own `ModelDownloader`.
+`large-v3-turbo` alone.
+
+Since 2026-09-10 that 1.06 GB is also **everything call transcription needs**:
+`tools/richos-service` defaults to `large-v3-turbo-q5_0`, which is already one of
+these two files. A fresh machine that runs this script downloads nothing further
+to transcribe a call, and `richos-service doctor` exits 0 on it — verified
+2026-09-10 against a model directory holding only
+`ggml-large-v3-turbo-q5_0.bin`. A missing model is otherwise downloaded on first
+use by open-wispr's own `ModelDownloader`.
 
 ### Upgrade behavior on the CEO's live install
 

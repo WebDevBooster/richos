@@ -6,7 +6,7 @@
  *
  *   1. RECONCILE GUARD  -> anomaly? LOUD alarm, pipeline.status="anomaly", STOP. Never silent.
  *   2. NORMALIZE (ffmpeg)   stereo contract -> me.wav / others.wav @ 16 kHz mono
- *   3. TRANSCRIBE (whisper) large-v3-turbo per channel, with timestamps
+ *   3. TRANSCRIBE (whisper) the DEFAULT_TIER model per channel, with timestamps
  *   4. MERGE by timestamp   + fold in caption speaker labels -> verification.json
  *   3.5 HALLUCINATION GUARD four decode-failure classes; loop / stutter / silence-fabrication are
  *                           repaired, and the ordinal-insertion class is repaired PER MARKER where
@@ -96,7 +96,7 @@ function writeRecord(sessionDir, record) {
  */
 export function runPipeline(sessionDir, opts = {}) {
   const now = opts.now || Date.now();
-  // P5 tiering: `tier` (turbo|max|low-resource|quantized) or a raw `model` id both resolve here to a
+  // P5 tiering: `tier` (quantized*|turbo|max|low-resource, * = default) or a raw `model` id both resolve here to a
   // concrete { model, decodeArgs, repetitionGuard }. `model` stays supported for backward compat.
   const tier = resolveTier(opts.tier || opts.model);
   const model = tier.model;
@@ -206,6 +206,13 @@ export function runPipeline(sessionDir, opts = {}) {
           strict: asr.toolchain.toolchain.strict,
           whisperCli: asr.toolchain.toolchain.bin,
           backends: asr.toolchain.toolchain.backends,
+          // THE WEIGHTS, with their full sha256 — not only the 12 hex characters the provenance
+          // SENTENCE carries. `verification.toolchain` below has always recorded this; session.json
+          // did not, so the same block written by the same file 550 lines apart disagreed about
+          // whether the model's identity is part of the record. It is: a transcript attributed to
+          // "whisper.cpp 1.9.1" says nothing about which weights ran, and on 2026-09-10 the answer
+          // to that changed for every new call (CEO decision page §10).
+          model: asr.toolchain.toolchain.model,
           findings: asr.toolchain.findings,
           messages: asr.toolchain.messages,
         }

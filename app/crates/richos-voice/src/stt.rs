@@ -36,8 +36,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-/// The conversational default. NOT the same as the service's `large-v3-turbo` default —
-/// see the module docs for why latency wins here and accuracy wins there.
+/// The conversational default. NOT the same as the call-transcription service's default —
+/// `large-v3-turbo-q5_0` since 2026-09-10, `large-v3-turbo` before it (CEO decision page §10).
+/// See the module docs for why latency wins here and accuracy wins there.
 pub const DEFAULT_MODEL_ID: &str = "small.en";
 
 #[derive(Debug)]
@@ -507,11 +508,19 @@ mod tests {
     }
 
     /// INVARIANT: the conversational default is small.en, deliberately NOT the transcription
-    /// service's large-v3-turbo — latency is the binding constraint in a conversation.
+    /// service's default — latency is the binding constraint in a conversation and it is not the
+    /// binding constraint on a post-call batch decode.
+    ///
+    /// The exclusion is spelled out over BOTH turbo-family ids on purpose. It used to name only
+    /// `large-v3-turbo`, which was the service default at the time; on 2026-09-10 that default
+    /// moved to `large-v3-turbo-q5_0` (CEO decision page §10) and the assertion would have gone on
+    /// passing while no longer testing the thing it was written to test. An invariant pinned to
+    /// one side of a decision that can move is not an invariant.
     #[test]
     fn the_conversational_default_model_is_small_en_for_latency() {
         assert_eq!(DEFAULT_MODEL_ID, "small.en");
         assert_ne!(DEFAULT_MODEL_ID, "large-v3-turbo");
+        assert_ne!(DEFAULT_MODEL_ID, "large-v3-turbo-q5_0");
     }
 
     /// INVARIANT: a missing recognizer reaches the CEO as a calm line with no path in it,

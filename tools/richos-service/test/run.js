@@ -75,6 +75,7 @@ import {
   resolveTier,
   MODEL_TIERS,
   DEFAULT_TIER,
+  DEFAULT_MODEL,
   whisperArgs,
   MAX_CONTEXT_TOKENS,
   resolveModel,
@@ -990,13 +991,46 @@ test('parseWhisperJson normalizes segments and drops empties', () => {
 });
 
 // ---------------------------------------------------------------------------------------
-group('P5 model tiering — turbo default, guarded large-v3 opt-in, quantized/low-resource fallback');
+group('P5 model tiering — quantized default, full turbo + large-v3 opt-in, small.en fallback');
 
-test('the default tier is turbo (the benchmarked reliable model) when nothing is specified', () => {
+test('the default tier is quantized turbo when nothing is specified (CEO decision page §10)', () => {
+  // MOVED 2026-09-10 from full `large-v3-turbo`. Memory decided it: 884,981,760 B peak RSS at call
+  // length against 2,014,101,504 B — a factor of 2.28, the one axis in
+  // docs/measurements/whisper-model-choice-2026-09-10/ that is decisive rather than close.
   const t = resolveTier(null);
   assert.equal(t.name, DEFAULT_TIER);
-  assert.equal(t.model, 'large-v3-turbo');
-  assert.deepEqual(t.decodeArgs, []); // turbo needs no repetition-guard decode params
+  assert.equal(DEFAULT_TIER, 'quantized');
+  assert.equal(t.model, 'large-v3-turbo-q5_0');
+  assert.deepEqual(t.decodeArgs, []); // no tier-private decode params on any tier
+});
+
+test('DEFAULT_MODEL is DERIVED from the default tier — one declaration, not two that agree', () => {
+  // The failure this forecloses: `DEFAULT_MODEL` was its own string literal 90 lines from a tier
+  // table naming the same model, so `transcribeChannel()` and `runPipeline()` could disagree about
+  // the default after one edit. A second consumer disagreeing with the first is how this pipeline
+  // shipped `-mc -1` on the two tiers that actually ran while `config.js` documented `-mc 0`.
+  assert.equal(DEFAULT_MODEL, MODEL_TIERS[DEFAULT_TIER].model);
+  assert.equal(DEFAULT_MODEL, 'large-v3-turbo-q5_0');
+  assert.equal(resolveTier(null).model, DEFAULT_MODEL, 'the tier path and the raw-model path agree');
+});
+
+test('full turbo is NOT deleted — it stays selectable by tier, by raw id, and by pin', () => {
+  // "Stops being the default and stays fetchable" is half of the ruling, so it gets a test.
+  assert.equal(MODEL_TIERS.turbo.model, 'large-v3-turbo', 'the turbo tier still names full turbo');
+  assert.equal(resolveTier('turbo').model, 'large-v3-turbo');
+  assert.equal(resolveTier('large-v3-turbo').model, 'large-v3-turbo', 'raw --model still works');
+  assert.ok(pinFor('large-v3-turbo'), 'full turbo keeps its pin, so `fetch-model` can still get it');
+  assert.equal(pinFor('large-v3-turbo').bytes, 1624555275);
+});
+
+test('a tier id NEVER changes which weights it means — only which tier is default moved', () => {
+  // A session.json recording `tier: "turbo"` before 2026-09-10 must still mean the same weights,
+  // or every past record silently re-attributes itself. The default moved by re-pointing
+  // DEFAULT_TIER, never by redefining a name.
+  assert.equal(MODEL_TIERS.turbo.model, 'large-v3-turbo');
+  assert.equal(MODEL_TIERS.max.model, 'large-v3');
+  assert.equal(MODEL_TIERS['low-resource'].model, 'small.en');
+  assert.equal(MODEL_TIERS.quantized.model, 'large-v3-turbo-q5_0');
 });
 
 test('the "max" opt-in tier is full large-v3 and carries NO private decode params', () => {
@@ -1042,11 +1076,14 @@ test('MAX_CONTEXT_TOKENS is overridable per call and by env, so an operator is n
 });
 
 test('flash attention is PASSED, not inherited — the vendor default is not the guarantee', () => {
-  // Measured 2026-09-10 (docs/measurements/whisper-settings-2026-09-10): `-nfa` scores 4.46% against
-  // the shipping 2.89% on the 6-call reference corpus — 1.57 WER points and 18% wall clock — and
-  // drops proper-noun exact hits from 46 to 41 of 66. whisper.cpp 1.9.1 happens to default it ON,
-  // which is exactly why it must not be left to the default: the accuracy of every transcript this
-  // product produces would then depend on a Homebrew formula bump nobody would attribute it to.
+  // WHY, and deliberately NOT the accuracy number this comment used to carry. The settings table
+  // recorded `-nfa` costing 1.57 WER points; re-run on 2026-09-10 on a fresh corpus render it
+  // nearly vanishes on q5_0 and REVERSES SIGN on full turbo, so the CEO decision page §10 rules
+  // that figure unquotable. What reproduces on both models and both repetitions is that `-nfa` is
+  // 12.5-20.0% SLOWER. And the reason to pass the flag never depended on either number: whisper.cpp
+  // 1.9.1 happens to default it ON, which is exactly why it must not be LEFT to the default — every
+  // transcript this product produces would then depend on a Homebrew formula bump nobody would
+  // attribute it to.
   const args = whisperArgs();
   assert.ok(args.includes('-fa'), `-fa must be emitted, got ${args.join(' ')}`);
   // It sits BEFORE extraArgs like every other default, so a caller can still say -nfa and be obeyed.
@@ -1081,7 +1118,7 @@ test('a raw --model large-v3-turbo stays clean (no guard decode params forced on
   assert.deepEqual(t.decodeArgs, []);
 });
 
-test('low-resource + quantized tiers select smaller/quantized models for weak hosts', () => {
+test('low-resource selects small.en; the quantized tier names a quantized .bin', () => {
   assert.equal(MODEL_TIERS['low-resource'].model, 'small.en');
   assert.ok(/q\d/.test(MODEL_TIERS.quantized.model), 'quantized tier names a quantized .bin');
   assert.equal(resolveTier('quantized').model, 'large-v3-turbo-q5_0');
@@ -4214,12 +4251,15 @@ test('the transcript header carries the provenance, so the artifact a person ope
     {
       sessionId: 's',
       startedAt: T0,
-      pipeline: { model: 'large-v3-turbo', toolchain: { provenance: 'whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo@1fc70f774d38' } },
+      // The string a real default run produces, copied from an executed run on 2026-09-10 rather
+      // than composed here: full turbo and its q5_0 quantization are different weights under
+      // neighboring ids, so a header that named only "turbo" would be ambiguous between them.
+      pipeline: { model: 'large-v3-turbo-q5_0', toolchain: { provenance: 'whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo-q5_0@394221709cd5' } },
     },
   );
   assert.match(md, /- \*\*Transcribed by:\*\* whisper\.cpp 1\.9\.1 bin:7dc20e3106d7/);
-  // `- **Model:** turbo` names a FAMILY; two different sets of weights ship under that id.
-  assert.match(md, /- \*\*Model:\*\* large-v3-turbo/);
+  assert.match(md, /model:large-v3-turbo-q5_0@394221709cd5/);
+  assert.match(md, /- \*\*Model:\*\* large-v3-turbo-q5_0/);
 });
 
 // ---------------------------------------------------------------------------------------
