@@ -146,6 +146,70 @@ fn expand_tilde(p: &str) -> String {
     p.to_string()
 }
 
+/// Text-context budget when NO decoding prompt is configured: none, the pipeline-wide invariant.
+///
+/// This path used to pass no `-mc` at all, which meant whisper.cpp's own `-1` — carry every
+/// previously decoded token — the identical unexamined default that filled 7.8% of a 92-minute
+/// channel with one fabricated sentence in the call-transcription service
+/// (`docs/measurements/whisper-settings-2026-09-10/measurements/longform.txt`). It was fixed there
+/// on 2026-08-29 and left live here, in a second consumer nobody had audited.
+const MAX_CONTEXT_NO_PROMPT: &str = "0";
+
+/// Text-context budget when a decoding prompt IS configured.
+///
+/// NOT a compromise and not a guess. At `0` the prompt is INERT — whisper has no room to keep the
+/// prompt tokens, so the flag is accepted and does nothing. Measured on one 6-second utterance
+/// through `small.en`, three runs each
+/// (`docs/measurements/whisper-settings-2026-09-10/measurements/dictation-probe.txt`):
+///
+/// ```text
+///   -mc -1  (what this path shipped)   "Haldan Freight"    587-661 ms
+///   -mc 0                              "Haldan Freight"    612-641 ms
+///   -mc 0  + prompt                    "Haldan Freight"    609-614 ms   <- prompt does NOTHING
+///   -mc 64 + prompt                    "Halden Freight"    607-654 ms   <- correct
+/// ```
+///
+/// 64 is the smallest budget measured to recover the names: on the 6-call reference corpus a
+/// carried entity prompt at 64 takes proper-noun exact hits from 46 to 55 of 66 and gives the best
+/// WER measured (2.73%), and going to 224 adds no further names while wrecking the transcript
+/// (9.92%, insertions 8 -> 156).
+///
+/// THE COST, STATED. Carried context is what produces long-form fabrication: 64 tokens fills 3.3%
+/// of a 92-minute timeline with repeated phrases where 0 fills none. That is why it is taken ONLY
+/// when a prompt is set — dictation utterances are seconds long, so there is nothing to accumulate
+/// — and why anyone routing a long recording through this path should read the settings table
+/// first. The alternative was to accept a prompt and silently ignore it, and a seam that reports on
+/// while doing nothing is the defect class this codebase refuses everywhere else.
+const MAX_CONTEXT_WITH_PROMPT: &str = "64";
+
+/// The decode flags this path hands to `whisper-cli`, everything except `-m` and `-f`.
+///
+/// A FUNCTION, SO THE SETTINGS CAN BE ASSERTED WITHOUT A DECODER. These values are decided in
+/// `docs/measurements/whisper-settings-2026-09-10/whisper-settings-decisions.md` §7; a test that
+/// cannot see them cannot stop the next one being added by accident.
+pub fn decode_args(prompt: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        // Pinned, not inherited: `-l auto` is byte-identical on English audio and 20% slower.
+        "-l".into(),
+        "en".into(),
+        // The decode is Metal-bound; 8 threads measured byte-identical at the same wall clock.
+        "-t".into(),
+        "4".into(),
+        // Flash attention. whisper.cpp 1.9.1 defaults it ON and it is worth 1.57 WER points, which
+        // is far too much to hold by inheritance from a default a formula bump can flip.
+        "-fa".into(),
+        "-np".into(), // no progress prints — this path reads the words off stdout
+        "-nt".into(), // no timestamps — we want the words, nothing else
+        "-mc".into(),
+        if prompt.is_some() { MAX_CONTEXT_WITH_PROMPT.into() } else { MAX_CONTEXT_NO_PROMPT.into() },
+    ];
+    if let Some(p) = prompt {
+        args.push("--prompt".into());
+        args.push(p.to_string());
+    }
+    args
+}
+
 /// A resolved, ready-to-use recognizer. Resolution happens ONCE at voice-mode start so a
 /// missing model is a calm message at the toggle, not a failure in the middle of a sentence.
 pub struct Recognizer {
@@ -189,16 +253,8 @@ impl Recognizer {
 
         let started = Instant::now();
         let mut cmd = Command::new(&self.bin);
-        cmd.arg("-m")
-            .arg(&self.model)
-            .arg("-f")
-            .arg(&wav_path)
-            .args(["-l", "en", "-t", "4"])
-            .arg("-np") // no progress prints — keep stdout clean
-            .arg("-nt"); // no timestamps — we want the words, nothing else
-        if let Some(p) = &self.prompt {
-            cmd.arg("--prompt").arg(p);
-        }
+        cmd.arg("-m").arg(&self.model).arg("-f").arg(&wav_path);
+        cmd.args(decode_args(self.prompt.as_deref()));
         let out = cmd.output().map_err(|e| SttError::Io(e.to_string()))?;
         let elapsed_ms = started.elapsed().as_millis() as u64;
         let _ = std::fs::remove_file(&wav_path);
@@ -284,6 +340,73 @@ fn strip_annotations(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// INVARIANT: this path never decodes at whisper.cpp's own text-context default.
+    ///
+    /// It did until 2026-09-10 — `-mc` was simply absent, so every dictation ran at `-1`, the
+    /// setting that filled 7.8% of a 92-minute channel with one fabricated sentence in the sibling
+    /// service. The whole point of the settings table is that a value nobody chose is not a value.
+    #[test]
+    fn decode_context_is_never_the_vendor_default() {
+        for prompt in [None, Some("Halden Freight, Priya Sandoval")] {
+            let args = decode_args(prompt);
+            let i = args.iter().rposition(|a| a == "-mc").expect("-mc must be emitted");
+            assert_ne!(args[i + 1], "-1", "the vendor default must never be what this path decodes at");
+            assert!(args[i + 1].parse::<i32>().unwrap() >= 0);
+        }
+    }
+
+    /// INVARIANT: a configured prompt is a prompt that WORKS.
+    ///
+    /// At `-mc 0` whisper accepts `--prompt` and ignores it — measured byte-identical to passing no
+    /// prompt at all. So the two must never be shipped together: entity biasing that silently does
+    /// nothing is worse than no entity biasing, because it reports success.
+    #[test]
+    fn a_configured_prompt_gets_a_context_budget_to_live_in() {
+        let with = decode_args(Some("Halden Freight"));
+        let i = with.iter().rposition(|a| a == "-mc").unwrap();
+        assert!(
+            with[i + 1].parse::<i32>().unwrap() >= 64,
+            "a prompt needs room in the text context or it is inert; got -mc {}",
+            with[i + 1]
+        );
+        assert!(with.iter().any(|a| a == "--prompt"));
+        assert!(with.iter().any(|a| a == "Halden Freight"));
+
+        // And without a prompt there is nothing to make room for, so the invariant is 0.
+        let without = decode_args(None);
+        let j = without.iter().rposition(|a| a == "-mc").unwrap();
+        assert_eq!(without[j + 1], "0");
+        assert!(!without.iter().any(|a| a == "--prompt"));
+    }
+
+    /// INVARIANT: flash attention is PASSED here too, for the same measured reason as the service —
+    /// `-nfa` costs 1.57 WER points, and a default that valuable is not left to the vendor.
+    #[test]
+    fn flash_attention_is_passed_not_inherited() {
+        assert!(decode_args(None).iter().any(|a| a == "-fa"));
+    }
+
+    /// INVARIANT: every flag this path passes is one the settings table decided. Adding a flag
+    /// without deciding it fails here, which is the point.
+    #[test]
+    fn no_flag_ships_without_a_row_in_the_settings_table() {
+        const DECIDED: &[&str] = &["-l", "-t", "-fa", "-np", "-nt", "-mc", "--prompt"];
+        const TAKES_VALUE: &[&str] = &["-l", "-t", "-mc", "--prompt"];
+        let args = decode_args(Some("Halden Freight"));
+        let mut i = 0;
+        while i < args.len() {
+            assert!(
+                DECIDED.contains(&args[i].as_str()),
+                "{} reaches whisper-cli but is not in the settings decision table",
+                args[i]
+            );
+            if TAKES_VALUE.contains(&args[i].as_str()) {
+                i += 1;
+            }
+            i += 1;
+        }
+    }
 
     /// INVARIANT: whisper's stdout becomes one clean line, whatever leading newline or
     /// padding the CLI adds. (Observed: it prefixes "\n " before the text.)
