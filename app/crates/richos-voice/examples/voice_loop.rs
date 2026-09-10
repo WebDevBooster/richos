@@ -128,6 +128,12 @@ impl VoiceObserver for LogObserver {
             VoiceEvent::Error { message, .. } => {
                 println!("[{:>6} ms] voice-error: {message}", self.clock.ms());
             }
+            // Voice is WORKING and has made a choice for him — today, that this machine could not
+            // carry the more accurate recognizer. Printed separately from voice-error so a run of
+            // this example shows the same distinction the UI makes.
+            VoiceEvent::Notice { message, .. } => {
+                println!("[{:>6} ms] voice-notice: {message}", self.clock.ms());
+            }
         }
     }
 }

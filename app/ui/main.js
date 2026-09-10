@@ -3019,6 +3019,7 @@ inspectorResizer.addEventListener("keydown", (e) => {
 //   LISTEN  rich://voice-state      { state, level, bargeInArmed, noAudio, at }
 //           rich://voice-transcript { text, durationMs, latencyMs, at }
 //           rich://voice-error      { message, at }
+//           rich://voice-notice     { message, at }   voice WORKS, and chose something for him
 //
 // The panel's state is driven ONLY by rich://voice-state — never optimistically. The UX direction §4.1:
 // "the CEO always knows whether the mic is hot ... the single most important voice-UX
@@ -3191,6 +3192,26 @@ Bridge.listen("rich://voice-transcript", ({ payload }) => {
 
 Bridge.listen("rich://voice-error", ({ payload }) => {
   if (!voiceMode) return;
+  richVoiceSays(payload.message);
+});
+
+/// Voice is WORKING, and something about how it is working is worth him knowing — today, that
+/// this machine could not carry the more accurate recognizer (`hardware.rs`). Sent once, at
+/// voice-mode start, and only when the product has quietly made a choice on his behalf.
+///
+/// SAME RENDER PATH AS voice-error, DIFFERENT CHANNEL, and the difference is not cosmetic: the
+/// handler above is for voice STOPPING, and a degradation is not that. It introduces no new
+/// style — `richVoiceSays` adds a local notice, which renders as one of Rich's own messages
+/// (`.tl-prose`, `var(--ink)` on `var(--ground)`: 14.55:1 in dark and 14.90:1 in light, both
+/// computed, both far above the 4.5:1 floor).
+///
+/// NOT SUPPRESSED WHEN THE PANEL IS CLOSED, unlike its neighbors. The other three handlers bail
+/// on `!voiceMode` because they drive the live panel and a stale one is worse than none. This one
+/// is a sentence in the thread explaining a decision that has already been made and will hold for
+/// the whole session — dropping it because a panel closed would lose the one thing this work
+/// exists to say out loud.
+Bridge.listen("rich://voice-notice", ({ payload }) => {
+  if (!payload || !payload.message) return;
   richVoiceSays(payload.message);
 });
 
