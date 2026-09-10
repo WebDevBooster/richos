@@ -460,8 +460,26 @@ fixes above should copy.
 
 ## Part 2 — the check
 
-Fixing this list changes nothing about next month. The check that refuses the next member of the
-class — a hardware-dependent choice must either be resolved at run time or carry a declaration, at
-the site, saying why a fixed value is correct — lands in the commit after this one, together with
-the corpus it was measured against and its false-positive rate. This section is updated to name it
-in that same commit, rather than pointing now at a file that does not yet exist.
+Fixing this list changes nothing about next month. `engine/scripts/hardware-choice-check.py` is the
+check that refuses the next member of the class: a hardware-dependent choice must either be
+resolved at run time or carry a declaration, at the site, saying why a fixed value is correct —
+
+```
+hardware-fixed: <the reason, where a reviewer will meet it>
+```
+
+— and, as with contrast and dialect, **a bare marker exempts nothing.**
+
+Measured against **130 files and 94,576 lines** of this repository's real shipping code, **2,291
+candidate sites**: it flagged **6**, of which **5 were true defects and 1 was ordinary correct
+code** — a **16.7 %** false-positive rate among findings. **So it ships REPORTING, not blocking**,
+and `--strict` exists with nothing passing it. It independently rediscovered D1 (both halves), D2
+and D3; it does not find D4 or D5, so its recall against this enumeration is 3 of 5.
+
+It needs **no hook and no session restart**: `ci-units.sh` discovers `*.test.sh` from disk, so
+`engine/scripts/hardware-choice-check.test.sh` (14 cases) runs on every push to main and on the
+daily cron the moment it lands.
+
+The corpus, the per-shape rates, the three design changes it forced — including a false negative on
+D1 itself, which the first draft missed — and what would promote it to blocking:
+[`docs/verification/hardware-choice-check-2026-09-10.md`](verification/hardware-choice-check-2026-09-10.md).
