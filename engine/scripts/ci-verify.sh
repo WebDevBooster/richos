@@ -117,6 +117,31 @@
 # workflow is the correct, visible, ephemeral place to declare it.
 #
 # ===========================================================================
+# CI RUNS THIS IN TWO PIECES, AND THEIR UNION IS PROVEN RATHER THAN ASSUMED
+# ===========================================================================
+# With no arguments this is still the whole thing, and that is deliberate: "what
+# does CI do?" must keep its one-line, runnable answer. But the whole thing is
+# 123 minutes on GitHub's hardware, almost all of it step 3, and a gate nobody
+# will wait for is a gate that gets switched off — which is exactly what
+# happened to this engine's workflow on 2026-09-01.
+#
+# So CI runs it as:
+#
+#     scripts/ci-verify.sh --no-suites        steps 1, 2, 4, 5, 6, 7   (~3 min)
+#     scripts/ci-shard.sh  --shard i/N        step 3, cut into units, in
+#                                             parallel across N machines
+#
+# The two together are the seven steps below and nothing else, and that is not
+# left to trust: `--list-steps` prints the step inventory as data,
+# `ci-verify.test.sh` asserts that `--no-suites` runs exactly the inventory
+# minus `suites`, and the workflow's coverage job proves the shards' receipts
+# union to the whole unit inventory at one commit. A pass split across machines
+# that cannot prove what it covered is a green tick over an unknown set.
+#
+# --no-suites IS NOT A REDUCED VERIFICATION. It is one half of one, and it says
+# so in its own banner, so a run of it alone can never be quoted as a pass.
+#
+# ===========================================================================
 # Exit codes
 #   0  every step passed
 #   1  a verification step failed (the step is named)
@@ -129,12 +154,57 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ENGINE_ROOT" || { echo "ERROR: ci-verify.sh: cannot cd to engine root $ENGINE_ROOT" >&2; exit 2; }
 
-C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
+C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YEL=$'\033[33m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
+
+# THE STEP INVENTORY, AS DATA. Printed by --list-steps, and the thing
+# ci-verify.test.sh compares --no-suites against. A step added below without
+# being added here is caught, because that suite asserts this list and the
+# `step` calls in this file are the same set.
+STEP_IDS="preconditions bashn suites install probe demo publication"
+
+RUN_SUITES=1
+LIST_STEPS=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --no-suites|--steps-only) RUN_SUITES=0; shift ;;
+        --list-steps) LIST_STEPS=1; shift ;;
+        -h|--help)
+            printf 'usage: ci-verify.sh [--no-suites] [--list-steps]\n\n'
+            printf '  (no arguments)  every step. The only run that is a full verification.\n'
+            printf '  --no-suites     every step EXCEPT step 3 (the suites). CI runs this\n'
+            printf '                  beside scripts/ci-shard.sh, which runs step 3 in\n'
+            printf '                  parallel units; the workflow proves their union.\n'
+            printf '  --list-steps    print the step inventory, run nothing.\n'
+            exit 0 ;;
+        *) printf '%sERROR: ci-verify.sh: unrecognized argument %s — see --help%s\n' \
+               "$C_RED" "$1" "$C_RESET" >&2; exit 2 ;;
+    esac
+done
+
+if [ "$LIST_STEPS" -eq 1 ]; then
+    for s in $STEP_IDS; do printf '%s\n' "$s"; done
+    exit 0
+fi
+
+# When step 3 is absent the later steps are renumbered, so the banner never
+# reads "[7/6]" — a step counter that does not add up is the first thing that
+# makes a reader stop trusting the log.
+step_no() { if [ "$RUN_SUITES" -eq 1 ]; then printf '%s' "$1"; else printf '%s' "$(( $1 - 1 ))"; fi; }
 
 step() { printf '\n%s=== [%s/%s] %s ===%s\n' "$C_BOLD" "$1" "$TOTAL_STEPS" "$2" "$C_RESET"; }
 die()  { printf '\n%s✗ ci-verify: %s%s\n' "$C_RED" "$1" "$C_RESET" >&2; exit "${2:-1}"; }
 
 TOTAL_STEPS=7
+if [ "$RUN_SUITES" -eq 0 ]; then
+    TOTAL_STEPS=6
+    printf '%s################################################################################\n' "$C_YEL"
+    printf '#  --no-suites: THIS IS ONE HALF OF A VERIFICATION, NOT A REDUCED ONE.\n'
+    printf '#  Step 3 (every engine test suite) does NOT run here. In CI it runs beside\n'
+    printf '#  this job as scripts/ci-shard.sh --shard i/N, and the coverage job proves\n'
+    printf '#  the shards covered the whole inventory at this same commit. A green run of\n'
+    printf '#  THIS alone is not a pass and must never be quoted as one.\n'
+    printf '################################################################################%s\n' "$C_RESET"
+fi
 
 # --- 1. Preconditions ------------------------------------------------------
 step 1 "preconditions (tool versions + git identity)"
@@ -188,15 +258,17 @@ done < <(find scripts reference -name '*.sh' -print0 2>/dev/null)
 printf '%s✓%s bash -n: %s script(s) OK\n' "$C_GREEN" "$C_RESET" "$CHECKED"
 
 # --- 3. Every test suite ---------------------------------------------------
-step 3 "every engine test suite (scripts/run-all-tests.sh)"
-scripts/run-all-tests.sh || die "run-all-tests.sh failed — see the named suite(s) above."
+if [ "$RUN_SUITES" -eq 1 ]; then
+    step 3 "every engine test suite (scripts/run-all-tests.sh)"
+    scripts/run-all-tests.sh || die "run-all-tests.sh failed — see the named suite(s) above."
+fi
 
 # --- 4. install.sh ---------------------------------------------------------
-step 4 "mint sidecars + migrate stale settings.json (scripts/hooks/install.sh)"
+step "$(step_no 4)" "mint sidecars + migrate stale settings.json (scripts/hooks/install.sh)"
 scripts/hooks/install.sh || die "install.sh failed."
 
 # --- 5. Integrity probe ----------------------------------------------------
-step 5 "integrity probe (scripts/hooks/contract-integrity-probe.sh)"
+step "$(step_no 5)" "integrity probe (scripts/hooks/contract-integrity-probe.sh)"
 scripts/hooks/contract-integrity-probe.sh || die "contract-integrity-probe.sh failed — see the named layer(s) above."
 
 # --- 6. The 60-second proof ------------------------------------------------
@@ -204,7 +276,7 @@ scripts/hooks/contract-integrity-probe.sh || die "contract-integrity-probe.sh fa
 # a demo that quietly lost two beats and passed the remaining five. Pin the
 # COUNT as well: if a beat is added or removed on purpose, this line is the
 # deliberate edit that says so.
-step 6 "the 60-second proof (scripts/demo.sh) — assert 7/7 beats"
+step "$(step_no 6)" "the 60-second proof (scripts/demo.sh) — assert 7/7 beats"
 DEMO_LOG="$(mktemp "${TMPDIR:-/tmp}/ci-verify-demo.XXXXXX")"
 scripts/demo.sh 2>&1 | tee "$DEMO_LOG"
 DEMO_RC="${PIPESTATUS[0]}"
@@ -224,7 +296,7 @@ rm -f "$DEMO_LOG"
 # adopters, whose repositories never go public. The two are distinguished by
 # the NOT APPLICABLE banner rather than by the exit code alone, so a genuinely
 # broken run can never be read as a stand-down.
-step 7 "publication completeness (scripts/publication-completeness.sh)"
+step "$(step_no 7)" "publication completeness (scripts/publication-completeness.sh)"
 PC_LOG="$(mktemp "${TMPDIR:-/tmp}/ci-verify-pubcomplete.XXXXXX")"
 scripts/publication-completeness.sh 2>&1 | tee "$PC_LOG"
 PC_RC="${PIPESTATUS[0]}"
@@ -237,5 +309,10 @@ elif [ "$PC_RC" -ne 0 ]; then
 fi
 rm -f "$PC_LOG"
 
-printf '\n%s✓ ci-verify: all %s steps passed.%s\n' "$C_GREEN" "$TOTAL_STEPS" "$C_RESET"
+if [ "$RUN_SUITES" -eq 1 ]; then
+    printf '\n%s✓ ci-verify: all %s steps passed.%s\n' "$C_GREEN" "$TOTAL_STEPS" "$C_RESET"
+else
+    printf '\n%s✓ ci-verify --no-suites: all %s non-suite steps passed. STEP 3 DID NOT RUN HERE.%s\n' \
+        "$C_GREEN" "$TOTAL_STEPS" "$C_RESET"
+fi
 exit 0
