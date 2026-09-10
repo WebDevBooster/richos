@@ -92,12 +92,19 @@ SECTIONED_SUITE="scripts/hooks/contract-integrity.test.sh"
 # into the YAML. Twelve, and the arithmetic rather than a preference:
 #
 #   the whole pass, measured on the runner                7409 s
-#   / 12                                                   617 s  (10.3 min)
-#   the largest indivisible unit (reconcile-terminal-...)   940 s  (15.7 min)
+#   / 12                                                   617 s
+#   the largest INDIVISIBLE unit                           940-1500 s
 #
-# So twelve shards already sit BELOW the floor the largest unit sets: the wall
-# clock is ~16 minutes and adding shards cannot improve it. Fewer than eight
-# would make the packing, rather than that suite, the limit.
+# So twelve shards already sit BELOW the floor the largest unit sets: adding
+# shards cannot improve the wall clock, and fewer than eight would make the
+# packing, rather than that unit, the limit.
+#
+# WHICH unit sets the floor is not settled and is deliberately not asserted
+# here. `reconcile-terminal-worktrees.test.sh` is 940 s measured on the runner;
+# the sectioned suite's WTI section is 599 s on a quiet Mac and 1500 s on a
+# loaded one, and has never been measured on Linux at all because until
+# 2026-09-10 that suite ran as ONE unit. The first sharded run answers it, and
+# `lib/ci-unit-weights.tsv` is where the answer goes.
 #
 # WHY NOT MORE, given the runners are free: GitHub Free allows 20 concurrent
 # jobs ACCOUNT-WIDE, shared with six other active workflows in this

@@ -57,9 +57,9 @@ job with a 60-minute timeout. It would have been killed.
 the inventory to a set of ids and packs exactly those; `ci-shard.sh --units-file --shard i/N`
 runs shard *i* of it. Same discovery, same weights, same longest-first packing, same
 determinism — the diff-scoped gate and the full pass are one mechanism at two scopes rather than
-two that have to be kept in step. The same 54 units now pack into twelve shards whose longest is
-940 s: **15.7 minutes, and the longest shard is exactly the largest indivisible unit**, so the
-packing is not the limit.
+two that have to be kept in step. The same 54 units now pack into twelve shards whose longest is **the largest
+indivisible unit in the set and nothing more**, so the packing is not the limit — which is the
+property that matters and does not move when a weight is re-measured.
 
 The matrix carries only shards that HAVE units, so a two-unit diff is two small jobs rather than
 twelve, ten of which would have nothing to run — and a shard that verifies nothing must never
@@ -94,9 +94,10 @@ suite dominated everything:
 | the other 119 suites together | 4133.4 s |
 
 `contract-integrity.test.sh` already takes `--only <section>` and carries 24 sections, so it
-contributes **24 units** instead of one. That moves the floor from 39 minutes to
-`reconcile-terminal-worktrees` at 16, which is a verdict somebody will wait for. Twelve shards
-sit below that floor already, so **more shards cannot improve the wall clock**.
+contributes **24 units** instead of one. That moves the floor from a 39-minute suite to the
+largest unit that cannot be divided further — a quarter of an hour rather than two hours, and a
+verdict somebody will wait for. Twelve shards sit below that floor already, so **more shards
+cannot improve the wall clock**; only making a big unit divisible can.
 
 **A scoped section is green at exit 3, and its exit 0 is a FAILURE.** That suite exits 3 when
 scoped-and-green precisely so nothing can read a partial run as a full one. The shard runner
@@ -153,6 +154,54 @@ it would be red on its first execution over 95 historical pushes that correctly 
 and a check that is red on arrival is a check nobody reads. Deriving the date from the run
 history would be circular — if every run had been dropped there would be no history to derive
 it from.
+
+## The executions, because a YAML that looks right is not a gate that works
+
+Every claim above is from a run somebody can open.
+
+| run | event | SHA | outcome |
+|---|---|---|---|
+| `34422722682` | push | `328ff8c9` | **the affected gate as ONE job, and it was wrong.** 54 units, ~100 min serial, 60-minute timeout. Stopped by hand once the arithmetic was read off the plan rather than waited for. This is the run that produced the sharded affected gate. |
+| `34423889101` | push | `e62ab1ae` | **green.** 21 minutes wall clock. |
+
+Run `34423889101`, job by job:
+
+```
+✓ plan                     13s
+✓ non-suite-steps          58s     ci-verify.sh --no-suites: bash -n over 291 scripts,
+                                   install.sh, the whole seated probe, demo 7/7,
+                                   publication completeness
+✓ affected  (1, 12)     17m30s
+✓ affected  (2, 12)      6m15s
+✓ affected  (3, 12)      3m31s
+✓ affected  (4, 12)      4m13s
+✓ affected  (5, 12)      3m15s
+✓ affected  (6, 12)      3m38s
+✓ affected  (7, 12)     17m15s
+✓ affected  (8, 12)      5m44s
+✓ affected  (9, 12)      4m45s
+✓ affected (10, 12)      3m03s
+✓ affected (11, 12)      3m15s
+✓ affected (12, 12)      3m18s
+✓ affected-coverage         8s
+- shards                        skipped: a branch push does not pay for the full pass
+- coverage                      skipped with it
+```
+
+And the line that is the point of the whole design, from `affected-coverage`:
+
+```
+✓ ci-receipts: 32/32 planned unit(s) ran, all green, all at e62ab1ae0b402ac439ccb0f7a2dc5de3c5285b43.
+  serial cost 4358 s across 12 shard(s); longest shard 1036 s (17.3 min).
+```
+
+**32 of 32, named, at one commit.** Not twelve green ticks and a hope. The set is 32 rather
+than the 54 of the earlier run because the diff base moved with the push — the second push's
+`before` is the first push's tip, so it correctly selected the units its own commit can affect.
+
+`shards` and `coverage` are skipped on a branch push by design: twelve more jobs on every branch
+push would be this workflow starving the other six of the account's 20 concurrent jobs, which is
+the same limit `engine-run-record.yml` exists to catch the consequences of.
 
 ## The four red units, and what was done with each
 
@@ -262,6 +311,24 @@ cases, a sentence saying what would un-skip them, and an **expiry**.
    granted, so a decision is forced rather than deferred indefinitely.
 
 `ci-shard.test.sh` cases S6, S7 and S8 prove all three.
+
+## What the current weights produce, from the runner's own receipts
+
+```
+$ engine/scripts/ci-units.sh plan 12
+148 unit(s), 8404 s serial, 12 shard(s), longest shard 1036 s (17.3 min)
+```
+
+**140 minutes of serial verification, 17.3 minutes of wall clock, and every weight above is a
+runner measurement** — the 24 sections from run `34423889101`'s receipts, which is the first
+time they have ever been timed individually, and the remaining suites from run `34396549904`.
+The longest shard is one unit, `reconcile-terminal-worktrees.test.sh` at 1035.9 s, so the
+packing is not the limit and more shards cannot help.
+
+**The macOS sweep that seeded this file was thrown away, and it is worth saying why.** It put
+the WTI section at 1500.1 s, taken while the development machine carried a load average of 34.
+The runner says **870.7 s**. The quiet-Mac figure recorded on 2026-09-04 was **599 s**. Three
+numbers for one mutation harness, none of them wrong, and only one of them is the cost CI pays.
 
 ## Re-packing the shards against measured cost
 

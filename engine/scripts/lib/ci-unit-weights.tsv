@@ -1,79 +1,63 @@
 # ci-unit-weights.tsv — the MEASURED cost of each verification unit, in seconds.
 #
 # WHAT THIS IS FOR. `ci-units.sh` packs units into shards longest-first, so it
-# needs a cost per unit. Nothing here changes what is verified; it changes only
+# needs a cost per unit. Nothing here changes WHAT is verified; it changes only
 # how the work is distributed, and a wrong number costs wall-clock balance and
-# nothing else.
+# nothing else. That is why this is dated data with provenance rather than a
+# tuned constant.
 #
 # EVERY ROW CARRIES WHERE IT CAME FROM, in the third column, because a duration
-# is only meaningful with its platform and its date attached. Two sources are
-# mixed here on purpose and are labeled rather than blended:
+# is only meaningful with its platform and its date attached:
 #
-#   linux-run-34396549904   read out of the per-suite lines of GitHub run 34396549904
-#                             (2026-09-09, ubuntu-latest, 4-vCPU x86). This is the
-#                             hardware CI actually pays on, so it is the
-#                             authoritative source for whole-suite units.
+#   linux-run-34423889101   32 units, from the RECEIPTS of run 34423889101
+#                           (2026-09-10, ubuntu-latest, this branch's own
+#                           sharded run). This is the first time the sectioned
+#                           suite's 24 sections have EVER been timed
+#                           individually — until 2026-09-10 that suite ran as
+#                           one unit, so no run could report them.
 #
-#   macos-2026-09-10          a local `contract-integrity.test.sh --only <section>`
-#                             sweep, one section at a time, on a 10-CPU arm64 Mac
-#                             under load. The runner has never reported these
-#                             individually, because until 2026-09-10 that suite
-#                             ran as ONE unit. macOS is roughly 1.28x slower for
-#                             this suite (2977.9 s vs 2335.9 s whole), so these
-#                             are over-weighted rather than under-weighted, which
-#                             is the harmless direction for a packer.
+#   linux-run-34396549904   the rest, read out of the per-suite lines of the
+#                           last whole-suite serial pass (2026-09-09). Covers
+#                           the suites the newer run's diff did not select.
+#
+# EVERY ROW IS A RUNNER MEASUREMENT. Nothing here is from the development Mac,
+# which is the state this file should always be returned to after a re-measure:
+# the only cost worth packing against is the one CI pays.
+#
+# THE MACOS SECTION SWEEP THAT SEEDED THIS FILE IS GONE, and the reason is worth
+# keeping: it put WTI at 1500.1 s, taken while the machine carried a load
+# average of 34. The runner says 870.7 s. The quiet-Mac figure recorded on
+# 2026-09-04 was 599 s. Three numbers for one harness, none of them wrong, and
+# only one of them is the cost CI actually pays.
 #
 # A UNIT WITH NO ROW HERE IS NOT FREE. `ci-units.sh` gives it DEFAULT_WEIGHT and
 # packs it as if it were average — never zero, or a batch of new suites all lands
 # in one shard and that shard becomes the wall clock.
 #
-# HOW TO RE-MEASURE, which is the point of the labels: read the per-unit
-# durations out of a real run's receipts (`ci-shard.sh --receipt`, collected by
-# the coverage job) and replace the rows with a new source label and date. The
-# plan changes; nothing else does. `ci-units.sh plan` then prints the longest
-# shard, which is the number `timeout-minutes` should be re-promised against
-# rather than left at whatever survived.
+# HOW TO RE-MEASURE, which is the whole point of the labels: the coverage job
+# collects every shard's receipts, and `ci-shard.sh --verify-receipts` prints the
+# serial cost and the longest shard. Read the per-unit durations out of those
+# artifacts and replace these rows with a new run id. The plan changes; nothing
+# else does. `ci-units.sh plan` then prints the longest shard, which is the
+# number `timeout-minutes` should be re-promised against rather than left at
+# whatever survived.
+#
+# Rows for units that no longer exist are dropped when this file is regenerated (scripts/lib/owned-session.test.sh went
+# with the suite it named). A weight for a unit nothing runs is a number nobody can check.
 #
 # Columns:  unit-id <TAB> seconds <TAB> source
 #
-# THE FIVE SUITES THIS WORK ADDED were measured locally, not by the runner, for the plain
-# reason that they did not exist when run 34396549904 was taken. Same caveat as the sections: macOS
-# rather than Linux, so over-weighted rather than under.
-#
-# NOT YET MEASURED INDIVIDUALLY, and named here rather than left as an absence:
-#   WTI, MF, SA
-# Each falls to DEFAULT_WEIGHT. 21 of the 24 sections are measured, summing to 2723 s of
-# the suite's 2978 s macOS total, so the unmeasured remainder is roughly 254 s spread over
-# 3 section(s) — enough to matter for balance, which is why the gap is stated. The first
-# real sharded run reports every one of them and closes this note.
-#
-scripts/hooks/contract-integrity.test.sh:CL	189.5	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:IL	246.7	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:IP	199.3	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:K	52.7	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:M	52.2	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:MC	62.8	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:MC6	157.7	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:MT	67.5	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:N	24.4	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:P	107.9	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:Q	105.8	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:Qscope	197.8	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:RI	662.7	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:S	50.1	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:WTR	146.3	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:base	142.9	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:config	42.5	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:manifest	108.5	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:python3	1.9	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:shim	70.0	macos-2026-09-10
-scripts/hooks/contract-integrity.test.sh:worktree	34.2	macos-2026-09-10
 gates/unmanaged-assignment/lib/harness.test.sh	0.7	linux-run-34396549904
+scripts/ci-affected-units.test.sh	5.6	linux-run-34423889101
+scripts/ci-run-record-check.test.sh	1.3	linux-run-34423889101
+scripts/ci-shard.test.sh	7.8	linux-run-34423889101
+scripts/ci-units.test.sh	8.1	linux-run-34423889101
+scripts/ci-verify.test.sh	0.3	linux-run-34423889101
 scripts/cold-open.test.sh	3.6	linux-run-34396549904
 scripts/collect-worktree-artifacts.test.sh	3.3	linux-run-34396549904
 scripts/create-teammate-worktree.test.sh	14.1	linux-run-34396549904
 scripts/daily-workspace-cleanup.test.sh	1.7	linux-run-34396549904
-scripts/demo.test.sh	48.4	linux-run-34396549904
+scripts/demo.test.sh	54.3	linux-run-34423889101
 scripts/hooks/agent-state-claims.test.sh	2.5	linux-run-34396549904
 scripts/hooks/by-reference.test.sh	212.2	linux-run-34396549904
 scripts/hooks/ceo-asks.test.sh	340.4	linux-run-34396549904
@@ -81,6 +65,30 @@ scripts/hooks/ceo-inputs.test.sh	3.8	linux-run-34396549904
 scripts/hooks/ceo-ruled.test.sh	24.2	linux-run-34396549904
 scripts/hooks/ceo-todos.test.sh	322.4	linux-run-34396549904
 scripts/hooks/completeness-commits.test.sh	5.0	linux-run-34396549904
+scripts/hooks/contract-integrity.test.sh:CL	148.1	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:IL	196.5	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:IP	209.2	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:K	36.9	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:M	45.9	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:MC	44.6	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:MC6	140.4	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:MF	131.8	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:MT	48.0	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:N	22.2	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:P	81.4	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:Q	78.1	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:Qscope	140.0	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:RI	361.3	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:S	37.8	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:SA	204.6	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:WTI	870.7	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:WTR	101.8	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:base	92.3	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:config	36.1	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:manifest	83.6	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:python3	2.7	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:shim	56.2	linux-run-34423889101
+scripts/hooks/contract-integrity.test.sh:worktree	29.8	linux-run-34423889101
 scripts/hooks/detect-nonnative-worktree.test.sh	105.4	linux-run-34396549904
 scripts/hooks/engine-status.test.sh	2.3	linux-run-34396549904
 scripts/hooks/escalations.test.sh	3.8	linux-run-34396549904
@@ -101,7 +109,7 @@ scripts/hooks/guard-worktree-removal.test.sh	5.1	linux-run-34396549904
 scripts/hooks/hook-staleness.test.sh	2.9	linux-run-34396549904
 scripts/hooks/inflight-ack-durability.test.sh	4.4	linux-run-34396549904
 scripts/hooks/inflight-notify.test.sh	7.2	linux-run-34396549904
-scripts/hooks/install-reconciler-schedule.test.sh	32.2	linux-run-34396549904
+scripts/hooks/install-reconciler-schedule.test.sh	44.4	linux-run-34423889101
 scripts/hooks/lifecycle-payload-transport.test.sh	2.4	linux-run-34396549904
 scripts/hooks/long-payload.test.sh	2.2	linux-run-34396549904
 scripts/hooks/mechanical-findings.test.sh	3.4	linux-run-34396549904
@@ -167,7 +175,6 @@ scripts/lib/managed-workspace-manager.test.sh	0.7	linux-run-34396549904
 scripts/lib/managed-workspace-volume.test.sh	0.2	linux-run-34396549904
 scripts/lib/mutation-harness.test.sh	0.2	linux-run-34396549904
 scripts/lib/native-platform-cleanup.test.sh	0.8	linux-run-34396549904
-scripts/lib/owned-session.test.sh	5.9	linux-run-34396549904
 scripts/lib/process-identity.test.sh	1.1	linux-run-34396549904
 scripts/lib/resolve-roots.test.sh	0.5	linux-run-34396549904
 scripts/lib/seat-jurisdiction.test.sh	1.2	linux-run-34396549904
@@ -186,10 +193,5 @@ scripts/prepare-agent-spawn.test.sh	0.7	linux-run-34396549904
 scripts/provision-claude-md.test.sh	0.6	linux-run-34396549904
 scripts/publication-completeness.test.sh	4.5	linux-run-34396549904
 scripts/reap-stale-worktrees.test.sh	339.3	linux-run-34396549904
-scripts/reconcile-terminal-worktrees.test.sh	939.7	linux-run-34396549904
+scripts/reconcile-terminal-worktrees.test.sh	1035.9	linux-run-34423889101
 scripts/run-all-tests.test.sh	0.3	linux-run-34396549904
-scripts/ci-affected-units.test.sh	15.1	macos-2026-09-10
-scripts/ci-run-record-check.test.sh	1.6	macos-2026-09-10
-scripts/ci-shard.test.sh	19.6	macos-2026-09-10
-scripts/ci-units.test.sh	15.0	macos-2026-09-10
-scripts/ci-verify.test.sh	1.3	macos-2026-09-10
