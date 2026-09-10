@@ -235,9 +235,34 @@ SETTINGS_LOCAL="$REPO_ROOT/.claude/settings.local.json"
 # the clean single-source state.
 SETTINGS_JSON="$REPO_ROOT/.claude/settings.json"
 
-emit_pass() { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1" >&2; }
+GREEN_N=0
+WARN_N=0
+emit_pass() { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1" >&2; GREEN_N=$((GREEN_N+1)); }
 emit_fail() { printf '  %s✗%s %s\n' "$C_RED" "$C_RESET" "$1" >&2; FAIL=$((FAIL+1)); }
-emit_warn() { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; }
+emit_warn() { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; WARN_N=$((WARN_N+1)); }
+
+# A PASSING RUN USED TO SAY NOTHING AT ALL: it printed its last green line and
+# exited 0. A FAILING run gets a loud block naming what broke, so the two
+# outcomes were asymmetric in the wrong direction — exit 0 is the one people
+# quote at each other, and it arrived with no statement of WHAT was verified.
+#
+# That is not hypothetical. On 2026-09-10 the same script, run from a femcboost
+# working directory, exited 0 after fifteen checks of the PLUGIN route, while
+# from the engine's own checkout it runs twenty-seven and audits this
+# repository's wiring — and the two runs were compared to each other as though
+# they were the same measurement. The by-reference banner at the TOP does say
+# which mode is in force and that layers A-Q do not apply; a reader who scrolls
+# to the END for the verdict found the verdict was an exit code.
+#
+# So a passing run now closes by naming its own subject and its own count, and
+# the by-reference form says out loud which layers it did NOT run. An artifact
+# that does not identify what it attests to gets read as attesting to
+# everything.
+emit_verdict() { # <what was audited> <what that does and does not cover>
+    printf '\n  %s✓%s contract integrity: PASS — %s\n' "$C_GREEN" "$C_RESET" "$1" >&2
+    printf '    %s\n' "$2" >&2
+    printf '    %s green, 0 broken, %s could not run.\n' "$GREEN_N" "$WARN_N" >&2
+}
 
 # --- Engine version banner (informational — NEVER gates) ---
 #
@@ -1774,6 +1799,8 @@ By-reference integrity probe FAILED. Most fixes:
 BREOF
         exit 2
     fi
+    emit_verdict "the PLUGIN route into $REPO_ROOT (engine loaded BY REFERENCE from $ENGINE_ROOT)" \
+        "Layers A-Q were NOT run: they audit the entity's own .claude/settings.local.json wiring, which the plugin route does not use. This exit 0 attests to the by-reference route and to nothing about that wiring — for that, run this probe from the engine's own checkout."
     exit 0
 fi
 
@@ -3330,8 +3357,49 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
         Q_WHY=""
         Q_ERR=""
         Q_DIAG=""
-        mkdir -p "$Q_REPO/.claude/worktrees" 2>/dev/null || Q_SANDBOX_OK=0
-        git -C "$Q_REPO" init -q -b main >/dev/null 2>&1 || Q_SANDBOX_OK=0
+        Q_STEP_ERR="$Q_DIR/step.err"
+
+        # ===================================================================
+        # EVERY STEP OF THIS FIXTURE NAMES ITSELF (2026-09-10)
+        # ===================================================================
+        # Until this revision the steps below were a column of
+        # `... >/dev/null 2>&1 || Q_SANDBOX_OK=0`, and exactly one of them
+        # (the historical-format edit) set Q_WHY. So when the fixture broke,
+        # the layer said "a step of the throwaway fixture FAILED" — no step,
+        # no reason, and the step's own stderr thrown away by the 2>&1 that
+        # was there to keep the run quiet. This layer then sat red across
+        # three landed merges, two of which rewrote the very files it covers,
+        # and identifying the failing step needed a hand-built replica of the
+        # fixture. A diagnostic that cannot say what failed is not a
+        # diagnostic; q_step keeps the run quiet AND keeps the words.
+        #
+        # First failure wins: once the sandbox is broken every later step
+        # fails for a derived reason, and the FIRST one is the cause.
+        q_step() { # <what this step is, in words> <command...>
+            local _q_name="$1"; shift
+            [ "$Q_SANDBOX_OK" -eq 1 ] || return 0
+            if ! "$@" >/dev/null 2>"$Q_STEP_ERR"; then
+                Q_SANDBOX_OK=0
+                Q_WHY="$_q_name"
+                if [ -s "$Q_STEP_ERR" ]; then
+                    Q_ERR="$(tail -3 "$Q_STEP_ERR" | tr '\n' ' ')"
+                fi
+            fi
+            return 0
+        }
+        # Two shapes q_step cannot take as a bare argv: a redirection and a
+        # pipeline. Named functions rather than `bash -c`, so the failing
+        # step's stderr is still the tool's own.
+        q_write_file() { printf '%s\n' "$2" >"$1"; }
+        q_tx_intent() {
+            printf '{"kind":"native","teammate":"q3-opus-canary","externals":[]}' \
+              | RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" intent --session-id "$Q_SID" --tool-use-id tu-q3
+        }
+
+        q_step "creating the sandbox worktree directory" \
+            mkdir -p "$Q_REPO/.claude/worktrees"
+        q_step "git init of the throwaway repository" \
+            git -C "$Q_REPO" init -q -b main
         # A LOCAL IDENTITY, as layers AL and IL already set for their fixtures.
         # Without one this fixture inherits the ambient identity, and where
         # there is none (a container, a runner, or any caller that neutralized
@@ -3340,45 +3408,82 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
         # unverified. Fixing it here rather than demanding an identity of every
         # caller: the fixture is thrown away, so whose name is on its commits
         # is nobody's business but this canary's.
-        git -C "$Q_REPO" config user.email probe@probe.invalid >/dev/null 2>&1 || true
-        git -C "$Q_REPO" config user.name probe >/dev/null 2>&1 || true
-        printf 'seed\n' >"$Q_REPO/seed.txt" 2>/dev/null || Q_SANDBOX_OK=0
-        git -C "$Q_REPO" add seed.txt >/dev/null 2>&1 || Q_SANDBOX_OK=0
-        git -C "$Q_REPO" commit -q -m "probe sandbox seed" >/dev/null 2>&1 || Q_SANDBOX_OK=0
-        git -C "$Q_REPO" worktree add -q -b worktree-agent-q0000001 "$Q_SURVIVOR" >/dev/null 2>&1 || Q_SANDBOX_OK=0
-        git -C "$Q_REPO" worktree add -q -b worktree-agent-q0000002 "$Q_TERMINAL" >/dev/null 2>&1 || Q_SANDBOX_OK=0
-        printf 'evidence\n' >"$Q_TERMINAL/evidence.txt" 2>/dev/null || Q_SANDBOX_OK=0
+        q_step "setting the fixture's own user.email" \
+            git -C "$Q_REPO" config user.email probe@probe.invalid
+        q_step "setting the fixture's own user.name" \
+            git -C "$Q_REPO" config user.name probe
+        # AND AMBIENT GIT HOOKS NEUTRALIZED — the half layers AL and IL have
+        # had since 2026-08-31 and this fixture never got.
+        #
+        # THE INCIDENT, because the two halves above and below are a matched
+        # pair and removing either one breaks a different platform. 4a0e1194
+        # (2026-09-10) added the local identity to fix Linux, where a caller
+        # that neutralizes GIT_CONFIG_GLOBAL leaves no identity at all. On
+        # THIS machine a global core.hooksPath (git-identity-guard, installed
+        # 2026-08-28) refuses any commit whose committer is not the operator's
+        # own address — so the identity that rescued Linux is precisely what
+        # the ambient hook rejects, `git commit` exits 1, and Layer Q went red
+        # within hours of the fix landing and stayed red.
+        #
+        # A fixture that reads the operator's git configuration is not a
+        # fixture. The commit belongs to a throwaway repository that exists
+        # for four seconds; no ambient hook has any business inspecting it,
+        # and pointing core.hooksPath at an empty directory is how AL and IL
+        # already say so. This is NOT the canary asking less: the assertions
+        # below are untouched, and what changed is only that the sandbox now
+        # gets built on every machine instead of one.
+        q_step "creating the empty hooks directory that neutralizes ambient git hooks" \
+            mkdir -p "$Q_DIR/nohooks"
+        q_step "pointing the fixture's core.hooksPath at that empty directory" \
+            git -C "$Q_REPO" config core.hooksPath "$Q_DIR/nohooks"
+        q_step "writing the seed file" \
+            q_write_file "$Q_REPO/seed.txt" seed
+        q_step "git add of the seed file" \
+            git -C "$Q_REPO" add seed.txt
+        q_step "the sandbox seed commit" \
+            git -C "$Q_REPO" commit -q -m "probe sandbox seed"
+        q_step "adding the survivor worktree (the must-not-be-removed arm)" \
+            git -C "$Q_REPO" worktree add -q -b worktree-agent-q0000001 "$Q_SURVIVOR"
+        q_step "adding the terminal worktree (the recovery arm)" \
+            git -C "$Q_REPO" worktree add -q -b worktree-agent-q0000002 "$Q_TERMINAL"
+        q_step "writing the evidence file inside the terminal worktree" \
+            q_write_file "$Q_TERMINAL/evidence.txt" evidence
         # a sealed, claimed transaction for the second tree, left at quarantined
-        if [ "$Q_SANDBOX_OK" -eq 1 ]; then
-            printf '{"kind":"native","teammate":"q3-opus-canary","externals":[]}' \
-              | RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" intent --session-id "$Q_SID" --tool-use-id tu-q3 >/dev/null 2>&1 || Q_SANDBOX_OK=0
-            RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" bind --session-id "$Q_SID" --tool-use-id tu-q3 --agent-id "$Q_AID" >/dev/null 2>&1 || Q_SANDBOX_OK=0
-            RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" start --session-id "$Q_SID" --agent-id "$Q_AID" --cwd "$Q_TERMINAL" >/dev/null 2>&1 || Q_SANDBOX_OK=0
-            RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" seal --session-id "$Q_SID" --agent-id "$Q_AID" >/dev/null 2>&1 || Q_SANDBOX_OK=0
-            # This arm tests recovery of a historical quarantine. New native
-            # seals explicitly belong to Claude and must never be renamed by
-            # RichOS. Model the old record format only inside this disposable
-            # store, rather than asking current platform-owned code to violate
-            # its ownership contract just to manufacture a quarantine.
-            #
-            # A record is "new format" by TWO independent markers and a
-            # historical one predates BOTH:
-            #   cleanup_owner                     routes terminalize() into the
-            #                                     platform-owned branch, which
-            #                                     never renames anything;
-            #   cleanup_policy=integrated-daily   makes terminalize() skip
-            #                                     save_ref+quarantine even once
-            #                                     the first marker is gone.
-            # This fixture stripped only the first, because the second did not
-            # exist when it was written (2afb9703 added it). The member then sat
-            # at `bound` with no quarantine, the guard below fell through, and
-            # the canary reported "could not be built" — six assertions silently
-            # not evaluated. Both markers are asserted present before removal, so
-            # a THIRD marker arriving later fails this fixture loudly instead of
-            # quietly leaving the old format unmodeled, and the result is read
-            # back and put to the module's own predicate rather than assumed.
-            if [ "$Q_SANDBOX_OK" -eq 1 ]; then
-                RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 - "$Q_TX_PY" "$Q_SID" "$Q_AID" <<'PY' >/dev/null 2>"$Q_DIR/fixture.err" || { Q_SANDBOX_OK=0; Q_WHY="the historical-format fixture edit"; }
+        q_step "the transaction intent record" \
+            q_tx_intent
+        q_step "binding the transaction to the agent id" \
+            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" bind --session-id "$Q_SID" --tool-use-id tu-q3 --agent-id "$Q_AID"
+        q_step "the transaction start record" \
+            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" start --session-id "$Q_SID" --agent-id "$Q_AID" --cwd "$Q_TERMINAL"
+        q_step "sealing the transaction" \
+            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" seal --session-id "$Q_SID" --agent-id "$Q_AID"
+        # This arm tests recovery of a historical quarantine. New native
+        # seals explicitly belong to Claude and must never be renamed by
+        # RichOS. Model the old record format only inside this disposable
+        # store, rather than asking current platform-owned code to violate
+        # its ownership contract just to manufacture a quarantine.
+        #
+        # A record is "new format" by TWO independent markers and a
+        # historical one predates BOTH:
+        #   cleanup_owner                     routes terminalize() into the
+        #                                     platform-owned branch, which
+        #                                     never renames anything;
+        #   cleanup_policy=integrated-daily   makes terminalize() skip
+        #                                     save_ref+quarantine even once
+        #                                     the first marker is gone.
+        # This fixture stripped only the first, because the second did not
+        # exist when it was written (2afb9703 added it). The member then sat
+        # at `bound` with no quarantine, the guard below fell through, and
+        # the canary reported "could not be built" — six assertions silently
+        # not evaluated. Both markers are asserted present before removal, so
+        # a THIRD marker arriving later fails this fixture loudly instead of
+        # quietly leaving the old format unmodeled, and the result is read
+        # back and put to the module's own predicate rather than assumed.
+        #
+        # Written to a file rather than fed on stdin so that it can go through
+        # q_step like every other step and carry its own assertion text into
+        # the failure message.
+        cat >"$Q_DIR/fixture.py" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location('historical_probe_fixture', sys.argv[1])
 tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
@@ -3395,9 +3500,10 @@ back = tx.load_tx(sys.argv[2], sys.argv[3])['members'][0]
 assert 'cleanup_owner' not in back and 'cleanup_policy' not in back, back
 assert not tx.platform_native(back), back
 PY
-            fi
-            RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" claim --session-id "$Q_SID" --agent-id "$Q_AID" --ingress SubagentStop >/dev/null 2>&1 || Q_SANDBOX_OK=0
-        fi
+        q_step "the historical-format fixture edit" \
+            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_DIR/fixture.py" "$Q_TX_PY" "$Q_SID" "$Q_AID"
+        q_step "claiming the transaction at the terminal ingress" \
+            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" claim --session-id "$Q_SID" --agent-id "$Q_AID" --ingress SubagentStop
         Q_QUAR="$Q_TERMINAL.richos-terminal-${Q_SID:0:8}-$Q_AID"
 
         if [ "$Q_SANDBOX_OK" -eq 1 ] && [ -d "$Q_SURVIVOR" ] && [ -d "$Q_QUAR" ]; then
@@ -3518,14 +3624,16 @@ print("%s\t%s\t%s" % (m.get("verified_ts") or "", m.get("verified_files") or 0,
             # to the wrong commit. A dead check that also misdescribes itself
             # costs more than no check.
             if [ "$Q_SANDBOX_OK" -ne 1 ]; then
-                # Guarded: this probe runs under `set -eo pipefail`, so an
-                # unguarded `tail` of a file the fixture never got far enough to
-                # create would abort the whole probe with exit 1 instead of the
-                # exit 2 that means "a layer is broken".
-                if [ -s "$Q_DIR/fixture.err" ]; then
-                    Q_ERR="$(tail -3 "$Q_DIR/fixture.err" | tr '\n' ' ')"
+                # q_step has already recorded WHICH step failed and captured
+                # that step's own stderr. The only way Q_WHY can still be empty
+                # is that the flag was cleared by something which is not a
+                # step — say so rather than printing the old anonymous
+                # sentence, because "a step failed" with no step is what let
+                # this layer sit red across three merges.
+                if [ -z "$Q_WHY" ]; then
+                    Q_WHY="an UNNAMED step: no fixture step reported a failure, so Q_SANDBOX_OK was cleared by something that is not a q_step call — every step of this fixture is required to name itself"
                 fi
-                emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — a step of the throwaway fixture FAILED${Q_WHY:+ at $Q_WHY}${Q_ERR:+ — $Q_ERR}. Wiring and hashes alone do not prove recovery; this probe is incomplete."
+                emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — a step of the throwaway fixture FAILED at $Q_WHY${Q_ERR:+ — the step said: $Q_ERR}. Wiring and hashes alone do not prove recovery; this probe is incomplete."
             elif [ ! -d "$Q_SURVIVOR" ]; then
                 emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — every fixture step reported success but the survivor worktree $Q_SURVIVOR does not exist, so the must-not-be-removed arm has nothing to watch. Wiring and hashes alone do not prove recovery; this probe is incomplete."
             else
@@ -3761,6 +3869,15 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPER" ] \
     fi
 elif [ "$Q_OK" -eq 1 ]; then
     emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — git, mktemp or python3 unavailable. Wiring and hashes are verified; SCOPE AND SAFETY BEHAVIOR ARE NOT."
+else
+    # A LAYER THAT DISAPPEARS IS A LAYER NOBODY MISSES. Q4 is gated on Q, and
+    # until 2026-09-10 that gate was silent in the one direction that matters:
+    # with Q red the probe printed 26 layers instead of 27 and said nothing at
+    # all about the 27th. The run was already failing, so this was never a
+    # false green — but for the whole time Q sat broken, the scope-and-safety
+    # canary was also not running, and the only way to notice was to count the
+    # layers. Nobody counts the layers.
+    emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — Layer Q above is broken and Q4 is gated on it, so this run carries ONE FEWER LAYER than an intact one. Fix Q and re-run: until then nothing proves the reaper looks past one repository or that it spares a live agent's hand-rolled worktree."
 fi
 
 # --- Layer Q5 (RETIRED 2026-09-03): the agent-finish trigger no longer exists.
@@ -3941,4 +4058,6 @@ EOF
     exit 2
 fi
 
+emit_verdict "the engine SEATED in $REPO_ROOT" \
+    "Every layer above was RUN against this repository's own .claude/settings.local.json wiring, functional canaries included."
 exit 0
