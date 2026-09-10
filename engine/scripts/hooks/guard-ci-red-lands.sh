@@ -1,0 +1,539 @@
+#!/usr/bin/env bash
+#
+# guard-ci-red-lands.sh — BLOCKING PreToolUse[Bash] guard.
+#
+# REFUSES A LAND INTO A BRANCH WHOSE CI IS RED, UNLESS THE LAND SAYS WHY IT
+# CANNOT WAIT.
+#
+# ===========================================================================
+# THE FAILURE THIS EXISTS TO PREVENT
+# ===========================================================================
+# On 2026-09-10 three workflows were red on main across two repositories, one
+# of them for thirteen days, and a fourth — the dependabot workflow — had been
+# failing for five days without ever being named in any report.
+#
+# Thirteen days was possible for one reason and it is not neglect:
+#
+#     RED COST NOTHING. Work landed on top of it at the same rate it landed on
+#     top of green. So the only thing standing between a broken workflow and a
+#     fortnight was somebody's attention, and a rule enforced by attention
+#     lasts exactly as long as the attention.
+#
+# This makes red cost something, at the one moment where the cost is
+# proportionate: the land. Not the commit — engineers commit dozens of times a
+# day and blocking that would be absurd. Not the dispatch — the work is not the
+# problem. The LAND, which is the act of putting more on top of a foundation
+# that is already failing.
+#
+# ===========================================================================
+# THE HALF THAT MATTERS MORE: WHY THIS DOES NOT DIE THE WAY g11/g12/g13 DIED
+# ===========================================================================
+# This project killed three guards in a single day by making them broad enough
+# that waiving became the daily habit, and a guard that is habitually waived is
+# worse than no guard: it costs a keystroke and buys a false sense of a floor.
+#
+# So the refusal is a CONJUNCTION, and every clause narrows it:
+#
+#   1. The command is a LAND — `git merge` or `git push`. Not commit, not add,
+#      not fetch, not status, not a `push` to a teammate branch.
+#   2. It targets the WATCHED BRANCH (main by default). A push of a worktree
+#      branch is silent, and that is the overwhelming majority of pushes.
+#   3. The TARGET REPOSITORY has red RIGHT NOW. Not another repository's red,
+#      not a repository this session merely has open. When CI is clean this
+#      guard is structurally incapable of firing.
+#   4. Only the RED axis. The six-axis reader (`ci-status.sh`) also reports
+#      slow, skipped, never-run, stale and hollow, and today it reports 52
+#      findings. Gating on all of them would refuse every land in this
+#      repository until an unrelated backlog is cleared, which is precisely how
+#      a guard earns a reflexive waiver. Those five axes are REPORTED, loudly
+#      and per-workflow. Only red BLOCKS.
+#
+# And the escape hatch is narrow in a way that makes its own overuse visible:
+#
+#   ci-red-ack: <workflow> — <why this land cannot wait>
+#
+#   * It must NAME a workflow that is ACTUALLY RED. An ack naming something
+#     green, or naming nothing, is refused — a bare marker exempts nothing,
+#     the same discipline the contrast floor and the dialect guard use.
+#   * It must carry a reason of real length. "wip" is not a reason.
+#   * IT DOES NOT COVER THE OTHER RED WORKFLOWS. Acking `ui-suite-ci.yml` while
+#     `packaging-ci.yml` is also red still refuses, and names the one that was
+#     not acked. Acking every one of them is possible and is exactly as much
+#     typing as there are broken workflows, which is the intended shape.
+#   * EVERY ACCEPTED ACK IS LOGGED, and the refusal message PRINTS HOW MANY
+#     TIMES THIS SAME WORKFLOW HAS ALREADY BEEN ACKED. That is the anti-habit
+#     mechanism: the fifth ack for the same workflow says "this is the 5th ack
+#     for ui-suite-ci.yml since 2026-09-10", which turns a habit into evidence
+#     without blocking anybody's day.
+#
+# ===========================================================================
+# WHAT IT DOES WHEN IT CANNOT TELL — AND WHY THAT IS exit 0
+# ===========================================================================
+# `ci-red.py` answers red / clear / UNKNOWN. On UNKNOWN this guard ANNOUNCES,
+# loudly, on stderr, and ALLOWS.
+#
+# That is deliberate and it is the opposite of this engine's usual fail-closed
+# instinct, so here is the argument. GitHub being slow, a token expiring, or an
+# aeroplane is not evidence of red. Blocking on it would refuse lands for
+# reasons unrelated to CI, several times a week, and the fix on the day would
+# always be to waive — the g11/g12/g13 death, arrived at by a different road.
+# The protection that survives is the one that fires only on a fact it actually
+# established.
+#
+# The announcement is not decoration: it names what could not be read and the
+# command that would answer it, and the unattended watch job (ci-surface-
+# watch.sh) keeps a fresh reading on disk precisely so that this path is rare.
+#
+# ===========================================================================
+# WHY NOT A CHECK INSIDE THE LAND SKILL
+# ===========================================================================
+# Rejected for the reason the paragraph it replaces failed: enforcement by
+# attention. The land skill already says to verify things and the verification
+# that gets skipped is always the one nobody is holding a stopwatch on.
+#
+# Exit codes:  0 allow (silently, or with an announcement)   2 refuse
+
+set -eo pipefail
+
+command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1 || exit 0
+
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-ci-red-lands.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defense"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+
+# --- WHICH REPOSITORY IS THE COMMAND TALKING TO? ---------------------------
+# ONE resolver, shared by every guard that asks — never a local copy. A copy is
+# how the same `cd <repo> && git commit` hole ended up in five files.
+_GJ_LIB="$SCRIPT_DIR/../lib/git-jurisdiction.sh"
+if [ ! -f "$_GJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-ci-red-lands.sh"
+        echo "  scripts/lib/git-jurisdiction.sh is missing at: $_GJ_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY the command"
+        echo "  it was handed will actually land into."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/git-jurisdiction.sh
+. "$_GJ_LIB"
+
+RED_PROBE="$SCRIPT_DIR/../lib/ci-red.py"
+[ -f "$RED_PROBE" ] || exit 0
+
+INPUT="$(cat)"
+
+WATCHED_BRANCH="${CI_RED_GATE_BRANCH:-main}"
+ACK_LOG="${CI_RED_ACK_LOG:-$HOME/.claude/state/ci-red-acks.log}"
+MAX_AGE="${CI_RED_GATE_MAX_AGE:-1800}"
+PROBE_TIMEOUT="${CI_RED_GATE_TIMEOUT:-12}"
+
+# ---------------------------------------------------------------------------
+# 1. IS THIS A LAND?
+# ---------------------------------------------------------------------------
+# Classified in python because a shell `case` over a command line with
+# quoting, `&&` and here-documents is how a classifier acquires holes. It is
+# deliberately CONSERVATIVE: anything it is unsure of is not a land, and a
+# missed land costs nothing that the six-axis report does not already say out
+# loud, while a false land is a refusal on ordinary work.
+#
+# The payload arrives on STDIN, so the script itself cannot: it is held in a
+# variable and passed with `-c`, the same shape scripts/lib/git-jurisdiction.sh
+# uses and for the same reason.
+# NOTE ON BASH 3.2, which is what `#!/usr/bin/env bash` resolves to on macOS.
+# The obvious `VAR="$(cat <<'PY' ... PY)"` DOES NOT PARSE there: 3.2 scans for
+# the closing parenthesis of a command substitution before it processes the
+# here-document, so an apostrophe or a bracket inside the Python body ends the
+# scan in the wrong place and the file dies with "unexpected EOF while looking
+# for matching `)'". `read -r -d ''` has no such scan. Found by running this
+# guard's own suite under /bin/bash rather than the login shell.
+IFS= read -r -d '' _CI_CLASSIFIER <<'PY' || true
+import json, re, shlex, sys
+
+watched = sys.argv[1]
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    print("skip\tunparseable payload")
+    raise SystemExit(0)
+
+if payload.get("tool_name") not in (None, "Bash"):
+    print("skip\tnot a Bash call")
+    raise SystemExit(0)
+
+cmd = (payload.get("tool_input") or {}).get("command") or ""
+if not cmd.strip():
+    print("skip\tempty command")
+    raise SystemExit(0)
+
+try:
+    toks = shlex.split(cmd, comments=False)
+except Exception:
+    toks = cmd.split()
+
+# The VERB, and only in a `git` invocation. `git merge` always targets the
+# CURRENT branch, so a merge is judged whenever the checkout is on the watched
+# branch (resolved by the caller). A `git push` is judged only when the watched
+# branch is named or when it is a bare `git push` from the watched branch.
+verb = None
+refs = []
+i = 0
+while i < len(toks):
+    t = toks[i]
+    if t in ("git",) or t.endswith("/git"):
+        j = i + 1
+        while j < len(toks) and toks[j].startswith("-"):
+            j += 2 if toks[j] in ("-C", "-c", "--git-dir", "--work-tree") else 1
+        if j < len(toks) and toks[j] in ("merge", "push"):
+            verb = toks[j]
+            refs = [x for x in toks[j + 1:] if not x.startswith("-")]
+            break
+    i += 1
+
+if verb is None:
+    print("skip\tno `git merge` or `git push` in the command")
+    raise SystemExit(0)
+
+# `--dry-run` / `-n` lands nothing.
+if "--dry-run" in toks or (verb == "push" and "-n" in toks):
+    print("skip\ta dry run lands nothing")
+    raise SystemExit(0)
+
+named = ""
+if verb == "push":
+    # `git push origin main`, `git push origin HEAD:main`, `git push -u origin main`
+    for r in refs[1:] if len(refs) > 1 else []:
+        tail = r.split(":")[-1].replace("refs/heads/", "")
+        if tail == watched:
+            named = watched
+            break
+    if not named and len(refs) > 1:
+        print("skip\t`git push` names refs and none of them is %s" % watched)
+        raise SystemExit(0)
+
+# The ack, read off the command line itself — visible in the transcript, so a
+# reviewer sees the claim next to the act it excuses.
+acks = []
+for m in re.finditer(r"ci-red-ack:\s*([^\n#]+)", cmd):
+    body = m.group(1).strip().rstrip("'\"")
+    parts = re.split(r"\s*(?:—|--|:)\s*", body, maxsplit=1)
+    wf = parts[0].strip()
+    why = parts[1].strip() if len(parts) > 1 else ""
+    # \x1f between the workflow and the reason, NOT a tab. The four fields of
+    # the line below are tab-separated and read with `cut -f`, so a tab inside
+    # the fourth field silently truncates the reason to nothing — which the
+    # guard then rejected as "a reason of 0 characters" while the author had
+    # written a perfectly good one. Case G of this guard's suite pins it.
+    acks.append("%s\x1f%s" % (wf, why))
+
+print("land\t%s\t%s\t%s" % (verb, named, "|".join(acks)))
+PY
+
+CLASSIFY="$(python3 -c "$_CI_CLASSIFIER" "$WATCHED_BRANCH" <<<"$INPUT" 2>/dev/null)" \
+    || CLASSIFY="skip	the land classifier could not run"
+
+KIND="$(printf '%s' "$CLASSIFY" | cut -f1)"
+[ "$KIND" = "land" ] || exit 0
+
+VERB="$(printf '%s' "$CLASSIFY" | cut -f2)"
+NAMED_BRANCH="$(printf '%s' "$CLASSIFY" | cut -f3)"
+ACKS="$(printf '%s' "$CLASSIFY" | cut -f4)"
+
+# ---------------------------------------------------------------------------
+# 2. WHICH REPOSITORY, AND IS IT ON THE WATCHED BRANCH?
+# ---------------------------------------------------------------------------
+_GJ="$(richos_git_anchor "$INPUT" "merge push" 2>/dev/null || true)"
+ANCHOR="$(printf '%s' "$_GJ" | cut -f2)"
+[ -n "$ANCHOR" ] || ANCHOR="$PWD"
+[ -d "$ANCHOR" ] || exit 0
+
+REPO_ROOT="$(git -C "$ANCHOR" rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$REPO_ROOT" ] || exit 0
+
+# `symbolic-ref`, NOT `rev-parse --abbrev-ref`. On an UNBORN branch — a fresh
+# checkout before its first commit — `rev-parse --abbrev-ref HEAD` exits 128
+# with "ambiguous argument 'HEAD'" and the branch name is lost, so the guard
+# would decide this is not a land and stand down. `symbolic-ref --short HEAD`
+# answers `main` correctly there. It fails on a DETACHED head, which is the
+# right failure: nothing lands into a detached head. Found by case R5 of this
+# guard's suite, whose fixture repository had no commit.
+CURRENT_BRANCH="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null \
+                  || git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null \
+                  || echo "")"
+
+# A merge lands into wherever HEAD is. A push lands into what it names, or into
+# HEAD's upstream when it names nothing. Either way: if neither the named ref
+# nor the current branch is the watched one, this is not the land being gated.
+if [ "$NAMED_BRANCH" != "$WATCHED_BRANCH" ] && [ "$CURRENT_BRANCH" != "$WATCHED_BRANCH" ]; then
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# 3. THE SLUG — read off the config file, never guessed
+# ---------------------------------------------------------------------------
+ORIGIN="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+[ -n "$ORIGIN" ] || exit 0
+# In python, not sed: the non-greedy quantifier this needs is a GNU extension,
+# and on the BSD sed macOS ships the expression fails with "repetition-operator
+# operand invalid". Caught by case D of this guard's own suite on its first run,
+# which is the only reason it is not still here.
+SLUG="$(python3 -c '
+import re, sys
+m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.g" "it)?$", sys.argv[1])
+print("%s/%s" % (m.group(1), m.group(2)) if m else "")' "$ORIGIN" 2>/dev/null || true)"
+case "$SLUG" in */*) : ;; *) exit 0 ;; esac
+
+# ---------------------------------------------------------------------------
+# 4. IS IT RED?
+# ---------------------------------------------------------------------------
+PROBE_JSON="$(python3 "$RED_PROBE" --repo "$SLUG" --branch "$WATCHED_BRANCH" \
+                --max-age-seconds "$MAX_AGE" --timeout "$PROBE_TIMEOUT" --json 2>/dev/null || true)"
+[ -n "$PROBE_JSON" ] || {
+    {
+        echo "=== CI RED GATE: COULD NOT LOOK ==="
+        echo "  The red probe produced nothing for ${SLUG} (${WATCHED_BRANCH}). This land is ALLOWED,"
+        echo "  because 'could not look' is not evidence of red — but nothing was checked."
+        echo "  Answer it yourself:  engine/scripts/ci-status.sh --repo ${REPO_ROOT}"
+    } >&2
+    exit 0
+}
+
+STATE="$(printf '%s' "$PROBE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state","unknown"))' 2>/dev/null || echo unknown)"
+
+if [ "$STATE" = "clear" ]; then
+    exit 0
+fi
+
+if [ "$STATE" != "red" ]; then
+    REASON="$(printf '%s' "$PROBE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason","(none given)"))' 2>/dev/null || echo "(none given)")"
+    {
+        echo "=== CI RED GATE: COULD NOT LOOK — THE LAND IS ALLOWED, NOTHING WAS CHECKED ==="
+        echo "  repository: ${SLUG}   branch: ${WATCHED_BRANCH}"
+        echo "  why:        ${REASON}"
+        echo ""
+        echo "  This is NOT 'CI is clear'. A checker that could not look has found nothing and"
+        echo "  proved nothing. Blocking here would refuse lands whenever GitHub is slow, the fix"
+        echo "  on the day would always be to waive, and habitual waiving is how three guards died"
+        echo "  in this project in one afternoon. So it allows, and it says so where you can see it."
+        echo ""
+        echo "  Settle it:  engine/scripts/ci-status.sh --repo ${REPO_ROOT}"
+    } >&2
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# 5. RED. MATCH THE ACKS, COUNT THE HABIT, DECIDE.
+# ---------------------------------------------------------------------------
+IFS= read -r -d '' _CI_ACK_READER <<'PY' || true
+import json, os, re, sys, time
+
+doc = json.load(sys.stdin)
+red = doc.get("red", []) or []
+raw = os.environ.get("ACKS", "")
+slug = os.environ["SLUG"]
+log_path = os.environ["ACK_LOG"]
+
+acks = []
+for chunk in raw.split("|"):
+    if not chunk.strip():
+        continue
+    wf, _, why = chunk.partition("\x1f")
+    acks.append((wf.strip(), why.strip()))
+
+
+def names(entry):
+    """Every string this workflow can honestly be called: the file name, the
+    file name without its extension, and the workflow's display name. An ack is
+    a human typing, and refusing `ui-suite-ci` because the file is
+    `ui-suite-ci.yml` would be pedantry that teaches people to distrust the
+    gate rather than to use it."""
+    out = set()
+    for v in (entry.get("workflow"), entry.get("name")):
+        if v:
+            out.add(v.strip().lower())
+            out.add(re.sub(r"\.ya?ml$", "", v.strip().lower()))
+    return out
+
+
+# How often has each of these already been acked? Read BEFORE anything is
+# written, so the count in a refusal is the history and not this attempt.
+history = {}
+try:
+    with open(log_path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) >= 3 and parts[1] == slug:
+                history[parts[2].lower()] = history.get(parts[2].lower(), 0) + 1
+except Exception:
+    pass
+
+problems, accepted = [], []
+for entry in red:
+    wf = entry.get("workflow") or entry.get("name") or "?"
+    match = None
+    for given, why in acks:
+        if given.strip().lower() in names(entry):
+            match = (given, why)
+            break
+    if match is None:
+        problems.append((entry, "not acked"))
+    elif len(match[1]) < 15:
+        problems.append((entry, "acked with a reason of %d characters (%r) — that is a marker, not a "
+                               "reason" % (len(match[1]), match[1])))
+    else:
+        accepted.append((entry, match[1]))
+
+# An ack naming a workflow that is not red at all: say so. It is either a typo,
+# in which case the land is about to be let through on a mistake, or the ack was
+# copied from an earlier land, which is the habit this counts.
+red_names = set()
+for e in red:
+    red_names |= names(e)
+stray = [(g, w) for g, w in acks if g.strip().lower() not in red_names]
+
+out = {"problems": [], "accepted": [], "stray": stray, "history": history,
+       "workflows_seen": doc.get("workflows_seen"), "read_at": doc.get("read_at"),
+       "source": doc.get("source")}
+for entry, why in problems:
+    out["problems"].append({
+        "workflow": entry.get("workflow") or entry.get("name"),
+        "conclusion": entry.get("conclusion"),
+        "days": entry.get("days"),
+        "floor": entry.get("days_is_a_floor"),
+        "since_run": entry.get("since_run"),
+        "last_green": entry.get("last_green_run"),
+        "file_backed": entry.get("file_backed", True),
+        "path": entry.get("path"),
+        "url": entry.get("url"),
+        "why": why,
+        "acked_before": history.get((entry.get("workflow") or "").lower(), 0),
+    })
+for entry, why in accepted:
+    out["accepted"].append({"workflow": entry.get("workflow") or entry.get("name"), "why": why,
+                            "acked_before": history.get((entry.get("workflow") or "").lower(), 0)})
+
+if not out["problems"]:
+    # Every red workflow was acked with a real reason. Record it durably — the
+    # log is the only thing that can ever show this becoming a habit.
+    try:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            for a in out["accepted"]:
+                f.write("%s\t%s\t%s\t%s\t%s\n"
+                        % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), slug,
+                           a["workflow"], os.environ.get("VERB", "?"), a["why"].replace("\t", " ")))
+    except Exception:
+        pass
+
+print(json.dumps(out))
+PY
+
+VERDICT="$(ACKS="$ACKS" ACK_LOG="$ACK_LOG" SLUG="$SLUG" VERB="$VERB" \
+           REPO_ROOT="$REPO_ROOT" BRANCH="$WATCHED_BRANCH" \
+           python3 -c "$_CI_ACK_READER" <<<"$PROBE_JSON" 2>/dev/null)" || VERDICT=""
+
+if [ -z "$VERDICT" ]; then
+    {
+        echo "=== CI RED GATE: the ack reader failed — the land is ALLOWED, nothing was checked ==="
+        echo "  ${SLUG} (${WATCHED_BRANCH}) reads RED, but this guard could not evaluate the acks,"
+        echo "  and refusing on its own malfunction would teach everyone to work around it."
+    } >&2
+    exit 0
+fi
+
+N_PROBLEMS="$(printf '%s' "$VERDICT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["problems"]))')"
+
+if [ "$N_PROBLEMS" = "0" ]; then
+    printf '%s' "$VERDICT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("=== CI RED GATE: allowed on a declared ack ===", file=sys.stderr)
+for a in d["accepted"]:
+    n = a["acked_before"]
+    print("  %s — %s" % (a["workflow"], a["why"]), file=sys.stderr)
+    if n >= 2:
+        print("      THIS IS ACK NUMBER %d FOR THIS WORKFLOW. An escape hatch used %d times is not an"
+              % (n + 1, n + 1), file=sys.stderr)
+        print("      exception any more; it is the workflow being carried. Fix it or delete it.",
+              file=sys.stderr)
+for g, w in d.get("stray", []):
+    print("  NOTE: the ack named %r, which is not red. Check the name — an ack that matches nothing"
+          % g, file=sys.stderr)
+    print("        excuses nothing, and this one did not have to be written.", file=sys.stderr)
+' >&2
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# THE REFUSAL
+# ---------------------------------------------------------------------------
+{
+    echo "=== CI IS RED ON ${SLUG} (${WATCHED_BRANCH}) — THIS LAND IS REFUSED ==="
+    echo ""
+    printf '%s' "$VERDICT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+for p in d["problems"]:
+    age = "%s%s day(s)" % ("at least " if p.get("floor") else "", p.get("days"))
+    print("  %s   %s for %s" % (p["workflow"], p["conclusion"], age))
+    print("      since run #%s; last green %s"
+          % (p.get("since_run"),
+             ("run #%s" % p["last_green"]) if p.get("last_green") else "NONE within the runs read"))
+    if not p.get("file_backed", True):
+        print("      generated by GitHub (%s) — no file in the checkout describes it" % p.get("path"))
+    if p.get("url"):
+        print("      %s" % p["url"])
+    if p.get("acked_before"):
+        print("      ALREADY ACKED %d TIME(S) in this repository." % p["acked_before"])
+    if p["why"] != "not acked":
+        print("      the ack was rejected: %s" % p["why"])
+    print("")
+print("  read %s (%s), %s workflows seen" % (d.get("read_at"), d.get("source"), d.get("workflows_seen")))
+'
+    echo ""
+    echo "  WHY THIS BLOCKS. Red used to cost nothing here, so red persisted — on 2026-09-10 a"
+    echo "  workflow had been failing for thirteen days with work landing on top of it the whole"
+    echo "  time. (That is the history this gate was built from, not a claim about the list above;"
+    echo "  the ages above are the ones that matter now.)"
+    echo "  Landing more onto a failing foundation is the act this refuses — not committing, not"
+    echo "  pushing a worktree branch, only a land into ${WATCHED_BRANCH} while ${WATCHED_BRANCH} is red."
+    echo ""
+    echo "  THE THREE WAYS FORWARD, in the order they should be preferred:"
+    echo ""
+    echo "  1. FIX IT. Usually the fastest of the three, and the only one that removes the block"
+    echo "     for everybody rather than for this command."
+    echo ""
+    echo "  2. LAND ANYWAY, SAYING WHY. Add one comment to the command, naming EACH red workflow:"
+    echo ""
+    echo "       git ${VERB} ...   # ci-red-ack: <workflow> — <why this land cannot wait>"
+    echo ""
+    echo "     A bare marker exempts nothing: the workflow must be one that is actually red and"
+    echo "     the reason must be a reason. Every accepted ack is logged to"
+    echo "       ${ACK_LOG}"
+    echo "     and the count is printed back at you, so a hatch that becomes a habit says so."
+    echo ""
+    echo "  3. IF THIS LAND IS THE FIX, ack it and say that. That is a true reason and it takes"
+    echo "     one line."
+    echo ""
+    echo "  The full picture across every governed repository, on all six axes:"
+    echo "       engine/scripts/ci-status.sh"
+} >&2
+exit 2

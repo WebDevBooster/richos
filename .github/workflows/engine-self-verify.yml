@@ -1,5 +1,29 @@
 name: engine-self-verify
 
+# --- CI-SURFACE DECLARATIONS -----------------------------------------------
+# Read by engine/scripts/lib/ci-surface.py, which judges every workflow on six
+# axes and treats a missing declaration as a finding.
+#
+# THE SKIP LINE BELOW IS THE POINT OF THIS BLOCK. On 2026-09-10 the founder's
+# screen showed "1 failing, 17 successful, and 1 skipped" and asked about it.
+# The skipped one is `affected`, it is skipped CORRECTLY, and the reason was
+# already written down — in this file, at the section headed "affected — THE
+# REQUIRED CHECK", and in the `if:` at the job itself. NOTHING READ EITHER OF
+# THOSE. Prose in a header is not an answer to a question on a screen; a
+# declaration a tool reads and prints back is. An undeclared skip is now a
+# finding, and this is the line that stops this one being one.
+#
+# WALL CLOCK, measured 2026-09-10 over the last 30 runs: min 64s, median 719s,
+# p90 5683s, max 8178s (#84, 2h16m, 2026-09-06). The p90 and the max are all
+# FAILING runs — a failing shard runs to its 60-minute job timeout — while the
+# most recent green (#100) is 961s. The ceiling is therefore set off the green
+# side and not off the p90, deliberately: a budget sized to accommodate the
+# worst failure would never fire, which is a budget that exists to be met.
+# ci-budget: 40m
+# ci-skip: affected — the fast per-diff gate. When `shards` runs (main, dispatch, schedule) the whole inventory is verified, the affected set is a subset of it by construction, and `affected-coverage` proves that union rather than asserting it. Its skip on those runs means the STRONGER check ran, and this workflow is red if that stronger check did not.
+# ci-evidence: the shard plan and the affected set are both DERIVED from the engine at run time (scripts/ci-units.sh, scripts/ci-affected-units.sh), never typed here, and `coverage` fails unless the receipts from every shard union to exactly the declared inventory — so a green cannot mean "the units it happened to know about passed"
+# ---------------------------------------------------------------------------
+
 # THIS IS THE COPY THAT ACTUALLY RUNS.
 #
 # GitHub Actions discovers workflows ONLY in a `.github/workflows/` directory

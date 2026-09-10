@@ -2,7 +2,7 @@
 #
 # verify-agent-prompt.sh — PreToolUse gate on Agent spawns.
 #
-# Five always-on checks plus one OPT-IN check (the QA install-fresh gate,
+# Six always-on checks plus one OPT-IN check (the QA install-fresh gate,
 # toggled by ENABLE_QA_INSTALL_FRESH_GATE in orchestration.config — OFF by
 # default):
 #
@@ -35,6 +35,14 @@
 #                                  `no-inflight-ack:` line. The instruction
 #                                  cannot travel in the message it exists to
 #                                  make verifiable.
+#   7. concealment-clause        — reject a brief that orders anyone to reduce
+#                                  WHAT THE CEO SEES (hide it from him, keep it
+#                                  off his screen, make it invisible to him)
+#                                  instead of removing the condition that makes
+#                                  him see it. Auditable `conceal-ack:` line for
+#                                  the rare true case; a bare marker exempts
+#                                  nothing. Measured against 1,871 real spawn
+#                                  prompts — see scripts/hooks/conceal.corpus.md.
 
 set -eo pipefail
 # Payloads can exceed a pipe buffer. Matching pipelines must consume EOF:
@@ -463,6 +471,222 @@ if [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
        && ! printf '%s' "$(sanitized_prompt)" | grep -iE >/dev/null '^[[:space:]]*no-inflight-ack:[[:space:]]*[^[:space:]]'; then
       FAIL=1
       FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract — either name the helper (scripts/inflight-ack.sh, reachable at ~/.claude/richos-engine/scripts/inflight-ack.sh) or spell out the ack file itself (<worktree>/.claude/inflight-acks/<sha12>.<teammate>.ack with its sha/impact/detail/paths/teammate keys) — because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 7. concealment-clause — a brief may not order anyone to reduce WHAT THE CEO
+#    SEES in place of fixing what makes him see it
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS, and it is one sentence of history rather than a principle.
+# On 2026-09-10 a brief left this orchestrator carrying the instruction
+#
+#     Make the surviving demand invisible to him.
+#
+# A guard was firing a warning at the CEO. The warning was TRUE. The brief did
+# not ask anyone to remove the condition that made it fire; it asked for the
+# warning to be carried on a channel he could not read. He found it himself —
+# he reads the tool calls — and said: "That is hiding, not fixing." He then
+# asked the only question that matters about a promise: how does he know it
+# will never happen again.
+#
+# A note-to-self is not an answer to that question. This check is.
+#
+# WHAT IT REFUSES: a suppression verb whose GRAMMATICAL TARGET is the CEO or a
+# surface he reads. Not a suppression verb. Not the word "hide". The pairing,
+# in one sentence, with the CEO on the receiving end of a directional
+# preposition:  hide X FROM HIM, keep X OFF HIS SCREEN, make X INVISIBLE TO
+# THE CEO, stop HIM FROM SEEING X, so HE NEVER SEES X, strip X FROM every
+# USER-VISIBLE field, route X AWAY FROM HIS SCREEN.
+#
+# ===========================================================================
+# THE PRECISION/RECALL TRADE, CHOSEN AGAINST A MEASURED CORPUS
+# ===========================================================================
+# THIS PROJECT HAS KILLED THREE BLOCKING GUARDS BY BUILDING THEM TOO BROAD
+# (g11/g12/g13, all in one day). The fix on the day is always to waive, and
+# habitual waiving is how a guard dies. So the shape below was not reasoned
+# out and shipped — it was measured against every Agent spawn prompt in every
+# Claude Code transcript on this machine, 1,871 unique real briefs, and the
+# first two drafts were thrown away because the corpus said they were wrong.
+#
+#   draft 1  verb and CEO anywhere in one sentence   16 hits, 15 of them false
+#   draft 3  verb GOVERNING the CEO (this one)        1 hit, and it is the
+#                                                      2026-09-10 brief itself
+#
+# The whole measurement, every cut shape, and the command to reproduce it:
+# scripts/hooks/conceal.corpus.md.
+#
+# CHOSEN DELIBERATELY IN FAVOR OF PRECISION — what this does NOT catch:
+#   * Anything inside a code fence, an inline code span, a blockquote, an HTML
+#     comment, or a QUOTED span. Every brief that describes this incident
+#     quotes it, and a guard that refuses briefs about itself is a guard that
+#     cannot be worked on. Cost: an order written entirely inside quotation
+#     marks is missed. Nobody writes an order that way; somebody evading this
+#     check would. It guards honest drift, not an adversary.
+#   * A sentence carrying a PROHIBITION or a contrast ("do not hide it from
+#     him", "concealing it from him INSTEAD OF fixing it", "nothing here may
+#     keep it off his screen"). Matching a prohibition as an order is the
+#     exact defect that broke the sibling brief gate hours after it landed
+#     (femcboost 34d23cf6d). Bare "never" is deliberately NOT a prohibition
+#     marker, because "so he never sees it" is the canonical concealment
+#     phrasing — only "never again"/"never happen" are.
+#   * Indirection with no directional object: "carry the repair instruction on
+#     a channel that reaches the MODEL and not the user", "put the full
+#     instruction where only the model reads it". Both are from the original
+#     brief and both are missed. Catching them needs intent, not grammar, and
+#     every draft that tried cost more false positives than it bought.
+#   * Suppression aimed at ANY OTHER audience — an app user, a coach, an
+#     athlete, a log, a test. That is ordinary product work, it is frequent,
+#     and a gate that ate it would be waived within a week. 18 such briefs are
+#     pinned as must-allow cases in verify-agent-prompt.test.sh.
+#
+# THE ESCAPE HATCH IS REAL, because unlike the interactive-prompt guard this
+# one CAN be right to refuse and wrong to insist: a live credential, PII, or a
+# secret genuinely should not reach a screen. `conceal-ack: <reason>` on a live
+# prompt line, logged to .claude/state/conceal-acks.log. A bare marker exempts
+# nothing — the reason must say something.
+if [ -n "$PROMPT" ]; then
+  CONCEAL_PY="$(mktemp -t verify-agent-prompt-conceal.XXXXXX.py)"
+  cat >"$CONCEAL_PY" <<'CONCEAL_PY_EOF'
+import re, sys
+
+text = sys.stdin.read()
+
+# Inline code spans and quoted spans are somebody else's words being shown,
+# not this brief's instruction. Single-line only: a quote character that never
+# closes must not swallow the rest of the prompt.
+text = re.sub(r'`[^`\n]+`', ' ', text)
+text = re.sub(r'"[^"\n]{1,200}"', ' ', text)
+text = re.sub(u'“[^”\n]{1,200}”', ' ', text)
+text = re.sub(r"(?<![A-Za-z0-9])'[^'\n]{1,200}'(?![A-Za-z0-9])", ' ', text)
+text = re.sub(u"‘[^’\n]{1,200}’", ' ', text)
+
+# A sentence that FORBIDS concealment, or contrasts it with the real fix, is
+# not an order to conceal. Bare "never" is absent on purpose (see the header).
+PROHIB = re.compile(
+    r"\b(?:do not|do n.t|don.t|never again|never happen|must not|may not"
+    r"|cannot|can.t|shall not|no need to|instead of|rather than|without"
+    r"|nothing|forbidden|prohibited|withdrawn|refus\w+|not to)\b", re.I)
+
+# The CEO as the OBJECT of a preposition, and only there. "the CEO" must end
+# its noun phrase: "from the CEO." matches, "from the CEO handoff" does not,
+# "from the CEO-TODOs" and "from the CEO's briefing" do not.
+_END = (r"(?=\s*(?:[.,;:!?)—-]|$|\b(?:and|or|so|to|as|if|by|at|in|on|for|with|from|per"
+        r"|that|this|until|unless|while|because|when|before|after|during|is|was|would"
+        r"|will|can|has|have|had|does|did|only|ever|right)\b))")
+T = (r"(?:him(?![\w'’])%s"
+     r"|his\s+(?:screen|terminal|view|sight|eyes|report|inbox|window|transcript)\b"
+     r"|the\s+CEO'?s\s+(?:screen|terminal|view|sight|eyes|report|inbox)\b"
+     r"|the\s+CEO(?![\w'’-])%s)") % (_END, _END)
+T_MID = r"(?:him|the\s+CEO)"
+V = (r"(?:hid(?:e|es|ing|den)|conceal(?:s|ing|ed)?|suppress(?:es|ing|ed)?"
+     r"|mut(?:e|es|ing|ed)|silenc(?:e|es|ing|ed)|obscur(?:e|es|ing|ed)"
+     r"|bur(?:y|ies|ying|ied)|mask(?:s|ing|ed)?|withhold(?:s|ing)?"
+     r"|redact(?:s|ing|ed)?|downgrad(?:e|es|ing|ed)|strip(?:s|ping|ped)?"
+     r"|shorten(?:s|ing|ed)?|re-?rout(?:e|es|ing|ed)|drop(?:s|ping|ped)?"
+     r"|remov(?:e|es|ing|ed))")
+
+CONSTRUCTIONS = [
+ ("verb-from-him",
+  r"\b%s\b[^.\n]{0,60}?\b(?:from|off|out of|away from)\s+%s" % (V, T)),
+ ("make-it-invisible-to-him",
+  r"\bmak\w*\b[^.\n]{0,60}?\b(?:invisible|less visible|not visible|unreadable|imperceptible)\b"
+  r"[^.\n]{0,25}?\bto\s+%s" % T),
+ ("keep-it-off-his-screen",
+  r"\b(?:keep|keeps|keeping|kept|stay|stays|staying|remain|remains|remaining|sit|sits|leave|leaves)\b"
+  r"[^.\n]{0,60}?\b(?:off|out of|away from)\s+(?:his|the\s+CEO'?s)\s*"
+  r"(?:screen|terminal|view|sight|report|eyes|face|inbox)"),
+ ("stop-him-from-seeing",
+  r"\b(?:stop|stops|stopping|prevent|prevents|preventing|block|blocks|blocking"
+  r"|keep|keeps|keeping)\s+%s\s+from\s+(?:seeing|reading|noticing|hearing|learning)" % T_MID),
+ ("so-he-never-sees-it",
+  r"\bso\s+(?:he|the\s+CEO)\s+(?:never|does not|doesn.t|will not|won.t|cannot|can.t)"
+  r"\s+(?:see|read|notice|hear|find)"),
+ ("strip-from-user-visible",
+  r"\b(?:strip|remov|drop|shorten|downgrad|suppress|hid|conceal|mut|silenc)\w*\b"
+  r"[^.\n]{0,60}?\b(?:from|out of)\s+(?:every |the |all |any )?user-visible\b"),
+ ("divert-away-from-him",
+  r"\b(?:rout|re-rout|divert|redirect|channel|funnel)\w*\b[^.\n]{0,60}?\baway from\s+%s" % T),
+ ("so-it-never-reaches-him",
+  r"\bso\b[^.\n]{0,40}?\b(?:does not|doesn.t|never|will not|won.t|cannot|can.t)\s+"
+  r"(?:reach\w*|surfaces? to|gets? to|makes? it to|appears? to|shows? up for|be seen by)\s+%s" % T),
+]
+
+kept = [s for s in re.split(r'(?<=[.\n])', text) if not PROHIB.search(s)]
+scrubbed = ''.join(kept)
+if scrubbed.strip():
+    text = scrubbed
+
+for name, pattern in CONSTRUCTIONS:
+    m = re.search(pattern, text, re.I)
+    if m:
+        sys.stdout.write("%s\t%s\n" % (name, re.sub(r'\s+', ' ', m.group(0)).strip()))
+CONCEAL_PY_EOF
+
+  # FAIL-CLOSED, exactly as the python3-missing check at the top of this file
+  # is. A judgment that cannot run must not wave the spawn through: the whole
+  # class of defect this engine keeps finding in itself is a guard that reports
+  # "on" while deciding nothing. `set -e` is on, so the rc is captured rather
+  # than allowed to abort the hook.
+  CONCEAL_HITS=""
+  set +e
+  CONCEAL_HITS="$(printf '%s' "$(sanitized_prompt)" | python3 "$CONCEAL_PY" 2>/dev/null)"
+  CONCEAL_RC=$?
+  set -e
+  rm -f "$CONCEAL_PY"
+
+  if [ "$CONCEAL_RC" -ne 0 ]; then
+    FAIL=1
+    FAIL_REASONS+=("concealment-clause-unevaluable: the concealment matcher failed to run (exit ${CONCEAL_RC}), so this brief was NOT checked for an instruction to reduce what the CEO sees. Refusing rather than passing it through unjudged — a guard that cannot judge must not wave things past. Fix scripts/hooks/verify-agent-prompt.sh and re-run.")
+  elif [ -n "$CONCEAL_HITS" ]; then
+    CONCEAL_NAME="$(printf '%s' "$CONCEAL_HITS" | sed -n '1p' | cut -f1)"
+    CONCEAL_PHRASE="$(printf '%s' "$CONCEAL_HITS" | sed -n '1p' | cut -f2-)"
+
+    # The opt-out, read off the SANITIZED prompt so a marker this brief merely
+    # quotes can never activate it, and REQUIRED TO SAY SOMETHING. A bare
+    # marker, or a reason made of filler, exempts nothing.
+    CONCEAL_ACK_LINE=""
+    if printf '%s' "$(sanitized_prompt)" | grep -E >/dev/null '^[[:space:]]*conceal-ack:[[:space:]]*.+'; then
+      CONCEAL_ACK_LINE="$(printf '%s' "$(sanitized_prompt)" | grep -oE '^[[:space:]]*conceal-ack:[[:space:]]*.+' | sed -n '1p' | sed -E 's/^[[:space:]]*//')"
+    fi
+    CONCEAL_ACK_REASON="${CONCEAL_ACK_LINE#conceal-ack:}"
+    CONCEAL_ACK_REASON="$(printf '%s' "$CONCEAL_ACK_REASON" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    CONCEAL_ACK_OK=0
+    if [ -n "$CONCEAL_ACK_REASON" ]; then
+      # Substantive: at least three words AND twelve characters. "yes", "ok",
+      # "n/a" and "it is" all fail it; a sentence that names what is being
+      # withheld and why cannot.
+      #
+      # A BLACKLIST OF FILLER PHRASES WAS WRITTEN HERE AND THEN DELETED,
+      # because the mutation harness proved it decided nothing: every filler it
+      # listed ("yes", "see above", "as discussed") was already refused by the
+      # word count, so removing the blacklist turned no case red. Dead code in a
+      # guard is worse than absent code — it reads like a second line of defense
+      # and is not one. The bar is the word count, and the word count is
+      # provable (conceal.mutation.sh / filler-ack-exempts).
+      CONCEAL_ACK_WORDS="$(printf '%s' "$CONCEAL_ACK_REASON" | wc -w | tr -d '[:space:]')"
+      CONCEAL_ACK_CHARS="${#CONCEAL_ACK_REASON}"
+      if [ "$CONCEAL_ACK_WORDS" -ge 3 ] && [ "$CONCEAL_ACK_CHARS" -ge 12 ]; then
+        CONCEAL_ACK_OK=1
+      fi
+    fi
+
+    if [ "$CONCEAL_ACK_OK" -eq 1 ]; then
+      CONCEAL_LOG_DIR="$ENTITY_ROOT/.claude/state"
+      mkdir -p "$CONCEAL_LOG_DIR" 2>/dev/null || true
+      {
+        printf '%s\tagent=%s\tmatched=%s\tphrase=%s\t%s\n' \
+          "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          "${SUBAGENT_TYPE:-unknown}" \
+          "$CONCEAL_NAME" \
+          "$CONCEAL_PHRASE" \
+          "$CONCEAL_ACK_LINE"
+      } >>"$CONCEAL_LOG_DIR/conceal-acks.log" 2>/dev/null || true
+      # Allow the spawn — on the record.
+    else
+      FAIL=1
+      FAIL_REASONS+=("concealment-clause: this brief instructs someone to reduce WHAT THE CEO SEES rather than to fix what makes him see it. Matched (${CONCEAL_NAME}): \"${CONCEAL_PHRASE}\". His words, 2026-09-10, on reading a brief that said to make a surviving warning invisible to him: THAT IS HIDING, NOT FIXING. THE CORRECT FIX IS THE OPPOSITE ONE — remove the CONDITION that makes the warning fire, and leave the warning visible. A warning that is still true and no longer shown is the same defect with the evidence deleted, and the next person to look will believe it was fixed. If this is one of the rare true cases — a live credential, PII, an actual secret that should not reach any screen — say so on the record with a live prompt line: 'conceal-ack: <reason>' (logged to .claude/state/conceal-acks.log). A bare marker exempts nothing; the reason has to say what is being withheld and why.")
     fi
   fi
 fi

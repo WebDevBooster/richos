@@ -39,6 +39,11 @@ tx = _load("worktree_transactions", os.path.join(HERE, "lib", "worktree-transact
 
 DEFAULT_DISPOSABLE = "node_modules .venv venv target build dist .gradle .next .turbo __pycache__ .pytest_cache .DS_Store .cache"
 MAX_SOFT_ATTEMPTS_BEFORE_NOTICE = 12
+# What THIS run reclaimed, counted from the disk rather than from intent: a
+# member's path existed before the daily lane ran and does not after. Printed
+# in the run footer and stamped into the heartbeat, so "the reconciler did
+# the removing" is a line in its own log and not an inference.
+_RUN_COUNTS = {"worktrees_removed": 0, "branches_deleted": 0, "members_completed": 0, "holds": 0}
 # A member that keeps changing state without reaching `removed` in one run
 # (a re-derivation that keeps re-deriving) is left for the next run rather
 # than looping: every transition is persisted, nothing is lost by stopping.
@@ -866,16 +871,37 @@ def reconcile_transaction(t, deadline=None, still_idle=None):
                     break
                 if (m.get("cleanup_policy") == "integrated-daily" or m.get("daily_cleanup")
                         or (tx.platform_native(m) and os.path.lexists(m.get("path") or ""))):
+                    path_before = os.path.lexists(m.get("path") or "")
+                    branch_before = bool(m.get("branch")) and _ref_exists(m.get("repo") or "", "refs/heads/" + m["branch"])
                     try:
                         daily = _load("daily_workspace_cleanup", os.path.join(HERE, "lib", "daily-workspace-cleanup.py"))
                         daily.reconcile(tx, t, i)
                     except Exception as error:
-                        # Cleanup failure never invents finished work. Native
-                        # checkout retirement remains Claude's operation.
+                        # Cleanup failure never invents finished work. A
+                        # platform-native checkout whose session may still act
+                        # remains Claude's to remove; the lane says which.
                         if tx.platform_native(m):
-                            tx.observe_platform_native(sid, aid, i)
+                            try:
+                                tx.observe_platform_native(sid, aid, i)
+                            except Exception:
+                                pass
                         _record_soft_failure(sid, aid, i, int(m.get("attempts") or 0) + 1,
                                              str(error), base, cap, blocked=True)
+                        _RUN_COUNTS["holds"] += 1
+                        log("member %s of %s/%s: HELD — %s" % (m.get("path"), sid[:8], aid, str(error)[:200]))
+                    else:
+                        after = tx.load_tx(sid, aid)["members"][i]
+                        if (after.get("daily_cleanup") or {}).get("phase") == "complete":
+                            _RUN_COUNTS["members_completed"] += 1
+                            gone = not os.path.lexists(m.get("path") or "")
+                            if path_before and gone:
+                                _RUN_COUNTS["worktrees_removed"] += 1
+                            if branch_before and not _ref_exists(m.get("repo") or "", "refs/heads/" + m["branch"]):
+                                _RUN_COUNTS["branches_deleted"] += 1
+                            log("RECLAIMED %s of %s/%s (%s): worktree %s, branch %s"
+                                % (m.get("path"), sid[:8], aid, t.get("teammate") or "?",
+                                   "removed" if (path_before and gone) else ("already absent" if gone else "present"),
+                                   "deleted" if (branch_before and not _ref_exists(m.get("repo") or "", "refs/heads/" + (m.get("branch") or ""))) else "not deleted"))
                     break
                 if tx.platform_native(m):
                     try:
@@ -1125,9 +1151,36 @@ def retention_pass():
             "reason_code": "automatic-erasure-disabled"}
 
 
+def preview():
+    """READ-ONLY: what the next run would do to every pending daily-lane
+    member, one line each — `PREVIEW remove|branch-only|observe|hold <path> —
+    <reason>` — and a summary. Writes nothing, takes no transaction lock,
+    unlocks nothing, archives nothing (daily-workspace-cleanup.assess)."""
+    daily = _load("daily_workspace_cleanup", os.path.join(HERE, "lib", "daily-workspace-cleanup.py"))
+    counts = {"remove": 0, "branch-only": 0, "observe": 0, "hold": 0}
+    for t in list(tx.iter_transactions()):
+        if not t.get("terminal"):
+            continue
+        for i, m in enumerate(t.get("members") or []):
+            if m.get("cleanup_policy") != "integrated-daily" and not m.get("daily_cleanup"):
+                continue
+            if (m.get("daily_cleanup") or {}).get("phase") == "complete":
+                continue
+            decision, reason = daily.assess(tx, t, i)
+            counts[decision] = counts.get(decision, 0) + 1
+            print("PREVIEW %s %s — %s/%s %s — %s" % (decision, m.get("path"), t["session_id"][:8], t["agent_id"],
+                                                     t.get("teammate") or "(adopted)", reason[:240]))
+    print("=== preview: remove=%d branch-only=%d observe=%d hold=%d ===" % (
+        counts["remove"], counts["branch-only"], counts["observe"], counts["hold"]))
+    return counts
+
+
 def run(max_seconds=None, only=None, still_idle=None):
     deadline = time.time() + max_seconds if max_seconds else None
     n = 0
+    for k in _RUN_COUNTS:
+        _RUN_COUNTS[k] = 0
+    log("=== run start %s pid %d argv %s ===" % (tx.now_iso(), os.getpid(), " ".join(sys.argv[1:])))
     if still_idle is not None and not still_idle():
         return False
     # ADOPTION RUNS FIRST, and only when nothing was named with --agent: a
@@ -1196,10 +1249,59 @@ def run(max_seconds=None, only=None, still_idle=None):
         tx.atomic_write_json(os.path.join(tx.tx_root(), "last-run.json"),
                              {"ts": tx.now_iso(), "epoch": time.time(), "pid": os.getpid(),
                               "reconciled": n, "argv": sys.argv[1:],
-                              "adoption": dict(_ADOPTION_STATUS)})
+                              "adoption": dict(_ADOPTION_STATUS), "reclaimed": dict(_RUN_COUNTS)})
     except Exception as e:
         log("heartbeat: %s" % e)
+    log("=== run end %s worktrees_removed=%d branches_deleted=%d members_completed=%d holds=%d reconciled=%d ==="
+        % (tx.now_iso(), _RUN_COUNTS["worktrees_removed"], _RUN_COUNTS["branches_deleted"],
+           _RUN_COUNTS["members_completed"], _RUN_COUNTS["holds"], n))
     return n
+
+
+def schedule_status(transactions):
+    """The health of the AUTOMATIC path, as data: when a pass last completed
+    (the daily slot receipt cleanup-schedule.py writes and the heartbeat
+    run() writes), how old that is, whether the launchd job is loaded, and
+    the one derived bit — `overdue`: the store holds transactions and no pass
+    has completed within RECONCILE_OVERDUE_DAYS. This is what answers "what
+    if no session starts for a month": the job runs nightly with no session,
+    and if it stops, the next thing that looks here says so."""
+    days = float(config_value("RECONCILE_OVERDUE_DAYS", "2") or 2)
+    out = {"last_completed_slot": None, "last_run_ts": None, "last_run_age_seconds": None,
+           "last_activity_age_days": None, "overdue_after_days": days, "overdue": False,
+           "launchd_job": "unchecked", "reclaimed_last_run": None}
+    now = time.time()
+    activity = []
+    try:
+        schedule = _load("cleanup_schedule", os.path.join(HERE, "lib", "cleanup-schedule.py"))
+        p = schedule.state_path()
+        if os.path.isfile(p):
+            rec = tx.read_json(str(p)) or {}
+            slot = rec.get("last_completed_slot")
+            if slot:
+                out["last_completed_slot"] = slot
+                from datetime import datetime
+                activity.append(datetime.strptime(slot, "%Y-%m-%d").timestamp() + 86400)
+    except Exception:
+        pass
+    hb = tx.read_json(os.path.join(tx.tx_root(), "last-run.json")) or {}
+    if hb.get("epoch"):
+        out["last_run_ts"] = hb.get("ts")
+        out["last_run_age_seconds"] = int(now - float(hb["epoch"]))
+        out["reclaimed_last_run"] = hb.get("reclaimed")
+        activity.append(float(hb["epoch"]))
+    if activity:
+        out["last_activity_age_days"] = round((now - max(activity)) / 86400.0, 2)
+    out["overdue"] = bool(transactions) and (not activity or (now - max(activity)) > days * 86400)
+    default_root = os.path.join(os.path.expanduser("~"), ".claude", "state", "worktree-transactions")
+    if sys.platform == "darwin" and os.path.abspath(tx.tx_root()) == os.path.abspath(default_root):
+        try:
+            r = subprocess.run(["launchctl", "print", "gui/%d/com.richos.worktree-reconciler" % os.getuid()],
+                               capture_output=True, text=True, timeout=10)
+            out["launchd_job"] = "loaded" if r.returncode == 0 else "NOT LOADED"
+        except Exception:
+            out["launchd_job"] = "unchecked"
+    return out
 
 
 def status():
@@ -1237,6 +1339,7 @@ def status():
     m["done"] = (m["terminal_members_present"] == 0 and m["pending_retry"] == 0
                  and m["sealed_native_missing"] == 0 and overdue == 0
                  and m["pending_terminals_unbindable"] == 0)
+    m["schedule"] = schedule_status(m["transactions"])
     return m
 
 
@@ -1248,6 +1351,7 @@ def main(argv):
     os.umask(0o077)
     ap = argparse.ArgumentParser(prog="reconcile-terminal-worktrees.py")
     ap.add_argument("--status", action="store_true")
+    ap.add_argument("--preview", action="store_true", help="what the next run would do to every pending daily-lane member; writes nothing")
     ap.add_argument("--max-seconds", type=float, default=None)
     ap.add_argument("--agent", default=None, help="SESSION_ID/AGENT_ID: reconcile one transaction")
     ap.add_argument("--quiet", action="store_true")
@@ -1259,6 +1363,9 @@ def main(argv):
         s = status()
         print(json.dumps(s, sort_keys=True, indent=1))
         return 0 if s["done"] else 1
+    if a.preview:
+        preview()
+        return 0
     if a.scheduled:
         schedule = _load("cleanup_schedule", os.path.join(HERE, "lib", "cleanup-schedule.py"))
         while schedule.scheduled(lambda idle: run(a.max_seconds, a.agent, idle),

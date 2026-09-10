@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,13 +19,18 @@ daily = load('daily-workspace-cleanup')
 tx = load('worktree-transactions')
 SID = 'daily-test-session'
 AID = 'abcdef123456'
+DEAD_PID = 999999
 
 class Cleanup(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='richos-daily-', dir='/private/tmp' if os.path.isdir('/private/tmp') else None)
         self.root = Path(self.tmp.name).resolve(); self.repo = self.root / 'repo'; self.work = self.root / 'worker'
+        # BOTH stores away from their defaults (the lane refuses to archive residue otherwise),
+        # and an empty process table so a hold never depends on what this machine runs.
         self.env = patch.dict(os.environ, {'RICHOS_WORKTREE_TX_DIR': str(self.root/'tx'),
+            'RICHOS_WORKTREE_CAPTURE_DIR': str(self.root/'captures'),
             'RICHOS_WORKTREE_LEDGER': str(self.root/'ledger.jsonl'), 'CLAUDE_CONFIG_DIR':str(self.root/'profile'),
+            'RICHOS_DAILY_PROCESSES': 'none',
             'GIT_CONFIG_GLOBAL':'/dev/null', 'GIT_CONFIG_SYSTEM':'/dev/null'})
         self.env.start(); self.repo.mkdir()
         self.git(self.repo,'init','-b','main'); self.git(self.repo,'config','user.name','Fixture'); self.git(self.repo,'config','user.email','fixture@example.invalid')
@@ -50,34 +56,119 @@ class Cleanup(unittest.TestCase):
         with tx.tx_lock(SID,AID):
             return daily.reconcile(tx,tx.load_tx(SID,AID),0)
 
+    def assess(self):
+        return daily.assess(tx,tx.load_tx(SID,AID),0)
+
+    def ledger_row(self, **fields):
+        row=dict(event='registered',session_id=SID,teammate='worker',repo=str(self.repo),worktree=str(self.work),
+                 branch='worker',agent_id=AID,ts='2026-01-01T00:00:00+00:00'); row.update(fields)
+        with open(self.root/'ledger.jsonl','a') as stream: stream.write(json.dumps(row)+'\n')
+
+    def make_native(self, lock_pid=None):
+        self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code'})
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        if lock_pid is not None:
+            self.git(self.repo,'worktree','lock','--reason','claude agent agent-'+AID+' (pid %d start fixture)'%lock_pid,str(self.work))
+
     def assert_kept(self):
         self.assertTrue(self.work.is_dir());self.assertEqual(self.git(self.repo,'rev-parse','worker').strip(),self.git(self.work,'rev-parse','HEAD').strip())
         self.assertEqual(self.git(self.repo,'rev-parse','main').strip(),self.main)
 
-    def test_integrated_without_task_receipt_reclaims_worktree_and_branch(self):
-        result=self.run_cleanup();self.assertEqual(result['members'][0]['daily_cleanup']['phase'],'complete')
+    def assert_reclaimed(self, result):
+        self.assertEqual(result['members'][0]['daily_cleanup']['phase'],'complete')
         self.assertFalse(self.work.exists());self.assertNotIn('refs/heads/worker',self.git(self.repo,'show-ref'))
         self.assertEqual(self.git(self.repo,'rev-parse','main').strip(),self.main)
         self.assertEqual(self.git(self.repo,'status','--porcelain'),'')
 
-    def test_dirty_staged_untracked_and_ignored_refuse(self):
-        for kind in ('dirty','staged','untracked','ignored'):
+    def test_integrated_without_task_receipt_reclaims_worktree_and_branch(self):
+        self.assertEqual(self.assess()[0],'remove')
+        self.assert_reclaimed(self.run_cleanup())
+
+    def test_dirty_staged_and_untracked_refuse(self):
+        for kind in ('dirty','staged','untracked'):
             with self.subTest(kind=kind):
                 if kind in ('dirty','staged'):
                     (self.work/'file').write_text('unfinished\n')
                     if kind=='staged':self.git(self.work,'add','file')
                 else:
                     (self.work/'extra').write_text('unfinished\n')
-                    if kind=='ignored':
-                        (self.repo/'.git/info/exclude').write_text('extra\n')
+                self.assertEqual(self.assess()[0],'hold')
                 with self.assertRaises(Exception):self.run_cleanup()
                 self.assert_kept();self.git(self.work,'reset','--hard','HEAD')
                 if (self.work/'extra').exists():(self.work/'extra').unlink()
 
+    def test_ignored_disposable_is_dropped_and_ignored_residue_is_archived_verified_then_reclaimed(self):
+        # Round 10 P1: the predicate that held 20 of 29 members. A __pycache__ is
+        # disposable by the committed policy and goes with the tree; an ignored
+        # file the policy does not name is archived, the archive re-read and
+        # verified, and only then is the tree removed. Nothing ignored vanishes
+        # without a copy; nothing disposable is kept on behalf of nobody.
+        (self.repo/'.git/info/exclude').write_text('extra\n__pycache__/\n')
+        cache=self.work/'__pycache__';cache.mkdir();(cache/'x.pyc').write_bytes(b'\x00\x01')
+        (self.work/'extra').write_bytes(b'ignored but not disposable\n')
+        decision,reason=self.assess();self.assertEqual(decision,'remove');self.assertIn('1 archived first',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        journal=result['members'][0]['daily_cleanup']
+        self.assertEqual(journal['ignored_disposable'],1)
+        residue=journal['ignored_residue'];self.assertEqual(residue['files'],1)
+        with tarfile.open(residue['archive']) as tar:
+            self.assertEqual(tar.getnames(),['extra'])
+            self.assertEqual(tar.extractfile('extra').read(),b'ignored but not disposable\n')
+        self.assertTrue(str(residue['archive']).startswith(str(self.root/'captures')))
+        self.assertFalse(list((self.root/'captures').rglob('x.pyc')))
+
+    def test_ignored_only_disposable_records_no_archive(self):
+        (self.repo/'.git/info/exclude').write_text('__pycache__/\n')
+        cache=self.work/'__pycache__';cache.mkdir();(cache/'x.pyc').write_bytes(b'\x00')
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        self.assertIsNone(result['members'][0]['daily_cleanup']['ignored_residue'])
+        self.assertFalse((self.root/'captures').exists())
+
+    def test_unverifiable_residue_archive_holds_the_tree(self):
+        (self.repo/'.git/info/exclude').write_text('extra\n')
+        (self.work/'extra').write_text('evidence\n')
+        with patch.object(daily,'verify_residue_archive',side_effect=RuntimeError('fixture: archive does not verify')):
+            with self.assertRaisesRegex(RuntimeError,'does not verify'):self.run_cleanup()
+        self.assert_kept();self.assertEqual((self.work/'extra').read_text(),'evidence\n')
+
+    def test_residue_refuses_when_capture_store_is_at_default_while_transactions_are_redirected(self):
+        (self.repo/'.git/info/exclude').write_text('extra\n')
+        (self.work/'extra').write_text('evidence\n')
+        with patch.dict(os.environ,{'RICHOS_WORKTREE_CAPTURE_DIR':''}):
+            with self.assertRaisesRegex(RuntimeError,'inconsistently rooted'):self.run_cleanup()
+        self.assert_kept()
+
+    def test_process_standing_in_the_tree_holds_it_and_nothing_is_killed(self):
+        with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'4242 /bin/sleep 300 '+str(self.work)}):
+            self.assertEqual(self.assess()[0],'hold')
+            with self.assertRaisesRegex(RuntimeError,'4242 still use'):self.run_cleanup()
+        self.assert_kept()
+
     def test_unintegrated_refuses(self):
         (self.work/'file').write_text('later\n');self.git(self.work,'commit','-am','later')
+        self.assertEqual(self.assess()[0],'hold')
         with self.assertRaises(Exception):self.run_cleanup()
         self.assert_kept()
+
+    def test_taskstop_ingress_is_a_terminal_fact(self):
+        # P2: terminalize-agent-worktrees.sh claims on PostToolUse[TaskStop];
+        # the lane refused it as 'not terminal' and held two members that way.
+        self.record['terminal']={'ingress':'TaskStop','detail':'requested=worker','ts':'fixture'}
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        self.assert_reclaimed(self.run_cleanup())
+
+    def test_adoption_ingress_owns_its_exact_prepared_path(self):
+        # P2/P4: an adopted transaction (kind adopted, ingress Adoption) owns
+        # the one path adoption claimed, so the dead session's preparation of
+        # that path is its own; a preparation of ANY OTHER path by a session
+        # with no terminal record still reserves.
+        self.record.update(session_id='adopted',agent_id='adopted-0123456789abcdef',teammate='',kind='adopted',
+                           terminal={'ingress':'Adoption','detail':'adopted on T2 evidence','ts':'fixture'})
+        tx.atomic_write_json(tx.tx_path('adopted','adopted-0123456789abcdef'),self.record)
+        self.ledger_row(event='prepared',session_id='dead-session',agent_id='',session_pid=DEAD_PID)
+        with tx.tx_lock('adopted','adopted-0123456789abcdef'):
+            result=daily.reconcile(tx,tx.load_tx('adopted','adopted-0123456789abcdef'),0)
+        self.assert_reclaimed(result)
 
     def test_active_reservation_refuses(self):
         other=dict(self.record,agent_id='abcdef999999',terminal=None)
@@ -111,6 +202,105 @@ class Cleanup(unittest.TestCase):
         self.git(self.repo,'worktree','remove',str(self.work))
         result=self.run_cleanup();self.assertEqual(result['members'][0]['daily_cleanup']['phase'],'complete')
         self.assertNotIn('refs/heads/worker',self.git(self.repo,'show-ref'))
+
+    def test_native_of_a_provably_gone_session_is_removed_and_its_dead_lock_released(self):
+        # P3: the harness of an exited session never removes anything and never
+        # releases its lock. Every recorded identity of the session is gone,
+        # the registry names no running pid, the lock names the dead pid.
+        self.make_native(lock_pid=DEAD_PID)
+        self.ledger_row(session_pid=DEAD_PID,pid_start='')
+        decision,reason=self.assess();self.assertEqual(decision,'remove');self.assertIn('gone',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        self.assertIn('gone',result['members'][0]['daily_cleanup']['session_gone'])
+
+    def test_native_of_a_running_session_defers_to_the_platform_even_when_unlocked(self):
+        # PF6: an unlocked native tree is the ordinary state of an idle live
+        # teammate between turns. The session's recorded pid is THIS process.
+        self.make_native()
+        self.ledger_row(session_pid=os.getpid(),pid_start='')
+        self.assertEqual(self.assess()[0],'observe')
+        result=self.run_cleanup();self.assertTrue(self.work.is_dir())
+        self.assertEqual(result['members'][0]['state'],'platform-pending')
+
+    def test_session_gone_refuses_to_read_the_real_ledger_from_a_sandboxed_store(self):
+        # A redirected transaction store with the ownership ledger at its
+        # default is a sandbox reading the operator's real record: a fixture
+        # session id leaked there by an earlier suite, with a dead pid, would
+        # read as a gone session. The verdict is NOT gone, whatever is on disk.
+        self.make_native(lock_pid=DEAD_PID)
+        self.ledger_row(session_pid=DEAD_PID,pid_start='')
+        with patch.dict(os.environ,{'RICHOS_WORKTREE_LEDGER':''}):
+            gone,reason=daily.session_gone(tx.load_tx(SID,AID),tx)
+            self.assertFalse(gone);self.assertIn('inconsistently rooted',reason)
+            # not provably gone -> the platform keeps the checkout; nothing removed
+            decision,why=self.assess();self.assertEqual(decision,'observe');self.assertIn('inconsistently rooted',why)
+        self.assert_kept()
+
+    def test_native_with_no_recorded_session_identity_is_not_provably_gone(self):
+        self.make_native()
+        self.assertEqual(self.assess()[0],'observe')
+        result=self.run_cleanup();self.assertTrue(self.work.is_dir())
+        self.assertEqual(result['members'][0]['state'],'platform-pending')
+
+    def test_native_lock_held_by_a_running_pid_holds_whatever_the_ledger_says(self):
+        # The lock is checked on its own pid, independently of the session
+        # verdict: a ledger that says gone and a lock that says running is a
+        # contradiction, and a contradiction never resolves in favor of deleting.
+        self.make_native(lock_pid=os.getpid())
+        self.ledger_row(session_pid=DEAD_PID,pid_start='')
+        self.assertEqual(self.assess()[0],'hold')
+        with self.assertRaisesRegex(Exception,'live'):self.run_cleanup()
+        self.assert_kept()
+
+    def test_actual_native_live_lock_vetoes_old_terminal_fact(self):
+        reason='claude agent agent-'+AID+' (pid '+str(os.getpid())+' start fixture)'
+        self.git(self.repo,'worktree','lock','--reason',reason,str(self.work))
+        with self.assertRaisesRegex(Exception,'native owner is live'):self.run_cleanup()
+        self.assert_kept()
+
+    def test_absent_platform_removed_native_without_receipt_deletes_branch_by_recorded_head(self):
+        # P5: 20 femcboost branches sat behind 'no retained completion proof'.
+        head=self.git(self.work,'rev-parse','HEAD').strip()
+        backup=tx.backup_ref(SID,AID,'worker');self.git(self.repo,'update-ref',backup,head)
+        self.git(self.repo,'worktree','remove',str(self.work))
+        self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code','state':'removed',
+                                          'closed':'platform-removed','head':head,'backup_ref':backup})
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        self.assertEqual(self.assess()[0],'branch-only')
+        result=self.run_cleanup()
+        self.assertEqual(result['members'][0]['daily_cleanup']['phase'],'complete')
+        self.assertEqual(result['members'][0]['daily_cleanup']['proof_source'],'recorded-head')
+        self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'),'refs/heads/main\n')
+
+    def test_absent_native_without_receipt_keeps_an_unintegrated_branch(self):
+        # The branch's CURRENT tip is what is judged, so a recorded head that
+        # main contains does not license deleting a tip that moved past it.
+        head=self.git(self.work,'rev-parse','HEAD').strip()
+        (self.work/'file').write_text('later\n');self.git(self.work,'commit','-am','later')
+        later=self.git(self.work,'rev-parse','HEAD').strip()
+        self.git(self.repo,'worktree','remove',str(self.work))
+        for recorded in (later,head):
+            with self.subTest(recorded_head=recorded[:8]):
+                self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code','state':'removed',
+                                                  'closed':'platform-removed','head':recorded})
+                tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+                self.assertEqual(self.assess()[0],'hold')
+                with self.assertRaisesRegex(Exception,'no longer contains'):self.run_cleanup()
+                self.assertEqual(self.git(self.repo,'rev-parse','worker').strip(),later)
+
+    def test_absent_native_still_platform_pending_is_observed_then_branch_deleted_in_one_pass(self):
+        # On the operator's machine every absent native sat at platform-pending
+        # with its path gone: the observation that records `removed` had not run
+        # since the platform tore the checkout down. One pass must do both.
+        head=self.git(self.work,'rev-parse','HEAD').strip()
+        self.git(self.repo,'worktree','remove',str(self.work))
+        self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code','state':'platform-pending','head_at_seal':head})
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        self.assertEqual(self.assess()[0],'branch-only')
+        result=self.run_cleanup()
+        self.assertEqual(result['members'][0]['state'],'removed')
+        self.assertEqual(result['members'][0]['daily_cleanup']['phase'],'complete')
+        self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'),'refs/heads/main\n')
 
     def test_interruption_after_worktree_removal_replays(self):
         def crash(point):
@@ -165,12 +355,6 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(tx.load_tx(SID,AID)['members'][0]['daily_cleanup']['phase'],'complete')
         self.assertEqual(tx.metrics()['terminal_pending_cleanup'],0)
         self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'), 'refs/heads/main\n')
-
-    def test_actual_native_live_lock_vetoes_old_terminal_fact(self):
-        reason='claude agent agent-'+AID+' (pid '+str(os.getpid())+' start fixture)'
-        self.git(self.repo,'worktree','lock','--reason',reason,str(self.work))
-        with self.assertRaisesRegex(Exception,'native owner is live'):self.run_cleanup()
-        self.assert_kept()
 
     def test_branch_reserved_elsewhere_is_retained(self):
         second=self.root/'other-checkout'

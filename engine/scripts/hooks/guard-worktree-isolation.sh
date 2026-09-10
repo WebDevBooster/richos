@@ -972,7 +972,7 @@ if { [ -z "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ "${RICHOS_RECONCILER_CONTRACT_CHE
   if ! command -v launchctl >/dev/null 2>&1; then
     C7_PROBLEMS+=("the persistent reconciler contract cannot be checked: launchctl is not on PATH — $_C7E_FIX.")
   elif ! _C7E_PRINT="$(launchctl print "gui/$(id -u)/$_C7E_LABEL" 2>&1)"; then
-    C7_PROBLEMS+=("the persistent reconciler is NOT LOADED under launchd (gui/$(id -u)/$_C7E_LABEL): $(printf '%s' "$_C7E_PRINT" | tr '\n' ' ' | cut -c1-120). Every terminal worktree would leak until a session start happened to recover it — $_C7E_FIX.")
+    C7_PROBLEMS+=("the persistent reconciler is NOT LOADED under launchd (gui/$(id -u)/$_C7E_LABEL): $(printf '%s' "$_C7E_PRINT" | tr '\n' ' ' | cut -c1-120). Every terminal worktree would leak FOREVER — no session start recovers anything; the nightly job is the only remover — $_C7E_FIX.")
   else
     _C7E_PROG="$(printf '%s\n' "$_C7E_PRINT" | grep -o '[^[:space:]"]*reconcile-terminal-worktrees\.py' | sed -n '1p' || true)"
     if [ -z "$_C7E_PROG" ]; then

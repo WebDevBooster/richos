@@ -30,6 +30,13 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 export RICHOS_WORKTREE_CAPTURE_DIR="$SANDBOX/captures"
+# THE OWNERSHIP LEDGER IS SANDBOXED TOO (2026-09-10). Until now this suite left
+# it at the operator's real path, and the daily lane's session-gone predicate
+# read fixture session ids some earlier run had leaked into that real record —
+# with pids long dead — and removed C28c's native tree as a gone session's.
+# The lane now refuses that rooting fail-closed; this line is what "sandboxed"
+# was always supposed to mean.
+export RICHOS_WORKTREE_LEDGER="$SANDBOX/wt-ledger.jsonl"
 export RICHOS_RECONCILE_SETTLE=0.2
 export RICHOS_RECONCILE_BACKOFF_BASE=0   # C42 proves the backoff; every other case retries at once
 SID="deadbeef-0000-4000-8000-000000000000"

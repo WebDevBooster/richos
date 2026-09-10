@@ -1,5 +1,22 @@
 name: engine-run-record
 
+# --- CI-SURFACE DECLARATIONS -----------------------------------------------
+# See engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
+# NO RUN EXISTS YET — this file landed 2026-09-10 and its first firing is due
+# within six hours of that, so there is nothing to measure and the budget is
+# taken from the job's own timeout-minutes: 10. It is a handful of API reads.
+# Re-derive it from real runs once there are some; a budget copied from a
+# timeout is a ceiling nobody has ever tested against.
+#
+# THE NEVER-RUN AXIS IS WATCHING THIS FILE SPECIFICALLY. A cron workflow that
+# never fires is neither red nor green and appears in no summary, which is the
+# state this workflow itself exists to detect one level down — so if it is
+# still showing no runs after its first interval, that is a finding and
+# ci-status.sh will say so rather than leaving it blank.
+# ci-budget: 10m
+# ci-evidence: it compares PushEvents against workflow runs and FAILS on a push with no run, so its green means "a run existed for every push" rather than "a command exited 0"
+# ---------------------------------------------------------------------------
+
 # ===========================================================================
 # THE ONLY CHECK HERE THAT ASKS WHETHER THE VERIFICATION HAPPENED
 # ===========================================================================
