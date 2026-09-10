@@ -26,7 +26,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runPipeline, readRecord } from '../lib/pipeline.js';
 import { scanZone } from '../lib/watcher.js';
-import { ffmpegBin, whisperBin, resolveModel, ingestLedgerPath } from '../lib/config.js';
+import { ffmpegBin, whisperBin, resolveModel, ingestLedgerPath, DEFAULT_MODEL, DEFAULT_TIER } from '../lib/config.js';
 import { entitiesFilePath, loadEntityMemory } from '../lib/entities.js';
 
 const T0 = 1_700_000_000_000; // fixed session start for deterministic timestamps
@@ -199,7 +199,16 @@ console.log('verification.json:\n' + JSON.stringify(verification, null, 2) + '\n
 const rec = readRecord(sessionDir);
 check('session.json upgraded to schemaVersion 2', rec.schemaVersion === 2);
 check('pipeline.status = ready in session.json', rec.pipeline.status === 'ready');
-check('modelRuns records the run + model', rec.pipeline.modelRuns.length === 1 && rec.pipeline.model === 'large-v3-turbo');
+// Asserted against config's OWN default, not a repeated literal. This line said
+// `=== 'large-v3-turbo'` and went red the moment the default moved on 2026-09-10 — which is the
+// assertion doing its job, but it is also a THIRD place the default was written down. It now
+// checks that the run used whatever config says, and separately that config says what the ruling
+// says, so moving the default again touches exactly one file.
+check('modelRuns records the run + model', rec.pipeline.modelRuns.length === 1 && rec.pipeline.model === DEFAULT_MODEL,
+  `model=${rec.pipeline.model} DEFAULT_MODEL=${DEFAULT_MODEL}`);
+check('the default this ran on is the one CEO decision page §10 ruled (2026-09-10)',
+  DEFAULT_TIER === 'quantized' && DEFAULT_MODEL === 'large-v3-turbo-q5_0',
+  `tier=${DEFAULT_TIER} model=${DEFAULT_MODEL}`);
 // P4, the DEFAULT-WIRING invariant: nothing above passed `entityMemory` to runPipeline, so the only
 // way `applied` can be true and the fixture's version can appear in the record is if the pipeline
 // loaded entity memory from disk on its own. Section 3b proves a correction LANDS; this proves the
