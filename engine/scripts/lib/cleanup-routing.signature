@@ -28,6 +28,8 @@ lib/daily-workspace-cleanup.py	_absent_native_branch_tip	state	structural	litera
 lib/daily-workspace-cleanup.py	assess	class	structural	literal(managed-image)
 lib/daily-workspace-cleanup.py	assess	quarantine	structural	truthy
 lib/daily-workspace-cleanup.py	assess	quarantine_path	structural	truthy
+lib/daily-workspace-cleanup.py	ceo_owned_workspace	path	structural	truthy
+lib/daily-workspace-cleanup.py	journal	*no-member-variable*	canary	reads members, names none
 lib/daily-workspace-cleanup.py	owner_check	bound_late	structural	truthy
 lib/daily-workspace-cleanup.py	owner_check	class	structural	literal(native)
 lib/daily-workspace-cleanup.py	reclaim_now	class	structural	literal(managed-image)
@@ -77,6 +79,8 @@ reconcile-terminal-worktrees.py	notice_once	*no-member-variable*	canary	reads me
 reconcile-terminal-worktrees.py	orphan_backstop_pass	class	structural	literal(native)
 reconcile-terminal-worktrees.py	preview	cleanup_policy	route	literal(integrated-daily)
 reconcile-terminal-worktrees.py	preview	daily_cleanup	structural	truthy
+reconcile-terminal-worktrees.py	preview	path	structural	truthy
+reconcile-terminal-worktrees.py	preview	repo	structural	truthy
 reconcile-terminal-worktrees.py	process_pending_terminals	*no-member-variable*	canary	reads members, names none
 reconcile-terminal-worktrees.py	reconcile_transaction	blocked	structural	truthy
 reconcile-terminal-worktrees.py	reconcile_transaction	class	structural	literal(managed-image)
@@ -84,3 +88,4 @@ reconcile-terminal-worktrees.py	reconcile_transaction	cleanup_policy	route	liter
 reconcile-terminal-worktrees.py	reconcile_transaction	daily_cleanup	structural	truthy
 reconcile-terminal-worktrees.py	reconcile_transaction	retry_after_epoch	structural	truthy
 reconcile-terminal-worktrees.py	run	cleanup_policy	route	literal(integrated-daily)
+restart-after-terminal-measure.py	owns_a_workspace	path	structural	truthy
