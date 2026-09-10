@@ -400,6 +400,56 @@ module.exports = [
       "\"Voice is still on.\" It is latched per run of refusals, so it states the refusal " +
       "once and never becomes a drip.",
   },
+
+  // ---- hardware.rs — which recognizer this machine got, said once at voice-mode start ---
+  //
+  // `Resolution::ceo_message()` at hardware.rs:358-380, relayed as `rich://voice-notice`
+  // (event.rs:31) and rendered by main.js's listener through `richVoiceSays` — one of Rich's
+  // own lines in the thread. It is silent on `Basis::TopRung` and `Basis::Override`, so these
+  // three are the only sentences it can say. Added by echo-opus-hw1 (978a34ab) without rows
+  // here, which is what turned `affordances.js` red on main from c1df6f24; classified by
+  // echo-opus-ci1. All three are INFORMATIONAL for the reason `SoundButNoWords` is: the
+  // product made a choice for him and is saying so, it asks nothing, and there is no setting
+  // that overrides it — the only lever, turning voice off and on with ◉, re-runs the same
+  // resolution and is already on screen, and the one sentence that relies on it says so
+  // itself rather than instructing him.
+  {
+    s:
+      "I'm using my faster hearing on this machine. The more accurate one takes long enough " +
+      "here that you'd be waiting after every sentence, and a conversation with pauses in it " +
+      "isn't a conversation. You can still say anything you like — I just might misread an " +
+      "unusual name now and then.",
+    c: "INFORMATIONAL",
+    why:
+      "`Basis::TooSlow` (hardware.rs:361). A better rung exists and this machine decodes it " +
+      "too slowly — measured, per hardware.rs:288. Nothing about it is his to change — it " +
+      "is a fact about the hardware — and 'You can still say anything you like' is " +
+      "reassurance, not an instruction.",
+  },
+  {
+    s:
+      "I'm using my lighter hearing on this machine — there isn't enough free memory right " +
+      "now for the more accurate one, and I'd rather not slow everything else down. You can " +
+      "still say anything you like.",
+    c: "INFORMATIONAL",
+    why:
+      "`Basis::TooLarge` (hardware.rs:368). The one of the three he could in principle " +
+      "influence, by freeing memory, and the sentence deliberately does not ask him to: " +
+      "'right now' is a statement of the reading, resolution re-runs at every voice-mode " +
+      "start, and a request to go and close applications would be an instruction with no " +
+      "control in the app to answer it.",
+  },
+  {
+    s:
+      "I couldn't work out how fast this machine hears, so I've started with the setting " +
+      "that works everywhere. I'll check again next time you turn voice on.",
+    c: "INFORMATIONAL",
+    why:
+      "`Basis::Unmeasured` (hardware.rs:374). Nothing could be measured — no probe, no " +
+      "binary, no cache (hardware.rs:292) — so the resolver took the safe rung. The retry is the product's " +
+      "('I'll check again'), triggered by the ◉ voice toggle that is already on screen — " +
+      "named as a time, not issued as a command.",
+  },
   {
     s: "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
     c: "NEEDS-SOMEONE-ELSE",
@@ -2251,6 +2301,49 @@ module.exports = [
     s: "The activated application could not start: {error}",
     c: "NOT-RENDERED",
     why: "`prepare()` at update_startup.rs:132, when the re-executed bundle will not run. The last thing this process does is print it.",
+  },
+
+  // ---- startup_alert.rs — the surface the nine rows above did not have -----------------
+  //
+  // WHAT CHANGED UNDER THE NINE ROWS ABOVE, said here because their line numbers and their
+  // "stderr and return" wording predate it. echo-opus-st1 (b052f0b0, merged 2026-09-10)
+  // routed that call site through `startup_alert::cannot_start` (now main.rs:934): the
+  // engineer's sentence — which is where the nine strings above go — is written to stderr
+  // AND to `~/Library/Logs/RichOS/startup.log`, the process exits 1 rather than 0, and the
+  // person gets a native system alert carrying ONE fixed sentence instead. So the nine are
+  // still NOT-RENDERED, now for a stronger reason: they are the log's text, and the screen
+  // shows a different, deliberately generic sentence.
+  //
+  // The two constants below are what that alert says, and they ARE read by the person —
+  // so NOT-RENDERED here means exactly the bucket's definition, "never reaches the DOM",
+  // and must not be read as "nobody sees it". The surface is `CFUserNotificationDisplayAlert`
+  // (`show_alert`, startup_alert.rs:408-503), raised only while the app has no window (armed
+  // at `install`, disarmed at boot complete). This WebKit suite cannot render a CoreFoundation
+  // alert, so the rule's question is answered on that surface instead, and the answer is
+  // recorded here so a reviewer can check it: the alert carries "OK" and "Show Details", and
+  // "Show Details" reveals the log in Finder (`/usr/bin/open -R`, startup_alert.rs:492-499).
+  // Classified by echo-opus-ci1; these two are what turned `affordances.js` red on main,
+  // first at the echo-opus-st1 merge 8cb30972 (ui-suite-ci run 34458859801).
+  {
+    s: "RichOS could not open",
+    c: "NOT-RENDERED",
+    why:
+      "`startup_alert::HEADLINE` (startup_alert.rs:150) — the header of the native alert for " +
+      "every member of the can't-open class. Read by the person, never by the DOM: it is " +
+      "shown only while there is no window to render anything in. See the section note for " +
+      "what the alert offers him.",
+  },
+  {
+    s:
+      "RichOS ran into an unexpected problem while starting up and closed itself rather " +
+      "than open a window that would not work.",
+    c: "NOT-RENDERED",
+    why:
+      "`startup_alert::PANIC_SENTENCE` (startup_alert.rs:155), the body the panic hook " +
+      "passes to `cannot_start` for any panic before boot completes. Same native alert, " +
+      "same two buttons, and the log's path is appended to it by `person_message` " +
+      "(startup_alert.rs:238) so the details are named on the surface itself. Nothing in " +
+      "it asks him to act; the fault is not his.",
   },
 
   // ---- the two remaining update strings, and they are NOT alike -------------------------

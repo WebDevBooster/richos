@@ -282,21 +282,86 @@ fn the_margin_between_real_speech_and_room_tone_is_reported_and_still_wide() {
 /// 861.9 ms unoptimized, because this is a plain time-domain autocorrelation and the debug
 /// profile does not vectorize it. Shipping code runs the release figure; a single bound that
 /// covered both would have to be so loose it asserted nothing about either.
+///
+/// **THE COST IS THE THREAD'S OWN CPU TIME, NOT THE WALL CLOCK — changed 2026-09-10, and the
+/// ceilings did not move.** This test used to time `measure` with `Instant`, and on
+/// `app-voice-ci` run 34499150632 (head `013cbff8`, `macos-26-arm64`, rustc 1.98.0) it read
+/// 3453.3 ms for the 30 s buffer and went red — on a tree whose `richos-voice` source was
+/// byte-identical to the run six hours earlier that passed on the same image and toolchain.
+/// Nothing about the gate changed. What the wall clock had measured was the runner: three
+/// vCPUs, and this binary's three other tests running beside it, two of them shelling out to
+/// `say` and all three running this same autocorrelation over their own audio. A thread that
+/// is waiting for a core is not paying the gate's cost; it is paying the scheduler's, and
+/// `.github/workflows/app-voice-ci.yml` had named exactly this test as the likeliest flake
+/// before it ever ran.
+///
+/// `CLOCK_THREAD_CPUTIME_ID` counts only the time this thread spent executing, which for a
+/// single-threaded pure function over a buffer (`measure` spawns nothing and does no I/O) IS
+/// its cost — the thing the recognizer thread pays on every turn. On an idle machine the two
+/// clocks agree, so the assertion means what it always meant; on a busy one the wall clock
+/// is printed beside it so the contention stays visible rather than silently absorbed. The
+/// three preconditions below keep the clock honest, because a CPU clock that read zero, or
+/// quietly read wall time, or read the whole process, would each make this a false green.
 #[test]
 fn the_gate_costs_a_small_fraction_of_the_recognition_it_guards() {
+    // POSITIVE CONTROL 1: the clock moves when this thread computes. A clock stuck at zero
+    // would pass every ceiling below.
+    let c0 = thread_cpu_ms();
+    let mut acc = 0u64;
+    for i in 0..20_000_000u64 {
+        acc = acc.wrapping_mul(6364136223846793005).wrapping_add(i);
+    }
+    std::hint::black_box(acc);
+    let burned = thread_cpu_ms() - c0;
+    assert!(burned > 0.0, "the thread CPU clock did not advance over a busy loop — it is not measuring anything");
+
+    // POSITIVE CONTROL 2: the clock does NOT move while this thread sleeps. A clock that did
+    // would be the wall clock under another name, and the flake would come straight back.
+    let c0 = thread_cpu_ms();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let slept = thread_cpu_ms() - c0;
+    assert!(
+        slept < 20.0,
+        "the thread CPU clock advanced {slept:.1} ms across a 100 ms sleep — it is counting wall time"
+    );
+
     // 250 ms release: three times the measured worst case, and still far under the 470 ms
     // recognition it guards. 3000 ms unoptimized: three times ITS measured worst case.
     let ceiling_ms = if cfg!(debug_assertions) { 3000.0 } else { 250.0 };
     for secs in [1.104f32, 3.0, 30.0] {
         let audio = hiss(secs, -40.0, 71);
         let t0 = std::time::Instant::now();
+        let c0 = thread_cpu_ms();
         let e = VoiceEvidence::measure(&audio);
-        let ms = t0.elapsed().as_secs_f32() * 1000.0;
-        println!("{secs:>6.3} s of audio -> {ms:7.1} ms  ({} windows)", e.windows);
+        let cpu_ms = thread_cpu_ms() - c0;
+        let wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "{secs:>6.3} s of audio -> {cpu_ms:7.1} ms CPU  ({wall_ms:7.1} ms wall, {} windows)",
+            e.windows
+        );
+        assert!(cpu_ms > 0.0, "measuring {secs} s of audio registered no CPU time at all");
+        // POSITIVE CONTROL 3: one thread cannot execute for longer than time passed. A reading
+        // above the wall clock means this is the PROCESS clock, which in a parallel run would
+        // bill this test for its neighbors' work — the opposite error from the one being fixed.
         assert!(
-            ms < ceiling_ms,
-            "measuring {secs} s of audio took {ms:.1} ms against a {ceiling_ms:.0} ms ceiling \
+            cpu_ms <= wall_ms + 1.0,
+            "{cpu_ms:.1} ms of CPU inside {wall_ms:.1} ms of wall time — this is not a per-thread clock"
+        );
+        assert!(
+            cpu_ms < ceiling_ms,
+            "measuring {secs} s of audio cost {cpu_ms:.1} ms of CPU against a {ceiling_ms:.0} ms ceiling \
              — that cost is paid on every turn the CEO speaks"
         );
     }
+}
+
+/// CPU time the CALLING thread has consumed, in milliseconds (`CLOCK_THREAD_CPUTIME_ID`,
+/// clock id 16 in both the macOS SDK and `libc` 0.2.189). `libc` is already a direct
+/// dependency of this crate (`hardware.rs`), so this adds nothing to the lockfile.
+fn thread_cpu_ms() -> f64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid, exclusively borrowed timespec for the duration of the call.
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    assert_eq!(rc, 0, "clock_gettime(CLOCK_THREAD_CPUTIME_ID) failed: {}", std::io::Error::last_os_error());
+    ts.tv_sec as f64 * 1000.0 + ts.tv_nsec as f64 / 1_000_000.0
 }

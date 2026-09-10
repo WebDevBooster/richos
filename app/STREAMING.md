@@ -14,7 +14,7 @@ truth is `app/crates/richos-core/src/stream.rs` (event names as constants) +
 > opt-in technical family. [The additive live-work family](#the-additive-live-work-family-13)
 > — seven typed §13 events — was added on 2026-08-29 and is what a Codex-style timeline
 > renderer should be written against. [Voice mode](#voice-mode-richvoice-) is the fourth,
-> emitted by a different crate and subscribed only while the mic is open, and
+> emitted by a different crate while voice mode is running, and
 > [the staging desk](#the-staging-desk-richcorrection-staged) is the fifth, joined on
 > 2026-08-30 by [the loro correction desk](#the-loro-correction-desk-richloro-proposed) —
 > the same job, a different payload. **A UI that
@@ -503,8 +503,9 @@ The fourth family, and the only one emitted by a different crate:
 | `rich://voice-state` | The mic state changed, a new input level is available, or the input went silent / came back. | `{ state, level, bargeInArmed, noAudio, at }` |
 | `rich://voice-transcript` | An utterance was recognized and **already submitted to the spine as a turn**. | `{ text, durationMs, latencyMs, at }` |
 | `rich://voice-error` | Voice mode could not start, or had to stop. | `{ message, at }` |
+| `rich://voice-notice` | Voice mode is **running**, but not the way it would on a better machine — today, that it started on a lighter recognizer than the best one, because the more accurate one is too slow here, there is not enough free memory for it, or the machine's speed could not be measured (`hardware.rs`, `Resolution::ceo_message`). Emitted **once**, at voice-mode start, and only when the product made that choice on the CEO's behalf. | `{ message, at }` |
 
-Four things a renderer of this family has to know, all of them structural rather than
+Five things a renderer of this family has to know, all of them structural rather than
 stylistic:
 
 1. **`state` is the mic's real state, never an optimistic one.** It is one of
@@ -517,8 +518,15 @@ stylistic:
    already a turn on the same thread, through the same `Spine::submit_prompt` typed text
    uses — so voice and text are one durable conversation, and the reply arrives on the calm
    family above like any other. `durationMs` and `latencyMs` are measured, never estimated.
-4. **`message` on `voice-error` is always a calm, Rich-voiced line.** Device names, exit
-   codes and file paths go to stderr and never to the CEO.
+4. **`message` on `voice-error` and on `voice-notice` is always a calm, Rich-voiced line.**
+   Device names, exit codes and file paths go to stderr and never to the CEO.
+5. **`voice-notice` is not a quieter `voice-error`, and the two must not share a handler.**
+   They carry the same payload shape and mean opposite things: an error says voice stopped,
+   a notice says voice works and has made a choice for him. The `voice-error` handler takes
+   the panel out of voice mode, so a notice routed there would end the conversation it is
+   reporting on. And unlike the other three, a notice is **not** dropped when the voice panel
+   is closed — it is a sentence in the thread about a decision that holds for the whole
+   session. It is silent when the machine got the best recognizer on the ladder, and when an engineer named the model outright.
 
 There is **no live partial transcript**: `whisper-cli` has no partial-hypothesis stream, so
 nothing arrives between the start of an utterance and its finished text. That is a stated
