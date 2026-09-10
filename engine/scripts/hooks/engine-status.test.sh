@@ -515,6 +515,16 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # order, CANONICAL_AGENT_CHAIN and the double-registration list, plus
 # contract-integrity.test.sh's own sandbox chain. All nine carry it, so this
 # note leaves no inventory owing.
+# guard-ci-red-lands.sh and session-start-ci-surface.sh, added 2026-09-10: the
+# two halves of the CI surface — a PreToolUse[Bash] gate that refuses a land
+# into a red workflow, and the SessionStart pass that reports the surface. They
+# landed at 19037049 registered in hooks/hooks.json and named in NO other
+# inventory, and this case is the one that said so, exactly as designed. The
+# rest of that landing's debt was cleared at b2354c5d (BR_EXPECTED, and the
+# executable bit on both files, which were committed 644 and therefore loaded
+# nothing while the banner read 60/62); this set was the last one owing.
+# Recorded rather than fixed silently: esc-20260910T080736Z-3a5c8f97 names all
+# five duties and stands as the record of how a landing came to owe five.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -522,6 +532,7 @@ engine-status.sh
 guard-agent-state-claims.sh
 guard-bash-main-writes.sh
 guard-ceo-ask-first.sh
+guard-ci-red-lands.sh
 guard-ceo-ruled-ask.sh
 guard-ceo-todos-commits.sh
 guard-completeness-commits.sh
@@ -565,6 +576,7 @@ record-subagent-start.sh
 scan-secrets.sh
 shell-evidence.sh
 session-start-ceo-ask.sh
+session-start-ci-surface.sh
 session-start-escalations.sh
 session-start-reap-worktrees.sh
 snapshot-agent-definitions.sh
