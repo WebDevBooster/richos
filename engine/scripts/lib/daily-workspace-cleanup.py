@@ -36,7 +36,7 @@ unverifiable archive holds it. Every hold is written on the member.
 """
 import hashlib
 import importlib.util
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -59,6 +59,10 @@ ACCEPTED_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'NativeMemberGone', 'Tas
 
 DEFAULT_DISPOSABLE = "node_modules .venv venv target build dist .gradle .next .turbo __pycache__ .pytest_cache .DS_Store .cache"
 LOCK_PID_RE = re.compile(r"\(pid\s+(\d+)")
+
+# How many immediate-reclaim attempts are kept per member. The journal used to
+# keep ONE and the last writer erased every earlier outcome (Frank D14).
+IMMEDIATE_RECLAIM_HISTORY_LIMIT = 20
 
 
 def _load(name):
@@ -247,33 +251,28 @@ def owner_check(tx, transaction, member):
                         continue
                 if not own and not (other and terminal_fact(other)):
                     raise RuntimeError('active or unbound preparation reservation')
-    # Terminal ingress is positive death evidence, but an actual native live
-    # lock still vetoes it. Never use the cross-repository worktree as that lock.
+    # THE AGENT IS IN A RUN RIGHT NOW. Round 12, 2026-09-10: the platform runs
+    # agents again after their terminal record (ten of 66 workspace-owning
+    # terminal transactions on this machine, the earliest two days before
+    # round 11 was written — `restart-after-terminal-measure.py`). Nothing had
+    # ever recorded that, so nothing could refuse on it. The start and stop
+    # hooks now append every post-terminal lifecycle event to the transaction,
+    # and this is the refusal that reads them. It covers EVERY member class,
+    # which the native lock below cannot: a cross-repository worktree carries
+    # no platform lock at all, and that is where the work actually lives.
+    if tx.running_after_terminal(transaction):
+        raise RuntimeError(
+            'RETRY, not a verdict: the platform started agent %s again after its terminal record '
+            'and that run is still open (the last observed lifecycle event is a start). Its '
+            'workspaces are held until the run ends. This is the fact round 11 assumed could not '
+            'happen; it is measured, and it is now refused rather than assumed away' % (aid[:8] or '?'))
+    # A live native lock vetoes everything above it. Never use the
+    # cross-repository worktree as that lock.
     native = [m for m in transaction['members'] if m.get('class') == 'native']
     entity = native[0]['repo'] if native else member['repo']
     live = _load('agent-liveness').resolve(entity, aid)
-    if live.get('verdict') != 'NOT-ALIVE' and not _held_by_nobody_over_a_terminal_agent(tx, transaction, live):
+    if live.get('verdict') != 'NOT-ALIVE':
         raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason')))
-
-
-def _held_by_nobody_over_a_terminal_agent(tx, transaction, live):
-    """The ONE non-NOT-ALIVE verdict this lane may pass, and it is narrow.
-
-    Since 2026-09-10 agent-liveness answers INDETERMINATE for a lock it cannot
-    attribute, because reading a HELD lock as death made it permissive for
-    every live agent. That correction would otherwise make a workspace held by
-    an empty lock unreclaimable for good. So exactly one shape passes: the
-    verdict is INDETERMINATE *because the lock names nobody*, and the platform
-    has said this exact agent stopped. ALIVE never passes. INDETERMINATE for
-    any other reason — git unqueryable, a pid that could not be probed — never
-    passes, because those are questions with an answer this did not get.
-    """
-    if live.get('verdict') != 'INDETERMINATE':
-        return False
-    evidence = live.get('evidence') or {}
-    if not evidence.get('locked') or evidence.get('pid') is not None:
-        return False
-    return platform_said_the_agent_stopped(tx, transaction)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -353,9 +352,79 @@ def _release_dead_lock(repo, path, lock_line):
 
 
 # ---------------------------------------------------------------------------
-# the agent is over, although its session is not — WHO SAID SO
+# THE WORKSPACE IS NOT IN USE — which is a different question from "the agent
+# is over", and it is the only one of the two this platform can answer
 # ---------------------------------------------------------------------------
-# WHY THIS EXISTS (round 11, 2026-09-10). Round 10 gave a platform-native
+# ROUND 12, 2026-09-10. THE PREMISE UNDER ROUND 11 WAS FALSE AND IS WITHDRAWN.
+#
+# Round 11 authorized removal in the terminal event on this sentence, which
+# stood a few lines below: the platform's first SubagentStop "does not say the
+# agent has been quiet for a while; it says the agent CANNOT BE GIVEN ANOTHER
+# TURN ... structural rather than temporal." Its own section 7 named the fact
+# that would refute it. That fact is on this machine ten times over:
+#
+#     $ python3 engine/scripts/restart-after-terminal-measure.py
+#     DENOMINATOR: those that own at least one workspace : 66
+#     NUMERATOR  : those with a start strictly after their terminal record : 10
+#     rate       : 15.152%
+#
+# The earliest is sage-fable-r2 on 2026-09-08, two days before round 11 was
+# written; four more restarted within a nine-millisecond span at 14:34:37Z on
+# 2026-09-10, six to eight hours after their terminal records. The triggers
+# are a message queued before the stop and delivered after it, and a
+# background task belonging to the agent exiting, whose notification resumes
+# it. No guard sees either: guard-resume-isolation.sh covers SendMessage and
+# nothing else.
+#
+# AND THE PLATFORM PROVIDES NO EVENT THAT WOULD MAKE THE PREMISE TRUE. Its
+# whole vocabulary here is WorkerStarted / WorkerRunEnded / WorkerUpdated
+# (`restart-after-terminal-measure.py --census`), and worker-ended-handoff.sh
+# has always said so in its own header: "`run_ended` means this RUN ended,
+# never 'this worker is gone'." Eleven rounds tried to synthesize a terminal
+# fact the platform does not report. There is nothing left to synthesize it
+# from, so this round stops trying.
+#
+# WHAT REPLACES IT. Not a better guess at "finished" — a different question.
+# The decision this code makes is "may this directory be removed", and that
+# question has answers the platform DOES provide:
+#
+#   1. THE WORK IS AN ANCESTOR OF `main`. Git is outside the agent and
+#      permanent, and a woken agent cannot un-merge its own commits. This gate
+#      was already here, is re-verified immediately before the removal and
+#      again before the branch delete, and both reviewers confirmed it held.
+#      It is what makes a restart survivable instead of destructive.
+#   2. NOTHING IS WRITING HERE NOW. The platform writes its lock on a native
+#      worktree BEFORE the run begins — measured on two live agents on this
+#      machine, 43 ms and 49 ms before the SubagentStart hook fired — so an
+#      ABSENT lock is a fact about the present, not a guess about the future.
+#      And the race is closed by git rather than by our timing: `git worktree
+#      remove` without --force REFUSES a locked worktree ("cannot remove a
+#      locked working tree", exit 128, git 2.52.0, measured) and refuses a
+#      tree with modified or untracked files. If a restart begins between the
+#      check and the removal, the platform re-locks and the removal FAILS.
+#   3. NO PROCESS STANDS IN THE TREE, from a probe that fails closed.
+#   4. THE RECORD DOES NOT SHOW AN OPEN POST-TERMINAL RUN (owner_check).
+#
+# SO THE HONEST SAFETY CLAIM, WHICH IS SMALLER AND TRUE: a removal cannot
+# destroy work, because a workspace is only removed when its tracked bytes are
+# identical to a commit `main` already contains, its ignored bytes are
+# archived and verified first, and nothing holds it. A restart AFTER a removal
+# is a DISRUPTION — an agent waking in a directory that is gone — not a loss,
+# and it is now detected, recorded on the transaction and announced.
+#
+# WHAT IS NOT CLAIMED, deliberately: that a terminal agent cannot run again
+# (it can, ten times over), that a released lock means an agent will not
+# return (four of the ten restarted long after their locks were released), or
+# that this engine can tell the last stop from the others (it cannot, and
+# nothing on this platform can).
+#
+# The `terminal` record and its indexes are untouched. The CEO's ruling that a
+# finished agent is FORBIDDEN to return is a policy and it is still enforced
+# by guard-resume-isolation.sh and the write barrier. What ended is this
+# engine reading that policy as a description of the platform's behavior.
+#
+# ---------------------------------------------------------------------------
+# WHY THE AGENT-SIZED GROUND EXISTS AT ALL (round 11, 2026-09-10). Round 10 gave a platform-native
 # checkout exactly one route out from under the platform: the OWNING SESSION
 # provably gone. Measured on the operator's machine at 10:53 that day, with
 # the orchestrator still running, six finished teammates' workspaces read
@@ -380,22 +449,32 @@ def _release_dead_lock(repo, path, lock_line):
 PLATFORM_TERMINAL_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'TaskStop')
 
 
-def platform_said_the_agent_stopped(tx, transaction):
-    """(stopped, reason). POSITIVE evidence that this exact agent is over:
+def platform_recorded_a_stop(tx, transaction):
+    """(recorded, reason). THIS IS A CANDIDACY TEST, NOT AN AUTHORIZATION, and
+    the rename is the point: it was called `platform_said_the_agent_stopped`
+    and its answer was read as "the agent is over".
+
+    What it establishes, and all it establishes:
 
       1. the transaction is sealed and its terminal record names an ingress
          the PLATFORM fired about this exact agent id — never a name, a cwd or
          a sentence, and never this engine's own derivation;
-      2. the terminal index for that agent id is written, which is the index
-         guard-resume-isolation.sh reads to refuse every future SendMessage to
-         it WITH NO ESCAPE HATCH — not resume-ack:, not a protocol message.
+      2. the terminal index for that agent id is written, so
+         guard-resume-isolation.sh refuses every future SendMessage to it.
 
-    (2) is the whole safety argument and it is structural rather than
-    temporal. It does not say the agent has been quiet for a while; it says
-    the agent cannot be given another turn. Nine rounds died inferring death
-    from quiet, so nothing here is inferred from quiet: absence of a record is
-    never evidence, and a transaction with no platform terminal record gets
-    the same answer it always got.
+    WHAT IT DOES NOT ESTABLISH. That the agent will not run again. It does
+    run again: ten of the 66 workspace-owning terminal transactions on this
+    machine have a start strictly after their terminal record
+    (`restart-after-terminal-measure.py`). (2) refuses one PATH back in — the
+    lead's message — and the two paths that actually fired on 2026-09-10 were
+    a message the platform had already queued before the stop, and a
+    background task's exit notification. Neither passes through SendMessage
+    and neither is refusable by any hook this platform offers.
+
+    So a True here means only: the platform fired a stop about this exact
+    agent, so this workspace is a CANDIDATE and the engine may go on to ask
+    the questions that actually decide it — is it merged, is it clean, is it
+    unlocked, is anything standing in it, is a post-terminal run open.
     """
     if not terminal_fact(transaction):
         return False, 'no sealed platform terminal record for this agent'
@@ -405,29 +484,53 @@ def platform_said_the_agent_stopped(tx, transaction):
                        'statement about the worker' % ingress)
     aid, sid = transaction.get('agent_id') or '', transaction.get('session_id') or ''
     if not tx.is_terminal_agent(aid, sid or None):
-        return False, ('agent %s has no terminal index, so nothing refuses its resume; not provably over'
+        return False, ('agent %s has no terminal index, so nothing refuses its resume; not a candidate'
                        % (aid[:8] or '?'))
-    return True, ('agent %s stopped at the platform\'s %s ingress and is indexed terminal, so it is '
-                  'refused every resume and cannot return' % (aid[:8], ingress))
+    restarted = tx.restarted_after_terminal(transaction)
+    return True, ('the platform fired a %s about agent %s and it is indexed terminal, so this '
+                  'workspace is a candidate%s' % (ingress, aid[:8],
+                                                  ' (NOTE: the platform has already run this agent '
+                                                  'again since that record)' if restarted else ''))
 
 
-def platform_released_its_lock(member, row):
-    """(released, reason). Claude Code writes the lock on its native worktree
-    and Claude Code takes it off; this engine reads it and NEVER removes it.
+def platform_lock_is_absent(member, row):
+    """(absent, reason). THE ONLY LIVENESS FACT THIS PLATFORM ACTUALLY GIVES.
 
-    MEASURED on this machine, 2026-09-10, from the live admin directories:
+    Claude Code writes the lock on its native worktree and Claude Code takes
+    it off; this engine reads it and NEVER removes it, on any route.
 
-        claude agent agent-a42c90096292136f0 (pid 8799 start Thu Sep 10 05:39:28 2026)
+    WHAT THE LOCK MEANS, corrected 2026-09-10. Round 11 read it as a release
+    signal — "the host takes it off within about a second of the stop (dir
+    mtimes 0.37s and 1.06s after the two SubagentStop events measured that
+    day) ... THAT REMOVAL IS THE HOST SAYING IT IS FINISHED WITH THE
+    WORKSPACE", with a 5-second wait called "generous rather than hopeful".
+    Two samples generalized into the safety timing of a deletion, and the
+    population contradicts them: three of three own-event native attempts that
+    day found the lock still held (key1 +6.0s, sage-fable-cert1 +6.2s), and
+    zach-opus-unl1's lock was still held 77 minutes after its stop with no run
+    in progress. Zero of five production reclaims happened in their own event.
+    The lock is not a release signal and the wait was not generous.
 
-    The pid is the HOST SESSION'S, identical for every agent of that session,
-    so it can never distinguish a finished agent from a running one — and the
-    lock is the host's artifact, taken under the host's own rules. It is not
-    ours to release. It does not need to be: the host takes it off within
-    about a second of the stop (dir mtimes 0.37s and 1.06s after the two
-    SubagentStop events measured that day), and THAT REMOVAL IS THE HOST
-    SAYING IT IS FINISHED WITH THE WORKSPACE. So this waits for the host's own
-    signal instead of overriding it. A lock still held is a hold, with the
-    holder named — never a lock this engine takes off a live session's tree.
+    WHAT IT IS INSTEAD, and this is the fact worth having: the platform takes
+    the lock BEFORE the run starts. Measured on this machine from the live
+    admin directories, two agents, both times the lock file's mtime PRECEDES
+    the SubagentStart hook:
+
+        agent-a2de3c7d8d8590224  lock 16:07:26.643Z  start 16:07:26.692Z  (-49 ms)
+        agent-a97f2c691c34e2c0f  lock 17:43:41.993Z  start 17:43:42.036Z  (-43 ms)
+
+    agent-liveness says the same thing from the other side: "a live agent
+    isolation worktree is always locked."
+
+    So an ABSENT lock is a statement about the present — nothing is running in
+    there right now — rather than a prediction that nothing will. That is
+    exactly what a removal needs, because the removal is now protected against
+    the future by git: `git worktree remove` without --force refuses a locked
+    worktree, so a restart that re-locks between this check and the removal
+    makes the removal FAIL rather than race.
+
+    A HELD LOCK IS THEREFORE NOT A WAIT THAT EXPIRED. It is the platform
+    holding this workspace, and it is journaled in those words.
     """
     if row is None:
         return False, 'exact registration required'
@@ -435,63 +538,58 @@ def platform_released_its_lock(member, row):
         return False, 'exact registration required'
     if 'locked' in row:
         holder = (row.get('locked') or '').strip()
-        return False, ('Claude Code still holds its own lock on %s%s — this engine never removes a lock '
-                       'a live session holds; the reclaim waits for the platform to release it'
+        return False, ('the platform is holding its own lock on %s%s. This engine never removes a '
+                       'lock the platform placed, on any route: while that lock is there the '
+                       'workspace is in the platform\'s hands and may be running. If it is still '
+                       'held long after the agent finished, the remedy is an operator releasing it '
+                       'deliberately (`git worktree unlock`) — never this lane deciding on its behalf'
                        % (member.get('path'), (' (' + holder[:120] + ')') if holder else ''))
-    return True, 'Claude Code has released its own lock on this exact registration'
+    return True, 'the platform holds no lock on this exact registration, so nothing is running in it'
 
 
-def lock_names_nobody(row):
-    """A lock that is HELD but carries no pid, so it can be attributed to no
-    process and no agent. Measured on this machine 2026-09-10: three live
-    agents' locks were 0 bytes, because `git worktree lock` without --reason
-    writes an empty file and something had unlocked and re-locked them. Any
-    hand or tool can leave one, and `_release_dead_lock` refuses it forever
-    ("locked without a pid; retained") — so a workspace can end up held by
-    nobody, permanently, with nothing automatic able to clear it. That is the
-    CEO's "a finished agent's lock is never released", and this is the
-    predicate that names it."""
-    if not row or 'locked' not in row:
-        return False
-    return _lock_pid(row.get('locked')) is None
+def workspace_is_free_to_remove(tx, transaction, member, row):
+    """(free, reason) — the workspace-sized ground that replaces the
+    agent-sized one.
 
+    It asks two things and neither of them is "is the agent finished", because
+    this platform cannot answer that and eleven rounds died trying:
 
-def agent_workspace_is_reclaimable(tx, transaction, member, row):
-    """(reclaimable, reason) — the agent-sized ground.
+      1. did the platform fire a stop about this exact agent — CANDIDACY, so
+         this engine only ever considers workspaces it was told about;
+      2. is the platform's lock absent RIGHT NOW.
 
-    The agent must be over by the platform's own word, and then EITHER the
-    platform has released its lock (the ordinary path: its release is its
-    signal) OR the lock names nobody at all. The second is not a weakening of
-    the first: a lock with a live pid on it still refuses here and still
-    refuses at the liveness veto. It is the answer to a lock nothing can
-    clear, and it is positive evidence rather than an inference from quiet —
-    the platform said this exact agent stopped, and the lock says nothing.
+    Everything that actually protects the work is elsewhere and unchanged: the
+    tracked bytes must be identical to a commit `main` contains (re-verified
+    immediately before the removal and again before the branch delete), the
+    ignored bytes must be archived and verified first, no process may stand in
+    the tree, no post-terminal run may be open, and the removal itself is a
+    non-force `git worktree remove` that git refuses on a locked or dirty
+    tree.
+
+    WHAT WAS REMOVED HERE, AND WHY. The old version had a second door: a lock
+    that names no pid was accepted as "a lock nobody can be behind", and a
+    companion `_release_unattributable_lock` took the platform's lock OFF and
+    then deleted the workspace. Three things make that indefensible now. The
+    platform holds a lock by the file's PRESENCE, not its contents, so "names
+    nobody" is a fact about a string and not about a holder. The empty locks
+    that motivated it were written by an operator's own `git worktree lock`
+    without --reason on three LIVE agents (evidence pack 2.5/2.6) — a repair
+    of an incident, generalized into a standing authority. And releasing the
+    lock destroys the one property that makes the rest of this safe: it is the
+    thing that would have made git refuse a removal under a restarting agent.
+
+    The cost is real and is accepted: a workspace whose lock the platform
+    never releases is HELD, indefinitely, and reported with the operator's
+    remedy named. A held workspace is visible and recoverable. A deleted one
+    is neither.
     """
-    stopped, why = platform_said_the_agent_stopped(tx, transaction)
-    if not stopped:
+    candidate, why = platform_recorded_a_stop(tx, transaction)
+    if not candidate:
         return False, why
-    released, lock_why = platform_released_its_lock(member, row)
-    if released:
-        return True, why + '; ' + lock_why
-    if lock_names_nobody(row):
-        return True, (why + '; the lock held on this workspace carries no pid, so it names no process '
-                      'and no agent, and nothing can ever clear it by the pid route')
-    return False, lock_why
-
-
-def _release_unattributable_lock(repo, path, row):
-    """`git worktree unlock` for a lock that names NOBODY, over an agent the
-    platform has already said stopped. Refuses if the lock names a pid (that
-    is _release_dead_lock's question, not this one) and refuses while any
-    process stands in the tree. Nothing is killed and nothing is forced."""
-    if not lock_names_nobody(row):
-        raise RuntimeError('lock names a pid; not this route')
-    pids = processes_using(path)
-    if pids:
-        raise RuntimeError('RETRY, not a verdict: process(es) %s are standing in %s, so the lock is '
-                           'retained. Nothing here kills a process'
-                           % (describe_processes(pids), path))
-    _git(repo, 'worktree', 'unlock', '--', path)
+    absent, lock_why = platform_lock_is_absent(member, row)
+    if not absent:
+        return False, lock_why
+    return True, why + '; ' + lock_why
 
 
 # ---------------------------------------------------------------------------
@@ -903,15 +1001,16 @@ def assess(tx, transaction, index):
         if tx.platform_native(member):
             gone, why = session_gone(transaction, tx)
             if not gone:
-                # The session still runs. The AGENT may still be over, and
-                # that is a smaller, exact and positive fact (round 11).
-                reclaimable, agent_why = agent_workspace_is_reclaimable(tx, transaction, member, row)
-                if not reclaimable:
-                    return 'observe', 'platform-owned; ' + why + '; ' + agent_why
-                ground, why = 'agent_over', agent_why
+                # The session still runs. The WORKSPACE may still be free, and
+                # that is a smaller question this platform can actually answer
+                # (round 12). It is not a claim that the agent is finished.
+                free, workspace_why = workspace_is_free_to_remove(tx, transaction, member, row)
+                if not free:
+                    return 'observe', 'platform-owned; ' + why + '; ' + workspace_why
+                ground, why = 'workspace_free', workspace_why
             if not row or 'prunable' in row:
                 return 'hold', 'exact registration required'
-            if 'locked' in row and not (ground == 'agent_over' and lock_names_nobody(row)):
+            if 'locked' in row:
                 pid = _lock_pid(row['locked'])
                 status = _load('worktree-ledger').process_status(pid, None) if pid else 'unknown'
                 if status != 'gone':
@@ -958,29 +1057,25 @@ def reconcile(tx, transaction, index, immediate=False):
             gone, why = session_gone(transaction, tx)
             if not gone:
                 # Claude remains the owner of its native checkout while the
-                # session that created it may still act on it AND the agent
-                # itself is not provably over. Either fact alone is enough,
-                # and neither is inferred from quiet.
-                reclaimable, agent_why = agent_workspace_is_reclaimable(tx, transaction, member, row)
-                if not reclaimable:
+                # session that created it may still act on it. The WORKSPACE
+                # can still be free — a smaller question, answered from the
+                # platform's lock rather than from a claim about the agent's
+                # future (round 12). Neither fact is inferred from quiet.
+                free, workspace_why = workspace_is_free_to_remove(tx, transaction, member, row)
+                if not free:
                     return tx.observe_platform_native(sid, aid, index)
-                ground, why = 'agent_over', agent_why
+                ground, why = 'workspace_free', workspace_why
             if not row or 'prunable' in row:
                 raise RuntimeError('exact registration required')
             if 'locked' in row:
-                if ground == 'agent_over' and lock_names_nobody(row):
-                    # A lock nobody can be behind, over an agent the platform
-                    # said stopped. NOT in the stop event itself: the ingress
-                    # waits for the platform instead, because in that instant
-                    # the platform is still putting the worker down.
-                    if immediate:
-                        raise RuntimeError('the lock on this workspace names nobody; the ingress waits for '
-                                           'the platform rather than releasing it, and the reconciler '
-                                           'resolves it')
-                    _release_unattributable_lock(repo, member['path'], row)
-                    saved = dict(saved, lock_released='held by nobody: ' + repr(row.get('locked')))
-                else:
-                    _release_dead_lock(repo, member['path'], row['locked'])
+                # ONE route out of a lock, and it needs a DEAD PID NAMED ON IT.
+                # The `lock_names_nobody` second route, and the
+                # `_release_unattributable_lock` that acted on it, are gone
+                # (round 12): the platform holds a lock by the file's presence,
+                # not its contents, so an unattributable lock is a fact about a
+                # string. Releasing it destroyed the one property that makes a
+                # restart survivable — git's refusal to remove a locked tree.
+                _release_dead_lock(repo, member['path'], row['locked'])
                 row = proof_api.registry(repo).get(member['path'])
                 if not row or 'locked' in row:
                     raise RuntimeError('lock still present after release; retained')
@@ -996,6 +1091,22 @@ def reconcile(tx, transaction, index, immediate=False):
         residue_record = archive_residue(tx, transaction, index, member['path'], residue) if residue else None
         owner_check(tx, transaction, member)
         proof_api.verify_member_proof(proof)
+        # THE LAST LOOK, AFTER THE ARCHIVE AND BEFORE THE REMOVAL. Archiving a
+        # large residue takes seconds, and a restart can begin inside them: the
+        # platform re-locks the worktree BEFORE the run starts (measured, 43 ms
+        # and 49 ms ahead of the SubagentStart hook on two live agents), so
+        # re-reading the registration here is a present-tense check and not a
+        # guess. It is deliberately belt AND braces: `git worktree remove`
+        # without --force refuses a locked worktree by itself ("cannot remove a
+        # locked working tree", exit 128, git 2.52.0, measured), so the race
+        # closes even if this check is somehow skipped — but a refusal that
+        # says WHY is worth more to whoever reads the journal than git's.
+        fresh = proof_api.registry(repo).get(member['path'])
+        if not fresh or 'locked' in fresh or 'prunable' in fresh:
+            raise RuntimeError(
+                'RETRY, not a verdict: the platform holds this workspace again as of this instant '
+                '(%s). Something started in it while the reclaim was preparing; nothing is removed'
+                % ('re-locked' if fresh and 'locked' in fresh else 'registration changed'))
         saved = dict(saved, ignored_disposable=len(keep), ignored_residue=residue_record)
         tx.update_member(sid, aid, index, daily_cleanup=saved, cleanup_policy='integrated-daily')
         _git(repo, 'worktree', 'remove', '--', member['path'])
@@ -1057,16 +1168,36 @@ def reconcile(tx, transaction, index, immediate=False):
 
 
 def unlock_wait_seconds(repo=None):
-    """How long the ingress waits, inside the stop event, for Claude Code to
+    """How long the ingress waits, inside the stop event, for the platform to
     take its own lock off. Committed data a reviewer can read and an entity
-    can narrow, never a constant hidden in code. Measured on this machine
-    2026-09-10: the platform removed the lock 0.37s and 1.06s after the two
+    can narrow, never a constant hidden in code.
+
+    THE DEFAULT IS NOW 0, AND THE PARAGRAPH THAT JUSTIFIED 5 WAS WRONG. It
+    said: "the platform removed the lock 0.37s and 1.06s after the two
     SubagentStop events on record, so the default is generous rather than
-    hopeful — and a wait that expires costs nothing but the nightly backstop."""
+    hopeful." Two samples. The population, measured over the same day:
+
+        zach-opus-key1        own-event attempt deferred, lock held  +6.0 s
+        sage-fable-cert1      own-event attempt deferred, lock held  +6.2 s
+        zach-opus-unl1        lock still held with no run in progress +77 min
+        production reclaims IN their own terminal event               0 of 5
+
+    Three of three own-event native attempts expired the wait; all five real
+    reclaims came from a later sweep. Frank's reading fits every observation:
+    the platform tears its worktree down only AFTER the SubagentStop hook
+    returns, so a wait INSIDE that hook can never observe the release and is
+    pure latency added to every stop of every workspace-owning agent.
+
+    So the wait defaults to 0 and the sweep on the NEXT event does the work,
+    which is what the record shows already happens. An entity that measures
+    something different on its own machine can raise it; the number is data,
+    and this time it is data with a population behind it rather than two
+    samples and a hope.
+    """
     try:
-        return max(0.0, float(config_value('IMMEDIATE_RECLAIM_WAIT_SECONDS', '5', repo)))
+        return max(0.0, float(config_value('IMMEDIATE_RECLAIM_WAIT_SECONDS', '0', repo)))
     except (TypeError, ValueError):
-        return 5.0
+        return 0.0
 
 
 def _lock_bearing_member(transaction, member):
@@ -1081,10 +1212,14 @@ def _lock_bearing_member(transaction, member):
 
 
 def await_platform_release(tx, transaction, member, deadline):
-    """(released, reason). Wait, bounded, for the PLATFORM to take off its own
-    lock. Never unlocks anything: see platform_released_its_lock for who holds
-    it and why it is not ours. An expired wait is a deferral, never a
-    reason to proceed."""
+    """(absent, reason). Look — and, if the caller gave a future deadline,
+    wait — for the platform's lock to be absent. Never unlocks anything: see
+    platform_lock_is_absent for who holds it and why it is not ours.
+
+    AN EXPIRED WAIT IS NOT A WAIT THAT EXPIRED. It is the platform still
+    holding this workspace, and that is what the journal now says, because
+    describing it as a timeout is what let round 11 call it a "degradation"
+    to be retried rather than a statement to be obeyed."""
     holder = _lock_bearing_member(transaction, member)
     proof_api = _load('completion-proof')
     repo, path = holder.get('repo') or '', holder.get('path') or ''
@@ -1093,9 +1228,9 @@ def await_platform_release(tx, transaction, member, deadline):
     while True:
         if not os.path.lexists(path):
             return True, 'the platform has removed this workspace itself'
-        released, why = platform_released_its_lock(holder, proof_api.registry(repo).get(path))
-        if released or time.time() >= deadline:
-            return released, why
+        absent, why = platform_lock_is_absent(holder, proof_api.registry(repo).get(path))
+        if absent or time.time() >= deadline:
+            return absent, why
         time.sleep(0.1)
 
 
@@ -1118,10 +1253,40 @@ def reclaim_now(tx, transaction, index, deadline=None):
     sid, aid = transaction['session_id'], transaction['agent_id']
 
     def journal(outcome, detail):
+        # APPEND, NEVER OVERWRITE (Frank D14, 2026-09-10). This wrote a single
+        # `immediate_reclaim` object, so only the LAST attempt survived: the
+        # own-event outcome of zach-opus-unl1 was gone under its 18:20 sweep
+        # row, and key1's own-event deferral was readable only because no
+        # later sweep happened to re-run on it. "The ingress's decision is a
+        # line in the record and not an inference" — one line, replaced by the
+        # next one. So the finding "zero of five reclaims happened in their own
+        # event" had to be established from timestamps and phases, because the
+        # journal built to answer exactly that question could not.
+        #
+        # The latest outcome keeps its old key and shape, so every existing
+        # reader is unaffected; the history goes beside it, bounded, oldest
+        # dropped first with a count kept.
+        entry = {'version': 1, 'outcome': outcome, 'reason': str(detail)[:400],
+                 # UTC, like every other timestamp in this store. The old local
+                 # +01:00 stamps here were the only ones that were not, which
+                 # makes a journal row incomparable with the terminal record
+                 # sitting three lines above it in the same file.
+                 'ts': datetime.now(timezone.utc).isoformat()}
         try:
-            tx.update_member(sid, aid, index, immediate_reclaim={
-                'version': 1, 'outcome': outcome, 'reason': str(detail)[:400],
-                'ts': datetime.now().astimezone().isoformat()})
+            current = (tx.load_tx(sid, aid) or {}).get('members') or []
+            history = list((current[index].get('immediate_reclaim_history') or [])
+                           if index < len(current) else [])
+        except Exception:
+            history = []
+        history.append(entry)
+        dropped = 0
+        if len(history) > IMMEDIATE_RECLAIM_HISTORY_LIMIT:
+            dropped = len(history) - IMMEDIATE_RECLAIM_HISTORY_LIMIT
+            history = history[-IMMEDIATE_RECLAIM_HISTORY_LIMIT:]
+        try:
+            tx.update_member(sid, aid, index, immediate_reclaim=entry,
+                             immediate_reclaim_history=history,
+                             immediate_reclaim_attempts=len(history) + dropped)
         except Exception:
             pass
         return outcome, detail
@@ -1135,13 +1300,17 @@ def reclaim_now(tx, transaction, index, deadline=None):
             return 'skipped', 'historical record keeps its own recovery protocol'
         if (member.get('daily_cleanup') or {}).get('phase') == 'complete':
             return 'skipped', 'already reclaimed'
-        stopped, why = platform_said_the_agent_stopped(tx, transaction)
-        if not stopped:
+        if tx.running_after_terminal(transaction):
+            return journal('deferred',
+                           'the platform started this agent again after its terminal record and '
+                           'that run is still open; no workspace of an agent mid-run is touched')
+        candidate, why = platform_recorded_a_stop(tx, transaction)
+        if not candidate:
             return journal('deferred', why)
         if deadline is None:
             deadline = time.time() + unlock_wait_seconds(member.get('repo'))
-        released, lock_why = await_platform_release(tx, transaction, member, deadline)
-        if not released:
+        absent, lock_why = await_platform_release(tx, transaction, member, deadline)
+        if not absent:
             return journal('deferred', lock_why)
         reconcile(tx, tx.load_tx(sid, aid), index, immediate=True)
     except Exception as error:
@@ -1165,34 +1334,88 @@ def sweep_seconds(repo=None):
     return number('IMMEDIATE_RECLAIM_SWEEP_SECONDS', '10'), number('IMMEDIATE_RECLAIM_SWEEP_INTERVAL_SECONDS', '15')
 
 
+def sweep_max_files(repo=None):
+    """The tracked-file ceiling above which a candidate is left to the nightly
+    pass instead of being started inside a 20-second hook.
+
+    WHY A CEILING AND NOT JUST A CLOCK. The sweep's deadline was checked only
+    BETWEEN candidates, so one candidate could run `lsof -t +D` (2.0 s
+    measured on femcboost/avelor, 60,629 files with node_modules present),
+    hash every tracked file, and tar-and-verify an ignored-file archive (one
+    production archive holds 2,117 files of a SwiftPM .build tree) with the
+    whole budget already spent. A clock cannot stop work that has started; a
+    ceiling stops it from starting. Nothing is lost — the nightly pass has no
+    budget and takes exactly the same members with exactly the same refusals.
+    """
+    try:
+        return int(float(config_value('IMMEDIATE_RECLAIM_SWEEP_MAX_FILES', '20000', repo)))
+    except (TypeError, ValueError):
+        return 20000
+
+
+def tracked_file_count(path):
+    """How many files the index holds, or None when it cannot be asked. None
+    is NOT zero: an unanswerable count skips the candidate in the sweep rather
+    than admitting it, for the same reason processes_using fails closed."""
+    try:
+        res = subprocess.run(['git', '-C', path, 'ls-files', '-z'],
+                             capture_output=True, timeout=20)
+        if res.returncode != 0:
+            return None
+        return res.stdout.count(b'\0')
+    except Exception:
+        return None
+
+
 def _sweep_marker(tx, session_id):
     return os.path.join(tx.session_dir(session_id), 'last-sweep')
 
 
-def sweep_session(tx, session_id):
+def sweep_session(tx, session_id, deadline=None):
     """Finish what an EARLIER terminal event could not, from THIS one.
 
-    WHY THIS EXISTS. The ingress reclaims its own agent's workspace in its own
-    event, and waits, bounded, for the platform to release its lock. If that
-    wait expires — the platform released late, a process was still in the
-    tree, git was busy — the member would otherwise sit until the 04:00 job,
-    which is the 24-hour gap all over again for the unlucky case.
+    RUNS LAST, NEVER FIRST (round 12, 2026-09-10). It used to run at the top
+    of terminalize-agent-worktrees.sh, BEFORE this event's own
+    `claim_terminal` — inside a hook the harness kills at 20 seconds, with the
+    budget checked only between candidates. So a slow sweep could consume the
+    whole hook and THIS event's irrevocable terminal record would silently
+    never be written, in a hook that exits 0 by design and therefore could not
+    say so. The catch-up for an earlier agent was placed ahead of the one
+    thing this event alone can do. That ordering is inverted; the hook's own
+    header had promised the correct order all along ("writes the irrevocable
+    `terminal` record BEFORE mutating any worktree").
 
-    So every terminal event, including one for an agent that owns no worktree
-    at all (a helper subagent, of which this machine records over a thousand a
-    session), first spends a small budget finishing this session's deferred
-    members. Nothing here is a timer and nothing here is new authority: it is
-    the same reclaim_now, on members already recorded terminal, refusing
-    everything it always refused. It does not wait for a lock — a sweep takes
-    what is ready and leaves the rest to the next event.
+    `deadline` is an absolute time.time() the caller has left. It is checked
+    before each candidate AND before any expensive phase begins, and a
+    candidate whose tree is bigger than sweep_max_files is not started at all.
+    An expired budget is REPORTED, as a ('', 'budget-expired', reason) row —
+    a control that runs out of time and says nothing is how the 20-second
+    failure stayed invisible.
+
+    WHY IT EXISTS AT ALL. An event's own member can be refused — the platform
+    still held its lock, a process was in the tree, git was busy — and would
+    then sit until the 04:00 job, which is the 24-hour gap again for the
+    unlucky case. So every terminal event, including one for an agent that
+    owns no worktree at all (over a thousand helper stops a session on this
+    machine, which is what gives the sweep its cadence), spends a small budget
+    finishing this session's deferred members. It is the same reclaim_now on
+    members already recorded terminal, refusing everything it always refused,
+    and it is not new authority. It never waits for a lock: a sweep takes what
+    is already free and leaves the rest to the next event.
 
     Returns [(path, outcome, reason)] for what it touched. Never raises.
     """
     out = []
     try:
         budget, interval = sweep_seconds()
+        ceiling = sweep_max_files()
         marker = _sweep_marker(tx, session_id)
         now = time.time()
+        if deadline is not None and now >= deadline:
+            out.append(('', 'budget-expired',
+                        'the terminal event had no time left for the catch-up sweep; the nightly '
+                        'pass takes these members with the same refusals'))
+            return out
         try:
             if interval > 0 and now - os.path.getmtime(marker) < interval:
                 return out
@@ -1223,10 +1446,37 @@ def sweep_session(tx, session_id):
                 os.utime(marker, None)
         except OSError:
             pass
-        deadline = now + budget
+        # The sweep's own budget, never longer than what the CALLER has left.
+        # A hook with 4 seconds remaining does not get to start a 10-second
+        # sweep just because the config says 10.
+        stop_at = now + budget
+        if deadline is not None:
+            stop_at = min(stop_at, deadline)
         for aid, index, path in candidates:
-            if time.time() >= deadline:
+            if time.time() >= stop_at:
+                out.append(('', 'budget-expired',
+                            'the catch-up sweep ran out of its %.1fs budget with %d candidate(s) '
+                            'unexamined; the nightly pass takes them with the same refusals'
+                            % (budget, len(candidates) - len(out))))
                 break
+            # THE CEILING, CHECKED BEFORE ANY EXPENSIVE PHASE BEGINS. A clock
+            # cannot stop work that has already started, and the work this
+            # skips (lsof over the tree, a hash of every tracked file, a
+            # verified archive of every ignored file) is measured in seconds
+            # on a real repository. An unanswerable count is not zero.
+            count = tracked_file_count(path or '')
+            if count is None:
+                out.append((path, 'deferred',
+                            'could not count the tracked files of this workspace, so the in-event '
+                            'sweep does not start it; the nightly pass has no budget and will'))
+                continue
+            if count > ceiling:
+                out.append((path, 'deferred',
+                            'this workspace holds %d tracked files, above the in-event ceiling of '
+                            '%d (IMMEDIATE_RECLAIM_SWEEP_MAX_FILES); a 20-second hook is the wrong '
+                            'place to start it and the nightly pass is the right one'
+                            % (count, ceiling)))
+                continue
             try:
                 with tx.tx_lock(session_id, aid, timeout=1):
                     transaction = tx.load_tx(session_id, aid)

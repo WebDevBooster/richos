@@ -444,6 +444,108 @@ def read_start(session_id, agent_id):
     return read_json(start_path(session_id, agent_id))
 
 
+# --------------------------------------------------------------------------
+# LIFE AFTER TERMINAL — the fact eleven rounds assumed away
+# --------------------------------------------------------------------------
+# ROUND 12, 2026-09-10. Round 11 wrote that the platform's first SubagentStop
+# for an agent id means the agent "cannot be given another turn -- structural
+# rather than temporal", and named its own falsifier: a terminal record
+# written for an agent that then runs again.
+#
+# Measured the same day, by `restart-after-terminal-measure.py`: TEN of the 66
+# workspace-owning terminal transactions on this machine have a start strictly
+# after their terminal record, the earliest on 2026-09-08. Two mechanisms, and
+# no guard sees either: a message queued before the stop is delivered after
+# it, and a background task belonging to the agent exits and its notification
+# is delivered to the agent, which resumes it. guard-resume-isolation.sh
+# covers SendMessage and nothing else.
+#
+# THE RECORD IS NOW KEPT INSTEAD OF ASSUMED. The `terminal` record stays
+# irrevocable -- it is what the resume guard and the write barrier read, and
+# the CEO's ruling that an agent is forbidden to return is a POLICY that is
+# still enforced. What changes is that this engine no longer treats that
+# policy as a description of what the platform does. Every start and every
+# stop observed AFTER the terminal record is appended here, so
+#
+#   * the falsifier is visible in the record instead of needing a join;
+#   * "is this agent running right now" is answerable without inferring it
+#     from quiet, which is how nine previous rounds died;
+#   * a reclaim can refuse an agent that is mid-run, whatever its terminal
+#     record says.
+#
+# Bounded so a pathological agent cannot grow a transaction without limit; the
+# count is kept when entries are dropped, because "how many" is the part a
+# reviewer needs and the individual timestamps are not.
+AFTER_TERMINAL_LIMIT = 50
+
+
+def note_after_terminal(session_id, agent_id, kind, detail="", timeout=5.0):
+    """Append an observed post-terminal lifecycle event. `kind` is 'start' or
+    'stop'. Returns the updated transaction, or None when there is nothing to
+    append to (no sealed transaction, or no terminal record yet -- an ordinary
+    start before the terminal record is not news and is not recorded here).
+
+    NEVER RAISES on a missing or unsealed transaction: this is called from
+    hooks that must not fail, and an agent nobody recorded is silence."""
+    if kind not in ("start", "stop"):
+        raise ValueError("kind must be 'start' or 'stop'")
+    # A SHORT lock timeout on purpose. This is called from the start hook,
+    # inside the worker's own startup; the default 30s would stall a worker
+    # behind a sweep. A missed note is announced by the caller, and the
+    # standing measurement re-derives the same fact from the event log.
+    with tx_lock(session_id, agent_id, timeout=timeout):
+        tx = load_tx(session_id, agent_id)
+        if not tx or not tx.get("sealed") or not tx.get("terminal"):
+            return None
+        entries = tx.get("after_terminal")
+        if not isinstance(entries, list):
+            entries = []
+        entries.append({"kind": kind, "ts": now_iso(), "detail": str(detail or "")[:300]})
+        dropped = tx.get("after_terminal_dropped") or 0
+        if len(entries) > AFTER_TERMINAL_LIMIT:
+            dropped += len(entries) - AFTER_TERMINAL_LIMIT
+            entries = entries[-AFTER_TERMINAL_LIMIT:]
+        tx["after_terminal"] = entries
+        tx["after_terminal_dropped"] = dropped
+        tx["after_terminal_counts"] = {
+            "start": sum(1 for e in entries if e.get("kind") == "start") + dropped,
+            "stop": sum(1 for e in entries if e.get("kind") == "stop"),
+        }
+        atomic_write_json(tx_path(session_id, agent_id), tx)
+        return tx
+
+
+def restarted_after_terminal(transaction):
+    """Did the platform run this agent again after its terminal record?
+
+    A CLAIM WITH A DATE ON IT, not a property: it answers from what has been
+    OBSERVED. A false answer here means nothing was seen, never that nothing
+    happened -- which is why no removal is authorized by this returning False.
+    """
+    if not isinstance(transaction, dict):
+        return False
+    entries = transaction.get("after_terminal")
+    if not isinstance(entries, list):
+        return False
+    return any(e.get("kind") == "start" for e in entries if isinstance(e, dict))
+
+
+def running_after_terminal(transaction):
+    """Is this terminal agent in a run RIGHT NOW, as far as the record shows?
+
+    True when the most recent observed post-terminal event is a start with no
+    stop after it. This is a positive fact from an event the platform fired,
+    never an inference from quiet; False means only that nothing has been
+    observed, so it authorizes nothing on its own.
+    """
+    if not isinstance(transaction, dict):
+        return False
+    entries = [e for e in (transaction.get("after_terminal") or []) if isinstance(e, dict)]
+    if not entries:
+        return False
+    return entries[-1].get("kind") == "start"
+
+
 def load_tx(session_id, agent_id):
     try:
         return read_json(tx_path(session_id, agent_id))

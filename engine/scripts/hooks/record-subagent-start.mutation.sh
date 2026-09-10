@@ -34,6 +34,11 @@ mutant hook-pretends-to-block "S01" "$H" \
     '    raise SystemExit(0){NL}{NL}sys.exit(2){NL}spec = importlib.util.spec_from_file_location("tx", os.environ["TX_PY"])' \
     "the hook would exit nonzero on a normal start — a claim that SubagentStart can be refused, which the platform does not honor and the suite must not believe."
 
+mutant restart-after-terminal-unnoticed "S13" "$H" \
+    '    if tx.is_terminal_agent(aid, sid):' \
+    '    if False:' \
+    "the platform running an agent again AFTER its terminal record would be written down as an ordinary start and reported to nobody — which is exactly what happened ten times on the operator's machine, and is why round 11 could believe it never happens."
+
 mutant library-missing-swallowed "S12" "$H" \
     '    echo "NOTICE: record-subagent-start.sh: scripts/lib/worktree-transactions.py is missing at $TX_PY' \
     '    : "NOTICE: record-subagent-start.sh: scripts/lib/worktree-transactions.py is missing at $TX_PY' \

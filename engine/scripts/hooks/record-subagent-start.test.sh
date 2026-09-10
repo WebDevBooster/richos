@@ -121,6 +121,44 @@ run "$(payload "a1b2c3d4e5f60009" "$NATIVE" dev SubagentStop)"
 [ "$RC" -eq 0 ] && [ ! -f "$SANDBOX/tx/$SID/starts/a1b2c3d4e5f60009.json" ] \
     && ok "S10  a payload for another event is ignored" || bad "S10  wrong event handled (rc=$RC)"
 
+# S13. A RESTART AFTER TERMINAL IS DETECTED, RECORDED AND ANNOUNCED.
+# D1, 2026-09-10: ten of the 66 workspace-owning terminal transactions on the
+# operator's machine had a start strictly AFTER their terminal record, and
+# this hook wrote every one of them down as an ordinary start and told nobody
+# (types A and O together). The transaction below is sealed, terminalized, and
+# then started again — the exact sequence no suite anywhere covered.
+RAID="a1b2c3d4e5f60013"
+git -C "$ENTITY" worktree add -q -b "worktree-agent-$RAID" "$ENTITY/.claude/worktrees/agent-$RAID"
+RNATIVE="$ENTITY/.claude/worktrees/agent-$RAID"
+printf '{"kind":"native","teammate":"dev-opus-r1","externals":[]}' \
+    | T intent --session-id "$SID" --tool-use-id "tu-$RAID" >/dev/null
+T bind --session-id "$SID" --tool-use-id "tu-$RAID" --agent-id "$RAID" >/dev/null
+run "$(payload "$RAID" "$RNATIVE" dev)"                   # first start: seals
+T claim --session-id "$SID" --agent-id "$RAID" --ingress SubagentStop >/dev/null 2>&1
+if T terminal-agent --agent-id "$RAID"; then
+    run "$(payload "$RAID" "$RNATIVE" dev)"               # the platform runs it AGAIN
+    if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'RESTART AFTER TERMINAL' \
+       && python3 -c '
+import json, sys
+t = json.load(open(sys.argv[1]))
+entries = t.get("after_terminal") or []
+assert entries and entries[-1]["kind"] == "start", entries
+assert t["after_terminal_counts"]["start"] == 1, t.get("after_terminal_counts")
+' "$SANDBOX/tx/$SID/$RAID.json" 2>/dev/null; then
+        ok "S13  a start for an agent with a terminal record is ANNOUNCED and written on the transaction where the reclaim lane reads it"
+    else
+        bad "S13  restart after terminal (rc=$RC): $OUT"
+    fi
+else
+    bad "S13  fixture: the transaction did not terminalize"
+fi
+
+# S14. and an ordinary start (no terminal record) is silent about restarts —
+# the negative control, so S13 cannot pass by announcing on every start.
+run "$(payload "$AID" "$NATIVE" dev)"
+[ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q 'RESTART AFTER TERMINAL' \
+    && ok "S14  an ordinary start says nothing about a restart" || bad "S14  announced on a normal start: $OUT"
+
 # S11. NEVER BLOCKS: garbage stdin -> exit 0
 OUT="$(printf 'not json' | "$HOOK" 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] && ok "S11  unparseable payload -> exit 0 (SubagentStart cannot block, and this hook never pretends to)" || bad "S11  rc=$RC"

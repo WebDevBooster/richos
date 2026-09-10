@@ -104,6 +104,18 @@ class Cleanup(unittest.TestCase):
         # fail for the right reason): with a working probe the same workspace
         # reclaims. Then the probe cannot answer, and everything refuses.
         self.assertEqual(self.assess()[0],'remove')
+        # THE REAL BRANCH, NOT ONLY THE TEST OVERRIDE. A fixture that can only
+        # fail the way the fixture allows proves the fixture (type L: verified
+        # from the inside). So lsof is made genuinely unreachable by emptying
+        # PATH, which is the same FileNotFoundError a machine without lsof
+        # raises, and the shipped code path is the one under test.
+        empty=self.root/'no-tools';empty.mkdir()
+        with patch.dict(os.environ,{'PATH':str(empty)}):
+            self.assertIsNone(os.environ.get('RICHOS_DAILY_PROCESSES_UNUSED'))
+            with self.assertRaisesRegex(RuntimeError,'lsof did not answer'):
+                with patch.dict(os.environ):
+                    os.environ.pop('RICHOS_DAILY_PROCESSES',None)
+                    daily.processes_using(str(self.work))
         with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'unavailable'}):
             with self.assertRaisesRegex(RuntimeError,'could not determine whether any process'):
                 daily.processes_using(str(self.work))
@@ -284,9 +296,9 @@ class Cleanup(unittest.TestCase):
         self.assert_kept()
         self.git(self.repo,'worktree','unlock',str(self.work))
         decision,reason=self.assess()
-        self.assertEqual(decision,'remove');self.assertIn('cannot return',reason)
+        self.assertEqual(decision,'remove');self.assertIn('nothing is running in it',reason)
         result=self.run_cleanup();self.assert_reclaimed(result)
-        self.assertIn('cannot return',result['members'][0]['daily_cleanup']['agent_over'])
+        self.assertIn('nothing is running in it',result['members'][0]['daily_cleanup']['workspace_free'])
         self.assertNotIn('session_gone',result['members'][0]['daily_cleanup'])
 
     def test_session_gone_refuses_to_read_the_real_ledger_from_a_sandboxed_store(self):
@@ -429,48 +441,82 @@ class Cleanup(unittest.TestCase):
             self.run_cleanup()
         self.assert_kept()
 
-    def test_lock_that_names_nobody_is_released_by_the_reconciler_on_positive_evidence(self):
-        # THE CEO'S FIRST OBSERVATION, 2026-09-10: "A finished agent's lock is
-        # never released. Five workspaces sat unreclaimable for a working day
-        # ... nothing automatic could EVER have cleared them."
-        # The mechanism, measured: `git worktree lock` with no --reason writes
-        # an EMPTY reason, _release_dead_lock refuses a lock with no pid, and
-        # so the workspace is held by nobody forever. The way out is not to
-        # weaken the lock rule but to have positive evidence beside it: the
-        # platform's own terminal ingress named this exact agent id.
+    def test_a_lock_that_names_nobody_is_STILL_A_LOCK_and_the_engine_never_takes_it_off(self):
+        # ROUND 12, 2026-09-10 — THIS TEST IS THE INVERSE OF THE ONE IT
+        # REPLACED, and the inversion is the fix.
+        #
+        # Round 11 accepted an empty lock as "a lock nobody can be behind" and
+        # shipped _release_unattributable_lock to take it off and delete the
+        # workspace. Three things make that indefensible. The platform holds a
+        # lock by the file's PRESENCE, not its contents, so "names nobody" is a
+        # fact about a string. The empty locks that motivated it were written
+        # by an operator's own `git worktree lock` without --reason over three
+        # LIVE agents (evidence pack 2.5/2.6) — a repair of an incident turned
+        # into a standing authority. And releasing it destroys the property
+        # that makes a restart survivable: git refuses to remove a LOCKED
+        # worktree, which is what stops a reclaim racing an agent the platform
+        # is starting again (measured: ten of 66 terminal agents restart).
+        #
+        # The cost is accepted and is visible: the workspace is HELD, and the
+        # reason names the remedy a person can apply.
         self.make_native()
         self.git(self.repo,'worktree','lock',str(self.work))   # no --reason: names nobody
         row=_load_registry(self.repo,self.work)
         self.assertIn('locked',row);self.assertEqual(row['locked'],'')
-        self.assertTrue(daily.lock_names_nobody(row))
+        self.assertFalse(hasattr(daily,'lock_names_nobody'))
+        self.assertFalse(hasattr(daily,'_release_unattributable_lock'))
         decision,reason=self.assess()
-        self.assertEqual(decision,'remove');self.assertIn('names no process',reason)
-        result=self.run_cleanup();self.assert_reclaimed(result)
-        self.assertIn('held by nobody',result['members'][0]['daily_cleanup']['lock_released'])
+        self.assertEqual(decision,'observe')
+        self.assertIn('the platform is holding its own lock',reason)
+        self.assertIn('git worktree unlock',reason)
+        self.run_cleanup()
+        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+        # the hold clears the moment a person or the platform releases it —
+        # so it is a hold, not a grave.
+        self.git(self.repo,'worktree','unlock',str(self.work))
+        self.assertEqual(self.assess()[0],'remove')
+        self.assert_reclaimed(self.run_cleanup())
 
-    def test_lock_that_names_nobody_is_NOT_released_in_the_stop_event_itself(self):
-        # The ingress never releases a lock the platform is holding, whatever
-        # is written on it: in that instant the platform is still putting the
-        # worker down. The nightly pass resolves it; the ingress waits.
+    def test_a_relock_between_the_check_and_the_removal_makes_the_removal_FAIL(self):
+        # THE RACE THE NEW GROUND RESTS ON, exercised rather than reasoned.
+        # The platform locks a native worktree BEFORE the run starts (measured
+        # on two live agents: the lock file's mtime precedes the SubagentStart
+        # hook by 43 ms and 49 ms). So if an agent is restarted between the
+        # lane's lock check and its `git worktree remove`, the lock is back —
+        # and non-force `git worktree remove` REFUSES a locked worktree
+        # ("cannot remove a locked working tree", exit 128, git 2.52.0).
+        #
+        # Simulated by locking the tree after the decision is taken and before
+        # the removal runs, through the last-look check that exists for this.
         self.make_native()
-        self.git(self.repo,'worktree','lock',str(self.work))
-        tx.terminalize(SID,AID)
-        member=tx.load_tx(SID,AID)['members'][0]
-        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
-        self.assertIn('waits for the platform',member['immediate_reclaim']['reason'])
+        self.assertEqual(self.assess()[0],'remove')
+        real_archive=daily.archive_residue
+        work,repo,git=self.work,self.repo,self.git
+        def relock_during_preparation(*a,**k):
+            git(repo,'worktree','lock','--reason','claude agent restarted',str(work))
+            return real_archive(*a,**k)
+        (self.work/'ignored-residue').write_text('bytes\n')
+        (self.repo/'.gitignore').write_text('ignored-residue\n')
+        self.git(self.repo,'add','.gitignore');self.git(self.repo,'commit','-m','ignore')
+        self.git(self.work,'merge','--ff-only','main')
+        self.git(self.repo,'merge','--ff-only','worker')
+        self.main=self.git(self.repo,'rev-parse','main').strip()
+        with patch.object(daily,'archive_residue',relock_during_preparation):
+            with self.assertRaisesRegex(RuntimeError,'holds this workspace again as of this instant'):
+                self.run_cleanup()
         self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
-        # and the second belt behind the wait: even called directly, the
-        # immediate path refuses to release a lock the platform is holding
-        with tx.tx_lock(SID,AID):
-            with self.assertRaisesRegex(RuntimeError,'ingress waits for the platform'):
-                daily.reconcile(tx,tx.load_tx(SID,AID),0,immediate=True)
-        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
+        # and the belt behind the braces: git itself refuses the same removal
+        r=subprocess.run(['git','-C',str(self.repo),'worktree','remove','--',str(self.work)],
+                         capture_output=True,text=True)
+        self.assertNotEqual(r.returncode,0)
+        self.assertIn('locked working tree',r.stderr)
 
     def test_lock_that_names_nobody_still_refuses_without_the_platform_terminal_fact(self):
         # Same empty lock, but the terminal fact is the engine's own
-        # derivation. Nothing is released and nothing is removed: the release
-        # rests on the platform having named this agent, never on the lock
-        # being uninformative.
+        # derivation rather than a platform event about this agent id. Nothing
+        # is removed and nothing is unlocked — two independent refusals, and
+        # the test proves the candidacy one still exists after round 12
+        # withdrew the authorization it used to carry.
         self.make_native()
         self.ledger_row(session_pid=os.getpid(),pid_start='')
         self.record['terminal']={'ingress':'Adoption','ts':'fixture'}
@@ -480,26 +526,82 @@ class Cleanup(unittest.TestCase):
         self.run_cleanup()
         self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
 
-    def test_process_in_the_tree_holds_a_lock_that_names_nobody(self):
-        # The release refuses while anything stands in the tree, and nothing
-        # is ever killed to make room for it.
-        self.make_native()
-        self.git(self.repo,'worktree','lock',str(self.work))
-        with patch.dict(os.environ,{'RICHOS_DAILY_PROCESSES':'4242 /bin/sleep 300 '+str(self.work)}):
-            with self.assertRaisesRegex(RuntimeError,r'RETRY, not a verdict: process\(es\) 4242'):self.run_cleanup()
-        self.assert_kept();self.assertIn('locked',_load_registry(self.repo,self.work))
-
-    def test_a_lock_naming_a_live_pid_is_never_released_by_that_route(self):
-        # The negative control for the whole route: a lock that DOES name a
-        # running pid is refused by the liveness veto, and never reaches the
-        # unattributable path.
+    def test_a_lock_naming_a_live_pid_refuses_at_the_liveness_veto(self):
+        # The negative control: a lock that names a RUNNING pid is refused by
+        # the liveness veto, and after round 12 there is no second route past
+        # it — the unattributable-lock door it used to be the control for is
+        # gone entirely.
         self.make_native(lock_pid=os.getpid())
         with self.assertRaisesRegex(Exception,'live'):self.run_cleanup()
         self.assert_kept()
-        with self.assertRaisesRegex(RuntimeError,'names a pid'):
-            daily._release_unattributable_lock(str(self.repo),str(self.work),
-                                               _load_registry(self.repo,self.work))
         self.assertIn('locked',_load_registry(self.repo,self.work))
+
+    def test_a_restart_after_terminal_is_recorded_and_HOLDS_every_workspace_of_that_agent(self):
+        # D1, THE DEFECT BOTH REVIEWERS CONVERGED ON. Round 11 authorized
+        # removal in the terminal event because the platform's first
+        # SubagentStop "says the agent cannot be given another turn". Measured
+        # the same day: ten of the 66 workspace-owning terminal transactions on
+        # this machine have a start strictly AFTER their terminal record
+        # (restart-after-terminal-measure.py), the earliest two days before
+        # round 11 was written. Nothing recorded that fact, so nothing could
+        # refuse on it, and no test covered the sequence at all.
+        #
+        # This is that sequence: seal -> terminal -> the platform starts the
+        # agent again -> a reclaim is attempted.
+        self.assertEqual(self.assess()[0],'remove')          # would have been removed
+        self.assertFalse(tx.restarted_after_terminal(tx.load_tx(SID,AID)))
+        tx.note_after_terminal(SID,AID,'start','/some/cwd')  # the platform runs it again
+        self.assertTrue(tx.restarted_after_terminal(tx.load_tx(SID,AID)))
+        self.assertTrue(tx.running_after_terminal(tx.load_tx(SID,AID)))
+        decision,reason=self.assess()
+        self.assertEqual(decision,'hold')
+        self.assertIn('started agent',reason);self.assertIn('again after its terminal record',reason)
+        with self.assertRaisesRegex(Exception,'again after its terminal record'):self.run_cleanup()
+        self.assert_kept()
+        # the immediate lane refuses it too, and says so in the journal
+        with tx.tx_lock(SID,AID):
+            outcome,_why=daily.reclaim_now(tx,tx.load_tx(SID,AID),0)
+        self.assertEqual(outcome,'deferred')
+        journal=tx.load_tx(SID,AID)['members'][0]['immediate_reclaim']
+        self.assertIn('still open',journal['reason'])
+        self.assert_kept()
+        # when that run ends the hold clears — a restart is a hold, never a
+        # permanent disqualification, and the record shows both events
+        tx.note_after_terminal(SID,AID,'stop','SubagentStop')
+        self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+        self.assertTrue(tx.restarted_after_terminal(tx.load_tx(SID,AID)))
+        counts=tx.load_tx(SID,AID)['after_terminal_counts']
+        self.assertEqual((counts['start'],counts['stop']),(1,1))
+        self.assertEqual(self.assess()[0],'remove')
+        self.assert_reclaimed(self.run_cleanup())
+
+    def test_the_immediate_reclaim_journal_APPENDS_instead_of_overwriting(self):
+        # FRANK D14. reclaim_now wrote one `immediate_reclaim` object, so the
+        # last writer erased every earlier outcome: zach-opus-unl1's own-event
+        # outcome vanished under its 18:20 sweep row, and the finding "zero of
+        # five reclaims happened in their own event" had to be established from
+        # timestamps because the journal built to answer that question could
+        # not. The latest outcome keeps its key and shape; the history is beside
+        # it.
+        self.make_native()
+        self.git(self.repo,'worktree','lock',str(self.work))
+        with tx.tx_lock(SID,AID):
+            daily.reclaim_now(tx,tx.load_tx(SID,AID),0)
+        self.git(self.repo,'worktree','unlock',str(self.work))
+        (self.work/'extra').write_text('dirty\n')
+        with tx.tx_lock(SID,AID):
+            daily.reclaim_now(tx,tx.load_tx(SID,AID),0)
+        member=tx.load_tx(SID,AID)['members'][0]
+        history=member['immediate_reclaim_history']
+        self.assertEqual(len(history),2)
+        self.assertEqual(member['immediate_reclaim_attempts'],2)
+        self.assertIn('holding its own lock',history[0]['reason'])
+        self.assertNotIn('holding its own lock',history[1]['reason'])
+        self.assertEqual(member['immediate_reclaim'],history[-1])
+        # every stamp is UTC, so a journal row is comparable with the terminal
+        # record three lines above it in the same file
+        for entry in history:
+            self.assertTrue(entry['ts'].endswith('+00:00'),entry['ts'])
 
     def test_native_with_no_recorded_session_identity_is_not_provably_gone(self):
         # session_gone stays exactly as honest as it was: no recorded process
@@ -512,7 +614,7 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(self.assess()[0],'remove')
         result=self.run_cleanup();self.assert_reclaimed(result)
         journal=result['members'][0]['daily_cleanup']
-        self.assertIn('agent_over',journal);self.assertNotIn('session_gone',journal)
+        self.assertIn('workspace_free',journal);self.assertNotIn('session_gone',journal)
 
     def test_native_lock_held_by_a_running_pid_holds_whatever_the_ledger_says(self):
         # The lock is checked on its own pid, independently of the session
@@ -656,7 +758,7 @@ class Cleanup(unittest.TestCase):
                 tx.terminalize(SID,AID)
         member=tx.load_tx(SID,AID)['members'][0]
         self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
-        self.assertIn('still holds its own lock',member['immediate_reclaim']['reason'])
+        self.assertIn('the platform is holding its own lock',member['immediate_reclaim']['reason'])
         self.assert_kept()
         self.assertIn('locked',_load_registry(self.repo,self.work))
         # the platform releases it; the NEXT terminal ingress reclaims at once

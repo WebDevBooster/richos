@@ -22,7 +22,7 @@
 #     by reading, and its positive case
 #     (test_residue_refuses_when_capture_store_is_at_default_...) is in the
 #     suite.
-#   * platform_released_its_lock (round 11). It reads the SAME artifact
+#   * platform_lock_is_absent (round 11, renamed round 12). It reads the SAME artifact
 #     owner_check's liveness veto reads — Claude Code's lock on the native
 #     registration — so a mutant that made it lie is caught by the veto, by
 #     _release_dead_lock's no-pid refusal, or by assess's lock-pid branch, and
@@ -69,7 +69,7 @@ mutant no-identity-means-gone "test_native_with_no_recorded_session_identity_is_
 # owner_check's liveness veto; removing all three is what it takes to make the
 # contradiction case (ledger says gone, lock pid runs) delete a tree.
 mutant dead-lock-check-removed "test_native_lock_held_by_a_running_pid_holds_whatever_the_ledger_says" "$D" \
-    "    if status != 'gone':{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if live.get('verdict') != 'NOT-ALIVE' and not _held_by_nobody_over_a_terminal_agent(tx, transaction, live):{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if status not in ('gone', 'reused'):{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
+    "    if status != 'gone':{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if live.get('verdict') != 'NOT-ALIVE':{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if status not in ('gone', 'reused'):{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
     "    if False:{NL}        raise RuntimeError('lock pid %s is %s; retained' % (pid, status)){AND}    if False:{NL}        raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason'))){AND}        if False:{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
     "a lock held by a RUNNING pid would be released and the tree removed because a ledger row said the session was gone — a contradiction resolved in favor of deleting."
 
@@ -104,19 +104,37 @@ mutant ingress-hands-hand-rolled-back-to-the-nightly "test_hand_rolled_terminal_
     "the same gap for the CROSS-REPOSITORY worktree, which is 48 of the 53 worktrees on this machine."
 
 mutant ingress-ignores-the-platform-lock "test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it" "$D" \
-    "        released, why = platform_released_its_lock(holder, proof_api.registry(repo).get(path))" \
-    "        released, why = True, 'mutant: the platform lock is ignored'" \
-    "the ingress would walk past a lock Claude Code still holds instead of waiting for the platform's own release — the tree survives on the liveness veto behind it, but the engine would be deciding a question that is the platform's."
+    "        absent, why = platform_lock_is_absent(holder, proof_api.registry(repo).get(path))" \
+    "        absent, why = True, 'mutant: the platform lock is ignored'" \
+    "the ingress would walk past a lock the platform still holds — and after round 12 that lock is not a courtesy, it is the ONE present-tense liveness fact this platform provides (measured: it is written 43ms and 49ms BEFORE the run's start hook fires)."
 
-mutant any-lock-treated-as-naming-nobody "test_a_lock_naming_a_live_pid_is_never_released_by_that_route" "$D" \
-    "    return _lock_pid(row.get('locked')) is None" \
-    "    return True" \
-    "EVERY lock would be treated as naming nobody, so the release route meant for an uninformative lock would take one that names a RUNNING pid -- the exact artifact the liveness veto is built on."
+# ROUND 12, 2026-09-10. The two mutants that stood here pinned
+# `lock_names_nobody` and `_release_unattributable_lock` — the route that took
+# the PLATFORM'S lock off a workspace and then deleted it. Both are gone, and
+# so are their mutants: there is no longer a second door past a held lock, so
+# there is nothing left to mutate. The refusal is now
+# test_a_lock_that_names_nobody_is_STILL_A_LOCK_and_the_engine_never_takes_it_off,
+# whose negative direction is covered by the mutants below instead.
 
-mutant nobody-lock-released-with-a-process-in-the-tree "test_process_in_the_tree_holds_a_lock_that_names_nobody" "$D" \
-    "    pids = processes_using(path){NL}    if pids:{NL}        raise RuntimeError('RETRY, not a verdict: process(es) %s are standing in %s, so the lock is '" \
-    "    pids = []{NL}    if pids:{NL}        raise RuntimeError('RETRY, not a verdict: process(es) %s are standing in %s, so the lock is '" \
-    "the lock would come off a tree something is standing in -- the one check that makes releasing it different from ignoring it."
+mutant restart-after-terminal-ignored "test_a_restart_after_terminal_is_recorded_and_HOLDS_every_workspace_of_that_agent" "$D" \
+    "    if tx.running_after_terminal(transaction):" \
+    "    if False:" \
+    "the workspace of an agent the platform has STARTED AGAIN, mid-run, would be removed under it. Ten of the 66 workspace-owning terminal agents on this machine restarted after their terminal record; round 11 authorized deletion on the premise that none could."
+
+mutant process-probe-fails-open-again "test_a_process_probe_that_cannot_look_HOLDS_and_never_reports_an_empty_tree" "$D" \
+    "    except Exception as error:{NL}        raise RuntimeError('RETRY, not a verdict: could not determine whether any process is standing '" \
+    "    except Exception as error:{NL}        pass{NL}    if False:{NL}        raise RuntimeError('RETRY, not a verdict: could not determine whether any process is standing '" \
+    "a timeout, a missing lsof or a permission error would return an empty list again, and the caller would read a failure to LOOK as a statement that nothing is there. The case exercises the REAL branch with lsof made unreachable, not only the test override."
+
+mutant last-look-before-removal-removed "test_a_relock_between_the_check_and_the_removal_makes_the_removal_FAIL" "$D" \
+    "        if not fresh or 'locked' in fresh or 'prunable' in fresh:" \
+    "        if False:" \
+    "a workspace re-locked by the platform DURING the reclaim's preparation (archiving residue takes seconds; the platform locks before a restarted run begins) would go to the removal anyway. git refuses it behind this, so the tree survives — but the journal would say nothing about why, which is how the same class stayed invisible for eleven rounds."
+
+mutant journal-overwrites-again "test_the_immediate_reclaim_journal_APPENDS_instead_of_overwriting" "$D" \
+    "            tx.update_member(sid, aid, index, immediate_reclaim=entry,{NL}                             immediate_reclaim_history=history," \
+    "            tx.update_member(sid, aid, index, immediate_reclaim=entry,{NL}                             immediate_reclaim_history=history[-1:]," \
+    "only the last outcome would survive, as before — the reason 'zero of five reclaims happened in their own event' had to be established from timestamps rather than from the journal built to answer it."
 
 mutant late-binding-removed "test_a_workspace_created_after_the_seal_joins_the_transaction_and_is_reclaimed" "$X" \
     "    tx = bind_late_members(session_id, agent_id) or tx" \

@@ -90,7 +90,7 @@ if [ ! -f "$TX_PY" ]; then
 fi
 
 TX_PY="$TX_PY" python3 - 3<<< "$PAYLOAD" <<'PY' 2>&1 | sed 's/^/terminalize-agent-worktrees.sh: /' >&2
-import importlib.util, json, os, sys
+import atexit, importlib.util, json, os, sys, time
 
 try:
     d = json.load(os.fdopen(3))
@@ -106,27 +106,55 @@ if not sid:
 spec = importlib.util.spec_from_file_location("tx", os.environ["TX_PY"])
 tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
 
-# THE CATCH-UP, BEFORE THIS EVENT'S OWN WORK (round 11, 2026-09-10).
-# The ingress reclaims its own agent's workspace in its own event, and waits a
-# bounded moment for the platform to release its lock. When that wait expires —
-# a late release, a process still in the tree, git busy — the member would sit
-# until the 04:00 job, which is the 24-hour gap again for the unlucky case. So
-# every terminal event first spends a small budget finishing THIS session's
-# deferred members, including an event for an agent that owns no worktree at
-# all (over a thousand a session on this machine). It is the same reclaim, on
-# members already recorded terminal, refusing everything it always refused; it
-# never waits for a lock and it is rate-limited by committed settings. A
-# failure here is announced and never stops the event below.
+# THE HOOK'S OWN BUDGET. hooks.json gives this hook `timeout: 20`, and when
+# the harness kills it the failure is INVISIBLE — the hook exits 0 by design,
+# so nothing says the terminal record was never written. So the deadline is
+# taken here, at the top, and every discretionary phase is measured against
+# it. The catch-up sweep now runs at the BOTTOM (round 12, 2026-09-10): it
+# used to run right here, ahead of this event's own claim_terminal, which put
+# a catch-up for an EARLIER agent in front of the one irrevocable thing only
+# this event can do.
+_T0 = time.time()
 try:
-    _daily_spec = importlib.util.spec_from_file_location(
-        "daily_workspace_cleanup",
-        os.path.join(os.path.dirname(os.environ["TX_PY"]), "daily-workspace-cleanup.py"))
-    _daily = importlib.util.module_from_spec(_daily_spec); _daily_spec.loader.exec_module(_daily)
-    for _path, _outcome, _reason in _daily.sweep_session(tx, sid):
-        sys.stderr.write("catch-up: %s %s (%s)\n" % (_outcome, _path, str(_reason)[:160]))
-except Exception as _e:
-    sys.stderr.write("catch-up sweep did not run: %s — this event's own work is unaffected "
-                     "and the nightly reconciler still covers it\n" % _e)
+    _BUDGET = float(os.environ.get("RICHOS_TERMINALIZE_BUDGET_SECONDS") or "15")
+except ValueError:
+    _BUDGET = 15.0
+_DEADLINE = _T0 + _BUDGET
+
+
+def _catch_up_sweep():
+    """Finish what an EARLIER terminal event could not. Registered with atexit
+    so it runs after EVERY path through the event work below — including the
+    many early returns for an agent that owns no worktree at all, which is
+    what drives the sweep at all (over a thousand helper stops a session on
+    this machine). Registered with atexit rather than hoisted to the top so
+    that it can keep that reach WITHOUT sitting in front of this event's own
+    irrevocable terminal record, which is where it was until 2026-09-10 and
+    which is how a slow sweep could silently consume the hook's whole 20s and
+    leave the record unwritten.
+
+    Every failure is announced. It never stops the event: by the time this
+    runs, the event is already finished.
+    """
+    try:
+        _daily_spec = importlib.util.spec_from_file_location(
+            "daily_workspace_cleanup",
+            os.path.join(os.path.dirname(os.environ["TX_PY"]), "daily-workspace-cleanup.py"))
+        _daily = importlib.util.module_from_spec(_daily_spec)
+        _daily_spec.loader.exec_module(_daily)
+        _left = _DEADLINE - time.time()
+        if _left <= 0:
+            sys.stderr.write("catch-up: SKIPPED — this event used its whole %.0fs budget; the "
+                             "nightly pass takes these members with the same refusals\n" % _BUDGET)
+            return
+        for _path, _outcome, _reason in _daily.sweep_session(tx, sid, deadline=_DEADLINE):
+            sys.stderr.write("catch-up: %s %s (%s)\n" % (_outcome, _path or "(sweep)", str(_reason)[:200]))
+    except Exception as _e:
+        sys.stderr.write("catch-up sweep did not run: %s — this event's own work already "
+                         "completed and the nightly reconciler still covers it\n" % _e)
+
+
+atexit.register(_catch_up_sweep)
 
 aid = ""
 first_path = None
@@ -182,6 +210,24 @@ try:
 except Exception as e:
     sys.stderr.write("claim for agent %s FAILED: %s — nothing was mutated; the next ingress or the reconciler retries.\n" % (aid, e))
     raise SystemExit(0)
+if t is not None and not won and t.get("terminal") and tx.running_after_terminal(t):
+    # THE STOP THAT CLOSES A POST-TERMINAL RUN. Until 2026-09-10 every stop
+    # after the first was discarded as a duplicate ingress ("the loser resumes
+    # idempotently"), so the record could not answer whether an agent the
+    # platform had RESTARTED was still mid-run. This is the closing half of
+    # the pair the start hook opens; with it, `running_after_terminal` is a
+    # fact derived from two platform events rather than an inference from
+    # quiet.
+    #
+    # ONLY when a post-terminal run is actually open. A repeat ingress with no
+    # start between it and the terminal record is not a restart ending, it is
+    # the same event arriving twice, and recording it would churn the
+    # transaction on every duplicate — the idempotence R12 pins. The `terminal`
+    # record itself is untouched either way and stays irrevocable.
+    try:
+        tx.note_after_terminal(sid, aid, "stop", ingress)
+    except Exception as e:
+        sys.stderr.write("could not record the post-terminal stop of agent %s: %s\n" % (aid, e))
 if t is None:
     # Unsealed. The event was NOT discarded (review 2026-09-03, blocker 4): if
     # this agent has a bound or start record the claim persisted it as a

@@ -78,6 +78,44 @@ try:
     tx.try_seal(sid, aid)
 except Exception as e:
     sys.stderr.write("try_seal raised for agent %s: %s\n" % (aid, e))
+
+# ===========================================================================
+# A TERMINAL AGENT IS STARTING. RECORD IT AND SAY SO.
+# ===========================================================================
+# Round 11 authorized deleting a workspace in the terminal event because the
+# platform's first SubagentStop "says the agent cannot be given another turn".
+# Measured 2026-09-10 by restart-after-terminal-measure.py: ten of the 66
+# workspace-owning terminal transactions on this machine were started again
+# afterwards, the earliest on 2026-09-08. Two mechanisms, neither of which any
+# guard can see -- a message queued before the stop and delivered after it,
+# and a background task belonging to the agent exiting, whose notification
+# resumes the agent.
+#
+# THE FALSIFYING EVENT WAS BEING RECORDED AS AN ORDINARY START AND REPORTED TO
+# NOBODY (types A and O together). It is neither any more. This hook cannot
+# block -- SubagentStart is absent from the exit-code-2 table -- so it does
+# the two things it can: it writes the fact where the reclaim lane reads it,
+# and it announces it. The enforceable barrier is elsewhere and unchanged
+# (guard-sealed-worktree.sh refuses this worker's writing tool calls).
+try:
+    if tx.is_terminal_agent(aid, sid):
+        note = tx.note_after_terminal(sid, aid, "start", str(d.get("cwd") or ""))
+        sys.stderr.write(
+            "RESTART AFTER TERMINAL: agent %s has a terminal record and the platform has "
+            "started it AGAIN, in %s. This is the fact round 11's section 7 named as its own "
+            "falsifier, and it is now on the transaction where the reclaim lane reads it: no "
+            "workspace of this agent is reclaimed while this run is open. This worker's writing "
+            "tool calls are refused by guard-sealed-worktree.sh, so it can read and report but "
+            "not write.\n" % (aid, str(d.get("cwd") or "?")))
+        if note is None:
+            sys.stderr.write(
+                "  ...and the note could NOT be attached: this agent has no sealed transaction "
+                "with a terminal record, so nothing here holds it. The restart still happened.\n")
+except Exception as e:
+    # Never fails the start. The standing measurement re-derives the same fact
+    # from the event log, so a lost note is a lost convenience, not a lost fact.
+    sys.stderr.write("could not record the post-terminal start of agent %s: %s — "
+                     "restart-after-terminal-measure.py still sees it in the event log\n" % (aid, e))
 PY
 
 exit 0
