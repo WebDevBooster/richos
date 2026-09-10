@@ -316,11 +316,24 @@ def _demand_row(repo, branch, tip, teammate, worktree, age_hours, commits,
     when = now or escalations.utcnow()
     title = ("Finished work is neither landed nor held for a reason: %s %s"
              % (os.path.basename(repo), branch))
+    # THE ID IS DERIVED FROM THE WORK, NOT FROM WHO RAISED IT.
+    #
+    # escalations.make_id hashes (teammate, title, worktree) and prefixes a
+    # one-second timestamp, which is right for a teammate raising a question and
+    # WRONG here: two demands about the same branch at two different tips share
+    # all three inputs, so when they are raised inside the same second they get
+    # THE SAME ID. Then one acknowledgement closes both, and the ledger cannot
+    # say which tip was disposed of.
+    #
+    # That is not hypothetical -- land-disposition.test.sh D22 reproduced it on
+    # the first run, two rows, identical ids, different heads. So the tip goes
+    # into the hash: identity here is (repository, branch, tip), which is
+    # exactly the thing a disposition is about.
+    ident = escalations.make_id(when, os.path.realpath(repo), branch, tip)
     row = {
         "event": "Escalation",
         "kind": KIND,
-        "id": escalations.make_id(when, teammate or "land-disposition", title,
-                                  worktree or repo),
+        "id": ident,
         "raised": escalations.iso(when),
         "teammate": teammate or "",
         "worktree": worktree or "",
@@ -354,8 +367,35 @@ def _demand_row(repo, branch, tip, teammate, worktree, age_hours, commits,
     return row
 
 
+def superseded(rows, repo, branch, rid):
+    """Is this demand's (repo, branch) already carrying a NEWER demand?
+
+    A branch that gains a commit gets a new demand, deliberately -- that is new
+    work now at risk. Without this the OLD demand would stand forever: its tip
+    is not an ancestor of main and never will be on its own, so auto-
+    satisfaction can never reach it, and the escalation ladder would get louder
+    every day about a demand that has been answered by a newer one. Found by
+    land-disposition.test.sh case D09, which is exactly what a paired test is
+    for.
+    """
+    real = os.path.realpath(repo or "/")
+    seen_self = False
+    for d in demands(rows):
+        if os.path.realpath(d.get("repo") or "/") != real:
+            continue
+        if (d.get("branch") or "") != branch:
+            continue
+        if str(d.get("id")) == str(rid):
+            seen_self = True
+            continue
+        if seen_self:
+            return str(d.get("id"))
+    return ""
+
+
 def satisfy(rows, path=None, now=None):
-    """Close every outstanding demand whose work has since landed.
+    """Close every outstanding demand whose work has since landed, or that a
+    newer demand for the same work has replaced.
 
     Returns (closed, undecided). `undecided` is a demand whose tip object can no
     longer be read -- NOT closed, NOT dropped, and named in the report.
@@ -365,6 +405,31 @@ def satisfy(rows, path=None, now=None):
     for d in demands(rows):
         rid = str(d.get("id") or "")
         if not rid or rid in open_ids:
+            continue
+        newer = superseded(rows, d.get("repo") or "", d.get("branch") or "", rid)
+        if newer:
+            ack = {"event": "EscalationAck", "id": rid,
+                   "acked": escalations.iso(now or escalations.utcnow()),
+                   "disposition": (
+                       "SUPERSEDED by %s: the branch advanced past tip %s, so "
+                       "this demand is about work a newer demand now covers. "
+                       "Closed by land-disposition.py; the newer one still "
+                       "stands." % (newer, (d.get("head") or "")[:12] or "?")),
+                   "actor": "land-disposition.py", "kind": KIND,
+                   "session_id": ""}
+            try:
+                escalations.append_row(ack, path)
+            except Exception as exc:
+                undecided.append({"id": rid, "repo": d.get("repo") or "",
+                                  "branch": d.get("branch") or "",
+                                  "why": "superseded, but the ack could not be "
+                                         "written (%s)" % type(exc).__name__})
+                continue
+            closed.append({"id": rid, "repo": os.path.basename(d.get("repo") or ""),
+                           "branch": d.get("branch") or "",
+                           "tip": (d.get("head") or "")[:12],
+                           "trunk_head": "superseded by %s" % newer})
+            rows.append(ack)
             continue
         repo, tip = d.get("repo") or "", d.get("head") or ""
         branch = d.get("branch") or ""
@@ -463,7 +528,7 @@ def run(entity_root, session_id="", ledger_path=None, extra="",
               "demand_mode": bool(demand), "items": [], "raised": [],
               "closed": [], "undecided": [], "not_examined": [],
               "n_undisposed": 0, "n_demanded": 0, "n_held": 0, "n_young": 0,
-              "n_ceo_owned": 0, "key": "", "summary": ""}
+              "n_ceo_owned": 0, "n_deferred": 0, "key": "", "summary": ""}
 
     if unlanded is None or escalations is None:
         result["status"] = "cannot-run"
@@ -550,6 +615,13 @@ def run(entity_root, session_id="", ledger_path=None, extra="",
         st = i["state"]
         if st == "undisposed" or st == "undisposed-deferred":
             result["n_undisposed"] += 1
+            # COUNTED SEPARATELY, because "six demands were raised" and "six
+            # were raised and three more were owed and were not" are different
+            # facts and only one of them is the truth on a busy day. Found by
+            # land-disposition.test.sh D17, where the overflow was real and
+            # invisible.
+            if st == "undisposed-deferred":
+                result["n_deferred"] += 1
         elif st == "demanded":
             result["n_demanded"] += 1
         elif st == "held":
@@ -594,6 +666,10 @@ def summary_line(result):
     if result["n_ceo_owned"]:
         tail += (" %d codex/ branch(es) are the CEO's by ruling 31 and are "
                  "never demanded on." % result["n_ceo_owned"])
+    if result["n_deferred"]:
+        tail += (" %d of these are owed a demand that was NOT written this run "
+                 "(the per-run ceiling); they are named above and are not lost."
+                 % result["n_deferred"])
     if result["undecided"]:
         tail += (" %d demand(s) COULD NOT BE DECIDED and are listed by "
                  "land-disposition.sh." % len(result["undecided"]))
@@ -756,6 +832,7 @@ def main(argv=None):
                      ("NHELD", result["n_held"]),
                      ("NYOUNG", result["n_young"]),
                      ("NCEO", result["n_ceo_owned"]),
+                     ("NDEFERRED", result["n_deferred"]),
                      ("NRAISED", len(result["raised"])),
                      ("NCLOSED", len(result["closed"])),
                      ("NUNDECIDED", len(result["undecided"])),
