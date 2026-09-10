@@ -10,7 +10,57 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Fixed — the worktree reclaim deadlock (round 10, 2026-09-10)
+
+- **Terminal worktrees are reclaimed again, automatically, by the nightly
+  launchd job.** On the operator's machine 29 terminal members with a
+  directory present — 31 GB across `richos-wt/` and femcboost's native
+  worktrees — sat for days while the inventory said *"the adoption gate
+  refuses it, so nothing automatic will take it"* and the reconciler said
+  *"BLOCKED (46 cannot proceed by waiting)"*. Diagnosis, measurements and the
+  falsifying fact: `docs/worktree-reclaim-round-10-2026-09-10.md`. The
+  authority — a transaction bound at spawn, terminal by platform ingress —
+  is untouched; four refusals in the daily lane that were never about
+  authority are:
+  - the completion proof no longer counts IGNORED files as undelivered work
+    (`completion-proof.py` listed a linked worktree without
+    `--exclude-standard`, so one `__pycache__/x.pyc` held a workspace forever
+    and stopped its worker completing a task; 20 of the 29 were held by it);
+  - at reclaim, ignored files matching `CAPTURE_DISPOSABLE_PATHS` go with the
+    tree and every other ignored file is archived into the capture store and
+    verified digest by digest BEFORE the non-force `git worktree remove`;
+  - `TaskStop` and `Adoption` are terminal facts like the other three
+    ingresses; an adopted tree takes the daily lane instead of the quarantine
+    pipeline whose last two steps refuse to erase;
+  - a platform-native checkout whose owning session is provably gone (every
+    recorded process identity gone or reused, no running registration, a
+    dead-pid lock) is RichOS's to remove; a running or unknown session keeps
+    deferring to the platform;
+  - an absent, platform-removed native member with no receipt has its branch
+    deleted by compare-and-set only when the current tip is an ancestor of
+    `main`.
+  A process standing in the tree, an untracked file, an unmerged commit, a
+  live lock, a running owner, a changed tip and an unverifiable archive each
+  hold, with the reason on the member; a sandboxed transaction store with the
+  real ledger or capture store at its default refuses fail-closed. 30 daily
+  cases with 10 mutants, including the live-locked member and the
+  contradiction (ledger says gone, lock pid runs).
+
 ### Added
+
+- `reconcile-terminal-worktrees.py --preview`: read-only, what the next run
+  would do to every pending member and why. Every run logs a timestamped
+  start line and an end line with `worktrees_removed`, `branches_deleted`,
+  `members_completed` and `holds`, counted from the disk, and stamps them
+  into the heartbeat. `--status` gains a `schedule` block (last completed
+  daily slot, last run, age, launchd load state, `overdue`), and the
+  SessionStart banner leads with `RECONCILER OVERDUE` when the store holds
+  transactions and no pass has completed within `RECONCILE_OVERDUE_DAYS`
+  (`orchestration.config`, default 2) — the one failure of a nightly job
+  nobody would otherwise notice. `worktree-transactions.py owner-of --path`
+  names the transaction owning a path and its current hold; the reaper's
+  `unclaimed` line now prints that instead of claiming nothing automatic
+  takes the tree.
 
 - Staging-staleness gate. A PreToolUse[Agent] guard refuses a dispatch that
   works on, or tests against, a product tree whose landed commits have not

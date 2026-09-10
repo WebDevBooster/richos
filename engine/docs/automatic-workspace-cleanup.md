@@ -19,8 +19,16 @@ compare-checked recovery ref and leave the native path, lock, Git registration
 and working/index bytes untouched. Seal-time sparsification also skips these
 platform-owned checkouts. The reconciler reports `platform-pending` until a
 fresh complete NUL Git registry and filesystem check both show the exact
-checkout absent. It never prunes, unlocks or removes that checkout. Historical
-quarantines keep their offline recovery path; they are not reclassified.
+checkout absent. While the owning session may still act it never prunes,
+unlocks or removes that checkout. **Amended 2026-09-10 (round 10):** once the
+owning session is PROVABLY GONE — every process identity the ledger recorded
+for it answers gone or reused, the harness registry names no running pid, and
+the checkout's lock names a dead pid — the platform will never come for the
+checkout, and the daily lane removes it under the same clean/integrated proof
+as any member, releasing the dead lock first (`terminal-daily-cleanup.md`).
+Five such shells, 266 MB each, sat `platform-pending` forever before this.
+Historical quarantines keep their offline recovery path; they are not
+reclassified.
 The reaper and direct remover also refuse recorded platform-owned paths.
 Automatic helpers never bulk-prune Git worktree registrations. Missing legacy
 registrations retain their index, and newly quarantined legacy checkouts keep

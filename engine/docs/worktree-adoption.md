@@ -62,49 +62,37 @@ nothing twice, and visibly not a platform agent id, so nobody reading the
 record later mistakes an inferred claim for an observed one. The real owner's
 agent ids, teammate name and the authorizing evidence are recorded as fields.
 
-## The argument against `workspace-retirement-safety.md`
+## What happens to an adopted tree — rewritten 2026-09-10 (round 10)
 
-That document rules, and the ruling stands:
+**This section used to argue that adoption could not be made to delete,
+because the pipeline it handed to ends in a hard-coded refusal
+(`unregister_member -> BlockedFailure("automatic erasure is disabled")`).
+That was true, and it was the defect, not a safety property**: an adopted tree
+was renamed into a quarantine, archived at full size into
+`~/.claude/state/worktree-captures/` and kept. Adoption ADDED disk and
+reclaimed none (`worktree-reclaim-round-10-2026-09-10.md`, P4).
 
-> Restoring automatic deletion requires an enforced access boundary, not
-> another unchecked override flag.
+An adopted member now carries `cleanup_policy: integrated-daily` and takes the
+same lane as every worker's own members (`terminal-daily-cleanup.md`). The
+tree stays at its path, owned and untouched, until the reconciler proves it:
+tracked bytes byte-identical to a commit `main` contains, an exact unlocked
+registration, no untracked file, no process standing in it, no competing
+reservation. Ignored files disposable by the committed policy go with the
+tree; every other ignored file is archived and verified first. Then a
+non-force `git worktree remove` and a compare-and-set branch delete. A dirty,
+unmerged, locked or contested tree is HELD with the reason on the member —
+never quarantined, never erased.
 
-**Adoption does not restore automatic deletion, and it cannot be made to.** The
-member state machine it hands to ends:
-
-```python
-STEPS = {
-    ...
-    "verified": unregister_member,      # -> BlockedFailure
-    "unregistered": remove_member,      # -> BlockedFailure
-}
-
-def unregister_member(t, index):
-    raise BlockedFailure("exclusive-access-unavailable: automatic erasure is "
-                         "disabled; quarantine and Git registration are retained")
-```
-
-An adopted worktree gets a backup ref, a rename into quarantine, a captured and
-digest-verified archive, and then the machine refuses to go further. **That
-refusal is not a policy this design consults; it is the next step in the machine
-this design hands to.** An adopted tree therefore gains preservation and a
-verified archive and loses nothing.
-
-What adoption restores is automatic RETIREMENT — which is exactly what the
-terminal reconciler already does today, under the same document, on a claim gate
-adoption makes strictly stronger.
+**Adoption itself still deletes nothing**, and the claim gate below is
+unchanged: T1 or T2 authorizes, T3 never does, absence is never evidence, and
+a live owner vetoes before any tier. The lane's refusals are the lane's; this
+design consults none of them, and every one of them is proven load-bearing by
+`scripts/daily-workspace-cleanup.mutation.sh`.
 
 **It is also not "another unchecked override flag".** `ADOPTION_ENABLED` in
 `orchestration.config` is an OFF switch: setting it makes the engine do less.
 There is no setting anywhere that makes adoption skip a gate, accept weaker
 evidence, or erase anything.
-
-**And the document's own list of what an enforced design would need is
-untouched by this change.** It asks for agent processes confined to their own
-workspace, a separately privileged workspace manager, and recovery storage
-agents cannot modify. Adoption needs none of those, because it never removes a
-writer's access to anything — it renames a directory whose every writer is
-already gone by the evidence below, and then stops.
 
 ## Evidence tiers — what may authorize a claim
 
@@ -188,10 +176,11 @@ adoption refuses it **four separate times**:
 3. **`owner-terminated`.** No ownership record names a container, and absence of
    a record is never a claim. A registration naming it would still not help,
    because gates 1 and 2 fire first — A21 proves exactly that.
-4. **The pipeline itself.** Even a claim that passed all nine gates would hand
-   the path to a state machine whose last step raises
-   `exclusive-access-unavailable`. There is no code path from an adoption to an
-   `rm`.
+4. **The lane itself.** Even a claim that passed all nine gates would hand
+   the path to the daily lane, which removes only the exact registered
+   worktree the transaction names, through non-force `git worktree remove`,
+   after its own proof that the tree is clean and integrated. There is no
+   code path from an adoption to a recursive delete of anything.
 
 The failure that day was a single refusal standing between a malformed argument
 and a recursive delete. The answer is not a better single refusal.
