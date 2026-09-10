@@ -771,15 +771,80 @@ def ignored_files(path):
     `git version 2.50.1 (Apple Git-155)`): a clone at `vendor/lib` inside an
     ignored `vendor/` lists as `['extra', 'vendor/lib/', 'vendor/plain-ignored']`.
     The trailing slash is therefore the signature of a nested repository, and
-    is_nested_repository() reads it as exactly that."""
+    is_nested_repository() reads it as exactly that.
+
+    SAGE D1 (round three, 2026-09-10): THAT SIGNATURE IS ONLY WRITTEN FOR A
+    REPOSITORY WITH A WORKING TREE. A BARE repository (`git clone --bare`,
+    `git init --bare`, a `--mirror`) has no working tree, so git does not
+    stop at it: `ls-files` lists `HEAD`, `config`, `objects/9b/...` and
+    `refs/heads/main` one file at a time, none carrying a `.git` component,
+    and every one matched its disposable parent and went to the dropped set
+    -- reproduced under the lane's binary, 48 entries, 0 trailing-slash, all
+    48 dropped, `git worktree remove` rc=0, a commit that existed nowhere else
+    gone (round 14, `bare_repro.py`). Same class as Frank R1, one shape over.
+
+    So this function now RECOGNIZES A GIT OBJECT STORE ITSELF, by the test
+    git uses (`is_git_directory`: a `HEAD` file beside an `objects/` and a
+    `refs/` directory), and collapses everything under it into the ONE
+    trailing-slash entry a nested repository already gets. Whatever the store
+    is called -- `mirror.git`, `.cache/store`, a `.git` directory copied
+    somewhere -- and however its objects are kept (loose, packed-only after a
+    `gc`, refs packed into `packed-refs`), it reaches partition_ignored() in
+    the shape the archive walks whole and restores as a repository.
+    Downstream nothing changes: `_expand_residue` walks it, the archive holds
+    it as directory entries, `never_disposable` refuses to drop it."""
     raw = _load('completion-proof').git(path, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z').stdout
-    return [os.fsdecode(x) for x in raw.split(b'\0') if x]
+    listed = [os.fsdecode(x) for x in raw.split(b'\0') if x]
+    stores = git_store_roots(path, listed)
+    if not stores:
+        return listed
+    kept = [rel for rel in listed if not any(rel.startswith(store) for store in stores)]
+    return sorted(kept + stores)
+
+
+def git_store_roots(path, listed):
+    """The OUTERMOST directories under `path` that git would recognize as a
+    repository (bare or not): a regular `HEAD` file beside an `objects/` and a
+    `refs/` directory, checked on disk for every directory whose `HEAD` the
+    listing names. Returned as trailing-slash relative paths, sorted. The
+    worktree's own root is never one (its `.git` is not listed at all); a
+    symlink is never followed into (its contents are not listed either)."""
+    roots = []
+    for rel in listed:
+        if rel.endswith('/') or os.path.basename(rel) != 'HEAD':
+            continue
+        rel_dir = os.path.dirname(rel)
+        if not rel_dir:
+            continue
+        full = os.path.join(path, rel_dir)
+        if os.path.islink(full) or not os.path.isdir(full):
+            continue
+        if (os.path.isfile(os.path.join(full, 'HEAD')) and not os.path.islink(os.path.join(full, 'HEAD'))
+                and os.path.isdir(os.path.join(full, 'objects')) and os.path.isdir(os.path.join(full, 'refs'))):
+            roots.append(rel_dir + '/')
+    roots.sort()
+    outermost = []
+    for root in roots:
+        if not any(root.startswith(outer) for outer in outermost):
+            outermost.append(root)
+    return outermost
 
 
 def is_nested_repository(rel):
     """A trailing slash from ignored_files() is a directory git would not
-    enter: a nested repository (its own `.git`, its own commits)."""
+    enter, or one this lane recognized as a git object store: a nested
+    repository (its own `.git` or its own bare layout, its own commits)."""
     return rel.endswith('/')
+
+
+# A loose object (`objects/9b/<38 hex>`) or a pack (`objects/pack/pack-<hex>.pack|.idx`)
+# is git's own byte layout and nothing else's; a path shaped like one holds
+# commits, wherever it sits and whether or not a HEAD is beside it.
+_GIT_OBJECT_RE = re.compile(r'(^|/)objects/(([0-9a-f]{2}/[0-9a-f]{38,62})|(pack/pack-[0-9a-f]+\.(pack|idx)))$')
+
+
+def looks_like_git_object(rel):
+    return bool(_GIT_OBJECT_RE.search(rel.rstrip('/')))
 
 
 def never_disposable(rel):
@@ -794,12 +859,17 @@ def never_disposable(rel):
     disposable list's own bar is "a build reproduces it from what is
     committed"; no build reproduces somebody's commits.
 
-    So two things are never disposable, whatever their parent is called: a
-    nested repository (the trailing-slash entry), and any path carrying a
-    `.git` component. Both go to the residue, which is archived and verified
+    So three things are never disposable, whatever their parent is called: a
+    nested repository or a git object store (the trailing-slash entry --
+    ignored_files() writes it for both since Sage D1, round three), any path
+    carrying a `.git` component, and any file laid out as a git object or
+    pack (looks_like_git_object: the bytes of a commit with no HEAD beside
+    them, which git would not recognize as a repository and this lane still
+    will not drop). All go to the residue, which is archived and verified
     before anything is removed -- or, if the archive cannot take them, HELD.
     """
-    return is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')
+    return (is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')
+            or looks_like_git_object(rel))
 
 
 def partition_ignored(files, disposable):

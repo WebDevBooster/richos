@@ -225,6 +225,78 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(self.git(dest/'node_modules'/'lib','rev-parse','HEAD').strip(),nested_head)
         self.assertEqual(self.git(dest/'node_modules'/'lib','cat-file','-p','HEAD:only-here'),'commits nobody else holds\n')
 
+    def test_a_BARE_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped(self):
+        # SAGE D1, ROUND THREE -- the same class as Frank R1, one shape over.
+        # The trailing-slash signature ignored_files() reads is written by git
+        # only for a repository WITH A WORKING TREE. A bare repository
+        # (`git clone --bare`, `--mirror`, `git init --bare`) has none, so git
+        # lists its files one by one, none carrying a `.git` component, and
+        # every one matched its disposable parent: reproduced under the lane's
+        # binary, 48 entries, 0 trailing-slash, 48 dropped, `git worktree
+        # remove` rc=0, tree gone, a commit that existed nowhere else with it.
+        #
+        # Two shapes are pinned here, because the second is the one a reviewer
+        # would try next: a bare CLONE under node_modules/ with loose objects,
+        # and a bare store under .cache/ named nothing like `.git`, packed-only
+        # after a `gc` (no loose object directories, refs in packed-refs).
+        (self.repo/'.git/info/exclude').write_text('node_modules/\n.cache/\n')
+        shapes={'node_modules/pkg/mirror.git':'loose','.cache/store':'packed'}
+        heads={}
+        for rel,kind in shapes.items():
+            src=self.root/('src-'+kind);src.mkdir()
+            self.git(src,'init','-q','-b','main');self.git(src,'config','user.name','Fixture');self.git(src,'config','user.email','fixture@example.invalid')
+            (src/'only-here').write_text('commits nobody else holds (%s)\n'%kind);self.git(src,'add','only-here');self.git(src,'commit','-q','-m','only here')
+            heads[rel]=self.git(src,'rev-parse','HEAD').strip()
+            dest=self.work/rel;dest.parent.mkdir(parents=True,exist_ok=True)
+            self.git(self.root,'clone','-q','--bare',str(src),str(dest))
+            if kind=='packed':
+                self.git(dest,'gc','-q','--prune=now')
+                self.assertTrue(list((dest/'objects'/'pack').glob('*.pack')))
+                self.assertFalse([d for d in (dest/'objects').iterdir() if len(d.name)==2])  # no loose objects left
+            import shutil;shutil.rmtree(src)                                             # the commit now exists ONLY in the bare store
+            self.assertTrue((dest/'HEAD').is_file() and (dest/'objects').is_dir() and (dest/'refs').is_dir())
+        (self.work/'node_modules'/'plain-ignored').write_text('a disposable file beside it\n')
+        # the premise, asserted: git lists the bare stores file by file with no
+        # trailing slash and no .git component (what the lane used to see) ...
+        raw=self.git(self.work,'ls-files','--others','--ignored','--exclude-standard').split('\n')
+        self.assertIn('node_modules/pkg/mirror.git/HEAD',raw);self.assertIn('.cache/store/HEAD',raw)
+        self.assertFalse([x for x in raw if x.endswith('/')])
+        # ... and the lane now collapses each store into ONE trailing-slash entry
+        listed=daily.ignored_files(str(self.work))
+        self.assertEqual([x for x in listed if x.endswith('/')],['.cache/store/','node_modules/pkg/mirror.git/'])
+        self.assertFalse([x for x in listed if not x.endswith('/') and (x.startswith('.cache/store/') or x.startswith('node_modules/pkg/mirror.git/'))])
+        self.assertIn('node_modules/plain-ignored',listed)
+        keep,residue=daily.partition_ignored(listed,daily.disposable_paths(str(self.repo)))
+        self.assertEqual((keep,residue),(['node_modules/plain-ignored'],['.cache/store/','node_modules/pkg/mirror.git/']))
+        # the third shape, without needing a HEAD beside it: a file laid out as
+        # a git object or pack is never disposable on its own name
+        for obj in ('node_modules/x/objects/ab/'+'c'*38,'build/objects/pack/pack-'+'0'*40+'.idx','.cache/objects/pack/pack-'+'f'*40+'.pack'):
+            self.assertTrue(daily.never_disposable(obj),obj)
+        for control in ('node_modules/x/objects/readme','build/objects/pack/notes.txt','node_modules/objects/ab/short'):
+            self.assertFalse(daily.never_disposable(control),control)
+        decision,reason=self.assess();self.assertEqual(decision,'remove');self.assertIn('2 archived first',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        journal=result['members'][0]['daily_cleanup']
+        self.assertEqual(journal['ignored_disposable'],1)
+        residue=journal['ignored_residue']
+        self.assertEqual(residue['nested_repositories'],['.cache/store','node_modules/pkg/mirror.git'])
+        self.assertEqual(residue['nested_repository_count'],2)
+        loose=heads['node_modules/pkg/mirror.git']
+        with tarfile.open(residue['archive']) as tar:
+            names=tar.getnames()
+            self.assertIn('node_modules/pkg/mirror.git/HEAD',names)
+            self.assertIn('node_modules/pkg/mirror.git/objects/%s/%s'%(loose[:2],loose[2:]),names)   # THE COMMIT ITSELF
+            self.assertTrue([n for n in names if n.startswith('.cache/store/objects/pack/') and n.endswith('.pack')])
+            self.assertIn('.cache/store/packed-refs',names)
+            self.assertNotIn('node_modules/plain-ignored',names)                                     # the disposable file was dropped
+        # restore both and prove each commit is reachable again, from the bare store alone
+        dest=self.root/'restore';dest.mkdir()
+        with tarfile.open(residue['archive']) as tar:
+            tar.extractall(dest)
+        for rel,head in heads.items():
+            self.assertEqual(self.git(self.root,'--git-dir',str(dest/rel),'rev-parse','HEAD').strip(),head)
+            self.assertEqual(self.git(self.root,'--git-dir',str(dest/rel),'cat-file','-p','HEAD:only-here'),'commits nobody else holds (%s)\n'%shapes[rel])
+
     def test_an_ignored_file_written_after_the_archive_HOLDS_the_removal(self):
         # SAGE D3, ROUND TWO. reconcile() archived and verified the residue,
         # then re-checked the tracked side and the lock -- and never the
