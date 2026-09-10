@@ -1146,10 +1146,47 @@ def collect(repos, branch, api, runs_n, blind, now):
                                      for a in AXES}})
             continue
 
-        api_by_file = {}
+        api_by_file, unbacked = {}, []
         for w in (wf_list or {}).get("workflows", []):
             if w.get("path", "").startswith(WORKFLOW_DIR + "/"):
                 api_by_file[os.path.basename(w["path"])] = w
+            else:
+                unbacked.append(w)
+
+        # A WORKFLOW THAT IS NOT A FILE IN THE CHECKOUT IS STILL A WORKFLOW.
+        # GitHub synthesizes some (`dynamic/dependabot/dependabot-updates`) and
+        # they run, fail, and put a red cross on the repository exactly like any
+        # other. The first version of this function filtered to `.github/
+        # workflows/` and so could not see one that had been failing for five
+        # days — this file's own thesis, failing inside this file, caught by
+        # comparing it against lib/ci-red.py which reads runs rather than files.
+        # They are judged on the axes that do not need a source, and the axes
+        # that DO need one are UNKNOWABLE with the reason stated.
+        for w in unbacked:
+            w = dict(w)
+            runs_doc, _e = api.get("repos/%s/actions/workflows/%d/runs?branch=%s&per_page=%d"
+                                   % (slug, w["id"], branch, runs_n))
+            runs = (runs_doc or {}).get("workflow_runs", [])
+            w["_total_count"] = len(runs)
+            entry = {"repo": slug, "root": root, "source": source,
+                     "workflow": os.path.basename(w.get("path", "")) or w.get("name"),
+                     "path": None, "state": w.get("state"),
+                     "unbacked": w.get("path"),
+                     "declarations": {"budget": None, "skips": {}, "evidence": None, "malformed": []},
+                     "triggers": {"parsed": False, "events": [], "push_paths": [], "cron": [],
+                                  "reason": "no file in the checkout to read triggers from"}}
+            completed = [r for r in runs if r.get("status") == "completed"]
+            entry["latest_run"] = completed[0].get("run_number") if completed else None
+            entry["latest_conclusion"] = completed[0].get("conclusion") if completed else None
+            entry["latest_started"] = completed[0].get("run_started_at") if completed else None
+            judge(entry, entry["declarations"], entry["triggers"], w, runs, None, branch, None, now)
+            for a in ("slow", "hollow"):
+                entry["axes"][a] = {
+                    "verdict": "UNKNOWABLE",
+                    "detail": "GitHub generates this workflow (`%s`); there is no file in the checkout "
+                              "to carry a declaration, so it can be neither budgeted nor evidenced "
+                              "from this tree. It can still go red, and it has." % w.get("path")}
+            out.append(entry)
 
         # DRIFT: a workflow GitHub knows about that is not in the checkout, and
         # the reverse. Both are silent today and both change what CI means.
