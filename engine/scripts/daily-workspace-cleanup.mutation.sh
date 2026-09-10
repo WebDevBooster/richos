@@ -118,6 +118,31 @@ mutant nobody-lock-released-with-a-process-in-the-tree "test_process_in_the_tree
     "    pids = []{NL}    if pids:{NL}        raise RuntimeError('process(es) %s still use %s; the lock is retained'" \
     "the lock would come off a tree something is standing in -- the one check that makes releasing it different from ignoring it."
 
+mutant late-binding-removed "test_a_workspace_created_after_the_seal_joins_the_transaction_and_is_reclaimed" "$X" \
+    "    tx = bind_late_members(session_id, agent_id) or tx" \
+    "    pass" \
+    "a workspace given to an agent AFTER its manifest sealed would join no transaction, so no terminal ingress could ever name it -- two of zach-opus-dor2's four workspaces, structurally unreclaimable for the life of the session."
+
+mutant late-binding-joins-an-ambiguous-name "test_a_late_row_is_NOT_bound_when_the_teammate_name_is_ambiguous" "$X" \
+    "    return found == 1" \
+    "    return True" \
+    "a teammate name shared by two transactions in one session would still be treated as an exact join, so one agent's terminal event would bind and reclaim another's workspace."
+
+mutant ownerless-row-of-any-session-retired "test_an_ownerless_row_of_a_LIVE_session_still_reserves" "$D" \
+    "                    gone, _why = session_id_gone(row.get('session_id') or '', tx){NL}                    if gone:{NL}                        continue" \
+    "                    if True:{NL}                        continue" \
+    "a preparation row naming no agent would stop reserving whatever its session was doing -- including a session that is running right now, whose worktree it was written to protect."
+
+mutant codex-exclusion-removed "test_a_codex_workspace_is_REFUSED_by_the_ceo_ruling_even_when_perfectly_clean" "$D" \
+    "    excluded, why = codex_excluded(member.get('path'), member.get('branch'), member.get('repo')){NL}    if excluded:{NL}        raise RuntimeError(why)" \
+    "    excluded, why = False, ''{NL}    if excluded:{NL}        raise RuntimeError(why)" \
+    "the CEO's codex workspaces would be reclaimed like any other: eight of the nine standing on 2026-09-10 were merged and clean, which is this lane's remove state exactly."
+
+mutant codex-exclusion-branch-only "test_a_codex_workspace_is_REFUSED_by_the_ceo_ruling_even_when_perfectly_clean" "$D" \
+    "    if '.codex' in parts:{NL}        hit = 'the path lies under a .codex directory'" \
+    "    if False:{NL}        hit = 'the path lies under a .codex directory'" \
+    "the two workspaces under ~/.codex/worktrees/ would be missed, because they live outside any -wt/ directory and their branch is main."
+
 mutant untracked-refusal-removed "test_dirty_staged_and_untracked_refuse" "$P" \
     "    if git(path,'ls-files','--others','--exclude-standard','-z').stdout:{NL}        raise CompletionError" \
     "    if False:{NL}        raise CompletionError" \

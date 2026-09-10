@@ -276,6 +276,149 @@ class Cleanup(unittest.TestCase):
             decision,why=self.assess();self.assertEqual(decision,'observe');self.assertIn('inconsistently rooted',why)
         self.assert_kept()
 
+    def test_a_codex_workspace_is_REFUSED_by_the_ceo_ruling_even_when_perfectly_clean(self):
+        # STANDING CEO RULING 2026-09-10. Eight of the nine codex workspaces
+        # standing that day were MERGED and CLEAN — this lane's remove state
+        # exactly. They were safe only because they carry no ownership record,
+        # which is a coincidence of the safety model rather than a protection.
+        # Here the record EXISTS and the tree is perfect, and it is still
+        # refused: a refusal that says so, never a silent skip.
+        for path, branch in (('codex-rollback-owned-outcome', 'codex/rollback'),
+                             ('worker', 'codex/rollback'),
+                             ('.codex/worktrees/06e6/repo', 'main')):
+            with self.subTest(shape=path):
+                self.record['members'][0].update({'path': str(self.root / path), 'branch': branch})
+                tx.atomic_write_json(tx.tx_path(SID, AID), self.record)
+                decision, reason = self.assess()
+                self.assertEqual(decision, 'hold')
+                self.assertIn('excluded by CEO ruling', reason)
+                with self.assertRaisesRegex(Exception, 'excluded by CEO ruling'):
+                    self.run_cleanup()
+                self.assertTrue(self.work.is_dir())
+
+    def test_only_his_express_word_for_one_exact_path_releases_a_codex_workspace(self):
+        codex = self.root / 'codex-rollback-owned-outcome'
+        self.assertTrue(daily.codex_excluded(str(codex), 'codex/rollback')[0])
+        # a DIFFERENT path being released does not release this one
+        with patch.object(daily, 'config_value',
+                          lambda key, default, repo=None: str(self.root / 'codex-something-else')
+                          if key == 'CODEX_RELEASED_WORKSPACES' else default):
+            self.assertTrue(daily.codex_excluded(str(codex), 'codex/rollback')[0])
+        with patch.object(daily, 'config_value',
+                          lambda key, default, repo=None: str(codex)
+                          if key == 'CODEX_RELEASED_WORKSPACES' else default):
+            self.assertFalse(daily.codex_excluded(str(codex), 'codex/rollback')[0])
+
+    def test_a_codex_workspace_is_never_bound_into_a_manifest(self):
+        later = self._second_workspace('codex-late')
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='codex-late', ts='2026-01-02T00:00:00+00:00')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 1)
+        self.assertTrue(later.is_dir())
+
+    def _second_workspace(self, name='later'):
+        """A workspace created AFTER the seal, exactly as an orchestrator does
+        mid-assignment: a real linked worktree and a `prepared` ledger row that
+        carries NO agent id, because the helper that writes it runs before any
+        spawn and cannot know one."""
+        path = self.root / name
+        self.git(self.repo, 'worktree', 'add', '-b', name, str(path))
+        (path / 'file').write_text('later delivery\n')
+        self.git(path, 'commit', '-am', 'later delivery')
+        self.git(self.repo, 'merge', '--ff-only', name)
+        self.main = self.git(self.repo, 'rev-parse', 'main').strip()
+        return path
+
+    def test_a_workspace_created_after_the_seal_joins_the_transaction_and_is_reclaimed(self):
+        # MEASURED 2026-09-10: zach-opus-dor2 had FOUR workspaces; its manifest
+        # sealed with the two that existed at spawn, and the two created
+        # mid-assignment joined nothing. No terminal ingress could ever name
+        # them, so they stood merged and clean an hour after the agent
+        # finished, and no sanctioned tool could reclaim them. The seal is no
+        # longer the boundary: a ledger row of THIS session naming this
+        # teammate binds its exact path into the transaction.
+        later = self._second_workspace()
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        # NOTHING is bound by hand here: the terminal ingress must do it, or
+        # the mutant that removes the binding from terminalize() proves nothing.
+        result = tx.terminalize(SID, AID)
+        self.assertEqual(len(result['members']), 2)
+        self.assertEqual(result['members'][1]['path'], str(later))
+        self.assertEqual(result['members'][1]['bound_late']['join'], 'teammate-name')
+        self.assertFalse(later.exists())
+        self.assertNotIn('refs/heads/later', self.git(self.repo, 'show-ref'))
+
+    def test_a_late_row_naming_THIS_agent_id_joins_by_the_platform_identity(self):
+        later = self._second_workspace()
+        self.ledger_row(event='registered', agent_id=AID, teammate='somebody-else',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(result['members'][1]['bound_late']['join'], 'agent-id')
+
+    def test_a_late_row_is_NOT_bound_when_the_teammate_name_is_ambiguous(self):
+        # The name join rests on names being unique within a session. That is a
+        # claim about a guard, so it is checked rather than trusted: a second
+        # transaction carrying the same name makes the row un-joinable.
+        later = self._second_workspace()
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        twin = dict(self.record, agent_id='abcdef777777')
+        tx.atomic_write_json(tx.tx_path(SID, 'abcdef777777'), twin)
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 1)
+        self.assertTrue(later.is_dir())
+
+    def test_a_late_row_is_NOT_bound_when_the_path_stopped_being_what_it_said(self):
+        later = self._second_workspace()
+        self.git(later, 'checkout', '-qb', 'somebody-elses-branch')
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 1)
+        self.assertTrue(later.is_dir())
+
+    def test_a_late_row_is_NOT_bound_when_another_transaction_already_owns_the_path(self):
+        later = self._second_workspace()
+        other = dict(self.record, agent_id='abcdef888888', teammate='other-worker', session_id='other-session',
+                     members=[dict(self.record['members'][0], path=str(later), branch='later')])
+        tx.atomic_write_json(tx.tx_path('other-session', 'abcdef888888'), other)
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', ts='2026-01-02T00:00:00+00:00')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 1)
+        self.assertTrue(later.is_dir())
+
+    def test_an_ownerless_row_of_a_GONE_session_no_longer_reserves_forever(self):
+        # MEASURED 2026-09-10: two ledger rows written by session 44276098 on
+        # 2026-09-02, carrying no agent id, were still holding
+        # /Users/alex/ab/richos-wt/zach-opus-prem1 eight days later. Nothing
+        # keyed to them could ever retire them: there is no transaction at
+        # (session, '') and there never will be. The only thing that can is
+        # positive evidence that the session is over.
+        self.ledger_row(event='prepared', session_id='dead-session', agent_id=None,
+                        teammate='someone-else', session_pid=DEAD_PID, pid_start='')
+        self.assertEqual(self.assess()[0], 'remove')
+        self.assert_reclaimed(self.run_cleanup())
+
+    def test_an_ownerless_row_of_a_LIVE_session_still_reserves(self):
+        self.ledger_row(event='prepared', session_id='live-session', agent_id=None,
+                        teammate='someone-else', session_pid=os.getpid(), pid_start='')
+        self.assertEqual(self.assess()[0], 'hold')
+        with self.assertRaisesRegex(Exception, 'reservation'):
+            self.run_cleanup()
+        self.assert_kept()
+
+    def test_an_ownerless_row_with_no_recorded_identity_still_reserves(self):
+        # Absence is never evidence, here as everywhere else.
+        self.ledger_row(event='prepared', session_id='unknown-session', agent_id=None,
+                        teammate='someone-else')
+        self.assertEqual(self.assess()[0], 'hold')
+        with self.assertRaisesRegex(Exception, 'reservation'):
+            self.run_cleanup()
+        self.assert_kept()
+
     def test_lock_that_names_nobody_is_released_by_the_reconciler_on_positive_evidence(self):
         # THE CEO'S FIRST OBSERVATION, 2026-09-10: "A finished agent's lock is
         # never released. Five workspaces sat unreclaimable for a working day

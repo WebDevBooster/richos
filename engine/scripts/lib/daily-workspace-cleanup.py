@@ -121,6 +121,16 @@ def _same_scope(member, target):
     return member.get('repo') == target['repo'] and bool(branch) and branch == wanted_branch
 
 
+def _is_this_members_own_row(row, member):
+    """The ledger row names EXACTLY this member's path. `_same_scope` also
+    matches on repository+branch, which is right for a reservation question
+    and too loose for "this row is this member's own preparation"."""
+    try:
+        return os.path.realpath(row.get('worktree') or '') == os.path.realpath(member.get('path') or '')
+    except (TypeError, ValueError):
+        return False
+
+
 def terminal_fact(transaction):
     return (transaction.get('sealed') is True
             and isinstance(transaction.get('terminal'), dict)
@@ -136,8 +146,88 @@ def _adopted_owns_row(transaction, member, row):
     return os.path.realpath(row.get('worktree') or '') == os.path.realpath(member.get('path') or '')
 
 
+# ---------------------------------------------------------------------------
+# THE CODEX EXCLUSION — a standing CEO ruling, enforced as a REFUSAL
+# ---------------------------------------------------------------------------
+# The CEO, 2026-09-10: don't touch any workspace starting with `codex/` unless
+# he expressly says to remove one of those things.
+#
+# Nine of them were standing when the ruling was given and eight were MERGED
+# and CLEAN — the exact state this lane reclaims. They survived only because
+# they carry no ownership record, and this lane never acts without one, so
+# they were never in its scope. THAT IS NOT A PROTECTION, IT IS A COINCIDENCE
+# OF THE SAFETY MODEL, and the moment anything reclaims by facts-on-disk
+# rather than by record it becomes false. So the refusal is written here,
+# named, ahead of the rule that would need it.
+#
+# IT IS A REFUSAL AND NOT A SKIP. A codex workspace is reported as excluded by
+# the ruling, with its own reason; it is never counted clean and never quietly
+# absent. Absence reading as success is the defect this whole round is about.
+#
+# THE ONLY OVERRIDE IS HIS WORD FOR ONE NAMED WORKSPACE: an exact absolute
+# path in CODEX_RELEASED_WORKSPACES in orchestration.config — one committed,
+# diffable line naming one workspace. There is no flag, no environment
+# variable and no reason string that unlocks the class.
+
+def codex_released(path, repo=None):
+    """Exact absolute paths the CEO has expressly released, one at a time."""
+    declared = config_value('CODEX_RELEASED_WORKSPACES', '', repo).split()
+    try:
+        real = os.path.realpath(path or '')
+    except (TypeError, ValueError):
+        return False
+    for candidate in declared:
+        try:
+            if os.path.realpath(candidate) == real and real:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def codex_excluded(path, branch='', repo=None):
+    """(excluded, reason). BOTH shapes, because two of the nine live outside
+    any `-wt/` directory and a branch-only test would miss them:
+
+      * the path — any component named `.codex` (`~/.codex/worktrees/...`),
+        or a workspace directory named `codex` / `codex-...` / `codex_...`;
+      * the branch — `codex/...` or `codex-...`, with or without refs/heads/.
+
+    Over-matching here costs a workspace that is kept; under-matching costs
+    the CEO's work. The refusal is deliberately the wider of the two.
+    """
+    path = path or ''
+    parts = [p for p in str(path).split(os.sep) if p]
+    base = parts[-1] if parts else ''
+    ref = str(branch or '')
+    if ref.startswith('refs/heads/'):
+        ref = ref[len('refs/heads/'):]
+    hit = ''
+    if '.codex' in parts:
+        hit = 'the path lies under a .codex directory'
+    elif base == 'codex' or base.startswith('codex-') or base.startswith('codex_'):
+        hit = 'the workspace directory is named %r' % base
+    elif ref == 'codex' or ref.startswith('codex/') or ref.startswith('codex-'):
+        hit = 'the branch is %r' % ref
+    if not hit:
+        return False, ''
+    if codex_released(path, repo):
+        return False, ''
+    return True, ('excluded by CEO ruling 2026-09-10 (do not touch codex workspaces): %s. '
+                  'It is refused, not skipped, and only his express word for this exact path '
+                  '(CODEX_RELEASED_WORKSPACES in orchestration.config) releases it.' % hit)
+
+
 def owner_check(tx, transaction, member):
-    """Positive terminal fact plus fresh complete competing-reservation veto."""
+    """Positive terminal fact plus fresh complete competing-reservation veto.
+
+    The codex exclusion is checked FIRST, before ownership is even considered:
+    a standing ruling about whose work it is does not depend on what this
+    engine knows about it.
+    """
+    excluded, why = codex_excluded(member.get('path'), member.get('branch'), member.get('repo'))
+    if excluded:
+        raise RuntimeError(why)
     if not terminal_fact(transaction):
         raise RuntimeError('exact sealed native terminal ownership required')
     sid, aid = transaction['session_id'], transaction['agent_id']
@@ -196,7 +286,37 @@ def owner_check(tx, transaction, member):
                         own = datetime.fromisoformat(row['ts'].replace('Z', '+00:00')) <= datetime.fromisoformat(transaction['sealed_ts'].replace('Z', '+00:00'))
                     except (KeyError, TypeError, ValueError):
                         own = False
+                    if not own and member.get('bound_late') and _is_this_members_own_row(row, member):
+                        # THE ROW IS THIS MEMBER'S OWN PREPARATION. It postdates
+                        # the seal, which is why the clause above rejects it,
+                        # and that boundary is exactly what left two of
+                        # zach-opus-dor2's four workspaces owned by nobody on
+                        # 2026-09-10. worktree-transactions.bind_late_members
+                        # has since bound this EXACT path to this transaction
+                        # on this same row, having checked the name is unique
+                        # in the session, the path is a real worktree of the
+                        # named repository on the named branch, and no other
+                        # transaction owns it. Two places were reading one
+                        # join and disagreeing; they now agree.
+                        own = True
                 other = records.get(key)
+                if not own and not row.get('agent_id') and not (other and terminal_fact(other)):
+                    # A ROW THAT NAMES NO AGENT IS A CLAIM ON BEHALF OF A
+                    # SESSION, and nothing keyed to it can ever retire it —
+                    # there is no transaction at (session, '') and there never
+                    # will be. Measured 2026-09-10: two id-less rows written by
+                    # session 44276098 on 2026-09-02 were still reserving
+                    # /Users/alex/ab/richos-wt/zach-opus-prem1 eight days
+                    # later, for a session with no running process anywhere.
+                    # So the row is retired by the only thing that can retire
+                    # it: positive evidence that its session is over, to the
+                    # same standard as everywhere else (every recorded pid
+                    # gone or reused, and no running registration). A session
+                    # that is alive, unknown, or has no recorded identity
+                    # still reserves, exactly as before.
+                    gone, _why = session_id_gone(row.get('session_id') or '', tx)
+                    if gone:
+                        continue
                 if not own and not (other and terminal_fact(other)):
                     raise RuntimeError('active or unbound preparation reservation')
     # Terminal ingress is positive death evidence, but an actual native live
@@ -243,6 +363,15 @@ def session_gone(transaction, tx=None):
     sid = transaction.get('session_id') or ''
     if transaction.get('kind') == 'adopted' or not sid:
         return False, 'no owning session (adopted transaction)'
+    return session_id_gone(sid, tx)
+
+
+def session_id_gone(sid, tx=None):
+    """(gone, reason) for a bare session id — the same evidence and the same
+    fail-closed rooting check as session_gone, which now calls it. Split out
+    because a RESERVATION can be held by a session with no transaction of its
+    own: an ownership row that names no agent id is a claim on behalf of a
+    session, and the only thing that can retire it is that session ending."""
     ledger = _load('worktree-ledger')
     # HERMETIC ROOTING, FAIL-CLOSED. A transaction store away from its default
     # with the ledger AT its default is a sandbox reading the OPERATOR'S REAL
@@ -250,6 +379,8 @@ def session_gone(transaction, tx=None):
     # that record, with a pid that is long dead, would read as a gone session
     # and remove the sandbox's native tree (reconcile-terminal-worktrees
     # C28c, 2026-09-10). Both stores redirected, or neither; otherwise NOT gone.
+    if tx is None:
+        tx = _load('worktree-transactions')
     default_tx = os.path.join(os.path.expanduser('~'), '.claude', 'state', 'worktree-transactions')
     tx_default = os.path.abspath(tx.tx_root()) == os.path.abspath(default_tx)
     ledger_default = os.path.abspath(ledger.ledger_path()) == os.path.abspath(ledger.DEFAULT_PATH)
@@ -1078,6 +1209,9 @@ def sweep_session(tx, session_id):
             transaction = tx.read_json(os.path.join(tx.session_dir(session_id), name))
             if not transaction or transaction.get('record') != 'transaction' or not terminal_fact(transaction):
                 continue
+            # a workspace given to this agent after its manifest sealed joins
+            # here, so the catch-up sees it like any other member
+            transaction = tx.bind_late_members(transaction['session_id'], transaction['agent_id']) or transaction
             for index, member in enumerate(transaction.get('members') or []):
                 if member.get('cleanup_policy') != 'integrated-daily':
                     continue

@@ -849,6 +849,9 @@ def orphan_backstop_pass(only=None):
 
 def reconcile_transaction(t, deadline=None, still_idle=None):
     sid, aid = t["session_id"], t["agent_id"]
+    # A workspace created after the seal joins here too, so a transaction that
+    # terminalized before this existed still picks up what it was given later.
+    t = tx.bind_late_members(sid, aid) or t
     base, cap = retry_backoff()
     with tx.tx_lock(sid, aid, timeout=5):
         for i in range(len(t.get("members") or [])):
@@ -1220,6 +1223,12 @@ def run(max_seconds=None, only=None, still_idle=None):
         # transaction write and an index write (blocker 5) must not leave a
         # guard reading "live" from a marker that was never written.
         tx._repair_terminal_indexes(t)
+        # BEFORE the removed-state skip, and deliberately: a transaction that
+        # finished every member it knew about can still have been given a
+        # workspace after its manifest sealed, and skipping it here is exactly
+        # how two of zach-opus-dor2's four workspaces became unreclaimable on
+        # 2026-09-10. The scan costs one stat when the ledger has not moved.
+        t = tx.bind_late_members(t["session_id"], t["agent_id"]) or t
         if t.get("state") == "removed" and not any(
                 m.get("cleanup_policy") == "integrated-daily"
                 and (m.get("daily_cleanup") or {}).get("phase") != "complete"
