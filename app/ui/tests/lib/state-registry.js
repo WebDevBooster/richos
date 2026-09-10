@@ -2303,6 +2303,49 @@ module.exports = [
     why: "`prepare()` at update_startup.rs:132, when the re-executed bundle will not run. The last thing this process does is print it.",
   },
 
+  // ---- startup_alert.rs — the surface the nine rows above did not have -----------------
+  //
+  // WHAT CHANGED UNDER THE NINE ROWS ABOVE, said here because their line numbers and their
+  // "stderr and return" wording predate it. echo-opus-st1 (b052f0b0, merged 2026-09-10)
+  // routed that call site through `startup_alert::cannot_start` (now main.rs:934): the
+  // engineer's sentence — which is where the nine strings above go — is written to stderr
+  // AND to `~/Library/Logs/RichOS/startup.log`, the process exits 1 rather than 0, and the
+  // person gets a native system alert carrying ONE fixed sentence instead. So the nine are
+  // still NOT-RENDERED, now for a stronger reason: they are the log's text, and the screen
+  // shows a different, deliberately generic sentence.
+  //
+  // The two constants below are what that alert says, and they ARE read by the person —
+  // so NOT-RENDERED here means exactly the bucket's definition, "never reaches the DOM",
+  // and must not be read as "nobody sees it". The surface is `CFUserNotificationDisplayAlert`
+  // (`show_alert`, startup_alert.rs:408-503), raised only while the app has no window (armed
+  // at `install`, disarmed at boot complete). This WebKit suite cannot render a CoreFoundation
+  // alert, so the rule's question is answered on that surface instead, and the answer is
+  // recorded here so a reviewer can check it: the alert carries "OK" and "Show Details", and
+  // "Show Details" reveals the log in Finder (`/usr/bin/open -R`, startup_alert.rs:492-499).
+  // Classified by echo-opus-ci1; these two are what turned `affordances.js` red on main,
+  // first at the echo-opus-st1 merge 8cb30972 (ui-suite-ci run 34458859801).
+  {
+    s: "RichOS could not open",
+    c: "NOT-RENDERED",
+    why:
+      "`startup_alert::HEADLINE` (startup_alert.rs:150) — the header of the native alert for " +
+      "every member of the can't-open class. Read by the person, never by the DOM: it is " +
+      "shown only while there is no window to render anything in. See the section note for " +
+      "what the alert offers him.",
+  },
+  {
+    s:
+      "RichOS ran into an unexpected problem while starting up and closed itself rather " +
+      "than open a window that would not work.",
+    c: "NOT-RENDERED",
+    why:
+      "`startup_alert::PANIC_SENTENCE` (startup_alert.rs:155), the body the panic hook " +
+      "passes to `cannot_start` for any panic before boot completes. Same native alert, " +
+      "same two buttons, and the log's path is appended to it by `person_message` " +
+      "(startup_alert.rs:238) so the details are named on the surface itself. Nothing in " +
+      "it asks him to act; the fault is not his.",
+  },
+
   // ---- the two remaining update strings, and they are NOT alike -------------------------
   {
     s: "RichOS could not prepare this update.",
