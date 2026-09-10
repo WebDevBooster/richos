@@ -118,6 +118,20 @@
     "batch": ["large-v3-turbo-q5_0", "small.en"]
   },
 
+  "safeRung": {
+    "_comment": [
+      "The rung taken when the machine could NOT be measured at all -- no probe voice, no",
+      "decoder, no cache. Deliberately NOT the bottom of the ladder: the bottom rung is where a",
+      "machine goes when it has been measured and found slow, and handing tiny.en to a machine",
+      "nobody managed to time would be a silent downgrade justified by an absence of evidence.",
+      "",
+      "It is small.en because that is what shipped on every machine before 2026-09-10, so it is",
+      "the one rung with field history rather than a bench figure. An unmeasured machine gets the",
+      "status quo and is TOLD that is what happened."
+    ],
+    "value": "small.en"
+  },
+
   "models": [
     {
       "id": "tiny.en",

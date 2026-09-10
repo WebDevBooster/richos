@@ -211,6 +211,10 @@ pub struct Costs {
     pub live_target_secs: f64,
     /// 1.0x — the real-time boundary for a batch decode.
     pub batch_real_time_multiple: f64,
+    /// Where an UNMEASURABLE machine lands. Not the bottom rung — see the registry's own note:
+    /// the bottom is where a measured-and-slow machine goes, and giving it to a machine nobody
+    /// managed to time would be a downgrade justified by an absence of evidence.
+    pub safe_rung: String,
     pub probe_text: String,
     pub probe_duration_secs: f64,
 }
@@ -247,9 +251,26 @@ impl Costs {
             live_ceiling_secs: v["liveUtteranceCeilingSeconds"]["value"].as_f64().unwrap_or(1.0),
             live_target_secs: v["liveUtteranceCeilingSeconds"]["targetSeconds"].as_f64().unwrap_or(0.5),
             batch_real_time_multiple: v["batchRealTimeMultiple"]["value"].as_f64().unwrap_or(1.0),
+            safe_rung: v["safeRung"]["value"].as_str().unwrap_or("small.en").to_string(),
             probe_text: v["probe"]["text"].as_str().unwrap_or("").to_string(),
             probe_duration_secs: v["probe"]["durationSeconds"].as_f64().unwrap_or(3.095),
         }
+    }
+
+    /// Drop every rung whose weights are not on this machine.
+    ///
+    /// WITHOUT THIS THE LADDER IS FICTION. A rung names a model id, and a model id is only a
+    /// model if `ggml-<id>.bin` is somewhere `resolve_model` looks — a machine carrying only
+    /// `small.en` has no `tiny.en` to fall back to and no `q5_0` to be promoted to. Filtering
+    /// here rather than inside the walk keeps the rule a pure function of the ladder it is
+    /// given, and makes "what could this machine have used?" answerable in one place.
+    ///
+    /// The safe rung is NOT protected from filtering: if it is absent too, the caller is about to
+    /// meet `SttError::ModelNotFound`, which is already a calm sentence at the toggle and is the
+    /// correct outcome for a machine with no weights at all.
+    pub fn retain_installed(&mut self, present: impl Fn(&str) -> bool) {
+        self.live_ladder.retain(|id| present(id));
+        self.batch_ladder.retain(|id| present(id));
     }
 }
 
@@ -418,25 +439,16 @@ where
             Some(secs) => {
                 rejected = Some((id.clone(), secs));
             }
-            None if last => {
-                // Nothing measurable anywhere. Take the rung that always fits and SAY so.
-                return Resolution {
-                    model_id: id.clone(),
-                    basis: Basis::Unmeasured,
-                    rejected,
-                    measured_secs: None,
-                    ceiling_secs: costs.live_ceiling_secs,
-                    machine: *machine,
-                };
-            }
             None => continue,
         }
     }
 
-    // An empty or entirely-unresolvable ladder. Never reached with the shipped registry; it exists
-    // so a malformed ladder degrades to the historical default rather than panicking at the toggle.
+    // NOTHING ON THE LADDER COULD BE MEASURED — no probe voice, no decoder, an empty ladder after
+    // filtering. The safe rung, NOT the bottom rung: the bottom is where a machine goes once it
+    // has been measured and found slow, and handing it to a machine nobody managed to time would
+    // be a silent downgrade justified by an absence of evidence. Said out loud either way.
     Resolution {
-        model_id: "small.en".into(),
+        model_id: costs.safe_rung.clone(),
         basis: Basis::Unmeasured,
         rejected,
         measured_secs: None,
@@ -822,16 +834,42 @@ mod tests {
         assert!(squeezed.provenance().contains("pressure:critical"), "but it IS recorded: {}", squeezed.provenance());
     }
 
-    /// INVARIANT: nothing measurable still yields a working recognizer, and the honesty is in the
-    /// basis rather than in a silent fallback that looks like a decision.
+    /// INVARIANT: nothing measurable still yields a working recognizer, on the SAFE rung rather
+    /// than the bottom one, and the honesty is in the basis rather than in a silent fallback that
+    /// looks like a decision.
+    ///
+    /// The distinction is the point: `tiny.en` is where a machine goes once it has been measured
+    /// and found slow. Giving it to a machine nobody managed to time would be a downgrade
+    /// justified by an absence of evidence, which is the shape of the defect this module removes.
     #[test]
     fn a_machine_that_cannot_be_measured_takes_the_safe_rung_and_admits_it() {
         let c = Costs::load();
         let r = resolve_live(&c, &roomy(), |_| None);
+        assert_eq!(r.model_id, "small.en", "the safe rung — the one with field history");
+        assert_ne!(r.model_id, *c.live_ladder.last().unwrap(), "NOT the bottom rung");
         assert_eq!(r.basis, Basis::Unmeasured);
         assert_eq!(r.measured_secs, None);
         assert!(r.is_noteworthy(), "an unmeasured machine is exactly when to say so");
         assert!(r.provenance().contains("hw-unmeasured"), "{}", r.provenance());
+    }
+
+    /// INVARIANT: a rung whose weights are not installed is not a rung.
+    ///
+    /// Without the filter the ladder is fiction — a machine carrying only `small.en` would be
+    /// "promoted" to a `q5_0` that is not there, and `resolve_model` would then fail at the
+    /// toggle with a missing-model message for a model the CEO never asked for.
+    #[test]
+    fn a_rung_whose_weights_are_absent_drops_out_of_the_ladder_entirely() {
+        let mut c = Costs::load();
+        c.retain_installed(|id| id == "small.en");
+        assert_eq!(c.live_ladder, vec!["small.en"]);
+        assert_eq!(c.batch_ladder, vec!["small.en"]);
+        // Fast enough for anything: with only one rung installed, that rung is the answer, and it
+        // is the TOP of what this machine has rather than a demotion it should be told about.
+        let r = resolve_live(&c, &roomy(), |_| Some(0.300));
+        assert_eq!(r.model_id, "small.en");
+        assert_eq!(r.basis, Basis::TopRung);
+        assert!(!r.is_noteworthy(), "using the only model installed is not a degradation");
     }
 
     /// INVARIANT: the batch surface is NEVER promoted above the CEO decision page §10 ruling, no
