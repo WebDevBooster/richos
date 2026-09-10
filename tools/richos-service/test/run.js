@@ -1019,6 +1019,35 @@ test('MAX_CONTEXT_TOKENS is overridable per call and by env, so an operator is n
   }
 });
 
+test('flash attention is PASSED, not inherited — the vendor default is not the guarantee', () => {
+  // Measured 2026-09-10 (docs/measurements/whisper-settings-2026-09-10): `-nfa` scores 4.46% against
+  // the shipping 2.89% on the 6-call reference corpus — 1.57 WER points and 18% wall clock — and
+  // drops proper-noun exact hits from 46 to 41 of 66. whisper.cpp 1.9.1 happens to default it ON,
+  // which is exactly why it must not be left to the default: the accuracy of every transcript this
+  // product produces would then depend on a Homebrew formula bump nobody would attribute it to.
+  const args = whisperArgs();
+  assert.ok(args.includes('-fa'), `-fa must be emitted, got ${args.join(' ')}`);
+  // It sits BEFORE extraArgs like every other default, so a caller can still say -nfa and be obeyed.
+  const withOverride = whisperArgs({ extraArgs: ['-nfa'] });
+  assert.ok(withOverride.lastIndexOf('-nfa') > withOverride.lastIndexOf('-fa'));
+});
+
+test('every flag the pipeline passes is one the settings table decided — no silent additions', () => {
+  // The decision table is per FLAG, so a flag appearing here that is not in it is an undecided
+  // setting shipping in production. This test is the seam that makes adding one a deliberate act:
+  // add the flag to `docs/measurements/whisper-settings-2026-09-10/whisper-settings-decisions.md`
+  // with its evidence, then add it here.
+  // Flags that consume the next token, so the walk below never mistakes a VALUE for a flag —
+  // `-mc -1` is the case that would otherwise read as an undecided flag called "-1".
+  const takesValue = new Set(['-l', '-t', '-mc']);
+  const decided = new Set([...takesValue, '-oj', '-np', '-fa']);
+  const args = whisperArgs();
+  for (let i = 0; i < args.length; i += 1) {
+    assert.ok(decided.has(args[i]), `${args[i]} is passed to whisper-cli but is not in the settings decision table`);
+    if (takesValue.has(args[i])) i += 1;
+  }
+});
+
 test('a tier decodeArg still wins over the default (emitted after, whisper-cli takes the last)', () => {
   const args = whisperArgs({ extraArgs: ['-mc', '224'] });
   assert.equal(args.lastIndexOf('-mc'), args.length - 2);

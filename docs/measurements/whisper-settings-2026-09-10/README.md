@@ -37,7 +37,7 @@ So this is the permanent material, and the honest reach of each piece is part of
 
 | Corpus | Where | What it can answer | What it cannot |
 |---|---|---|---|
-| 6 invented TTS calls, 47–174 s, 1,852 script words | `richos-hq/docs/briefs/norm-shortcall-wer-2026-08-29-assets/corpus/calls.json`, rebuilt by its own `tools/build-corpus.mjs` | **true WER**, because the script IS the reference | anything about real acoustics, cross-talk, accents, or length past 3 minutes. It is one synthetic voice per channel. |
+| 6 invented TTS calls, 47–174 s, 1,852 script words | `richos-hq/docs/briefs/norm-shortcall-wer-2026-08-29-assets/corpus/calls.json`, rebuilt by its own `<richos-hq>/…/tools/build-corpus.mjs` | **true WER**, because the script IS the reference | anything about real acoustics, cross-talk, accents, or length past 3 minutes. It is one synthetic voice per channel. |
 | 92-minute two-channel real webinar | `richos-hq/docs/reference/local/*.mp3` (gitignored, never committed) | long-form **fabrication** and wall clock, measured by the shipping guard against the physical audio | WER — no verified reference exists, and none is coming |
 | 3 private podcast recordings | `richos-hq/docs/reference/local/private-podcast-recordings/` | long-form behavior on a third speaker | WER — `REFERENCE-WORKSHEET-001.md` beside them is the human-verification pass and it is **unfilled** |
 
@@ -52,10 +52,18 @@ back-to-back on the same regenerated audio, the same binary and the same day.
 
 ## Reproducing
 
+**Step 1 needs the private record.** The corpus builder and the reference script are not in this
+repository and are not going to be: they live in the private `richos-hq` record, in
+`docs/briefs/norm-shortcall-wer-2026-08-29-assets/` (`corpus/calls.json` and its own
+`<richos-hq>/…/tools/build-corpus.mjs`, plus the `<richos-hq>/…/tools/wer.mjs` scorer that steps 2
+and 3 import). A reader with only
+the public repository has the rig and the results but not the corpus, and that is stated here rather
+than discovered at a broken path.
+
 ```sh
-# 1. rebuild the TTS corpus (no audio is committed anywhere)
+# 1. rebuild the TTS corpus, from the private record (no audio is committed anywhere)
 cd <richos-hq>/docs/briefs/norm-shortcall-wer-2026-08-29-assets
-node tools/build-corpus.mjs corpus/calls.json /tmp/corpus
+node ./tools/build-corpus.mjs ./corpus/calls.json /tmp/corpus
 
 # 2. score one configuration (repeat with --config/--extra per row of the table)
 node <richos>/docs/measurements/whisper-settings-2026-09-10/tools/flag-sweep.mjs \
