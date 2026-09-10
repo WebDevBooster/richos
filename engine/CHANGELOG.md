@@ -685,8 +685,14 @@ version heading with Added / Changed / Fixed groupings.
   writers, requires two identical manifests across a settle, archives raw
   bytes plus index blobs plus provenance, verifies every digest, unregisters
   and removes — each transition persisted so a crash at any boundary is
-  recovered from disk; SessionStart runs the same reconciler as crash
-  recovery with a budget. A terminal agent is refused every `SendMessage`
+  recovered from disk. (**CORRECTED 2026-09-10:** this entry said "SessionStart
+  runs the same reconciler as crash recovery with a budget". It has not since
+  `28f07ab5`, which moved recovery to the daily user-inactivity pass because
+  running it at a session start too would race that pass. SessionStart is
+  status-only: it REPORTS outstanding state and removes and recovers nothing,
+  `scripts/hooks/session-start-reap-worktrees.sh:29-46`. The launchd job is the
+  only trigger, and the sentence four lines down — "the session-start reaper is
+  a DRY-RUN inventory" — was the half of this paragraph that stayed true.) A terminal agent is refused every `SendMessage`
   with no escape hatch. TeammateIdle and TaskCompleted hold no destructive
   authority (the agent-finish reaper is gone); the session-start reaper is a
   DRY-RUN inventory. Ownership in the ledger is exact-path only: names,
