@@ -1,0 +1,19 @@
+{
+ "config": "mc64",
+ "channel": "me",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-mc",
+  "64"
+ ],
+ "wav": "/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-8478-3cde1a1aecdf/scratchpad/realaudio/audio/me.wav",
+ "wallSec": 392.792,
+ "segments": 568,
+ "words": 4149,
+ "audioSec": 5536.32,
+ "wordsPerMin": 44.964886422750126,
+ "mostRepeatedSegment": {
+  "text": "next",
+  "count": 33
+ }
+}

@@ -1,0 +1,34 @@
+{
+ "config": "greedy",
+ "label": "greedy sampling instead of the vendor 5-wide beam",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-bs",
+  "1",
+  "-bo",
+  "1"
+ ],
+ "refWords": 1905,
+ "hypWords": 1930,
+ "S": 37,
+ "D": 8,
+ "I": 33,
+ "wer": 0.04094488188976378,
+ "werCase": 0.048293963254593175,
+ "segments": 154,
+ "wordTimes": 1850,
+ "wallSec": 72.434,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "greedy/argv.jsonl",
+ "whisperVersion": null
+}

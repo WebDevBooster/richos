@@ -107,6 +107,12 @@ export function renderMarkdown(merged, record) {
   if (durationMin != null) lines.push(`- **Duration:** ${durationMin} min`);
   lines.push(`- **Captured by:** ${source}`);
   lines.push(`- **Model:** ${model}`);
+  // WHICH BINARY AND WHICH WEIGHTS, on the artifact a person actually opens. `- **Model:** turbo`
+  // above names a family, not a file: two different sets of weights ship under that id and a
+  // whisper.cpp version bump can change what its own defaults mean. `session.json` carries the
+  // full hashes; this is the line that stops a reader having to go looking for them.
+  const provenance = record?.pipeline?.toolchain?.provenance || record?.pipeline?.whisperVersion;
+  if (provenance) lines.push(`- **Transcribed by:** ${provenance}`);
   lines.push(`- **Speaker attribution:** LEFT channel = me (mic); RIGHT channel = others (system/tab)${
     record?.captions?.count ? '; remote names folded in from platform captions' : ''
   }`);

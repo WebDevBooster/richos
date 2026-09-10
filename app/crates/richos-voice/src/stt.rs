@@ -44,6 +44,11 @@ pub const DEFAULT_MODEL_ID: &str = "small.en";
 pub enum SttError {
     BinaryNotFound(String),
     ModelNotFound(String),
+    /// The model file is not the model RichOS pinned, or strict mode refused a changed binary.
+    /// A SEPARATE variant from `ModelNotFound` on purpose: "not installed" and "installed but not
+    /// what it claims to be" need different words to the CEO and different actions from whoever
+    /// set the machine up.
+    ToolchainRefused(String),
     Io(String),
     Failed { status: String, stderr: String },
 }
@@ -60,6 +65,16 @@ impl SttError {
                  those. I can still read what you type."
                     .into()
             }
+            SttError::ToolchainRefused(_) => {
+                // DIFFERENT WORDS, because it is a different situation and the difference matters
+                // to him. "Not installed yet" would be false and would send whoever helps him to
+                // install something that is already there. Still no paths, no hashes, no
+                // filenames — the detail is on stderr and in the record, where it is useful.
+                "Something about my hearing changed on this machine and I'd rather not guess at \
+                 what you said than get it wrong. Whoever set RichOS up can put it right. I can \
+                 still read what you type."
+                    .into()
+            }
             SttError::Io(_) | SttError::Failed { .. } => {
                 "I didn't catch that — say it again?".into()
             }
@@ -72,6 +87,7 @@ impl std::fmt::Display for SttError {
         match self {
             SttError::BinaryNotFound(s) => write!(f, "whisper binary not found: {s}"),
             SttError::ModelNotFound(s) => write!(f, "whisper model not found: {s}"),
+            SttError::ToolchainRefused(s) => write!(f, "whisper toolchain refused: {s}"),
             SttError::Io(s) => write!(f, "stt io: {s}"),
             SttError::Failed { status, stderr } => write!(f, "whisper failed ({status}): {stderr}"),
         }
@@ -146,6 +162,70 @@ fn expand_tilde(p: &str) -> String {
     p.to_string()
 }
 
+/// Text-context budget when NO decoding prompt is configured: none, the pipeline-wide invariant.
+///
+/// This path used to pass no `-mc` at all, which meant whisper.cpp's own `-1` — carry every
+/// previously decoded token — the identical unexamined default that filled 7.8% of a 92-minute
+/// channel with one fabricated sentence in the call-transcription service
+/// (`docs/measurements/whisper-settings-2026-09-10/measurements/longform.txt`). It was fixed there
+/// on 2026-08-29 and left live here, in a second consumer nobody had audited.
+const MAX_CONTEXT_NO_PROMPT: &str = "0";
+
+/// Text-context budget when a decoding prompt IS configured.
+///
+/// NOT a compromise and not a guess. At `0` the prompt is INERT — whisper has no room to keep the
+/// prompt tokens, so the flag is accepted and does nothing. Measured on one 6-second utterance
+/// through `small.en`, three runs each
+/// (`docs/measurements/whisper-settings-2026-09-10/measurements/dictation-probe.txt`):
+///
+/// ```text
+///   -mc -1  (what this path shipped)   "Haldan Freight"    587-661 ms
+///   -mc 0                              "Haldan Freight"    612-641 ms
+///   -mc 0  + prompt                    "Haldan Freight"    609-614 ms   <- prompt does NOTHING
+///   -mc 64 + prompt                    "Halden Freight"    607-654 ms   <- correct
+/// ```
+///
+/// 64 is the smallest budget measured to recover the names: on the 6-call reference corpus a
+/// carried entity prompt at 64 takes proper-noun exact hits from 46 to 55 of 66 and gives the best
+/// WER measured (2.73%), and going to 224 adds no further names while wrecking the transcript
+/// (9.92%, insertions 8 -> 156).
+///
+/// THE COST, STATED. Carried context is what produces long-form fabrication: 64 tokens fills 3.3%
+/// of a 92-minute timeline with repeated phrases where 0 fills none. That is why it is taken ONLY
+/// when a prompt is set — dictation utterances are seconds long, so there is nothing to accumulate
+/// — and why anyone routing a long recording through this path should read the settings table
+/// first. The alternative was to accept a prompt and silently ignore it, and a seam that reports on
+/// while doing nothing is the defect class this codebase refuses everywhere else.
+const MAX_CONTEXT_WITH_PROMPT: &str = "64";
+
+/// The decode flags this path hands to `whisper-cli`, everything except `-m` and `-f`.
+///
+/// A FUNCTION, SO THE SETTINGS CAN BE ASSERTED WITHOUT A DECODER. These values are decided in
+/// `docs/measurements/whisper-settings-2026-09-10/whisper-settings-decisions.md` §7; a test that
+/// cannot see them cannot stop the next one being added by accident.
+pub fn decode_args(prompt: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        // Pinned, not inherited: `-l auto` is byte-identical on English audio and 20% slower.
+        "-l".into(),
+        "en".into(),
+        // The decode is Metal-bound; 8 threads measured byte-identical at the same wall clock.
+        "-t".into(),
+        "4".into(),
+        // Flash attention. whisper.cpp 1.9.1 defaults it ON and it is worth 1.57 WER points, which
+        // is far too much to hold by inheritance from a default a formula bump can flip.
+        "-fa".into(),
+        "-np".into(), // no progress prints — this path reads the words off stdout
+        "-nt".into(), // no timestamps — we want the words, nothing else
+        "-mc".into(),
+        if prompt.is_some() { MAX_CONTEXT_WITH_PROMPT.into() } else { MAX_CONTEXT_NO_PROMPT.into() },
+    ];
+    if let Some(p) = prompt {
+        args.push("--prompt".into());
+        args.push(p.to_string());
+    }
+    args
+}
+
 /// A resolved, ready-to-use recognizer. Resolution happens ONCE at voice-mode start so a
 /// missing model is a calm message at the toggle, not a failure in the middle of a sentence.
 pub struct Recognizer {
@@ -156,18 +236,50 @@ pub struct Recognizer {
     /// plugs in HERE — feed `loro/entities.json` terms and whisper biases toward the
     /// company's names and jargon. Not wired to loro in v1; the seam is one string.
     prompt: Option<String>,
+    /// Which binary, which ggml backends and which weights — established ONCE, here, and carried
+    /// so every utterance is attributed to what actually heard it.
+    toolchain: crate::toolchain::Report,
 }
 
 impl Recognizer {
+    /// Resolve the binary and the model, and CHECK THEM, before the mic is ever opened.
+    ///
+    /// Resolution has always happened once here rather than per utterance, so that a missing model
+    /// is a calm message at the toggle instead of a failure in the middle of a sentence. A
+    /// SUBSTITUTED one now gets the same treatment, which is the point of doing the check in this
+    /// function and not in `transcribe`: at 0.47–0.74 s per utterance there is no room to hash a
+    /// 487 MB model on each one, and there is no need to — the binary cannot change between two
+    /// sentences of one conversation, and the lock's cache means even this once is usually free.
+    ///
+    /// Weights that are not the pinned weights REFUSE. A binary or backend that is not the one
+    /// this machine locked WARNS, loudly, naming both identities — see `toolchain.rs` for why the
+    /// two differ. `RICHOS_WHISPER_STRICT_TOOLCHAIN=1` makes every warning a refusal.
     pub fn resolve() -> Result<Recognizer, SttError> {
         let model_id =
             std::env::var("RICHOS_VOICE_WHISPER_MODEL_ID").unwrap_or_else(|_| DEFAULT_MODEL_ID.to_string());
-        Ok(Recognizer {
-            bin: resolve_whisper_bin()?,
-            model: resolve_model(&model_id)?,
-            model_id,
-            prompt: std::env::var("RICHOS_WHISPER_PROMPT").ok().filter(|s| !s.trim().is_empty()),
-        })
+        let bin = resolve_whisper_bin()?;
+        let model = resolve_model(&model_id)?;
+        let toolchain = crate::toolchain::check(&bin, &model, &model_id);
+        // Said out loud on stderr, not only stored. A warning nobody meets is not a warning, and
+        // this is the one channel a headless voice loop shares with whoever started it.
+        for w in toolchain.warnings() {
+            eprintln!("richos-voice: {w}");
+        }
+        if toolchain.verdict() == crate::toolchain::Severity::Refuse {
+            return Err(SttError::ToolchainRefused(toolchain.refusals().join(" ")));
+        }
+        Ok(Recognizer { bin, model, model_id, prompt: std::env::var("RICHOS_WHISPER_PROMPT").ok().filter(|s| !s.trim().is_empty()), toolchain })
+    }
+
+    /// One line naming the binary and the weights that heard this conversation. The answer to
+    /// "which binary and which weights produced this?" for every turn this recognizer serves.
+    pub fn provenance(&self) -> &str {
+        &self.toolchain.provenance
+    }
+
+    /// The full identity report, for a caller that wants to record more than the line.
+    pub fn toolchain(&self) -> &crate::toolchain::Report {
+        &self.toolchain
     }
 
     pub fn model_id(&self) -> &str {
@@ -189,16 +301,8 @@ impl Recognizer {
 
         let started = Instant::now();
         let mut cmd = Command::new(&self.bin);
-        cmd.arg("-m")
-            .arg(&self.model)
-            .arg("-f")
-            .arg(&wav_path)
-            .args(["-l", "en", "-t", "4"])
-            .arg("-np") // no progress prints — keep stdout clean
-            .arg("-nt"); // no timestamps — we want the words, nothing else
-        if let Some(p) = &self.prompt {
-            cmd.arg("--prompt").arg(p);
-        }
+        cmd.arg("-m").arg(&self.model).arg("-f").arg(&wav_path);
+        cmd.args(decode_args(self.prompt.as_deref()));
         let out = cmd.output().map_err(|e| SttError::Io(e.to_string()))?;
         let elapsed_ms = started.elapsed().as_millis() as u64;
         let _ = std::fs::remove_file(&wav_path);
@@ -284,6 +388,73 @@ fn strip_annotations(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// INVARIANT: this path never decodes at whisper.cpp's own text-context default.
+    ///
+    /// It did until 2026-09-10 — `-mc` was simply absent, so every dictation ran at `-1`, the
+    /// setting that filled 7.8% of a 92-minute channel with one fabricated sentence in the sibling
+    /// service. The whole point of the settings table is that a value nobody chose is not a value.
+    #[test]
+    fn decode_context_is_never_the_vendor_default() {
+        for prompt in [None, Some("Halden Freight, Priya Sandoval")] {
+            let args = decode_args(prompt);
+            let i = args.iter().rposition(|a| a == "-mc").expect("-mc must be emitted");
+            assert_ne!(args[i + 1], "-1", "the vendor default must never be what this path decodes at");
+            assert!(args[i + 1].parse::<i32>().unwrap() >= 0);
+        }
+    }
+
+    /// INVARIANT: a configured prompt is a prompt that WORKS.
+    ///
+    /// At `-mc 0` whisper accepts `--prompt` and ignores it — measured byte-identical to passing no
+    /// prompt at all. So the two must never be shipped together: entity biasing that silently does
+    /// nothing is worse than no entity biasing, because it reports success.
+    #[test]
+    fn a_configured_prompt_gets_a_context_budget_to_live_in() {
+        let with = decode_args(Some("Halden Freight"));
+        let i = with.iter().rposition(|a| a == "-mc").unwrap();
+        assert!(
+            with[i + 1].parse::<i32>().unwrap() >= 64,
+            "a prompt needs room in the text context or it is inert; got -mc {}",
+            with[i + 1]
+        );
+        assert!(with.iter().any(|a| a == "--prompt"));
+        assert!(with.iter().any(|a| a == "Halden Freight"));
+
+        // And without a prompt there is nothing to make room for, so the invariant is 0.
+        let without = decode_args(None);
+        let j = without.iter().rposition(|a| a == "-mc").unwrap();
+        assert_eq!(without[j + 1], "0");
+        assert!(!without.iter().any(|a| a == "--prompt"));
+    }
+
+    /// INVARIANT: flash attention is PASSED here too, for the same measured reason as the service —
+    /// `-nfa` costs 1.57 WER points, and a default that valuable is not left to the vendor.
+    #[test]
+    fn flash_attention_is_passed_not_inherited() {
+        assert!(decode_args(None).iter().any(|a| a == "-fa"));
+    }
+
+    /// INVARIANT: every flag this path passes is one the settings table decided. Adding a flag
+    /// without deciding it fails here, which is the point.
+    #[test]
+    fn no_flag_ships_without_a_row_in_the_settings_table() {
+        const DECIDED: &[&str] = &["-l", "-t", "-fa", "-np", "-nt", "-mc", "--prompt"];
+        const TAKES_VALUE: &[&str] = &["-l", "-t", "-mc", "--prompt"];
+        let args = decode_args(Some("Halden Freight"));
+        let mut i = 0;
+        while i < args.len() {
+            assert!(
+                DECIDED.contains(&args[i].as_str()),
+                "{} reaches whisper-cli but is not in the settings decision table",
+                args[i]
+            );
+            if TAKES_VALUE.contains(&args[i].as_str()) {
+                i += 1;
+            }
+            i += 1;
+        }
+    }
 
     /// INVARIANT: whisper's stdout becomes one clean line, whatever leading newline or
     /// padding the CLI adds. (Observed: it prefixes "\n " before the text.)

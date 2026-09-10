@@ -1,0 +1,31 @@
+{
+ "config": "nofa",
+ "label": "flash attention DISABLED (vendor default before 1.9.x)",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-nfa"
+ ],
+ "refWords": 1905,
+ "hypWords": 1925,
+ "S": 47,
+ "D": 9,
+ "I": 29,
+ "wer": 0.04461942257217848,
+ "werCase": 0.05879265091863517,
+ "segments": 148,
+ "wordTimes": 1847,
+ "wallSec": 90.02,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "nofa/argv.jsonl",
+ "whisperVersion": null
+}

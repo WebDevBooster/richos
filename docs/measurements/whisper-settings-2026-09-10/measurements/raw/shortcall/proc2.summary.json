@@ -1,0 +1,32 @@
+{
+ "config": "proc2",
+ "label": "2 processors (vendor 1)",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-p",
+  "2"
+ ],
+ "refWords": 1905,
+ "hypWords": 1905,
+ "S": 37,
+ "D": 9,
+ "I": 9,
+ "wer": 0.028871391076115485,
+ "werCase": 0.04304461942257218,
+ "segments": 153,
+ "wordTimes": 1828,
+ "wallSec": 80.173,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "proc2/argv.jsonl",
+ "whisperVersion": null
+}

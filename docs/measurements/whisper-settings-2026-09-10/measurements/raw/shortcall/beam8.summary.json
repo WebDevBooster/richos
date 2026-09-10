@@ -1,0 +1,34 @@
+{
+ "config": "beam8",
+ "label": "wider beam than the vendor 5",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-bs",
+  "8",
+  "-bo",
+  "8"
+ ],
+ "refWords": 1905,
+ "hypWords": 1910,
+ "S": 44,
+ "D": 7,
+ "I": 12,
+ "wer": 0.03307086614173228,
+ "werCase": 0.04251968503937008,
+ "segments": 147,
+ "wordTimes": 1833,
+ "wallSec": 100.798,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "beam8/argv.jsonl",
+ "whisperVersion": null
+}

@@ -1,0 +1,24 @@
+config                 extra args                                   WER    cased    S   D    I   seg  wordT  wall
+vadtuned               --vad -vm ggml-silero-v5.1.2.bin -vt 0.3 -   2.68%   4.83%   34   8    9   135   1828    65s
+promptmc64             --prompt Priya Sandoval, Halden Freight, M   2.73%   3.78%   31   5   16   136   1833    83s
+mc-1                   -mc -1                                       2.78%   3.99%   36   5   12   154   1839    97s
+ac1500                 -ac 1500                                     2.89%   3.94%   40   7    8   152   1829    82s
+baseline                                                            2.89%   3.94%   40   7    8   152   1829    76s
+dtw                    -dtw large.v3.turbo                          2.89%   3.94%   40   7    8   152   1829    96s
+faexplicit             -fa                                          2.89%   3.94%   40   7    8   152   1829    74s
+langauto               -l auto                                      2.89%   3.94%   40   7    8   152   1829    91s
+ml60sow                -ml 60 -sow                                  2.89%   3.94%   40   7    8   250   1829    81s
+nofallback             -nf                                          2.89%   3.94%   40   7    8   152   1829    75s
+nth09                  -nth 0.9                                     2.89%   3.94%   40   7    8   152   1829    79s
+proc2                  -p 2                                         2.89%   4.30%   37   9    9   153   1828    80s
+prompt                 --prompt Priya Sandoval, Halden Freight, M   2.89%   3.94%   40   7    8   152   1829   118s
+promptcarry            --prompt Priya Sandoval, Halden Freight, M   2.89%   3.94%   40   7    8   152   1829    98s
+threads8               -t 8                                         2.89%   3.94%   40   7    8   152   1829    76s
+wt50                   -wt 0.5                                      2.89%   3.94%   40   7    8   152   1829    76s
+promptmc16             --prompt Priya Sandoval, Halden Freight, M   2.99%   5.62%   36   8   13   140   1830    83s
+beam8                  -bs 8 -bo 8                                  3.31%   4.25%   44   7   12   147   1833   101s
+sns                    -sns                                         3.41%   4.93%   43   6   16   148   1830    76s
+greedy                 -bs 1 -bo 1                                  4.09%   4.83%   37   8   33   154   1850    72s
+nofa                   -nfa                                         4.46%   5.88%   47   9   29   148   1847    90s
+vad                    --vad -vm ggml-silero-v5.1.2.bin             4.67%   7.14%   47  31   11   157   1802    59s
+promptmc224            --prompt Priya Sandoval, Halden Freight, M   9.92%  11.18%   28   5  156   172   1971   101s

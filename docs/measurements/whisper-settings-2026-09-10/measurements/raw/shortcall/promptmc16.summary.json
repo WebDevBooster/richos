@@ -1,0 +1,35 @@
+{
+ "config": "promptmc16",
+ "label": "prompt with the smallest context budget the record calls fabrication-free",
+ "model": "large-v3-turbo",
+ "extra": [
+  "--prompt",
+  "Priya Sandoval, Halden Freight, Marla Kestrel, Corvane Systems, Everlock, Ridgeline Analytics, Quilvern Media, Tobias Renner, Nadia Kwok, Brightmoor Dental, Wexford Road, Cannery Street, Tidemark, Northgate, Pallas.",
+  "--carry-initial-prompt",
+  "-mc",
+  "16"
+ ],
+ "refWords": 1905,
+ "hypWords": 1910,
+ "S": 36,
+ "D": 8,
+ "I": 13,
+ "wer": 0.029921259842519685,
+ "werCase": 0.05616797900262467,
+ "segments": 140,
+ "wordTimes": 1830,
+ "wallSec": 82.747,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "promptmc16/argv.jsonl",
+ "whisperVersion": null
+}

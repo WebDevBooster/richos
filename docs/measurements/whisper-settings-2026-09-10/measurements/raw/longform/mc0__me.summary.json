@@ -1,0 +1,18 @@
+{
+ "config": "mc0",
+ "channel": "me",
+ "model": "large-v3-turbo",
+ "extra": [],
+ "wav": "/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-8478-3cde1a1aecdf/scratchpad/realaudio/audio/me.wav",
+ "wallSec": 226.284,
+ "segments": 435,
+ "words": 3762,
+ "audioSec": 5536.58,
+ "loopFindings": 0,
+ "loopSpanSec": 0,
+ "loopSharePct": 0,
+ "stutters": 0,
+ "insertions": 0,
+ "silenceFabrications": 0,
+ "loops": []
+}

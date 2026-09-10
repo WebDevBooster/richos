@@ -1,0 +1,15 @@
+vendor default (-mc -1)    run1    598 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+vendor default (-mc -1)    run2    607 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+vendor default (-mc -1)    run3    610 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+-mc 0                      run1    608 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+-mc 0                      run2    605 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+-mc 0                      run3    610 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+-mc 0 + prompt             run1    618 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+-mc 0 + prompt             run2    610 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+-mc 0 + prompt             run3    620 ms   Good morning, this is Priya Sandoval calling from Haldan Freight about your pickup window.
+-mc 64 + prompt            run1    607 ms   Good morning, this is Priya Sandoval calling from Halden Freight about your pickup window.
+-mc 64 + prompt            run2    617 ms   Good morning, this is Priya Sandoval calling from Halden Freight about your pickup window.
+-mc 64 + prompt            run3    616 ms   Good morning, this is Priya Sandoval calling from Halden Freight about your pickup window.
+-mc -1 + prompt            run1    622 ms   Good morning, this is Priya Sandoval calling from Halden Freight about your pickup window.
+-mc -1 + prompt            run2    609 ms   Good morning, this is Priya Sandoval calling from Halden Freight about your pickup window.
+-mc -1 + prompt            run3    608 ms   Good morning, this is Priya Sandoval calling from Halden Freight about your pickup window.

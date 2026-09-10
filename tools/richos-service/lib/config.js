@@ -387,11 +387,26 @@ export function modelSearchDirs() {
  * grows monotonically to catastrophic at full context. 0 is chosen over 16 for the margin: 16 held
  * but sits one step from the first observed corruption, and it was slower (387 s vs 249 s).
  *
- * This is NOT free and the cost is NOT measured: previous-text conditioning is what gives whisper
- * cross-window consistency of spelling, casing and punctuation, and all of the evidence above is
- * long-form (92 min) on ONE recording. No measurement exists of what -mc 0 costs on a SHORT (<5 min)
- * call, and none is claimed. `RICHOS_WHISPER_MAX_CONTEXT` is the escape hatch; set it to -1 to
- * restore whisper.cpp's own behavior.
+ * This is NOT free, and SINCE 2026-09-10 THE COST IS MEASURED — the sentence that used to sit here
+ * saying it was not is superseded (`docs/measurements/whisper-settings-2026-09-10/`). On the 6-call
+ * invented corpus, where a true WER exists because the script IS the reference:
+ *
+ *   proper nouns rendered exactly, of 66:   -mc 0   46 (69.70%)
+ *                                           -mc -1  49 (74.24%)
+ *                                           -mc 64 + carried entity prompt  55 (83.33%)
+ *   short-call WER:                         -mc 0   2.89%   -mc -1  2.78%   -mc 64+prompt  2.73%
+ *
+ * So the price of this invariant is NAME SPELLING, not accuracy at brevity, and it is about 9
+ * proper nouns in 66. What that costs to buy back, on the same day and the same build, is 3.3% of a
+ * 92-minute timeline filled with fabricated repetition at `-mc 64` — against 0.0% here.
+ *
+ * AND THE ESCAPE THAT LOOKED AVAILABLE IS NOT ONE. `--prompt` (with or without
+ * `--carry-initial-prompt`) is BYTE-IDENTICAL to passing no prompt at all while this is 0: a zero
+ * text-context budget leaves no room for the prompt tokens. Entity biasing and long-form fabrication
+ * are the same knob, not two. Do not add `--prompt` here expecting it to do anything.
+ *
+ * `RICHOS_WHISPER_MAX_CONTEXT` is the escape hatch; set it to -1 to restore whisper.cpp's own
+ * behavior, which on 92 minutes of real audio is 7.8% of the channel replaced by one sentence.
  */
 export const MAX_CONTEXT_TOKENS = 0;
 
@@ -399,9 +414,26 @@ export const MAX_CONTEXT_TOKENS = 0;
  * Decode settings per channel. Kept as data so re-transcription and the `large-v3` opt-in tier (P5)
  * can pass different values without touching pipeline code.
  *
- * `-l en` matches the benchmark; `-t 4` matches the perf-core count used there; Metal does the
- * heavy lifting regardless. `-oj` emits per-segment timestamps the merge needs. `-mc` is emitted
- * BEFORE `extraArgs` so a tier or a caller can still override it (whisper-cli takes the last value).
+ * EVERY VALUE HERE IS CHOSEN AND EVERY ONE IS MEASURED — the full table, one row per flag this
+ * binary accepts including the ones we deliberately leave unset, is
+ * `docs/measurements/whisper-settings-2026-09-10/whisper-settings-decisions.md`. The short version:
+ *
+ *   -l en   byte-identical to `-l auto` on the corpus and 20% FASTER (76 s vs 91 s); pinned rather
+ *           than inherited because a mis-detected language changes every word.
+ *   -t 4    byte-identical to `-t 8` at the SAME wall clock — the decode is Metal-bound, so threads
+ *           past 4 buy nothing. Pinned so the value is ours, not the vendor's idea of this machine.
+ *   -mc     see MAX_CONTEXT_TOKENS above. Emitted BEFORE `extraArgs` so a tier or a caller can still
+ *           override it (whisper-cli takes the last value).
+ *   -oj     per-segment timestamps the merge needs; the plain text output has none.
+ *   -np     progress prints would corrupt the log; the transcript is read from the JSON file.
+ *   -fa     FLASH ATTENTION, and it is passed EXPLICITLY although whisper.cpp 1.9.1 already defaults
+ *           it on. Measured: `-nfa` costs 1.57 WER points (4.46% against 2.89%, insertions 8 -> 29)
+ *           and 18% wall clock, and drops proper-noun hits 46 -> 41 of 66. A setting worth 1.57
+ *           points is too valuable to hold by inheritance from a default that a formula bump can
+ *           flip; passing it is byte-identical today and cannot silently change. If a future
+ *           whisper-cli drops the flag this fails LOUDLY at the exec, which is the failure mode to
+ *           want — the alternative is a silent accuracy regression nobody would attribute.
+ *
  * @param {{model?: string, language?: string, threads?: number, maxContext?: number,
  *          extraArgs?: string[]}} [opts]
  */
@@ -420,6 +452,7 @@ export function whisperArgs(opts = {}) {
     '-mc', String(Number.isFinite(maxContext) ? maxContext : MAX_CONTEXT_TOKENS),
     '-oj',
     '-np', // no progress prints — keep stdout clean for logging
+    '-fa', // flash attention, pinned rather than inherited — worth 1.57 WER points, see above
     ...(opts.extraArgs || []),
   ];
 }

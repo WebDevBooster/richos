@@ -1,0 +1,32 @@
+{
+ "config": "mc-1",
+ "label": "decode context carried in full (vendor default)",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-mc",
+  "-1"
+ ],
+ "refWords": 1905,
+ "hypWords": 1912,
+ "S": 36,
+ "D": 5,
+ "I": 12,
+ "wer": 0.027821522309711286,
+ "werCase": 0.03989501312335958,
+ "segments": 154,
+ "wordTimes": 1839,
+ "wallSec": 97.416,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "mc-1/argv.jsonl",
+ "whisperVersion": null
+}

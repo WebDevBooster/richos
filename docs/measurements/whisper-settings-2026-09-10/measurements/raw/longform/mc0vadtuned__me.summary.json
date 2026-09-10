@@ -1,0 +1,28 @@
+{
+ "config": "mc0vadtuned",
+ "channel": "me",
+ "model": "large-v3-turbo",
+ "extra": [
+  "--vad",
+  "-vm",
+  "/Users/alex/Models/Whisper/ggml-silero-v5.1.2.bin",
+  "-vt",
+  "0.3",
+  "-vp",
+  "200",
+  "-vsd",
+  "500",
+  "-vspd",
+  "100"
+ ],
+ "wav": "/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-8478-3cde1a1aecdf/scratchpad/realaudio/audio/me.wav",
+ "wallSec": 430.7,
+ "segments": 303,
+ "words": 3752,
+ "audioSec": 5536.8,
+ "wordsPerMin": 40.65886432596446,
+ "mostRepeatedSegment": {
+  "text": "excellent",
+  "count": 6
+ }
+}

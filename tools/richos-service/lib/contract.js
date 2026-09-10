@@ -62,6 +62,10 @@ export function upgradeRecord(record) {
     modelRuns: [],
     ffmpegVersion: null,
     whisperVersion: null,
+    // Born null so a record whose pipeline never ran is visibly missing its provenance rather than
+    // silently absent — the same reason `status` is born `pending`. Filled by the pipeline with the
+    // sha256 of the binary, of every ggml backend it loaded, and of the weights it decoded with.
+    toolchain: null,
     loroCorrection: { applied: false, entitiesVersion: null, corrections: 0 },
   };
   return record;

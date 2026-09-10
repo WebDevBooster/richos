@@ -171,6 +171,46 @@ export function runPipeline(sessionDir, opts = {}) {
     );
     log.info(`${sessionId} — transcribed: me=${asr.me.length} seg, others=${asr.others.length} seg`);
 
+    // The identity of what just decoded this audio. `transcribeChannel` REFUSED before decoding if
+    // the weights were not the pinned weights, so reaching this line means the model is right; what
+    // can still be here is a binary or a ggml backend that is not the one this machine locked. That
+    // is a WARNING by design (toolchain.js `SEVERITY` says why: a Homebrew upgrade must not leave a
+    // captured call untranscribable), and a warning is only worth anything if it is LOUD — so it
+    // goes to the log as an alarm AND into verification.warnings, the same vocabulary a reader
+    // already meets for fabricated and deleted speech, never a line only a log file ever sees.
+    // `findings` and `messages` are parallel by construction (`resolveToolchain` builds the second
+    // by mapping the first), so they are zipped by index rather than matched by value — two
+    // findings of the same kind on different backends are not interchangeable.
+    const toolchainWarnings = (asr.toolchain?.findings || [])
+      .map((f, i) => (f.severity === 'warn' ? asr.toolchain.messages[i] || String(f.kind) : null))
+      .filter(Boolean);
+    for (const w of toolchainWarnings) log.alarm(`${sessionId} — whisper toolchain changed`, { detail: w });
+    if (asr.toolchain?.firstRun) {
+      log.info(`${sessionId} — whisper toolchain locked for the first time on this machine: ${asr.toolchain.provenance}`);
+    }
+
+    // THE PROVENANCE BLOCK, recorded HERE and not at Stage 6, for two reasons. It has to precede
+    // `renderMarkdown`, which puts the provenance line in the transcript header. And a run that
+    // dies in the guard or the merge should still leave behind what decoded it — the identity of
+    // the binary is most worth having on the run that went wrong.
+    //
+    // Until 2026-09-10 `whisperVersion` held the constant string 'whisper.cpp (whisper-cli)' on
+    // every run ever made, so "which binary produced this transcript" was not answerable from the
+    // record at all. It is now a sentence for a human; this block is the record a person queries.
+    record.pipeline.whisperVersion = asr.whisper || whisperVersion();
+    record.pipeline.toolchain = asr.toolchain
+      ? {
+          provenance: asr.toolchain.provenance,
+          verdict: asr.toolchain.verdict,
+          checkedAt: asr.toolchain.toolchain.checkedAt,
+          strict: asr.toolchain.toolchain.strict,
+          whisperCli: asr.toolchain.toolchain.bin,
+          backends: asr.toolchain.toolchain.backends,
+          findings: asr.toolchain.findings,
+          messages: asr.toolchain.messages,
+        }
+      : null;
+
     // ---- Stage 3.5: HALLUCINATION GUARD (P5) ----------------------------------------------------
     // The post-decode HALF of the hallucination defense, model-agnostic, across FOUR measured
     // decode-failure classes (see lib/repetition-guard.js): a repetition LOOP, a sliding-overlap
@@ -706,10 +746,24 @@ export function runPipeline(sessionDir, opts = {}) {
     // "hallucination: handled" and a missing clause reads as a pause. ONE warnings vocabulary for
     // both classes, deliberately: a reader should meet one way of being told this is not clean.
     verification.warnings = [
+      ...toolchainWarnings,
       ...guardWarnings(repetitionReport),
       ...deletionWarnings(deletionReport),
       ...substitutionWarnings(substitutionReport),
     ];
+    // FIRST in the list, deliberately. The other three warn about what the transcript SAYS; this
+    // one warns that the thing which produced all of it is not what produced the last one, which
+    // is the frame a reader needs before they weigh any of the rest.
+    verification.toolchain = asr.toolchain
+      ? {
+          provenance: asr.toolchain.provenance,
+          verdict: asr.toolchain.verdict,
+          whisperCli: asr.toolchain.toolchain.bin,
+          backends: asr.toolchain.toolchain.backends,
+          model: asr.toolchain.toolchain.model,
+          findings: asr.toolchain.findings.map((f) => f.kind),
+        }
+      : null;
     const totalWords = verification.channels.totalWords;
 
     if (totalWords < MIN_TRANSCRIPT_WORDS) {
@@ -733,7 +787,6 @@ export function runPipeline(sessionDir, opts = {}) {
 
     record.pipeline.status = PIPELINE_STATUS.ready;
     record.pipeline.ffmpegVersion = norm.ffmpeg || ffmpegVersion();
-    record.pipeline.whisperVersion = asr.whisper || whisperVersion();
     record.pipeline.modelRuns = record.pipeline.modelRuns || [];
     const runIndex = record.pipeline.modelRuns.length;
     record.pipeline.modelRuns.push({
@@ -744,6 +797,13 @@ export function runPipeline(sessionDir, opts = {}) {
       coverageRatio: verification.coverage.ratio,
       captionAgreement: verification.captions.agreementRatio,
       repetitionLoopsCollapsed: repetitionReport.removed,
+      // PER RUN, not only on the record's current toolchain block — a re-transcription on a new
+      // binary overwrites that block, and then the earlier run in this very array would be
+      // attributed to a build it never touched. Each row now carries its own two hashes.
+      whisperSha256: asr.toolchain?.toolchain?.bin?.sha256 || null,
+      whisperCppVersion: asr.toolchain?.toolchain?.bin?.version || null,
+      modelSha256: asr.toolchain?.toolchain?.model?.sha256 || null,
+      modelPinned: asr.toolchain?.toolchain?.model?.pinned ?? null,
     });
     delete record.pipeline.problems;
     writeRecord(sessionDir, record);

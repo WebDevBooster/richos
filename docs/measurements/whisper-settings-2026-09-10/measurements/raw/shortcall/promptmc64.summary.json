@@ -1,0 +1,35 @@
+{
+ "config": "promptmc64",
+ "label": "prompt with 64 text-context tokens",
+ "model": "large-v3-turbo",
+ "extra": [
+  "--prompt",
+  "Priya Sandoval, Halden Freight, Marla Kestrel, Corvane Systems, Everlock, Ridgeline Analytics, Quilvern Media, Tobias Renner, Nadia Kwok, Brightmoor Dental, Wexford Road, Cannery Street, Tidemark, Northgate, Pallas.",
+  "--carry-initial-prompt",
+  "-mc",
+  "64"
+ ],
+ "refWords": 1905,
+ "hypWords": 1916,
+ "S": 31,
+ "D": 5,
+ "I": 16,
+ "wer": 0.027296587926509186,
+ "werCase": 0.03779527559055118,
+ "segments": 136,
+ "wordTimes": 1833,
+ "wallSec": 82.868,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "promptmc64/argv.jsonl",
+ "whisperVersion": null
+}

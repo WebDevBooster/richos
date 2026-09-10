@@ -73,6 +73,13 @@ session dir (closed)
       · -ojf adds per-TOKEN offsets. It is output verbosity, not a decode parameter (it sits
         outside whisperArgs() with -of), and it is required: without per-word times the deletion
         detector at 3.7 has to score coverage on segment extents, which is measurably wrong.
+      · THE EXACT COMMAND LINE, captured from a real run rather than read off the source:
+        -m <model> -f <wav> -l en -t 4 -mc 0 -oj -np -fa -ojf -of <base>
+        Every one of those values, and every flag whisper-cli accepts that is deliberately NOT
+        passed, is decided with its evidence in
+        docs/measurements/whisper-settings-2026-09-10/whisper-settings-decisions.md — the table
+        the CEO's standing rule of 2026-09-10 requires ("never a third-party default unless the
+        default is PROVEN best"). Add a flag here and a unit test fails until the table names it.
  3.5 HALLUCINATION GUARD  silence fabrication REMOVED; repetition loop / sliding stutter collapsed;
                       ordinal insertion DETECTED
  3.6 DIARIZATION SEAM     opt-in; default identity
@@ -127,6 +134,40 @@ connection IS retried, up to three attempts, because that is what a train tunnel
 
 **What is deliberately NOT here:** the consent sheet that asks before a byte moves. That is a
 surface and belongs with the app; this is the integrity layer beneath it.
+
+### The toolchain check — which binary, which backends, which weights (2026-09-10)
+
+Pinning the weights and not the thing that reads them left an exposure the whisper settings
+decision table named in its own §4 and did not fix. Every "vendor default" in that table is a
+property of **one build**: `-fa` alone is worth 1.57 WER points and is a *default*, so a formula
+bump that flipped it would cost more accuracy than any tuning decision there recovers, and nobody
+would attribute the regression. `whisperVersion()` returned the constant string
+`'whisper.cpp (whisper-cli)'` on every run ever made, so nothing in the record could notice.
+
+**Two tiers, deliberately unequal.** Model weights are pinned **in source** and a mismatch
+**REFUSES** — the pin table has upstream plus a witness on disk behind it, and the fetch path
+already refuses on the same hash. `whisper-cli` and the ggml backends are locked **per machine** on
+first use (`~/.config/richos/whisper-toolchain.lock.json`) and a mismatch **WARNS**, naming both
+identities — a Homebrew bottle's hash cannot be pinned in source across arch and OS version, and a
+routine `brew upgrade` must not leave an already-captured call untranscribable.
+`RICHOS_WHISPER_STRICT_TOOLCHAIN=1` makes every warning a refusal. First install: records and
+proceeds, because there is nothing to be wrong about yet.
+
+**The reference build lives in `model-pins.json`**, beside the six model pins. One registry.
+
+**The sha256 is the identity; the version string is a label.** Measured: `whisper-cpp 1.8.3`
+rejects `--version` and **exits 0 with empty stdout**, so a probe trusting the exit code would read
+success and no version. The exit status is recorded and never consulted. Backends are read off the
+binary's own `load_backend:` lines rather than guessed from a Cellar path.
+
+**Cost.** The binary (654,720 B, 0.01 s) and its backends are hashed every run; models are hashed
+on a cache miss only, keyed on (path, size, mtime, inode, device) — `ggml-large-v3-turbo.bin` takes
+3.1 s, which is 1.4% of a 226 s decode but no reason to pay twice. A refused run never writes the
+cache. `app/crates/richos-voice` shares this lock and this pin table.
+
+```
+richos-service toolchain [--recheck] [--relock]     # what would run, and did it change
+```
 
 `npm run test:mutation` re-establishes that every one of these checks can actually fail — 56
 mutations to the shipped source, the suite run after each, the tree restored by `git checkout`.

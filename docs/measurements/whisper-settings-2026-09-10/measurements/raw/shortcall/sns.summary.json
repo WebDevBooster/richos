@@ -1,0 +1,31 @@
+{
+ "config": "sns",
+ "label": "suppress non-speech tokens",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-sns"
+ ],
+ "refWords": 1905,
+ "hypWords": 1915,
+ "S": 43,
+ "D": 6,
+ "I": 16,
+ "wer": 0.03412073490813648,
+ "werCase": 0.049343832020997375,
+ "segments": 148,
+ "wordTimes": 1830,
+ "wallSec": 76.022,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "sns/argv.jsonl",
+ "whisperVersion": null
+}
