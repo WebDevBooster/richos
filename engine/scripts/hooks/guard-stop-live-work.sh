@@ -1,0 +1,374 @@
+#!/usr/bin/env bash
+#
+# guard-stop-live-work.sh — BLOCKING PreToolUse guard on the TaskStop tool.
+#
+# ONE RULE: DESTROYING A LIVE TEAMMATE'S WORK REQUIRES THE CEO'S OWN WORDS OR A
+# WRITTEN, CHECKABLE REASON.
+#
+# ===========================================================================
+# THE FAILURE, 2026-09-10
+# ===========================================================================
+# He wrote: "the currently running agents MIGHT need to be paused IF we get
+# close to hitting the quota before it resets." Within a minute the
+# orchestrator called TaskStop on two mid-flight teammates and reported it back
+# as compliance. No burn rate had been measured; no condition had been
+# established; nothing had been asked.
+#
+# `echo-opus-hw2` had no commits and a clean worktree. Its entire session is
+# gone. `zach-opus-dor1` survived only because it had committed as it went.
+#
+# "Did I say anything about stopping???"
+#
+# Fourth instance in one day of one mechanism — an inference about what he
+# wanted, substituted for what he said, then acted on expensively. The sharpest
+# of the four, because it is the only one whose cost cannot be undone.
+#
+# ===========================================================================
+# THE CONTRACT
+# ===========================================================================
+# The predicate, the corpus measurement and the argument for every clause live
+# in scripts/lib/stop-live-work.py and NOWHERE ELSE. Read that first; this file
+# is the wiring and the refusal. In one paragraph:
+#
+#   ALLOW, SILENTLY   the target is not provably running (a finished teammate
+#                     being retired -- the overwhelming majority of real
+#                     TaskStop traffic), or the caller IS the target.
+#   ALLOW             the last genuine user message carries an unconditional,
+#                     non-negated, non-interrogative stop imperative.
+#   ALLOW + record    a live, targeted, unconsumed stop-work-ack.
+#   ALLOW + NOTE      liveness is INDETERMINATE. Said out loud, never guessed.
+#   BLOCK             a PROVABLY LIVE target, no instruction, nothing written.
+#
+# ===========================================================================
+# WHY BLOCKING, AND THE NUMBERS THAT DECIDED IT
+# ===========================================================================
+# Measured against every real TaskStop call in every Claude Code transcript on
+# this machine -- 2,499 transcripts scanned, 100 real calls found, adjudicated
+# one by one in scripts/hooks/stop-live-work.corpus.md.
+#
+#   100  real TaskStop calls
+#    94  target NOT provably live at the call, or the CEO had not spoken
+#         -> of these, the great majority are the legitimate dominant use:
+#            retiring a teammate that had already handed off. Those reach
+#            authority A and the guard never speaks.
+#     6  carried the CEO's own unconditional stop order -> authority B allows,
+#        and it fires on exactly those six and on nothing else.
+#     2  are today's kills. Both are refused.
+#
+#   FALSE POSITIVES ON THE MEASURED CORPUS: 0.
+#
+# The clause that makes that number 0 is the liveness gate, not the language
+# predicate. This guard refuses only on a POSITIVE ALIVE verdict from
+# scripts/lib/agent-liveness.py, whose authoritative source is the worktree
+# lock. A finished teammate has no lock, so every cleanup passes untouched and
+# a habit of waiving never gets a chance to form. That is the g11/g12/g13
+# lesson applied at the design stage instead of learned again: this project
+# killed three guards in one day by shipping gates broad enough that waiving
+# became routine, and a habitually waived guard is a dead guard that still
+# looks alive.
+#
+# ===========================================================================
+# WHAT IT NEVER TOUCHES
+# ===========================================================================
+#   * A teammate stopping ITSELF. The caller's own agent id is compared against
+#     the target, by id and by resolved name.
+#   * A protocol shutdown. Those are SendMessage bodies; no TaskStop is made.
+#   * Cleanup of an agent that has already finished -> not alive -> allowed.
+#   * Any other tool. A well-formed payload for anything but TaskStop exits 0.
+#
+# ===========================================================================
+# FAIL-OPEN, AND WHY THAT IS RIGHT HERE SPECIFICALLY
+# ===========================================================================
+# Its PreToolUse siblings fail CLOSED, and this one does not. The asymmetry is
+# deliberate. A fail-closed guard on a destructive tool sounds correct until
+# you count the traffic: the dominant legitimate use of TaskStop is retiring
+# something already finished, and for those the resolver often cannot resolve
+# anything at all. Fail closed and every cleanup needs paperwork. Paperwork
+# every time is exactly how the three dead guards died.
+#
+# So a missing python3, an unparseable payload, an unresolvable root, a broken
+# resolver -- all pass the call through, and the ones worth knowing about say
+# so on the operator channel. The guard refuses only what it can PROVE is live,
+# which is precisely the case that cost a session's work this morning.
+#
+# ===========================================================================
+# WHEN IT TAKES EFFECT
+# ===========================================================================
+# Hooks snapshot at session start, and this is a NEW registration. Installing
+# it changes nothing in the session that installs it; it begins enforcing in
+# the NEXT session. (An already-registered hook's BODY is re-read each fire --
+# this one is not that case.)
+#
+# Exit codes: 0 allowed / not mine / could not evaluate · 2 BLOCKED
+#
+# Self-test:  scripts/hooks/guard-stop-live-work.sh --self-test
+
+set -eo pipefail
+
+HOOK_TAG="(hook: scripts/hooks/guard-stop-live-work.sh)"
+
+if [ "${1:-}" = "--self-test" ]; then
+    _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    exec bash "$_SELF_DIR/guard-stop-live-work.test.sh"
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# python3 is required to read anything at all. FAIL OPEN -- see the header.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "NOTE: guard-stop-live-work.sh: python3 unavailable, so this TaskStop was NOT checked against the CEO's instruction or an ack. $HOOK_TAG" >&2
+    exit 0
+fi
+
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-stop-live-work.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defense"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 0
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
+
+INPUT="$(cat)"
+
+if resolve_entity_root "$INPUT"; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "${RICHOS_ROOT_STATUS:-}" = "not-adopted" ]; then
+    exit 0
+else
+    root_failure_banner "scripts/hooks/guard-stop-live-work.sh" >&2 || true
+    exit 0
+fi
+
+# --- Is this a TaskStop at all? --------------------------------------------
+# ONE python pass: tool gate + every field. A payload for a different tool
+# exits silently; an unreadable payload exits with a note (see below), never in
+# silence -- 17 of 25 PreToolUse guards were measured passing calls in complete
+# silence on 2026-09-05, and that is the defect this separates out.
+PARSED="$(printf '%s' "$INPUT" | python3 -c '
+import json, sys
+def out(*f): print("\t".join(f)); sys.exit(0)
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    out("PARSEFAIL", "", "", "", "")
+if not isinstance(d, dict):
+    out("PARSEFAIL", "", "", "", "")
+if str(d.get("tool_name", "") or "") != "TaskStop":
+    out("NOTMINE", "", "", "", "")
+ti = d.get("tool_input", {})
+if not isinstance(ti, dict):
+    out("PARSEFAIL", "", "", "", "")
+out("OK",
+    str(ti.get("task_id", "") or ""),
+    str(d.get("transcript_path", "") or ""),
+    str(d.get("session_id", "") or ""),
+    str(d.get("cwd", "") or ""))
+' 2>/dev/null || true)"
+
+STATUS="$(printf '%s' "$PARSED" | cut -f1)"
+[ "$STATUS" = "NOTMINE" ] && exit 0
+
+if [ "$STATUS" != "OK" ]; then
+    _UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+    if [ -f "$_UE_LIB" ]; then
+        # shellcheck source=../lib/unevaluated-notice.sh
+        . "$_UE_LIB"
+        unevaluated_or_continue "guard-stop-live-work.sh" "$INPUT" \
+            "${ENTITY_ROOT:-}" \
+            "whether this stop destroys a live teammate's uncommitted work"
+    fi
+    exit 0
+fi
+
+TASK_ID="$(printf '%s' "$PARSED" | cut -f2)"
+TRANSCRIPT="$(printf '%s' "$PARSED" | cut -f3)"
+SESSION_ID="$(printf '%s' "$PARSED" | cut -f4)"
+CALLER_CWD="$(printf '%s' "$PARSED" | cut -f5)"
+
+if [ -z "$TASK_ID" ]; then
+    echo "NOTE: guard-stop-live-work.sh: a TaskStop with no task_id was not checked. $HOOK_TAG" >&2
+    exit 0
+fi
+
+# --- WHO IS THE TARGET, AND IS IT ALIVE? -----------------------------------
+# TaskStop's task_id is either a raw agent id or the teammate NAME the spawn
+# carried. The name -> id join exists in exactly one place -- the lead's own
+# transcript, Agent tool_use joined to toolUseResult.agentId on tool_use_id --
+# and scripts/lib/agent-liveness.py is its only parser. This asks that parser
+# rather than adding a second one.
+#
+# The caller's own agent id comes from its cwd when it is an isolation
+# worktree, which is how "a teammate stopping itself" is recognized without
+# trusting anything the caller says.
+SELF_AGENT_ID=""
+case "$CALLER_CWD" in
+    */.claude/worktrees/agent-*)
+        SELF_AGENT_ID="${CALLER_CWD##*/agent-}"
+        SELF_AGENT_ID="${SELF_AGENT_ID%%/*}"
+        ;;
+esac
+
+LIVENESS_JSON="$(
+    TASK_ID="$TASK_ID" TRANSCRIPT="$TRANSCRIPT" ENTITY_ROOT="$ENTITY_ROOT" \
+    ENGINE_ROOT="$ENGINE_ROOT" python3 - <<'PY' 2>/dev/null || true
+import json, os, sys
+sys.path.insert(0, os.path.join(os.environ["ENGINE_ROOT"], "scripts", "lib"))
+task = os.environ["TASK_ID"]
+res = {"verdict": "INDETERMINATE", "agent_id": "", "detail": "resolver unavailable"}
+try:
+    import importlib.util
+    p = os.path.join(os.environ["ENGINE_ROOT"], "scripts", "lib", "agent-liveness.py")
+    spec = importlib.util.spec_from_file_location("agent_liveness", p)
+    al = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(al)
+except Exception as e:
+    print(json.dumps(res)); sys.exit(0)
+
+# A session-qualified name (norm-sonnet-title1@session-ad9b54ca) is a real
+# addressing form in this harness; strip the qualifier before the join.
+bare = task.split("@", 1)[0]
+target = bare
+try:
+    names = al.names_to_ids(os.environ.get("TRANSCRIPT", ""))
+    if bare in names:
+        target = names[bare]
+    elif task in names:
+        target = names[task]
+except Exception:
+    pass
+res["agent_id"] = target
+try:
+    rec = al.resolve(os.environ["ENTITY_ROOT"], target)
+    if isinstance(rec, dict):
+        res["verdict"] = str(rec.get("verdict") or "INDETERMINATE")
+        res["detail"] = str(rec.get("reason") or "")
+except Exception as e:
+    res["detail"] = "resolver raised: %r" % (e,)
+print(json.dumps(res))
+PY
+)"
+
+LIVENESS="$(printf '%s' "$LIVENESS_JSON" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("verdict") or "INDETERMINATE")
+except Exception: print("INDETERMINATE")' 2>/dev/null || echo INDETERMINATE)"
+RESOLVED_ID="$(printf '%s' "$LIVENESS_JSON" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("agent_id") or "")
+except Exception: print("")' 2>/dev/null || true)"
+LIVE_DETAIL="$(printf '%s' "$LIVENESS_JSON" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("detail") or "")
+except Exception: print("")' 2>/dev/null || true)"
+
+case "$LIVENESS" in
+    ALIVE|NOT-ALIVE|INDETERMINATE) : ;;
+    *) LIVENESS="INDETERMINATE" ;;
+esac
+
+# --- THE VERDICT -----------------------------------------------------------
+VERDICT_JSON="$(
+    python3 "$ENGINE_ROOT/scripts/lib/stop-live-work.py" \
+        --task-id "$TASK_ID" \
+        --liveness "$LIVENESS" \
+        --transcript "$TRANSCRIPT" \
+        --entity-root "$ENTITY_ROOT" \
+        --self-agent-id "$SELF_AGENT_ID" \
+        --resolved-agent-id "$RESOLVED_ID" \
+        --session-id "$SESSION_ID" \
+        --consume 2>/dev/null || true
+)"
+
+VERDICT="$(printf '%s' "$VERDICT_JSON" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("verdict") or "")
+except Exception: print("")' 2>/dev/null || true)"
+REASON="$(printf '%s' "$VERDICT_JSON" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("reason") or "")
+except Exception: print("")' 2>/dev/null || true)"
+
+if [ -z "$VERDICT" ]; then
+    echo "NOTE: guard-stop-live-work.sh: the stop predicate could not run, so this TaskStop on '$TASK_ID' was NOT checked. $HOOK_TAG" >&2
+    exit 0
+fi
+
+LOG_DIR="$ENTITY_ROOT/.claude/state"
+
+case "$VERDICT" in
+    allow-not-live|allow-self)
+        exit 0
+        ;;
+    allow-undecidable)
+        # The one class the guard cannot decide. Allowed, and NAMED -- because
+        # a guard that treats "I could not tell" as "it is fine" is how a
+        # stale roster came to outrank a held lock on 2026-08-31.
+        echo "NOTE: TaskStop on '$TASK_ID' — could not establish whether it is still running (${LIVE_DETAIL:-no evidence}), so it was allowed unchecked. If it IS running and has not committed, that work is now gone. $HOOK_TAG" >&2
+        exit 0
+        ;;
+    allow-ceo-said-so)
+        echo "TaskStop on '$TASK_ID' allowed: he said so — ${REASON}. $HOOK_TAG" >&2
+        exit 0
+        ;;
+    allow-acked)
+        mkdir -p "$LOG_DIR" 2>/dev/null || true
+        {
+            printf '%s\tsession=%s\ttask=%s\t%s\n' \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SESSION_ID" "$TASK_ID" "$REASON"
+        } >>"$LOG_DIR/stop-work-acks-used.log" 2>/dev/null || true
+        echo "TaskStop on '$TASK_ID' allowed on a written stop-work-ack, now spent. Uses are appended to .claude/state/stop-work-acks-used.log, so a habit of acking shows up as a habit. $HOOK_TAG" >&2
+        exit 0
+        ;;
+esac
+
+# --- REFUSED ---------------------------------------------------------------
+{
+    echo "BLOCKED: TaskStop on '$TASK_ID' would destroy work that is STILL RUNNING."
+    echo
+    echo "  Liveness: ALIVE — ${LIVE_DETAIL:-its isolation worktree lock is held by a running process}"
+    echo "  Instruction: ${REASON}"
+    echo
+    echo "  A subagent cannot be paused. It can only be stopped, and stopping it"
+    echo "  throws away everything it has not committed. On 2026-09-10 that took"
+    echo "  echo-opus-hw2's entire session — no commits, clean worktree, nothing"
+    echo "  recoverable. zach-opus-dor1 survived the same minute only because it"
+    echo "  had committed as it went."
+    echo
+    echo "  IF THE REASON IS BUDGET, THIS IS THE WRONG LEVER. Work already in"
+    echo "  flight is already paid for; killing it refunds nothing and forfeits"
+    echo "  the result. The action that costs nothing is to stop DISPATCHING."
+    echo
+    echo "  Two ways forward, and only two:"
+    echo
+    echo "    1. HE SAYS IT. An unconditional instruction to stop, in his own"
+    echo "       words, in this session. A conditional is not an instruction —"
+    echo "       'might', 'if', 'may need to', 'should we' are hypotheses about"
+    echo "       a future, and reading one as an order is the exact mistake this"
+    echo "       refusal exists to prevent."
+    echo
+    echo "    2. YOU WRITE IT DOWN:"
+    echo
+    echo "         <engine>/scripts/stop-work-ack.sh \\"
+    echo "             --task '$TASK_ID' \\"
+    echo "             --destroying '<what is lost if it dies right now>' \\"
+    echo "             --why '<why it cannot wait for the agent to commit>'"
+    echo
+    echo "       One target, 15 minutes, spent on first use. A bare marker"
+    echo "       exempts nothing."
+    echo
+    echo "  Not sure whether it has committed? git -C <its worktree> log --oneline"
+    echo "  answers that in one line, and it is the difference between losing"
+    echo "  nothing and losing everything."
+    echo
+    echo "  $HOOK_TAG"
+} >&2
+exit 2

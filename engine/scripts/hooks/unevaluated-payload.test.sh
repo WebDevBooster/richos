@@ -228,6 +228,12 @@ bodies = {
         "questions": [{"question": "which?",
                        "options": [{"label": "a"}, {"label": "b"}]}]}},
     "Workflow": {"tool_name": "Workflow", "tool_input": {"name": "x"}},
+    # TaskStop's whole tool_input is one key. Measured across all 100 real
+    # TaskStop calls on this machine, 2026-09-10: 100 of 100 carry exactly
+    # {"task_id": ...} and nothing else, so this control is the real shape
+    # rather than a plausible one.
+    "TaskStop": {"tool_name": "TaskStop", "tool_input": {
+        "task_id": "dev-sonnet-a1"}},
     "Stop": {"hook_event_name": "Stop", "stop_hook_active": False,
              "last_assistant_message": "Landed the branch and deployed."},
 }

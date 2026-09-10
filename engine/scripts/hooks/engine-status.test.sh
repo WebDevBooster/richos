@@ -525,6 +525,13 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # nothing while the banner read 60/62); this set was the last one owing.
 # Recorded rather than fixed silently: esc-20260910T080736Z-3a5c8f97 names all
 # five duties and stands as the record of how a landing came to owe five.
+# guard-stop-live-work.sh, added 2026-09-10: the PreToolUse[TaskStop] gate that
+# refuses to destroy a teammate that is provably still running. Its inventories
+# were derived the way this note prescribes rather than guessed --
+# `grep -rln guard-stale-staging engine/` -- and it is named in hooks.json,
+# BR_EXPECTED, this set, README.md's guard table and install.sh's hashed set
+# (the predicate and the ack recorder, since the guard itself is derived from
+# hooks.json).
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -553,6 +560,7 @@ guard-row-currency-commits.sh
 guard-sealed-worktree.sh
 guard-stale-staging.sh
 guard-stated-actions.sh
+guard-stop-live-work.sh
 guard-unresolved-claims.sh
 guard-vendoring-commits.sh
 guard-workflow-ban.sh

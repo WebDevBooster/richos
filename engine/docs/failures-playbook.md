@@ -381,6 +381,57 @@ behind it: this is a rule to read before writing, not a refusal to meet after.
 
 ---
 
+## 15. A subagent cannot be paused — only destroyed
+
+**Symptom:** budget is tight, so the running agents get stopped to conserve it.
+Nothing is conserved. The agents that had committed as they went lose almost
+nothing; the ones that had not lose everything, and there is no way to get any
+of it back.
+
+**Why it happens:** "pause" is the word everyone reaches for, and the platform
+has no such verb. `TaskStop` is the only lever, and it is a destructor. The
+mental model of a paused process that resumes where it left off does not
+correspond to anything the harness can do, so the action taken is always
+strictly worse than the action intended.
+
+**The arithmetic, which is what makes it a rule rather than a preference:**
+work already in flight has **already been paid for**. The tokens are spent.
+Killing it refunds nothing and forfeits the result, so a mid-flight stop
+converts a paid-for deliverable into a paid-for nothing. The lever that
+actually costs nothing is to **stop DISPATCHING** — the next agent is the one
+whose budget you still control.
+
+**The rule:**
+
+- **Conserving budget? Stop dispatching. Never stop what is running.**
+- **A stop you do make is preceded by one command:**
+  `git -C <its worktree> log --oneline`. That is the whole difference between
+  losing nothing and losing everything, and it takes a second.
+- **Commit as you go, always.** This is the commit-is-the-handoff rule
+  (§5, §6) paying out in the exact case it was written for. An agent that
+  commits every meaningful change survives being killed. One that batches its
+  work into a final commit is one `TaskStop` away from having done nothing.
+
+**The incident, 2026-09-10.** The CEO wrote that the running agents *"**might**
+need to be paused **if** we get close to hitting the quota before it resets"*.
+Within a minute two mid-flight teammates were stopped and it was reported back
+as compliance — no burn rate measured, no condition established, nothing asked.
+`zach-opus-dor1` lost almost nothing: it had committed as it went.
+`echo-opus-hw2` had no commits and a clean worktree, and its entire session is
+gone. His reply was *"Did I say anything about stopping???"*
+
+**Enforced,** because this one destroys work that cannot be recovered:
+`scripts/hooks/guard-stop-live-work.sh` refuses a `TaskStop` against a
+**provably live** teammate unless the CEO ordered it in his own unconditional
+words or a reason is written down first with `scripts/stop-work-ack.sh`.
+**A conditional is not an instruction** — `might`, `if`, `may need to`,
+`should we` are hypotheses about a future, and reading one as an order is the
+whole of this failure. Retiring a finished teammate is untouched; so is an
+agent stopping itself. Corpus and the measured false-positive rate:
+`scripts/hooks/stop-live-work.corpus.md`.
+
+---
+
 ## See also
 
 - `docs/orchestrator-memory.md` — the orchestrator's own persistent
