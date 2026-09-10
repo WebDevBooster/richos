@@ -36,6 +36,20 @@ const LIB_FILE = path.join(UI_DIR, "splash-library.js");
 const RENDERER_FILE = path.join(UI_DIR, "splash.js");
 const CSS_FILE = path.join(UI_DIR, "splash.css");
 const MAIN_JS = path.join(UI_DIR, "main.js");
+
+/// WHEN THE BAR STARTS, READ OFF THE PRODUCT. `splash.js` declares `var BAR_START_MS = 600`
+/// and check 8 needs the same number to know whether a sample landed before the bar began.
+/// Typing 600 here would be a second copy of a constant, which is how check 8 came to make a
+/// claim that was true of the machine it was written on. Both sides are the same number or
+/// this file stops loading.
+const BAR_START_MS = (() => {
+  const m = fs.readFileSync(RENDERER_FILE, "utf8").match(/BAR_START_MS\s*=\s*(\d+)/);
+  if (!m) {
+    console.error("splash.js no longer declares BAR_START_MS — check 8 cannot know when the bar begins");
+    process.exit(2);
+  }
+  return Number(m[1]);
+})();
 const MAIN_RS = path.resolve(UI_DIR, "..", "src-tauri", "src", "main.rs");
 const CONFIG_RS = path.resolve(UI_DIR, "..", "crates", "richos-core", "src", "config.rs");
 const LAUNCH_RS = path.resolve(UI_DIR, "..", "crates", "richos-core", "src", "launch.rs");
@@ -203,7 +217,7 @@ const SHAPE = (o) => {
 // `seconds` token the product already supports, and say so at the call site.
 const CURTAIN_CLOCK = (cfg) => {
   cfg = cfg || {};
-  const c = { shownAt: null, goneAt: null, firstKeyAt: null, mid: null, trace: [] };
+  const c = { shownAt: null, goneAt: null, firstKeyAt: null, mid: null, shown: null, trace: [] };
   window.__curtain = c;
 
   const bits = () => {
@@ -232,6 +246,11 @@ const CURTAIN_CLOCK = (cfg) => {
 
   const onShown = () => {
     c.shownAt = performance.now();
+    // THE READING THAT NEEDS NO TIMER, taken here, synchronously, at the instant the curtain
+    // is shown. A scheduled callback is a REQUEST for an instant and not an instant: on a
+    // loaded runner the 300ms sample below arrived at 1320ms. This one cannot arrive late,
+    // because there is nothing between it and `shownAt` to be late.
+    if (cfg.midAt != null) c.shown = readMid();
     if (cfg.midAt != null) setTimeout(() => { c.mid = readMid(); }, cfg.midAt);
     if (cfg.trace) {
       const every = cfg.every || 40;
@@ -1494,7 +1513,9 @@ async function main() {
     const page = await launch(browser, { hold: true, force: v.id, seconds: 5, clock: { midAt: 300 } });
     await page.waitForFunction(() => window.__curtain && window.__curtain.mid !== null, null, { timeout: 20000 });
     const before = await page.evaluate(() => window.__curtain.mid);
+    const atShown = await page.evaluate(() => window.__curtain.shown);
     assert(!before.gone, "the curtain was gone before its own 300ms sample — nothing was measured");
+    assert(atShown && !atShown.gone, "there was no curtain at the instant it reported being shown");
     const read = () => {
       const n = document.getElementById("splash");
       const fill = n.querySelector('.splash-bar [data-role="progress"]');
@@ -1510,7 +1531,44 @@ async function main() {
         reason: window.RichSplash.state.reason,
       };
     };
-    assertEqual(before.fill, 0, "mid-ceremony the bar has not started yet (sampled " + before.at + "ms in)");
+    // ---------------------------------------------------------------------------------
+    // TWO READINGS, AND ONLY ONE OF THEM DEPENDS ON THE MACHINE BEING QUICK — 2026-09-10.
+    //
+    // This was `assertEqual(before.fill, 0, ...)` on the 300ms sample alone, and it went RED
+    // on run 34451068719 with `expected 0, actual 133` and its own message reading "sampled
+    // 1320ms in". The bar starts at 600ms. At 1320ms it is SUPPOSED to be 133px along — the
+    // check failed the product for being right, on a commit that changed nothing but comments
+    // in a YAML header, because five shards were contending for the macOS pool.
+    //
+    // The comment above this call already records the first version of this same mistake,
+    // where the sample was taken from OUTSIDE the page and read a bar 331px along. Moving the
+    // sample inside the page made it later-by-less; it did not make it on time. A scheduled
+    // callback is a request for an instant, and a busy main thread is free to refuse it.
+    //
+    // So the strong claim is now made where it cannot be late — the reading taken
+    // synchronously at `shownAt`, with no timer between the two — and the 300ms sample is
+    // asserted against what is TRUE AT WHATEVER INSTANT IT ACTUALLY LANDED, using the
+    // product's own `BAR_START_MS`. Neither branch can be falsified by a slow machine, and
+    // the check reports which one it took so a runner that permanently lost the sharp reading
+    // says so in the log instead of quietly asserting less.
+    assertEqual(atShown.fill, 0, "at the instant the curtain was shown the bar had already started");
+    assert(atShown.foot < 1, "at the instant the curtain was shown the settle had already landed (" + atShown.foot + ")");
+
+    const early = before.at < BAR_START_MS;
+    if (early) {
+      assertEqual(before.fill, 0, "mid-ceremony the bar has not started yet (sampled " + before.at + "ms in)");
+    } else {
+      // The sample landed after the bar was due to start, so "not begun" is not a claim about
+      // this reading. What must still hold is that the ceremony was UNFINISHED — which is the
+      // thing the second half of this check needs, since pinning to FULL means nothing if the
+      // bar was already full.
+      assert(
+        before.fill < before.track,
+        "sampled " + before.at + "ms in, past the " + BAR_START_MS + "ms bar start, and the bar " +
+          "was ALREADY FULL (" + before.fill + " of " + before.track + ") — there was no " +
+          "ceremony left to cut"
+      );
+    }
     assert(before.foot < 1, "mid-ceremony the last stage of the settle has not landed yet (" + before.foot + ")");
     // His first keystroke is one of the three things that make the surface yield.
     await stillUp(page, "the keystroke half of check 8");

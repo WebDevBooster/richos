@@ -1,0 +1,66 @@
+# How long each browser suite takes ON THE RUNNER, so `run.js` can pack them into shards.
+#
+# A WEIGHT IS A MEASUREMENT WITH A DATE, NEVER A FACT. These decide which shard a suite lands
+# in and nothing else: coverage is proven from the receipts each shard writes, so a stale
+# weight costs wall clock and cannot cost correctness. That is the only reason this file is
+# allowed to exist — it is the one typed list in `app/ui/tests/`, and it is typed because a
+# duration is the one thing that cannot be read off disk. Everything a green run DEPENDS on
+# is still discovered.
+#
+# MEASURED: run 34448209503, 2026-09-10, `macos-latest`, at 09ada13e — the first green sharded
+# pass. Every number is that run's own receipt for that suite, so they come from ONE execution
+# and are comparable with each other. Numbers stitched from several sources are not.
+#
+#   runner serial total   2155 s
+#   heaviest suite        305 s (splash.js) — the floor: no shard count gets under it
+#
+# THESE REPLACED A LOCAL SET, and the size of the correction is the argument for re-deriving
+# them here rather than trusting a laptop. Locally the same 31 suites totalled 756 s and the
+# heaviest was `splash.js` at 110 s; on the runner it is 2155 s and 305 s. The RATIOS moved
+# too, which is what packing actually depends on: `affordances.js` is 7 percent of the local total
+# and 13 percent of the runner's, because runner slowness is not a single constant every suite is
+# multiplied by. A packing computed from local seconds is a packing computed from the wrong
+# shape.
+#
+# RE-DERIVE THEM THE SAME WAY. Every receipt carries its suite's wall clock, so the current
+# numbers are always one command away from the last green run's own log — never a fresh
+# stopwatch, and never a mix of the two.
+#
+# A suite missing from this file is NOT an error. `run.js` packs it as the heaviest known
+# suite and NAMES it in `--plan`, so it lands in the emptiest shard and the assumption is
+# visible rather than silent. Adding a suite therefore needs no edit here.
+#
+# Longest first, which is also the order the packer walks them in.
+#
+# suite	seconds
+splash.js	305
+affordances.js	287
+contrast.js	243
+appearance.js	144
+slow-bridge.js	129
+feedback.js	108
+techy.js	87
+corrections.js	82
+realbytes.js	80
+updates.js	78
+restart-scope.js	65
+waiting-lifecycle.js	58
+compaction-progress.js	54
+onboarding.js	53
+waiting-state.js	51
+home.js	47
+setup.js	39
+compaction-notice.js	37
+retention.js	37
+onboarding-lifecycle.js	27
+scale.js	25
+memory.js	24
+memory-strategy.js	22
+inspector.js	19
+steering.js	19
+workers.js	13
+live-workers.js	10
+outage.js	6
+markdown.js	5
+vouch-template.js	1
+docs-claims.js	0

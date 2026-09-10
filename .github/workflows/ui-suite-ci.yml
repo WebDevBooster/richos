@@ -1,5 +1,31 @@
 name: ui-suite-ci
 
+# --- CI-SURFACE DECLARATIONS -----------------------------------------------
+# Read by engine/scripts/lib/ci-surface.py, which judges every workflow on six
+# axes and treats a MISSING declaration as a finding rather than a pass.
+#
+# THE BUDGET IS ARGUED FROM THIS WORKFLOW'S OWN SHARDED RUNS, not from its
+# history, and the distinction matters here more than anywhere else in this
+# directory: the surface standard measured ui-suite-ci at p90 2182s, and that
+# number is the SERIAL job this change replaces. Quoting it as the budget would
+# pin a ceiling to behavior that no longer exists.
+#
+# Measured on the two green sharded runs, both on this branch:
+#   34448209503  7 shards  902s   4 of 7 started at once, 3 queued
+#   34449768368  5 shards  815s   3 of 5 started at once, 2 queued
+#
+# 25m is roughly 1.8x the slower of those. It is deliberately looser than twice
+# the p90 of a settled workflow would be, and the reason is measured rather than
+# cautious: the wall clock here is dominated by how many macOS runners the pool
+# will start at once, which was 3 in one run and 4 in the other, and which this
+# workflow does not control. A tighter ceiling would fire on the pool being busy,
+# which is the fastest way to teach everyone to ignore it. It still catches the
+# thing worth catching — a regression to the ~30m serial behavior trips it.
+# The job's own timeout-minutes is 45.
+# ci-budget: 25m
+# ci-evidence: the `coverage` job refuses unless the union of every shard's receipts EQUALS the suite inventory discovered from disk, all at ONE commit, none duplicated, each having run at least the checks its own source declares — so a green here names all 31 suites rather than counting green ticks
+# ---------------------------------------------------------------------------
+
 # THE BROWSER SUITES, AND NOTHING HAS EVER RUN THEM BUT A PERSON TYPING THE COMMAND.
 #
 # There were twelve when this file was written and twenty-one on 2026-09-04, which is why
@@ -19,8 +45,14 @@ name: ui-suite-ci
 # the WebKitGTK port — a different WebKit with a different graphics stack — so an
 # ubuntu-latest job here would be cheap, green, and answering a question nobody asked. On
 # macOS, Playwright ships a build of Apple's WebKit, the engine family WKWebView renders
-# through. The suites take about four minutes; the bill is the price of the answer being
-# about the right engine.
+# through. The bill is the price of the answer being about the right engine.
+#
+# THE SENTENCE HERE USED TO SAY "the suites take about four minutes", and by 2026-09-10 the
+# real number was 1792 seconds — thirty minutes, stale by 7x. It is not restated as a new
+# constant, because that is how it went wrong the first time: the wall clock is a fact about
+# the packing and the runner, both of which move, so it is MEASURED at the bottom of this
+# header against a run id, and `node run.js --plan=<N>` prints the current one from the
+# committed weights on demand.
 #
 # WHY NOT FOLD IT INTO app-spine-ci.yml, which is already a job in this repository. Because
 # that one is Rust on ubuntu and this one is Node on macOS: sharing a file would mean one of
@@ -81,44 +113,106 @@ name: ui-suite-ci
 # SHA somebody can name — the same sentence app-spine-ci.yml and windows-companion-ci.yml each
 # carry, for the same reason.
 #
-# HOW LONG IT TAKES, MEASURED, AND WHAT A MATRIX WOULD COST — 2026-09-05. NOTHING BELOW IS
-# CHANGED BY THIS PARAGRAPH; it is the arithmetic, written down where the decision would be
-# made, so that whoever makes it is not estimating.
+# THE SHA IS c220052b, RUN 34453797475, 2026-09-10, and this is the run this file's numbers
+# are quoted against:
 #
-# Run 33933067025: job 21m00s, of which `npm test` is 20m34s and the other 26s is the whole
-# rest of the job (checkout 7.2s, `node --version` 0.6s, `npm ci` 12.4s — WebKit came out of
-# the runner image's cache — the WebKit probe 1.4s, setup and cleanup the remainder). The
-# suites run strictly serially, each launching its own WebKit. Per-suite times, taken from the
-# timestamp at which `run.js` flushes each suite's buffered output:
+#   ✓ ui-suite: 31/31 discovered suite(s) ran, all green, all at c220052b3a9e…
+#     554 checks observed. serial cost 1530 s across 5 shard(s).
 #
-#   contrast 201s · splash 162s · appearance 142s · affordances 138s · realbytes 98s ·
-#   feedback 77s · corrections 64s · restart-scope 56s · techy 50s · updates 44s · home 41s ·
-#   setup 35s · retention 23s · memory 22s · scale 20s · inspector 18s · memory-strategy 15s ·
-#   steering 14s · live-workers 5s · workers 5s · markdown 5s · docs-claims 0.2s
+#   shards (1) +0s 113s · (4) +0s 211s · (5) +0s 426s · (2) +2s 455s · (3) +4s 476s
+#   coverage +489s 16s · WALL CLOCK 512 s (8.5 min) against the 1816 s serial job it replaces
 #
-# The longest single suite is `contrast.js` at 3m21s, and that is the floor: no matrix makes
-# this job finish faster than its longest suite plus the 26s of setup, so ~3m47s is the wall
-# nothing gets under without splitting a suite. Sharding the list longest-first onto N runners:
+# All five shards started within four seconds of each other, which is the uncontended case the
+# five-wide matrix is sized for, and the longest came in at 476s against the packing's
+# predicted 495s. Two earlier green runs on the same branch took 902s and 815s while the macOS
+# pool was busy; that spread is the pool's, not the packing's, and it is why `ci-budget` above
+# is 25m rather than something tight enough to look impressive.
 #
-#   N=2  wall 10m45s   billed 21.5 runner-minutes   (serial: 21m00s / 21.0)
-#   N=3  wall  7m19s   billed 22.0
-#   N=4  wall  5m37s   billed 22.5
-#   N=6  wall  3m54s   billed 23.4
-#   N=8  wall  3m47s   billed 30.3   <- past the point of it, contrast.js alone is the shard
+# BEFORE THIS RUN THE WORKFLOW HAD BEEN RED FOR FOUR DAYS — every run since 2026-09-06T18:22Z
+# (44 failures against 16 successes in the last 60), on three suites: affordances.js, which had
+# a removed button's id typed into it in five places; contrast.js, whose absolute whole-page
+# node floors tripped on an unrelated removal from the shell; and docs-claims.js, which was
+# right, and caught app/README.md claiming 196 richos-voice tests where the tree has 210.
 #
-# So the trade is real and it is small: N=4 turns 21 minutes of waiting into under 6 for about
-# 7% more billed runner time, because the 26s of per-job setup is the only thing duplicated and
-# macOS minutes are billed at 10x either way. N=6 is the last N that buys anything.
+# HOW LONG IT TAKES, MEASURED, AND WHY THE MATRIX IS FIVE WIDE. The arithmetic is written
+# down where the decision was made, so whoever revisits it is not estimating.
+#
+# THE PARAGRAPH THAT STOOD HERE WAS THE 2026-09-05 VERSION OF THIS ONE, and it is worth saying
+# why it is gone rather than amended: it listed 22 per-suite times and concluded "N=6 is the
+# last N that buys anything". By 2026-09-10 there were 31 suites, the serial cost had gone from
+# 20m34s to 1792s, and the last N that buys anything was 7. Every sentence in it was true when
+# written. A table of durations is a measurement with a date on it, which is exactly what
+# `app/ui/tests/suite-weights.tsv` now is — one line per suite, re-derivable by command, rather
+# than prose that has to be remembered.
+#
+# THE SERIAL BASELINE, run 34435558131 (2026-09-10, 31 suites): job 30m28s, of which the single
+# suite step is 1792s and the whole rest of the job is 24s — checkout 7s, toolchain 1s, `npm ci`
+# 9s with WebKit out of the image cache, nushell 5s, the WebKit probe 1s.
+#
+# THE PACKING, from `app/ui/tests/suite-weights.tsv` — every weight a receipt from run
+# 34448209503, the first green sharded pass, so they are ONE run's numbers and comparable with
+# each other. Runner serial total 2155s; heaviest suite `splash.js` at 305s.
+# `node run.js --plan=<N>` prints any of these:
+#
+#   N=4  longest shard 616s      N=6  longest shard 413s
+#   N=5  longest shard 495s      N=7  longest shard 353s
+#                                N=8  longest shard 310s  <- the floor, splash.js alone
+#
+# AND THE PACKING IS NOT WHAT DECIDES N. That was the mistake in the first version of this
+# paragraph, which read a table like the one above, took the smallest longest-shard and set
+# the matrix to seven. Run 34448209503 was green in 902s — a real 2x on the 1816s serial job,
+# and nowhere near the ~400s the table predicts. Its own job timeline says why:
+#
+#   shards (3) start +  0s   shards (7) start +295s
+#   shards (4) start +  1s   shards (5) start +439s
+#   shards (2) start +  2s   shards (1) start +525s
+#   shards (6) start +  2s
+#
+# FOUR STARTED; THREE QUEUED, each beginning only as an earlier one finished. GitHub-hosted
+# macOS runners are a small shared pool, and at that moment it was also carrying a SECOND
+# ui-suite-ci run — main moved twice while this one was in flight — plus packaging-ci. So a
+# shard count above what the pool will actually start at once does not buy a shorter wall
+# clock; it buys a second wave, and pays another job's setup for the privilege.
+#
+# FIVE IS THE NUMBER THE POOL WILL RUN AT ONCE. That is why the matrix is five and not the
+# seven the packing table argues for: five shards is one wave, and one wave of 495s beats two
+# waves of 353s. The floor — 305s, `splash.js` — is unreachable at ANY N until that suite
+# becomes divisible, so the distance between 495 and 305 is the honest remaining prize and it
+# is not large enough to be worth a second wave.
+#
+# `concurrency:` ABOVE IS PART OF THE SAME FINDING rather than housekeeping. Two live runs of
+# this workflow compete for the same small pool and make each other slow, which is exactly
+# what was measured.
+#
+# WHAT IT COSTS. Setup is the only thing duplicated — 24s per job, measured on the serial run
+# — so five jobs bill about 1.6 extra runner-minutes against the serial 30. macOS minutes are
+# billed at 10x either way.
+#
+# THE WALL CLOCK IS NOT PROMISED HERE, and that is deliberate: it is a fact about the packing,
+# the runner AND what else is queued, all three of which move. It is measured against a run id
+# at the bottom of this header, and `--plan` prints the packing's own expectation on demand.
 #
 # WHAT IT WOULD COST IN CORRECTNESS, WHICH IS THE PART THAT IS NOT ARITHMETIC. `run.js`'s
 # evidence gate — every discovered suite ran, none skipped, every suite's observed count against the
-# count its own source declares — is a whole-run fact today. Split across N jobs it becomes N
-# partial facts plus a job that has to add them up, and the sentence at the top of this file
-# ("HOW THIS CANNOT REPORT A GREEN RUN IT DID NOT EARN") is only true again once that adding-up
-# job exists and is itself required. A matrix that reports six greens and no total is a weaker
-# gate than one serial red. That work is deliberately NOT in the branch that made this job
-# green: a change that fixes the suites and a change that makes them fast have to be separately
-# revertible.
+# count its own source declares — was a whole-run fact while the run was one process. Split
+# across N jobs it becomes N partial facts plus a job that has to add them up, and the sentence
+# at the top of this file ("HOW THIS CANNOT REPORT A GREEN RUN IT DID NOT EARN") is only true
+# again once that adding-up job exists. A matrix that reports five greens and no total is a
+# weaker gate than one serial red.
+#
+# THAT ADDING-UP JOB NOW EXISTS, and it is the job below called `coverage`. It is written where
+# this paragraph asked for it: in `run.js`, as the SAME gate the serial run has always applied,
+# with three callers instead of one. Each shard writes a receipt per suite — the suite, its
+# exit code, its ledger records, its wall clock, its shard and the COMMIT — and `coverage`
+# refuses unless the union of receipts equals the inventory discovered from disk, every receipt
+# carries the same commit and it is this checkout's commit, no suite is receipted twice, and
+# the evidence gate passes over the aggregate. A suite whose shard never started has NO RECEIPT,
+# which is a named failure rather than an absence nobody can see.
+#
+# `coverage` is therefore the job to read and the job to mark required, never a shard — and the
+# shards say so themselves: a shard's own success line ends "Whether the DIRECTORY passed is the
+# coverage job's sentence, not this one's." Shard job names are not stable across a change of
+# shard count, which is the second reason to require `coverage` instead.
 #
 # RUN FROM A CLONE ON 2026-09-04, AND IT FOUND A FLAKE BEFORE A RUNNER DID. Every step below
 # was run verbatim inside a real `git clone` of `fc56c20`, in a directory holding nothing but
@@ -182,10 +276,43 @@ on:
 permissions:
   contents: read
 
+# ONE LIVE RUN PER REF. Measured rather than tidied: run 34448209503 took 902s while sharing
+# the macOS pool with a SECOND ui-suite-ci run and packaging-ci, and three of its seven shards
+# spent their first four to nine minutes queued rather than running. A workflow whose shards
+# compete with its own superseded runs is slow for a reason nobody can see in its own log.
+#
+# Grouped by REF, so branches never stop each other — only a push that supersedes an earlier
+# push of the SAME branch does, which is the case where the older answer had already stopped
+# being the one anybody wanted.
+concurrency:
+  group: ui-suite-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  browser-suites:
+  # ---------------------------------------------------------------------------------------
+  # THE SHARDS. Twelve minutes of nothing happening is what this matrix is for.
+  #
+  # `run.js --shard=i/N` packs the SAME inventory it has always discovered from disk —
+  # longest-first, deterministic — and runs one slice of it. Nothing here names a suite, so a
+  # suite added to `app/ui/tests/` joins a shard on the commit that adds it, exactly as it
+  # already joined the serial run.
+  #
+  # `fail-fast: false` ON PURPOSE. The default cancels the siblings the moment one shard goes
+  # red, which would leave `coverage` reconciling a set full of holes and reporting "these
+  # suites never ran" about suites that were killed rather than broken. A red run must still
+  # say what everything else did.
+  # ---------------------------------------------------------------------------------------
+  shards:
     runs-on: macos-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Five, and the number is argued from a measured run in the header above rather than
+        # from the packing table — which argues for seven and is answering a question the
+        # macOS runner pool overrules. Five shards start at once; a sixth and seventh queue
+        # behind them and turn one wave into two. `node run.js --plan=5` prints this packing.
+        shard: [1, 2, 3, 4, 5]
     defaults:
       run:
         working-directory: app/ui/tests
@@ -251,8 +378,69 @@ jobs:
             }).catch((e) => { console.error(e.message); process.exit(1); });
           "
 
-      # The gate. NO suite is allowed to skip: `--allow-skip=realbytes.js` was removed on
-      # 2026-09-04 after run 33872963879 measured realbytes.js running here in 2m16s. A skip,
-      # no checks, or fewer checks than its source declares, by any suite, fails the run.
-      - name: Every browser suite, under WebKit, with its counts
-        run: npm test
+      # The gate, on this shard's slice. NO suite is allowed to skip: `--allow-skip=realbytes.js`
+      # was removed on 2026-09-04 after run 33872963879 measured realbytes.js running here in
+      # 2m16s. A skip, no checks, or fewer checks than its source declares, by any suite, fails
+      # the shard — and separately fails `coverage`, which sees the same records in the receipt.
+      - name: This shard's browser suites, under WebKit, with their counts
+        run: npm test -- --shard=${{ matrix.shard }}/5 --receipts=receipts
+
+      # THE RECEIPTS UPLOAD EVEN WHEN THE SHARD IS RED, which is the whole point of `if:
+      # always()` here. `coverage` has to be able to tell "this suite ran and failed" from
+      # "this suite never ran", and those are the same absence if a failing shard takes its
+      # evidence with it.
+      - name: This shard's receipts, red or green
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ui-receipts-${{ matrix.shard }}
+          path: app/ui/tests/receipts/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------------------
+  # COVERAGE — the only job here that makes a claim about the DIRECTORY.
+  #
+  # Twelve green ticks are twelve statements. This is the one that says "every suite in
+  # app/ui/tests ran, at this commit, and here is what each one checked" — the sentence the
+  # header at the top of this file promised and that a matrix, on its own, cannot make.
+  #
+  # `if: always()` because a red shard is exactly when the full picture is worth having, and
+  # `needs: shards` so it runs after all five whatever they did.
+  # ---------------------------------------------------------------------------------------
+  coverage:
+    needs: shards
+    if: always()
+    runs-on: macos-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: app/ui/tests
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # NO `npm ci` HERE, DELIBERATELY. This job opens no browser and runs no suite; it reads
+      # receipts and reconciles them against the inventory it discovers from disk. Installing
+      # WebKit to do that would be four minutes spent making the job look like the others.
+      - name: Toolchain
+        run: node --version
+
+      # NO `merge-multiple: true`, WHICH IS THE ONE PLACE THIS DEPARTS FROM
+      # engine-self-verify.yml's otherwise identical step — and the departure is the point.
+      # Merging flattens every shard's files into one directory, so if two shards both
+      # reported the same suite the second would silently OVERWRITE the first and the
+      # duplicate would be undetectable. `coverage` refuses a suite receipted twice, and it
+      # can only do that if both copies survive the download. Each artifact therefore lands
+      # in its own subdirectory and `run.js` walks the tree.
+      - name: Every shard's receipts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: ui-receipts-*
+          path: app/ui/tests/receipts
+
+      # The reconciliation. Refuses unless the union of receipts EQUALS the discovered
+      # inventory, every receipt carries this checkout's commit, no suite is receipted twice,
+      # and the evidence gate passes over the aggregate.
+      - name: Every suite accounted for, by name, at one commit
+        run: node run.js --coverage=receipts
