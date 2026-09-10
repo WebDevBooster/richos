@@ -42,6 +42,17 @@ SID="deadbeef-0000-4000-8000-000000000000"
 # These quarantine/capture regressions replay records from the pre-platform-owner
 # format. New native ownership is covered by native-platform-cleanup.test.py.
 # Convert only fixture records after a successful explicit seal, never production code.
+#
+# A HISTORICAL RECORD IS DEFINED BY THE ABSENCE OF EVERY CLEANUP-ROUTING KEY,
+# and there is now more than one. terminalize() sends a member down the
+# quarantine/capture route only when it is neither platform-owned
+# (`cleanup_owner`, which selects Claude-owned native cleanup) nor
+# daily-reclaimed (`cleanup_policy: integrated-daily`, which leaves the
+# worktree at its original path for the reconciler). Seal stamps BOTH. A
+# converter that strips one and not the other produces a record that is
+# historical in name only, and the cases below then assert a route their own
+# fixture no longer selects. Any future key that routes cleanup belongs in
+# this list on the same commit that introduces it.
 T() {
     python3 "$TX_PY" "$@"
     local rc=$?
@@ -53,6 +64,7 @@ for path in pathlib.Path(sys.argv[1]).glob('*/*.json'):
     if record.get('record')=='transaction' and not record.get('terminal'):
         for member in record.get('members',[]):
             member.pop('cleanup_owner',None)
+            member.pop('cleanup_policy',None)
         path.write_text(json.dumps(record))
 HISTORICAL
     fi
