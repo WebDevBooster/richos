@@ -19,3 +19,4 @@ hook-staleness	rc=1	wall=4s	scripts/hooks/hook-staleness.test.sh	HEAD=10aa7847
 process-identity (this machine, claude process running)	rc=0	wall=3s	scripts/lib/process-identity.test.sh	HEAD=10aa7847
 process-identity (CI shape: RICHOS_SESSION_PROCESSES=none, empty RICHOS_SESSIONS_DIR)	rc=1	wall=3s	scripts/lib/process-identity.test.sh	HEAD=10aa7847	21 failures, all 'T4' is not None
 root-contract	rc=UNFINISHED	wall=>300s	scripts/hooks/root-contract.test.sh	HEAD=10aa7847	did not finish inside the call; backgrounded by the harness; unverified
+root-contract	rc=1	wall=713s	scripts/hooks/root-contract.test.sh	HEAD=4652d854
