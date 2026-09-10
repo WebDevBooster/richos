@@ -1908,6 +1908,82 @@ else
 fi
 rm -rf "$ROOT"
 
+# ---------------------------------------------------------------------------
+# 41e-41h — LAYER Q'S FIXTURE IS HERMETIC AGAINST THE OPERATOR'S GIT CONFIG,
+# and the two lines that make it so are each proven load-bearing.
+#
+# THE INCIDENT THESE FOUR CASES EXIST FOR (2026-09-10). Layer Q was red on the
+# maintainer's machine across three landed merges, two of which rewrote the
+# files Q covers, and its whole message was "a step of the throwaway fixture
+# FAILED" — no step, no reason. The step was the sandbox seed commit; the
+# reason was ONE LINE of the operator's global git config: a `core.hooksPath`
+# identity guard installed 2026-08-28 that refuses any commit whose committer
+# is not the operator's own address. 4a0e1194 had given the fixture its own
+# `probe@probe.invalid` identity hours earlier, to survive a Linux caller that
+# leaves no identity anywhere — so the fix for one platform was exactly what
+# the other platform's ambient hook rejected.
+#
+# Cases 41 and 41b could not see it: they inherit the ambient environment, and
+# on a runner nothing hostile is there to inherit. So these cases MANUFACTURE
+# the hostile environment — a global config whose pre-commit hook refuses every
+# commit and which declares no identity at all, which is both platforms' shape
+# at once — and then remove each protective line in turn to prove it is doing
+# work. A canary that cannot be made to fail proves nothing.
+#
+# Cost: three probe runs (~25s each). Deliberately not a separate mutation
+# harness — the mutants belong beside case 41's positive control, and a fourth
+# suite would rebuild the same sandbox a fourth time.
+# ---------------------------------------------------------------------------
+HOSTILE_DIR="$(mktemp -d -t contract-integrity-hostile.XXXXXX)"
+mkdir -p "$HOSTILE_DIR/hooks"
+printf '#!/bin/sh\necho "ambient pre-commit hook refuses this commit" >&2\nexit 1\n' > "$HOSTILE_DIR/hooks/pre-commit"
+chmod +x "$HOSTILE_DIR/hooks/pre-commit"
+# No [user] section: this config is ALSO the no-identity-anywhere shape.
+printf '[core]\n\thooksPath = %s\n\texcludesFile = /dev/null\n' "$HOSTILE_DIR/hooks" > "$HOSTILE_DIR/gitconfig"
+run_probe_hostile() { # <sandbox root>
+    env GIT_CONFIG_GLOBAL="$HOSTILE_DIR/gitconfig" GIT_CONFIG_SYSTEM=/dev/null \
+        RICHOS_ENTITY_ROOT="$1" "$1/scripts/hooks/contract-integrity-probe.sh" 2>&1
+}
+
+# 41e — POSITIVE: the intact probe still passes under the hostile environment.
+ROOT="$(make_sandbox)"
+set +e; PROBE_OUT="$(run_probe_hostile "$ROOT")"; rc=$?; set -e
+emit_case "41e.layer-Q-survives-a-hostile-ambient-git-environment" 0 "$rc"
+rm -rf "$ROOT"
+
+# 41f — MUTANT 1: remove the core.hooksPath line and the ambient hook reaches
+# into the throwaway repository again. The probe must fail AND name the step.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/scripts/hooks/contract-integrity-probe.sh" <<'PY'
+import sys
+p = sys.argv[1]
+text = open(p).read()
+needle = '        q_step "pointing the fixture\'s core.hooksPath at that empty directory" \\\n            git -C "$Q_REPO" config core.hooksPath "$Q_DIR/nohooks"\n'
+assert text.count(needle) == 1, "the hooksPath step is no longer where this mutant expects it"
+open(p, 'w').write(text.replace(needle, ''))
+PY
+set +e; PROBE_OUT="$(run_probe_hostile "$ROOT")"; rc=$?; set -e
+emit_case "41f.hooksPath-line-removed-fails-under-a-hostile-environment" 2 "$rc"
+if printf '%s' "$PROBE_OUT" | grep -qF 'FAILED at the sandbox seed commit'; then
+    PASS=$((PASS+1)); printf '  PASS  41g.layer-Q-names-the-failing-step-and-quotes-it\n'
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("41g.layer-Q-names-the-failing-step-and-quotes-it")
+    printf '  FAIL  41g.layer-Q-names-the-failing-step-and-quotes-it  (the fixture broke and the message did not name the step)\n'
+fi
+rm -rf "$ROOT"
+
+# NO MUTANT FOR THE OTHER HALF, AND THE REASON IS THE REASON THAT HALF EXISTS.
+# Removing the fixture's own `user.email`/`user.name` is load-bearing only on a
+# host whose hostname does not canonicalize to something with a domain part:
+# git then refuses to auto-detect an identity and the commit fails, which is
+# the container/runner shape 4a0e1194 was written for. On this maintainer's Mac
+# the same removal is harmless, because git happily invents
+# user@<hostname-with-a-dot>. A case asserting exit 2 would therefore be green
+# on Linux and RED ON macOS for a reason that has nothing to do with Layer Q —
+# which is precisely the cross-platform trap case 33 spent two days in. The
+# identity half stays, unmutated and documented at its own site.
+rm -rf "$HOSTILE_DIR"
+
 # A broken lifecycle fixture cannot leave a green overall probe. The former
 # warning-only path concealed the native ownership migration's stale fixture.
 ROOT="$(make_sandbox)"

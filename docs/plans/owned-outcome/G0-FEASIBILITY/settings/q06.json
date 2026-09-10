@@ -1,0 +1,31 @@
+{
+ "permissions": {
+  "deny": [
+   "AskUserQuestion"
+  ]
+ },
+ "hooks": {
+  "Stop": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/hooks/stopmark.sh /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q06-stop.jsonl /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q06-marks 0",
+      "timeout": 15
+     }
+    ]
+   }
+  ],
+  "PermissionDenied": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/hooks/record.sh /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q06-permissiondenied.jsonl 0 \"\" 0",
+      "timeout": 15
+     }
+    ]
+   }
+  ]
+ }
+}

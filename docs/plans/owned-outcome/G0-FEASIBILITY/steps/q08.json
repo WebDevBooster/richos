@@ -1,0 +1,55 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Spawn exactly one teammate named worker-a using the general-purpose agent type, with this brief passed verbatim as its prompt: \"\"\"Brief for worker-a (G0 handoff probe). Working directory: the current one. Reproduction: run `ls \"/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dir with spaces\"` once and report its exit code. Then run exactly `sleep 25` with the Bash tool (this is the marker command; do not shorten it). Then create the file worker-done-A.txt in the current directory with the single line WORKER DONE. Negative constraint: do NOT modify BACKLOG.md. Handoff: reply with one line WORKER DONE A and stop.\"\"\" After spawning it, end your turn immediately with the single line SPAWNED (do not wait, do not poll). When worker-a reports back, reply with one line LEAD SAW: <its exact final line>."
+ },
+ {
+  "sleep": 1.0
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q08-marks/stop-1",
+  "timeout": 120
+ },
+ {
+  "mark": "lead-idle-1"
+ },
+ {
+  "shell": "ls /Users/alex/.claude/teams/ ; for d in /Users/alex/.claude/teams/session-*/; do echo == $d; cat $d/config.json; done; pgrep -fl 'sleep 25' || echo no-sleep-25"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q08-marks/stop-2",
+  "timeout": 120
+ },
+ {
+  "mark": "lead-idle-2"
+ },
+ {
+  "sleep": 3
+ },
+ {
+  "shell": "ls /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q08; pgrep -fl 'sleep 25' || echo no-sleep-25"
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "/exit",
+  "timeout": 45
+ },
+ {
+  "shell": "sleep 2; pgrep -fl 'sleep 25' || echo no-sleep-25-after-exit; ls /Users/alex/.claude/teams/"
+ }
+]

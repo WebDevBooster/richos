@@ -1,0 +1,36 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Reply with the single word PONG and nothing else."
+ },
+ {
+  "sleep": 0.8
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q00-marks/stop-1",
+  "timeout": 150
+ },
+ {
+  "sleep": 2.5
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "/exit",
+  "timeout": 45
+ }
+]

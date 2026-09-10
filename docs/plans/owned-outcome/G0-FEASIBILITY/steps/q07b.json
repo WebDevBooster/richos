@@ -1,0 +1,45 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Run exactly this shell command with the Bash tool: touch g0-perm.txt . If permission is denied, reply with one line DENIED and stop; do not retry."
+ },
+ {
+  "sleep": 0.8
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q07b-marks/stop-1",
+  "timeout": 150
+ },
+ {
+  "sleep": 2.5
+ },
+ {
+  "sleep": 3
+ },
+ {
+  "send": "\u001b"
+ },
+ {
+  "sleep": 4
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "/exit",
+  "timeout": 45
+ }
+]

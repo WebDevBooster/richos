@@ -276,8 +276,13 @@ print("=" * 100)
 print("  " + sentence)
 print("  verdict counts across %d workflow(s) x %d axis(es): %s"
       % (nwf, len(axes), ", ".join("%s %d" % (k, counts[k]) for k in sorted(counts))))
-print("  api: %d call(s), %d cache hit(s), %d failure(s)"
-      % (doc["api"]["calls"], doc["api"]["cache_hits"], len(doc["api"]["failures"])))
+# THE CACHE MODE IS PRINTED BESIDE THE HIT COUNT. `0 cache hit(s)` on its own
+# reads as a broken cache, and on 2026-09-10 it was read that way — the pass
+# that produced it had asked for no cache at all.
+_api = doc["api"]
+print("  api: %d call(s), %d cache hit(s) [mode: %s], %d coalesced, %d failure(s)"
+      % (_api["calls"], _api["cache_hits"], _api.get("cache_mode", "unstated"),
+         _api.get("coalesced", 0), len(_api["failures"])))
 print("=" * 100)
 
 if doc.get("api", {}).get("failures") or doc.get("blind"):

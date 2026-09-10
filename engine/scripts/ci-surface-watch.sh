@@ -66,6 +66,27 @@
 #                                               what keeps guard-ci-red-lands.sh
 #                                               fast and off the "could not
 #                                               look" path.
+#   ~/.claude/state/ci-surface/api_*.json       every response this pass read,
+#                                               written so the gate that runs
+#                                               minutes later answers from disk.
+#                                               Swept at 7 days.
+#
+# ===========================================================================
+# WHAT A PASS COSTS, SO THAT A CHANGE IN THE COST IS VISIBLE
+# ===========================================================================
+# Per repository: one workflow list, three reads per workflow in the checkout,
+# one per workflow GitHub knows about and the checkout does not, one tip read,
+# one date read per distinct commit a run sat on, and — only for a path-filtered
+# workflow whose branch tip has moved — one narrow read per trigger path.
+#
+#     MEASURED 2026-09-10 over the real five repositories and twenty workflows:
+#       before  77 calls, 9.26 MB, largest single response 1,485,500 bytes
+#       after  102 calls, 2.79 MB, largest single response   178,630 bytes
+#
+# More calls, a third of the bytes, and nothing above 179 KB. That is the trade
+# that matters: the cost is now set by how many workflows and trigger paths
+# exist, and NOT by how much has landed on main since a run — which is why the
+# old shape degraded on a busy morning and this one does not.
 #
 # Usage:
 #   ci-surface-watch.sh [--quiet] [--install] [--uninstall] [--state-dir DIR]
@@ -259,15 +280,32 @@ ANCHOR="$(cd "$ENGINE_ROOT/../.." 2>/dev/null && pwd || true)"
 DOC="$STATE_DIR/latest.json"
 TMPDOC="$STATE_DIR/.latest.json.tmp"
 
+# `--cache-mode refresh`, and the difference from the `--no-cache` this used to
+# pass is not cosmetic. `--no-cache` meant "do not read it AND do not write it",
+# so the one pass that runs every day could neither be helped by the cache nor
+# leave anything in it — and it reported `cache_hits: 0` beside a state
+# directory full of responses, which reads exactly like a broken cache. Refresh
+# keeps the property that matters (this pass trusts nothing it did not fetch
+# today) and drops the one that helped nobody: the answers it fetches are
+# written, so the red gate a few minutes later answers from a warm cache
+# instead of taking the "could not look" path.
 if [ -n "$ANCHOR" ]; then
-    python3 "$SURFACE" --neighborhood-root "$ANCHOR" --no-cache > "$TMPDOC" 2>/dev/null
+    python3 "$SURFACE" --neighborhood-root "$ANCHOR" --cache-mode refresh > "$TMPDOC" 2>/dev/null
 else
-    python3 "$SURFACE" --no-cache > "$TMPDOC" 2>/dev/null
+    python3 "$SURFACE" --cache-mode refresh > "$TMPDOC" 2>/dev/null
 fi
 [ -s "$TMPDOC" ] || finish ineffective "the surface reader produced no document; nothing was observed" 2
 mv "$TMPDOC" "$DOC"
 
 bash "$STATUS" > "$STATE_DIR/latest.txt" 2>&1 || true
+
+# THE CACHE IS SWEPT, BECAUSE THE PASS NOW FILLS IT. Most keys are rewritten
+# every pass, but a few carry an identity that never repeats — the jobs of run
+# 34449785283, the date of the commit a run happened on — so without this the
+# directory grows by a handful of files per pass forever. Seven days is longer
+# than any consumer's TTL by two orders of magnitude, so nothing that could
+# still be used is removed.
+find "$STATE_DIR" -maxdepth 1 -name 'api_*.json' -type f -mtime +7 -delete 2>/dev/null || true
 
 # Keep the gate's caches warm. This is the difference between the gate
 # answering from a two-second cached reading and taking the "could not look"
@@ -293,7 +331,15 @@ nrepo = doc["counts"]["repositories"]
 nwf = doc["counts"]["workflows"]
 findings = doc["counts"]["findings"]
 blind = len(doc.get("blind", []))
-apifail = len(doc.get("api", {}).get("failures", []))
+api = doc.get("api", {}) or {}
+apifail = len(api.get("failures", []))
+# THE COST OF THE PASS IS PART OF THE RECORD. A reading that quietly starts
+# costing four times as many calls is the first sign of a shape that will time
+# out on a busy morning, and a verdict line that never mentions it means the
+# only way to notice is to be already investigating.
+cost = "%d API call(s), %d coalesced, %d cache write(s)%s" % (
+    api.get("calls", 0), api.get("coalesced", 0), api.get("cache_writes", 0),
+    "" if not api.get("retried") else ", %d recovered after a retry" % len(api["retried"]))
 
 prev = {}
 try:
@@ -321,18 +367,19 @@ elif shrink:
 elif apifail or blind:
     verdict = "degraded"
     detail = ("%d repositories, %d workflows, %d findings — but %d blind spot(s) and %d API "
-              "failure(s), so part of the surface was NOT read"
-              % (nrepo, nwf, findings, blind, apifail))
+              "failure(s), so part of the surface was NOT read [%s]"
+              % (nrepo, nwf, findings, blind, apifail, cost))
 else:
     verdict = "effective"
     detail = ("%d repositories, %d workflows, %d findings, no blind spots — the classifier passed "
-              "its self-test, the negative control was caught, and coverage did not shrink"
-              % (nrepo, nwf, findings))
+              "its self-test, the negative control was caught, and coverage did not shrink [%s]"
+              % (nrepo, nwf, findings, cost))
 
 state = {
     "last_pass": doc["generated_at"],
     "last_verdict": verdict,
     "repositories": nrepo, "workflows": nwf, "findings": findings,
+    "api_calls": api.get("calls", 0),
     "high_water_repositories": max(hw_repo, nrepo),
     "high_water_workflows": max(hw_wf, nwf),
     "passes": prev.get("passes", 0) + 1,

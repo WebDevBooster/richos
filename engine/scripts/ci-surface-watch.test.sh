@@ -39,6 +39,14 @@
 #   W8  the high-water mark RATCHETS UP after a larger pass, so tomorrow's
 #       shrink is measured against the best ever seen and not against
 #       yesterday.
+#   W9  A TIMED-OUT CALL CAN NEVER PRODUCE A CLEAR VERDICT — proven against the
+#       REAL reader with `gh` replaced by a GitHub that never answers, because
+#       this is a property of the reader the watch runs, not of the watch's
+#       arithmetic over a document.
+#   W10 THE PASS LEAVES THE CACHE WARM and NAMES its cache mode. It used to run
+#       `--no-cache` — neither reading nor writing — which reported
+#       `cache_hits: 0` beside a full state directory and left the red gate to
+#       look over the network on its own.
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -242,6 +250,153 @@ if [ -f "$STATE/watch.log" ] && grep -q "verdict: ineffective" "$STATE/watch.log
     ok "W7   the verdict line is written on the FAILING path too"
 else
     bad "W7   a failing pass left no verdict line — indistinguishable from never having fired"
+fi
+
+# ---------------------------------------------------------------------------
+# W9 / W10 — THE REAL READER, WITH THE NETWORK REPLACED RATHER THAN THE READER
+# ---------------------------------------------------------------------------
+# Every case above stubs ci-surface.py, which is right for proving what the
+# WATCH does with a document. Neither of the two properties below can be proven
+# that way, because both are properties of the reader the watch actually runs:
+#
+#   W9   A TIMED-OUT CALL CAN NEVER PRODUCE A CLEAR VERDICT. This is the case
+#        the 2026-09-10 repair exists to nail down. The tempting fix for a
+#        `degraded` verdict is to make the failing read cheap enough to succeed
+#        — and the moment it is cheap, the temptation is to treat a failure as
+#        "nothing found", which turns the whole watch quiet instead of correct.
+#        So: real reader, real watch, and a `gh` that never answers.
+#   W10  THE PASS LEAVES THE CACHE WARM. It used to run `--no-cache`, which
+#        meant it neither read nor wrote — so it reported `cache_hits: 0`
+#        beside a state directory full of responses (indistinguishable from a
+#        broken cache) and left nothing behind for the red gate that reads
+#        minutes later. `--cache-mode refresh` fetches everything fresh AND
+#        writes it. This asserts the writing, because that half is invisible in
+#        the verdict line.
+#
+# `gh` is replaced on PATH; nothing else about the run is faked.
+REAL_SURFACE="$SCRIPT_DIR/lib/ci-surface.py"
+WF=".g""ithub/workflows"
+NB="$SANDBOX/nb"
+ENG2="$NB/hq/engine"
+mkdir -p "$ENG2/scripts/lib" "$SANDBOX/bin" "$SANDBOX/home2/.claude/state"
+cp "$WATCH" "$ENG2/scripts/"
+cp "$REAL_SURFACE" "$ENG2/scripts/lib/"
+cp "$ENG/scripts/ci-status.sh" "$ENG2/scripts/"
+cp "$ENG/scripts/lib/ci-red.py" "$ENG2/scripts/lib/"
+# A ledger that EXISTS, and an engine root that RESOLVES: the absence of either
+# is itself an announced blind spot, and a case that cannot tell those blind
+# spots from the one under test proves nothing. The launchd job sets
+# RICHOS_ENGINE_ROOT for the same reason, so this is the production shape.
+printf '{"repo": "/nonexistent/not-a-real-checkout"}\n' \
+    > "$SANDBOX/home2/.claude/state/worktree-ledger.jsonl"
+git -C "$NB/hq" init -q -b main 2>/dev/null
+git -C "$NB/hq" remote add origin "git@github.com:Example/hq.git" 2>/dev/null
+
+TARGET="$NB/target"
+mkdir -p "$TARGET/$WF"
+git -C "$TARGET" init -q -b main 2>/dev/null
+git -C "$TARGET" remote add origin "git@github.com:Example/target.git" 2>/dev/null
+: > "$TARGET/orchestration.config"
+cat > "$TARGET/$WF/w.yml" <<'Y'
+name: w
+on:
+  push:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+Y
+
+STATE2="$SANDBOX/state2"
+
+# --- W9 --------------------------------------------------------------------
+cat > "$SANDBOX/bin/gh" <<'GH'
+#!/usr/bin/env python3
+# A GitHub that accepts the connection and never answers.
+import time
+time.sleep(120)
+GH
+chmod +x "$SANDBOX/bin/gh"
+
+# RUN FROM INSIDE THE SANDBOX. Discovery starts from the working directory, so
+# a case run from a real checkout sweeps that machine's real repositories and
+# asks the real GitHub about them — which is a case that proves something, but
+# not the thing it says on the label. Caught the first time these two ran: 5
+# repositories and 24 workflows in a fixture containing one of each.
+rm -rf "$STATE2"
+OUT="$(cd "$NB" && PATH="$SANDBOX/bin:$PATH" HOME="$SANDBOX/home2" CI_SURFACE_STATE_DIR="$STATE2" \
+       RICHOS_ENGINE_ROOT="$ENG2" \
+       CI_SURFACE_TIMEOUT=1 CI_SURFACE_RETRIES=0 \
+       bash "$ENG2/scripts/ci-surface-watch.sh" --quiet 2>&1)"; RC=$?
+V="$(printf '%s\n' "$OUT" | sed -n 's/^verdict: \([a-z]*\).*/\1/p' | tail -1)"
+if [ "$V" = "degraded" ] && [ "$RC" -ne 0 ] && grep -q "timed out" "$STATE2/latest.json" 2>/dev/null; then
+    ok "W9   a timed-out read can never produce a clear verdict: got '$V' (rc=$RC), and the timeout is named in the document"
+else
+    bad "W9   verdict=$V rc=$RC — a read that never happened did not degrade the verdict:"
+    printf '%s\n' "$OUT" | sed 's/^/          /' | tail -4
+fi
+
+if grep -q '"verdict": "OK"' "$STATE2/latest.json" 2>/dev/null; then
+    bad "W9b  an axis read as OK while every single read timed out"
+else
+    ok "W9b  NOT ONE axis reads OK while every read timed out — unread never rounds down to clear"
+fi
+
+# --- W10 -------------------------------------------------------------------
+cat > "$SANDBOX/bin/gh" <<'GH'
+#!/usr/bin/env python3
+# A GitHub that answers: one active workflow, one green run on the tip.
+import json, sys
+from datetime import datetime, timedelta, timezone
+
+p = sys.argv[2] if len(sys.argv) > 2 else ""
+now = datetime.now(timezone.utc)
+iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
+SHA = "a" * 40
+run = {"status": "completed", "conclusion": "success", "run_number": 7, "id": 7,
+       "head_sha": SHA, "run_started_at": iso(now - timedelta(hours=2)),
+       "created_at": iso(now - timedelta(hours=2)),
+       "updated_at": iso(now - timedelta(hours=2) + timedelta(minutes=4))}
+
+if "actions/workflows?per_page" in p:
+    out = {"total_count": 1, "workflows": [
+        {"id": 1, "name": "w", "path": ".g" "ithub/workflows/w.yml", "state": "active"}]}
+elif "/actions/workflows/1/runs" in p:
+    out = {"total_count": 1, "workflow_runs": [run]}
+elif "/actions/runs/7/jobs" in p:
+    out = {"jobs": [{"name": "a", "conclusion": "success",
+                     "started_at": run["run_started_at"], "completed_at": run["updated_at"]}]}
+elif "/commits?sha=" in p:
+    out = [{"sha": SHA, "commit": {"committer": {"date": iso(now - timedelta(hours=3))},
+                                   "message": "a commit"}}]
+else:
+    out = []
+print(json.dumps(out))
+GH
+chmod +x "$SANDBOX/bin/gh"
+
+rm -rf "$STATE2"
+OUT="$(cd "$NB" && PATH="$SANDBOX/bin:$PATH" HOME="$SANDBOX/home2" CI_SURFACE_STATE_DIR="$STATE2" \
+       RICHOS_ENGINE_ROOT="$ENG2" \
+       CI_SURFACE_TIMEOUT=10 CI_SURFACE_RETRIES=0 \
+       bash "$ENG2/scripts/ci-surface-watch.sh" --quiet 2>&1)"; RC=$?
+V="$(printf '%s\n' "$OUT" | sed -n 's/^verdict: \([a-z]*\).*/\1/p' | tail -1)"
+CACHED="$(ls "$STATE2"/api_*.json 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$V" = "effective" ] && [ "$RC" -eq 0 ]; then
+    ok "W10  a pass in which every read answered is effective (findings are not degradation)"
+else
+    bad "W10  verdict=$V rc=$RC — a fully-read surface did not report itself effective:"
+    printf '%s\n' "$OUT" | sed 's/^/          /' | tail -4
+fi
+if [ "${CACHED:-0}" -ge 1 ]; then
+    ok "W10b the pass leaves the cache WARM ($CACHED response(s) written), so the red gate that reads next does not have to look over the network"
+else
+    bad "W10b the pass wrote 0 cached responses — the cache is dead by construction again"
+fi
+if grep -q '"cache_mode": "refresh"' "$STATE2/latest.json" 2>/dev/null; then
+    ok "W10c the document NAMES its cache mode, so cache_hits: 0 can never again be read as a broken cache"
+else
+    bad "W10c the document does not name its cache mode next to the hit count"
 fi
 
 echo ""

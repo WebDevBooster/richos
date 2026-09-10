@@ -1,0 +1,65 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Spawn exactly one teammate named worker-a using the general-purpose agent type, with this brief passed verbatim as its prompt: \"\"\"Brief for worker-a (G0 handoff probe). Working directory: the current one. Run exactly this command with the Bash tool in the FOREGROUND and wait for it (do not background it, do not shorten it): python3 -c \"import time; time.sleep(300)\" . Then create the file worker-done-H.txt in the current directory with the single line WORKER DONE. Negative constraint: do NOT modify BACKLOG.md. Handoff: reply with one line WORKER DONE H and stop.\"\"\" After spawning it, end your turn immediately with the single line SPAWNED (do not wait, do not poll). When worker-a reports back, reply with one line LEAD SAW: <its exact final line>."
+ },
+ {
+  "sleep": 1.0
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q08h-marks/stop-1",
+  "timeout": 120
+ },
+ {
+  "mark": "lead-idle-1"
+ },
+ {
+  "waitshell": "pgrep -f 'time.sleep.300' >/dev/null",
+  "timeout": 90
+ },
+ {
+  "send": "/exit"
+ },
+ {
+  "sleep": 1.5
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "expect": "Background\\s*work\\s*is\\s*running",
+  "timeout": 15
+ },
+ {
+  "send": "\u001b[B"
+ },
+ {
+  "sleep": 0.6
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "\r",
+  "timeout": 30
+ },
+ {
+  "shell": "sleep 4; pgrep -fl 'time.sleep.300' || echo no-child-after-exit; /Users/alex/.local/share/claude/versions/2.1.267 agents --json"
+ },
+ {
+  "shell": "sleep 20; pgrep -fl 'time.sleep.300' || echo no-child-after-24s; /Users/alex/.local/share/claude/versions/2.1.267 agents --json"
+ }
+]

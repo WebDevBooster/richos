@@ -1,0 +1,36 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "I need you to ask me a question. In plain text (do not use any tool), ask me which filename I should use for the output, offering two options, and then stop and wait for my answer."
+ },
+ {
+  "sleep": 0.8
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "sleep": 8
+ },
+ {
+  "quiet": 6,
+  "timeout": 150
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "/exit",
+  "timeout": 45
+ }
+]
