@@ -384,8 +384,12 @@ def _demand_row(repo, branch, tip, teammate, worktree, age_hours, commits,
             "does not contain, and no live worktree holds it (the lock, never a "
             "roster). Raised by land-disposition.py after %.1fh, which is longer "
             "than every landing on this machine that was followed by a land in "
-            "the same working session."
-            % (commits, age_hours)),
+            "the same working session. %s"
+            % (commits, age_hours,
+               ("Owner: %s." % teammate) if teammate else
+               ("THE OWNERSHIP LEDGER NAMES NO OWNER for this branch, so there "
+                "is nobody to ask about it — which is a reason to look at it "
+                "sooner rather than a reason to leave it."))),
         "meanwhile": (
             "Nothing is blocked and nothing has been swept: this demand is a "
             "record with a clock on it. It CLOSES ITSELF the moment %s is an "
