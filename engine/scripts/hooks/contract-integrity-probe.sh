@@ -990,6 +990,7 @@ snapshot-agent-definitions.sh|SessionStart
 snapshot-enforcing-hooks.sh|SessionStart
 session-start-ceo-ask.sh|SessionStart
 session-start-escalations.sh|SessionStart
+session-start-ci-surface.sh|SessionStart
 guard-sealed-worktree.sh|PreToolUse
 guard-worktree-isolation.sh|PreToolUse
 guard-definition-drift.sh|PreToolUse
@@ -1016,6 +1017,7 @@ guard-completeness-commits.sh|PreToolUse
 guard-row-currency-commits.sh|PreToolUse
 guard-vendoring-commits.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
+guard-ci-red-lands.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse
 worker-updated-handoff.sh|PostToolUse
