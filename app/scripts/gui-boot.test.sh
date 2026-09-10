@@ -66,7 +66,13 @@
 #   A4  a gap declared with no reason is REFUSED — a bare marker declares nothing
 #   A5  an empty log FAILS, never "all 0 lines accounted for"
 #   A6  every line declared UNACCOUNTABLE is still unaccounted  <- the anti-widening case
+#   C1  the harness builds a real .app, with an Info.plist in it
+#   C2  ...carrying every Info.plist key the PRODUCT's own updater reads   <- extracted, not typed
+#   C3  ...declaring the product's own bundle identifier, read the product's own way
+#   C4  ...as a file that satisfies the shape `bundle_plist` demands, and that parses
+#   C5  ...and, on the machine, declaring the version the binary says it is
 #   B1  the healthy machine boots to completion under launchd's environment
+#   B1a ...as an ACCESSORY launch, decided on facts     <- nothing reaches anybody's screen
 #   B2  ...and every line of that boot is accounted for  <- THE POSITIVE HALF
 #   B3  engine pointer removed          -> RED           <- and six negative halves,
 #   B4  corpus pointer removed          -> RED              each proving that the detector
@@ -86,6 +92,55 @@
 #
 # macOS only, for the reason run-tests.sh gives: launchd's environment is the thing under
 # test and it does not exist elsewhere.
+#
+# =========================================================================================
+# C1-C5, AND WHY THE SUITE NOW CHECKS ITS OWN HARNESS BEFORE IT CHECKS THE PRODUCT
+# =========================================================================================
+#
+# On 2026-09-10 this suite was found dead. `01e9b8d8` (2026-09-08) put
+# `update_startup::prepare` at the top of `main()`, and it reads `Contents/Info.plist` out of
+# the bundle around the executable. The harness had never written one — it made a directory
+# shaped like a `.app` — so every boot here ended on its first line with
+#
+#     [richos] application startup: No such file or directory (os error 2)
+#
+# B1 and B2 went red. That is not the interesting half. B3-B8 — the six NEGATIVE cases whose
+# entire job is to prove each detector is alive on this run — went GREEN, because a boot that
+# never happened is indistinguishable from a boot with its engine pointer removed. Six false
+# passes, measured on `7272ecf8`: `3 FAILED, 18 passed`.
+#
+# THE LESSON IS NOT "ADD A PLIST". It is that this suite had no case holding its own fixture
+# to the product's requirements, so a product change could retire the whole B half and the
+# only visible symptom was two reds nobody could see (below).
+#
+# So C1-C4 hold the bundle the harness builds to what the product demands of one, using a
+# STAND-IN executable in a scratch directory. No loro checkout, no cargo, no boot — which
+# means they run on the one host that actually runs this suite regularly: the CI runner,
+# where everything from the host gate down is skipped. C5 is the one that needs the real
+# binary and runs beside B0.
+#
+# =========================================================================================
+# EXIT 2 IS A CLAIM ABOUT THE HOST, AND IT MAY NOT OUTRANK A FAILED CASE
+# =========================================================================================
+#
+# This suite exits 2 for "this host cannot answer", and `run-tests.sh` tolerates that when a
+# caller has declared the gap by name with a reason. `packaging-ci.yml` declares exactly that
+# for this suite, correctly: the fixture copies 37 files of a loro compiler that lives in a
+# private repository and no public runner can hold it.
+#
+# THAT DECLARATION IS WHAT KEPT THE DEATH ABOVE INVISIBLE FOR NINE DAYS. It is a true
+# statement about the runner, and it silently became cover for a suite that had stopped
+# working everywhere. "This host cannot answer" and "this suite cannot answer anywhere" are
+# different states, and under a declaration they looked identical.
+#
+# They are separated here by one rule, applied at every gap exit through `host_gap_exit`:
+#
+#     A GAP IS A CLAIM ABOUT THE HOST. A RUN THAT HAS ALREADY FAILED A CASE HAS FOUND
+#     SOMETHING WRONG WITH THE SUITE OR THE CODE, AND EXITS 1 INSTEAD.
+#
+# `run-tests.sh` enforces the same rule from outside, on every suite in the directory, by
+# refusing to read an exit 2 as a gap when the suite's own output carries a `FAIL` line —
+# so a suite that never adopts `host_gap_exit` cannot hide behind a declaration either.
 
 set -uo pipefail
 
@@ -96,6 +151,27 @@ REPO_DIR="$(cd "$APP_DIR/.." && pwd)"
 PASS=0; FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n         %s\n' "$1" "${2:-}"; FAIL=$((FAIL + 1)); }
+
+# host_gap_exit — the ONLY way out of this file with "this host cannot answer".
+#
+# See the header. Exit 2 is a claim about the HOST, and it is tolerated by `run-tests.sh`
+# under a declaration. A run that has already failed a case is not making a claim about the
+# host; it has found something wrong, and it says so with exit 1, which no declaration
+# tolerates. The tally is printed on that path too — a run that ends without one is a run
+# somebody has to reproduce to read.
+host_gap_exit() {
+  if [ "$FAIL" -gt 0 ]; then
+    echo "" >&2
+    echo "gui-boot.test.sh: $FAIL case(s) had ALREADY FAILED before this host ran out of answers." >&2
+    echo "                  A gap is a claim about the HOST. This run found something wrong with" >&2
+    echo "                  the SUITE or the CODE, and that outranks it — exit 1, not 2, so no" >&2
+    echo "                  declared host gap can tolerate it." >&2
+    echo ""
+    echo "=== gui-boot.test.sh: $FAIL FAILED, $PASS passed ==="
+    exit 1
+  fi
+  exit 2
+}
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "gui-boot.test.sh: the condition under test is launchd's environment on macOS." >&2
@@ -603,7 +679,18 @@ rm -f "$SCAN_AWK"
 # the detector reacts, and reacts for the stated reason, rather than being a function that
 # returns 0.
 
-TMP="$(mktemp -d -t gui-boot-test.XXXXXX)"
+# THE SCRATCH ROOT IS CANONICALIZED, and that is a fixture-fidelity fix rather than a
+# convenience. On macOS `mktemp -d` hands back `/var/folders/…`, and `/var` is a symlink to
+# `/private/var`; a home under it does not equal its own `canonicalize()`. The product
+# refuses such a home outright — `richos_user_update::root` (lib.rs:135-142): "home is not a
+# canonical directory" — and `prepare` turns that into a dead boot before the first line.
+#
+# A REAL home is canonical: `/Users/alex` is its own realpath. So the un-canonicalized
+# scratch root was a condition no launch this suite claims to reproduce has ever had, and
+# `pwd -P` removes it rather than working around the rule. Measured 2026-09-10: without this
+# every boot ended on `[richos] application startup: Could not establish application update
+# exclusion: home is not a canonical directory`.
+TMP="$(cd "$(mktemp -d -t gui-boot-test.XXXXXX)" && pwd -P)"
 
 # EVERY PROCESS THIS RUN STARTS IS ENDED BY THIS RUN, ON EVERY PATH INCLUDING THE FAILING
 # ONES. A launched app outlives the harness that launched it, and deleting the temp
@@ -639,6 +726,15 @@ trap cleanup EXIT INT TERM
 # ACCESSORY form because that is the form every boot in this suite produces — the app is a
 # child of this script, and a harness has to hold the process it boots.
 #
+# IT LOST A CLAUSE ON 2026-09-10 and the loss is the point. It used to read
+# `…/Info.plist carries no readable CFBundleIdentifier; a program is holding this process…`
+# — TWO unmet conditions. The harness bundle now carries a real Info.plist (it has to; see
+# `gui_bundle_plist`), so condition B is met and only the parent-pid condition is left. The
+# fixture is retaken from `docs/verification/gui-boot-info-plist-2026-09-10/healthy-boot.log`
+# rather than edited to keep the old sentence, and `B1a` asserts the surviving condition
+# still holds on every run — because it is now the only one, and one condition is a thing
+# you check rather than a thing you assume.
+#
 # The `central folder:` and `onboarding …:` lines arrived later the same day and are captured
 # at `docs/verification/onboarding-honesty-2026-09-06/raw/C2-boot-described-femcboost.log`,
 # where the real binary printed them in this order. The `NOT THERE` and `will offer the
@@ -649,7 +745,7 @@ trap cleanup EXIT INT TERM
 # diagnostic records that policy; the separate first-run setup line still checks installation.
 healthy_log() {
   cat <<'LOG'
-[richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: /m/Applications/RichOS.app/Contents/Info.plist carries no readable CFBundleIdentifier; a program is holding this process (parent pid 60123), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
+[richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: a program is holding this process (parent pid 98012), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
 [richos] launch: fresh (start 1, 1 window(s))
 [richos] company registry: 1 company from /m/Library/Application Support/com.richos.app/entities.json
 [richos] company registry: 1 compan(ies), /m/Library/Application Support/com.richos.app/entities.json (file)
@@ -661,7 +757,7 @@ healthy_log() {
 [richos] engine directory: /m/.claude/richos-engine (via engine install pointer)
 [richos] compute connection: starts with the first cancellable request over /m/.local/bin/claude
 [richos] first-run setup: nothing missing.
-[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
 [richos] boot complete — every line above is what this launch resolved
 LOG
 }
@@ -752,8 +848,130 @@ else
       "a rule now accounts for: ${UNREFUSED[*]}"
 fi
 
+GUI_APP_DIR="$APP_DIR"
+GUI_ENGINE_DIR="$REPO_DIR/engine"
+GUI_BINARY="$APP_DIR/src-tauri/target/debug/richos-tauri"
+export GUI_APP_DIR GUI_ENGINE_DIR GUI_BINARY
+# shellcheck source=lib/gui-launch.sh
+. "$DIR/lib/gui-launch.sh"
+
 # =========================================================================================
-# B1-B7 — the real thing
+# C1-C4 — the bundle this harness gives the product, held to what the product demands
+# =========================================================================================
+#
+# BEFORE THE HOST GATE, ON PURPOSE. Everything below the gate needs a loro checkout, and the
+# only machine that runs this suite on a schedule has none — so anything asserted down there
+# is asserted on a host that already stopped reading. These four need a scratch directory and
+# `sed`. They are the half of this suite that runs in CI.
+#
+# The executable is a two-line shell script. None of these boots anything: the question is
+# whether the CONTAINER is one the product will open, and that question has an answer with no
+# binary in it at all.
+
+PRODUCT_RS="$APP_DIR/crates/richos-user-update/src/lib.rs"
+CAPS="$TMP/capability"
+mkdir -p "$CAPS"
+printf '#!/bin/sh\nexit 0\n' > "$CAPS/richos-tauri"
+chmod +x "$CAPS/richos-tauri"
+
+# The product's own bundle identifier, read out of the product. `const ID` is what
+# `bundle_version` compares against (lib.rs:595-601) and it is not retyped here.
+PRODUCT_ID="$(sed -n 's/^const ID: &str = "\([^"]*\)";$/\1/p' "$PRODUCT_RS" | head -1)"
+CONF_ID="$(sed -n 's/.*"identifier"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            "$APP_DIR/src-tauri/tauri.conf.json" | head -1)"
+
+CAPS_PLIST="$CAPS/RichOS.app/Contents/Info.plist"
+if gui_bundle "$CAPS/RichOS.app" "$CAPS/richos-tauri" "${PRODUCT_ID:-com.richos.app}" 9.9.9 \
+   && [ -f "$CAPS_PLIST" ] && [ -x "$CAPS/RichOS.app/Contents/MacOS/richos-tauri" ]; then
+  ok "C1 the harness builds a real .app — Contents/MacOS and Contents/Info.plist"
+else
+  bad "C1 the harness builds a real .app" \
+      "gui_bundle produced no Info.plist at $CAPS_PLIST. A bundle with none is a directory \
+shaped like a bundle: update_startup::prepare reads that file first and main() returns \
+before the boot prints a line."
+fi
+
+# C2 — THE KEYS, EXTRACTED FROM THE PRODUCT AND NOT LISTED HERE.
+#
+# `bundle_version` is the function `prepare` calls (update_startup.rs:65) and every
+# `dict.get("…")` in its body is a key the plist must carry. Reading them out of the source
+# means a key the product STARTS requiring turns this red, on the run that added it, without
+# anyone remembering this file exists. A hand-written list would go quietly short instead —
+# the failure the header of this suite refuses everywhere else.
+#
+# The extraction proving EMPTY is itself a failure: a renamed function must not read as
+# "nothing is required".
+REQUIRED_KEYS="$(awk '/^pub fn bundle_version/{f=1} f{print} f && /^}/{exit}' "$PRODUCT_RS" \
+                 | grep -o '\.get("[A-Za-z]*")' | sed 's/^\.get("//; s/")$//' | LC_ALL=C sort -u)"
+MISSING_KEYS=""
+if [ -z "$REQUIRED_KEYS" ]; then
+  bad "C2 the Info.plist carries every key the product's own updater reads" \
+      "no dict.get(\"…\") keys could be read out of bundle_version in $PRODUCT_RS — the \
+extraction has drifted from the source, and an empty requirement list is not a green result."
+else
+  while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    grep -Fq "<key>$k</key>" "$CAPS_PLIST" 2>/dev/null || MISSING_KEYS="$MISSING_KEYS $k"
+  done <<EOF
+$REQUIRED_KEYS
+EOF
+  if [ -z "$MISSING_KEYS" ]; then
+    ok "C2 the Info.plist carries every key bundle_version reads:$(printf ' %s' $REQUIRED_KEYS)"
+  else
+    bad "C2 the Info.plist carries every key the product's own updater reads" \
+        "missing from gui_bundle_plist:$MISSING_KEYS"
+  fi
+fi
+
+# C3 — the identifier, read the way the PRODUCT reads it.
+#
+# `activation::parse_bundle_identifier` (activation.rs:203-220) splits on the key and then
+# takes the first `<string>` after it. That is reproduced exactly below rather than matched
+# with a pattern of this file's own invention, because the question is not "is the identifier
+# in the file" — it is "does the product's reader find it".
+FLAT_PLIST="$(tr -d '\n\t' < "$CAPS_PLIST" 2>/dev/null || true)"
+GOT_ID="${FLAT_PLIST#*<key>CFBundleIdentifier</key>}"
+GOT_ID="${GOT_ID#*<string>}"
+GOT_ID="${GOT_ID%%</string>*}"
+if [ -z "$PRODUCT_ID" ]; then
+  bad "C3 the Info.plist declares the product's own bundle identifier" \
+      "no 'const ID' could be read out of $PRODUCT_RS — the source of truth moved."
+elif [ "$PRODUCT_ID" != "$CONF_ID" ]; then
+  bad "C3 the Info.plist declares the product's own bundle identifier" \
+      "the updater's const ID is '$PRODUCT_ID' and tauri.conf.json says '$CONF_ID'. No plist \
+can satisfy both, so this is a defect in the product, not in the harness."
+elif [ "$GOT_ID" = "$PRODUCT_ID" ]; then
+  ok "C3 the Info.plist declares $PRODUCT_ID, found by the product's own reader"
+else
+  bad "C3 the Info.plist declares the product's own bundle identifier" \
+      "parse_bundle_identifier's algorithm finds '$GOT_ID', and the product requires '$PRODUCT_ID'"
+fi
+
+# C4 — the FILE, not its contents. `bundle_plist` (lib.rs:570-586) opens it O_NOFOLLOW and
+# then refuses anything that is not a regular file, has more than one link, exceeds 1 MiB,
+# or carries a group- or other-write bit. A plist with perfect contents and mode 666 is a
+# boot that dies with `invalid Info.plist`, which is a stranger message than the one that
+# started all this.
+if [ ! -f "$CAPS_PLIST" ]; then
+  bad "C4 the Info.plist is a file of the shape bundle_plist demands" "there is no file"
+else
+  P_MODE="$(stat -f '%Lp' "$CAPS_PLIST")"
+  P_LINKS="$(stat -f '%l' "$CAPS_PLIST")"
+  P_SIZE="$(stat -f '%z' "$CAPS_PLIST")"
+  C4_WHY=""
+  [ "$((8#$P_MODE & 8#022))" -eq 0 ] || C4_WHY="mode $P_MODE carries a group- or other-write bit"
+  [ "$P_LINKS" -eq 1 ] || C4_WHY="$C4_WHY; $P_LINKS hard links, and bundle_plist demands 1"
+  [ "$P_SIZE" -lt 1048576 ] || C4_WHY="$C4_WHY; $P_SIZE bytes, over the 1 MiB ceiling"
+  plutil -lint "$CAPS_PLIST" >/dev/null 2>&1 || C4_WHY="$C4_WHY; plutil will not parse it"
+  if [ -z "$C4_WHY" ]; then
+    ok "C4 the Info.plist is mode $P_MODE, $P_LINKS link, $P_SIZE bytes, and parses"
+  else
+    bad "C4 the Info.plist is a file of the shape bundle_plist demands" "${C4_WHY#; }"
+  fi
+fi
+
+# =========================================================================================
+# B0-B8 — the real thing
 # =========================================================================================
 
 if ! command -v cargo >/dev/null 2>&1; then
@@ -762,16 +980,9 @@ if ! command -v cargo >/dev/null 2>&1; then
   else
     echo "gui-boot.test.sh: no cargo on PATH — the binary under test cannot be built." >&2
     echo "                  Refusing to report a result over an artifact this run did not make." >&2
-    exit 2
+    host_gap_exit
   fi
 fi
-
-GUI_APP_DIR="$APP_DIR"
-GUI_ENGINE_DIR="$REPO_DIR/engine"
-GUI_BINARY="$APP_DIR/src-tauri/target/debug/richos-tauri"
-export GUI_APP_DIR GUI_ENGINE_DIR GUI_BINARY
-# shellcheck source=lib/gui-launch.sh
-. "$DIR/lib/gui-launch.sh"
 
 # THE HOST QUESTION IS ASKED BEFORE THE EXPENSIVE ONE, and it did not used to be.
 #
@@ -791,7 +1002,9 @@ if ! GUI_SRC="$(gui_compiler_source 2>&1)"; then
   printf '%s\n' "$GUI_SRC" >&2
   echo "gui-boot.test.sh: no machine can be built here, so there is no boot to hold to account." >&2
   echo "                  That is a fact about THIS MACHINE, not a verdict about the code." >&2
-  exit 2
+  echo "                  C1-C4 above ran regardless: they are what this host CAN answer, and" >&2
+  echo "                  a failure among them exits 1 rather than claiming a gap." >&2
+  host_gap_exit
 fi
 
 echo "  ... building richos-tauri (the artifact under test is built here, never assumed)"
@@ -813,7 +1026,26 @@ else
   echo "gui-boot.test.sh: could not build the machine to boot on:" >&2
   printf '%s\n' "$MOUT" | sed 's/^/  /' >&2
   echo "                  That is a fact about THIS MACHINE, not a verdict about the code." >&2
-  exit 2
+  host_gap_exit
+fi
+
+# C5 — THE ONE CAPABILITY CASE THAT NEEDS THE BINARY, so it lives here rather than with
+# C1-C4. The bundle on the machine has to declare the version the binary reports for itself:
+# `update_startup::prepare` reads the plist version and, when it differs from the compiled
+# one, treats the running app as CHANGED and — with no publication receipt on a scratch
+# machine — refuses to start at all (update_startup.rs:74-78, 124-133). A stale or copied
+# bundle would kill the boot as thoroughly as no plist did, and say something else entirely.
+C5_WANT="$(gui_identity "$GUI_BINARY" 2>/dev/null || true)"
+C5_PLIST="$MACHINE/Applications/RichOS.app/Contents/Info.plist"
+C5_FLAT="$(tr -d '\n\t' < "$C5_PLIST" 2>/dev/null || true)"
+C5_GOT="${C5_FLAT#*<key>CFBundleShortVersionString</key>}"
+C5_GOT="${C5_GOT#*<string>}"
+C5_GOT="${C5_GOT%%</string>*}"
+if [ -n "$C5_WANT" ] && [ -n "$C5_GOT" ] && [ "$C5_GOT" = "${C5_WANT##* }" ]; then
+  ok "C5 the machine's bundle declares ${C5_WANT##* }, the version the binary says it is"
+else
+  bad "C5 the machine's bundle declares the version the binary says it is" \
+      "the binary reports '${C5_WANT:-<no answer>}' and the plist says '${C5_GOT:-<nothing>}'"
 fi
 
 # B1/B2 — the positive half.
@@ -821,6 +1053,27 @@ if gui_boot "$MACHINE" "$TMP/healthy-boot.log" 60; then
   ok "B1 the healthy machine boots to completion under launchd's environment"
 else
   bad "B1 the healthy machine boots to completion" "$(tail -3 "$TMP/healthy-boot.log" | tr '\n' ' ')"
+fi
+
+# B1a — NOTHING THIS SUITE STARTS REACHES ANYBODY'S SCREEN, asserted rather than assumed.
+#
+# This case is new because the fix above changed the facts it rests on. `activation::decide`
+# needs B (a bundle declaring this build's identifier), D (the installed data directory) and
+# P (parent pid 1) for a REGULAR launch — Dock icon, window in front, keyboard taken. Until
+# 2026-09-10 the harness bundle carried no Info.plist, so B failed and two conditions stood
+# between this suite and the CEO's screen. It now carries one, deliberately, so B holds and
+# D holds; P is what is left, and P cannot hold here by construction — `gui_boot` runs the
+# app as `( … ) &` under this shell, so the parent is this script and never launchd.
+#
+# One condition is enough and it is also exactly one condition, so it is CHECKED. The
+# `resolved 'activation'` rule accounts for `regular` too — correctly, since it is a real
+# answer for a real install — which means B2 alone would pass a boot that took the screen.
+NO_SCREEN='^\[richos\] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch:'
+if grep -Eq -- "$NO_SCREEN" "$TMP/healthy-boot.log"; then
+  ok "B1a the boot took no Dock icon, no window and no focus, decided on its own facts"
+else
+  bad "B1a the boot took no Dock icon, no window and no focus" \
+      "the activation line was: $(grep -m1 '^\[richos\] activation:' "$TMP/healthy-boot.log" | cut -c1-160)"
 fi
 echo "  --- the boot log, as captured ---"
 sed 's/^/      /' "$TMP/healthy-boot.log"

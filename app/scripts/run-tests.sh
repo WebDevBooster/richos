@@ -47,8 +47,46 @@
 #     reporting "this host cannot answer" stops the build on the first run;
 #   * a declaration whose suite DID answer is red — so an allowance cannot outlive the
 #     condition it was written for and quietly hide a later gap;
+#   * a gapping suite that FAILED A CASE is not gapping — see below;
 #   * the summary line never says "all N suites passed" while a gap exists. It says how
 #     many ran, how many could not, and which.
+#
+# =======================================================================================
+# THE HOLE THE FOUR CONDITIONS ABOVE DID NOT COVER, FOUND 2026-09-10
+# =======================================================================================
+#
+# Every one of them asks whether the DECLARATION is honest. None asks whether the SUITE
+# still works. Those are different questions, and on 2026-09-10 the difference cost nine
+# days: `gui-boot.test.sh` had been dead on every host since `01e9b8d8` (2026-09-08) —
+# `update_startup::prepare` began reading an `Info.plist` the boot fixture had never
+# written, so the app exited on its first line and B1/B2 went red while B3-B8 went green
+# over the same dead boot. The declaration above was TRUE the whole time: no public runner
+# can hold the loro compiler. It was also the only thing standing between that death and
+# somebody noticing, because the one machine that would have reported it is the operator's
+# own, and CI — the machine that runs this every day — was reading a legitimate host gap.
+#
+#     "THIS HOST CANNOT ANSWER" AND "THIS SUITE CANNOT ANSWER ANYWHERE" ARE DIFFERENT
+#     STATES, AND UNDER A DECLARATION THEY LOOKED IDENTICAL.
+#
+# So exit 2 is now read for what it claims. A gap is a claim about the HOST: it says this
+# machine lacks something, not that anything is wrong. A suite that has already PRINTED A
+# FAILED CASE has found something wrong, and a claim about the host cannot outrank it. Such
+# a suite is counted as FAILED here no matter what any declaration says.
+#
+# It is enforced on the suite's own output rather than on its exit code, and that is
+# deliberate: `gui-boot.test.sh` also refuses to exit 2 over a failure from the inside
+# (`host_gap_exit`), but a suite that never adopts that discipline — or a new one written
+# next year by somebody who never reads this file — must not be able to hide behind a
+# declaration either. All nine suites in this directory print `  FAIL  <case>` from the
+# same two-line `bad()` helper, so the marker is a repo-wide fact and not a convention this
+# file hopes for.
+#
+# THE OTHER HALF OF THE REPAIR IS NOT HERE, and it belongs beside this note: a gapping
+# suite must have something left to fail. `gui-boot.test.sh` now runs its C1-C5 cases —
+# which hold its own fixture to what the product demands of a bundle — BEFORE its host
+# gate, so the runner that can never boot anything still decides whether the thing it would
+# have booted is still valid. A gap over a suite with no host-independent cases at all is
+# still a gap over silence; that is a property of the suite, and each suite owns it.
 #
 # The failure modes therefore all point at RED, and the tolerated set can only ever get
 # smaller without somebody editing a declaration. Drift makes the unaccounted list longer.
@@ -120,7 +158,15 @@ for t in "${SUITES[@]}"; do
   # inventory is not typed.
   n="$(printf '%s' "$out" | sed -n 's/.*all \([0-9]*\) passed ===.*/\1/p' | tail -1)"
   [ -n "$n" ] && TOTAL_CHECKS=$((TOTAL_CHECKS + n))
-  if [ "$code" -eq 2 ]; then
+  if [ "$code" -eq 2 ] && printf '%s\n' "$out" | grep -q '^  FAIL  '; then
+    # A GAP IS A CLAIM ABOUT THE HOST, AND THIS SUITE ALREADY FOUND SOMETHING WRONG.
+    # See the header. Counted as a failure, which no declaration tolerates.
+    echo "    run-tests.sh: $rel exited 2 (\"this host cannot answer\") after failing a case of its own."
+    echo "    A gap says this machine lacks something. A failed case says something is WRONG, and that"
+    echo "    outranks it — this is counted as a FAILURE, and no declaration can tolerate it."
+    printf '%s\n' "$out" | grep '^  FAIL  ' | sed 's/^/    /'
+    FAILED+=("$rel")
+  elif [ "$code" -eq 2 ]; then
     GAPPED+=("$rel")
   elif [ "$code" -ne 0 ]; then
     FAILED+=("$rel")

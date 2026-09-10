@@ -30,6 +30,8 @@
 #   H5  a real FAILURE outranks a declared gap
 #   H6  no gaps at all leaves the original summary untouched
 #   H7  an empty inventory is still exit 2, never "all 0 suites passed"
+#   H8  a DECLARED gap whose suite failed a case is a FAILURE   <- the concealment case
+#   H9  ...and a declared gap that failed nothing is still green — H8 has not eaten H2
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -121,6 +123,54 @@ mv "$BOX/broken.test.sh" "$BOX/broken.hold"
 rm -f "$BOX/gap.test.sh"
 run ""
 expect "H6 with no gap and no failure the original summary is unchanged" 0 "all 2 suites passed — 5 checks"
+
+# H8 — THE CASE THIS FILE DID NOT HAVE, AND THE NINE DAYS IT COST.
+#
+# H1-H7 all ask whether the DECLARATION is honest. None of them asks whether the SUITE still
+# works. `gui-boot.test.sh` was dead on every host from 2026-09-08 to 2026-09-10 — its boot
+# fixture built a `.app` with no `Info.plist` and the app exited on its first line — and the
+# declaration in `packaging-ci.yml`, which is TRUE (no public runner can hold the loro
+# compiler), read exactly the same on the runner as it had every day before. A suite that
+# cannot answer HERE and a suite that cannot answer ANYWHERE were indistinguishable.
+#
+# The fake suite below is that shape exactly: it prints a failed case in the standard form
+# every suite in this directory uses, and then exits 2. Declared, it must still be a FAILURE.
+rm -f "$BOX"/*.test.sh 2>/dev/null
+printf '%s\n' 'echo "=== aaa tests: all 3 passed ==="' 'exit 0' > "$BOX/aaa.test.sh"
+printf '%s\n' \
+  'printf "  PASS  C1 the fixture is intact\n"' \
+  'printf "  FAIL  C2 the fixture is intact\n         it is not\n"' \
+  'echo "deadgap.test.sh: and now this host cannot answer either." >&2' \
+  'exit 2' > "$BOX/deadgap.test.sh"
+run "deadgap.test.sh: no widget on this host"
+if [ "$CODE" != 1 ]; then
+  bad "H8 a declared gap whose suite failed a case is a failure" \
+      "exit $CODE, wanted 1. A gap is a claim about the HOST; this suite found something wrong. \
+Output: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"
+elif ! printf '%s' "$OUT" | grep -Fq "FAILED: deadgap.test.sh"; then
+  bad "H8 a declared gap whose suite failed a case is a failure" \
+      "exit 1 as wanted, but the summary does not name it as failed"
+elif ! printf '%s' "$OUT" | grep -Fq "C2 the fixture is intact"; then
+  bad "H8 a declared gap whose suite failed a case is a failure" \
+      "the failed case is not quoted, so a reader has to reproduce the run to see what broke"
+else
+  ok "H8 a declared gap whose suite failed a case is a FAILURE, and the case is quoted"
+fi
+
+# H9 — and the allowance still works. H8 keys on a `FAIL` line rather than on the exit code,
+# so the case that proves it did not swallow H2 has to be run right next to it: same
+# declaration, same exit 2, no failed case, green.
+printf '%s\n' \
+  'printf "  PASS  C1 the fixture is intact\n"' \
+  'echo "deadgap.test.sh: this host cannot answer." >&2' \
+  'exit 2' > "$BOX/deadgap.test.sh"
+run "deadgap.test.sh: no widget on this host"
+expect "H9 a declared gap that failed nothing is still green" 0 "1 of 2 suites passed"
+
+# The scratch inventory is put back the way H1-H6 left it, so H7 reads a directory it
+# recognizes and anything added after this does too.
+rm -f "$BOX/deadgap.test.sh"
+printf '%s\n' 'echo "=== bbb tests: all 2 passed ==="' 'exit 0' > "$BOX/bbb.test.sh"
 
 # H7 — the pre-existing refusal that must survive all of the above.
 EMPTY="$TMP/empty"; mkdir -p "$EMPTY"

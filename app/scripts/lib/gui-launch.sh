@@ -38,6 +38,17 @@
 # So the binary is copied to `<machine>/Applications/RichOS.app/Contents/MacOS/richos-tauri`
 # first. Candidates 4 and 5 then miss, and the engine has to be found the way it is found on
 # a customer's Mac: through `<home>/.claude/richos-engine`, candidate 6.
+#
+# ---------------------------------------------------------------------------------------
+# AND WHY IT IS A REAL BUNDLE AND NOT A DIRECTORY SHAPED LIKE ONE
+# ---------------------------------------------------------------------------------------
+#
+# For nine days it was the latter, and the boot died on its first line. `gui_bundle_plist`
+# below carries the full diagnosis; the short version is that once `main()` began calling
+# `update_startup::prepare`, a `.app` with no `Contents/Info.plist` stopped being a launch
+# this product would complete. A harness that boots something the product refuses is not
+# testing a launch, and — worse — its NEGATIVE cases keep passing, because a boot that never
+# happens looks exactly like a boot that failed for the reason each of them broke.
 
 set -uo pipefail
 
@@ -190,10 +201,136 @@ STUB
   [ -n "$node" ] || { echo "gui_machine: no node on PATH — cannot build the stand-in" >&2; return 1; }
   sed -i '' "1s|.*|#!$node|" "$home/.local/bin/claude" || return 1
 
-  # -- the binary, OUTSIDE the repository ------------------------------------------------
-  mkdir -p "$home/Applications/RichOS.app/Contents/MacOS" || return 1
-  cp "$GUI_BINARY" "$home/Applications/RichOS.app/Contents/MacOS/richos-tauri" || return 1
+  # -- the binary, OUTSIDE the repository, IN A BUNDLE THE PRODUCT WILL ACCEPT -----------
+  local ident identifier version
+  ident="$(gui_identity "$GUI_BINARY")" || return 1
+  identifier="${ident%% *}"; version="${ident##* }"
+  gui_bundle "$home/Applications/RichOS.app" "$GUI_BINARY" "$identifier" "$version" || return 1
+  echo "bundle identity : $identifier $version (asked of the binary, not typed here)"
   echo "binary          : $home/Applications/RichOS.app/Contents/MacOS/richos-tauri"
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------
+# gui_identity <executable>
+#
+# ASK THE BINARY WHO IT IS. Prints `<identifier> <version>`.
+#
+# `update_startup::identity_probe` answers `--richos-internal-update-identity` with
+# `{"identifier": …, "version": …, "protocol": 1}` and returns, BEFORE home resolution,
+# before any lease and before Tauri exists (update_startup.rs:14-27). It is the installer's
+# own way of asking a candidate executable what it is, and it is the right source here for
+# one reason: the Info.plist below has to carry the version the binary will COMPARE it
+# against, and every other source of that number is a copy that can disagree.
+#
+# The number matters more than it looks. `update_startup::prepare` reads the bundle version
+# and, when it differs from the compiled version, treats the running application as CHANGED
+# (`loaded_bundle_changed`, update_startup.rs:74-78); with no publication receipt on the
+# machine that path returns `Err("Changed application has no publication receipt.")` and the
+# boot is over before it prints a line. A plist carrying a hand-typed version would fail the
+# same way the missing plist did, for a different reason and with an even stranger message.
+#
+# No GUI, no window, no runtime: the probe is a `println!` and a return.
+# ---------------------------------------------------------------------------------------
+gui_identity() {
+  local exe="$1" out identifier version
+  if ! out="$("$exe" --richos-internal-update-identity 2>/dev/null)"; then
+    echo "gui_identity: $exe did not answer --richos-internal-update-identity" >&2
+    return 1
+  fi
+  identifier="$(printf '%s' "$out" | sed -n 's/.*"identifier"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  version="$(printf '%s' "$out" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  if [ -z "$identifier" ] || [ -z "$version" ]; then
+    echo "gui_identity: could not read an identifier and a version out of the probe's answer:" >&2
+    printf '  %s\n' "$out" >&2
+    return 1
+  fi
+  printf '%s %s\n' "$identifier" "$version"
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------
+# gui_bundle_plist <identifier> <version> <executable-name>
+#
+# The `Info.plist` of the bundle this harness boots, on stdout.
+#
+# ---------------------------------------------------------------------------------------
+# WHY THIS EXISTS AT ALL, AND WHAT IT COST NOT TO HAVE IT
+# ---------------------------------------------------------------------------------------
+#
+# Until 2026-09-10 this harness copied the executable into `RichOS.app/Contents/MacOS/` and
+# wrote NO `Info.plist` — a directory shaped like a bundle that was not one. That was fine
+# until `01e9b8d8` put `update_startup::prepare` at the top of `main()`: it takes the bundle
+# root around the executable (`activation::bundle_root`, a pure path-shape test that this
+# layout satisfies) and then reads `Contents/Info.plist` (`richos_user_update::bundle_plist`,
+# lib.rs:570-575). There was no such file, so `prepare` returned `Err`, `main` printed
+#
+#     [richos] application startup: No such file or directory (os error 2)
+#
+# and returned. Every boot in this suite died at line one. B1 and B2 went red — and B3-B8,
+# the six negative halves, went GREEN over the same dead boot, because a machine that never
+# boots is indistinguishable from a machine with its engine pointer removed. Measured on
+# 2026-09-10 against `7272ecf8`: `3 FAILED, 18 passed`, six of those passes false.
+#
+# THE KEYS ARE NOT A LIST SOMEBODY MAINTAINS. `C2` below extracts the `Info.plist` keys the
+# product's own `bundle_version` reads out of `richos-user-update/src/lib.rs` and asserts
+# this function emits every one of them, so a key the product STARTS requiring makes that
+# case red rather than making this file quietly insufficient. Drift lengthens the list.
+#
+# The file-shape rules `bundle_plist` enforces beyond parsing (a regular file, one link,
+# under 1 MiB, no group- or other-write bit, no write ACL — lib.rs:576-586) are satisfied by
+# `gui_bundle` writing it and chmod 644, and asserted by `C4`.
+# ---------------------------------------------------------------------------------------
+gui_bundle_plist() {
+  local identifier="$1" version="$2" exe_name="$3"
+  cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>$identifier</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$version</string>
+	<key>CFBundleVersion</key>
+	<string>$version</string>
+	<key>CFBundleExecutable</key>
+	<string>$exe_name</string>
+	<key>CFBundleName</key>
+	<string>RichOS</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+</dict>
+</plist>
+PLIST
+}
+
+# ---------------------------------------------------------------------------------------
+# gui_bundle <bundle-root> <executable> <identifier> <version>
+#
+# Lay out a `.app` the product accepts: `Contents/MacOS/<name>` and `Contents/Info.plist`.
+#
+# IT TAKES THE EXECUTABLE AS AN ARGUMENT, and that is not decoration. `C1`-`C4` call this
+# with a stand-in executable in a scratch directory, so the bundle this harness gives the
+# product is held to account on a host that can build no machine and boot nothing — which is
+# every public runner, and is the only place the defect above would ever have been seen.
+# A version of this that reached for `$GUI_BINARY` itself would be untestable exactly where
+# the testing was needed.
+#
+# Directory modes are 755 rather than left to the umask: `owned_dir` (lib.rs:120-126)
+# refuses any application directory carrying a group- or other-write bit.
+# ---------------------------------------------------------------------------------------
+gui_bundle() {
+  local root="$1" exe="$2" identifier="$3" version="$4"
+  local name; name="$(basename "$exe")"
+  mkdir -p "$root/Contents/MacOS" || return 1
+  chmod 755 "$root" "$root/Contents" "$root/Contents/MacOS" || return 1
+  cp "$exe" "$root/Contents/MacOS/$name" || return 1
+  chmod 755 "$root/Contents/MacOS/$name" || return 1
+  gui_bundle_plist "$identifier" "$version" "$name" > "$root/Contents/Info.plist" || return 1
+  chmod 644 "$root/Contents/Info.plist" || return 1
   return 0
 }
 
