@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# land-disposition.acceptance.sh — REPRODUCE 2026-09-10 AND WATCH IT NOT HAPPEN.
+# land-disposition-incident.test.sh — REPRODUCE 2026-09-10 AND WATCH IT NOT
+#                                     HAPPEN.
 #
 # ===========================================================================
 # WHAT IT REPRODUCES
@@ -20,16 +21,23 @@
 # had already asked about twice, sitting at 3.95 hours — under four — which is
 # why a threshold picked casually at "a day" would have been useless.
 #
-# This is a DEMONSTRATION, not a unit test. land-disposition.test.sh proves the
-# mechanism case by case in a sandbox; this shows the whole lifecycle end to end
-# on the shape the incident actually had, in the order it actually happened,
-# and prints what an operator would have seen. Run it when the question is "and
-# would it have caught THAT?" rather than "does the code work".
+# This is a DEMONSTRATION as well as a suite. land-disposition.test.sh proves
+# the mechanism case by case; this shows the whole lifecycle end to end on the
+# shape the incident actually had, in the order it actually happened, and prints
+# what an operator would have seen. Read it when the question is "and would it
+# have caught THAT?" rather than "does the code work".
+#
+# IT IS NAMED `.test.sh` ON PURPOSE, so run-all-tests.sh discovers it. The first
+# draft was `.acceptance.sh` and therefore ran only when somebody remembered --
+# and this file is precisely the one that found the age of every finding being
+# inherited from a value rounded to a tenth of a DAY, 2.4 hours of slack under a
+# 3-hour threshold, which the unit suite had said nothing about. A
+# demonstration nobody runs is a demonstration that rots. It costs 1.6 seconds.
 #
 # Nothing outside the sandbox is read or written: its own repository, its own
 # ownership ledger, its own escalation ledger, all under mktemp.
 #
-# Usage: scripts/hooks/land-disposition.acceptance.sh
+# Usage: scripts/hooks/land-disposition-incident.test.sh
 # Exit:  0 the demonstration held at every step, 1 otherwise.
 
 set -uo pipefail
