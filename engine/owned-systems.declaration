@@ -71,9 +71,16 @@
 #                 that runs, and the report always names which one answered.
 #                 That is how a check being built right now is consumed the day
 #                 it lands — by DELETING a fallback from this file, with no
-#                 consumer touched.
-#   unknown-exit  one exit code that means "the check could not decide" rather
-#                 than "the check found something". PER ROW, never global,
+#                 consumer touched. THIS HAPPENED, hours after it was written:
+#                 the `ci` row shipped naming a six-axis check that did not yet
+#                 exist, with a one-axis stopgap behind ` :: `. scripts/
+#                 ci-status.sh landed at 19037049 and the whole change was this
+#                 file's `check:` line plus deleting the stopgap. No consumer
+#                 was touched, which is the argument for the preference list
+#                 being data rather than a branch in a script.
+#   unknown-exit  the exit code, or space-separated codes, that mean "the check
+#                 could not decide" rather than "the check found something".
+#                 PER ROW, never global,
 #                 because the tools genuinely disagree: escalate.sh reserves 2
 #                 for an unreadable ledger while the ECS capture status uses 2
 #                 for a real finding. A global convention would have read one
@@ -113,11 +120,11 @@
 
 id: ci
 title: Continuous integration across every governed repository
-check: python3 {engine}/scripts/lib/ci-surface.py --branch main :: bash {engine}/scripts/owned-state-checks/ci-latest-on-main.sh
-unknown-exit: 2
-evidence: (RED|SLOW|STALE|NEVER-RUN|SKIPPED|HOLLOW|FINDING|UNDECLARED|last green)
-match: (\bCI\b|workflow|ci-surface|engine-self-verify|ui-suite-ci|packaging-ci|app-spine-ci|app-voice-ci|github actions|red on main)
-timeout: 120
+check: bash {engine}/scripts/ci-status.sh
+unknown-exit: 2 3
+evidence: (\.yml.*\[active|RED for|NO GREEN RUN|NEVER RUN|never passed|concluded)
+match: (\bCI\b|workflow|ci-surface|ci-status|engine-self-verify|ui-suite-ci|packaging-ci|app-spine-ci|app-voice-ci|github actions|red on main)
+timeout: 180
 why: Three workflows were red on main for 13, 10 and 4 days and the founder was the one who noticed.
 
 id: worktrees

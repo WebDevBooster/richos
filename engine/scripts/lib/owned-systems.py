@@ -212,16 +212,20 @@ def parse_declaration(path):
             raise DeclarationError(
                 "%s: system '%s' declares timeout %r, which is not a number"
                 % (path, rec["id"], rec.get("timeout")))
-        unknown_exit = rec.get("unknown-exit", "").strip()
-        if unknown_exit:
+        # A LIST, because one code was not enough within hours of shipping.
+        # scripts/ci-status.sh reserves TWO: 2 for "the surface could not be
+        # established" and 3 for "the surface was established and something in
+        # it is UNJUDGED" — a distinction its own header insists must never be
+        # collapsed. A single-code field would have forced one of them to be
+        # read as a finding.
+        unknown_exit = []
+        for tok in rec.get("unknown-exit", "").replace(",", " ").split():
             try:
-                unknown_exit = int(unknown_exit)
+                unknown_exit.append(int(tok))
             except ValueError:
                 raise DeclarationError(
                     "%s: system '%s' declares unknown-exit %r, which is not a number"
-                    % (path, rec["id"], rec.get("unknown-exit")))
-        else:
-            unknown_exit = None
+                    % (path, rec["id"], tok))
         out.append({
             "id": rec["id"],
             "unknown_exit": unknown_exit,
@@ -460,7 +464,7 @@ def sweep(entity_root, engine_root, decl_path, systems):
             rec.update({"status": UNKNOWN, "exit": None, "evidence": [out]})
         elif rc == 0:
             rec.update({"status": HEALTHY, "exit": 0, "evidence": []})
-        elif sysrec.get("unknown_exit") is not None and rc == sysrec["unknown_exit"]:
+        elif rc in (sysrec.get("unknown_exit") or []):
             # The row DECLARES which exit code means "I could not decide".
             # It is per-row and not a global convention because the codes
             # genuinely disagree across the tools this inventory consumes:
