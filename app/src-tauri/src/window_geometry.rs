@@ -328,6 +328,12 @@ impl Placement {
 /// 2. Otherwise the size is derived from the target display's work area, capped by the
 ///    preferred size, and centered in that work area.
 /// 3. Only if no display can be read at all do the constants stand alone.
+///
+/// This entry point takes the DEFAULT preference and exists for the tests and for
+/// `examples/window_placement.rs`; the app itself calls `decide_with` so the preference it
+/// uses is the one `tauri.conf.json` declares and not a second copy. Dead in the binary by
+/// construction, which is why the allow is on this function alone rather than on the module.
+#[allow(dead_code)]
 pub fn decide(displays: &[Display], saved: Option<&SavedGeometry>) -> Placement {
     decide_with(displays, saved, Preference::default())
 }
