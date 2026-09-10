@@ -232,6 +232,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-ci-red-lands.sh",
+            "timeout": 25
+          },
+          {
+            "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/shell-evidence.sh\"",
             "timeout": 5
           }
