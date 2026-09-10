@@ -206,6 +206,13 @@ export function runPipeline(sessionDir, opts = {}) {
           strict: asr.toolchain.toolchain.strict,
           whisperCli: asr.toolchain.toolchain.bin,
           backends: asr.toolchain.toolchain.backends,
+          // THE WEIGHTS, with their full sha256 — not only the 12 hex characters the provenance
+          // SENTENCE carries. `verification.toolchain` below has always recorded this; session.json
+          // did not, so the same block written by the same file 550 lines apart disagreed about
+          // whether the model's identity is part of the record. It is: a transcript attributed to
+          // "whisper.cpp 1.9.1" says nothing about which weights ran, and on 2026-09-10 the answer
+          // to that changed for every new call (CEO decision page §10).
+          model: asr.toolchain.toolchain.model,
           findings: asr.toolchain.findings,
           messages: asr.toolchain.messages,
         }

@@ -4248,12 +4248,15 @@ test('the transcript header carries the provenance, so the artifact a person ope
     {
       sessionId: 's',
       startedAt: T0,
-      pipeline: { model: 'large-v3-turbo', toolchain: { provenance: 'whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo@1fc70f774d38' } },
+      // The string a real default run produces, copied from an executed run on 2026-09-10 rather
+      // than composed here: full turbo and its q5_0 quantization are different weights under
+      // neighboring ids, so a header that named only "turbo" would be ambiguous between them.
+      pipeline: { model: 'large-v3-turbo-q5_0', toolchain: { provenance: 'whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo-q5_0@394221709cd5' } },
     },
   );
   assert.match(md, /- \*\*Transcribed by:\*\* whisper\.cpp 1\.9\.1 bin:7dc20e3106d7/);
-  // `- **Model:** turbo` names a FAMILY; two different sets of weights ship under that id.
-  assert.match(md, /- \*\*Model:\*\* large-v3-turbo/);
+  assert.match(md, /model:large-v3-turbo-q5_0@394221709cd5/);
+  assert.match(md, /- \*\*Model:\*\* large-v3-turbo-q5_0/);
 });
 
 // ---------------------------------------------------------------------------------------

@@ -131,6 +131,17 @@ if (tierModelPresent(null)) {
   // delete genuine repeated speech without anyone being told.
   check('the speech-burst probe reached the guard', !!rec.pipeline.repetitionGuard.speechBurstProbe,
     JSON.stringify(rec.pipeline.repetitionGuard.speechBurstProbe));
+  // The provenance must name the WEIGHTS, not just the binary: "whisper.cpp 1.9.1" is true of a
+  // run on either model, and as of 2026-09-10 which one it was is exactly the thing that changed.
+  check('the provenance line names the model that ran', typeof rec.pipeline.toolchain?.provenance === 'string' &&
+    rec.pipeline.toolchain.provenance.includes(`model:${rec.pipeline.model}@`), rec.pipeline.toolchain?.provenance);
+  check('session.json records the weights with their FULL sha256, not only the 12 in the sentence',
+    rec.pipeline.toolchain?.model?.id === rec.pipeline.model &&
+    /^[0-9a-f]{64}$/.test(String(rec.pipeline.toolchain?.model?.sha256 || '')) &&
+    rec.pipeline.toolchain.model.pinned === true,
+    JSON.stringify(rec.pipeline.toolchain?.model));
+  check('the transcript a person opens names the model', fs.readFileSync(path.join(dir, 'transcript.md'), 'utf8')
+    .includes(`- **Model:** ${rec.pipeline.model}`));
   if (canSay) check('default transcript has real words', rec.pipeline.modelRuns[0].words > 4, `words=${rec.pipeline.modelRuns[0].words}`);
 } else {
   skip('default tier', `the default model (${resolveTier(null).model}) is not installed`);
