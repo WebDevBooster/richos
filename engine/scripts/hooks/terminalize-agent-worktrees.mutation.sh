@@ -32,7 +32,7 @@ mutant worktreeremove-adopts-stranger "R20" "$H" \
 # `terminal_fact` filter. Removing it does NOT turn the suite red, and that is
 # the correct result rather than a gap in the cases -- the filter chooses which
 # members are worth spending the budget on, and every member it hands to
-# reclaim_now is refused again downstream by platform_said_the_agent_stopped
+# reclaim_now is refused again downstream by platform_recorded_a_stop
 # and by owner_check, both of which carry their own mutants in
 # scripts/daily-workspace-cleanup.mutation.sh. E10 is the positive case: a live
 # agent's workspace, with no terminal record, survives a catch-up run by
