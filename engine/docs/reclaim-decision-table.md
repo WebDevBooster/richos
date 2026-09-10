@@ -74,7 +74,8 @@ exactly two directions and unknown in the third:
 - **`unknown`** — everything else, **including an agent that has stopped and
   will be given another turn in six hours.** Measured: 10 of 66
   workspace-owning terminal transactions on this machine were started again
-  after their terminal record, the earliest 2026-09-08.
+  after their terminal record, the earliest 2026-09-08 (12 of 69 by round 13;
+  re-run `restart-after-terminal-measure.py` rather than quote either).
 
 **READ THAT LAST LINE BEFORE READING THE TABLE.** The common case is `unknown`,
 and no amount of design changes that. So the table cannot be built on "is the
@@ -104,11 +105,11 @@ Outcomes are exactly three:
 
 | # | Condition | Outcome | Collapses | Code | Test |
 |---|---|---|---|---|---|
-| 1 | **A = ceo-owned** — branch `codex/…` or path under `~/.codex/worktrees` | **REFUSE** "EXCLUDED BY CEO RULING (§31)", and REPORT it by name | every other input. §31 admits no flag and no reason string | `ceo_owned_workspace`, first gate of `owner_check` | `…EXCLUDED_BY_CEO_RULING_at_every_door` |
+| 1 | **A = ceo-owned** — branch `codex/…` or path under `~/.codex/worktrees` | **REFUSE** "EXCLUDED BY CEO RULING (§31)", and REPORT it by name | every other input. §31 admits no flag and no reason string | `ceo_owned_workspace`, first gate of `owner_check` — and, since round 13, first gate of **every removal site by name**: `discard-workspace-backlog.validate` (`refuse_ceo_owned`), `workspace-retire.termination_authority` (`excluded_by_ceo_ruling`, both routes of `remove-agent-worktree.sh`, which also refuses at its door), `reap-stale-worktrees.sh` gate S31 | `…EXCLUDED_BY_CEO_RULING_at_every_door` (exercises the two operator doors by name); `…even_under_explicit_discard_authority`; workspace-retire S31; reap S31 |
 | 2 | **A = not ours** — no transaction member names this path | **REFUSE**, never reached, and REPORTED under NOT EXAMINED | every other input. Half the raw table dies here | not enumerated; `preview()` reports it | reconciler preview, `not-examined` count |
 | 3 | Ownership is contested — another transaction reserves this scope, or a preparation row is unbound | **REFUSE** "active or unbound preparation reservation" | everything below | `owner_check` | `…unbound_preparation_refuse` |
 | 4 | The ledger row that would bind this by NAME was not written by an engine writer | **REFUSE**, and the row still RESERVES | — | `row_may_bind_by_name` | `…hand_written_ledger_row_RESERVES_but_never_BINDS` |
-| 5 | **F = mid-run** — a post-terminal start with no stop after it | **RETRY** "the platform started this agent again" | everything below | `running_after_terminal` in `owner_check` | `…restart_after_terminal…HOLDS…` |
+| 5 | **F = mid-run** — a post-terminal start with no stop after it, in the transaction's notes OR the platform's own event log; void once the owning session is provably gone; past `POST_TERMINAL_RUN_STALE_SECONDS` the reason names a person and the command to record the stop | **RETRY** "the platform started this agent again" | everything below | `post_terminal_run_open` in `owner_check` and `reclaim_now`, over `running_after_terminal` (two sources) and `session_gone` | `…restart_after_terminal…HOLDS…`; `…lost_stop_note_is_closed_by_the_platforms_own_event_log…`; `…cannot_outlive_its_session`; `…stale_open_run_names_the_operator_remedy…`; hook-level R40/R41 |
 | 6 | The owner is ALIVE by its native lock, or liveness is INDETERMINATE | **RETRY** "native owner is live or unknown" | everything below | `agent-liveness.resolve` veto | `…lock_naming_a_live_pid_refuses…` |
 | 7 | No platform stop was ever recorded for this agent | **REFUSE** "not a candidate" | — | `platform_recorded_a_stop` | `…engine_derived_terminal_fact_stays_platform_owned` |
 | 8 | **B = absent** and **E = ancestor** | **REMOVE (branch only)** by CAS on the tip checked | C and D are moot — there is no tree | `_absent_native_without_receipt` | `…absent_native_without_receipt…` |
@@ -120,8 +121,8 @@ Outcomes are exactly three:
 | 13 | **D = tracked-dirty or untracked** | **REFUSE** — work nobody committed | E | `clean_tree` | `…dirty_staged_and_untracked_refuse` |
 | 14 | **E = unanswerable** (trunk is not `main`) | **REFUSE**, naming the condition and saying nothing is broken | — | `direct()` | `…trunk_is_not_main_is_HELD_and_says_why` |
 | 15 | **E ≠ ancestor** | **REFUSE**, naming `unlanded` vs `squash-landed` | — | `verify_member_proof` | `…squash_landing…` / `…genuinely_unlanded…` |
-| 16 | **D = ignored residue** | archive + verify digest by digest, then fall through | — | `archive_residue` | `…residue_is_archived_verified_then_reclaimed` |
-| 17 | Everything above passed | **REMOVE** — re-verify E and C immediately before the removal, non-force `git worktree remove`, CAS branch delete | — | `reconcile` | `…reclaims_worktree_and_branch` |
+| 16 | **D = ignored residue** — including a **nested repository** (the one thing `ls-files --others --ignored` reports as a directory) and any path with a `.git` component, which are never disposable whatever their parent is called | archive + verify digest by digest, then fall through; an object the archive cannot take HOLDS | — | `never_disposable`, `partition_ignored`, `archive_residue` | `…residue_is_archived_verified_then_reclaimed`; `…nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped` |
+| 17 | Everything above passed | **REMOVE** — re-verify E, C **and the ignored side** (`residue_last_look`, the tree must still match the archive byte for byte) immediately before the removal, non-force `git worktree remove`, CAS branch delete; stamp `worktree_removed_ts` and `removed_ts` | — | `reconcile` | `…reclaims_worktree_and_branch`; `…ignored_file_written_after_the_archive_HOLDS_the_removal`; `…record_says_WHEN_a_workspace_was_removed` |
 
 Fifteen rows plus one exception (10a) and one non-terminal step (16).
 
@@ -172,26 +173,76 @@ made:
 > A removal cannot destroy work, because a workspace is removed only when its
 > tracked bytes are byte-identical to a commit `main` already contains
 > (verified before the removal and again before the branch delete), its ignored
-> bytes are archived and verified first, and nothing holds it. A restart after
-> a removal is a **disruption** — an agent waking in a directory that is gone —
-> not a loss, and it is detected, recorded on the transaction, and announced.
+> bytes — nested repositories included — are archived and verified first and
+> re-checked immediately before the removal, and nothing holds it. A restart
+> after a removal is a **disruption** — an agent waking in a directory that is
+> gone, and refused every tool — not a loss, and it is detected, recorded on
+> the transaction from two sources, and announced.
 
-Two facts hold the race shut, and both are measured rather than reasoned:
+**ROUND 13 (2026-09-10, after both round-two reviews): the paragraph that
+stood here said "two facts hold the race shut, and both are measured", and
+one of them was measured on the wrong case.** It read: the platform writes
+its lock *before a run begins* (−49 ms and −43 ms on two live agents), so "a
+restart that begins between the check and the removal makes the removal FAIL
+rather than race." Both samples were **initial** starts. Whether the platform
+re-takes a **released** lock for a **restarted** run has not been observed on
+this machine, and the sentence is withdrawn rather than repaired. What is
+measured, with its command (`restart-after-terminal-measure.py --locks`, this
+machine, this commit):
 
-- The platform writes its lock **before** a run begins — `agent-a2de3c7d8d8590224`
-  lock mtime `16:07:26.643Z` against `WorkerStarted 16:07:26.692Z` (−49 ms),
-  and `agent-a97f2c691c34e2c0f` `17:43:41.993Z` against `17:43:42.036Z` (−43 ms).
-- Non-force `git worktree remove` **refuses a locked worktree** — `fatal: cannot
-  remove a locked working tree`, exit 128, git 2.52.0 — and refuses a dirty one.
+```
+(a) initial starts with a lock file on disk : 4; lock PRECEDES the start in 4 of them
+(b) restarts with a lock file on disk       : 3; lock mtime moved AFTER the restart (a re-lock OBSERVED) in 0 of them
+(c) restarts into a tree the reaper witnessed UNLOCKED : 4; admin directory still on disk for 0 of them
+```
 
-So a restart that begins between the check and the removal makes the removal
-FAIL rather than race. What it does not prevent is a restart *after* a
-successful removal, and that case is a disruption by the claim above.
+(a) holds and says only that the platform locks before an **initial** run. (b)
+is fix1's two restarts and sage-fable-cert2's one, each with the lock held
+throughout — never released, never re-taken (mtime unchanged since creation).
+(c) is q1, inf1, gate1 and own1, restarted 83 minutes after the reaper
+witnessed their trees unlocked; their admin directories are gone, so nothing
+on this machine can say whether they were re-locked. **Re-lock on restart is
+UNMEASURED**, and the lock is defense in depth, not the fact the design rests
+on.
 
-**If a reviewer can show a path where a removal under `F = unknown` loses work
-that git does not already hold, the table is wrong and row 17 must become a
-REFUSE.** That is the falsifier for this round, stated the way round 11 stated
-its own, and it is measurable rather than rhetorical.
+**What actually protects a restart into an unlocked tree — the case the
+premise existed for — is three things the table never named as such:**
+
+1. **Row 5, from two sources.** A post-terminal run open in the transaction's
+   notes *or* the platform's own event log holds every member of the agent
+   (`post_terminal_run_open`). Neither source alone decides; the session's
+   death voids it; a stale hold names a person.
+2. **THE WRITE BARRIER.** `guard-sealed-worktree.sh` refuses a terminal agent
+   **every** tool, `Read` included — its own header: *"refused EVERY tool,
+   sealed or not, read-only or not"* — observed live on fix1's restarts at
+   19:57Z and 20:27Z and on sage-fable-cert2's at 21:01Z, and load-bearing by
+   mutant `terminal-not-refused` (G15) in `guard-sealed-worktree.mutation.sh`.
+   A restarted terminal agent therefore cannot write, whether or not its
+   workspace still exists. This is why a removal under `F = unknown` is a
+   disruption and never a loss, and it is the protection the next person to
+   relax the barrier for terminal agents would have removed without knowing.
+3. **The ancestor gate**, re-verified immediately before the removal and again
+   before the branch delete; git holds the tracked bytes.
+
+Behind those, for a lock that **is** there: the last look re-reads the
+registration after the archive, and non-force `git worktree remove` refuses a
+locked worktree (`fatal: cannot remove a locked working tree`, exit 128 —
+measured under `completion-proof.GIT`, `/Library/Developer/CommandLineTools/usr/bin/git`
+= `git version 2.50.1 (Apple Git-155)`, the binary this lane runs; the earlier
+citation named Homebrew's 2.52.0, which is on the operator's `PATH` and
+refuses the same way) and refuses a dirty one.
+
+**The falsifier round 12 invited was answered, once, and closed (Frank R1).**
+"A path where a removal under `F = unknown` loses work that git does not
+already hold": an ignored **nested repository** under a disposable path
+component (`vendor/lib/` under an ignored `vendor/`) was classified disposable
+by its parent's name and deleted with no copy — reproduced under the lane's
+binary, `nested: (0, '') | exists after: False`. Row 16 now archives a nested
+repository whole, `.git` and all (`never_disposable`), verified, and row 17
+re-checks the ignored side before the `rm`. The claim above is true again
+without qualification, and the same falsifier stands for the next reviewer:
+**a path where a removal under `F = unknown` loses work git does not hold, or
+a write a terminal agent can make after its restart.**
 
 ---
 
@@ -199,12 +250,17 @@ its own, and it is measurable rather than rhetorical.
 
 | Claim | Command | Answer today |
 |---|---|---|
-| A terminal agent never runs again | `restart-after-terminal-measure.py` | **FALSE** — 10 of 66 |
+| A terminal agent never runs again | `restart-after-terminal-measure.py` | **FALSE** — 10 of 66 when written; 12 of 69 at round 13 (the authors of rounds 12 and the round-two reviews among them) |
 | The platform emits a "finished" event | `restart-after-terminal-measure.py --census` | **FALSE** — three event types, none of them |
 | The platform releases its lock within a second | the immediate-reclaim journal | **FALSE** — 3 of 3 own-event attempts deferred; one held 77 min |
-| A locked worktree can be removed non-force | `git worktree remove` on a locked tree | **FALSE** — exit 128 |
-| The lock is taken before the run | admin-dir mtime vs `WorkerStarted` | **TRUE** — −49 ms, −43 ms |
+| A locked worktree can be removed non-force | `git worktree remove` on a locked tree, under `completion-proof.GIT` (Apple Git 2.50.1) | **FALSE** — exit 128 |
+| The lock is taken before an **initial** run | `restart-after-terminal-measure.py --locks`, line (a) | **TRUE** — 4 of 4, −42.9 to −101.6 ms |
+| The platform **re-locks** for a **restarted** run | `restart-after-terminal-measure.py --locks`, lines (b) and (c) | **UNMEASURED** — (b) 0 of 3 restarts with a lock on disk re-took it (all held throughout); (c) 4 restarts into witnessed-unlocked trees left no admin directory |
+| A restarted terminal agent can use a tool | `hooks/guard-sealed-worktree.test.sh` G15 + mutant `terminal-not-refused`; live: fix1 19:57Z / 20:27Z, sage-fable-cert2 21:01Z | **FALSE** — every tool refused, `Read` included |
+| An ignored nested repository is dropped as disposable | `daily-workspace-cleanup.test.py …nested_repository…` + mutant `nested-repository-dropped-as-disposable` | **FALSE** since round 13 (was TRUE: reproduced, `exists after: False`) |
+| A lost post-terminal stop note holds a workspace forever | `…lost_stop_note_is_closed_by_the_platforms_own_event_log…`, `…cannot_outlive_its_session`, `…stale_open_run_names_the_operator_remedy…` | **FALSE** since round 13 (was TRUE: one source, no expiry) |
 | Codex workspaces are reported | `reconcile-terminal-worktrees.py --preview \| grep -c EXCLUDED` | **9** (was 0) |
+| Every removal door refuses a Codex workspace | `discard-workspace-backlog.test.py …even_under_explicit_discard_authority`; `workspace-retire.test.sh` S31; `reap-stale-worktrees.test.sh` S31 | **TRUE** since round 13 (was FALSE for two doors) |
 
 Every number here carries the command that produced it. A number that cannot be
 re-derived from its own command does not ship.

@@ -90,6 +90,10 @@ aea7c66005dd2aa6f  stop 07:24:18.278   lock removed 07:24:19.334   (+1.06s)
 > it: the platform takes the lock **before** a run begins (49 ms and 43 ms
 > ahead of the `SubagentStart` hook, two live agents), so an ABSENT lock is a
 > fact about the present rather than a prediction about the future.
+>
+> **ROUND 13:** before an **initial** run. Both samples were initial starts;
+> re-lock on a restarted run is unmeasured (`--locks`, (b) 0 of 3, (c) 4
+> unobservable). Round 12 does not rest on it any more; see §7 below.
 
 ## 1. Two defects, and what each one actually was
 
@@ -377,6 +381,21 @@ is why the journal records deferrals and not only successes.
 > agents — so an absent lock is a statement about the present, and non-force
 > `git worktree remove` refuses a locked worktree (exit 128, git 2.52.0). A
 > restart mid-reclaim makes the removal FAIL rather than race.
+>
+> **ROUND 13 (2026-09-10), correcting the round-12 correction above — both
+> round-two reviewers, independently.** The two samples were **initial**
+> starts; "the fact the whole replacement rests on" was measured on the case
+> it was not written for. Re-lock on a **restarted** run is UNMEASURED:
+> `restart-after-terminal-measure.py --locks` — (a) 4 of 4 initial starts
+> have the lock ahead of the start; (b) 0 of 3 restarts with a lock on disk
+> re-took it (fix1 twice, sage-fable-cert2 once, lock held throughout); (c) 4
+> restarts into trees the reaper witnessed unlocked (q1, inf1, gate1, own1,
+> 14:34:37Z) left no admin directory. The binary was misnamed too: the lane
+> runs `completion-proof.GIT`, Apple Git 2.50.1, not Homebrew's 2.52.0 (both
+> refuse). What protects a restart into an unlocked tree is row 5 from two
+> sources, the write barrier (`guard-sealed-worktree.sh` refuses a terminal
+> agent EVERY tool), and the ancestor gate — see the decision table §3. The
+> lock is defense in depth.
 >
 > **And the journal could not have shown any of this**, which is why the
 > finding had to be established from timestamps: it wrote ONE
