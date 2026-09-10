@@ -113,7 +113,13 @@
 #      whose FIRST clause is false for almost all of them. Measured over the 12
 #      most recently touched transcripts on this machine (2026-09-10): 313 Bash
 #      calls, 39 of which so much as mention `git merge` or `git push` — 12.5%,
-#      before the branch, the redness and the ack narrow it further. Refusing on
+#      before the branch, the redness and the ack narrow it further. RE-DERIVE
+#      IT RATHER THAN TRUST IT: take the 12 most recently modified
+#      ~/.claude/projects/*/*.jsonl, count every assistant `tool_use` block whose
+#      name is `Bash`, and count how many of their `command` strings match
+#      \bgit\s+(merge|push)\b. One machine, one day — what the argument rests on
+#      is only that lands are a small minority of shell calls, which is the same
+#      premise the classifier below is built on. Refusing on
 #      an unreadable payload would refuse 100% of them, because an unreadable
 #      payload is exactly the state in which the narrowing cannot be applied. A
 #      land gate would have become a session brick.
