@@ -1,0 +1,28 @@
+=== guard-worktree-isolation CLAUSE 5 + CLAUSE 6 mutation harness ===
+PROVEN    M0   the UNMUTATED sandbox suite is GREEN — every red below is a mutation's doing, not the sandbox's
+PROVEN    M1   the staffing gate deleted entirely (the pre-fix engine)
+PROVEN    M2   any non-empty reason accepted (hatch as formality)
+PROVEN    M3   the speed/convenience refusal removed
+PROVEN    M4   the substantive-word floor removed (filler passes)
+PROVEN    M5   harness utilities lose their exemption (over-blocking)
+PROVEN    M6   the isolation exemption folded into the staffing gate
+PROVEN    M7   the gate fires for every type, roster included (over-blocking)
+PROVEN    M8   the accepted-hatch log removed
+PROVEN    M9   the general-purpose detour reopened
+PROVEN    M10  the refusal no longer names the alternative
+PROVEN    M11  the speed pattern widened to catch any mention of worktrees
+PROVEN    M12  clause 6 deleted entirely (the pre-fix engine)
+PROVEN    M13  THE INCIDENT: the comparison inverted (upgrade refused, downgrade waved)
+PROVEN    M14  same tier taxed (over-blocking; the CEO's own Fable spawns refused)
+PROVEN    M15  a bare model-downgrade-ack: exempts (hatch as formality)
+PROVEN    M16  the accepted-ack log removed
+PROVEN    M17  an unranked alias refuses instead of failing open
+PROVEN    M18  ranks inferred from alias names instead of the declaration
+PROVEN    M19  the fail-open skip silenced
+PROVEN    M20  the reconciler contract unchecked (clause 7e deleted)
+PROVEN    M21  the external-only refusal deleted (clause 7f)
+
+PROVEN    M99  the shipped guard was never opened for writing (contents AND mtime unchanged): a kill -9 at any point above damages nothing
+
+=== summary: 23 proven load-bearing, 0 unproven ===
+sandbox guard restored byte-for-byte (md5 e738e2959f9f9ed74101e7fdbd13c7ba)

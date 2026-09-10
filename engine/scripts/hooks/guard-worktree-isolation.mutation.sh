@@ -85,9 +85,60 @@ mutation_sandbox_engine "$SRC_ENG"
 ENG="$MUT_SANDBOX_ENGINE"
 GUARD="$ENG/scripts/hooks/guard-worktree-isolation.sh"
 SUITE="$ENG/scripts/hooks/guard-worktree-isolation.test.sh"
-BAK="$MUT_SANDBOX_DIR/guard.pristine"
-cp "$GUARD" "$BAK"
-restore() { cp "$BAK" "$GUARD"; }
+# THE PRISTINE REFERENCE SANDBOX, NEVER MUTATED. It exists for two jobs only:
+# the M0 baseline below, and the final md5 assertion that nothing wrote to it.
+# Each mutant builds its OWN copy -- see _mut_worker_sandbox.
+#
+# `restore` USED TO PUT THIS ONE BACK BETWEEN MUTANTS, and that is exactly what
+# made the harness unsafe to run concurrently: two mutants would have written the
+# same file, and the second would have measured the first one's mutation. It is
+# kept here as a LOUD FAILURE rather than deleted, so a mutant block that still
+# calls it stops the run instead of quietly sharing a sandbox again.
+restore() {
+    echo "ERROR: restore() was called. This harness no longer shares one sandbox" >&2
+    echo "       between mutants -- each builds its own. A call here means a mutant" >&2
+    echo "       block was not converted, and it would be mutating the reference" >&2
+    echo "       sandbox that M0 and the final md5 check depend on." >&2
+    exit 2
+}
+
+# shellcheck source=../lib/stopwatch.sh
+. "$SRC_ENG/scripts/lib/stopwatch.sh"
+# shellcheck source=../lib/mutation-pool.sh
+. "$SRC_ENG/scripts/lib/mutation-pool.sh"
+mut_pool_init
+MUT_WALL_T0="$(sw_now_ms)"
+
+# _mut_worker_sandbox — a throwaway engine copy for ONE mutant.
+#
+# It ASSIGNS to the caller's locals (bash is dynamically scoped), so each mutant
+# function declares `local ENG GUARD SUITE W_DIR MUT_SCORE` and everything the
+# block already says about "$GUARD" and "$SUITE" keeps working unchanged against
+# the worker's own files. RICHOS_WORKTREE_TX_DIR is exported per worker, which is
+# safe because a pool worker is its own subshell.
+_mut_worker_sandbox() {
+    W_DIR="$(cd "$(mktemp -d -t mutant-sandbox.XXXXXX)" && pwd -P)" || return 1
+    ENG="$W_DIR/engine"
+    mkdir -p "$ENG"
+    if ! mutation_copy_engine "$ENG" "$SRC_ENG"; then
+        echo "UNPROVEN  ??   <- could not build this mutant's sandbox" >&2
+        rm -rf "$W_DIR"
+        return 1
+    fi
+    GUARD="$ENG/scripts/hooks/guard-worktree-isolation.sh"
+    SUITE="$ENG/scripts/hooks/guard-worktree-isolation.test.sh"
+    RICHOS_WORKTREE_TX_DIR="$W_DIR/tx"
+    export RICHOS_WORKTREE_TX_DIR
+    MUT_SCORE=unproven
+    return 0
+}
+
+# _mut_score — the verdict as an EXIT CODE, because a pool worker is a subshell
+# and an incremented counter in there is discarded at the closing paren.
+_mut_score() {
+    rm -rf "$W_DIR"
+    [ "$MUT_SCORE" = proven ]
+}
 # Cleanup is now a tidiness measure, not a correctness one. That is the point:
 # if this trap never runs, nothing is broken — previously, if it never ran, the
 # spawn gate stayed inverted.
@@ -108,7 +159,7 @@ applied() {
     after="$(md5 -q "$GUARD" 2>/dev/null || md5sum "$GUARD" | cut -d' ' -f1)"
     if [ "$after" = "$BASE_MD5" ]; then
         printf 'UNPROVEN  %-4s %s  <- MUTATION DID NOT APPLY\n' "$id" "$desc"
-        UNPROVEN=$((UNPROVEN+1)); return 1
+        MUT_SCORE=unproven; return 1
     fi
     return 0
 }
@@ -120,14 +171,14 @@ alive() {
     local id="$1" desc="$2" rc
     if ! bash -n "$GUARD" >/dev/null 2>&1; then
         printf 'UNPROVEN  %-4s %s  <- mutant does not PARSE; a syntax error is not a mutation\n' "$id" "$desc"
-        UNPROVEN=$((UNPROVEN+1)); return 1
+        MUT_SCORE=unproven; return 1
     fi
     printf '{"tool_name":"Agent","session_id":"mut00000-0000-4000-8000-000000000000","tool_use_id":"toolu_mut_control","tool_input":{"subagent_type":"dev","name":"dev-sonnet-alive","isolation":"worktree","prompt":"control payload"}}' \
         | RICHOS_ENTITY_ROOT="$ENG" "$GUARD" >/dev/null 2>&1
     rc=$?
     if [ "$rc" -ne 0 ]; then
         printf 'UNPROVEN  %-4s %s  <- mutant guard REFUSED THE CONTROL SPAWN (rc=%s): it is not running, it is dying\n' "$id" "$desc" "$rc"
-        UNPROVEN=$((UNPROVEN+1)); return 1
+        MUT_SCORE=unproven; return 1
     fi
     return 0
 }
@@ -148,23 +199,23 @@ check() {
     if [ -n "$prered" ]; then
         printf 'UNPROVEN  %-4s %s  <- case(s) ALREADY RED before any mutation, so this mutant proves nothing about them:%s\n' \
             "$id" "$desc" "$prered"
-        UNPROVEN=$((UNPROVEN+1)); return
+        MUT_SCORE=unproven; return
     fi
     out="$("$SUITE" 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ]; then
         printf 'UNPROVEN  %-4s %s  <- suite still GREEN\n' "$id" "$desc"
-        UNPROVEN=$((UNPROVEN+1)); return
+        MUT_SCORE=unproven; return
     fi
     for want in "$@"; do
         printf '%s' "$out" | grep -qE "^  FAIL  ${want}" || missing="$missing ${want}"
     done
     if [ -z "$missing" ]; then
         printf 'PROVEN    %-4s %s\n' "$id" "$desc"
-        PROVEN=$((PROVEN+1))
+        MUT_SCORE=proven
     else
         printf 'UNPROVEN  %-4s %s  <- red but NOT at:%s\n' "$id" "$desc" "$missing"
         printf '%s\n' "$out" | grep '^  FAIL' | sed 's/^/            /'
-        UNPROVEN=$((UNPROVEN+1))
+        MUT_SCORE=unproven
     fi
 }
 
@@ -209,7 +260,9 @@ fi
 # --- M1: the whole staffing gate deleted — the state the engine shipped in on
 # the morning of 2026-09-02, when READONLY_ALLOWLIST's isolation exemption was
 # read as a staffing permission and nothing refused the Explore dispatch.
-restore
+_mutant_M1() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -226,11 +279,16 @@ if applied M1 "the staffing gate deleted entirely (the pre-fix engine)" \
         "general-purpose, isolated \+ well-named, NO hatch -> BLOCKED" \
         "undeclared allowlist type waved through"
 fi
+    _mut_score
+}
+mut_pool_submit M1 _mutant_M1
 
 # --- M2: the hatch is required, but ANY non-empty text satisfies it — the
 # "escape hatch degrades into a formality" failure. A bare marker is still
 # empty, so this mutant is caught only by the quality cases.
-restore
+_mutant_M2() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -251,11 +309,16 @@ if applied M2 "any non-empty reason accepted (hatch as formality)" \
         "a long-but-empty reason \(stopwords only\) -> BLOCKED" \
         "reason 'faster to dispatch' -> BLOCKED"
 fi
+    _mut_score
+}
+mut_pool_submit M2 _mutant_M2
 
 # --- M3: the SPEED/CONVENIENCE arm alone removed. This is the incident's own
 # rationale ("it let him dispatch immediately"), so it gets a mutant to itself
 # rather than sharing M2's.
-restore
+_mutant_M3() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -271,10 +334,15 @@ if applied M3 "the speed/convenience refusal removed" \
         "reason 'more convenient' -> BLOCKED" \
         "the speed refusal names create-teammate-worktree.sh as the answer"
 fi
+    _mut_score
+}
+mut_pool_submit M3 _mutant_M3
 
 # --- M4: the substance (content-word) floor alone removed, so a long string of
 # stopwords passes as a justification.
-restore
+_mutant_M4() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -289,11 +357,16 @@ if applied M4 "the substantive-word floor removed (filler passes)" \
         "a long-but-empty reason \(stopwords only\) -> BLOCKED" \
         "the filler refusal says so in those terms"
 fi
+    _mut_score
+}
+mut_pool_submit M4 _mutant_M4
 
 # --- M5 (OVER-BLOCKING): the harness-utility exemption removed, so a
 # statusline change now demands a staffing justification. A defense that fires
 # on harness configuration becomes a nuisance, then a formality, then noise.
-restore
+_mutant_M5() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -310,12 +383,17 @@ if applied M5 "harness utilities lose their exemption (over-blocking)" \
         "read-only type claude-code-guide" \
         "read-only type statusline-setup"
 fi
+    _mut_score
+}
+mut_pool_submit M5 _mutant_M5
 
 # --- M6 (INDEPENDENCE): the staffing gate is allowed to swallow the ISOLATION
 # exemption — an allowlisted type that PASSES clause 5 is now also required to
 # be isolated. The two properties must hold independently; this mutant is the
 # only thing that proves the suite would notice if they were collapsed.
-restore
+_mutant_M6() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -340,11 +418,16 @@ if applied M6 "the isolation exemption folded into the staffing gate" \
         "read-only type Plan, no isolation/name \(isolation exemption holds\)" \
         "Explore WITH a well-formed generic-agent: reason -> allowed"
 fi
+    _mut_score
+}
+mut_pool_submit M6 _mutant_M6
 
 # --- M7 (OVER-BLOCKING): the staffing gate fires for EVERY subagent_type, so
 # roster teammates are taxed too. "Make it stricter until it cannot be wrong"
 # is the other way to kill a guard, and it is the way that gets it deleted.
-restore
+_mutant_M7() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -365,10 +448,15 @@ if applied M7 "the gate fires for every type, roster included (over-blocking)"; 
         "roster-style type, isolated, no hatch, second name -> allowed" \
         "a roster-type refusal is the ISOLATION message, never the staffing one"
 fi
+    _mut_score
+}
+mut_pool_submit M7 _mutant_M7
 
 # --- M8: the accepted hatch stops being logged. A waiver nobody can count is a
 # waiver that becomes a habit invisibly.
-restore
+_mutant_M8() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -382,13 +470,18 @@ if applied M8 "the accepted-hatch log removed" \
     check M8 "the accepted-hatch log removed" \
         "accepted generic-agent: hatch was NOT logged"
 fi
+    _mut_score
+}
+mut_pool_submit M8 _mutant_M8
 
 # --- M9: the GENERIC_AGENT_TYPES ARM removed from the membership test,
 # reopening the obvious detour — `general-purpose` is file-capable and NOT on
 # the read-only allowlist, so before clause 5 it passed the whole contract on
 # isolation and a name alone. Mutating the `:=` default instead proves nothing
 # (see this file's header).
-restore
+_mutant_M9() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -404,6 +497,9 @@ if applied M9 "the general-purpose detour reopened" \
     check M9 "the general-purpose detour reopened" \
         "general-purpose, isolated \+ well-named, NO hatch -> BLOCKED"
 fi
+    _mut_score
+}
+mut_pool_submit M9 _mutant_M9
 
 # --- M10: the refusal stops NAMING THE ALTERNATIVE. It still blocks, so every
 # exit-code case stays green; only the message cases notice. A refusal that
@@ -411,7 +507,9 @@ fi
 # ("create-teammate-worktree.sh" is deliberately NOT asserted here: it also
 # appears in the speed refusal's own REASON text, which this mutant leaves
 # intact, so that assertion is M3's.)
-restore
+_mutant_M10() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -429,6 +527,9 @@ if applied M10 "the refusal no longer names the alternative" \
         "refusal names the hatch line by its exact shape" \
         "refusal separates the isolation exemption from the staffing question"
 fi
+    _mut_score
+}
+mut_pool_submit M10 _mutant_M10
 
 # --- M11 (OVER-BLOCKING, the speed check's OWN false-positive arm): the
 # speed/convenience pattern is widened to catch a bare mention of "worktree".
@@ -437,7 +538,9 @@ fi
 # genuine justification may name worktrees innocently ("no worktree is needed
 # for a read-only sweep"). Refusing that is a false positive on a TRUE reason,
 # which is how an escape hatch stops being usable and starts being lied to.
-restore
+_mutant_M11() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -452,6 +555,9 @@ if applied M11 "the speed pattern widened to catch any mention of worktrees" \
     check M11 "the speed pattern widened to catch any mention of worktrees" \
         "a genuine reason mentioning worktrees is NOT read as a speed excuse"
 fi
+    _mut_score
+}
+mut_pool_submit M11 _mutant_M11
 
 # ===========================================================================
 # CLAUSE 6 — the model-tier gate. THE INCIDENT IS A MUTANT (M13, M18).
@@ -468,7 +574,9 @@ fi
 
 # --- M12: clause 6 deleted entirely — the engine as it shipped before tonight,
 # when "don't downgrade" was a sentence and nothing read it.
-restore
+_mutant_M12() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -485,12 +593,17 @@ if applied M12 "clause 6 deleted entirely (the pre-fix engine)" \
         "frank on haiku, no reason -> BLOCKED" \
         "reed \(sonnet default\) on haiku, no reason -> BLOCKED"
 fi
+    _mut_score
+}
+mut_pool_submit M12 _mutant_M12
 
 # --- M13: THE INCIDENT — the comparison inverted. A move UP the order is now
 # refused and a move DOWN is waved through. This is exactly what the killed
 # version of this task would have shipped; the (n) block must go red at the
 # Sonnet -> Fable case that its fixtures had backwards.
-restore
+_mutant_M13() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -506,12 +619,17 @@ if applied M13 "THE INCIDENT: the comparison inverted (upgrade refused, downgrad
         "reed upgraded to opus -> SILENT" \
         "frank \(opus default\) on sonnet, no reason -> BLOCKED"
 fi
+    _mut_score
+}
+mut_pool_submit M13 _mutant_M13
 
 # --- M14 (OVER-BLOCKING): same tier taxed. -gt becomes -ge, so an Opus-default
 # teammate spawned on Fable — the spawn the CEO ordered himself — now demands a
 # justification. A guard that refuses work the CEO explicitly ordered is a
 # false positive, and the suite must measure it rather than assume it.
-restore
+_mutant_M14() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -530,10 +648,15 @@ if applied M14 "same tier taxed (over-blocking; the CEO's own Fable spawns refus
         "frank on opus, its own default, explicit -> SILENT" \
         "reed on sonnet, its own default, explicit -> SILENT"
 fi
+    _mut_score
+}
+mut_pool_submit M14 _mutant_M14
 
 # --- M15: the hatch degrades to a bare marker — any "model-downgrade-ack:"
 # with nothing after it now exempts. The formality failure, clause 6 edition.
-restore
+_mutant_M15() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -547,10 +670,15 @@ if applied M15 "a bare model-downgrade-ack: exempts (hatch as formality)" \
     check M15 "a bare model-downgrade-ack: exempts (hatch as formality)" \
         "a BARE model-downgrade-ack: exempts nothing -> BLOCKED"
 fi
+    _mut_score
+}
+mut_pool_submit M15 _mutant_M15
 
 # --- M16: the accepted ack stops being logged. A waiver nobody can count is a
 # waiver that becomes a habit invisibly.
-restore
+_mutant_M16() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -564,12 +692,17 @@ if applied M16 "the accepted-ack log removed" \
     check M16 "the accepted-ack log removed" \
         "an accepted model-downgrade-ack: is logged to .claude/state/model-downgrade-acks.log with both models"
 fi
+    _mut_score
+}
+mut_pool_submit M16 _mutant_M16
 
 # --- M17 (FAIL-CLOSED ON ITS OWN ERROR): an alias the declaration does not
 # rank becomes a refusal instead of an announced skip. A crashing guard that
 # blocks every spawn is worse than the defect it was built for; the brief
 # said so in those words.
-restore
+_mutant_M17() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -583,12 +716,17 @@ if applied M17 "an unranked alias refuses instead of failing open" \
     check M17 "an unranked alias refuses instead of failing open" \
         "an alias MODEL_TIERS does not rank -> allowed \(fail-open\)"
 fi
+    _mut_score
+}
+mut_pool_submit M17 _mutant_M17
 
 # --- M18 (INFERENCE FROM NAMES — the defect, stated literally): the ranks come
 # from a hardcoded table keyed on the alias name (tonight's invented belief:
 # fable below sonnet) instead of from the declaration. The (n) block's
 # contradicting-declaration cases exist for exactly this mutant.
-restore
+_mutant_M18() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -607,6 +745,9 @@ if applied M18 "ranks inferred from alias names instead of the declaration" \
         "the declared order is obeyed even when it contradicts the alias names: opus-default on haiku -> SILENT" \
         "the declared order is obeyed even when it contradicts the alias names: opus-default on fable \(same tier\) -> SILENT"
 fi
+    _mut_score
+}
+mut_pool_submit M18 _mutant_M18
 # (The "opus-default on sonnet -> BLOCKED" case is deliberately NOT named for
 # M18: a name-keyed table that puts opus above sonnet refuses it too, so it
 # cannot tell the mutant from the guard. It is M13's kind of case, not M18's.)
@@ -615,7 +756,9 @@ fi
 # case stays green; only the announcement cases notice. A guard that stops
 # guarding without saying so is the failure class this engine keeps finding
 # in itself.
-restore
+_mutant_M19() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -630,13 +773,17 @@ if applied M19 "the fail-open skip silenced" \
         "the fail-open skip is announced, naming the unranked alias" \
         "parser library missing -> allowed \(fail-open\), announced"
 fi
+    _mut_score
+}
+mut_pool_submit M19 _mutant_M19
 
 # --- M20: CLAUSE 7e deleted — the persistent reconciler contract unchecked
 # (review 2026-09-03, blocker 7). A machine with no loaded reconciler would
 # spawn file-writing teammates whose terminal worktrees nothing removes.
 # macOS only: the clause stands down elsewhere and the case is a SKIP there.
-if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-restore
+_mutant_M20() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -655,13 +802,19 @@ if applied M20 "the reconciler contract unchecked (clause 7e deleted)" \
         "Q19c dangling job" \
         "Q19d wrong program"
 fi
+    _mut_score
+}
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+    mut_pool_submit M20 _mutant_M20
 fi
 
 # --- M21: the external-only refusal deleted (clause 7f, CEO specification
 # 2026-09-03 section 6) — a cwd-only file-writing spawn would be allowed again,
 # owning hand-rolled worktrees with no platform-owned lifecycle witness: the
 # exact shape that leaked zach-opus-b1's richos worktree on 2026-09-03.
-restore
+_mutant_M21() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
@@ -676,6 +829,9 @@ if applied M21 "the external-only refusal deleted (clause 7f)" \
         "cwd into a REGISTERED cross-repo worktree, no isolation -> BLOCKED" \
         "Q02"
 fi
+    _mut_score
+}
+mut_pool_submit M21 _mutant_M21
 
 # --- DELIBERATE PINS (no mutant, and that is the honest answer). Three cases
 # hold under every mutation above because they assert that the NORMAL path is
@@ -687,7 +843,18 @@ fi
 # working, not claims of mutation coverage. Naming them here is cheaper than
 # letting a future reader assume a silent green means a proven check.
 
-restore
+# (the `restore` that used to sit here reset the SHARED sandbox before M99.
+#  There is no shared mutated state any more: each mutant had its own copy.)
+# --- the mutant verdicts, drained ------------------------------------------
+# ADDITIVE: M0 above already scored, and M99 below still will. A worker that left
+# no exit code counts as UNPROVEN rather than vanishing from the tally.
+mut_pool_drain
+# A harness that declared mutants and ran NONE must not exit 0.
+mut_pool_require_submissions "$(basename "$0")"
+PROVEN=$(( PROVEN + MUT_POOL_PASS ))
+UNPROVEN=$(( UNPROVEN + MUT_POOL_FAIL ))
+mut_pool_report_line "$(( $(sw_now_ms) - MUT_WALL_T0 ))"
+mut_pool_cleanup
 echo ""
 
 # --- M99: THE SHIPPED GUARD WAS NEVER OPENED FOR WRITING.
@@ -722,11 +889,22 @@ echo ""
 echo "=== summary: $PROVEN proven load-bearing, $UNPROVEN unproven ==="
 # The SANDBOX guard must also be back at its pristine bytes, or the mutants ran
 # against each other's leftovers instead of against one change at a time.
+# THE ASSERTION GOT STRONGER WHEN THE MUTANTS GOT THEIR OWN SANDBOXES. It used
+# to say "the shared sandbox guard was RESTORED byte-for-byte", which a harness
+# that mutates and puts back satisfies — the whole risk lived in the interval
+# between those two writes, and a mutant that ran while another was mid-interval
+# measured the wrong file. There is now no interval: the reference sandbox below
+# is built once, read by M0, and never opened for writing by anything, because
+# every mutant works in a copy of its own. So this is no longer "put back", it is
+# NEVER TOUCHED — the same distinction M99 draws about the shipped guard.
 FINAL_MD5="$(md5 -q "$GUARD" 2>/dev/null || md5sum "$GUARD" | cut -d' ' -f1)"
 if [ "$FINAL_MD5" != "$BASE_MD5" ]; then
-    echo "ERROR: the sandbox guard was NOT restored byte-for-byte (md5 $FINAL_MD5 != $BASE_MD5), so mutants were compounding" >&2
+    echo "ERROR: the REFERENCE sandbox guard changed during the run (md5 $FINAL_MD5 != $BASE_MD5)." >&2
+    echo "       Each mutant is supposed to build its own copy and mutate that. A change here means" >&2
+    echo "       something mutated the shared reference, so M0's baseline no longer describes what" >&2
+    echo "       the mutants ran against and every verdict above is suspect." >&2
     exit 1
 fi
-echo "sandbox guard restored byte-for-byte (md5 $FINAL_MD5)"
+echo "reference sandbox guard never written to (md5 $FINAL_MD5); every mutant used its own copy"
 [ "$UNPROVEN" -eq 0 ] || exit 1
 exit 0

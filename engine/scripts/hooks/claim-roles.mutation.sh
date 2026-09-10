@@ -51,7 +51,21 @@ with open(path, "w", encoding="utf-8") as fh:
     fh.write(src.replace(old, new, 1))
 PYEOF
 
-mutant() { # <name> <expected-failing-case> <rel-file> <old> <new> <why>
+# --- concurrency ------------------------------------------------------------
+# Each mutant builds its own sandbox under $SANDBOX/<name> and runs a whole
+# suite against it, so no two mutants share a path and none of them is ordered
+# against another. They ran one at a time only because a `for` loop is what this
+# harness was first written as. mutation-pool.sh bounds the fan-out, keeps the
+# report in declaration order, and counts a KILLED mutant as a failure rather
+# than letting it vanish from the tally. RICHOS_MUTANT_JOBS overrides the degree.
+# shellcheck source=../lib/stopwatch.sh
+. "$ENGINE_ROOT/scripts/lib/stopwatch.sh"
+# shellcheck source=../lib/mutation-pool.sh
+. "$ENGINE_ROOT/scripts/lib/mutation-pool.sh"
+mut_pool_init
+MUT_WALL_T0="$(sw_now_ms)"
+
+_mutant_body() {
     local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
     local dir="$SANDBOX/$name"
     mkdir -p "$dir/scripts/hooks" "$dir/scripts/lib"
@@ -67,14 +81,14 @@ mutant() { # <name> <expected-failing-case> <rel-file> <old> <new> <why>
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
         printf '  FAIL  %s — the mutation did not apply\n' "$name"
         sed 's/^/          /' "$dir/mutate.err"
-        FAIL=$((FAIL + 1)); return
+        return 1
     fi
 
     bash "$dir/scripts/hooks/guard-unresolved-claims.test.sh" >"$dir/out.txt" 2>&1
     if [ "$?" -eq 0 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
         printf '          %s\n' "$why"
-        FAIL=$((FAIL + 1)); return
+        return 1
     fi
     # Literal token with a boundary, not a bare regex: an unescaped `.` matches
     # any character, so `z1.` also matched `FAIL  z1b.` and `z9.` matched
@@ -95,10 +109,18 @@ mutant() { # <name> <expected-failing-case> <rel-file> <old> <new> <why>
     if ! grep -q "FAIL  ${want_re}" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at %s (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
-        FAIL=$((FAIL + 1)); return
+        return 1
     fi
     printf '  PASS  %s — removing it turns %s red\n' "$name" "$want"
-    PASS=$((PASS + 1))
+    return 0
+}
+# mutant <name> ... — a SUBMISSION, not an execution. The body above is unchanged
+# except that it returns its verdict instead of incrementing a counter: it runs
+# in a pool worker, which is a subshell, so an increment in there would mutate a
+# copy and be discarded. The pool prints the bodies in DECLARATION order, so this
+# harness's report is byte-identical to the serial one but for the durations.
+mutant() {
+    mut_pool_submit "$1" _mutant_body "$@"
 }
 
 P="scripts/hooks/guard-unresolved-claims.py"
@@ -156,8 +178,12 @@ mutant nameless-number-hidden "y7." "$P" \
     'pass' \
     "a rejected rule shipped without its number is a rule somebody promotes next month."
 
-echo ""
-echo "=== the state-claim arms, proven load-bearing by removing them ==="
+# A NOTE, NOT AN ECHO. Mutant output is collected at the drain, so a plain
+# `echo` here floats to the top of the report and ends up introducing every
+# mutant instead of the eleven below it. mut_pool_note keeps its place in the
+# sequence without being counted as a mutant.
+mut_pool_note ""
+mut_pool_note "=== the state-claim arms, proven load-bearing by removing them ==="
 
 # REPOINTED 2026-09-06. The needle moved when state_verdict's consumer gained an
 # `if pol == "positive":` wrapper: this block went from 12-space to 16-space
@@ -266,6 +292,25 @@ mutant only-the-named-spelling "z9." "$P" \
     '    out = ["#" + h, "#" + h.upper()]' \
     '    return ["#" + h]\n    out = ["#" + h, "#" + h.upper()]' \
     "checking only the spelling the claim named is exactly the mistake being caught."
+
+# --- the verdict ------------------------------------------------------------
+# Drained rather than accumulated: PASS/FAIL below come from the workers' exit
+# codes, and a worker that left no exit code is counted as a FAILURE. The tally
+# that follows is unchanged and still decides this harness's exit status.
+# ADDITIVE, NOT ASSIGNMENT, and that is a correction found by measurement rather
+# than by reading: mechanical-findings.mutation.sh scores one case BEFORE its
+# mutants, and `PASS="$MUT_POOL_PASS"` silently discarded it. A tally that
+# overwrites an earlier verdict is a green fraction over a case that ran and was
+# thrown away. Harnesses that score nothing beforehand are unaffected, because
+# adding to zero is assignment.
+mut_pool_drain
+# A harness that declared mutants and ran NONE must not exit 0 -- see
+# mut_pool_require_submissions for the run where exactly that happened.
+mut_pool_require_submissions "$(basename "$0")"
+PASS=$(( PASS + MUT_POOL_PASS ))
+FAIL=$(( FAIL + MUT_POOL_FAIL ))
+mut_pool_report_line "$(( $(sw_now_ms) - MUT_WALL_T0 ))"
+mut_pool_cleanup
 
 echo ""
 echo "  $PASS mutant(s) killed, $FAIL survived or misfired"

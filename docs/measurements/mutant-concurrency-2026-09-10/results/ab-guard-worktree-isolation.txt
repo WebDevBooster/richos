@@ -1,0 +1,9 @@
+### scripts/hooks/guard-worktree-isolation.mutation.sh
+  original rc=0    converted(x8) rc=0
+      [21 mutant(s), 8 at a time, wall 6m26.6s, slowest 2m12.0s M13, 5.1x serial]
+  *** VERDICTS DIFFER:
+      28c28
+      < sandbox guard restored byte-for-byte (md5 e738e2959f9f9ed74101e7fdbd13c7ba)
+      ---
+      > reference sandbox guard never written to (md5 e738e2959f9f9ed74101e7fdbd13c7ba); every mutant used its own copy
+  logs kept: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/aborig.XXXXXX.roos3weSBw

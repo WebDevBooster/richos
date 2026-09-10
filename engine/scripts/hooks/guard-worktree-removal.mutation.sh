@@ -37,9 +37,60 @@ mutation_sandbox_engine "$SRC_ENG"
 ENG="$MUT_SANDBOX_ENGINE"
 GUARD="$ENG/scripts/hooks/guard-worktree-removal.sh"
 SUITE="$ENG/scripts/hooks/guard-worktree-removal.test.sh"
-BAK="$MUT_SANDBOX_DIR/guard.pristine"
-cp "$GUARD" "$BAK"
-restore() { cp "$BAK" "$GUARD"; }
+# THE PRISTINE REFERENCE SANDBOX, NEVER MUTATED. It exists for two jobs only:
+# the M0 baseline below, and the final md5 assertion that nothing wrote to it.
+# Each mutant builds its OWN copy -- see _mut_worker_sandbox.
+#
+# `restore` USED TO PUT THIS ONE BACK BETWEEN MUTANTS, and that is exactly what
+# made the harness unsafe to run concurrently: two mutants would have written the
+# same file, and the second would have measured the first one's mutation. It is
+# kept here as a LOUD FAILURE rather than deleted, so a mutant block that still
+# calls it stops the run instead of quietly sharing a sandbox again.
+restore() {
+    echo "ERROR: restore() was called. This harness no longer shares one sandbox" >&2
+    echo "       between mutants -- each builds its own. A call here means a mutant" >&2
+    echo "       block was not converted, and it would be mutating the reference" >&2
+    echo "       sandbox that M0 and the final md5 check depend on." >&2
+    exit 2
+}
+
+# shellcheck source=../lib/stopwatch.sh
+. "$SRC_ENG/scripts/lib/stopwatch.sh"
+# shellcheck source=../lib/mutation-pool.sh
+. "$SRC_ENG/scripts/lib/mutation-pool.sh"
+mut_pool_init
+MUT_WALL_T0="$(sw_now_ms)"
+
+# _mut_worker_sandbox — a throwaway engine copy for ONE mutant.
+#
+# It ASSIGNS to the caller's locals (bash is dynamically scoped), so each mutant
+# function declares `local ENG GUARD SUITE W_DIR MUT_SCORE` and everything the
+# block already says about "$GUARD" and "$SUITE" keeps working unchanged against
+# the worker's own files. RICHOS_WORKTREE_TX_DIR is exported per worker, which is
+# safe because a pool worker is its own subshell.
+_mut_worker_sandbox() {
+    W_DIR="$(cd "$(mktemp -d -t mutant-sandbox.XXXXXX)" && pwd -P)" || return 1
+    ENG="$W_DIR/engine"
+    mkdir -p "$ENG"
+    if ! mutation_copy_engine "$ENG" "$SRC_ENG"; then
+        echo "UNPROVEN  ??   <- could not build this mutant's sandbox" >&2
+        rm -rf "$W_DIR"
+        return 1
+    fi
+    GUARD="$ENG/scripts/hooks/guard-worktree-removal.sh"
+    SUITE="$ENG/scripts/hooks/guard-worktree-removal.test.sh"
+    RICHOS_WORKTREE_TX_DIR="$W_DIR/tx"
+    export RICHOS_WORKTREE_TX_DIR
+    MUT_SCORE=unproven
+    return 0
+}
+
+# _mut_score — the verdict as an EXIT CODE, because a pool worker is a subshell
+# and an incremented counter in there is discarded at the closing paren.
+_mut_score() {
+    rm -rf "$W_DIR"
+    [ "$MUT_SCORE" = proven ]
+}
 # If this trap never runs, a directory under TMPDIR survives. Nothing else.
 trap 'rm -rf "$MUT_SANDBOX_DIR"' EXIT
 
@@ -57,23 +108,23 @@ check() { # <id> <desc> <expected-red-case-substrings...>
     if [ -n "$prered" ]; then
         printf 'UNPROVEN  %-4s %s  <- case(s) ALREADY RED before any mutation, so this mutant proves nothing about them:%s\n' \
             "$id" "$desc" "$prered"
-        UNPROVEN=$((UNPROVEN+1)); return
+        MUT_SCORE=unproven; return
     fi
     out="$("$SUITE" 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ]; then
         printf 'UNPROVEN  %-4s %s  <- suite still GREEN\n' "$id" "$desc"
-        UNPROVEN=$((UNPROVEN+1)); return
+        MUT_SCORE=unproven; return
     fi
     for want in "$@"; do
         printf '%s' "$out" | grep -qE "^  FAIL  ${want}" || missing="$missing $want"
     done
     if [ -z "$missing" ]; then
         printf 'PROVEN    %-4s %s ... turns%s red\n' "$id" "$desc" "$(printf ' %s' "$@")"
-        PROVEN=$((PROVEN+1))
+        MUT_SCORE=proven
     else
         printf 'UNPROVEN  %-4s %s  <- red but NOT at:%s\n' "$id" "$desc" "$missing"
         printf '%s\n' "$out" | grep '^  FAIL' | sed 's/^/            /'
-        UNPROVEN=$((UNPROVEN+1))
+        MUT_SCORE=unproven
     fi
 }
 
@@ -82,7 +133,7 @@ applied() { # <id> <desc> ; returns 1 if the file did not change
     local after; after="$(md5 -q "$GUARD" 2>/dev/null || md5sum "$GUARD" | cut -d' ' -f1)"
     if [ "$after" = "$BASE_MD5" ]; then
         printf 'UNPROVEN  %-4s %s  <- MUTATION DID NOT APPLY\n' "$id" "$desc"
-        UNPROVEN=$((UNPROVEN+1)); return 1
+        MUT_SCORE=unproven; return 1
     fi
     return 0
 }
@@ -120,7 +171,9 @@ fi
 # anywhere, `-r` anywhere, and a path that is `.claude/worktrees/agent-*` or
 # merely NAMED `*-wt`, all matched against the whole command line rather than
 # one verb's own arguments.
-restore
+_mutant_M1() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY'
 import re, sys
 p = sys.argv[1]
@@ -144,37 +197,60 @@ if applied M1 "rule 4 reverted to the pre-move co-occurrence form"; then
     # rule also UNDER-blocked a real worktree that is not named `*-wt`.
     check M1 "rule 4 reverted to the pre-move co-occurrence form" "g7d" "g8 " "g8b" "d2 " "g7c"
 fi
+    _mut_score
+}
+mut_pool_submit M1 _mutant_M1
 
 # --- M1b: ONLY the git-rm exclusion removed (clause scoping + structural test
 # both kept). Isolates what that one line buys on its own.
-restore
+_mutant_M1b() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/    before = text\[:m\.start\(\)\]\.rstrip\(\)\n    if before\.split\(\)\[-1:\] == \["git"\]:\n        continue[^\n]*\n/    pass\n/' "$GUARD"
 if applied M1b "the git-rm exclusion alone is removed"; then
     check M1b "the git-rm exclusion alone is removed" "g7d"
 fi
+    _mut_score
+}
+mut_pool_submit M1b _mutant_M1b
 
 # --- M2: the structural linked-worktree test becomes the old `*-wt` string match.
-restore
+_mutant_M2() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/        if is_linked_worktree "\$_tok"; then _hit="\$_tok"; break; fi/        case "\$_tok" in *-wt|*-wt\/*) _hit="\$_tok"; break ;; esac/' "$GUARD"
 if applied M2 "the *-wt naming heuristic comes back"; then
     check M2 "the *-wt naming heuristic comes back" "g8 "
 fi
+    _mut_score
+}
+mut_pool_submit M2 _mutant_M2
 
 # --- M3: the structural test is gutted to "everything is a worktree" (the
 # over-blocking direction — a guard that blocks everything satisfies "does it
 # fire?" while being useless).
-restore
+_mutant_M3() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/is_linked_worktree\(\) \{ # <path>/is_linked_worktree() { return 0; }\nunused_is_linked_worktree() { # <path>/' "$GUARD"
 if applied M3 "every rm -r target counts as a worktree"; then
     check M3 "every rm -r target counts as a worktree" "g4 "
 fi
+    _mut_score
+}
+mut_pool_submit M3 _mutant_M3
 
 # --- M4: the structural test always says NO (the under-blocking direction).
-restore
+_mutant_M4() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/is_linked_worktree\(\) \{ # <path>/is_linked_worktree() { return 1; }\nunused_is_linked_worktree() { # <path>/' "$GUARD"
 if applied M4 "no rm -r target ever counts as a worktree"; then
     check M4 "no rm -r target ever counts as a worktree" "d2 "
 fi
+    _mut_score
+}
+mut_pool_submit M4 _mutant_M4
 
 # --- M5: the fix's clause scoping is reverted -- the git argument run stops at
 # a newline instead of at a statement separator, so a later, unrelated command
@@ -187,35 +263,52 @@ fi
 # and the destructive verb behind it is never classified). One edit, a false
 # positive and a false negative. Only RO2 and RD3 are asserted; the other two
 # ride along and are left unasserted so this check keeps naming the minimum.
-restore
+_mutant_M5() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/\(\?P<args>\[\^\\n;\|&\)\]\*\)/(?P<args>[^\\n]*)/' "$GUARD"
 if applied M5 "the git argument run bleeds across statement separators"; then
     check M5 "the git argument run bleeds across statement separators" "RO2" "RD3"
 fi
+    _mut_score
+}
+mut_pool_submit M5 _mutant_M5
 
 # --- M6: the OTHER direction. The read-only allowlist is made to swallow the
 # two destructive subcommands, which silences every false positive by silencing
 # the guard. A suite that only asserted the RO half would call this green.
-restore
+_mutant_M6() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/    "whatchanged",/    "whatchanged", "worktree", "branch",/' "$GUARD"
 if applied M6 "the read-only allowlist swallows worktree and branch"; then
     check M6 "the read-only allowlist swallows worktree and branch" "a  " "b  " "c  "
 fi
+    _mut_score
+}
+mut_pool_submit M6 _mutant_M6
 
 # --- M7: git's value-taking global options stop being skipped, so `git -C
 # <repo> worktree remove` reads the REPO PATH as its subcommand and finds no
 # rule. The cross-repo removal is exactly the shape an operator sweep uses.
-restore
+_mutant_M7() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/    "-C", "-c", "--git-dir",/    "-c", "--git-dir",/' "$GUARD"
 if applied M7 "git -C's value is no longer skipped when finding the subcommand"; then
     check M7 "git -C's value is no longer skipped when finding the subcommand" "a2 "
 fi
+    _mut_score
+}
+mut_pool_submit M7 _mutant_M7
 
 # --- M8: the executable-text extraction is removed, so PROSE IS A COMMAND
 # again. This is the 2026-09-03/04 defect in one edit: the classifier reads the
 # whole Bash call as one string, and a commit message or a heredoc payload that
 # QUOTES a removal is refused as though it performed one.
-restore
+_mutant_M8() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/^scan = executable_text\(cmd\)$/scan = cmd/m' "$GUARD"
 # NOT PR1, and the reason is worth recording rather than hiding behind a case
 # id that happens to be red. A SINGLE-LINE `git commit -m "... git worktree
@@ -228,13 +321,18 @@ perl -0pi -e 's/^scan = executable_text\(cmd\)$/scan = cmd/m' "$GUARD"
 if applied M8 "prose and payloads are scanned as if they were commands"; then
     check M8 "prose and payloads are scanned as if they were commands" "PR2" "PR5"
 fi
+    _mut_score
+}
+mut_pool_submit M8 _mutant_M8
 
 # --- M9: the OTHER direction, and it is the one a blanking fix invites. The
 # second pass over command substitutions is deleted, so text the shell WILL
 # execute stops being classified -- `-m "$(git worktree remove <wt>)"` becomes a
 # way to launder a removal through a message. A suite that only asserted the PR
 # half would call this green.
-restore
+_mutant_M9() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 perl -0pi -e 's/^for _sub in _SUBST\.finditer\(scan\):\n    collect_git\(_sub\.group\(0\)\)\n    collect_rm\(_sub\.group\(0\)\)$/for _sub in []:\n    pass/m' "$GUARD"
 # PX3 alone. PX4's substitution sits at the start of its own heredoc line with
 # no enclosing git invocation, so the FIRST pass already reaches it; only PX3 --
@@ -244,9 +342,14 @@ perl -0pi -e 's/^for _sub in _SUBST\.finditer\(scan\):\n    collect_git\(_sub\.g
 if applied M9 "substitutions inside inert text stop being classified"; then
     check M9 "substitutions inside inert text stop being classified" "PX3"
 fi
+    _mut_score
+}
+mut_pool_submit M9 _mutant_M9
 
 # --- M10: restore the old assumption that default prune preserves Git metadata.
-restore
+_mutant_M10() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY_MUTANT'
 from pathlib import Path
 import sys
@@ -258,9 +361,14 @@ PY_MUTANT
 if applied M10 "plain and dry-run-overridden prune regain a direct bypass"; then
     check M10 "plain and dry-run-overridden prune regain a direct bypass" "g2 " "b3 "
 fi
+    _mut_score
+}
+mut_pool_submit M10 _mutant_M10
 
 # --- M11: a helper invocation cannot exempt a separate raw prune operation.
-restore
+_mutant_M11() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
 python3 - "$GUARD" <<'PY_MUTANT'
 from pathlib import Path
 import sys
@@ -272,8 +380,22 @@ PY_MUTANT
 if applied M11 "helper marker exempts a separate raw prune"; then
     check M11 "helper marker exempts a separate raw prune" "b8 "
 fi
+    _mut_score
+}
+mut_pool_submit M11 _mutant_M11
 
-restore
+# (the `restore` that used to sit here reset the SHARED sandbox before M99.
+#  There is no shared mutated state any more: each mutant had its own copy.)
+# --- the mutant verdicts, drained ------------------------------------------
+# ADDITIVE: M0 above already scored, and M99 below still will. A worker that left
+# no exit code counts as UNPROVEN rather than vanishing from the tally.
+mut_pool_drain
+# A harness that declared mutants and ran NONE must not exit 0.
+mut_pool_require_submissions "$(basename "$0")"
+PROVEN=$(( PROVEN + MUT_POOL_PASS ))
+UNPROVEN=$(( UNPROVEN + MUT_POOL_FAIL ))
+mut_pool_report_line "$(( $(sw_now_ms) - MUT_WALL_T0 ))"
+mut_pool_cleanup
 echo ""
 
 # --- M99: THE SHIPPED GUARD WAS NEVER OPENED FOR WRITING. Contents AND mtime,
@@ -295,13 +417,21 @@ else
     PROVEN=$((PROVEN+1))
 fi
 
-# The SANDBOX guard must be back at its pristine bytes, or the mutants were
-# compounding on each other instead of testing one change at a time.
+# NEVER TOUCHED, not PUT BACK. This used to assert the shared sandbox guard had
+# been RESTORED to its pristine bytes, which a mutate-and-restore harness
+# satisfies while the whole risk lives in the interval between those two writes —
+# and two mutants running at once would each be inside the other's interval.
+# Every mutant now works in a copy of its own, so the reference sandbox is built
+# once, read by M0, and never opened for writing at all.
 FINAL_MD5="$(md5 -q "$GUARD" 2>/dev/null || md5sum "$GUARD" | cut -d' ' -f1)"
 if [ "$FINAL_MD5" != "$BASE_MD5" ]; then
-    echo "ERROR: the sandbox guard was NOT restored byte-for-byte (md5 $FINAL_MD5 != $BASE_MD5), so mutants were compounding" >&2
+    echo "ERROR: the REFERENCE sandbox guard changed during the run (md5 $FINAL_MD5 != $BASE_MD5)." >&2
+    echo "       Each mutant builds its own copy and mutates that; a change here means something" >&2
+    echo "       mutated the shared reference, so M0's baseline no longer describes what the" >&2
+    echo "       mutants ran against and every verdict above is suspect." >&2
     exit 1
 fi
+echo "reference sandbox guard never written to (md5 $FINAL_MD5); every mutant used its own copy"
 
 if [ "$UNPROVEN" -gt 0 ]; then
     echo "=== mutation harness: $UNPROVEN UNPROVEN, $PROVEN proven ==="
