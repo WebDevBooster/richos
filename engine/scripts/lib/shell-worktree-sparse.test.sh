@@ -8,9 +8,9 @@
 # option, each of them a case rather than a claim:
 #
 #   1. the shell stays a REGISTERED, NON-PRUNABLE git worktree, and an
-#      operation that cannot keep that promise is rolled back    S01 S06 S10
+#      operation that cannot keep that promise is rolled back    S05 S06 S10
 #   2. the lifecycle is untouched: the seal, the member states, the ingress,
-#      the quarantine and the removal all behave as before        S01 S03 S08
+#      the terminal record and the removal all behave as before   S01 S03 S08
 #   3. the native-disappearance backstop still watches it         S06
 #   4. sparse is NOT a data-loss path: untracked, ignored and modified bytes
 #      are never removed, and a shell that has been written to is left at
@@ -24,6 +24,28 @@
 # worker's worktree IS its workspace and is never touched (S02), and the
 # escalation path — write BLOCKED.md at the root, add it, commit it — still
 # works inside a sparsified shell (S12).
+#
+# WHERE THE SEAL WENT, and why the cases are shaped the way they are. 6472bb60
+# made every native binding record `cleanup_owner: claude-code`, and eligible()
+# refuses any member carrying that key: Claude Code owns the native checkout's
+# cleanup, so RichOS does not rewrite its working tree. Since that key is
+# stamped unconditionally on every native member, THE SEAL-TIME ROUTE NOW
+# REFUSES EVERY SHELL. It is still called — try_seal reaches _sparsify_shell on
+# every seal — and it is still advisory, so nothing in the lifecycle depends on
+# it either way.
+#
+# So the seal-time cases (S01, S01b, S01c) assert the REFUSAL and that the
+# shell is left whole, and the properties above are proven at the CLI, which is
+# the entry point that still evaluates a shell. The refusal is deliberately
+# RECORDED on the member (S01b) rather than returned silently, because metrics()
+# counts only members carrying a `sparse` block: a silent refusal left all three
+# counters reading 0, which is indistinguishable from a sparsifier that was
+# never wired in, and that is exactly how this suite stayed red for three days
+# without anyone being able to see the policy had stopped applying (S18).
+#
+# If sparsification is ever turned back on at seal time, S01/S01b/S01c fail and
+# say so. That is the point of asserting an off switch rather than deleting the
+# cases that used to prove it on.
 #
 # The mutation harness proving each assertion load-bearing is
 # scripts/lib/shell-worktree-sparse.mutation.sh, run at the end of this suite
@@ -125,7 +147,14 @@ seal_pair() {
 
 echo "=== shell-worktree-sparse tests ==="
 
-# --- S01: the seal de-materializes the shell -----------------------------------
+# --- S01: the seal REFUSES a platform-owned shell, and leaves it whole ---------
+# Since 6472bb60 every native binding records `cleanup_owner: claude-code`, so
+# the seal-time route refuses every shell it is offered: Claude Code owns that
+# checkout's cleanup and RichOS never rewrites its working tree. S01/S01b/S01c
+# pin the refusal from three sides — the bytes on disk, the recorded reason and
+# the measurement — so that sparsification coming back on at seal time cannot
+# happen silently either. The sparsifier's own mechanics are still exercised
+# end to end from S05 and S07 onward, at the CLI, which still evaluates a shell.
 A1="a00000000000sp01"
 N1="$ENTITY/.claude/worktrees/agent-$A1"
 git -C "$ENTITY" worktree add -q -b "worktree-agent-$A1" "$N1"
@@ -133,25 +162,23 @@ BEFORE_KB="$(kb "$N1")"
 seal_pair "$A1" "native+external"
 AFTER_KB="$(kb "$N1")"
 APPLIED="$(member_sparse "$SID" "$A1" 0 applied)"
-if [ "$APPLIED" = "True" ] && [ "$AFTER_KB" -lt "$BEFORE_KB" ] && [ ! -e "$N1/qa-audits" ] && [ ! -e "$N1/docs" ] \
+if [ "$APPLIED" = "False" ] && [ "$AFTER_KB" = "$BEFORE_KB" ] && [ -d "$N1/qa-audits" ] && [ -d "$N1/docs" ] \
    && [ -f "$N1/CLAUDE.md" ] && [ -f "$N1/README.md" ] && [ -f "$N1/.gitignore" ]; then
-    ok "S01  sealing a native+external spawn de-materializes the shell (${BEFORE_KB}K -> ${AFTER_KB}K) and keeps every top-level file"
+    ok "S01  sealing a native+external spawn leaves the platform-owned shell WHOLE (${BEFORE_KB}K -> ${AFTER_KB}K): Claude Code owns this checkout, so RichOS does not rewrite its working tree"
 else
     bad "S01  applied=$APPLIED before=${BEFORE_KB}K after=${AFTER_KB}K left: $(tracked_files "$N1")"
 fi
-KEEP="$(member_sparse "$SID" "$A1" 0 keep)"
-if [ -f "$N1/.claude/agents/zach.md" ] && [ -f "$N1/.githooks/pre-commit" ]; then
-    ok "S01b the configured keep-set stays materialized (keep=$KEEP)"
+REASON1="$(member_sparse "$SID" "$A1" 0 reason)"
+if printf '%s' "$REASON1" | grep -q "managed by Claude Code"; then
+    ok "S01b the refusal is RECORDED on the member and names the owner, so --status can count it: $REASON1"
 else
-    bad "S01b keep=$KEEP left: $(tracked_files "$N1")"
+    bad "S01b reason=$REASON1"
 fi
 FREED="$(member_sparse "$SID" "$A1" 0 bytes_freed)"
-BB="$(member_sparse "$SID" "$A1" 0 bytes_before)"
-BA="$(member_sparse "$SID" "$A1" 0 bytes_after)"
-if [ -n "$FREED" ] && [ "$FREED" -gt 0 ] && [ "$BB" -gt "$BA" ]; then
-    ok "S01c the member records the measurement, not the command: bytes_before=$BB bytes_after=$BA bytes_freed=$FREED"
+if [ -z "$FREED" ] || [ "$FREED" = "0" ]; then
+    ok "S01c a refusal claims no saving: no bytes_freed is reported for a shell that was never touched (freed=${FREED:-unset})"
 else
-    bad "S01c before=$BB after=$BA freed=$FREED"
+    bad "S01c a refusal claimed bytes_freed=$FREED"
 fi
 
 # --- S02: a plain native worker's worktree IS its workspace --------------------
@@ -179,22 +206,33 @@ else
 fi
 
 # --- S04: a shell that has been written to is left at FULL size ----------------
+# CEO property 4 — sparse is NOT a data-loss path — and it is asserted at the
+# CLI rather than through a seal ON PURPOSE. The seal-time route now refuses on
+# ownership BEFORE the dirty-shell check is ever consulted, so a seal-driven
+# case here would pass on the ownership refusal and prove nothing about
+# uncommitted bytes. Driving the entry point that still evaluates the shell
+# keeps the guarantee under test; deleting this case with the seal-time route
+# would have retired the guarantee itself, not merely one of its callers.
 A4="a00000000000sp04"
 N4="$ENTITY/.claude/worktrees/agent-$A4"
 git -C "$ENTITY" worktree add -q -b "worktree-agent-$A4" "$N4"
 printf 'work in progress\n' >"$N4/NOTES.md"          # untracked evidence
 printf 'edited\n' >>"$N4/docs/a.md"                  # a modified tracked file
-seal_pair "$A4" "native+external"
-REASON4="$(member_sparse "$SID" "$A4" 0 reason)"
-if [ "$(member_sparse "$SID" "$A4" 0 applied)" = "False" ] && [ -d "$N4/qa-audits" ] \
+RES4="$(S sparsify --path "$N4" --repo "$ENTITY" 2>&1)"
+if printf '%s' "$RES4" | grep -q '"applied": false' && [ -d "$N4/qa-audits" ] \
    && [ "$(cat "$N4/NOTES.md")" = "work in progress" ] && grep -q edited "$N4/docs/a.md" \
-   && printf '%s' "$REASON4" | grep -q "written to"; then
-    ok "S04  a shell with uncommitted work is left at full size, its bytes intact, with the reason recorded: $REASON4"
+   && printf '%s' "$RES4" | grep -q "written to"; then
+    ok "S04  a shell with uncommitted work is left at full size, its bytes intact, with the reason recorded: $(printf '%s' "$RES4" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason",""))')"
 else
-    bad "S04  applied=$(member_sparse "$SID" "$A4" 0 applied) reason=$REASON4 files=$(tracked_files "$N4")"
+    bad "S04  $(printf '%s' "$RES4" | tr '\n' ' ' | cut -c1-200) files=$(tracked_files "$N4")"
 fi
 
 # --- S05: the main checkout and the shared config are untouched ----------------
+# The seal refused A1's shell above, so the sparsifier is driven here at its
+# CLI. This also gives S06/S06b below a GENUINELY sparsified working tree to
+# test the disappearance backstop against: without it they would be asserting
+# "the sparsified shell is still registered" about a shell nothing had touched.
+S sparsify --path "$N1" --repo "$ENTITY" >/dev/null
 MAIN_OK=1
 [ -d "$ENTITY/qa-audits" ] && [ -f "$ENTITY/docs/deep/b.md" ] || MAIN_OK=0
 [ -z "$(git -C "$ENTITY" status --porcelain -- qa-audits docs)" ] || MAIN_OK=0
@@ -365,9 +403,14 @@ fi
 
 # --- S17: a shell the platform is already tearing down is never raced --------
 # The terminal event arrived BEFORE the manifest could seal. try_seal consumes
-# it, the transaction is terminal on arrival, and the member is already
-# quarantined. Sparsifying then would be a working-tree rewrite racing the
-# capture that is about to read those bytes.
+# it and the transaction is terminal on arrival. Sparsifying then would be a
+# working-tree rewrite racing the platform's own teardown.
+#
+# The member is NOT quarantined any more: since 6472bb60 a native member is
+# platform-owned, so terminalize() records ownership and leaves the bytes at
+# their original path for Claude Code to remove. The invariant this case exists
+# for is unchanged — nothing rewrites a tree the lifecycle has already started
+# tearing down — so it now reads the bytes where they actually are.
 A17="a00000000000sp17"
 N17="$ENTITY/.claude/worktrees/agent-$A17"
 git -C "$ENTITY" worktree add -q -b "worktree-agent-$A17" "$N17"
@@ -384,23 +427,28 @@ import json,sys
 d=json.load(open(sys.argv[1]))
 print('present' if d['members'][0].get('sparse') is not None else 'absent', d.get('terminal') is not None)
 " "$RICHOS_WORKTREE_TX_DIR/$SID/$A17.json")"
-if [ "$SPARSE17" = "absent True" ] && [ -d "$Q17/qa-audits" ]; then
-    ok "S17  a transaction that is terminal on arrival is never sparsified — the quarantine keeps every byte for the capture"
+if [ "$SPARSE17" = "absent True" ] && [ ! -e "$Q17" ] && [ -d "$N17/qa-audits" ]; then
+    ok "S17  a transaction that is terminal on arrival is never sparsified — its platform-owned shell keeps every byte at its original path for Claude Code to remove"
 else
-    bad "S17  state=$SPARSE17 quarantine=$(ls "$Q17" 2>/dev/null | tr '\n' ' ')"
+    bad "S17  state=$SPARSE17 original=$([ -d "$N17/qa-audits" ] && echo intact || echo gone) quarantine=$(ls -d "$Q17" 2>/dev/null || echo none)"
 fi
 
-# --- S18: the saving is counted, and so is every refusal ----------------------
-# A number that only ever went up would report the policy as always applying.
-# S01 applied and S04 refused, so both counters must be non-zero here.
+# --- S18: an OFF policy is visible in the counter, not silent -----------------
+# The counter is the only thing that can show the seal-time policy is refusing
+# everything. It could not: maybe_sparsify returned on `i is None` without ever
+# calling persist(), so no member carried a `sparse` block, and metrics() counts
+# only members that do — leaving all three numbers at 0, a reading identical to
+# a sparsifier that was never wired into the seal at all. That is precisely how
+# the refusal survived unnoticed for three days. Every seal-time decision is now
+# a RECORDED refusal, so the numbers say which.
 M18="$(T metrics)"
 V18="$(printf '%s' "$M18" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-print(d['shells_sparsified'] >= 1, d['shells_sparse_refused'] >= 1, d['shell_bytes_freed'] > 100000)
+print(d['shells_sparsified'] == 0, d['shells_sparse_refused'] >= 1, d['shell_bytes_freed'] == 0)
 ")"
 if [ "$V18" = "True True True" ]; then
-    ok "S18  --status counts the shells sparsified, the shells REFUSED, and the bytes actually freed ($(printf '%s' "$M18" | python3 -c "import json,sys; print(json.load(sys.stdin)['shell_bytes_freed'])") bytes so far)"
+    ok "S18  --status reports the seal-time policy as refusing rather than absent ($(printf '%s' "$M18" | python3 -c "import json,sys; print(json.load(sys.stdin)['shells_sparse_refused'])") refused, 0 sparsified, 0 bytes freed)"
 else
     bad "S18  [$V18] $(printf '%s' "$M18" | tr '\n' ' ' | cut -c1-200)"
 fi

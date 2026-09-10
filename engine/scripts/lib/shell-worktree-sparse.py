@@ -476,6 +476,31 @@ def restore_shell(path):
 # the seal-time entry point
 # --------------------------------------------------------------------------
 
+# The refusal 6472bb60 made universal: Claude Code owns the native checkout's
+# cleanup, so RichOS never rewrites its working tree. Named once because
+# maybe_sparsify has to recognize it in order to record it.
+PLATFORM_OWNED = "native checkout is managed by Claude Code"
+
+
+def _is_ownership_refusal(sp):
+    """True for the block _record_refusal writes, and nothing else.
+
+    AN OWNERSHIP REFUSAL IS NOT A DECISION ABOUT THE SHELL'S CONTENTS, so it
+    must not latch. `already decided` exists to stop the one-shot re-running on
+    every seal poll; a block that only says "Claude Code owns this checkout"
+    recorded nothing about the working tree and left it byte-for-byte whole.
+
+    Latching it would be a trap with two teeth. A member whose ownership is
+    later removed — the historical-fixture route, and the same route the
+    reconciler's own capture cases drive — could never be sparsified again,
+    because the refusal recorded at seal would answer for it. And if seal-time
+    sparsification is ever turned back on, every transaction already carrying
+    one of these blocks would stay permanently ineligible, so the feature would
+    come back on for new spawns only, silently, which is the exact failure mode
+    that made this suite worth fixing in the first place."""
+    return isinstance(sp, dict) and sp.get("applied") is False and sp.get("reason") == PLATFORM_OWNED
+
+
 def eligible(tx):
     """(index, member, reason). The shell is the NATIVE member of a
     `native+external` transaction that is still `bound` and not terminal.
@@ -491,8 +516,8 @@ def eligible(tx):
         if m.get("class") != "native":
             continue
         if "cleanup_owner" in m:
-            return None, None, "native checkout is managed by Claude Code"
-        if m.get("sparse") is not None:
+            return None, None, PLATFORM_OWNED
+        if m.get("sparse") is not None and not _is_ownership_refusal(m.get("sparse")):
             return None, None, "already decided"
         if m.get("state") != "bound":
             return None, None, "native member state is %r, not bound" % m.get("state")
@@ -510,12 +535,43 @@ def maybe_sparsify(tx, persist):
     try:
         i, m, why = eligible(tx)
         if i is None:
-            return tx
+            return _record_refusal(tx, persist, why)
         res = sparsify_shell(m.get("path") or "", m.get("repo") or "")
         new = persist(i, sparse=res)
         return new or tx
     except Exception:
         return tx
+
+
+def _record_refusal(tx, persist, why):
+    """Record the platform-owned refusal on the native member so that
+    `--status` can count it.
+
+    A REFUSAL THAT WRITES NOTHING IS A POLICY THAT REPORTS ITSELF AS NEVER
+    HAVING BEEN CONSULTED. worktree-transactions.metrics() counts a member
+    only when it carries a `sparse` block, and since 6472bb60 every native
+    binding records `cleanup_owner`, so this refusal now fires on every
+    native+external seal. Returning early left no block at all, which made
+    shells_sparsified, shells_sparse_refused and shell_bytes_freed all read 0
+    — a reading indistinguishable from a sparsifier that was never wired in.
+    That is what let the change go unnoticed for three days, so the refusal is
+    recorded even though it changes nothing on disk.
+
+    Only this refusal is recorded, and only once. The others must not be: `not
+    sealed` is retried by the seal poll (it would write a block that
+    `already decided` then reads as final), `already decided` means a block is
+    present by definition, and `kind is not native+external` / `no native
+    member` are not statements about a shell at all — a plain native worker's
+    worktree IS its workspace and has no shell to refuse."""
+    if why != PLATFORM_OWNED:
+        return tx
+    for i, m in enumerate(tx.get("members") or []):
+        if m.get("class") != "native":
+            continue
+        if m.get("sparse") is not None:
+            return tx
+        return persist(i, sparse={"applied": False, "reason": why}) or tx
+    return tx
 
 
 # --------------------------------------------------------------------------
