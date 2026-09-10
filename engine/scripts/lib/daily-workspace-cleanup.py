@@ -518,23 +518,48 @@ def _release_dead_lock(repo, path, lock_line):
 #      again before the branch delete, and both reviewers confirmed it held.
 #      It is what makes a restart survivable instead of destructive.
 #   2. NOTHING IS WRITING HERE NOW. The platform writes its lock on a native
-#      worktree BEFORE the run begins — measured on two live agents on this
-#      machine, 43 ms and 49 ms before the SubagentStart hook fired — so an
-#      ABSENT lock is a fact about the present, not a guess about the future.
-#      And the race is closed by git rather than by our timing: `git worktree
-#      remove` without --force REFUSES a locked worktree ("cannot remove a
-#      locked working tree", exit 128, git 2.52.0, measured) and refuses a
-#      tree with modified or untracked files. If a restart begins between the
-#      check and the removal, the platform re-locks and the removal FAILS.
+#      worktree BEFORE an INITIAL run begins — measured, four of four initial
+#      starts on this machine, 42.9 to 101.6 ms before the SubagentStart hook
+#      (`restart-after-terminal-measure.py --locks`) — so an ABSENT lock is a
+#      fact about the present, not a guess about the future. Non-force `git
+#      worktree remove` refuses a locked worktree ("fatal: cannot remove a
+#      locked working tree", exit 128 — measured 2026-09-10 under
+#      completion-proof.GIT, /Library/Developer/CommandLineTools/usr/bin/git
+#      = `git version 2.50.1 (Apple Git-155)`, the binary this lane runs; the
+#      earlier citation named Homebrew's 2.52.0, which is on the operator's
+#      PATH and refuses the same way) and refuses a tree with modified or
+#      untracked files.
+#      CORRECTED ROUND 13: "if a restart begins between the check and the
+#      removal, the platform re-locks and the removal FAILS" stood here and
+#      was measured only on initial starts. Re-locking on a restart is
+#      UNMEASURED — `--locks` (b): 0 of 3 restarts with a lock on disk
+#      re-took it, all three held it throughout; (c): the 4 restarts into
+#      witnessed-unlocked trees are unobservable. The lock is defense in
+#      depth. What makes a restart into an UNLOCKED tree survivable is 1
+#      above, 4 below, and 5.
 #   3. NO PROCESS STANDS IN THE TREE, from a probe that fails closed.
-#   4. THE RECORD DOES NOT SHOW AN OPEN POST-TERMINAL RUN (owner_check).
+#   4. THE RECORD DOES NOT SHOW AN OPEN POST-TERMINAL RUN (owner_check, row
+#      5, from the transaction's notes AND the platform's own event log).
+#   5. THE WRITE BARRIER. guard-sealed-worktree.sh refuses a terminal agent
+#      EVERY tool, Read included — its own header: "refused EVERY tool,
+#      sealed or not, read-only or not" — observed live on fix1's restarts at
+#      19:57Z and 20:27Z and on sage-fable-cert2's at 21:01Z. A restarted
+#      terminal agent therefore cannot write, so a removal under it is a
+#      DISRUPTION (an agent waking to a directory that is gone) and never a
+#      loss. Load-bearing by mutant `terminal-not-refused` (G15) in
+#      guard-sealed-worktree.mutation.sh. This is the protection the decision
+#      table never named, and the one the next person to relax the barrier
+#      for terminal agents ("read and report but not write") would have
+#      removed without knowing.
 #
 # SO THE HONEST SAFETY CLAIM, WHICH IS SMALLER AND TRUE: a removal cannot
 # destroy work, because a workspace is only removed when its tracked bytes are
-# identical to a commit `main` already contains, its ignored bytes are
-# archived and verified first, and nothing holds it. A restart AFTER a removal
-# is a DISRUPTION — an agent waking in a directory that is gone — not a loss,
-# and it is now detected, recorded on the transaction and announced.
+# identical to a commit `main` already contains, its ignored bytes — nested
+# repositories included — are archived and verified first and re-checked
+# immediately before the removal, and nothing holds it. A restart AFTER a
+# removal is a DISRUPTION — an agent waking in a directory that is gone, and
+# refused every tool — not a loss, and it is detected, recorded on the
+# transaction from two sources, and announced.
 #
 # WHAT IS NOT CLAIMED, deliberately: that a terminal agent cannot run again
 # (it can, ten times over), that a released lock means an agent will not
@@ -635,26 +660,43 @@ def platform_lock_is_absent(member, row):
     in progress. Zero of five production reclaims happened in their own event.
     The lock is not a release signal and the wait was not generous.
 
-    WHAT IT IS INSTEAD, and this is the fact worth having: the platform takes
-    the lock BEFORE the run starts. Measured on this machine from the live
-    admin directories, two agents, both times the lock file's mtime PRECEDES
-    the SubagentStart hook:
+    WHAT IT IS INSTEAD: the platform takes the lock BEFORE an INITIAL run
+    starts. Measured on this machine from the live admin directories, four of
+    four initial starts, lock mtime 42.9 to 101.6 ms ahead of the SubagentStart
+    hook (`restart-after-terminal-measure.py --locks`, line (a)). agent-liveness
+    says the same thing from the other side: "a live agent isolation worktree
+    is always locked." So an ABSENT lock is a statement about the present —
+    nothing is running in there right now — never a prediction.
 
-        agent-a2de3c7d8d8590224  lock 16:07:26.643Z  start 16:07:26.692Z  (-49 ms)
-        agent-a97f2c691c34e2c0f  lock 17:43:41.993Z  start 17:43:42.036Z  (-43 ms)
+    WHAT IT IS NOT (round 13, 2026-09-10, after both reviewers). Round 12
+    wrote here that "a restart that re-locks between this check and the
+    removal makes the removal FAIL rather than race", and offered two
+    initial-start samples as the measurement. Whether the platform re-takes a
+    RELEASED lock for a RESTARTED run has never been observed on this
+    machine: every restart with a lock file on disk (three — fix1 twice,
+    sage-fable-cert2 once) held its lock THROUGHOUT, never released and never
+    re-taken, lock mtime unchanged; and the four restarts into trees the
+    reaper had witnessed unlocked (q1, inf1, gate1, own1 at 14:34:37Z) left
+    no admin directory to read. `--locks` reports that as (b) 0 of 3 and (c)
+    4, unobservable. So this predicate, and git's refusal behind it, catch a
+    lock that IS there; they promise nothing for a restart into an unlocked
+    tree. What protects THAT case is named where it lives:
 
-    agent-liveness says the same thing from the other side: "a live agent
-    isolation worktree is always locked."
+      * row 5, post_terminal_run_open — an open post-terminal run holds every
+        member, read from two sources;
+      * THE WRITE BARRIER — guard-sealed-worktree.sh refuses a terminal agent
+        EVERY tool, Read included, so a restarted terminal agent cannot write
+        into a workspace whether or not it still exists (mutant
+        `terminal-not-refused`, G15, in guard-sealed-worktree.mutation.sh
+        proves the refusal load-bearing);
+      * the ancestor gate, re-verified immediately before the removal.
 
-    So an ABSENT lock is a statement about the present — nothing is running in
-    there right now — rather than a prediction that nothing will. That is
-    exactly what a removal needs, because the removal is now protected against
-    the future by git: `git worktree remove` without --force refuses a locked
-    worktree, so a restart that re-locks between this check and the removal
-    makes the removal FAIL rather than race.
+    A removal under an unlocked restart is therefore a DISRUPTION, not a
+    loss. The lock is defense in depth, and this docstring no longer calls
+    it the fact the design rests on.
 
-    A HELD LOCK IS THEREFORE NOT A WAIT THAT EXPIRED. It is the platform
-    holding this workspace, and it is journaled in those words.
+    A HELD LOCK IS NOT A WAIT THAT EXPIRED. It is the platform holding this
+    workspace, and it is journaled in those words.
     """
     if row is None:
         return False, 'exact registration required'

@@ -116,7 +116,7 @@ mutant ingress-hands-hand-rolled-back-to-the-nightly "test_hand_rolled_terminal_
 mutant ingress-ignores-the-platform-lock "test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it" "$D" \
     "        absent, why = platform_lock_is_absent(holder, proof_api.registry(repo).get(path))" \
     "        absent, why = True, 'mutant: the platform lock is ignored'" \
-    "the ingress would walk past a lock the platform still holds — and after round 12 that lock is not a courtesy, it is the ONE present-tense liveness fact this platform provides (measured: it is written 43ms and 49ms BEFORE the run's start hook fires)."
+    "the ingress would walk past a lock the platform still holds — and after round 12 that lock is not a courtesy, it is the ONE present-tense liveness fact this platform provides (measured: written before the start hook on four of four INITIAL starts; whether it is re-taken for a RESTARTED run is unmeasured — restart-after-terminal-measure.py --locks)."
 
 # ROUND 12, 2026-09-10. The two mutants that stood here pinned
 # `lock_names_nobody` and `_release_unattributable_lock` — the route that took
@@ -155,7 +155,7 @@ mutant process-probe-fails-open-again "test_a_process_probe_that_cannot_look_HOL
 mutant last-look-before-removal-removed "test_a_relock_between_the_check_and_the_removal_makes_the_removal_FAIL" "$D" \
     "        if not fresh or 'locked' in fresh or 'prunable' in fresh:" \
     "        if False:" \
-    "a workspace re-locked by the platform DURING the reclaim's preparation (archiving residue takes seconds; the platform locks before a restarted run begins) would go to the removal anyway. git refuses it behind this, so the tree survives — but the journal would say nothing about why, which is how the same class stayed invisible for eleven rounds."
+    "a workspace locked DURING the reclaim's preparation (archiving residue takes seconds; a lock that appears in them is caught here — whether the platform re-locks for a RESTARTED run is unmeasured, see --locks) would go to the removal anyway. git refuses it behind this, so the tree survives — but the journal would say nothing about why, which is how the same class stayed invisible for eleven rounds."
 
 mutant journal-overwrites-again "test_the_immediate_reclaim_journal_APPENDS_instead_of_overwriting" "$D" \
     "            tx.update_member(sid, aid, index, immediate_reclaim=entry,{NL}                             immediate_reclaim_history=history," \

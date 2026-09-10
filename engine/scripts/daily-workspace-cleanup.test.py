@@ -704,13 +704,21 @@ class Cleanup(unittest.TestCase):
         self.assert_reclaimed(self.run_cleanup())
 
     def test_a_relock_between_the_check_and_the_removal_makes_the_removal_FAIL(self):
-        # THE RACE THE NEW GROUND RESTS ON, exercised rather than reasoned.
-        # The platform locks a native worktree BEFORE the run starts (measured
-        # on two live agents: the lock file's mtime precedes the SubagentStart
-        # hook by 43 ms and 49 ms). So if an agent is restarted between the
-        # lane's lock check and its `git worktree remove`, the lock is back —
-        # and non-force `git worktree remove` REFUSES a locked worktree
-        # ("cannot remove a locked working tree", exit 128, git 2.52.0).
+        # A LOCK THAT APPEARS DURING PREPARATION IS CAUGHT, exercised rather
+        # than reasoned: the last look re-reads the registration after the
+        # archive, and non-force `git worktree remove` refuses a locked tree
+        # by itself ("fatal: cannot remove a locked working tree", exit 128 —
+        # under whichever git this test finds on PATH; the lane's own binary,
+        # completion-proof.GIT, is Apple Git 2.50.1 on the operator's machine
+        # and refuses identically).
+        #
+        # WHAT THIS DOES NOT ESTABLISH (corrected round 13): that the platform
+        # re-locks a native worktree for a RESTARTED run. The comment that
+        # stood here said so on two initial-start samples; re-lock on restart
+        # is unmeasured (`restart-after-terminal-measure.py --locks`, (b) 0 of
+        # 3). The lock this test places by hand stands in for ANY lock that
+        # appears in the window; the protection for a restart into an
+        # unlocked tree is row 5 and the write barrier, not this.
         #
         # Simulated by locking the tree after the decision is taken and before
         # the removal runs, through the last-look check that exists for this.
