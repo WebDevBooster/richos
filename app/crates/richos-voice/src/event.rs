@@ -10,9 +10,17 @@
 //! | `rich://voice-state` | the mic state changed, a new input level is available, or the input went silent/came back | `{ state, level, bargeInArmed, noAudio, at }` |
 //! | `rich://voice-transcript` | an utterance was recognized and submitted as a turn | `{ text, durationMs, latencyMs, at }` |
 //! | `rich://voice-error` | voice mode could not start or had to stop | `{ message, at }` |
+//! | `rich://voice-notice` | voice mode is working, but not the way it would on a better machine | `{ message, at }` |
 //!
-//! `message` on `voice-error` is ALWAYS a calm, Rich-voiced line. Device names, exit codes
-//! and file paths go to stderr, never to the CEO (clean output).
+//! `message` on `voice-error` AND on `voice-notice` is ALWAYS a calm, Rich-voiced line. Device
+//! names, exit codes and file paths go to stderr, never to the CEO (clean output).
+//!
+//! **`voice-notice` is NOT a quieter `voice-error`, and the split is the point.** An error says
+//! voice stopped; a notice says voice is running and has quietly made a choice on the CEO's
+//! behalf — today, that his machine could not carry the more accurate recognizer. Sending that
+//! down `voice-error` would put a failure face on a working feature; suppressing it would be the
+//! defect `hardware.rs` exists to remove, which is a product that silently gives a good machine
+//! the weak model and never says so. It is the product explaining itself.
 
 use crate::state::VoiceState;
 use serde_json::{json, Value};
@@ -20,6 +28,7 @@ use serde_json::{json, Value};
 pub const EVENT_VOICE_STATE: &str = "rich://voice-state";
 pub const EVENT_VOICE_TRANSCRIPT: &str = "rich://voice-transcript";
 pub const EVENT_VOICE_ERROR: &str = "rich://voice-error";
+pub const EVENT_VOICE_NOTICE: &str = "rich://voice-notice";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VoiceEvent {
@@ -39,6 +48,17 @@ pub enum VoiceEvent {
     Transcript { text: String, duration_ms: u64, latency_ms: u64, at: u64 },
     /// Something stopped voice mode. Rich-voiced; never a stack trace.
     Error { message: String, at: u64 },
+    /// Voice mode is RUNNING, and something about how it is running is worth the CEO knowing.
+    ///
+    /// Today there is exactly one source: the model this machine could carry is not the best one
+    /// on the ladder (`hardware.rs`). Emitted ONCE, at voice-mode start, never per utterance —
+    /// resolution happens once and a sentence repeated after every thing you say is noise.
+    ///
+    /// A SEPARATE VARIANT FROM `Error` ON PURPOSE. They carry the same shape and mean opposite
+    /// things: `Error` means voice stopped, `Notice` means voice works and has made a choice for
+    /// him. Collapsing them would put a failure face on a working feature, and the UI proves the
+    /// difference — `voice-error` also flips the panel out of voice mode.
+    Notice { message: String, at: u64 },
 }
 
 impl VoiceEvent {
@@ -47,6 +67,7 @@ impl VoiceEvent {
             VoiceEvent::State { .. } => EVENT_VOICE_STATE,
             VoiceEvent::Transcript { .. } => EVENT_VOICE_TRANSCRIPT,
             VoiceEvent::Error { .. } => EVENT_VOICE_ERROR,
+            VoiceEvent::Notice { .. } => EVENT_VOICE_NOTICE,
         }
     }
 
@@ -65,7 +86,9 @@ impl VoiceEvent {
                 "latencyMs": latency_ms,
                 "at": at,
             }),
-            VoiceEvent::Error { message, at } => json!({ "message": message, "at": at }),
+            VoiceEvent::Error { message, at } | VoiceEvent::Notice { message, at } => {
+                json!({ "message": message, "at": at })
+            }
         }
     }
 }
@@ -134,11 +157,29 @@ mod tests {
         assert_eq!(p["latencyMs"].as_u64(), Some(470));
     }
 
-    /// INVARIANT: the three event names are stable — they are a published contract.
+    /// INVARIANT: the event names are stable — they are a published contract.
     #[test]
-    fn the_three_voice_event_names_are_stable() {
+    fn the_voice_event_names_are_stable() {
         assert_eq!(EVENT_VOICE_STATE, "rich://voice-state");
         assert_eq!(EVENT_VOICE_TRANSCRIPT, "rich://voice-transcript");
         assert_eq!(EVENT_VOICE_ERROR, "rich://voice-error");
+        assert_eq!(EVENT_VOICE_NOTICE, "rich://voice-notice");
+    }
+
+    /// INVARIANT: a notice is NOT an error, on the wire as well as in meaning.
+    ///
+    /// They carry an identical payload shape and mean opposite things — one says voice stopped,
+    /// the other says voice is running and made a choice for him. The UI proves the difference
+    /// costs something: `rich://voice-error` also flips the panel out of voice mode, so a
+    /// degradation sent down that channel would end the conversation it was reporting on.
+    #[test]
+    fn a_notice_is_delivered_on_its_own_channel_and_never_as_an_error() {
+        let n = VoiceEvent::Notice { message: "I'm using my faster hearing.".into(), at: 9 };
+        let e = VoiceEvent::Error { message: "I'm using my faster hearing.".into(), at: 9 };
+        assert_eq!(n.event_name(), EVENT_VOICE_NOTICE);
+        assert_ne!(n.event_name(), e.event_name(), "same words, different channel");
+        assert_eq!(n.payload(), e.payload(), "and an identical payload shape for the UI");
+        assert_eq!(n.payload()["message"], "I'm using my faster hearing.");
+        assert_eq!(n.payload()["at"].as_u64(), Some(9));
     }
 }

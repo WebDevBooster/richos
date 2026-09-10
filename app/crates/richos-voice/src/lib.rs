@@ -53,6 +53,12 @@ pub mod chunk;
 pub mod fft;
 pub mod endpoint;
 pub mod event;
+// Which model this machine can carry, read off the machine rather than compiled in. Pure over a
+// `Machine` struct and a measurement closure, so every resolution rule is decided in a unit test
+// without a decoder, a WAV or a subprocess; the only impure parts are three sysctl reads and the
+// speed cache. It exists because a repo-wide grep for `sysctl`/`hw.memsize`/`sysinfo` across
+// `app/crates` used to return nothing at all.
+pub mod hardware;
 pub mod noaudio;
 pub mod state;
 // Which whisper binary, which ggml backends and which weights are about to hear the CEO. Pure

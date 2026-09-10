@@ -1,0 +1,19 @@
+argv, identical on every row: /opt/homebrew/bin/whisper-cli -m <model> -f <wav> -l en -t 4 -fa -np -nt -mc 0
+wav: /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/rig/utt-keep.wav  sha256 547d525a0125cc679c47c44b1a467dbd0bb7445409e5e047c725192723510622
+
+model                  run        maxRSS B    wall s  transcript
+tiny.en                1         248266752     0.212  Rich, what is the status of the voice pipeline today?
+tiny.en                2         248545280     0.211  Rich, what is the status of the voice pipeline today?
+tiny.en                3         246480896     0.202  Rich, what is the status of the voice pipeline today?
+base.en                1         367149056     0.278  Rich, what is the status of the voice pipeline today?
+base.en                2         366379008     0.253  Rich, what is the status of the voice pipeline today?
+base.en                3         366460928     0.248  Rich, what is the status of the voice pipeline today?
+small.en               1         860651520     0.539  Rich, what is the status of the voice pipeline today?
+small.en               2         867516416     0.578  Rich, what is the status of the voice pipeline today?
+small.en               3         866451456     0.593  Rich, what is the status of the voice pipeline today?
+large-v3-turbo-q5_0    1         858144768     1.452  Rich, what is the status of the voice pipeline today?
+large-v3-turbo-q5_0    2         858570752     1.323  Rich, what is the status of the voice pipeline today?
+large-v3-turbo-q5_0    3         855605248     1.286  Rich, what is the status of the voice pipeline today?
+large-v3-turbo         1        1873788928     2.108  Rich, what is the status of the voice pipeline today?
+large-v3-turbo         2        1989836800     1.522  Rich, what is the status of the voice pipeline today?
+large-v3-turbo         3        1988395008     1.522  Rich, what is the status of the voice pipeline today?

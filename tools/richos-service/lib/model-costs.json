@@ -1,0 +1,178 @@
+{
+  "_comment": [
+    "WHAT EACH MODEL COSTS, and the ladders the resolver walks. One place, both consumers.",
+    "",
+    "This file exists for the same reason model-pins.json does, and the reason is written in that",
+    "file: two registries of truth is how the second unpinned consumer came to exist. The Rust",
+    "voice path (app/crates/richos-voice/src/hardware.rs) compiles it in with include_str!, and",
+    "the Node call path (lib/config.js) imports it. Neither re-types a number.",
+    "",
+    "IT REPLACES A HARDCODED MODEL ID ON BOTH SURFACES. Until 2026-09-10 stt.rs:42 pinned",
+    "`small.en` as a compile-time constant identical on every machine, and config.js's",
+    "DEFAULT_TIER pinned `quantized` the same way. Neither asked the machine anything: a",
+    "repo-wide grep for sysctl / hw.memsize / total_memory / sysinfo across app/crates returned",
+    "nothing. The CEO put it plainly: 'WHY IS THE SHITTIEST POSSIBLE HARDWARE HARDCODED INTO",
+    "THE APP???'",
+    "",
+    "EVERY NUMBER HERE WAS MEASURED, NOT CHOSEN. Provenance is per-field below. Nothing in this",
+    "file is a round number somebody liked -- that is the same defect as the constant it",
+    "replaces, one level up.",
+    "",
+    "THE SURPRISE, AND IT IS LOAD-BEARING: at utterance length large-v3-turbo-q5_0 peaks at",
+    "858,570,752 B against small.en's 867,516,416 B. The quantized turbo is CHEAPER in memory",
+    "than the model that config.js's tier table calls the fallback for 'low-RAM hosts'. small.en",
+    "is fp16; q5_0 is 5-bit quantized. The turbo is bigger ON DISK (574,041,195 B against",
+    "487,614,201 B) and that is the figure the old constant was defended with. So memory does not",
+    "discriminate between these models on any Mac Apple ships, and the ladders below are ordered",
+    "and gated on TIME. Full derivation: docs/measurements/hardware-model-resolution-2026-09-10/."
+  ],
+
+  "measuredOn": "2026-09-10",
+  "record": "docs/measurements/hardware-model-resolution-2026-09-10/",
+
+  "referenceHost": {
+    "_comment": [
+      "The machine every `reference` figure below is relative to -- and the ONLY machine any of",
+      "them has been measured on. That is not a caveat to skip: it is precisely why the resolver",
+      "measures the host it is running on instead of shipping a table of machines. A reference",
+      "figure is used for exactly one thing, computing this machine's speed factor against it.",
+      "It is the CEO's own Mac."
+    ],
+    "cpu": "Apple M4",
+    "cores": "10 (4 performance + 6 efficiency)",
+    "memBytes": 25769803776,
+    "os": "Darwin 24.6.0",
+    "whisperCliSha256": "7dc20e3106d70746d61c419646d9bf87f726a5df7da562e26e8529067119f7b8",
+    "whisperCppVersion": "1.9.1"
+  },
+
+  "probe": {
+    "_comment": [
+      "The utterance every `referenceUtteranceSeconds` below was measured on, and the one the",
+      "live path's calibration re-synthesizes on a machine it has not seen before.",
+      "",
+      "NOT COMMITTED AS AUDIO, deliberately: `say` output drifts between renders (established by",
+      "the settings rig), so a committed WAV would imply a stability it does not have. The",
+      "sentence and the command reproduce it; the sha256 identifies the render the reference",
+      "figures came from. It is the same sentence stt.rs's module docs were written from, and it",
+      "renders to the same 3.095 s they record -- an independent confirmation, not a copy."
+    ],
+    "text": "Rich, what is the status of the voice pipeline today?",
+    "sayArgs": ["--data-format=LEI16@16000"],
+    "durationSeconds": 3.095,
+    "referenceRenderSha256": "547d525a0125cc679c47c44b1a467dbd0bb7445409e5e047c725192723510622"
+  },
+
+  "liveUtteranceCeilingSeconds": {
+    "_comment": [
+      "NOT THIS RIG'S NUMBER. It is the failure point stt.rs's own module docs state, in the only",
+      "place in either repository that says what a spoken conversation may cost: 'a second of dead",
+      "air after every sentence is the difference between talking to Rich and operating him.'",
+      "The same docs state the promise as ~0.5 s, carried below as the target for the message the",
+      "user reads. A model is admitted to the live ladder only if THIS machine decodes the probe",
+      "under the ceiling."
+    ],
+    "value": 1.0,
+    "targetSeconds": 0.5,
+    "source": "app/crates/richos-voice/src/stt.rs module docs"
+  },
+
+  "batchRealTimeMultiple": {
+    "_comment": [
+      "The batch ladder's gate. A transcription that takes longer than the recording it is",
+      "transcribing is a different product -- it stops being a batch job and becomes a backlog.",
+      "1.0 is the real-time boundary, which is a physical line rather than a chosen threshold;",
+      "there is no other non-arbitrary line available and a chosen one would be the defect this",
+      "file exists to remove. The reference machine sits 21x-23x clear of it, which is the right",
+      "shape for a guard: silent on any healthy machine, loud on one that cannot cope."
+    ],
+    "value": 1.0
+  },
+
+  "ladders": {
+    "_comment": [
+      "Ordered BEST FIRST. The resolver takes the first entry clearing every gate.",
+      "",
+      "live: ends at tiny.en because a conversation with no recognizer is not a conversation --",
+      "the bottom rung is the one that always fits. large-v3-turbo-q5_0 sits at the TOP and is",
+      "rejected on every machine measured so far (1.549 s and 1.331 s against the 1.000 s",
+      "ceiling, two load conditions). It is left there on purpose: the door opens by itself, with",
+      "no code change and no env var, on the first machine that decodes it in time. Pretending",
+      "the ladder has a rung it can reach today would be worse than recording that it does not.",
+      "",
+      "batch: STOPS at large-v3-turbo-q5_0 and is never promoted above it. That is the CEO",
+      "decision page §10 ruling and this file does not reopen it: §10 put q5_0 ahead of full",
+      "turbo on post-guard WER on both corpus renders, ahead on fabrication, and ahead on the",
+      "1,050,514,080 B a new user downloads before the product works. Promoting a big machine to",
+      "full turbo would be re-deciding §10 from a rig that measured none of what §10 decided on.",
+      "",
+      "large-v3-turbo appears in `models` for its costs and in NEITHER ladder. It stays",
+      "selectable by hand (--tier turbo) exactly as §10 left it.",
+      "",
+      "small.en-q5_1 is in neither ladder and in no `models` row. It is the obvious extra rung",
+      "below small.en and it is the one entry in model-pins.json with a single witness and no",
+      "copy on any machine here -- its own `witness` field says so. It stays out until the bytes",
+      "can be verified."
+    ],
+    "live": ["large-v3-turbo-q5_0", "small.en", "base.en", "tiny.en"],
+    "batch": ["large-v3-turbo-q5_0", "small.en"]
+  },
+
+  "safeRung": {
+    "_comment": [
+      "The rung taken when the machine could NOT be measured at all -- no probe voice, no",
+      "decoder, no cache. Deliberately NOT the bottom of the ladder: the bottom rung is where a",
+      "machine goes when it has been measured and found slow, and handing tiny.en to a machine",
+      "nobody managed to time would be a silent downgrade justified by an absence of evidence.",
+      "",
+      "It is small.en because that is what shipped on every machine before 2026-09-10, so it is",
+      "the one rung with field history rather than a bench figure. An unmeasured machine gets the",
+      "status quo and is TOLD that is what happened."
+    ],
+    "value": "small.en"
+  },
+
+  "models": [
+    {
+      "id": "tiny.en",
+      "utterancePeakRssBytes": 248545280,
+      "referenceUtteranceSeconds": 0.202,
+      "diskBytes": 77704715,
+      "provenance": "utterance figures: hardware-model-resolution-2026-09-10 measurements/utterance-sweep.txt, max and min of 3 runs. disk: model-pins.json."
+    },
+    {
+      "id": "base.en",
+      "utterancePeakRssBytes": 367149056,
+      "referenceUtteranceSeconds": 0.248,
+      "diskBytes": 147964211,
+      "provenance": "utterance figures: hardware-model-resolution-2026-09-10 measurements/utterance-sweep.txt, max and min of 3 runs. disk: model-pins.json."
+    },
+    {
+      "id": "small.en",
+      "utterancePeakRssBytes": 867516416,
+      "referenceUtteranceSeconds": 0.512,
+      "diskBytes": 487614201,
+      "provenance": "peak RSS: utterance-sweep.txt, max of 3 runs. seconds: warm-reps.txt, MINIMUM of 8 warm reps under the lighter of two load conditions -- the minimum is the estimator least contaminated by other work on the machine, and the same machine measured ~50% slower while busy (median 0.800 s against 0.521 s). disk: model-pins.json."
+    },
+    {
+      "id": "large-v3-turbo-q5_0",
+      "utterancePeakRssBytes": 858570752,
+      "referenceUtteranceSeconds": 1.302,
+      "longFormSecondsPerAudioSecond": 0.0473,
+      "longFormPeakRssBytes": 1859256320,
+      "callPeakRssBytes": 884981760,
+      "diskBytes": 574041195,
+      "provenance": "utterance peak RSS: utterance-sweep.txt, max of 3 runs. utterance seconds: warm-reps.txt, minimum of 8 warm reps, lighter load. longForm* and call*: QUOTED from whisper-model-choice-2026-09-10 (262 s of decode for 5536.3 s of audio on the slower of the two channels; 1.73 GB and 0.82 GB peak) and from config.js's own tier description -- not re-measured here. disk: model-pins.json."
+    },
+    {
+      "id": "large-v3-turbo",
+      "utterancePeakRssBytes": 1989836800,
+      "referenceUtteranceSeconds": 1.522,
+      "longFormSecondsPerAudioSecond": 0.0441,
+      "longFormPeakRssBytes": 2817949696,
+      "callPeakRssBytes": 2014101504,
+      "diskBytes": 1624555275,
+      "provenance": "utterance figures: utterance-sweep.txt, max and min of 3 runs. longForm* and call*: QUOTED from whisper-model-choice-2026-09-10 (244 s for 5536.3 s; 2.62 GB and 2,014,101,504 B). In NEITHER ladder -- carried so the cost of the opt-in tier is stated in the same place as everything else. disk: model-pins.json."
+    }
+  ]
+}

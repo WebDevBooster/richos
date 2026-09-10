@@ -14,21 +14,41 @@
 //! transcript landing in the thread within ~0.5 s of him stopping. The upgrade path is a warm
 //! whisper daemon or `whisper-stream`, both flagged in the brief.
 //!
-//! ## Model choice for the CONVERSATIONAL loop: `small.en`
+//! ## Model choice for the CONVERSATIONAL loop: ASKED, not compiled in
 //!
-//! Measured on this M4, cold subprocess, a 3.095 s utterance ("Rich, what is the status of
-//! the voice pipeline today?"), three runs: **0.74 s / 0.47 s / 0.47 s**, transcript exact.
-//! The local-dictation notes record the same profile (0.48–1.08 s) and record that
-//! turbo-class accuracy costs **+0.63–0.79 s absolute** for −2.1 WER points. That cost is
-//! mostly COMPUTE, not model load: measured 2026-08-26, turbo's fixed per-invocation overhead
-//! is 0.48–0.59 s and `small.en`'s is 0.20–0.23 s, so a warm daemon returns only ~0.3 s of
-//! the gap. An earlier note here claimed a ~1.4 s load tax and that a warm daemon would give
-//! turbo accuracy at `small.en` speed — both are measured FALSE
-//! (the dictation-daemon + q5 brief, 2026-08-26). Dictation can absorb the
-//! remaining cost; a spoken conversation cannot — a second of dead air after every sentence is
-//! the difference between talking to Rich and operating him. So the conversational default
-//! stays `small.en`, and the honest lever is a smaller/quantized model, not a daemon.
-//! `RICHOS_VOICE_WHISPER_MODEL` overrides for anyone who wants turbo anyway.
+//! Until 2026-09-10 this section defended a constant — `DEFAULT_MODEL_ID = "small.en"`,
+//! identical on every machine in the world. The CEO's question was the right one:
+//! *"WHY IS THE SHITTIEST POSSIBLE HARDWARE HARDCODED INTO THE APP???"* It now resolves at
+//! run time from what the machine can actually do — [`crate::hardware`] holds the rule, the
+//! measured ladder and the reasoning; this module supplies the measurement.
+//!
+//! **The budget stated here is the one the resolver gates on**, and it is unchanged: a
+//! conversational utterance should land in **~0.5 s**, and **a second of dead air after every
+//! sentence is the difference between talking to Rich and operating him.** That sentence is
+//! now load-bearing rather than commentary — `model-costs.json` carries 1.000 s as the live
+//! ceiling and cites this file for it.
+//!
+//! **What measuring it changed.** On this M4, three runs of a 3.095 s utterance cost
+//! **0.539 / 0.578 / 0.593 s** for `small.en` — reproducing the 0.47–0.74 s this comment used to
+//! claim, so the old figure was right and is now checked rather than trusted. The turbo-class
+//! cost it quoted as "+0.63–0.79 s absolute" reproduces too, at **+0.749 s / +0.810 s** across
+//! two load conditions. What was NOT right was the reason `small.en` was kept: the tier table
+//! calls it the fallback for *"low-RAM hosts"*, and `large-v3-turbo-q5_0` measures
+//! **8,945,664 B CHEAPER** in peak RSS. Memory never chose this model; latency did, and latency
+//! is a property of the machine rather than of the product.
+//!
+//! So `q5_0` sits at the TOP of the live ladder and is rejected on every machine measured so far
+//! (1.549 s and 1.331 s against the 1.000 s ceiling). The door opens by itself on the first
+//! machine that decodes it in time. The honest lever is still a smaller/quantized model rather
+//! than a warm daemon — turbo's fixed per-invocation overhead is 0.48–0.59 s against
+//! `small.en`'s 0.20–0.23 s, so a daemon returns only ~0.3 s of the gap, and the earlier claim
+//! of a ~1.4 s load tax curable by a daemon is measured FALSE (the dictation-daemon + q5 brief,
+//! 2026-08-26).
+//!
+//! `RICHOS_VOICE_WHISPER_MODEL_ID` still names a model outright and
+//! `RICHOS_VOICE_WHISPER_MODEL`/`RICHOS_WHISPER_MODEL` still pin the weights by path. Both win
+//! over the resolver — an engineer reproducing a measurement needs them to. They are no longer
+//! the ONLY control, which is the whole change.
 
 use crate::vad::SAMPLE_RATE;
 use crate::wav;
@@ -36,10 +56,22 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-/// The conversational default. NOT the same as the call-transcription service's default —
-/// `large-v3-turbo-q5_0` since 2026-09-10, `large-v3-turbo` before it (CEO decision page §10).
-/// See the module docs for why latency wins here and accuracy wins there.
-pub const DEFAULT_MODEL_ID: &str = "small.en";
+/// The id assumed when NO resolution happened — and only then.
+///
+/// THIS IS NOT A DEFAULT AND THE RENAME IS THE POINT. It used to be `DEFAULT_MODEL_ID`, the
+/// model every machine got. It is now reached in exactly two situations, neither of which is
+/// "an ordinary launch":
+///
+/// 1. `RICHOS_VOICE_WHISPER_MODEL` or `RICHOS_WHISPER_MODEL` pinned the WEIGHTS BY PATH. Walking
+///    a ladder then would be theatre — `resolve_model` returns that one file for every id, so
+///    every rung would "measure" the same weights. The id is still needed, because
+///    `toolchain.rs` looks the pin up by it, and this preserves exactly the behavior that
+///    override has always had: point it at something else and the pin check refuses, loudly.
+/// 2. The compiled-in registry is unusable, which is a build-time mistake in this repository.
+///
+/// The ORDINARY unmeasurable case does not come here: it goes to the registry's `safeRung`,
+/// which the CEO is told about. See [`crate::hardware`].
+pub const FALLBACK_MODEL_ID: &str = "small.en";
 
 #[derive(Debug)]
 pub enum SttError {
@@ -227,6 +259,190 @@ pub fn decode_args(prompt: Option<&str>) -> Vec<String> {
     args
 }
 
+// -------------------------------------------------------------------------------------------
+// Choosing the model — the measurement half. The RULE lives in `hardware.rs`.
+// -------------------------------------------------------------------------------------------
+
+/// Pick the model for THIS machine, measuring it if nobody has yet.
+///
+/// The split with [`crate::hardware`] is deliberate and it is what makes any of this testable:
+/// that module holds the ladder, the gates and the reasoning as a pure function; this one owns
+/// the two impure things it needs — synthesizing a probe utterance and timing a decode.
+///
+/// COST, STATED. On a machine that has been measured before this is one small file read. On a
+/// machine that has not, it is one `say` render plus one decode per rung tried, stopping at the
+/// first rung that fits — two decodes on the reference host, about 2 s, ONCE for that machine and
+/// that whisper binary. It happens in `Recognizer::resolve()`, which already hashes the binary
+/// and sometimes a 487 MB model, and which already exists so that nothing surprising happens
+/// mid-sentence.
+fn choose_model(bin: &Path) -> crate::hardware::Resolution {
+    use crate::hardware::{self, Basis, Machine};
+
+    let machine = Machine::read();
+
+    // AN EXPLICIT ID WINS OUTRIGHT. An engineer who names a model is not asking to be second
+    // guessed, and reproducing a measurement depends on it.
+    if let Ok(id) = std::env::var("RICHOS_VOICE_WHISPER_MODEL_ID") {
+        let id = id.trim().to_string();
+        if !id.is_empty() {
+            return overridden(id, machine);
+        }
+    }
+    // SO DOES A PATH OVERRIDE, and for a sharper reason: `resolve_model` returns that one file
+    // for EVERY id, so a ladder walk would time the same weights four times and report a
+    // "resolution" that resolved nothing.
+    for var in ["RICHOS_VOICE_WHISPER_MODEL", "RICHOS_WHISPER_MODEL"] {
+        if std::env::var(var).map(|v| !v.trim().is_empty()).unwrap_or(false) {
+            return overridden(FALLBACK_MODEL_ID.to_string(), machine);
+        }
+    }
+
+    let mut costs = hardware::Costs::load();
+    // A rung is only a rung if its weights are on this machine.
+    costs.retain_installed(|id| resolve_model(id).is_ok());
+
+    // The cache is keyed by binary AND machine: a `brew upgrade` can change decode cost, and a
+    // speed attributed to the wrong build is the hole `toolchain.rs` exists to close.
+    let bin_sha = crate::toolchain::hash_file(bin).unwrap_or_default();
+    let key = hardware::cache_key(&bin_sha, &machine);
+    let cached = hardware::load_speeds(&key);
+
+    // The probe utterance, synthesized once for this whole walk and only if something is actually
+    // unmeasured. `say -o` writes a file and plays nothing, so this is silent even mid-call.
+    let probe_dir = std::env::temp_dir().join("richos-voice-calibration");
+    let mut probe_wav: Option<Option<PathBuf>> = None;
+
+    let resolution = hardware::resolve_live(&costs, &machine, |id| {
+        if let Some(secs) = cached.get(id) {
+            return Some(*secs);
+        }
+        let wav = probe_wav
+            .get_or_insert_with(|| synthesize_probe(&costs.probe_text, &probe_dir))
+            .clone()?;
+        let model = resolve_model(id).ok()?;
+        let secs = time_decode(bin, &model, &wav, costs.live_ceiling_secs)?;
+        hardware::record_speed(&key, id, secs);
+        Some(secs)
+    });
+
+    // Said out loud on stderr as well as carried in provenance — the same channel the toolchain
+    // warnings use, and the one a headless voice loop shares with whoever started it.
+    if resolution.basis != Basis::TopRung {
+        eprintln!("richos-voice: {}", resolution.provenance());
+    }
+    resolution
+}
+
+/// The shape an override takes: a resolution that records what the machine looked like without
+/// pretending a rule chose anything.
+fn overridden(model_id: String, machine: crate::hardware::Machine) -> crate::hardware::Resolution {
+    crate::hardware::Resolution {
+        model_id,
+        basis: crate::hardware::Basis::Override,
+        rejected: None,
+        measured_secs: None,
+        ceiling_secs: crate::hardware::Costs::load().live_ceiling_secs,
+        machine,
+    }
+}
+
+/// Render the probe sentence to a 16 kHz mono WAV with macOS `say`. `None` if it cannot be done.
+///
+/// `-o` WRITES A FILE AND PLAYS NOTHING, which is the only reason calibrating at voice-mode start
+/// is acceptable at all — the alternative would put a sentence through the speakers on first
+/// launch. Same synthesizer `tts.rs` already depends on, so this adds no new requirement.
+///
+/// The render is NOT expected to be byte-identical to the one the reference figures came from —
+/// `say` output drifts between renders and voices differ per machine. It does not need to be: the
+/// gate is "under 1.000 s", and the ladder's rungs differ by 2.5x, so a few percent of drift in
+/// the probe cannot move a verdict.
+fn synthesize_probe(text: &str, dir: &Path) -> Option<PathBuf> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    std::fs::create_dir_all(dir).ok()?;
+    let out = dir.join("probe.wav");
+    if out.exists() {
+        return Some(out);
+    }
+    let status = Command::new("say")
+        .arg("-o")
+        .arg(&out)
+        .arg("--data-format=LEI16@16000")
+        .arg(text)
+        .status()
+        .ok()?;
+    if status.success() && out.exists() {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// How many reps a calibration may take before it is allowed to REJECT a rung.
+///
+/// THREE, AND ONLY WHEN REJECTING — see [`time_decode`] for why the asymmetry is sound rather
+/// than a compromise. Three is what `utterance-sweep.sh` takes, and the spread it measured is
+/// the reason more would be waste and fewer would be wrong.
+const CALIBRATION_REJECT_REPS: usize = 3;
+
+/// Wall-clock seconds for a decode of `wav` by `model`, at the argv this path really uses —
+/// the BEST of up to [`CALIBRATION_REJECT_REPS`] reps, and usually just one.
+///
+/// # Why a single sample is not enough, measured rather than supposed
+///
+/// The first version of this took one sample, and running it caught its own defect on the CEO's
+/// machine: `small.en` timed **1.005 s** against the 1.000 s ceiling — five milliseconds over —
+/// and the machine was demoted to `base.en` and told so. The reference figures for that same
+/// model are 0.512 s quiet and 0.800 s busy. Nothing was wrong with the machine; the sample was
+/// taken while it was doing something else.
+///
+/// `docs/measurements/hardware-model-resolution-2026-09-10/` §3 predicted exactly this — the same
+/// M4 measured ~50% slower under load, and that is why the cache keeps a MINIMUM. A single
+/// sample is trivially its own minimum, so the cache's protection did nothing until the
+/// measurement itself took more than one.
+///
+/// # Why the extra reps are only spent on a REJECTION
+///
+/// The minimum over reps only ever goes DOWN. So a rep that already clears the ceiling settles
+/// the question — no number of further reps could overturn it — and the walk takes it and stops.
+/// Only a rep that MISSES the ceiling is inconclusive, because it might be this one sample rather
+/// than the machine, and only then are more reps bought.
+///
+/// That asymmetry is the right way round on cost as well as on logic: a rejection is the
+/// expensive, sticky verdict — it takes a model away from the CEO and writes a sentence explaining
+/// it — so a rejection is what deserves corroboration. On a quiet reference machine this is four
+/// decodes in total (three to reject `q5_0`, one to accept `small.en`), about 4.4 s, ONCE for that
+/// machine and that whisper binary.
+///
+/// [`decode_args`]`(None)` is passed VERBATIM, not an approximation. A calibration at different
+/// settings from the shipping run measures a decode this product never performs — `-fa` alone is
+/// worth 1.57 WER points and a measurable slice of the wall clock.
+fn time_decode(bin: &Path, model: &Path, wav: &Path, ceiling_secs: f64) -> Option<f64> {
+    let mut best: Option<f64> = None;
+    for _ in 0..CALIBRATION_REJECT_REPS {
+        let started = Instant::now();
+        let out = Command::new(bin)
+            .arg("-m")
+            .arg(model)
+            .arg("-f")
+            .arg(wav)
+            .args(decode_args(None))
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let secs = started.elapsed().as_secs_f64();
+        best = Some(best.map_or(secs, |b: f64| b.min(secs)));
+        // Settled: the minimum cannot rise, so no further rep could turn this into a rejection.
+        if secs <= ceiling_secs {
+            break;
+        }
+    }
+    best
+}
+
 /// A resolved, ready-to-use recognizer. Resolution happens ONCE at voice-mode start so a
 /// missing model is a calm message at the toggle, not a failure in the middle of a sentence.
 pub struct Recognizer {
@@ -240,6 +456,10 @@ pub struct Recognizer {
     /// Which binary, which ggml backends and which weights — established ONCE, here, and carried
     /// so every utterance is attributed to what actually heard it.
     toolchain: crate::toolchain::Report,
+    /// WHY those weights and not better ones. `toolchain` answers "which model heard this?";
+    /// this answers "and why was that the model on this machine?", which is the question a
+    /// transcript could not answer at all while the id was a compile-time constant.
+    resolution: crate::hardware::Resolution,
 }
 
 impl Recognizer {
@@ -256,9 +476,9 @@ impl Recognizer {
     /// this machine locked WARNS, loudly, naming both identities — see `toolchain.rs` for why the
     /// two differ. `RICHOS_WHISPER_STRICT_TOOLCHAIN=1` makes every warning a refusal.
     pub fn resolve() -> Result<Recognizer, SttError> {
-        let model_id =
-            std::env::var("RICHOS_VOICE_WHISPER_MODEL_ID").unwrap_or_else(|_| DEFAULT_MODEL_ID.to_string());
         let bin = resolve_whisper_bin()?;
+        let resolution = choose_model(&bin);
+        let model_id = resolution.model_id.clone();
         let model = resolve_model(&model_id)?;
         let toolchain = crate::toolchain::check(&bin, &model, &model_id);
         // Said out loud on stderr, not only stored. A warning nobody meets is not a warning, and
@@ -269,13 +489,45 @@ impl Recognizer {
         if toolchain.verdict() == crate::toolchain::Severity::Refuse {
             return Err(SttError::ToolchainRefused(toolchain.refusals().join(" ")));
         }
-        Ok(Recognizer { bin, model, model_id, prompt: std::env::var("RICHOS_WHISPER_PROMPT").ok().filter(|s| !s.trim().is_empty()), toolchain })
+        Ok(Recognizer {
+            bin,
+            model,
+            model_id,
+            prompt: std::env::var("RICHOS_WHISPER_PROMPT").ok().filter(|s| !s.trim().is_empty()),
+            toolchain,
+            resolution,
+        })
     }
 
     /// One line naming the binary and the weights that heard this conversation. The answer to
     /// "which binary and which weights produced this?" for every turn this recognizer serves.
+    ///
+    /// UNCHANGED, AND STILL A `&str`. The resolution rides in [`Recognizer::provenance_full`]
+    /// beside it rather than being spliced in here: this string is compared verbatim by
+    /// `toolchain.rs`'s own test and is what existing readers already parse, and widening a
+    /// stable identity line to carry a second, machine-dependent fact is how a record stops
+    /// being comparable between two runs.
     pub fn provenance(&self) -> &str {
         &self.toolchain.provenance
+    }
+
+    /// The identity line PLUS why this model and not a better one — the whole answer, for a
+    /// turn record or a support question.
+    ///
+    /// Example from the CEO's own M4, where the better rung exists and does not fit the budget:
+    ///
+    /// ```text
+    /// whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:small.en@c6138d6d58ec
+    ///   | model:small.en (hw-resolved, large-v3-turbo-q5_0 too slow here at 1.302s/utt > 1.000s;
+    ///     this 0.512s/utt) mem:5873516544B/25769803776B pressure:warn
+    /// ```
+    pub fn provenance_full(&self) -> String {
+        format!("{} | {}", self.toolchain.provenance, self.resolution.provenance())
+    }
+
+    /// Why this machine got this model. Carries the CEO-facing sentence when there is one.
+    pub fn resolution(&self) -> &crate::hardware::Resolution {
+        &self.resolution
     }
 
     /// The full identity report, for a caller that wants to record more than the line.
@@ -507,20 +759,99 @@ mod tests {
         assert!(is_meaningful("[cough] renegotiate Acme"));
     }
 
-    /// INVARIANT: the conversational default is small.en, deliberately NOT the transcription
-    /// service's default — latency is the binding constraint in a conversation and it is not the
-    /// binding constraint on a post-call batch decode.
+    /// INVARIANT: **the conversational model is whatever THIS MACHINE can decode inside the
+    /// conversational budget** — the RULE, not a string.
     ///
-    /// The exclusion is spelled out over BOTH turbo-family ids on purpose. It used to name only
-    /// `large-v3-turbo`, which was the service default at the time; on 2026-09-10 that default
-    /// moved to `large-v3-turbo-q5_0` (CEO decision page §10) and the assertion would have gone on
-    /// passing while no longer testing the thing it was written to test. An invariant pinned to
-    /// one side of a decision that can move is not an invariant.
+    /// # What this replaced, and why it had to go
+    ///
+    /// It used to be `the_conversational_default_model_is_small_en_for_latency`, and it read:
+    ///
+    /// ```text
+    /// assert_eq!(DEFAULT_MODEL_ID, "small.en");
+    /// assert_ne!(DEFAULT_MODEL_ID, "large-v3-turbo");
+    /// assert_ne!(DEFAULT_MODEL_ID, "large-v3-turbo-q5_0");
+    /// ```
+    ///
+    /// That test was careful about the wrong thing. Its own comment worried that pinning one
+    /// turbo id would let the assertion pass while no longer testing what it was written to test —
+    /// a real hazard, correctly spotted — and it answered by naming BOTH turbo ids. But the defect
+    /// was a level up: **it asserted a constant, so it passed identically on every machine in the
+    /// world and would have gone on passing if `small.en` had been the wrong choice for all of
+    /// them.** A test that cannot fail on a bad machine is not testing the choice; it is
+    /// testifying that somebody typed a string.
+    ///
+    /// The CEO named the same defect from the outside: *"WHY IS THE SHITTIEST POSSIBLE HARDWARE
+    /// HARDCODED INTO THE APP???"*
+    ///
+    /// # What is pinned now
+    ///
+    /// The property that actually matters, over machines the CI runner will never be:
+    ///
+    /// - a machine fast enough for the better rung is GIVEN the better rung, and is told nothing,
+    ///   because that is the product working;
+    /// - a machine that is not is stepped DOWN and is TOLD, in words with no path and no model
+    ///   filename in them;
+    /// - the ceiling those verdicts turn on is the one this module's own docs state.
+    ///
+    /// Not one assertion below names `small.en`. Change the ladder, add a rung, re-measure a
+    /// model, and this test goes on being the thing it was written to be — which is exactly what
+    /// the old one could not do.
     #[test]
-    fn the_conversational_default_model_is_small_en_for_latency() {
-        assert_eq!(DEFAULT_MODEL_ID, "small.en");
-        assert_ne!(DEFAULT_MODEL_ID, "large-v3-turbo");
-        assert_ne!(DEFAULT_MODEL_ID, "large-v3-turbo-q5_0");
+    fn the_conversational_model_is_the_one_this_machine_can_decode_in_time() {
+        use crate::hardware::{resolve_live, Basis, Costs, Machine, Pressure};
+        let costs = Costs::load();
+        let machine = Machine {
+            total_bytes: 25_769_803_776,
+            available_bytes: 5_873_516_544,
+            pressure: Pressure::Warn,
+            cores: 10,
+        };
+
+        // The ceiling is this module's stated failure point, carried in the registry rather than
+        // restated. If that sentence in the module docs ever changes, this is where it bites.
+        assert_eq!(costs.live_ceiling_secs, 1.0, "a second of dead air is the stated failure point");
+
+        // A machine that clears the ceiling on the top rung gets the top rung — whatever it is
+        // called — and is told nothing.
+        let fast = resolve_live(&costs, &machine, |_| Some(costs.live_ceiling_secs - 0.5));
+        assert_eq!(fast.model_id, costs.live_ladder[0], "the best rung this machine can afford");
+        assert_eq!(fast.basis, Basis::TopRung);
+        assert_eq!(fast.ceo_message(), None, "the product working is not a notification");
+
+        // A machine that does not clear it on the top rung is stepped down, and is told.
+        let slow = resolve_live(&costs, &machine, |id| {
+            if id == costs.live_ladder[0] {
+                Some(costs.live_ceiling_secs + 0.302)
+            } else {
+                Some(costs.live_ceiling_secs - 0.488)
+            }
+        });
+        assert_ne!(slow.model_id, costs.live_ladder[0], "the rung it could not afford");
+        assert_eq!(slow.basis, Basis::TooSlow);
+        let told = slow.ceo_message().expect("a machine that lost the better model is told so");
+        assert!(!told.contains('/'), "no paths reach him: {told}");
+        assert!(!told.contains(".en") && !told.contains("q5_0"), "no model filenames reach him: {told}");
+    }
+
+    /// INVARIANT: the two env overrides still win outright, and they win in the two different
+    /// ways they always have — an ID names a model, a PATH pins the weights.
+    ///
+    /// The path form is the sharper case: `resolve_model` returns that one file for EVERY id, so
+    /// a ladder walk under it would time the same weights on every rung and report a resolution
+    /// that resolved nothing. It short-circuits to `Override` instead, and `FALLBACK_MODEL_ID`
+    /// supplies the id `toolchain.rs` looks the pin up by — preserving exactly the behavior that
+    /// override has always had, including refusing when the file is not what the pin says.
+    #[test]
+    fn an_engineer_who_names_a_model_or_a_path_is_not_second_guessed() {
+        assert_eq!(FALLBACK_MODEL_ID, "small.en", "the id a path override is attributed to");
+        // The resolver is never consulted for an override, so the basis is the whole assertion:
+        // it records that no rule ran, rather than a rung that was never chosen.
+        let m = crate::hardware::Machine::read();
+        let r = overridden("large-v3-turbo".into(), m);
+        assert_eq!(r.basis, crate::hardware::Basis::Override);
+        assert_eq!(r.model_id, "large-v3-turbo");
+        assert_eq!(r.ceo_message(), None, "an engineer's own choice is not explained back to him");
+        assert!(r.provenance().contains("env-override"), "{}", r.provenance());
     }
 
     /// INVARIANT: a missing recognizer reaches the CEO as a calm line with no path in it,
