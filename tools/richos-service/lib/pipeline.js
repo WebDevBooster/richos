@@ -38,7 +38,7 @@ import { mergeTranscript, renderMarkdown, verify, wordCount } from './merge.js';
 import { correct } from './correct.js';
 import { loadEntityMemory } from './entities.js';
 import { appendLedger } from './ledger.js';
-import { MIN_TRANSCRIPT_WORDS, resolveTier, whisperArgs } from './config.js';
+import { MIN_TRANSCRIPT_WORDS, resolveTier, resolveTierForHost, whisperArgs } from './config.js';
 import { guardTranscription, guardWarnings } from './repetition-guard.js';
 import { guardDeletions, deletionWarnings, DELETION_GUARD_DEFAULTS } from './deletion-guard.js';
 import { guardSubstitution, substitutionWarnings, SUBSTITUTION_GUARD_DEFAULTS } from './substitution-guard.js';
@@ -98,7 +98,16 @@ export function runPipeline(sessionDir, opts = {}) {
   const now = opts.now || Date.now();
   // P5 tiering: `tier` (quantized*|turbo|max|low-resource, * = default) or a raw `model` id both resolve here to a
   // concrete { model, decodeArgs, repetitionGuard }. `model` stays supported for backward compat.
-  const tier = resolveTier(opts.tier || opts.model);
+  //
+  // ASKED OF THE MACHINE SINCE 2026-09-10, not read off a constant. With no `--tier` and no
+  // `--model`, `resolveTierForHost` walks the batch ladder against what this host can actually
+  // do; with either of them, or with a `RICHOS_WHISPER_MODEL` path override, the caller has
+  // already decided and it passes straight through. It NEVER promotes above `DEFAULT_TIER` — that
+  // is the CEO decision page §10 ruling and it was decided on WER, fabrication and download size,
+  // none of them hardware questions. What it adds is the demotion that never existed: the
+  // `low-resource` tier has been in the table since it was written and nothing in this product has
+  // ever selected it.
+  const tier = resolveTierForHost(opts.tier || opts.model, { env: opts.env });
   const model = tier.model;
   let record = readRecord(sessionDir);
   const sessionId = record?.sessionId || record?.dir || path.basename(sessionDir);
@@ -165,6 +174,19 @@ export function runPipeline(sessionDir, opts = {}) {
     // own decodeArgs and the caller's extraArgs still ride in on top and still win.
     const decodeArgs = [...(tier.decodeArgs || []), ...(opts.extraArgs || [])];
     log.info(`${sessionId} — tier=${tier.name} model=${model}${decodeArgs.length ? ` decode=[${decodeArgs.join(' ')}]` : ''}`);
+    // A DEMOTION IS SAID OUT LOUD, at warn, once per session. The transcript is about to be worse
+    // than it would be on a better machine, and a transcript that is quietly worse with nothing
+    // saying so is the defect this work exists to remove. Silent on the top rung, because a
+    // machine getting the model it was meant to get is the product working — and a line printed
+    // on every healthy run is how a real one stops being read.
+    if (tier.hardware && tier.hardware.notice) {
+      log.warn(`${sessionId} — ${tier.hardware.notice}`);
+      log.warn(
+        `${sessionId} — basis=${tier.hardware.basis} rejected=${tier.hardware.rejected ? tier.hardware.rejected.id : 'none'}` +
+          ` mem=${tier.hardware.machine.availableBytes}B/${tier.hardware.machine.totalBytes}B` +
+          ` (docs/measurements/hardware-model-resolution-2026-09-10/)`,
+      );
+    }
     const asr = transcribeSession(
       { me: path.join(sessionDir, CHANNEL_FILES.me), others: path.join(sessionDir, CHANNEL_FILES.others) },
       { model, outDir: sessionDir, extraArgs: decodeArgs },
@@ -641,6 +663,22 @@ export function runPipeline(sessionDir, opts = {}) {
     // ---- Verification + trivial-transcript anomaly ----------------------------------------------
     record.pipeline.model = model;
     record.pipeline.tier = tier.name;
+    // WHY THIS TIER AND NOT A BETTER ONE. `tier` alone cannot answer it: `low-resource` in a
+    // record could mean a human passed `--tier low-resource` or that this machine could not carry
+    // the default, and those are different facts about the same transcript. `null` when the
+    // caller chose the tier outright — an absent block means "not resolved", never "resolved to
+    // the top", which is the distinction a `basis: 'top-rung'` row exists to keep.
+    record.pipeline.hardware = tier.hardware
+      ? {
+          basis: tier.hardware.basis,
+          rejected: tier.hardware.rejected,
+          projectedSecondsPerAudioSecond: tier.hardware.projected,
+          totalMemoryBytes: tier.hardware.machine.totalBytes,
+          availableMemoryBytes: tier.hardware.machine.availableBytes,
+          cores: tier.hardware.machine.cores,
+          record: 'docs/measurements/hardware-model-resolution-2026-09-10/',
+        }
+      : null;
     if (decodeArgs.length) record.pipeline.decodeArgs = decodeArgs;
     // The EFFECTIVE decode invocation, not just the tier's extras. Since `-mc` moved out of tier
     // data (2026-08-29) an empty `decodeArgs` no longer means "bare defaults", and a record that

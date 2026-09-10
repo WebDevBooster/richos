@@ -31,7 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { runPipeline } from '../lib/pipeline.js';
 import { scanZone, watch } from '../lib/watcher.js';
 import { decideClaimOnDisk, findPromotableOnDisk, markSuperseded } from '../lib/coordination.js';
-import { dropZone, ffmpegBin, whisperBin, resolveModel, resolveModelChecked, modelSearchDirs, resolveTier, MODEL_TIERS, DEFAULT_TIER, DEFAULT_MODEL, REPO_ROOT } from '../lib/config.js';
+import { dropZone, ffmpegBin, whisperBin, resolveModel, resolveModelChecked, modelSearchDirs, resolveTier, resolveTierForHost, MODEL_TIERS, DEFAULT_TIER, DEFAULT_MODEL, REPO_ROOT } from '../lib/config.js';
 import { MODEL_PINS, PIN_FILE, PINS_VERIFIED_ON, TOOLCHAIN_REFERENCE, pinFor, pinnedModelIds, provenanceLine, isSingleWitness, human } from '../lib/model-catalog.js';
 import { resolveToolchain, lockPath as toolchainLockPath } from '../lib/toolchain.js';
 import { modelStatus, downloadModel } from '../lib/model-fetch.js';
@@ -591,11 +591,28 @@ function main() {
         ok = false;
         console.log(`whisper:    MISSING — ${String(err.message || err)}`);
       }
-      const resolvedTier = resolveTier(tier || model);
+      // THE HOST-AWARE ANSWER, because `doctor` is where somebody looks to find out what this
+      // machine will actually do. `resolveTier` would report the ceiling and be silent about a
+      // demotion that is going to happen on every run — which is precisely the gap this command
+      // exists to close for the other resolutions it prints.
+      const resolvedTier = resolveTierForHost(tier || model);
       try {
         console.log(`tier:       ${resolvedTier.name} -> model ${resolvedTier.model}${
           resolvedTier.decodeArgs.length ? ` (decode: ${resolvedTier.decodeArgs.join(' ')})` : ''
         }`);
+        if (resolvedTier.hardware) {
+          const h = resolvedTier.hardware;
+          const mem = `${h.machine.availableBytes} B available of ${h.machine.totalBytes} B`;
+          if (h.basis === 'top-rung') {
+            console.log(`            resolved from this machine (${mem})${
+              h.projected != null ? ` — projected ${(1 / h.projected).toFixed(1)}x faster than real time` : ''
+            }`);
+          } else {
+            console.log(`            RESOLVED DOWN from ${h.rejected ? h.rejected.id : 'the default'} — ${h.basis} (${mem})`);
+            console.log(`            ${h.notice}`);
+            console.log('            docs/measurements/hardware-model-resolution-2026-09-10/');
+          }
+        }
         const found = resolveModelChecked(resolvedTier.model);
         console.log(`model:      ${found.path}`);
         console.log(`            ${found.pin ? `pinned sha256 ${found.pin.sha256.slice(0, 16)}… — run \`richos-service verify-model ${resolvedTier.model}\` to hash it` : 'NOT PINNED — this model has no hash to check against'}`);

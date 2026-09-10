@@ -23,6 +23,11 @@ import {
   describe as describeModelFinding,
   readHead as readModelHead,
 } from './model-integrity.js';
+// Which model THIS machine can carry. Namespaced rather than star-imported so every call site
+// below reads as a question being asked of the host — `hw.readMachine()`, `hw.resolveBatchModel()`
+// — instead of as a local helper that might be a constant in disguise.
+import * as hw from './hardware.js';
+import { hashFileSync } from './toolchain.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -159,8 +164,15 @@ export function whisperBin() {
 
 /**
  * P5 model-tiering (the system architecture §4.1 + §9-P5). Accuracy/robustness is a function of the
- * host: the quantized turbo is the shipping default everywhere; full turbo and full large-v3 are
- * OPT-IN accuracy tiers; small.en is the fallback on weak / non-Apple-Silicon / low-RAM hosts.
+ * host: the quantized turbo is the shipping CEILING everywhere; full turbo and full large-v3 are
+ * OPT-IN accuracy tiers; small.en is the fallback on a host too SLOW to keep up.
+ *
+ * "EVERYWHERE" USED TO BE LITERAL AND IT NO LONGER IS — `resolveTierForHost` walks a measured
+ * ladder against the machine it is running on, and demotes to `low-resource` when this host cannot
+ * decode faster than the recording plays. It never promotes above `DEFAULT_TIER`, because the §10
+ * ruling below was decided on WER, fabrication and download size, none of them hardware questions.
+ * The word this table used to use for small.en was "low-RAM", and that was measurably wrong — see
+ * the `low-resource` entry for the bytes.
  *
  * THE DEFAULT IS `quantized` SINCE 2026-09-10 — CEO decision page §10, decided by Rich from
  * `docs/measurements/whisper-model-choice-2026-09-10/`. Memory decided it: 884,981,760 B peak RSS
@@ -265,8 +277,20 @@ export const MODEL_TIERS = {
     decodeArgs: [],
     repetitionGuard: true,
     description:
-      'FALLBACK for weak / non-Apple-Silicon / low-RAM hosts. small.en (clean + fast, no hallucination ' +
-      'in the benchmark). Point RICHOS_WHISPER_MODEL at a quantized .bin to run the quantized variant.',
+      'FALLBACK for a SLOW host — and, since 2026-09-10, the tier the product can now select by ' +
+      'itself (resolveTierForHost). Until then it had been in this table since it was written and ' +
+      'NOTHING had ever chosen it: a human had to pass `--tier low-resource`, so a machine that ' +
+      'could not keep up was handed the default anyway. ' +
+      'IT IS NOT A LOW-MEMORY FALLBACK AND THIS LINE USED TO SAY IT WAS. Measured at utterance ' +
+      'length on the reference M4, small.en peaks at 867,516,416 B against large-v3-turbo-q5_0\'s ' +
+      '858,570,752 B — the fp16 small model costs 8,945,664 B MORE resident than the 5-bit ' +
+      'quantized turbo, reproduced in two sittings 40 minutes apart. The turbo is bigger ON DISK ' +
+      '(574,041,195 B against 487,614,201 B) and that is the figure the old claim came from; disk ' +
+      'size is not memory size. What small.en actually buys is TIME: 0.512 s against 1.302 s for ' +
+      'one 3.095 s utterance, a factor of 2.54 ' +
+      '(docs/measurements/hardware-model-resolution-2026-09-10/). ' +
+      'Clean + fast, no hallucination in the benchmark. Point RICHOS_WHISPER_MODEL at a quantized ' +
+      '.bin to run the quantized variant.',
   },
 };
 
@@ -313,6 +337,85 @@ export function resolveTier(tier) {
     decodeArgs: [],
     repetitionGuard: true,
     description: `custom model "${key}" — decode context is capped at MAX_CONTEXT_TOKENS for every model`,
+  };
+}
+
+/**
+ * Resolve the tier FOR THIS MACHINE — the hardware-aware wrapper around `resolveTier`.
+ *
+ * `resolveTier` above is unchanged and stays a pure name lookup: it answers "what is the
+ * `quantized` tier?" and "what is the default tier?", and the default tier is the CEILING. This
+ * function answers the different question "what should this machine actually run?", and it is
+ * the one the CLI's no-flag path calls.
+ *
+ * THE SPLIT IS DELIBERATE. Making `resolveTier(null)` itself machine-dependent would have turned
+ * a pure lookup into something whose answer depends on the afternoon, and would have made the
+ * existing test `assert.equal(resolveTier(null).name, DEFAULT_TIER)` either flaky or false. That
+ * test is right and stays right: `quantized` IS the default, and §10 says so. What this adds is
+ * that a machine which cannot carry the default is no longer given it anyway.
+ *
+ * IT ONLY EVER DEMOTES. There is no path here that returns a tier above `DEFAULT_TIER`. §10
+ * decided the ceiling on WER, fabrication and download size — none of them hardware questions —
+ * so a big machine gets exactly what the ruling says, and promoting it would be re-deciding §10
+ * by the back door.
+ *
+ * AN EXPLICIT CHOICE IS NEVER SECOND-GUESSED. `--tier` or `--model` passes straight through, as
+ * does a `RICHOS_WHISPER_MODEL` path override, which pins the weights outright.
+ *
+ * @param {string|null|undefined} tier a tier name or raw model id the caller asked for
+ * @param {object} [opts]
+ * @returns {{name: string, model: string, decodeArgs: string[], repetitionGuard: boolean,
+ *            hardware: null|{basis: string, rejected: object|null, projected: number|null,
+ *                            notice: string|null, machine: object}}}
+ */
+export function resolveTierForHost(tier, opts = {}) {
+  const env = opts.env || process.env;
+  const chosen = resolveTier(tier);
+  // An explicit tier, an explicit model, or a path override: the caller has already decided.
+  if ((tier != null && String(tier) !== '') || env.RICHOS_WHISPER_MODEL) {
+    return { ...chosen, hardware: null };
+  }
+
+  const costs = hw.loadCosts();
+  const machine = opts.machine || hw.readMachine(env);
+
+  // The speed factor comes from the cache the VOICE path fills, so a machine that has ever run
+  // voice mode is already calibrated for this surface — one machine, one calibration. An absent
+  // cache is an absent measurement, not a slow machine, and does not demote.
+  let factor = opts.speedFactor;
+  if (factor === undefined) {
+    let binSha = '';
+    try {
+      binSha = hashFileSync(whisperBin());
+    } catch {
+      binSha = '';
+    }
+    const speeds = hw.loadSpeeds(hw.cacheKey(binSha, machine), env);
+    const sf = hw.speedFactor(costs, speeds);
+    factor = sf ? sf.factor : null;
+  }
+
+  const installed = opts.installed || ((id) => {
+    try {
+      resolveModel(id);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  const decided = hw.resolveBatchModel(costs, machine, factor, installed);
+  if (decided.model === chosen.model) {
+    return { ...chosen, hardware: { ...decided, notice: null, machine } };
+  }
+  // A demotion. Name the tier that carries these weights so `session.json` keeps recording a
+  // tier id that has always meant the same thing (the tier table's own invariant), rather than
+  // inventing a synthetic name for the same model.
+  const name = Object.keys(MODEL_TIERS).find((k) => MODEL_TIERS[k].model === decided.model) || 'custom';
+  return {
+    name,
+    ...MODEL_TIERS[name],
+    hardware: { ...decided, notice: hw.explain(decided), machine },
   };
 }
 

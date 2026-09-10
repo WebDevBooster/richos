@@ -73,6 +73,7 @@ import { parseChannels, parseVolume, parseSilenceLog, SILENCE_MAX_DB } from '../
 import { parseWhisperJson } from '../lib/transcribe.js';
 import {
   resolveTier,
+  resolveTierForHost,
   MODEL_TIERS,
   DEFAULT_TIER,
   DEFAULT_MODEL,
@@ -82,6 +83,7 @@ import {
   resolveModelChecked,
   modelSearchDirs,
 } from '../lib/config.js';
+import { loadCosts, availableMemoryBytes, cacheKey } from '../lib/hardware.js';
 import {
   MODEL_PINS,
   PIN_FILE,
@@ -1032,6 +1034,124 @@ test('a tier id NEVER changes which weights it means — only which tier is defa
   assert.equal(MODEL_TIERS['low-resource'].model, 'small.en');
   assert.equal(MODEL_TIERS.quantized.model, 'large-v3-turbo-q5_0');
 });
+
+// ---------------------------------------------------------------------------------------
+group('Hardware resolution — the batch surface stops handing every machine the same decode');
+
+// A machine roomy enough that only SPEED is in play, and one that cannot carry the default.
+const HOST_ROOMY = { totalBytes: 25769803776, availableBytes: 6418923520, cores: 10 };
+const HOST_SQUEEZED = { totalBytes: 8589934592, availableBytes: 1200000000, cores: 8 };
+
+test('resolveTier stays a PURE lookup — the hardware question is a different function', () => {
+  // The split is the design. Making resolveTier(null) machine-dependent would have turned a name
+  // lookup into something whose answer depends on the afternoon, and would have made the test
+  // above ("the default tier is quantized turbo") either flaky or false. It is neither: quantized
+  // IS the default and §10 says so. What changed is that a machine which cannot carry the default
+  // is no longer handed it anyway.
+  assert.equal(resolveTier(null).name, DEFAULT_TIER);
+  assert.equal(resolveTier(null).hardware, undefined, 'the pure lookup answers no hardware question');
+});
+
+test('a capable machine gets the §10 model by ASKING, not by a constant — and is told nothing', () => {
+  // The completion criterion for this surface: no environment variable, resolved from the host.
+  const t = resolveTierForHost(null, { machine: HOST_ROOMY, speedFactor: 1.0, installed: () => true });
+  assert.equal(t.model, 'large-v3-turbo-q5_0');
+  assert.equal(t.name, DEFAULT_TIER);
+  assert.equal(t.hardware.basis, 'top-rung');
+  assert.equal(t.hardware.notice, null, 'the product working as designed is not a notification');
+  // And it is nowhere near the gate: 0.0473 s of compute per second of audio is 21.1x real time.
+  assert.ok(t.hardware.projected < 0.05, `projected ${t.hardware.projected}`);
+});
+
+test('a machine that cannot keep up with the recording falls to the tier nothing ever selected', () => {
+  // `low-resource` has been in MODEL_TIERS since it was written and NOTHING in this product has
+  // ever chosen it — a human had to pass `--tier low-resource`. That is the gap this closes.
+  const t = resolveTierForHost(null, { machine: HOST_ROOMY, speedFactor: 25, installed: () => true });
+  assert.equal(t.name, 'low-resource');
+  assert.equal(t.model, 'small.en');
+  assert.equal(t.hardware.basis, 'too-slow');
+  assert.equal(t.hardware.rejected.id, 'large-v3-turbo-q5_0');
+  assert.ok(t.hardware.notice && t.hardware.notice.length > 0, 'and he is told');
+  assert.ok(!/small\.en|q5_0|bytes/i.test(t.hardware.notice), `no filenames or byte counts: ${t.hardware.notice}`);
+});
+
+test('a machine without the memory demotes on MEMORY, and says memory rather than speed', () => {
+  const t = resolveTierForHost(null, { machine: HOST_SQUEEZED, speedFactor: 1.0, installed: () => true });
+  assert.equal(t.model, 'small.en');
+  assert.equal(t.hardware.basis, 'too-large');
+  assert.equal(t.hardware.rejected.reason, 'memory');
+  assert.equal(t.hardware.rejected.bytes, 1859256320, 'the measured 92-minute peak RSS of q5_0');
+  assert.ok(/memory/i.test(t.hardware.notice), t.hardware.notice);
+});
+
+test('an UNMEASURED machine is not a slow machine — absence of evidence never demotes', () => {
+  const t = resolveTierForHost(null, { machine: HOST_ROOMY, speedFactor: null, installed: () => true });
+  assert.equal(t.model, 'large-v3-turbo-q5_0', 'the ceiling is where an unmeasured machine starts');
+  assert.equal(t.hardware.basis, 'top-rung');
+});
+
+test('NO machine is ever promoted above the §10 ruling, however much of it there is', () => {
+  // §10 decided on post-guard WER on both corpus renders, on fabrication, and on the
+  // 1,050,514,080 B a new user downloads. None of those is a hardware question, so no amount of
+  // hardware may reopen it. Full turbo is deliberately in NEITHER ladder.
+  const huge = { totalBytes: 137438953472, availableBytes: 100000000000, cores: 24 };
+  const t = resolveTierForHost(null, { machine: huge, speedFactor: 0.25, installed: () => true });
+  assert.equal(t.model, MODEL_TIERS[DEFAULT_TIER].model);
+  assert.notEqual(t.model, 'large-v3-turbo');
+  const costs = loadCosts();
+  assert.ok(!costs.batchLadder.includes('large-v3-turbo'), 'full turbo is in no ladder');
+  assert.ok(!costs.batchLadder.includes('large-v3'), 'nor is full large-v3');
+});
+
+test('an explicit --tier or --model is never second-guessed by the machine', () => {
+  for (const asked of ['turbo', 'max', 'low-resource', 'large-v3-turbo']) {
+    const t = resolveTierForHost(asked, { machine: HOST_SQUEEZED, speedFactor: 99 });
+    assert.equal(t.model, resolveTier(asked).model, `${asked} must pass straight through`);
+    assert.equal(t.hardware, null, `${asked}: no hardware question was asked`);
+  }
+});
+
+test('os.freemem() is NOT what this machine has available, and the gap is 16x', () => {
+  // The measured reason lib/hardware.js reads vm_stat instead. On the CEO's own Mac, at one
+  // moment: os.freemem() 390,676,480 B against 6,457,278,464 B genuinely available. A memory
+  // guard built on the Node default would refuse every model on a healthy 24 GB machine — and it
+  // is the obvious call to make. The CEO's standing rule names exactly this: never use a
+  // third-party default for anything unless it has proven to be the best possible setting.
+  const readable = availableMemoryBytes();
+  if (readable == null) return; // not macOS, or vm_stat unavailable — skipped, never faked
+  assert.ok(readable > 0);
+  assert.ok(
+    readable > os.freemem(),
+    `available (${readable}) must exceed free (${os.freemem()}) — reclaimable memory is real`,
+  );
+});
+
+test('the Node and Rust surfaces key the shared speed cache IDENTICALLY', () => {
+  // They must, or each silently keeps its own cache and pays for its own calibration — which
+  // would look exactly like working. hardware.rs::cache_key is `sha12|totalBytes|cores`.
+  assert.equal(cacheKey('7dc20e3106d70746d61c419646d9bf87', HOST_ROOMY), '7dc20e3106d7|25769803776|10');
+});
+
+test('the ladders and gates the two surfaces walk come from ONE file', () => {
+  // The same argument model-pins.json makes in its own header: two registries of truth is how the
+  // second unpinned consumer came to exist. This asserts the Node reader agrees with the values
+  // hardware.rs's own test asserts against the identical bytes.
+  const costs = loadCosts();
+  assert.deepEqual(costs.batchLadder, ['large-v3-turbo-q5_0', 'small.en']);
+  assert.deepEqual(costs.liveLadder, ['large-v3-turbo-q5_0', 'small.en', 'base.en', 'tiny.en']);
+  assert.equal(costs.batchRealTimeMultiple, 1);
+  assert.equal(costs.liveCeilingSeconds, 1);
+  assert.equal(costs.safeRung, 'small.en');
+  // THE FINDING THAT REDIRECTED THE WHOLE DESIGN, pinned on this side too: the quantized turbo
+  // costs LESS resident memory than the model the tier table calls the low-RAM fallback.
+  const q5 = costs.models.get('large-v3-turbo-q5_0').utterancePeakRssBytes;
+  const small = costs.models.get('small.en').utterancePeakRssBytes;
+  assert.ok(q5 < small, `q5_0 ${q5} B must be below small.en ${small} B`);
+  assert.equal(small - q5, 8945664);
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 model tiering — the opt-in tiers and the pipeline-wide decode invariant');
 
 test('the "max" opt-in tier is full large-v3 and carries NO private decode params', () => {
   const t = resolveTier('max');
