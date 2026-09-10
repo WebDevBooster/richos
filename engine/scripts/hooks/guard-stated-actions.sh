@@ -134,6 +134,14 @@ else
         printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"NOTICE HELPER MISSING at $_SHN_LIB, so this is unconditional and undeduplicated: ${2:-}\"}"
         return 0
     }
+    # The recurring form degrades to the same unconditional announcement. An
+    # interval it cannot honor is announced MORE often, never less: a notice
+    # channel's degraded mode leans toward noise, because noise is recoverable
+    # by an operator who can read it and silence rebuilds the defect.
+    stop_notice_abnormal_recurring() {
+        printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"NOTICE HELPER MISSING at $_SHN_LIB, so this is unconditional and undeduplicated: ${2:-}\"}"
+        return 0
+    }
 fi
 
 INPUT="$(cat)"

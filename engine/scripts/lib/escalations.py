@@ -301,17 +301,44 @@ def age_bucket(age_min):
 
 
 def outstanding(rows, now=None):
-    """Every Escalation row with no matching EscalationAck, oldest first.
+    """Every Escalation row with no LIVE EscalationAck, oldest first.
 
     Each carries `age_min` and `bucket`. An ack for an id that was never raised
     is IGNORED rather than treated as closing something — it closes nothing, and
     inventing a subject for it would be worse than leaving it in the file.
+
+    AN ACKNOWLEDGEMENT CAN EXPIRE (2026-09-10, failure type J — "a claim baked
+    into a record with no expiry"). The worked example in the record is a lock
+    reason ending "the agent is live": when that agent finished the sentence
+    became false, nothing could void it, and it blocked the fix until a person
+    removed it by hand. A disposition has exactly the same shape — "waiting on
+    a decision that is the CEO's" closes the demand permanently, INCLUDING on
+    the day after he decides — and land-disposition.py says so about itself in
+    its own header, which is more honest than hiding it and is still an
+    instance of the defect.
+
+    So `ack --until <date>` writes `until_epoch` on the ack, and an ack whose
+    date has passed no longer closes anything: the escalation reappears here
+    carrying `reopened_by_expiry` and the disposition that expired, so the
+    reader sees WHY it is back. An ack with no `--until` is permanent, exactly
+    as before — nothing existing changes behavior.
     """
     now = now or utcnow()
+    now_epoch = now.timestamp()
     acked = set()
+    expired = {}
     for r in rows:
-        if r.get("event") == "EscalationAck" and r.get("id"):
-            acked.add(str(r["id"]))
+        if r.get("event") != "EscalationAck" or not r.get("id"):
+            continue
+        rid = str(r["id"])
+        until = r.get("until_epoch")
+        if isinstance(until, (int, float)) and until <= now_epoch:
+            # Held on a reason with a shelf life, and the shelf life is over.
+            # Recorded rather than discarded: the ack still happened.
+            expired[rid] = r
+            continue
+        acked.add(rid)
+        expired.pop(rid, None)
     out = []
     for r in rows:
         if r.get("event") != "Escalation":
@@ -328,6 +355,13 @@ def outstanding(rows, now=None):
         e = dict(r)
         e["age_min"] = age
         e["bucket"] = age_bucket(age)
+        gone = expired.get(rid)
+        if gone:
+            e["reopened_by_expiry"] = {
+                "acked": gone.get("acked"),
+                "until": gone.get("until"),
+                "disposition": gone.get("disposition"),
+            }
         out.append(e)
     out.sort(key=lambda e: str(e.get("raised") or ""))
     return out
@@ -597,6 +631,27 @@ def cmd_ack(args):
         "actor": _actor(),
         "session_id": (args.session or os.environ.get("CLAUDE_SESSION_ID", "") or "").strip(),
     }
+    until = (getattr(args, "until", "") or "").strip()
+    if until:
+        # A DATE, OR NOTHING. A free-text condition ("until the CEO decides")
+        # reads like an expiry and cannot be evaluated by anything, so it would
+        # be the very defect this flag exists to fix wearing the fix's costume —
+        # type J with a field name on it. Refusing it forces the one thing that
+        # actually reopens the item: a date by which somebody looks again. The
+        # condition still belongs in --disposition, where a reader sees it.
+        when = parse_iso(until)
+        if when is None:
+            sys.stderr.write(
+                "escalations: --until %r is not a date. It must be an ISO date or datetime "
+                "(2026-09-17, or 2026-09-17T09:00:00Z) — a condition nothing can evaluate "
+                "cannot reopen anything, and an expiry that never fires is the type-J defect "
+                "this flag exists to end. Put the CONDITION in --disposition and give a date "
+                "by which somebody looks again.\n" % until)
+            return 2
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        row["until"] = iso(when)
+        row["until_epoch"] = when.timestamp()
     try:
         append_row(row)
     except Exception as exc:
@@ -664,6 +719,10 @@ def main(argv=None):
     a.add_argument("--id", required=True)
     a.add_argument("--disposition", default="")
     a.add_argument("--session", default="")
+    a.add_argument("--until", default="",
+                   help="ISO date or datetime after which this acknowledgement "
+                        "EXPIRES and the escalation reopens. For a hold whose "
+                        "reason has a shelf life.")
     a.set_defaults(func=cmd_ack)
 
     l = sub.add_parser("list")

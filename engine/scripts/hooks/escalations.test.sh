@@ -543,6 +543,76 @@ if [ -z "$OUT" ]; then ok "8g  and SessionStart is silent again"
 else bad "8g  silent after ack" "got: $OUT"; fi
 
 # ===========================================================================
+# 8h-8l. A HOLD CAN EXPIRE — failure type J, 2026-09-10
+# ===========================================================================
+# "A claim baked into a record with no condition that voids it will outlive its
+# truth." The worked example is a lock reason ending "the agent is live": when
+# that agent finished the sentence became false, nothing could void it, and it
+# blocked the fix until a person removed it by hand. A disposition has the same
+# shape — "held pending a decision that is the CEO's" closes an item forever,
+# INCLUDING on the day after he decides.
+OUT="$("$ESCALATE" raise --teammate zach-opus-j1 --title "a hold with a shelf life" \
+    --state proceeding --question "does a hold reopen when its reason expires?" \
+    --worktree "$SANDBOX" 2>&1)"
+JID="$(python3 "$ENG/scripts/lib/escalations.py" list --format json 2>/dev/null | python3 -c '
+import json,sys
+o=[e for e in json.load(sys.stdin)["outstanding"] if e.get("teammate")=="zach-opus-j1"]
+print(o[0]["id"] if o else "")' 2>/dev/null)"
+if [ -n "$JID" ]; then
+    OUT="$("$ESCALATE" ack "$JID" --disposition "Held pending a decision that is the CEO's own." \
+        --until "when the CEO decides" 2>&1)"
+    RC=$?
+    if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "is not a date"; then
+        ok "8h  --until refuses a free-text condition: an expiry nothing can evaluate never fires"
+    else
+        bad "8h  free-text --until refused" "rc=$RC: $OUT"
+    fi
+    OUT="$("$ESCALATE" ack "$JID" --disposition "Held pending a decision that is the CEO's own." \
+        --until "2099-01-01" 2>&1)"
+    RC=$?
+    if [ "$RC" -eq 0 ] && "$ESCALATE" list >/dev/null 2>&1; then
+        ok "8i  an --until in the future closes it exactly like an ordinary ack"
+    else
+        bad "8i  future --until closes" "rc=$RC: $OUT"
+    fi
+    # Backdate the expiry rather than sleeping: the ack carries until_epoch, so
+    # rewriting it is the same fact a day later.
+    python3 - "$LEDGER" "$JID" <<'PY'
+import datetime, json, sys
+path, jid = sys.argv[1], sys.argv[2]
+rows = [json.loads(l) for l in open(path) if l.strip()]
+past = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
+for r in rows:
+    if r.get("event") == "EscalationAck" and str(r.get("id")) == jid:
+        r["until"] = past.isoformat().replace("+00:00", "Z")
+        r["until_epoch"] = past.timestamp()
+open(path, "w").write("".join(json.dumps(r) + "\n" for r in rows))
+PY
+    REOPENED="$(python3 "$ENG/scripts/lib/escalations.py" list --format json 2>/dev/null | python3 -c '
+import json,sys
+o=[e for e in json.load(sys.stdin)["outstanding"] if e.get("teammate")=="zach-opus-j1"]
+print("yes" if o and o[0].get("reopened_by_expiry") else "no")' 2>/dev/null)"
+    if [ "$REOPENED" = "yes" ]; then
+        ok "8j  once the date passes the item REOPENS, carrying the disposition that expired"
+    else
+        bad "8j  expiry reopens" "the item did not come back (reopened=$REOPENED)"
+    fi
+    # THE NEGATIVE CONTROL: an ack with no --until must still be permanent, or
+    # 8j would pass because acks stopped closing anything at all.
+    "$ESCALATE" ack "$JID" --disposition "Decided for good: this one is closed and stays closed." >/dev/null 2>&1
+    if "$ESCALATE" list >/dev/null 2>&1; then
+        ok "8k  an ack with NO --until is still permanent — nothing else changed"
+    else
+        bad "8k  plain ack still permanent" "the item is still outstanding after a plain ack"
+    fi
+else
+    bad "8h  --until refuses a free-text condition" "fixture: could not raise the type-J escalation"
+    bad "8i  future --until closes" "fixture failed"
+    bad "8j  expiry reopens" "fixture failed"
+    bad "8k  plain ack still permanent" "fixture failed"
+fi
+
+# ===========================================================================
 # 9. A RAISE THAT DID NOT LAND SAYS SO — the failure mode that would rebuild
 #    the whole defect quietly.
 # ===========================================================================

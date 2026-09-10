@@ -555,6 +555,49 @@ else
     bad "4i. escaping" "not valid JSON, or the quote was lost: ${OUT11:-<empty>}"
 fi
 
+# ---------------------------------------------------------------------------
+# 4j-4l. THE RECURRING RUNG — a control must not get QUIETER as a failure
+#        persists (Frank D9, 2026-09-10; failure type F).
+# ---------------------------------------------------------------------------
+# stop_notice_abnormal announces on ENTRY and then stays quiet. For a
+# PERSISTING condition that produced a 23-hour silence: a land-disposition
+# demand raised at 3h was announced at ~3h and ~4h and then not again until
+# ~27h, because the persisting half was left to an escalation ladder whose next
+# rung is 24h. stop_notice_abnormal_recurring keeps the de-duplication and adds
+# one sparse rung.
+SIDR="{\"session_id\":\"reeeeeee-0000-4000-8000-000000000000\"}"
+OUTR1="$(drive "stop_notice_init hookR.sh '$ENTITY' '$SIDR'; stop_notice_abnormal_recurring owed 'OWED' 3600")"
+if printf '%s' "$OUTR1" | grep -qF '"systemMessage"'; then
+    ok "4j. the recurring form announces on entry, exactly like the plain one"
+else
+    bad "4j. recurring announces on entry" "got: ${OUTR1:-<empty>}"
+fi
+
+# ...and stays quiet inside the interval. This is the PROPERTY BEING KEPT: the
+# reason for de-duplicating is real, so the rung must not become a per-turn line.
+OUTR2="$(drive "stop_notice_init hookR.sh '$ENTITY' '$SIDR'; stop_notice_abnormal_recurring owed 'OWED' 3600")"
+if [ -z "$OUTR2" ]; then
+    ok "4k. the same state inside the interval still says nothing — the rung is not a per-turn repeat"
+else
+    bad "4k. quiet inside the interval" "spoke again: $OUTR2"
+fi
+
+# ...and speaks again once the interval has passed. Driven by rewriting the
+# recorded emission time rather than by sleeping: the ledger line is
+# `<state><TAB><epoch>`, so backdating it is the same fact an hour later.
+LEDGERR="$ENTITY/.claude/state/stop-hook-notices/reeeeeee.hookR.state"
+if [ -f "$LEDGERR" ]; then
+    printf 'owed\t%s\n' "$(( $(date +%s) - 7200 ))" > "$LEDGERR"
+    OUTR3="$(drive "stop_notice_init hookR.sh '$ENTITY' '$SIDR'; stop_notice_abnormal_recurring owed 'OWED' 3600")"
+    if printf '%s' "$OUTR3" | grep -qF '"systemMessage"'; then
+        ok "4l. once the interval has passed the persisting condition speaks again — it cannot go silent for a working day"
+    else
+        bad "4l. the rung fires after the interval" "stayed silent: ${OUTR3:-<empty>}"
+    fi
+else
+    bad "4l. the rung fires after the interval" "no ledger at $LEDGERR — the state was never recorded"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '\033[32m✓ %s/%s stop-hook visibility checks passed (%s Stop hook(s) derived from hooks/hooks.json).\033[0m\n' \

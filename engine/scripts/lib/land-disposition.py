@@ -231,12 +231,32 @@ could see what it was not covering.
   create-teammate-worktree.sh registers -- but a repository worked in by hand
   is not.
 
-  WHETHER A STATED REASON IS TRUE, OR STILL TRUE. A hold is a string a person
-  wrote. Nothing here checks it is honest, and nothing REOPENS a held item when
-  its reason expires: "waiting on a decision that is the CEO's" closes the
-  demand permanently, including on the day after he decides. A string match is
-  not comprehension and this file does not pretend otherwise -- the same
-  sentence escalations.py uses about its own acknowledgements.
+  WHETHER A STATED REASON IS TRUE. A hold is a string a person wrote. Nothing
+  here checks it is honest; a string match is not comprehension and this file
+  does not pretend otherwise.
+
+  WHETHER IT IS STILL TRUE -- HALF ANSWERED, 2026-09-10. This used to read
+  "nothing REOPENS a held item when its reason expires: 'waiting on a decision
+  that is the CEO's' closes the demand permanently, including on the day after
+  he decides." Naming your own defect is more honest than hiding it and is
+  still an instance of it (failure type J: a claim baked into a record with no
+  condition that voids it, the same shape as the lock reason ending "the agent
+  is live" that outlived its truth and blocked the fix).
+
+  So `escalate.sh ack <id> --disposition "..." --until <ISO date>` now writes an
+  acknowledgement that EXPIRES: on that date the demand reopens, carrying the
+  disposition that expired so the reader sees why it is back. `--until` takes a
+  date and refuses anything else -- "until the CEO decides" is a condition
+  nothing can evaluate, and an expiry that never fires would be type J wearing
+  the fix's costume. The condition goes in --disposition, where a person reads
+  it; the date is what actually reopens the item.
+
+  WHAT IS STILL NOT ANSWERED, precisely: an ack with NO --until is permanent,
+  exactly as before. Nothing infers a shelf life from the words of a
+  disposition, and nothing should -- that would be a fuzzy match over prose
+  with a large false-positive class, which is the g11/g12/g13 shape this
+  project has killed three guards over. Choosing to write --until is a person's
+  judgment and remains one.
 
   WHETHER LANDING IS THE RIGHT ANSWER. This asks for a DISPOSITION, never for a
   merge. On 2026-09-10 two of the five had real conflicts, one over a test count

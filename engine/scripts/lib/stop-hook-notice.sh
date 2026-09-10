@@ -233,18 +233,32 @@ stop_notice_init() {
 }
 
 # _shn_prior — the last state recorded for this (session, hook), or "".
+#
+# THE LEDGER LINE IS `<state><TAB><epoch-of-last-emission>` since 2026-09-10.
+# A bare state with no tab is the older format and reads as "emitted at a time
+# nobody recorded", which the recurring rung treats as due — the safe
+# direction, and it means an upgrade in mid-session speaks once rather than
+# going quiet.
 _shn_prior() {
     if [ -n "$_SHN_LEDGER" ] && [ -f "$_SHN_LEDGER" ]; then
-        cat "$_SHN_LEDGER" 2>/dev/null || true
+        cut -f1 "$_SHN_LEDGER" 2>/dev/null | head -1 || true
     fi
     return 0
 }
 
-# _shn_record <state-key> — best effort. A ledger that cannot be written is the
-# announce-every-turn mode, which is the safe direction.
+# _shn_prior_emit_epoch — when this state was last ANNOUNCED, or "".
+_shn_prior_emit_epoch() {
+    if [ -n "$_SHN_LEDGER" ] && [ -f "$_SHN_LEDGER" ]; then
+        awk -F'\t' 'NR==1 && NF>1 {print $2}' "$_SHN_LEDGER" 2>/dev/null || true
+    fi
+    return 0
+}
+
+# _shn_record <state-key> [last-emit-epoch] — best effort. A ledger that cannot
+# be written is the announce-every-turn mode, which is the safe direction.
 _shn_record() {
     [ -n "$_SHN_LEDGER" ] || return 0
-    printf '%s\n' "${1:-}" > "$_SHN_LEDGER" 2>/dev/null || true
+    printf '%s\t%s\n' "${1:-}" "${2:-}" > "$_SHN_LEDGER" 2>/dev/null || true
     return 0
 }
 
@@ -253,11 +267,62 @@ _shn_record() {
 # The guard is not doing its job. Announce on entry to this state, and stay
 # quiet while it persists.
 stop_notice_abnormal() {
-    local state="${1:-abnormal}" msg="${2:-}" prior
+    local state="${1:-abnormal}" msg="${2:-}" prior now
     prior="$(_shn_prior)"
-    _shn_record "$state"
+    now="$(date +%s 2>/dev/null || echo '')"
     if [ "$prior" != "$state" ]; then
+        _shn_record "$state" "$now"
         _shn_emit "$msg"
+    else
+        _shn_record "$state" "$(_shn_prior_emit_epoch)"
+    fi
+    return 0
+}
+
+# stop_notice_abnormal_recurring <state-key> <message> [interval-seconds]
+#
+# THE SAME DE-DUPLICATION, WITH A RUNG SO IT CANNOT GO SILENT FOR A WORKING DAY.
+#
+# `stop_notice_abnormal` announces on ENTRY to a state and then stays quiet
+# while it persists. That is right for most conditions and it has one failure
+# mode, recorded on 2026-09-10 as type F: a control that goes QUIETER as the
+# failure persists. The evidence pack's own 3.1 describes notice-unlanded-
+# branches.sh failing in exactly this shape — "it spoke once, was right, and
+# went silent for a working day" — and the land-disposition demand inherited it
+# whole: with the escalation ladder re-announcing at 1 h, 24 h and 72 h, a
+# demand raised at 3 h of standing is announced at ~3 h and ~4 h and then NOT
+# AGAIN UNTIL ~27 h. A 23-hour silence that begins where a working day begins.
+#
+# So a caller that owns a PERSISTING condition uses this instead: announce on
+# entry, and again every `interval` seconds while it persists. The interval is
+# deliberately sparse — the reason for de-duplicating is real ("a condition
+# repeated under every turn is a condition the eye is trained to skip"), and a
+# rung between 1 h and 24 h answers the gap without becoming wallpaper.
+#
+# 0 or an unset interval is exactly the old behavior.
+stop_notice_abnormal_recurring() {
+    local state="${1:-abnormal}" msg="${2:-}" interval="${3:-0}" prior prior_ts now due=0
+    prior="$(_shn_prior)"
+    prior_ts="$(_shn_prior_emit_epoch)"
+    now="$(date +%s 2>/dev/null || echo '')"
+    if [ "$prior" != "$state" ]; then
+        due=1
+    elif [ -n "$now" ] && [ "${interval:-0}" -gt 0 ] 2>/dev/null; then
+        if [ -z "$prior_ts" ]; then
+            # The state persists but nothing recorded WHEN it was last said —
+            # an older ledger line, or a write that failed. Speak: an unknown
+            # last-spoken time is the same class as absence, and absence is
+            # never evidence that the operator has heard this.
+            due=1
+        elif [ $((now - prior_ts)) -ge "$interval" ] 2>/dev/null; then
+            due=1
+        fi
+    fi
+    if [ "$due" -eq 1 ]; then
+        _shn_record "$state" "$now"
+        _shn_emit "$msg"
+    else
+        _shn_record "$state" "$prior_ts"
     fi
     return 0
 }
@@ -269,9 +334,10 @@ stop_notice_abnormal() {
 # already started: the operator was told the guard was off, so he is told when
 # it comes back.
 stop_notice_normal() {
-    local msg="${1:-}" prior
+    local msg="${1:-}" prior now
     prior="$(_shn_prior)"
-    _shn_record "ok"
+    now="$(date +%s 2>/dev/null || echo '')"
+    _shn_record "ok" "$now"
     if [ -n "$prior" ] && [ "$prior" != "ok" ] && [ -n "$msg" ]; then
         _shn_emit "$msg"
     fi

@@ -54,10 +54,26 @@
 #   escalate.sh list                 every outstanding escalation, in full
 #   escalate.sh show <id>            one, with its acknowledgements
 #   escalate.sh ack <id> --disposition "<what you decided or did>"
+#                        [--until <ISO date>]
 #
 #       `ack` APPENDS; nothing is ever deleted. The disposition must be at
 #       least 30 characters, because an ack with no disposition is a dismissal
 #       wearing a ledger row.
+#
+#       `--until` is for A HOLD WHOSE REASON HAS A SHELF LIFE. Without it an
+#       ack is permanent, which is right for a decision and wrong for a wait:
+#       "held pending a decision that is the CEO's" closes the item forever,
+#       INCLUDING on the day after he decides. That is failure type J in the
+#       2026-09-10 record — the same shape as the lock reason ending "the agent
+#       is live", which outlived its truth and blocked the fix until a person
+#       removed it by hand. With `--until 2026-09-17` the acknowledgement
+#       expires on that date and the escalation reopens, carrying the
+#       disposition that expired so the reader sees why it is back.
+#
+#       It takes a DATE and refuses anything else. "until the CEO decides" is a
+#       condition nothing can evaluate; an expiry that never fires is the very
+#       defect the flag exists to end. Put the condition in --disposition and
+#       give a date by which somebody looks again.
 #
 # Exit codes:
 #   raise  0 delivered · 2 refused (bad arguments) or NOT DELIVERED (ledger
@@ -83,7 +99,7 @@ case "$CMD" in
 esac
 
 TITLE=""; STATE=""; AUDIENCE="lead"; QUESTION=""; TRIED=""; MEANWHILE=""
-WT=""; TEAMMATE=""; DISPOSITION=""; TARGET=""; NO_RECORD=0; FORMAT="text"
+WT=""; TEAMMATE=""; DISPOSITION=""; TARGET=""; NO_RECORD=0; FORMAT="text"; UNTIL=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --title)       TITLE="${2:-}"; shift 2 ;;
@@ -95,6 +111,7 @@ while [ "$#" -gt 0 ]; do
         --worktree)    WT="${2:-}"; shift 2 ;;
         --teammate)    TEAMMATE="${2:-}"; shift 2 ;;
         --disposition) DISPOSITION="${2:-}"; shift 2 ;;
+        --until)       UNTIL="${2:-}"; shift 2 ;;
         --format)      FORMAT="${2:-}"; shift 2 ;;
         --no-record)   NO_RECORD=1; shift ;;
         -h|--help)     usage; exit 0 ;;
@@ -123,7 +140,7 @@ case "$CMD" in
 
     ack)
         [ -n "$TARGET" ] || { echo "escalate.sh ack: give the escalation id. \`escalate.sh list\` has them." >&2; exit 2; }
-        python3 "$ESCALATIONS_PY" ack --id "$TARGET" --disposition "$DISPOSITION"
+        python3 "$ESCALATIONS_PY" ack --id "$TARGET" --disposition "$DISPOSITION" --until "$UNTIL"
         exit $? ;;
 
     raise) ;;

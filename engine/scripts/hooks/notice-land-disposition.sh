@@ -146,6 +146,14 @@ else
         printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"NOTICE HELPER MISSING at $_SHN_LIB, so this is unconditional and undeduplicated: ${2:-}\"}"
         return 0
     }
+    # The recurring form degrades to the same unconditional announcement. An
+    # interval it cannot honor is announced MORE often, never less: a notice
+    # channel's degraded mode leans toward noise, because noise is recoverable
+    # by an operator who can read it and silence rebuilds the defect.
+    stop_notice_abnormal_recurring() {
+        printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"NOTICE HELPER MISSING at $_SHN_LIB, so this is unconditional and undeduplicated: ${2:-}\"}"
+        return 0
+    }
 fi
 
 INPUT="$(cat)"
@@ -170,6 +178,7 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 : "${CHECK_LAND_DISPOSITION:=1}"
 : "${LAND_DISPOSITION_DEMAND:=1}"
 : "${LAND_DISPOSITION_DEMAND_HOURS:=3}"
+: "${LAND_DISPOSITION_RENOTICE_SECONDS:=14400}"
 
 stop_notice_init "notice-land-disposition.sh" "$ENTITY_ROOT" "$INPUT"
 
@@ -315,7 +324,20 @@ fi
 
 # The state key carries the number RAISED as well as the finding set, so the
 # turn on which a demand is first written always speaks — a raise is a new
-# event, not a persisting condition, and the persisting half is the escalation
-# ledger's job rather than this line's.
-stop_notice_abnormal "owed:${NRAISED}:${KEY}" "$SUMMARY $HOOK_TAG"
+# event, not a persisting condition.
+#
+# AND THE PERSISTING HALF NO LONGER GOES SILENT FOR A WORKING DAY (Frank D9,
+# 2026-09-10 — type F, a control that gets quieter as the failure persists).
+# It used to be handed entirely to the escalation ledger's ladder, which
+# re-announces at 1 h, 24 h and 72 h. So a demand raised at 3 h of standing was
+# announced at ~3 h and ~4 h and then NOT AGAIN UNTIL ~27 h: a 23-hour silence
+# starting where a working day starts, in a check that exists because five
+# finished branches sat unnoticed for a working day.
+#
+# The rung is sparse on purpose. De-duplication is defended for a real reason —
+# a line repeated under every turn is a line the eye is trained to skip — so
+# this speaks on entry and then once every LAND_DISPOSITION_RENOTICE_SECONDS
+# (default 4 h, one rung between the ledger's 1 h and 24 h), never per turn.
+# Set it to 0 for the old announce-once behavior.
+stop_notice_abnormal_recurring "owed:${NRAISED}:${KEY}" "$SUMMARY $HOOK_TAG" "$LAND_DISPOSITION_RENOTICE_SECONDS"
 exit 0
