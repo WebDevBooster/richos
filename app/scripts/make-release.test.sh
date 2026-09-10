@@ -26,6 +26,8 @@
 #       failure would otherwise ship inside a signed binary
 #   R4  `verify-engine` against bytes that are NOT the pinned bytes refuses
 #   R5  `verify-engine` against the pinned bytes writes a receipt naming that digest
+#   R5a `app` with no named-person deny-list stops at the names gate, BEFORE the pin check —
+#       the gate's precedence, asserted rather than assumed
 #   R6  `app` with no pin refuses
 #   R7  `app` with a pin and no receipt refuses — the digest would be a claim about a local file
 #   R8  `app` with a receipt for a DIFFERENT digest refuses — the asset was rebuilt after it
@@ -62,6 +64,40 @@ expect() {   # expect <name> <wanted-code> <substring>
 OUTDIR="$TMP/staging"
 TAG="v0.0.0-test"
 REL=(bash "$SCRIPT")
+
+# ---------------------------------------------------------------------------------------
+# THE NAMES GATE, PUT INTO A KNOWN STATE INSTEAD OF INHERITED FROM THE MACHINE
+# ---------------------------------------------------------------------------------------
+#
+# `make-release.sh app` runs `names_gate` before it looks at anything else, and that gate
+# REFUSES when the operator's deny-list is absent — deliberately, because "no list" must
+# never be able to look like "no names found". The list lives outside every repository, at
+# `$HOME/.richos-privacy/named-persons`, and a machine that is not the owner's does not
+# have one.
+#
+# So R6-R9 below, which are about the PIN/RECEIPT/KEY ordering and have nothing to do with
+# names, were passing on exactly one machine in the world and failing everywhere else.
+# MEASURED on a GitHub `macos-latest` runner, 2026-09-10, run 34444955517: all four red,
+# each one "exit 2 as wanted, but the output never said ..." — the right exit code, from
+# the wrong refusal, which is precisely the confusion `expect`'s needle exists to catch.
+# It caught it. The suite was the thing that was wrong.
+#
+# `RICHOS_NAMED_PERSONS_FILE` is the deny-list's own documented override
+# (`engine/scripts/lib/named-persons.sh::np_list_path`). A `sha256:` entry is a hashed
+# window rather than a name, so this fixture discloses nothing and — being a digest no
+# two-token window in any tree will ever produce — matches nothing. The gate therefore runs
+# for real and returns CLEAN, and the four cases below reach the refusals they are named
+# after.
+#
+# The absent case is not thrown away by this; it becomes R5a, which asserts the precedence
+# on purpose instead of by accident.
+NPLIST="$TMP/named-persons"
+printf '# fixture: a digest that matches nothing, so the gate runs and finds nothing\n' > "$NPLIST"
+printf 'sha256:2:%s\n' "0000000000000000000000000000000000000000000000000000000000000000" >> "$NPLIST"
+chmod 600 "$NPLIST"
+# Every `app` invocation below goes through this: no signing key, and the names gate in
+# whichever state the case is about.
+APP_ENV=(env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PATH)
 
 echo ""
 echo "=== R. the release chain refuses out of order ==="
@@ -132,13 +168,37 @@ fi
 
 # `app` never reaches a build in any case below: each refusal happens before it would.
 NOPIN="$TMP/nopin"; mkdir -p "$NOPIN"
-run env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PATH \
+
+# R5a — THE GATE COMES FIRST, and this is the case that used to be made by accident, in red,
+# on every machine that is not the owner's. With no deny-list the refusal must NOT be the pin
+# refusal: `app` has to stop at the names gate before it has an opinion about staging.
+run "${APP_ENV[@]}" RICHOS_NAMED_PERSONS_FILE="$TMP/a-list-that-does-not-exist" \
+        bash "$SCRIPT" app --tag "$TAG" --out "$NOPIN"
+#
+# Both halves are asserted. The positive one is the sentence the gate prints on ABSENT —
+# outside its once-per-session banner, so it appears on every invocation. The negative one
+# is that "no pin at" is NOT in the output, which is what makes this a statement about
+# ORDER rather than merely about a refusal happening.
+if [ "$CODE" != 2 ]; then
+  bad "R5a app with no deny-list refuses at the names gate, before the pin" \
+      "exit $CODE, wanted 2. Output: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-220)"
+elif ! printf '%s' "$OUT" | grep -Fq "nothing is checking for names"; then
+  bad "R5a app with no deny-list refuses at the names gate, before the pin" \
+      "exit 2, but not from the names gate: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-220)"
+elif printf '%s' "$OUT" | grep -Fq "no pin at"; then
+  bad "R5a app with no deny-list refuses at the names gate, before the pin" \
+      "it reached the pin check as well — the gate did not stop the run"
+else
+  ok "R5a app with no deny-list refuses at the names gate, before the pin"
+fi
+
+run "${APP_ENV[@]}" RICHOS_NAMED_PERSONS_FILE="$NPLIST" \
         bash "$SCRIPT" app --tag "$TAG" --out "$NOPIN"
 expect "R6 app with no pin refuses" 2 "no pin at"
 
 NORECEIPT="$TMP/noreceipt"; mkdir -p "$NORECEIPT"
 cp "$OUTDIR/engine-pin.env" "$NORECEIPT/engine-pin.env"
-run env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PATH \
+run "${APP_ENV[@]}" RICHOS_NAMED_PERSONS_FILE="$NPLIST" \
         bash "$SCRIPT" app --tag "$TAG" --out "$NORECEIPT"
 expect "R7 app with a pin and no receipt refuses" 2 "claim about a local file"
 
@@ -146,11 +206,11 @@ STALE="$TMP/stale"; mkdir -p "$STALE"
 cp "$OUTDIR/engine-pin.env" "$STALE/engine-pin.env"
 sed 's/^sha256=.*/sha256=1111111111111111111111111111111111111111111111111111111111111111/' \
     "$OUTDIR/engine-published.ok" > "$STALE/engine-published.ok"
-run env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PATH \
+run "${APP_ENV[@]}" RICHOS_NAMED_PERSONS_FILE="$NPLIST" \
         bash "$SCRIPT" app --tag "$TAG" --out "$STALE"
 expect "R8 app with a receipt for a different digest refuses" 2 "rebuilt after it was verified"
 
-run env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PATH \
+run "${APP_ENV[@]}" RICHOS_NAMED_PERSONS_FILE="$NPLIST" \
         bash "$SCRIPT" app --tag "$TAG" --out "$OUTDIR"
 expect "R9 app with a good receipt and no signing key refuses" 2 "no updater signing key"
 
