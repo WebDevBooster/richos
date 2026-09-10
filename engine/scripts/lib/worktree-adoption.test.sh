@@ -49,9 +49,15 @@ command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit
 # --- the sandbox rooting, for the whole file --------------------------------
 export RICHOS_WORKTREE_LEDGER="$SANDBOX/ledger.jsonl"
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+# The capture store too: the daily lane refuses to archive residue when the
+# transaction store is redirected and the capture store is not (A61).
+export RICHOS_WORKTREE_CAPTURE_DIR="$SANDBOX/captures"
 # An empty process table by default: every "no live process" gate would
 # otherwise depend on what the operator's machine happens to be running.
 export RICHOS_ADOPTION_PROCESSES="none"
+export RICHOS_DAILY_PROCESSES="none"
+export RICHOS_RECONCILE_BACKOFF_BASE=0
+REC_PY="$SCRIPT_DIR/../reconcile-terminal-worktrees.py"
 
 A() { python3 "$ADOPT_PY" "$@"; }
 L() { python3 "$LEDGER_PY" "$@"; }
@@ -420,34 +426,69 @@ else
     bad "A53  ingress/tier missing from $TXF"
 fi
 
-QUAR="$(ls -d "$WT"/good.richos-terminal-* 2>/dev/null | head -1)"
-if [ -n "$QUAR" ] && [ -d "$QUAR" ] && [ ! -d "$WT/good" ]; then
-    ok "A54  the workspace is RENAMED to a quarantine, not deleted: its bytes are still on disk"
+# A54-A58 (rewritten 2026-09-10, round 10). Adoption used to RENAME the tree
+# into a quarantine and hand it to a pipeline whose last two steps refuse to
+# erase, so an adopted tree was archived at full size and kept. It now routes
+# the member to the daily clean/integrated lane: the tree stays at its path,
+# owned and untouched, until the reconciler proves it clean and integrated.
+if [ -d "$WT/good" ] && [ -f "$WT/good/seed.txt" ] && ! ls -d "$WT"/good.richos-terminal-* >/dev/null 2>&1; then
+    ok "A54  adoption itself moves nothing: the workspace stays at its path, no quarantine is created"
 else
-    bad "A54  expected a quarantine beside a vacated original; quar='$QUAR' original-exists=$([ -d "$WT/good" ] && echo yes || echo no)"
+    bad "A54  expected the tree at its path with no quarantine; exists=$([ -d "$WT/good" ] && echo yes || echo no) quar=$(ls -d "$WT"/good.richos-terminal-* 2>/dev/null | head -1)"
 fi
 
-if [ -f "$QUAR/seed.txt" ]; then
-    ok "A55  the quarantine holds the workspace's files — adoption preserves, it does not erase"
+if grep -q '"cleanup_policy": "integrated-daily"' "$TXF" && grep -q '"state": "bound"' "$TXF"; then
+    ok "A55  the adopted member is routed to the daily clean/integrated lane (cleanup_policy=integrated-daily, state bound)"
 else
-    bad "A55  the quarantine is missing the workspace's files"
+    bad "A55  member routing in $TXF: $(grep -o '"cleanup_policy": "[^"]*"\|"state": "[^"]*"' "$TXF" | tr '\n' ' ')"
 fi
 
-if git -C "$REPO" rev-parse -q --verify "refs/richos/handoffs/adopted/$AID/good" >/dev/null; then
-    ok "A56  a backup ref pins the adopted branch's HEAD before anything is renamed"
+if ! git -C "$REPO" rev-parse -q --verify "refs/richos/handoffs/adopted/$AID/good" >/dev/null; then
+    ok "A56  no backup ref is minted by adoption alone — the lane deletes the branch only by exact compare-and-set against an integrated tip, so nothing needs pinning first"
 else
-    bad "A56  no backup ref at refs/richos/handoffs/adopted/$AID/good"
+    bad "A56  unexpected backup ref at refs/richos/handoffs/adopted/$AID/good"
 fi
 
 V="$(verdict "$WT/good")"
-[ "$V" = "REFUSED exists" ] \
-    && ok "A57  the adopted path is refused on a second pass — an adoption is never taken twice" \
-    || bad "A57  expected 'REFUSED exists' after adoption, got '$V'"
-
-V="$(verdict "$QUAR")"
 [ "$V" = "REFUSED unclaimed" ] \
-    && ok "A58  the quarantine itself is refused: its own transaction owns it" \
-    || bad "A58  expected 'REFUSED unclaimed' for the quarantine, got '$V'"
+    && ok "A57  the adopted path is refused on a second pass: its own transaction owns it, so an adoption is never taken twice" \
+    || bad "A57  expected 'REFUSED unclaimed' after adoption, got '$V'"
+
+# A58. The lane reclaims an adopted tree: clean, integrated (the branch was cut
+# from main and never moved), unlocked, nobody standing in it. One reconciler
+# run removes the worktree and deletes the branch by compare-and-set. This is
+# the hand-off that used to end in `automatic erasure is disabled`.
+#
+# Its own container, deliberately: A21 registered $WT itself in the ledger (a
+# malformed record naming the container of every worktree), and the lane's
+# reservation check reads a registration of a PARENT path as a competing
+# reservation over everything under it. So `good` stays HELD with exactly that
+# reason — asserted below as the second half of this case — and the reclaim is
+# proven on a tree whose container nothing ever registered.
+WT2="$SANDBOX/wt2"; mkdir -p "$WT2"
+git -C "$REPO" worktree add -q -b reclaim "$WT2/reclaim"
+L record registered --teammate reclaim --worktree "$WT2/reclaim" --repo "$REPO" --branch reclaim \
+    --session-id "$SID_DEAD" --session-pid "$DEAD_PID" --agent-id a2222222222222222 --class hand-rolled --source test >/dev/null
+mkdir -p "$WT2/reclaim/__pycache__"; printf 'x' >"$WT2/reclaim/__pycache__/x.pyc"
+printf '__pycache__/\n' >"$REPO/.git/info/exclude"
+A adopt --worktree "$WT2/reclaim" >/dev/null 2>&1
+AID2="$(python3 - "$ADOPT_PY" "$WT2/reclaim" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ad", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m.adoption_agent_id(sys.argv[2]))
+PY
+)"
+TXF2="$RICHOS_WORKTREE_TX_DIR/adopted/$AID2.json"
+OUT="$(python3 "$REC_PY" --quiet 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && [ ! -e "$WT2/reclaim" ] && ! git -C "$REPO" rev-parse -q --verify refs/heads/reclaim >/dev/null \
+   && grep -q '"phase": "complete"' "$TXF2" && grep -q '"state": "removed"' "$TXF2" \
+   && grep -q '"ignored_disposable": 1' "$TXF2" \
+   && [ -d "$WT/good" ] && grep -q 'preparation reservation' "$TXF"; then
+    ok "A58  one reconciler run RECLAIMS the adopted tree through the daily lane (worktree removed, branch deleted, the disposable __pycache__ dropped, member removed with phase complete) while a tree whose container a malformed record registered stays HELD with that reason"
+else
+    bad "A58  reclaim: rc=$RC exists=$([ -e "$WT2/reclaim" ] && echo yes || echo no) branch=$(git -C "$REPO" rev-parse -q --verify refs/heads/reclaim 2>/dev/null || echo gone) tx=$(grep -o '"phase": "[^"]*"\|"state": "[^"]*"\|"last_error": "[^"]*"\|"ignored_disposable": [0-9]*' "$TXF2" 2>/dev/null | tr '\n' ' ') good=$([ -d "$WT/good" ] && echo present || echo GONE) good-hold=$(grep -o '"last_error": "[^"]*"' "$TXF" | head -1) out=$(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
+fi
 
 # A59. --all takes every adoptable candidate and REPORTS the refusals beside
 # them: a pass that printed only what it took would be a pass with no

@@ -28,30 +28,28 @@ file is the third thing: a claim the RECORD can make, on evidence, so those
 worktrees enter the one managed pipeline that already exists.
 
 ===========================================================================
-WHAT ADOPTION IS, AND WHY IT IS NOT THE THING THE SAFETY DOCUMENT FORBIDS
+WHAT ADOPTION IS, AND WHAT HAPPENS TO AN ADOPTED TREE
 ===========================================================================
-`docs/workspace-retirement-safety.md` rules:
+Adoption itself deletes nothing: it creates a sealed, terminal transaction
+over one exact worktree, on T1/T2 evidence, and hands it to
+reconcile-terminal-worktrees.py. Until 2026-09-10 that hand-off went into the
+quarantine/capture pipeline, whose last two steps are hard-coded refusals
+(`unregister_member` / `remove_member` -> BlockedFailure "automatic erasure is
+disabled"), so an adopted tree was renamed, archived at full size into
+~/.claude/state/worktree-captures/ and then kept: adoption ADDED disk and
+reclaimed none (docs/worktree-reclaim-round-10-2026-09-10.md, P4).
 
-    Restoring automatic deletion requires an enforced access boundary, not
-    another unchecked override flag.
-
-ADOPTION DELETES NOTHING, AND IT CANNOT BE MADE TO. It creates a sealed,
-terminal transaction over one exact worktree and hands it to
-reconcile-terminal-worktrees.py, whose member state machine ends at
-
-    "verified": unregister_member  ->  BlockedFailure(
-        "exclusive-access-unavailable: automatic erasure is disabled")
-
-The pipeline saves a backup ref, renames the tree to quarantine, captures its
-bytes and index, verifies the archive against its own digests, and then
-REFUSES to go further. That refusal is not a policy this file consults; it is
-the next step in the machine this file hands to. An adopted worktree therefore
-gains preservation and a verified archive and loses nothing — the exact
-opposite of the container deletion the safety document was written about.
-
-What adoption restores is automatic RETIREMENT, which is what the terminal
-reconciler already does today, on a claim gate this file makes strictly
-stronger (see EVIDENCE TIERS).
+An adopted member now carries `cleanup_policy: integrated-daily` and takes the
+same lane as every worker's own members (scripts/lib/daily-workspace-cleanup.py):
+the tracked tree must be byte-identical to a commit that `main` contains, the
+registration exact and unlocked, no process standing in it, no competing
+reservation; ignored files disposable by the committed policy go with the
+tree and every other ignored file is archived and verified first. Then a
+non-force `git worktree remove` and an exact compare-and-set branch delete.
+A dirty, unmerged, locked or contested tree is HELD with the reason on the
+member, never quarantined and never erased. Adoption's contribution is the
+claim; the lane's refusals are the lane's, and this file consults none of
+them.
 
 ===========================================================================
 EVIDENCE TIERS — WHAT MAY AUTHORIZE A CLAIM
@@ -620,10 +618,15 @@ def evaluate(path, records=None):
         return _refuse("no-live-process", "pid(s) %s reference %s" % (",".join(pids), path))
 
     cls = "native" if os.path.basename(path).startswith("agent-") else "hand-rolled"
+    # `integrated-daily` routes the member to the clean/integrated lane
+    # (daily-workspace-cleanup.py) instead of the quarantine pipeline that
+    # ends in a hard-coded erasure refusal. No `cleanup_owner`: nothing about
+    # an adopted tree is the platform's to remove.
     return {
         "adoptable": True, "gate": "", "reason": "", "tier": tier, "evidence": detail,
         "member": {"class": cls, "repo": repo, "path": path, "branch": branch,
-                   "head_at_seal": tx.head_of(path), "state": "bound"},
+                   "head_at_seal": tx.head_of(path), "state": "bound",
+                   "cleanup_policy": "integrated-daily"},
     }
 
 
@@ -705,12 +708,14 @@ def adopt(path, records=None, dry_run=False):
             tx.atomic_write_json(tx.tx_path(ADOPTION_SESSION, aid), t)
     tx.claim_terminal(ADOPTION_SESSION, aid, ADOPTION_INGRESS,
                       detail="adopted on %s evidence: %s" % (res["tier"], res["evidence"]))
+    # terminalize() records ownership for an integrated-daily member and
+    # touches nothing on disk; the tree stays at its path for the lane.
     t2 = tx.terminalize(ADOPTION_SESSION, aid, member["path"])
     _invalidate_caches()
     res["adopted"] = True
     res["agent_id"] = aid
     res["state"] = (t2 or {}).get("state")
-    res["members"] = [{"path": m.get("path"), "state": m.get("state"), "quarantine": m.get("quarantine")}
+    res["members"] = [{"path": m.get("path"), "state": m.get("state"), "cleanup_policy": m.get("cleanup_policy")}
                       for m in (t2 or {}).get("members") or []]
     return res
 
