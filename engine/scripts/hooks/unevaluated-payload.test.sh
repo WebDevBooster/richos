@@ -68,6 +68,15 @@
 # of bricking a live session is a judgment that differs per gate and it has not
 # been taken. This suite only requires that an unevaluated call is not silent.
 #
+# WHERE IT STOPS LOOKING, SAID OUT LOUD. It drives PreToolUse and Stop — 45 of
+# the 67 hook entries hooks.json registers on 2026-09-10. The other 22 sit in
+# eight events that cannot refuse what they are handed, and case 4e names them
+# with their counts in this suite's own output and turns RED the day an event
+# appears that nobody has judged. That set is NOT assumed clean: the same
+# `|| true` hole was found in detect-nonnative-worktree.sh (PostToolUse) on
+# 2026-09-10 and is pinned by four cases in its own suite, which is where a hook
+# needing that sandbox has to be judged.
+#
 # Usage: scripts/hooks/unevaluated-payload.test.sh
 # Exit:  0 all checks passed, 1 otherwise.
 
@@ -373,6 +382,86 @@ else
     bad "4d. announcing is reserved for a payload that could not be read" \
         "SPEAKS ON THE CONTROL TOO:$NOISY — a message on every clean call is noise, and noise is how a real signal gets ignored."
 fi
+
+# 4e. THE COVERAGE BOUNDARY — DERIVED, DECLARED, AND RED ON AN EVENT NOBODY
+#     HAS JUDGED.
+#
+# Cases 4a-4d judge PreToolUse and Stop. That is 45 of the 67 hook entries
+# hooks.json registers (measured 2026-09-10); the other 22 sit in eight events
+# this suite never asks, and until now the boundary was invisible in its own
+# output — which is the suite's own property, one level up: a reader could not
+# tell "asked and clean" from "never asked".
+#
+# WHY THOSE TWO EVENTS AND NOT MORE. Only PreToolUse and Stop can REFUSE the
+# thing they are handed, so only there does silence hide a bypass in a blocking
+# gate. Two of the unasked hooks contain `exit 2` and neither is a bypass:
+# detect-nonnative-worktree.sh runs at PostToolUse, after the spawn it reports
+# on has already happened, and task-completed-handoff.sh holds a native task
+# open at TaskCompleted — and that one already answers this suite's question in
+# its own way, recording a durable `decision: unreadable` row and exiting 0
+# rather than holding a task open on a payload it could not read.
+#
+# AND THE UNASKED SET IS NOT ASSUMED CLEAN. detect-nonnative-worktree.sh was
+# found carrying the identical `|| true` hole on 2026-09-10, wired to the
+# library, and pinned by four cases in its OWN suite — which is where a
+# PostToolUse hook has to be judged, because driving it needs the sandbox that
+# suite builds. Driving the SessionStart set from here would run the worktree
+# reaper against this machine, which is why the derivation stops where it does
+# and why this case exists to say so out loud rather than in a comment.
+#
+# What this asserts: every event hooks.json registers is one this suite has
+# CLASSIFIED. A new event — or a hook moved into one — turns this red with the
+# name, so the question "can a hook there refuse a call?" gets asked by a
+# person before the coverage silently narrows.
+cat > "$SANDBOX/boundary.py" <<'PY'
+import json, sys
+
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+ASKED = {"PreToolUse", "Stop"}
+# Judged and NOT asked, with the reason each is out of scope. The value is the
+# claim; if it stops being true the event belongs in ASKED.
+JUDGED = {
+    "SessionStart":     "cannot refuse anything; driving it here would run the reaper on this machine",
+    "UserPromptSubmit": "one hook, commit-ceo-inputs.sh, which never exits non-zero",
+    "PostToolUse":      "fires after the call it reports on; judged in each hook's own suite",
+    "SubagentStart":    "recorders; the engine's own design note calls this event non-blocking",
+    "SubagentStop":     "observations, never accepted delivery",
+    "WorktreeRemove":   "a lifecycle observation",
+    "TeammateIdle":     "an observation, not a verdict",
+    "TaskCompleted":    "can hold a task open, and its hook already records an unreadable payload and exits 0",
+}
+
+counts = {}
+for event, entries in (doc.get("hooks", {}) or {}).items():
+    counts[event] = sum(len(e.get("hooks", []) or []) for e in entries)
+
+unjudged = [e for e in counts if e not in ASKED and e not in JUDGED]
+total = sum(counts.values())
+asked_n = sum(n for e, n in counts.items() if e in ASKED)
+unasked = sorted(((e, n) for e, n in counts.items() if e not in ASKED), key=lambda x: -x[1])
+
+print("UNJUDGED %s" % " ".join(sorted(unjudged)) if unjudged
+      else "OK %d %d %d %d" % (asked_n, total, total - asked_n, len(unasked)))
+print(" ".join("%s(%d)" % (e, n) for e, n in unasked))
+PY
+BOUNDARY="$(python3 "$SANDBOX/boundary.py" "$HOOKS_JSON" 2>/dev/null || printf 'ERROR\n')"
+B_VERDICT="$(printf '%s\n' "$BOUNDARY" | sed -n 1p)"
+B_DETAIL="$(printf '%s\n' "$BOUNDARY" | sed -n 2p)"
+case "$B_VERDICT" in
+    OK*)
+        set -- $B_VERDICT
+        ok "4e. the coverage boundary is derived and declared — $2 of $3 registered hook entries are asked above; $4 in $5 events that cannot refuse a call, each judged by name"
+        printf '        not asked:          %s\n' "$B_DETAIL"
+        ;;
+    UNJUDGED*)
+        bad "4e. hooks.json registers an event this suite has never judged" \
+            "UNJUDGED: ${B_VERDICT#UNJUDGED }. Decide whether a hook on that event can REFUSE what it is handed. If it can, add it to ASKED so it is driven with the degraded payloads; if it cannot, record the reason in JUDGED. Coverage that narrows without anyone noticing is the defect this whole file is about."
+        ;;
+    *)
+        bad "4e. the coverage boundary could not be derived" \
+            "the derivation over $HOOKS_JSON produced nothing — this case examined no registration at all."
+        ;;
+esac
 
 printf '        fail-closed:        %s\n' "${CLASS_CLOSED:- (none)}"
 printf '        audible:            %s\n' "${CLASS_AUDIBLE:- (none)}"
