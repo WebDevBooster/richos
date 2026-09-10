@@ -999,6 +999,7 @@ verify-agent-prompt.sh|PreToolUse
 guard-ceo-ask-first.sh|PreToolUse
 guard-model-ceiling.sh|PreToolUse
 guard-stale-staging.sh|PreToolUse
+guard-owned-state.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
@@ -1159,7 +1160,7 @@ BR_EOF
             # dispatch that is malformed AND unasked should be told it is
             # malformed first, because that is the one the operator can fix
             # without leaving the keyboard.
-            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh guard-ceo-ask-first.sh guard-model-ceiling.sh guard-stale-staging.sh "
+            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh guard-ceo-ask-first.sh guard-model-ceiling.sh guard-stale-staging.sh guard-owned-state.sh "
             if [ "$BR_AGENT_ORDER" != "$BR_AGENT_WANT" ]; then
                 emit_fail "BR2. PreToolUse[Agent] chain ORDER wrong. want: ${BR_AGENT_WANT}got: ${BR_AGENT_ORDER}"
                 BR2_OK=0
@@ -1967,6 +1968,13 @@ CANONICAL_AGENT_CHAIN=(
     # staging is current is the least actionable thing to be told about a
     # spawn that was never going to run.
     "$REPO_ROOT/scripts/hooks/guard-stale-staging.sh"
+    # LAST, after the environment gate, and the chain now reads outward in
+    # full: is the SPAWN well formed, what does it COST, what ENVIRONMENT
+    # will it meet, and only then what STANDING STATE was being ignored when
+    # it was made. The last of those is the least specific to this dispatch
+    # and the only one that is not about the dispatch at all, so it is the
+    # last thing the operator should be told.
+    "$REPO_ROOT/scripts/hooks/guard-owned-state.sh"
 )
 
 # Resolve settings.json $CLAUDE_PROJECT_DIR placeholder → absolute path.
@@ -2734,6 +2742,12 @@ CANON = [
     # command, the ack line — twice per dispatch, which reads as two
     # separate stale environments.
     "guard-stale-staging.sh",
+    # The standing-ownership gate. BLOCKING, and registered twice it would
+    # print its whole refusal — the demanded system, its age, the evidence
+    # verbatim, the ack line — twice per dispatch, which reads as two
+    # separate systems standing and is the noise that gets a gate routed
+    # around.
+    "guard-owned-state.sh",
 ]
 
 def load(p):

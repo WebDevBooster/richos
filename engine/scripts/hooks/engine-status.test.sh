@@ -500,6 +500,31 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # list, plus contract-integrity.test.sh's own sandbox chain. All eight carry it,
 # so unlike the notice-unlanded-branches note above, this one leaves no
 # inventory owing.
+# guard-owned-state.sh, added 2026-09-10: the standing-ownership gate on
+# PreToolUse[Agent]. It refuses ONE dispatch per session while the oldest
+# system whose health the orchestrator owns — CI, worktree reclamation,
+# unacknowledged escalations, ECS capture, staging freshness, unlanded work —
+# is standing with nothing done about it. It exists because every defect the
+# founder found himself on 2026-09-10 was UNASSIGNED, and because the worst of
+# them was already printed in that session's own start-up notice and was read
+# past: surfacing had already been tried and had already failed. The OTHER
+# inventories were derived the way the note further up says rather than
+# guessed: `grep -rln guard-stale-staging engine/` named hooks/hooks.json,
+# .claude/settings.local.json, this set, README.md's guard table, and in
+# contract-integrity-probe.sh the BR_EXPECTED spec table, the BR2 Agent-chain
+# order, CANONICAL_AGENT_CHAIN and the double-registration list, plus
+# contract-integrity.test.sh's own sandbox chain. All nine carry it, so this
+# note leaves no inventory owing.
+# guard-ci-red-lands.sh and session-start-ci-surface.sh, added 2026-09-10: the
+# two halves of the CI surface — a PreToolUse[Bash] gate that refuses a land
+# into a red workflow, and the SessionStart pass that reports the surface. They
+# landed at 19037049 registered in hooks/hooks.json and named in NO other
+# inventory, and this case is the one that said so, exactly as designed. The
+# rest of that landing's debt was cleared at b2354c5d (BR_EXPECTED, and the
+# executable bit on both files, which were committed 644 and therefore loaded
+# nothing while the banner read 60/62); this set was the last one owing.
+# Recorded rather than fixed silently: esc-20260910T080736Z-3a5c8f97 names all
+# five duties and stands as the record of how a landing came to owe five.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -507,6 +532,7 @@ engine-status.sh
 guard-agent-state-claims.sh
 guard-bash-main-writes.sh
 guard-ceo-ask-first.sh
+guard-ci-red-lands.sh
 guard-ceo-ruled-ask.sh
 guard-ceo-todos-commits.sh
 guard-completeness-commits.sh
@@ -519,6 +545,7 @@ guard-inflight-notify.sh
 guard-interactive-prompt.sh
 guard-main-checkout-writes.sh
 guard-model-ceiling.sh
+guard-owned-state.sh
 guard-publication-commits.sh
 guard-publication-writes.sh
 guard-resume-isolation.sh
@@ -549,6 +576,7 @@ record-subagent-start.sh
 scan-secrets.sh
 shell-evidence.sh
 session-start-ceo-ask.sh
+session-start-ci-surface.sh
 session-start-escalations.sh
 session-start-reap-worktrees.sh
 snapshot-agent-definitions.sh
