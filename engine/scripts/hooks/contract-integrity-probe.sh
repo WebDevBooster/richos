@@ -3842,6 +3842,15 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPER" ] \
     fi
 elif [ "$Q_OK" -eq 1 ]; then
     emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — git, mktemp or python3 unavailable. Wiring and hashes are verified; SCOPE AND SAFETY BEHAVIOR ARE NOT."
+else
+    # A LAYER THAT DISAPPEARS IS A LAYER NOBODY MISSES. Q4 is gated on Q, and
+    # until 2026-09-10 that gate was silent in the one direction that matters:
+    # with Q red the probe printed 26 layers instead of 27 and said nothing at
+    # all about the 27th. The run was already failing, so this was never a
+    # false green — but for the whole time Q sat broken, the scope-and-safety
+    # canary was also not running, and the only way to notice was to count the
+    # layers. Nobody counts the layers.
+    emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — Layer Q above is broken and Q4 is gated on it, so this run carries ONE FEWER LAYER than an intact one. Fix Q and re-run: until then nothing proves the reaper looks past one repository or that it spares a live agent's hand-rolled worktree."
 fi
 
 # --- Layer Q5 (RETIRED 2026-09-03): the agent-finish trigger no longer exists.
