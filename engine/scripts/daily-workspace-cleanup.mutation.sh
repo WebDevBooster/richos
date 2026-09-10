@@ -65,6 +65,16 @@ mutant git-object-bytes-disposable "test_a_BARE_repository_under_a_disposable_pa
     "            or False)" \
     "a file laid out as a git loose object or pack under a disposable parent, with no HEAD beside it (an object store git itself would not recognize), would be dropped by its parent's name; the bytes of a commit are never a build artifact."
 
+mutant residue-byte-ceiling-ignored-in-event "test_the_events_own_member_is_bounded_by_the_residue_byte_ceiling" "$D" \
+    "            if measured[0] > max_residue_bytes:" \
+    "            if False:" \
+    "the event's own member would start a four-pass archive of any size inside a 20-second hook, be killed, and be retried by every later event's sweep until the nightly pass (Frank F2 / Sage D5, round three); the tracked-file ceiling says nothing about ignored bytes."
+
+mutant residue-byte-ceiling-ignored-in-sweep "test_the_events_own_member_is_bounded_by_the_residue_byte_ceiling" "$D" \
+    "            if measured[0] > residue_ceiling:" \
+    "            if False:" \
+    "the catch-up sweep would start the same unbounded archive for a deferred member on every subagent stop of the session."
+
 mutant ignored-last-look-removed "test_an_ignored_file_written_after_the_archive_HOLDS_the_removal" "$D" \
     "        unchanged, why_changed = residue_last_look(member['path'], repo, residue_archived)" \
     "        unchanged, why_changed = True, ''" \

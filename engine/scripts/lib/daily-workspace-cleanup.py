@@ -1648,7 +1648,8 @@ def await_platform_release(tx, transaction, member, deadline):
         time.sleep(0.1)
 
 
-def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max_files=None):
+def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max_files=None,
+                max_residue_bytes=None):
     """Capture, verify and remove this member's workspace in the terminal
     event itself. Returns (outcome, detail) with outcome one of
 
@@ -1658,9 +1659,12 @@ def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max
         skipped     not this lane's member at all
 
     `deadline` bounds the wait for the platform's lock; `budget_deadline`
-    (the calling hook's own, Sage D4) caps that wait too, and `max_files` is
+    (the calling hook's own, Sage D4) caps that wait too, `max_files` is
     the tracked-file ceiling above which the member is not started here at
-    all — the same two bounds sweep_session applies to its candidates.
+    all, and `max_residue_bytes` (round 14, Frank F2 / Sage D5) is the
+    ignored-residue byte ceiling, measured by os.lstat before any archive —
+    the same three bounds sweep_session applies to its candidates. The
+    nightly pass passes none of them.
 
     NEVER RAISES. A terminal event must not be prevented by a cleanup, and a
     worker must never be kept alive by this function's own failure. Every
@@ -1733,6 +1737,19 @@ def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max
                                            'ceiling of %d (IMMEDIATE_RECLAIM_SWEEP_MAX_FILES); a 20-second '
                                            'hook is the wrong place to start it and the nightly pass is '
                                            'the right one' % (count, max_files))
+        if max_residue_bytes is not None:
+            measured = residue_bytes(member.get('path') or '', member.get('repo'))
+            if measured is None:
+                return journal('deferred', 'could not measure the ignored residue of this workspace, so the '
+                                           'in-event reclaim does not start it; the nightly pass has no '
+                                           'ceiling and will')
+            if measured[0] > max_residue_bytes:
+                return journal('deferred', 'this workspace holds %d bytes of ignored residue in %d file(s), '
+                                           'above the in-event ceiling of %d (IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES); '
+                                           'archiving it is four passes over those bytes (digest, tar, verify, '
+                                           'last look) and a 20-second hook is the wrong place to start it; the '
+                                           'nightly pass has no ceiling and takes it with the same refusals'
+                                           % (measured[0], measured[1], max_residue_bytes))
         run_open, why_open = post_terminal_run_open(tx, transaction)
         if run_open:
             return journal('deferred', why_open)
@@ -1785,6 +1802,56 @@ def sweep_max_files(repo=None):
         return int(float(config_value('IMMEDIATE_RECLAIM_SWEEP_MAX_FILES', '20000', repo)))
     except (TypeError, ValueError):
         return 20000
+
+
+DEFAULT_RESIDUE_MAX_BYTES = 256 * 1024 * 1024
+
+
+def sweep_max_residue_bytes(repo=None):
+    """The ignored-RESIDUE byte ceiling above which the IN-EVENT lane will
+    not START a candidate (Frank F2 / Sage D5, round three, 2026-09-10).
+
+    The tracked-file ceiling above says nothing about ignored bytes, and
+    since round 13 the residue can be a whole repository: archive_residue
+    digests every file, tars it, re-reads and re-digests the tar, and
+    residue_last_look digests it all once more before the rm -- four passes
+    over bytes nothing bounded. A candidate under the file ceiling with a
+    large residue started its archive inside the 15 s a 20-second hook
+    leaves, was killed, and was retried by the next event's sweep 15 s
+    later, spending every subagent stop's whole budget until the 04:00 pass
+    took it. No loss (the .tmp tar is unlinked on retry; the journal advances
+    only after verify), but a hook that always dies is a hook that never
+    finishes anything else either.
+
+    Measured from os.lstat sizes before anything is archived: no digest, no
+    tar. THE NIGHTLY PASS HAS NO CEILING -- it defers nothing on size and
+    skips nothing; only the in-event lane defers, and what it defers the
+    nightly pass takes with the same refusals. Committed data, in
+    orchestration.config, with the reasoning beside the number."""
+    try:
+        return int(float(config_value('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES', str(DEFAULT_RESIDUE_MAX_BYTES), repo)))
+    except (TypeError, ValueError):
+        return DEFAULT_RESIDUE_MAX_BYTES
+
+
+def residue_bytes(path, repo):
+    """(bytes, files) of the ignored residue as os.lstat sees it NOW -- the
+    cheapest honest measure of what archive_residue would have to read four
+    times. Nested repositories and git stores are expanded, disposables are
+    excluded, nothing is opened. None when it cannot be listed, and None is
+    NOT zero: an unanswerable size defers the candidate rather than admitting
+    it, for the same reason tracked_file_count fails closed."""
+    try:
+        _keep, residue = partition_ignored(ignored_files(path), disposable_paths(repo))
+        total = files = 0
+        for rel, _kind in _expand_residue(path, residue):
+            info = os.lstat(os.path.join(path, rel))
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
+                files += 1
+        return total, files
+    except Exception:
+        return None
 
 
 def tracked_file_count(path):
@@ -1843,6 +1910,7 @@ def sweep_session(tx, session_id, deadline=None):
     try:
         budget, interval = sweep_seconds()
         ceiling = sweep_max_files()
+        residue_ceiling = sweep_max_residue_bytes()
         marker = _sweep_marker(tx, session_id)
         now = time.time()
         if deadline is not None and now >= deadline:
@@ -1872,7 +1940,7 @@ def sweep_session(tx, session_id, deadline=None):
                     continue
                 if not os.path.lexists(member.get('path') or ''):
                     continue
-                candidates.append((transaction['agent_id'], index, member.get('path')))
+                candidates.append((transaction['agent_id'], index, member.get('path'), member.get('repo')))
         if not candidates:
             return out
         try:
@@ -1886,7 +1954,7 @@ def sweep_session(tx, session_id, deadline=None):
         stop_at = now + budget
         if deadline is not None:
             stop_at = min(stop_at, deadline)
-        for aid, index, path in candidates:
+        for aid, index, path, repo in candidates:
             if time.time() >= stop_at:
                 out.append(('', 'budget-expired',
                             'the catch-up sweep ran out of its %.1fs budget with %d candidate(s) '
@@ -1910,6 +1978,21 @@ def sweep_session(tx, session_id, deadline=None):
                             '%d (IMMEDIATE_RECLAIM_SWEEP_MAX_FILES); a 20-second hook is the wrong '
                             'place to start it and the nightly pass is the right one'
                             % (count, ceiling)))
+                continue
+            # THE RESIDUE CEILING, THE SAME WAY (round 14, Frank F2 / Sage
+            # D5): sized by os.lstat, never digested, before anything starts.
+            measured = residue_bytes(path or '', repo)
+            if measured is None:
+                out.append((path, 'deferred',
+                            'could not measure the ignored residue of this workspace, so the in-event '
+                            'sweep does not start it; the nightly pass has no ceiling and will'))
+                continue
+            if measured[0] > residue_ceiling:
+                out.append((path, 'deferred',
+                            'this workspace holds %d bytes of ignored residue in %d file(s), above the '
+                            'in-event ceiling of %d (IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES); the nightly '
+                            'pass has no ceiling and takes it with the same refusals'
+                            % (measured[0], measured[1], residue_ceiling)))
                 continue
             try:
                 with tx.tx_lock(session_id, aid, timeout=1):

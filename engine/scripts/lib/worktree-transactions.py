@@ -1840,7 +1840,8 @@ def _reclaim_in_event(session_id, agent_id, index, deadline=None):
         repo = ((tx or {}).get("members") or [{}])[index].get("repo") if tx else None
         outcome, detail = daily.reclaim_now(_SELF, tx, index,
                                             budget_deadline=deadline,
-                                            max_files=daily.sweep_max_files(repo))
+                                            max_files=daily.sweep_max_files(repo),
+                                            max_residue_bytes=daily.sweep_max_residue_bytes(repo))
     except Exception as error:  # pragma: no cover - defended twice deliberately
         sys.stderr.write("immediate reclaim for %s/%s member %d raised: %s\n"
                          % (session_id[:8], agent_id, index, error))

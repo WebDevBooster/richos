@@ -982,6 +982,63 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(self.assess()[0],'remove')
         self.assert_reclaimed(self.run_cleanup())
 
+    def test_the_events_own_member_is_bounded_by_the_residue_byte_ceiling(self):
+        # FRANK F2 / SAGE D5, ROUND THREE. The in-event lane was bounded on
+        # TRACKED files and not on ignored residue, and since round 13 the
+        # residue can be a whole repository: a candidate under the file
+        # ceiling with a large residue started its four-pass archive inside a
+        # 20-second hook, was killed, and was retried by every later event's
+        # sweep until the nightly pass. The ceiling is measured by os.lstat
+        # before anything is archived; disposables are never counted; an
+        # unanswerable size is not zero; and the NIGHTLY pass has no ceiling.
+        (self.repo/'.git/info/exclude').write_text('big.bin\n__pycache__/\n')
+        (self.work/'big.bin').write_bytes(b'x'*4096)
+        cache=self.work/'__pycache__';cache.mkdir();(cache/'x.pyc').write_bytes(b'\x00'*8192)   # disposable: never counted
+        self.assertEqual(daily.residue_bytes(str(self.work),str(self.repo)),(4096,1))
+        # the event's own member reads the ceiling from its own repository's config
+        (self.repo/'orchestration.config').write_text('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES=1024\n')
+        self.assertEqual(daily.sweep_max_residue_bytes(str(self.repo)),1024)
+        tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES',member['immediate_reclaim']['reason'])
+        self.assertIn('4096 bytes of ignored residue in 1 file(s)',member['immediate_reclaim']['reason'])
+        self.assertIn('nightly pass has no ceiling',member['immediate_reclaim']['reason'])
+        self.assert_kept()
+        # the catch-up sweep applies the same ceiling before it starts a candidate
+        with patch.object(daily,'sweep_max_residue_bytes',return_value=1024),patch.object(daily,'sweep_seconds',return_value=(10.0,0.0)):
+            swept=daily.sweep_session(tx,SID)
+        self.assertTrue(any(o=='deferred' and 'IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES' in r for _p,o,r in swept),swept)
+        self.assert_kept()
+        # an unanswerable size defers too -- None is not zero
+        with patch.object(daily,'residue_bytes',return_value=None):
+            with tx.tx_lock(SID,AID):
+                outcome,why=daily.reclaim_now(tx,tx.load_tx(SID,AID),0,max_residue_bytes=1024)
+        self.assertEqual(outcome,'deferred');self.assertIn('could not measure',str(why));self.assert_kept()
+        # under the ceiling, the same member reclaims in its own event
+        (self.repo/'orchestration.config').write_text('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES=8192\n')
+        with tx.tx_lock(SID,AID):
+            outcome,why=daily.reclaim_now(tx,tx.load_tx(SID,AID),0,max_residue_bytes=daily.sweep_max_residue_bytes(str(self.repo)))
+        self.assertEqual(outcome,'reclaimed',why)
+        result=tx.load_tx(SID,AID)
+        self.assertEqual(result['members'][0]['daily_cleanup']['ignored_residue']['bytes'],4096)
+        self.assertFalse(self.work.exists())
+
+    def test_the_nightly_pass_has_no_residue_ceiling_and_archives_what_the_event_deferred(self):
+        # the other half of D5: what the hook defers on size, the nightly pass
+        # takes -- same refusals, no ceiling, residue archived and verified first
+        (self.repo/'.git/info/exclude').write_text('big.bin\norchestration.config\n')
+        (self.work/'big.bin').write_bytes(b'y'*4096)
+        (self.repo/'orchestration.config').write_text('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES=1\n')   # stays in force for the nightly pass
+        tx.terminalize(SID,AID)
+        self.assertEqual(tx.load_tx(SID,AID)['members'][0]['immediate_reclaim']['outcome'],'deferred')
+        self.assert_kept()
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        residue=result['members'][0]['daily_cleanup']['ignored_residue']
+        self.assertEqual(residue['bytes'],4096)
+        with tarfile.open(residue['archive']) as tar:
+            self.assertEqual(tar.getnames(),['big.bin'])
+
     def test_the_events_own_member_is_bounded_by_the_ceiling_and_the_hooks_deadline(self):
         # SAGE D4, ROUND TWO. `_reclaim_in_event` ran with no ceiling and no
         # deadline; "bound every candidate's work by the remaining budget" was
