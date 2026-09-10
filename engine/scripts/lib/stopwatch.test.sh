@@ -135,12 +135,26 @@ fi
 # Tested from literals BECAUSE the operator's bash cannot produce them. This is
 # the CI path; leaving it to be exercised only on the runner is how a
 # portability defect gets found by a red run instead of by a test.
+#
+# AND THE FIRST VERSION OF THIS CASE WAS ITSELF THAT DEFECT. It built its
+# fixture with `EPOCHREALTIME="$1"`, which is a silent no-op on bash >= 5
+# because the name is a dynamic variable there — so on the runner it compared
+# the LIVE clock against these literals and went red on all five, while passing
+# on the desk where the name is ordinary and the subject is dead. The value is
+# passed as an argument now, and the last block below is a negative control on
+# the fixture rather than on the parser.
 S7_OK=1
 S7_WHY=""
 _s7() { # <input> <expected>
     local got
-    EPOCHREALTIME="$1"
-    got="$(_sw_epochrealtime_ms)"
+    # PASSED, NEVER ASSIGNED. `EPOCHREALTIME` is a dynamic variable in bash >= 5
+    # and assigning to it is a silent no-op, so the previous form built no
+    # fixture at all on the runner: it compared the LIVE clock against these
+    # literals and S7 was red for every one of them. It passed on the operator's
+    # bash 3.2 only because there the name is an ordinary variable — and there
+    # the code path under test does not exist. A fixture that only works on the
+    # host where the subject is dead is not a fixture.
+    got="$(_sw_epochrealtime_ms "$1")"
     if [ "$got" != "$2" ]; then
         S7_OK=0
         S7_WHY="$S7_WHY '$1' -> '$got' (wanted '$2');"
@@ -151,6 +165,16 @@ _s7 "1788997602.000001" "1788997602000"
 _s7 "1788997602,829123" "1788997602829"     # comma radix under some locales
 _s7 "1788997602.9"      "1788997602900"     # short fraction, right-padded
 _s7 "1788997602"        "1788997602000"     # no fraction at all
+# NEGATIVE CONTROL for the fixture itself, not for the parser: if the argument
+# were ever ignored again, every case above would silently compare against the
+# live clock and this one would too — but this one says so, because a clock
+# reading can never equal a literal from 2026. It is the case that would have
+# turned "S7 is red on Linux" into "the fixture is a no-op on Linux".
+_s7_arg_check="$(_sw_epochrealtime_ms "1500000000.500000")"
+if [ "$_s7_arg_check" != "1500000000500" ]; then
+    S7_OK=0
+    S7_WHY="$S7_WHY the supplied value was IGNORED (got '$_s7_arg_check') — the fixture is a no-op, not the parser wrong;"
+fi
 if [ "$S7_OK" -eq 1 ]; then
     ok "S7. EPOCHREALTIME-parsed-in-every-form"
 else

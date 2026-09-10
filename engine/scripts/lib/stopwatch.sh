@@ -78,7 +78,24 @@ _sw_epochrealtime_ms() {
     # 1788997602.829123 -> 1788997602829. Integer part plus exactly three
     # fractional digits; a locale may use a comma, hence the two-character
     # class. Pure parameter expansion, so this costs no fork.
-    local t="${EPOCHREALTIME:-}" int frac
+    # THE RAW VALUE IS A PARAMETER, and that is not a convenience — it is the
+    # only way this function can be tested on the host where it is live.
+    #
+    # `EPOCHREALTIME` is a DYNAMIC variable in bash >= 5: its assignment
+    # function is a no-op, so `EPOCHREALTIME=1788997602.829123` is silently
+    # IGNORED and the next read still returns the live clock. On the operator's
+    # bash 3.2 it is an ordinary variable and the assignment sticks. Measured on
+    # both, 2026-09-10:
+    #
+    #   bash 5.2.21  assignment IGNORED   (and this is the CI path)
+    #   bash 3.2.57  assignment STICKS    (and here the path is dead — no builtin)
+    #
+    # So a test that built its fixture by assigning to it passed on macOS by
+    # testing an ordinary variable, and on Linux compared the live clock against
+    # five literals — S7 red on the runner, green on the desk, and the parser
+    # innocent throughout. Taking the value as an argument makes the fixture real
+    # on every host.
+    local t="${1:-${EPOCHREALTIME:-}}" int frac
     int="${t%%[.,]*}"
     frac="${t#*[.,]}"
     [ "$frac" = "$t" ] && frac=000
