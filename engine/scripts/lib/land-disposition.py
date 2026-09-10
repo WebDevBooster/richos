@@ -284,6 +284,37 @@ def trunk_sha(repo, trunk):
     return out.strip() if out else ""
 
 
+def tip_epoch(repo, tip):
+    """The committer date of a tip, in seconds, or None.
+
+    ONE GIT CALL PER FINDING, and it exists because the finding's own age was
+    not precise enough to compare against a threshold.
+
+    unlanded-branches.py carries `age_days` ROUNDED TO ONE DECIMAL, which is
+    exactly right for its job -- it orders a list and prints "3.4 days old" --
+    and quietly wrong for this one. One tenth of a day is 2.4 HOURS, so a
+    threshold derived to a hundredth of an hour would have been compared against
+    a value that can only take the values 0, 2.4, 4.8, 7.2... A branch standing
+    3.1 hours rounds DOWN to 2.4 and escapes the demand; the acceptance
+    demonstration printed `echo-opus-win1` -- built at 3.95 hours, the real
+    figure -- as "4.8h", and that is how this was caught.
+
+    Reading the date here rather than adding a field to unlanded-branches.py is
+    deliberate: that file is the branch sweep and its rounding is correct for
+    what it does. Findings number in the handful, so this costs a handful of
+    forks on the turns where anything is outstanding at all.
+    """
+    if not tip:
+        return None
+    out = git(repo, ["log", "-1", "--format=%ct", tip])
+    if not out:
+        return None
+    try:
+        return int(out.strip())
+    except ValueError:
+        return None
+
+
 def ceo_owned(branch):
     return any(branch.startswith(p) for p in CEO_OWNED_PREFIXES)
 
@@ -471,8 +502,9 @@ def satisfy(rows, path=None, now=None):
     return closed, undecided
 
 
-def classify(findings, rows, threshold_hours):
+def classify(findings, rows, threshold_hours, now=None):
     """One item per finding, with the state that decides what is owed."""
+    now = now if now is not None else time.time()
     known = {}
     open_ids = acked_ids(rows)
     for d in demands(rows):
@@ -482,7 +514,17 @@ def classify(findings, rows, threshold_hours):
 
     items = []
     for f in findings:
-        age_h = (f["age_days"] * 24.0) if f.get("age_days") is not None else None
+        # Measured, not inherited. See tip_epoch: the finding's own age_days is
+        # rounded to a tenth of a DAY, which is 2.4 hours of slack under a
+        # 3-hour threshold. Falling back to it is better than nothing and is
+        # marked as the fallback it is.
+        epoch = tip_epoch(f["repo"], f["tip"])
+        if epoch:
+            age_h = max(0.0, (now - epoch) / 3600.0)
+        elif f.get("age_days") is not None:
+            age_h = f["age_days"] * 24.0
+        else:
+            age_h = None
         key = (os.path.realpath(f["repo"]), f["branch"], f["tip"][:40])
         # The finding carries a 12-character tip; demands record the full one.
         prior = None
@@ -579,7 +621,7 @@ def run(entity_root, session_id="", ledger_path=None, extra="",
         result["closed"] = closed
         result["undecided"].extend(undecided)
 
-    items = classify(sweep["findings"], rows, threshold_hours)
+    items = classify(sweep["findings"], rows, threshold_hours, now)
 
     if demand:
         raised = 0

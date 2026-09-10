@@ -212,6 +212,43 @@ else
 fi
 
 # ===========================================================================
+# D23 — THE AGE IS MEASURED, NOT INHERITED ROUNDED
+# ===========================================================================
+# The branch sweep this is built on carries `age_days` rounded to ONE DECIMAL,
+# which is right for its own job (it orders a list and prints "3.4 days old")
+# and quietly wrong here: a tenth of a day is 2.4 HOURS. Reading the threshold
+# off that value means comparing a number derived to a hundredth of an hour
+# against one that can only ever be 0, 2.4, 4.8, 7.2... and a branch standing
+# 3.1 hours rounds DOWN to 2.4 and escapes the demand entirely.
+#
+# This is a REGRESSION PIN with a number chosen to sit in the gap: 3.1 hours is
+# past the 3-hour threshold and would round to 2.4. The acceptance
+# demonstration is what caught the defect -- it printed a branch built at 3.95
+# hours as "4.8h" -- and the unit suite said nothing, so the unit suite now
+# holds the line.
+mk_branch_aged "$SEAT" just-past-the-line line.txt 3.1
+check --format json
+AGE="$(printf '%s' "$RUN_OUT" | python3 -c '
+import json, sys
+for i in json.load(sys.stdin).get("items", []):
+    if i.get("branch") == "just-past-the-line":
+        print("%s %.2f" % (i.get("state"), i.get("age_hours") or 0)); break
+else:
+    print("ABSENT 0")')"
+PRECISE="$(printf '%s' "$AGE" | python3 -c '
+import sys
+state, hours = sys.stdin.read().split()
+print("yes" if state == "undisposed" and abs(float(hours) - 3.1) < 0.05 else "no")')"
+if [ "$PRECISE" = "yes" ]; then
+    ok "D23 3.1h past a 3h threshold is DEMANDED, and reads 3.1h not 2.4h ($AGE)"
+else
+    bad "D23 3.1h past a 3h threshold is DEMANDED, and reads 3.1h not 2.4h" \
+        "state+age='$AGE'"
+fi
+git -C "$SEAT" merge -q --no-edit just-past-the-line >/dev/null 2>&1
+check --format json
+
+# ===========================================================================
 # D08 — live work is never demanded on
 # ===========================================================================
 S="$(state_of held-by-a-live-agent)"
