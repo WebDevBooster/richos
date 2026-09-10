@@ -1,0 +1,78 @@
+=== guard-sealed-worktree tests ===
+  PASS  G01  the lead's own call (no agent_id) passes silently
+  PASS  G02  a SEALED worker's Write passes silently (the tool-specific guards decide next)
+  PASS  G03  a SEALED worker's Bash passes
+  PASS  G04  unsealed worker: Write -> REFUSED (exit 2, 'not sealed')
+  PASS  G04  unsealed worker: Edit -> REFUSED (exit 2, 'not sealed')
+  PASS  G04  unsealed worker: MultiEdit -> REFUSED (exit 2, 'not sealed')
+  PASS  G04  unsealed worker: NotebookEdit -> REFUSED (exit 2, 'not sealed')
+  PASS  G04  unsealed worker: Bash -> REFUSED (exit 2, 'not sealed')
+  PASS  G04  unsealed worker: Agent -> REFUSED (exit 2, 'not sealed')
+  PASS  G04  unsealed worker: SendMessage -> REFUSED (exit 2, 'not sealed')
+  PASS  G04  unsealed worker: mcp__github__create_issue -> REFUSED (exit 2, 'not sealed')
+  PASS  G04  unsealed worker: SomeUnknownTool -> REFUSED (exit 2, 'not sealed')
+  PASS  G05  unsealed worker: Read -> allowed (read-only allowlist)
+  PASS  G05  unsealed worker: Glob -> allowed (read-only allowlist)
+  PASS  G05  unsealed worker: Grep -> allowed (read-only allowlist)
+  PASS  G05  unsealed worker: LS -> allowed (read-only allowlist)
+  PASS  G05  unsealed worker: WebFetch -> allowed (read-only allowlist)
+  PASS  G05  unsealed worker: WebSearch -> allowed (read-only allowlist)
+  PASS  G05  unsealed worker: ListAgents -> allowed (read-only allowlist)
+  PASS  G06  the refusal names WHICH fact is missing
+  PASS  G07  the refusal tells the worker to report and stop, not to route around
+  PASS  G08  bound but not started -> REFUSED, naming the missing start
+  PASS  G09  started but not bound -> REFUSED, naming the missing binding
+  PASS  G10  a binding that lands during the wait seals the manifest and the write passes (1s)
+  PASS  G11  the one-second configured wait is honored and bounded (refused after 1s)
+  PASS  G12  an Explore worker (read-only type) is exempt even for Bash
+  PASS  G13  ...and so is the plugin-namespaced form
+  PASS  G14  a namespaced FILE-CAPABLE type is not exempt (negative control for G13)
+  PASS  G15  a TERMINAL agent's Write is refused as terminal
+  PASS  G16  a TERMINAL agent's Read is refused too (nothing to read from; forbidden to return)
+  PASS  G26  a TERMINAL Explore worker: Read -> REFUSED as terminal (the terminal check runs BEFORE the type exemption)
+  PASS  G26  a TERMINAL Explore worker: Bash -> REFUSED as terminal (the terminal check runs BEFORE the type exemption)
+  PASS  G26  a TERMINAL Explore worker: mcp__unknown__thing -> REFUSED as terminal (the terminal check runs BEFORE the type exemption)
+  PASS  G27  ...and the plugin-namespaced terminal Explore is refused the same way
+  PASS  G28  a NON-terminal Explore worker is still exempt for Bash (negative control for G26)
+  PASS  G17  python3 missing -> a worker's Write is REFUSED (exit 2) naming python3 (INVERTED: it used to pass)
+  PASS  G17b python3 missing -> a payload with NO agent_id (proven the lead's) still passes
+  PASS  G17c python3 missing -> a worker's Read passes under the read-only policy (announced)
+  PASS  G17d python3 missing -> a worker's Bash is REFUSED even though the only readable tell is the raw key
+  PASS  G18  transaction library missing -> a worker's Write is REFUSED (exit 2) naming the library (INVERTED: it used to pass)
+  PASS  G18b transaction library missing -> a worker's Grep passes under the read-only policy
+  PASS  G18c transaction library missing -> the lead's own Write passes
+  PASS  G18d resolve-roots.sh missing -> a worker's Write is REFUSED (exit 2)
+  PASS  G19  ...while an UNSEALED manifest with the guard healthy is REFUSED for THAT reason — a different banner, the same exit
+  PASS  G20  a repository that never adopted the engine: the barrier stands down
+  PASS  G21  an unparseable payload -> REFUSED (exit 2): a payload that cannot be proven the lead's is treated as a worker's
+  PASS  G21b ...unless the raw text names a read-only tool, which passes under the read-only policy
+  PASS  G24  a broken root resolution -> a worker's Write is REFUSED (exit 2)
+  PASS  G24b ...and a worker's Read still passes under the read-only policy
+  PASS  G25  transaction state unreadable (the resolver raised) -> a worker's Write is REFUSED (exit 2)
+  PASS  G25b ...and a worker's Glob still passes under the read-only policy
+  PASS  G22  a terminal transaction whose index write never happened is still REFUSED as terminal (the transaction is the truth)
+  PASS  G23  ...and the barrier's exact lookup repaired the index on its way out
+
+=== guard-sealed-worktree tests: all 53 passed ===
+=== guard-sealed-worktree (the write barrier): every property, proven load-bearing by removing it ===
+  PASS  unsealed-allowed — removing it turns "G04" red  [17.3s]
+  PASS  refusal-exits-zero — removing it turns "G04" red  [16.6s]
+  PASS  readonly-allowlist-is-everything — removing it turns "G04" red  [16.5s]
+  PASS  readonly-allowlist-is-nothing — removing it turns "G05" red  [16.9s]
+  PASS  lead-is-a-worker — removing it turns "G01" red  [17.5s]
+  PASS  readonly-types-not-exempt — removing it turns "G12" red  [17.3s]
+  PASS  namespace-not-stripped — removing it turns "G13" red  [17.4s]
+  PASS  terminal-not-refused — removing it turns "G15" red  [17.5s]
+  PASS  terminal-from-index-only — removing it turns "G22" red  [16.9s]
+  PASS  no-wait — removing it turns "G10" red  [15.0s]
+  PASS  fail-open-without-python — removing it turns "G17" red  [16.9s]
+  PASS  fail-open-without-library — removing it turns "G18" red  [17.1s]
+  PASS  unparseable-is-the-lead — removing it turns "G21" red  [17.3s]
+  PASS  fail-open-on-resolver-error — removing it turns "G25" red  [17.1s]
+  PASS  broken-root-allows — removing it turns "G24" red  [17.0s]
+  PASS  lead-proof-is-raw-grep-only — removing it turns "G17d" red  [16.8s]
+  PASS  half-sealed-passes — removing it turns "G08" red  [11.2s]
+  PASS  exemption-before-terminal — removing it turns "G26" red  [10.4s]
+  [18 mutant(s), 8 at a time, wall 44.3s, slowest 17.6s lead-is-a-worker, 6.6x serial]
+
+=== mutation: all 18 properties proven load-bearing ===

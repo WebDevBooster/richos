@@ -1,0 +1,12 @@
+=== restart-after-terminal-measure tests ===
+  PASS  M1  the join counts 2 restarted of 3 workspace-owning terminal transactions, names both, and never the quiet one
+  PASS  M2  the restarted agent shows 1 WorkerStarted after terminal AND a later start fact (two sources, both reported)
+  PASS  M3  --json: denominator 3, numerator 2, rate 66.667
+  PASS  M4  --census counts rows, distinct payload ids and registration ids separately
+  PASS  M5  --locks: the lock precedes the initial start (-50.0 ms) and a restart with the lock held throughout is NOT counted as a re-lock; the sentence says UNMEASURED
+  PASS  M6  --locks (c): the witnessed-unlocked restart is counted, its admin directory reported GONE, and no re-lock is claimed for it
+  PASS  M7  the positive probe: a lock re-taken 40 ms after the restart IS reported as an observed re-lock (b = 1 of 1)
+  PASS  M8  --locks --json carries the same counts
+  PASS  M9  an empty corpus reports no restart and says absence is not evidence, exit 0
+
+=== restart-after-terminal-measure tests: all 9 passed ===

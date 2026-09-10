@@ -1,0 +1,94 @@
+  PASS  test_a_codex_workspace_is_EXCLUDED_BY_CEO_RULING_at_every_door
+  PASS  test_a_hand_written_ledger_row_RESERVES_but_never_BINDS
+  PASS  test_a_late_row_is_NOT_bound_when_another_transaction_already_owns_the_path
+  PASS  test_a_late_row_is_NOT_bound_when_the_path_stopped_being_what_it_said
+  PASS  test_a_late_row_is_NOT_bound_when_the_teammate_name_is_ambiguous
+  PASS  test_a_late_row_naming_THIS_agent_id_joins_by_the_platform_identity
+  PASS  test_a_lock_naming_a_live_pid_refuses_at_the_liveness_veto
+  PASS  test_a_lock_that_names_nobody_is_STILL_A_LOCK_and_the_engine_never_takes_it_off
+  PASS  test_a_lost_stop_note_is_closed_by_the_platforms_own_event_log_and_a_lost_start_note_is_opened_by_it
+  PASS  test_a_nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped
+  PASS  test_a_post_terminal_run_cannot_outlive_its_session
+  PASS  test_a_process_probe_that_cannot_look_HOLDS_and_never_reports_an_empty_tree
+  PASS  test_a_relock_between_the_check_and_the_removal_makes_the_removal_FAIL
+  PASS  test_a_restart_after_terminal_is_recorded_and_HOLDS_every_workspace_of_that_agent
+  PASS  test_a_secret_bearing_file_is_ARCHIVED_and_NAMED_never_silently_dropped
+  PASS  test_a_stale_open_run_names_the_operator_remedy_and_the_remedy_works
+  PASS  test_a_workspace_created_after_the_seal_joins_the_transaction_and_is_reclaimed
+  PASS  test_a_workspace_this_engine_never_registered_is_never_a_candidate
+  PASS  test_a_workspace_this_engine_never_registered_is_not_bound_by_the_binder_either
+  PASS  test_absent_native_still_platform_pending_is_observed_then_branch_deleted_in_one_pass
+  PASS  test_absent_native_without_receipt_keeps_an_unintegrated_branch
+  PASS  test_absent_platform_removed_native_without_receipt_deletes_branch_by_recorded_head
+  PASS  test_active_reservation_refuses
+  PASS  test_actual_native_live_lock_vetoes_old_terminal_fact
+  PASS  test_adoption_ingress_owns_its_exact_prepared_path
+  PASS  test_an_ignored_file_written_after_the_archive_HOLDS_the_removal
+  PASS  test_an_ownerless_row_of_a_GONE_session_no_longer_reserves_forever
+  PASS  test_an_ownerless_row_of_a_LIVE_session_still_reserves
+  PASS  test_an_ownerless_row_with_no_recorded_identity_still_reserves
+  PASS  test_branch_reserved_elsewhere_is_retained
+  PASS  test_changed_branch_after_remove_is_held
+  PASS  test_dirty_staged_and_untracked_refuse
+  PASS  test_hand_rolled_terminal_ingress_reclaims_in_the_same_event
+  PASS  test_ignored_disposable_is_dropped_and_ignored_residue_is_archived_verified_then_reclaimed
+  PASS  test_ignored_only_disposable_records_no_archive
+  PASS  test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it
+  PASS  test_integrated_without_task_receipt_reclaims_worktree_and_branch
+  PASS  test_interruption_after_branch_delete_replays
+  PASS  test_interruption_after_worktree_removal_replays
+  PASS  test_lock_that_names_nobody_still_refuses_without_the_platform_terminal_fact
+  PASS  test_locked_worktree_refuses
+  PASS  test_malformed_ledger_and_unbound_preparation_refuse
+  PASS  test_native_lock_held_by_a_running_pid_holds_whatever_the_ledger_says
+  PASS  test_native_of_a_provably_gone_session_is_removed_and_its_dead_lock_released
+  PASS  test_native_of_a_running_session_is_reclaimed_when_the_platform_releases_its_lock
+  PASS  test_native_of_an_engine_derived_terminal_fact_stays_platform_owned
+  PASS  test_native_terminal_ingress_reclaims_in_the_same_event
+  PASS  test_native_with_no_recorded_session_identity_is_not_provably_gone
+  PASS  test_previously_sealed_native_record_joins_the_lane_and_is_reclaimed
+  PASS  test_process_standing_in_the_tree_holds_it_and_nothing_is_killed
+  PASS  test_recreated_path_after_remove_is_held
+  PASS  test_residue_refuses_when_capture_store_is_at_default_while_transactions_are_redirected
+  PASS  test_session_gone_refuses_to_read_the_real_ledger_from_a_sandboxed_store
+  PASS  test_taskstop_ingress_is_a_terminal_fact
+  PASS  test_terminal_ingress_keeps_dirty_path_and_reconciler_reports_hold
+  PASS  test_the_events_own_member_is_bounded_by_the_ceiling_and_the_hooks_deadline
+  PASS  test_the_immediate_reclaim_journal_APPENDS_instead_of_overwriting
+  PASS  test_the_record_says_WHEN_a_workspace_was_removed
+  PASS  test_unintegrated_refuses
+  PASS  test_unsupported_competing_terminal_ingress_remains_reserved
+  PASS  test_unverifiable_residue_archive_holds_the_tree
+=== daily-workspace-cleanup tests: all 61 passed ===
+=== daily-workspace-cleanup (the reclaim lane): every property, proven load-bearing by removing it ===
+  PASS  residue-archive-skipped — removing it turns "test_ignored_disposable_is_dropped_and_ignored_residue_is_archived_verified_then_reclaimed" red  [1m31.5s]
+  PASS  nested-repository-dropped-as-disposable — removing it turns "test_a_nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" red  [1m29.3s]
+  PASS  ignored-last-look-removed — removing it turns "test_an_ignored_file_written_after_the_archive_HOLDS_the_removal" red  [1m27.5s]
+  PASS  residue-verification-skipped — removing it turns "test_unverifiable_residue_archive_holds_the_tree" red  [1m30.5s]
+  PASS  session-gone-on-any-status — removing it turns "test_native_of_an_engine_derived_terminal_fact_stays_platform_owned" red  [1m25.4s]
+  PASS  no-identity-means-gone — removing it turns "test_native_with_no_recorded_session_identity_is_not_provably_gone" red  [1m22.2s]
+  PASS  dead-lock-check-removed — removing it turns "test_native_lock_held_by_a_running_pid_holds_whatever_the_ledger_says" red  [1m32.2s]
+  PASS  process-hold-removed — removing it turns "test_process_standing_in_the_tree_holds_it_and_nothing_is_killed" red  [1m29.6s]
+  PASS  absent-native-integration-check-removed — removing it turns "test_absent_native_without_receipt_keeps_an_unintegrated_branch" red  [1m21.0s]
+  PASS  ingress-set-widened — removing it turns "test_unsupported_competing_terminal_ingress_remains_reserved" red  [1m21.4s]
+  PASS  platform-ground-widened — removing it turns "test_native_of_an_engine_derived_terminal_fact_stays_platform_owned" red  [1m18.6s]
+  PASS  ingress-hands-native-back-to-the-nightly — removing it turns "test_native_terminal_ingress_reclaims_in_the_same_event" red  [1m16.8s]
+  PASS  ingress-hands-hand-rolled-back-to-the-nightly — removing it turns "test_hand_rolled_terminal_ingress_reclaims_in_the_same_event" red  [1m13.6s]
+  PASS  ingress-ignores-the-platform-lock — removing it turns "test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it" red  [1m16.8s]
+  PASS  restart-after-terminal-ignored — removing it turns "test_a_restart_after_terminal_is_recorded_and_HOLDS_every_workspace_of_that_agent" red  [1m13.2s]
+  PASS  second-source-ignored — removing it turns "test_a_lost_stop_note_is_closed_by_the_platforms_own_event_log_and_a_lost_start_note_is_opened_by_it" red  [1m15.9s]
+  PASS  session-death-does-not-void-an-open-run — removing it turns "test_a_post_terminal_run_cannot_outlive_its_session" red  [56.1s]
+  PASS  stale-hold-never-names-a-person — removing it turns "test_a_stale_open_run_names_the_operator_remedy_and_the_remedy_works" red  [55.9s]
+  PASS  process-probe-fails-open-again — removing it turns "test_a_process_probe_that_cannot_look_HOLDS_and_never_reports_an_empty_tree" red  [55.8s]
+  PASS  last-look-before-removal-removed — removing it turns "test_a_relock_between_the_check_and_the_removal_makes_the_removal_FAIL" red  [57.0s]
+  PASS  journal-overwrites-again — removing it turns "test_the_immediate_reclaim_journal_APPENDS_instead_of_overwriting" red  [57.5s]
+  PASS  ceo-ruling-not-in-the-mechanism — removing it turns "test_a_codex_workspace_is_EXCLUDED_BY_CEO_RULING_at_every_door" red  [57.1s]
+  PASS  hand-written-ledger-row-binds-again — removing it turns "test_a_hand_written_ledger_row_RESERVES_but_never_BINDS" red  [57.2s]
+  PASS  late-binding-removed — removing it turns "test_a_workspace_created_after_the_seal_joins_the_transaction_and_is_reclaimed" red  [56.6s]
+  PASS  late-binding-joins-an-ambiguous-name — removing it turns "test_a_late_row_is_NOT_bound_when_the_teammate_name_is_ambiguous" red  [1m07.8s]
+  PASS  ownerless-row-of-any-session-retired — removing it turns "test_an_ownerless_row_of_a_LIVE_session_still_reserves" red  [1m09.3s]
+  PASS  untracked-refusal-removed — removing it turns "test_dirty_staged_and_untracked_refuse" red  [1m06.6s]
+  PASS  unintegrated-tree-removed — removing it turns "test_unintegrated_refuses" red  [1m06.3s]
+  [28 mutant(s), 8 at a time, wall 4m50.4s, slowest 1m32.3s dead-lock-check-removed, 7.0x serial]
+
+=== mutation: all 28 properties proven load-bearing ===

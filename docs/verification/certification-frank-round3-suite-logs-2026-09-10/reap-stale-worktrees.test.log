@@ -1,0 +1,68 @@
+=== reap-stale-worktrees (scope + safety) tests ===
+  PASS  a sibling repository, named by nothing, is discovered and swept
+  PASS  without --discover only the primary repo is swept, and the gap is DECLARED
+  PASS  hand-rolled worktree of a LIVE owner survives --execute (owner-alive)
+  PASS  hand-rolled worktree of an observably terminated owner is quarantined, branch retained for a frozen selection
+  PASS  S31 a codex/ worktree with the exact shape case 3 reaps is EXCLUDED BY CEO RULING (section 31): kept, branch kept, reported in the ruling's words and never as an operator worktree
+  PASS  hand-rolled worktree with unlanded commits survives (unmerged)
+  PASS  hand-rolled worktree with uncommitted work survives (dirty)
+  PASS  hand-rolled worktree with an unresolvable owner survives (owner-unresolved), and the run is a FAIL (exit 3)
+  PASS  owner whose isolation worktree is ABSENT (and no session identity recorded) is INDETERMINATE, never reaped, verdict PENDING
+  PASS  detached-HEAD worktree survives (no-branch)
+  PASS  a repository nobody's teammate touched is inventoried, never mutated
+  PASS  the ledger records reap-eligible repositories only (no eligibility laundering)
+  PASS  coverage line reports repos, worktrees, class split and undecidables
+  PASS  with no transcript and no ledger every hand-rolled tree survives and BOTH blindnesses are DECLARED
+  PASS  residue is reported in a real container and the mostly-not-worktrees directory is declared blind
+  PASS  W7 a path the RECORD names, in no qualified container, is reported as residue — the /private/tmp blindness closed
+  PASS  W7b the record-driven pass REPORTS residue and never deletes it
+  PASS  W7c a recorded path git STILL registers is never called residue
+  PASS  W7d a path a transaction owns is left to the reconciler, never reported as residue
+  PASS  W11 a native worktree with NO ledger row is labeled a shell from the transaction store's recorded spawn kind
+  PASS  W8 selected trees whose host session is provably gone are reported ADOPTABLE and the verdict says no operator action is needed
+  PASS  W9 a selected tree the adoption gate REFUSES is named with its gate, and the verdict keeps the by-hand remedy for exactly those
+  PASS  W10 a path bound to a dead session AND a running one is never adoptable — the live owner vetoes and the report says so
+  PASS  second sweep is a clean no-op (nothing reaped twice, no errors)
+  PASS  PRIOR SESSION: a hand-rolled worktree whose owner's session is provably gone is reaped from the ledger alone — no native worktree, no transcript
+  PASS  LIVE SESSION, native absent: INDETERMINATE naming the pid, verdict PENDING, nothing removed
+  PASS  PID REUSE: a running pid with a different start time is a gone session — reaped
+  PASS  LEGACY IDENTITY: a running pid with an untagged start stays INDETERMINATE/PENDING; worktree and branch survive
+  PASS  a registered+unlocked native worktree is WRITTEN to the ledger as a witnessed termination
+  PASS  AFTER the native worktree is removed (the land), the hand-rolled tree is STILL selected from the witnessed record
+  PASS  without the witness (same registration, live session) the same tree is INDETERMINATE — the record decides, not the removal
+  PASS  reaping a native worktree leaves exactly ONE witnessed termination for its agent, written by the reaper
+  PASS  orphan branches: --execute retains merged candidates for a frozen selection, unmerged and operator branches also survive
+  PASS  branches attached to registered worktrees are never branch-sweep candidates
+  PASS  verdict PENDING after quarantine while ordinary branches still need a frozen selection
+  PASS  W1 DRY-RUN prints removed=0 would-remove=N, never 'reaped=', never CLEAN, and NAMES the command that turns removal on (INVERTED: 'reaped=11' over a run that removed nothing)
+  PASS  a DRY-RUN with nothing removable is still CLEAN — the new PENDING clause is not a constant
+  PASS  TRANSCRIPT ONLY: a name joined to an agent in an older transcript is NOT ownership — kept, owner-unresolved, run FAILS
+  PASS  PATH-REGISTERED to a prior session: exhaustion proves that session over — reaped (positive control for 20)
+  PASS  PATH-REGISTERED, unaccounted running process: INDETERMINATE, kept
+  PASS  witnessed terminations are written to the ledger the run was pointed at
+  PASS  operator worktree stays separate and untouched; retained teammate branches keep the run PENDING
+  PASS  the same unshaped name, once recorded as spawned, is a teammate's unresolved tree and FAILS the run
+  PASS  a path-registered tree with an unshaped name is judged by its registration and reaped
+  PASS  a quarantined worktree is counted apart, survives --execute untouched, and the verdict is PENDING — never CLEAN (INVERTED: 30 of them read as CLEAN on 2026-09-04)
+  PASS  REMOVAL ROUTE: --execute removes a real worktree THROUGH remove-agent-worktree.sh, naming the owner agent id, the owning repo and the path
+  PASS  W6 REMOVER REFUSES (exit 3): every tree survives, nothing falls back to a raw removal, and the run FAILS naming the disagreement between the two liveness authorities
+  PASS  W5 REMOVER ABSENT: --execute removes nothing at all, DECLARES the gap, and fails — there is no raw-git fallback
+  PASS  W2 ONE DIRECTORY, ONE CLAIMANT: a path registered by two repositories is counted once and the second claimant is named, never acted on
+  PASS  one repository registering a path produces no duplicate finding (control for 26)
+  PASS  W3 an unmerged worktree's SKIP line NAMES its commit subjects, so a committed escalation is visible in the report instead of three days later
+  PASS  a native worktree the ledger joins to a workspace in ANOTHER repository is labeled native-shell and counted (shells=1)
+  PASS  a LIVE agent's shell survives --execute: the label reports, it never relaxes a gate (the shell IS the proof the agent is alive)
+  PASS  platform-owned native paths and locks survive execute/unlock-stale; absent native and unrelated legacy registrations are never bulk-pruned
+=== reap-stale-worktrees: every property, proven load-bearing by removing it ===
+  PASS  control — the unmutated sandbox is green, so a mutant's red is the mutant's
+  PASS  dry-run-past-tense — removing it turns "W1" red  [2m55.9s]
+  PASS  unmerged-unnamed — removing it turns "W3" red  [2m55.6s]
+  PASS  unsanctioned-fallback — removing it turns "W5" red  [2m55.1s]
+  PASS  refusal-not-recognized — removing it turns "W6" red  [2m55.9s]
+  PASS  record-driven-pass-removed — removing it turns "W7" red  [2m47.8s]
+  PASS  verdict-claims-all-adoptable — removing it turns "W9" red  [2m54.9s]
+  [6 mutant(s), 8 at a time, wall 4m38.5s, slowest 2m56.0s refusal-not-recognized, 3.7x serial]
+
+=== mutation: all 6 properties proven load-bearing ===
+
+=== reap-stale-worktrees (scope + safety) tests: all 54 passed ===

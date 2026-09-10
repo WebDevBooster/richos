@@ -1,0 +1,64 @@
+  PASS  A01  a registered, merged, clean, unlocked worktree whose host session pid is gone is ADOPTABLE on T2
+  PASS  A02  a worktree whose host session is STILL RUNNING is refused (owner-terminated)
+  PASS  A03  a dead session on record does NOT overrule a live one for the same path (the reusable-key failure)
+  PASS  A04  a worktree no record names is refused: absence of a record is never a claim
+  PASS  A05  a T3 witness alone does NOT authorize: it is quoted as corroboration and refused
+  PASS  A06  the SAME native worktree becomes adoptable once T2 evidence exists — the refusal was the tier, not the fixture
+  PASS  A07  an agent the transaction store marks terminal authorizes on T1, with no session pid on record
+  PASS  A10  a branch carrying commits the repository's HEAD does not have is refused (merged)
+  PASS  A11  the same tree is adoptable once its branch is an ancestor of HEAD
+  PASS  A12  an UNTRACKED file refuses adoption (clean covers tracked and untracked)
+  PASS  A13  the same tree is adoptable once the untracked file is gone
+  PASS  A14  a LOCKED worktree is refused whatever else is on record
+  PASS  A15  the same tree is adoptable once the lock is released
+  PASS  A16  a live process referencing the path refuses adoption
+  PASS  A17  an empty process table lets the same tree through
+  PASS  A18  a detached HEAD is refused: there is no branch to verify against
+  PASS  A20  the main checkout is refused even with a registration naming it
+  PASS  A21  the CONTAINER of every worktree is refused (2026-09-05: a registration naming it changes nothing)
+  PASS  A22  a SUBDIRECTORY of a worktree is refused — the target is an exact top level or nothing
+  PASS  A23  a path that is not on disk is refused at 'exists'
+  PASS  A24  a worktree CONTAINING a registered worktree is refused (not-a-container, registry probe)
+  PASS  A25  a nested worktree of a repository the RECORD never named is still seen (pointer probe)
+  PASS  A30  a worktree a live transaction already owns is refused (unclaimed) — adoption never competes
+  PASS  A31  a directory that is another transaction's QUARANTINE is refused too
+  PASS  A40  a ledger override WITHOUT a transaction-store override is REFUSED (exit 4)
+  PASS  A41  adopt REFUSES to write when only the transaction store is overridden — it would quarantine a REAL worktree into a sandbox
+  PASS  A42  both overrides set is a consistent sandbox rooting
+  PASS  A50  --dry-run reports WOULD-ADOPT and leaves the directory exactly where it was
+  PASS  A51  adopt reports ADOPTED for a tree that passed every gate
+  PASS  A52  the transaction is written as kind=adopted / sealed_by=adoption — never disguised as a spawn the platform witnessed
+  PASS  A53  the claim records its ingress and the evidence tier that authorized it
+  PASS  A54  adoption itself moves nothing: the workspace stays at its path, no quarantine is created
+  PASS  A55  the adopted member is routed to the daily clean/integrated lane (cleanup_policy=integrated-daily, state bound)
+  PASS  A56  no backup ref is minted by adoption alone — the lane deletes the branch only by exact compare-and-set against an integrated tip, so nothing needs pinning first
+  PASS  A57  the adopted path is refused on a second pass: its own transaction owns it, so an adoption is never taken twice
+  PASS  A58  one reconciler run RECLAIMS the adopted tree through the daily lane (worktree removed, branch deleted, the disposable __pycache__ dropped, member removed with phase complete) -- and so is the tree whose CONTAINER a malformed record registered, because that record names no agent and its session is provably gone (INVERTED 2026-09-10: it used to be HELD by that row forever, and that is the reservation nothing could ever retire)
+  PASS  A59  --all prints refusals beside acceptances and a summary carrying its own denominator
+  PASS  A60  candidates are enumerated from the record, so a directory nobody registered is not one
+  PASS  A70  a folder WE REGISTERED whose owner cannot be identified is adoptable on T4 when no orchestrator session is alive, and the reason states the precondition in its own words
+  PASS  A71  ...and ONE claude process anywhere refuses it, naming the unmet precondition (a kernel fact, never a quiet directory)
+  PASS  A71b a live entry in the harness's own session registry refuses it even with an empty process table (two independent reads, either one answers no)
+  PASS  A72  a folder THIS ENGINE NEVER REGISTERED is refused even with no session alive: crash recovery reclaims what we wrote down, never what we found
+  PASS  A73  a codex workspace is never adopted, with no session alive and a perfect tree, because nothing ever registered it
+
+=== worktree-adoption tests: all 43 passed ===
+=== worktree-adoption: every property, proven load-bearing by removing it ===
+  PASS  container-gate-removed — removing it turns "A24" red  [42.0s]
+  PASS  live-session-veto-removed — removing it turns "A03" red  [42.8s]
+  PASS  t3-authorizes — removing it turns "A05" red  [41.7s]
+  PASS  merged-gate-removed — removing it turns "A10" red  [42.6s]
+  PASS  clean-gate-ignores-untracked — removing it turns "A12" red  [42.8s]
+  PASS  lock-gate-removed — removing it turns "A14" red  [41.8s]
+  PASS  live-process-gate-removed — removing it turns "A16" red  [42.6s]
+  PASS  unclaimed-gate-removed — removing it turns "A30" red  [44.6s]
+  PASS  main-checkout-accepted — removing it turns "A20" red  [36.5s]
+  PASS  subdirectory-accepted — removing it turns "A22" red  [37.6s]
+  PASS  hermetic-rooting-removed — removing it turns "A40" red  [38.1s]
+  PASS  t4-without-a-registration — removing it turns "A72" red  [27.8s]
+  PASS  t4-ignores-a-live-session — removing it turns "A71" red  [37.0s]
+  PASS  candidates-from-disk — removing it turns "A60" red  [36.8s]
+  PASS  adoption-disguised-as-a-spawn — removing it turns "A52" red  [33.2s]
+  [15 mutant(s), 8 at a time, wall 1m20.7s, slowest 44.6s unclaimed-gate-removed, 7.3x serial]
+
+=== mutation: all 15 properties proven load-bearing ===

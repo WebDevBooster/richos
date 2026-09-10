@@ -1,0 +1,16 @@
+discard-workspace-backlog.test.py rc=0 wall=2s
+reconcile-terminal-worktrees.mutation.sh rc=0 wall=446s (7:26.49 total per time)
+restart-after-terminal-measure.test.sh rc=0 wall=1s (9 passed)
+daily-workspace-cleanup.test.sh rc=0 wall=321s
+worktree-adoption.test.sh rc=0 wall=108s
+worktree-transactions.test.sh rc=0 wall=166s
+terminalize-agent-worktrees.test.sh rc=0 wall=79s
+record-subagent-start.test.sh rc=0 wall=7s
+reconcile-terminal-worktrees.test.sh (RICHOS_MUTATION_INNER=1, harness run separately above) rc=0 wall=45s
+workspace-retire.test.sh rc=0 wall=90s
+reap-stale-worktrees.test.sh rc=0 wall=386s
+guard-sealed-worktree.test.sh rc=0 wall=54s
+cleanup-routing-contract.test.sh rc=0 wall=26s
+session-start-reap-worktrees.test.sh rc=0 wall=21s
+completion-proof.test.sh rc=0 wall=6s
+worktree-ledger.test.sh rc=0 wall=12s
