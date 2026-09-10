@@ -1112,7 +1112,7 @@ def _absent_native_without_receipt(tx, transaction, index):
             if proof_api.git(repo, 'merge-base', '--is-ancestor', pinned, main, allowed=(0, 1)).returncode == 0:
                 _git(repo, 'update-ref', '--no-deref', '-d', backup, pinned)
     journal = {'version': 1, 'phase': 'complete', 'proof_source': 'recorded-head', 'head': member.get('head') or '',
-               'branch': ref, 'tip': tip, 'integration_tip': main}
+               'branch': ref, 'tip': tip, 'integration_tip': main, 'removed_ts': tx.now_iso()}
     return tx.update_member(sid, aid, index, daily_cleanup=journal, cleanup_policy='integrated-daily',
                             closed='integrated-daily-cleanup', blocked=False, retry_after_epoch=0, last_error=None)
 
@@ -1337,7 +1337,10 @@ def reconcile(tx, transaction, index):
     registry = proof_api.registry(member['repo'])
     if member['path'] in registry or os.path.lexists(member['path']):
         raise RuntimeError('workspace removal is not complete')
-    saved = dict(saved, phase='worktree-removed')
+    # WHEN (Sage D6): the record could say a workspace was removed and not
+    # when, so ordering a restart against a removal had to be inferred from
+    # grounds. It is read now. UTC, like every other stamp in this store.
+    saved = dict(saved, phase='worktree-removed', worktree_removed_ts=tx.now_iso())
     tx.update_member(sid, aid, index, daily_cleanup=saved, cleanup_policy='integrated-daily')
     proof_api.verify_member_proof(proof, path_present=False)
     owner_check(tx, transaction, member)
@@ -1368,7 +1371,7 @@ def reconcile(tx, transaction, index):
                 raise RuntimeError('native recovery ref changed; retained')
             _git(member['repo'], 'merge-base', '--is-ancestor', head, proof['integration_ref'])
             _git(member['repo'], 'update-ref', '--no-deref', '-d', backup, head)
-    saved = dict(saved, phase='complete')
+    saved = dict(saved, phase='complete', removed_ts=tx.now_iso())
     return tx.update_member(sid, aid, index, daily_cleanup=saved, state='removed',
                             closed='integrated-daily-cleanup', blocked=False,
                             retry_after_epoch=0, last_error=None)

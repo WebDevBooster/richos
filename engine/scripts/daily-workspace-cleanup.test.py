@@ -258,6 +258,17 @@ class Cleanup(unittest.TestCase):
         with tarfile.open(result['members'][0]['daily_cleanup']['ignored_residue']['archive']) as tar:
             self.assertEqual(tar.getnames(),['late'])
 
+    def test_the_record_says_WHEN_a_workspace_was_removed(self):
+        # SAGE D6, ROUND TWO. `phase = complete` carried no timestamp, so
+        # ordering a restart against a removal -- the question the whole round
+        # turned on -- had to be inferred from grounds. Read, now, in UTC.
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        journal=result['members'][0]['daily_cleanup']
+        for key in ('worktree_removed_ts','removed_ts'):
+            self.assertIn(key,journal)
+            self.assertTrue(journal[key].endswith('+00:00'),journal[key])
+        self.assertLessEqual(journal['worktree_removed_ts'],journal['removed_ts'])
+
     def test_a_secret_bearing_file_is_ARCHIVED_and_NAMED_never_silently_dropped(self):
         # FRANK D13, 2026-09-10. The residue archive is where a workspace's
         # IGNORED files go, and `.env` files are ignored by construction: 51
