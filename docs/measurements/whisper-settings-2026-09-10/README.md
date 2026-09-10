@@ -33,13 +33,30 @@ Two properties are deliberate and load-bearing:
 ## The corpora, and what each can and cannot answer
 
 There will be no new recordings — CEO, 2026-09-10: *"There are no more fucking 'recorded' calls."*
-So this is the permanent material, and the honest reach of each piece is part of the record.
+**So this is the permanent material.** It is enumerated in full below rather than described, because
+a settings decision that cannot be made on this list cannot be made at all, and the honest reach of
+each piece is now part of the record. Everything real lives in
+`richos-hq/docs/reference/local/`, gitignored (`.gitignore:19`) and committed nowhere; only counts
+and durations appear here, never a file name, because those name people.
 
-| Corpus | Where | What it can answer | What it cannot |
+| Corpus | What is actually on disk | What it can answer | What it cannot |
 |---|---|---|---|
-| 6 invented TTS calls, 47–174 s, 1,852 script words | `richos-hq/docs/briefs/norm-shortcall-wer-2026-08-29-assets/corpus/calls.json`, rebuilt by its own `<richos-hq>/…/tools/build-corpus.mjs` | **true WER**, because the script IS the reference | anything about real acoustics, cross-talk, accents, or length past 3 minutes. It is one synthetic voice per channel. |
-| 92-minute two-channel real webinar | `richos-hq/docs/reference/local/*.mp3` (gitignored, never committed) | long-form **fabrication** and wall clock, measured by the shipping guard against the physical audio | WER — no verified reference exists, and none is coming |
-| 3 private podcast recordings | `richos-hq/docs/reference/local/private-podcast-recordings/` | long-form behavior on a third speaker | WER — `REFERENCE-WORKSHEET-001.md` beside them is the human-verification pass and it is **unfilled** |
+| **Invented TTS calls** | 6 two-speaker calls, 47.1–174.0 s, 1,852 script words / 1,905 scoring tokens. No audio stored — regenerated from `corpus/calls.json` in the private record | **true WER**, because the script IS the reference. Every short-call row of the decision table. | real acoustics, cross-talk, accents, or length past 3 minutes. One synthetic voice per channel, and the non-speaking channel is `anullsrc` — EXACT digital silence, which is why the VAD result on it does not transfer (§3 of the table). |
+| **Webinar** | 2 mp3s, one per speaker, 5,536.8 s and 5,536.3 s (92.3 min) | long-form **fabrication** and wall clock, adjudicated by the shipping guard against the physical audio. Every `-mc` row. | WER — no verified reference, and none is coming. Also: a webinar host talks continuously, which is the opposite of a call channel's silence profile. |
+| **Podcast 001** | 2 raw channels at 7,581.2 s and 7,581.1 s (126.4 min) + a 5,853.0 s edited episode | a second long-form two-channel case, on different speakers and a different room | WER. `REFERENCE-WORKSHEET-001.md` beside it is the human-verification pass for the EDITED episode — 30 windows of 60 s — and it is **unfilled**. It needs 30 minutes of the CEO's listening, not a recording. |
+| **Podcast 002** | 1 edited episode, 2,061.5 s (34.4 min) | mid-length single-track behavior | WER; there is no raw multitrack for it. |
+| **Podcast 003** | 4 raw tracks (1,667.0 / 1,353.0 / 1,353.1 / 1,697.9 s) + a 1,840.5 s edited episode | multi-track behavior with more than two speakers | WER. |
+| *(not a speech corpus)* | one 338.1 s screen recording | nothing about ASR | — |
+
+So: **about 4.7 hours of distinct real recording exists**, and none of it has a verified reference.
+The decision table's long-form rows use the webinar because it is the only two-channel case that has
+already been characterized end to end; the podcasts are the material that would test whether those
+conclusions generalize, and they are named here so nobody re-discovers them as "there is only one
+recording".
+
+**The one thing that WOULD unlock a real-audio WER needs no recording at all** — it needs the
+worksheet filled in. That is the CEO's, it is already tracked as open item 2.1, and it is not a
+settings decision, so this work neither waits on it nor decides it.
 
 **Rebuilding the TTS corpus does not reproduce August's audio.** `say` output has drifted: call-01
 is 47.10 s today against the 47.08 s in the committed manifest, and a fresh decode of turbo at
