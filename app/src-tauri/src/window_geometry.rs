@@ -94,6 +94,18 @@ pub const TITLE_BAR_RESERVE: f64 = 28.0;
 /// exactly-maximized window can come back a fraction of a point outside itself.
 const CONTAINMENT_TOLERANCE: f64 = 1.0;
 
+/// A display flush against the left edge of the desk can arrive as `-0.0` — `f64`'s `Sum`
+/// starts from `-0.0`, and so does more than one Core Graphics path. `{:.0}` renders that
+/// as `-0`, which reads like a coordinate off the screen in the one line an operator has to
+/// diagnose from. Only the printing is affected; no arithmetic here can tell the two apart.
+fn unsign(value: f64) -> f64 {
+    if value == 0.0 {
+        0.0
+    } else {
+        value
+    }
+}
+
 /// THE CONSTANT, DEMOTED. This is what the app would LIKE, and it is consulted only as a
 /// ceiling on a display big enough to hold it and as the last resort when no display can be
 /// read at all. The live values come from `tauri.conf.json`'s window declaration
@@ -207,7 +219,11 @@ impl Display {
         let name = self.name.clone().unwrap_or_else(|| "unnamed display".to_string());
         format!(
             "{name} work area {:.0}x{:.0} pt at ({:.0},{:.0}), scale {}",
-            self.width, self.height, self.x, self.y, self.scale
+            self.width,
+            self.height,
+            unsign(self.x),
+            unsign(self.y),
+            self.scale
         )
     }
 }
@@ -286,7 +302,7 @@ impl Placement {
     /// The whole decision on one line, for a dry run or a boot log.
     pub fn describe(&self) -> String {
         let position = match self.position {
-            Some((x, y)) => format!("at ({x:.0},{y:.0})"),
+            Some((x, y)) => format!("at ({:.0},{:.0})", unsign(x), unsign(y)),
             None => "centered by the platform".to_string(),
         };
         format!(
