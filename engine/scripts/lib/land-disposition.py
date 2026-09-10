@@ -430,6 +430,13 @@ def satisfy(rows, path=None, now=None):
 
     Returns (closed, undecided). `undecided` is a demand whose tip object can no
     longer be read -- NOT closed, NOT dropped, and named in the report.
+
+    NO LOCK, deliberately, and the ledger's own header carries the argument: a
+    lock file left behind by a killed agent would block the next write, and a
+    mechanism whose failure mode is "your record was not written" is the defect
+    being fixed. Two runs closing the same demand at once append two ack rows
+    for one id, which every reader here treats as one -- `acked_ids` is a set.
+    A duplicate ack is visible and harmless; a missing one is neither.
     """
     closed, undecided = [], []
     open_ids = acked_ids(rows)
