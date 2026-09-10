@@ -62,37 +62,44 @@ R2  CONVERTER COVERAGE.  A `historical` fixture converter is any place in
 
         historical-fixture-partial: <key>[,<key>] — <reason>
 
-    within six lines above the removal.  Three such declarations exist and
-    each records a real fact (a member built by _verify_native_member never
-    carries cleanup_policy, so stripping cleanup_owner alone is complete).
+    in the comment block attached to the removal — the comments immediately
+    above it, across the one `def`/`fn() {` header it may sit inside.  Three
+    such declarations exist and each records a checked fact: a member built
+    by _verify_native_member (worktree-transactions.py:477) and persisted
+    without a seal has no cleanup_policy to strip, because try_seal
+    (worktree-transactions.py:684) is the only thing that stamps it.
 
-R3  EXTRACTOR CANARY.  A grep over source is a heuristic and a heuristic
-    that has quietly stopped matching reports a green tick over nothing.
-    R3 runs the same extractor over a fixture built to be wrong, and over
-    the real tree asserts the extractor still finds each routing function
-    the signature says exists.  If a refactor moves the code into a shape
-    the extractor cannot see, R3 goes red rather than R1 going green.
+R3  EXTRACTOR CANARY.  A static extractor that has quietly stopped matching
+    reports a green tick over nothing.  So the places this extractor is
+    STRUCTURALLY BLIND are rows in the lock like any other: a function that
+    reads `members` without naming a member variable, and a member key read
+    through a variable rather than a literal.  They may exist; they may not
+    grow.  A refactor that moves a routing decision into one of those shapes
+    fails R3 instead of silently emptying R1.
 
 ===========================================================================
 WHAT IT CANNOT SEE, stated rather than glossed
 ===========================================================================
 R1's extraction is an AST walk, not a grep, so it is not fooled by the key
 appearing in a comment, a docstring or a string literal — the two failure
-modes a plain `grep 'cleanup_'` has.  It is still defeated by four shapes,
-and none of them exists in the tree today (proven by R3's inventory, which
-would report a member-bearing function with no visible member variable):
+modes a plain `grep 'cleanup_'` has.  It is still defeated by four shapes:
 
   1. AN INDIRECT KEY.  `member.get(KEY_CONST)` or `member.get(k) for k in
-     KEYS` reads a key the walk records as unresolvable rather than as a
-     name.  Such a site is REPORTED by R3 (`indirect key read`), not
-     silently dropped — that is the difference between a heuristic that
-     degrades loudly and one that degrades to green.
+     KEYS` reads a key the walk cannot resolve to a name.  Such a site is
+     LOCKED as *indirect-key-read* rather than dropped — that is the
+     difference between a heuristic that degrades loudly and one that
+     degrades to green.  There are zero such sites today.
 
   2. A ROUTING DECISION MADE OUTSIDE A NAMED MEMBER VARIABLE.  The walk
      recognizes a member as a variable named `member`/`m`/`native`/`mem`
      that is either a bare parameter or bound from an expression mentioning
-     `members`.  `tx["members"][0].get("cleanup_owner")` — subscripted
-     inline, never named — is invisible.  There are zero such sites today.
+     `members`.  `t["members"][index].get("path")` — subscripted inline,
+     never named — is invisible.  FIVE functions read members that way
+     today and all five are locked as *no-member-variable*; each was read
+     and none makes a routing decision (bound_members and close_if_empty
+     test the members LIST, not a member key; notice_once subscripts inline
+     to build a log line; process_pending_terminals delegates to try_seal
+     and terminalize; verify_receipt walks receipt rows, not members).
 
   3. A ROUTING FUNCTION IN A MODULE THIS DOES NOT SCAN.  Modules are
      discovered from disk (a `.py` under scripts/ that mentions `members`
@@ -107,7 +114,7 @@ would report a member-bearing function with no visible member variable):
      it.  There are zero such sites today.
 
 The honest summary: R1 cannot be fooled by prose and can be fooled by
-indirection, and every indirection it meets it reports.
+indirection, and every indirection it meets it locks.
 
 ===========================================================================
 USAGE
@@ -143,7 +150,7 @@ MODULE_MARKERS = ("tx_path", "load_tx", "worktree-transactions", "update_member"
 SKIP_NAME_PARTS = (".test.", ".mutation.", ".acceptance.", ".selftest.")
 
 PARTIAL_MARKER = "historical-fixture-partial:"
-PARTIAL_LOOKBACK = 6
+PARTIAL_LOOKBACK = 40
 
 REMOVAL_RE = re.compile(
     r"""(?:\.pop\(\s*(?P<q1>['"])(?P<k1>[A-Za-z_][A-Za-z0-9_]*)(?P=q1)"""
@@ -491,6 +498,36 @@ def scan_converters(engine_root, route_keys):
     return converters
 
 
+def _preceding_comment_block(lines, first_line):
+    """The comment block attached to the converter, read upward.
+
+    Attached means: from the removal, walk up through blank lines, comment
+    lines and the one definition header the removal may sit inside (`def x():`,
+    `x() {`), and stop at the first other line of code. A fixed line budget was
+    the first shape of this and it was wrong on its first real declaration —
+    a five-line explanation above a `def` is eight lines from the `pop` it
+    explains, which is exactly where a reviewer would write it."""
+    block, index, seen_header = [], first_line - 2, False
+    while index >= 0 and (first_line - index) <= PARTIAL_LOOKBACK:
+        stripped = lines[index].strip()
+        if not stripped:
+            index -= 1
+            continue
+        if stripped.startswith("#") or stripped.startswith("//"):
+            block.append(lines[index])
+            index -= 1
+            continue
+        if not seen_header and (stripped.startswith("def ")
+                                or stripped.startswith("function ")
+                                or re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{", stripped)
+                                or stripped.endswith("<<'HISTORICAL'")):
+            seen_header = True
+            index -= 1
+            continue
+        break
+    return block
+
+
 def declared_partial(path, first_line):
     """The `historical-fixture-partial:` declaration for a converter, if any.
     -> (keys, reason) or None."""
@@ -498,8 +535,7 @@ def declared_partial(path, first_line):
         lines = path.read_text(errors="replace").splitlines()
     except OSError:
         return None
-    start = max(0, first_line - 1 - PARTIAL_LOOKBACK)
-    for raw in lines[start:first_line]:
+    for raw in _preceding_comment_block(lines, first_line):
         if PARTIAL_MARKER not in raw:
             continue
         tail = raw.split(PARTIAL_MARKER, 1)[1].strip()

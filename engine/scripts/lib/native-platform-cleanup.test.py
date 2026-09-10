@@ -103,6 +103,14 @@ class Tests(unittest.TestCase):
             '--repo',str(self.repo),'--owner',self.aid,str(self.path)],capture_output=True,text=True)
         self.assertEqual(result.returncode,3,result.stdout+result.stderr)
         self.assertIn('platform-owned',result.stdout+result.stderr);self.assertTrue(self.path.is_dir())
+    # historical-fixture-partial: cleanup_owner — complete for THIS fixture.
+    # self.member comes from tx._verify_native_member (worktree-transactions.py
+    # :477), whose returned dict has no cleanup_policy, and persist() writes the
+    # record directly rather than through try_seal, which is the only place that
+    # stamps it (worktree-transactions.py:684). So cleanup_owner is the only
+    # routing key present and removing it leaves a genuinely historical member.
+    # If _verify_native_member ever stamps a second routing key, R1 of the
+    # cleanup-routing contract moves and this declaration is what it points at.
     def test_missing_legacy_checkout_keeps_its_registered_index(self):
         self.member.pop('cleanup_owner');self.persist()
         moved=self.root/'missing-legacy';self.path.rename(moved)
@@ -129,6 +137,13 @@ class Tests(unittest.TestCase):
     def test_unknown_transaction_record_kind_is_not_complete_inventory(self):
         bad=Path(tx.tx_path(self.sid,'aaaaaa000002'));bad.write_text('{}')
         with self.assertRaisesRegex(RuntimeError,'kind unknown'):tx.platform_owns_path(str(self.path)+'-other')
+    # historical-fixture-partial: cleanup_owner — complete for THIS fixture, for
+    # the reason recorded above test_missing_legacy_checkout_keeps_its_registered
+    # _index: a member built by _verify_native_member and persisted without a
+    # seal carries no cleanup_policy to strip. The assertion below is the proof
+    # rather than the claim — terminalize() reaches save_ref+quarantine only for
+    # a member that is neither platform-owned nor daily-reclaimed, so `state ==
+    # quarantined` fails the moment this fixture stops being historical.
     def test_historical_native_keeps_existing_recovery_route(self):
         self.member.pop('cleanup_owner');self.persist();tx.terminalize(self.sid,self.aid)
         self.assertEqual(self.current()['state'],'quarantined');self.assertTrue(Path(self.current()['quarantine']).is_dir())
