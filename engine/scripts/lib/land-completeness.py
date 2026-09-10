@@ -164,9 +164,24 @@ def _git(repo, *args):
 
 
 def _worktrees(repo):
-    """Every LINKED worktree of `repo`, with its branch. The main checkout is
-    excluded — it is not an agent's worktree and removing it is not a step of
-    any land."""
+    """Every LINKED worktree of `repo`, with its branch.
+
+    THE MAIN CHECKOUT IS EXCLUDED BY IDENTITY, NOT BY COMPARING IT TO THE PATH
+    WE WERE HANDED, and that distinction is a bug this had. `git worktree list`
+    reports the whole set from ANY member of it, so when this is called with a
+    LINKED worktree as `repo` — which happens whenever the status command is run
+    from inside one, i.e. every time an agent runs it — excluding
+    `realpath(repo)` removes the caller's own directory and leaves the MAIN
+    CHECKOUT in the list. It was then judged like an agent's worktree: on
+    2026-09-10 a multi-repository run reported `/Users/alex/ab/richos` itself,
+    on branch `main`, as an undecided item.
+
+    Removing a main checkout is not a step of any land, so it is excluded on the
+    two facts git itself provides: it is always the FIRST record, and its `.git`
+    is a DIRECTORY where a linked worktree's is a FILE. Either alone would do;
+    both are used because the cost is nothing and the failure mode is naming the
+    operator's own checkout as residue.
+    """
     ok, out = _git(repo, "worktree", "list", "--porcelain")
     if not ok:
         return None
@@ -186,8 +201,8 @@ def _worktrees(repo):
             cur["detached"] = True
     if cur:
         entries.append(cur)
-    main = os.path.realpath(repo)
-    return [e for e in entries if os.path.realpath(e["path"]) != main]
+    return [e for i, e in enumerate(entries)
+            if i != 0 and not os.path.isdir(os.path.join(e["path"], ".git"))]
 
 
 def _merge_status(repo, branch, main):
@@ -276,8 +291,34 @@ def _judge_owner(worktree, records, mod, repo, liveness):
     return (best or "UNRESOLVED"), reason
 
 
+def main_checkout(path):
+    """The MAIN CHECKOUT of whatever repository `path` belongs to.
+
+    A main checkout and every linked worktree of it share one repository and one
+    worktree list, so they are the same subject and must resolve to one name.
+    Without this the status command double-counted: run from inside an agent's
+    worktree it resolves `git rev-parse --show-toplevel` to that worktree, the
+    ownership ledger separately yields the main checkout, and both enumerate the
+    identical set — 2026-09-10 reported `repositories: 6` and 50 worktrees over
+    what were really four repositories.
+
+    `--git-common-dir` is the same for every member of a repository, which is
+    exactly the identity wanted; its parent is the main checkout. Anything that
+    cannot be resolved is returned unchanged rather than guessed at.
+    """
+    ok, common = _git(path, "rev-parse", "--git-common-dir")
+    if not ok or not common:
+        return path
+    if not os.path.isabs(common):
+        common = os.path.join(path, common)
+    root = os.path.dirname(os.path.abspath(common))
+    return root if os.path.isdir(root) else path
+
+
 def analyze(repo, main="main", ledger=None):
     """The whole answer for one repository."""
+    if os.path.isdir(repo):
+        repo = main_checkout(repo)
     report = {
         "repo": repo,
         "main": main,

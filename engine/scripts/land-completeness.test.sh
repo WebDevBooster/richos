@@ -56,6 +56,11 @@
 #       liveness module as a keyword defaulting to None, and with None every
 #       verdict degrades to INDETERMINATE, which blocks. Degrading toward
 #       "cannot decide" is safe; degrading toward "refuse" is not.
+#   L15 RUN FROM INSIDE A WORKTREE, THE MAIN CHECKOUT IS NEVER NAMED. And L16,
+#       that a worktree and its main checkout are ONE repository. Both bugs were
+#       found by running the command for real rather than by reading it, both
+#       appear only from inside a worktree — which is where every agent runs it
+#       — and one of them put the operator's own checkout in the report.
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -323,6 +328,47 @@ if [ "$D" = "unowned" ]; then
     ok "L14  with no liveness module every owner is UNRESOLVED -> unowned, never incomplete-land"
 else
     bad "L14  landed-agent -> '$D' with liveness broken; degrading toward 'refuse' is the bug"
+fi
+
+# --- L15: run from INSIDE a worktree, never name the main checkout ---------
+# Both of the bugs this pins were found by running the status command for real
+# rather than by reading it, and both only appear from inside a worktree —
+# which is where every agent runs it.
+#
+#   `git worktree list` reports the WHOLE set from any member, so excluding
+#   "the path we were handed" removes the caller and leaves the MAIN CHECKOUT
+#   in the list, to be judged like an agent's worktree. A live run on
+#   2026-09-10 reported the operator's own checkout, on branch `main`, as an
+#   undecided item.
+J2="$(python3 "$ANALYZER" --repo "$SANDBOX/mixed/landed-agent" 2>/dev/null)"
+if printf '%s' "$J2" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+paths = [w["path"] for w in d["worktrees"]]
+sys.exit(0 if not any(p.rstrip("/").endswith("/repo") for p in paths) else 1)'; then
+    ok "L15  run from inside a worktree, the MAIN CHECKOUT is never named as residue"
+else
+    bad "L15  the main checkout appeared in the worktree list — removing it is no land's step"
+fi
+
+# --- L16: a worktree and its main checkout are ONE repository --------------
+# Without this the status command double-counted everything: run from inside a
+# worktree it resolves one name, the ownership ledger yields the other, and both
+# enumerate the identical set.
+A="$(python3 -c '
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("lc", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m.main_checkout(sys.argv[2]))' "$ANALYZER" "$R")"
+B="$(python3 -c '
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("lc", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m.main_checkout(sys.argv[2]))' "$ANALYZER" "$SANDBOX/mixed/landed-agent")"
+if [ -n "$A" ] && [ "$A" = "$B" ]; then
+    ok "L16  a linked worktree and its main checkout resolve to ONE repository identity"
+else
+    bad "L16  '$A' != '$B' — the same repository under two names is counted twice"
 fi
 
 git -C "$R" worktree unlock "$SANDBOX/mixed/live-agent" 2>/dev/null || true

@@ -141,7 +141,16 @@ fi
 
 export RICHOS_LC_ANALYZER="$ANALYZER"
 
-REPORT="$(python3 - "$MAIN_BRANCH" "${REPOS[@]}" <<'PY'
+# HELD IN A VARIABLE FOR THE SAME REASON THE RENDERER BELOW IS. Under the bash
+# 3.2 macOS ships, `VAR="$( ... <<'PY' ... )"` scans for the closing parenthesis
+# BEFORE it processes the here-document, so a single apostrophe anywhere in the
+# python body — in a word like "the agent's worktree" — ends the scan in the
+# wrong place and the whole file dies with "unexpected EOF while looking for
+# matching `''". That is not hypothetical: it happened to this exact block on
+# 2026-09-10, one comment after it was written. `read -r -d ''` has no such scan,
+# so the form is used for every embedded program in this file rather than for
+# the one that has already been bitten.
+IFS= read -r -d '' _LC_ANALYZE <<'PY' || true
 import importlib.util, json, os, sys
 
 spec = importlib.util.spec_from_file_location("land_completeness",
@@ -151,7 +160,18 @@ spec.loader.exec_module(lc)
 
 main = sys.argv[1]
 out = {"branch": main, "repos": []}
+# DEDUPLICATE BY REPOSITORY IDENTITY, NOT BY THE STRING THAT NAMED IT. A linked
+# worktree and its main checkout are one repository with one worktree list, so
+# reading both counts everything twice — which is what a run from inside an
+# agent's worktree did until this line existed.
+seen, wanted = set(), []
 for repo in sys.argv[2:]:
+    key = lc.main_checkout(repo) if os.path.isdir(repo) else repo
+    if key in seen:
+        continue
+    seen.add(key)
+    wanted.append(repo)
+for repo in wanted:
     try:
         out["repos"].append(lc.analyze(repo, main))
     except Exception as exc:
@@ -165,7 +185,8 @@ for repo in sys.argv[2:]:
                                         "retained_unmerged_branches": 0, "not_examined": 1}})
 print(json.dumps(out))
 PY
-)" || REPORT=""
+
+REPORT="$(python3 -c "$_LC_ANALYZE" "$MAIN_BRANCH" "${REPOS[@]}")" || REPORT=""
 
 if [ -z "$REPORT" ]; then
     [ "$QUIET" = "1" ] || {
