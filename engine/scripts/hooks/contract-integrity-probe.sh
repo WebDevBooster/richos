@@ -398,7 +398,7 @@ run_layer_R() {
     guard-stated-actions \
     notice-escalations session-start-escalations \
     commit-ceo-inputs notice-ceo-inputs-unheld \
-    notice-unlanded-branches"
+    notice-unlanded-branches notice-land-disposition"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
