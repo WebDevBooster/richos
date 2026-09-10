@@ -60,7 +60,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-escalations.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-escalations.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-ci-surface.sh",
             "timeout": 15
           }
         ]

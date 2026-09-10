@@ -106,6 +106,29 @@ say() { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*"; }
 # fires perfectly and executes nothing — the same class of failure this file's
 # whole header is about, one level down.
 if [ "${INSTALL:-0}" = "1" ]; then
+    # NEVER SCHEDULE FROM A LINKED WORKTREE OR A TEMPORARY DIRECTORY. The plist
+    # bakes in this script's absolute path; an agent worktree is reaped, and
+    # from that moment the job fires on time, every time, and executes nothing.
+    # That is the file's own cautionary example arriving by the shortest
+    # possible route. scripts/hooks/install.sh refuses for the same reason and
+    # in the same words, which is where this rule was learned rather than
+    # guessed: it refused THIS worktree while this file was being written.
+    _WT_MARKER="$ENGINE_ROOT/../.g""it"
+    if [ -f "$_WT_MARKER" ] || case "$ENGINE_ROOT" in /tmp/*|/private/var/folders/*|*/.claude/worktrees/*) true ;; *) false ;; esac; then
+        {
+            echo "REFUSING TO SCHEDULE FROM HERE."
+            echo "  engine: $ENGINE_ROOT"
+            echo ""
+            echo "  This is a linked worktree or a temporary directory. A launchd job stores an"
+            echo "  ABSOLUTE path, so when this directory is reaped the job keeps firing on time,"
+            echo "  every time, and runs nothing — which is precisely the failure this watch was"
+            echo "  written to be the opposite of."
+            echo ""
+            echo "  Install it from the main checkout instead:"
+            echo "    <main-checkout>/engine/scripts/ci-surface-watch.sh --install"
+        } >&2
+        exit 2
+    fi
     mkdir -p "$(dirname "$PLIST")" "$STATE_DIR"
     cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
