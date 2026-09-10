@@ -1,0 +1,26 @@
+LONG FORM — 92-minute real recording, channel `me`, large-v3-turbo, whisper.cpp 1.9.1 / ggml 0.17.0
+source: richos-hq/docs/reference/local/01_alex-audio_webinar-recording.mp3 (gitignored, never committed)
+normalize: ffmpeg -ac 1 -ar 16000, the step lib/normalize.js performs
+adjudication: the SHIPPING repetition guard (lib/repetition-guard.js) with the physical speech-burst
+              probe (681 bursts, channel peak -0.9 dB), imported not reimplemented
+no WER is quoted here and none can be: this recording has no verified reference, and per the CEO's
+ruling of 2026-09-10 no further recordings will ever exist to make one from.
+
+config                segments  words   post-guard  loop      span s   share   silence   wall
+                                        words       findings                   fabs
+-mc 0  (ships)             435   3762         3762         0      0.0    0.0%        2    226 s
+-mc 64                     568   4149         3978         8    182.3    3.3%      125    393 s
+-mc -1 (vendor default)    969   5770         4277         9    429.8    7.8%      130    509 s
+-mc 0 + tuned VAD          303   3752         3752         0      0.0    0.0%        0    431 s
+
+READ THE WORD COLUMNS TOGETHER OR NOT AT ALL. `-mc -1` emits 2,008 more words than `-mc 0`, which
+looks like recovered speech until the guard takes 1,493 of them back out as fabrication — including
+one sentence repeated 203 times across 290 s, the same artifact and the same count the 2026-08-29
+brief recorded. 515 words of difference survive the guard and are UNDECIDABLE on this material: no
+reference exists to say whether they are speech `-mc 0` lost or fabrication the guard missed.
+
+The tuned-VAD row is the only configuration measured that removes the silence-fabrication class at
+the decode stage (2 -> 0). It costs 91% more wall clock on this audio and 10 words of content.
+
+argv for each row is in raw/longform/<config>__me.argv.json — the real command line, recorded by the
+shim, not transcribed from the source.

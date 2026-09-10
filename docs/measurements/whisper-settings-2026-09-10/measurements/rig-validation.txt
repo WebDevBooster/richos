@@ -1,0 +1,26 @@
+RIG VALIDATION — does this harness reproduce the August measurement before it is trusted?
+
+Re-scoring the COMMITTED August hypothesis transcripts
+(richos-hq/docs/briefs/norm-shortcall-wer-2026-08-29-assets/transcripts/) against a reference
+regenerated today from the same corpus/calls.json:
+
+  large-v3-turbo-q5_0__mc-1      N1905 S40 D7 I32   WER 4.15%
+  large-v3-turbo-q5_0__mc0       N1905 S41 D8 I10   WER 3.10%
+  large-v3-turbo__mc-1           N1905 S50 D7 I140  WER 10.34%
+  large-v3-turbo__mc0            N1905 S43 D11 I25  WER 4.15%
+
+Table 1 of the August brief, verbatim:
+
+  large-v3-turbo              0   1905   43  11  25   4.15%
+  large-v3-turbo             -1   1905   50   7 140  10.34%
+  large-v3-turbo-q5_0         0   1905   41   8  10   3.10%
+  large-v3-turbo-q5_0        -1   1905   40   7  32   4.15%
+
+Every figure matches, every S/D/I matches. The scorer, the reference and the corpus TEXT are
+therefore the same instrument that produced the record.
+
+A FRESH decode of the same configuration today scores 2.89% (S40 D7 I8), not 4.15%. The audio is
+what changed: `say` renders call-01 as 47.10 s today against the 47.08 s in the committed manifest.
+The consequence is a rule, not an excuse — ABSOLUTE WER IS COMPARABLE ONLY WITHIN ONE SITTING ON
+ONE AUDIO BUILD. Every A/B in the decision table was run back to back on one rebuild of the corpus,
+one binary, one day, and no number here is compared to a number from another date.

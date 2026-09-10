@@ -1,0 +1,26 @@
+baseline = b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+
+config                  identical  sha256(12 hypotheses)
+ac1500                 YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+baseline               YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+beam8                  no         13a70ec8f6a08cd715f975a581d3b7a4966801d91fb0342d742abe56263ba978
+dtw                    YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+faexplicit             YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+greedy                 no         8e137efe8da8eb2a3a3d5da66db9530b35701d4bfa11b5a581852d327698b2ec
+langauto               YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+mc-1                   no         4cc1c7adc04142b828727de0cae385605c227a2d3b0617434e4aa45a6fd4ad0d
+ml60sow                YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+nofa                   no         6c806a3669ee1aba1465636864e0748442d6b668656011c63f57498f5f53b5c6
+nofallback             YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+nth09                  YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+proc2                  no         474b464f7077fc3e93df571ac312d9270074655548548e8aa1e3a207d1d82abf
+prompt                 YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+promptcarry            YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+promptmc16             no         3e95fe7756b6be21e90f575884ba8e4d312410a99038f5c0edd4c62af9089f05
+promptmc224            no         a28e77ce851affce3ecf945b9730571c7db845c8c0acada3c8a21a38976071a9
+promptmc64             no         051b449970636aae05ea8b11b9124841bebbb106a28105a3abcc7afa8a85968c
+sns                    no         ad3688310cfb9db4cfb3c8f4aeb8f14c87994dcc12b93ca1e999c10ac525bad0
+threads8               YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded
+vad                    no         9aa346886d48c7af267ed35ed6d02a407088b081fc95579cbed660c4b9751d88
+vadtuned               no         28d7b161cb5123ac6fbb9c176d58370326940877a5c926ef3bfd3a1a671a9000
+wt50                   YES        b8de7bb389f5a6782cffe0a26938e5a4244f45267a04723cd08c15aab814eded

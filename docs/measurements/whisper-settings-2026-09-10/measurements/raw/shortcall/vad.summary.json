@@ -1,0 +1,33 @@
+{
+ "config": "vad",
+ "label": "Silero VAD on, vendor VAD sub-defaults",
+ "model": "large-v3-turbo",
+ "extra": [
+  "--vad",
+  "-vm",
+  "/Users/alex/Models/Whisper/ggml-silero-v5.1.2.bin"
+ ],
+ "refWords": 1905,
+ "hypWords": 1885,
+ "S": 47,
+ "D": 31,
+ "I": 11,
+ "wer": 0.046719160104986876,
+ "werCase": 0.07139107611548556,
+ "segments": 157,
+ "wordTimes": 1802,
+ "wallSec": 59.007,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "vad/argv.jsonl",
+ "whisperVersion": null
+}

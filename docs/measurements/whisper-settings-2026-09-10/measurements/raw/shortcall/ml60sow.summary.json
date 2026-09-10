@@ -1,0 +1,33 @@
+{
+ "config": "ml60sow",
+ "label": "segments capped at 60 characters, split on word",
+ "model": "large-v3-turbo",
+ "extra": [
+  "-ml",
+  "60",
+  "-sow"
+ ],
+ "refWords": 1905,
+ "hypWords": 1906,
+ "S": 40,
+ "D": 7,
+ "I": 8,
+ "wer": 0.028871391076115485,
+ "werCase": 0.03937007874015748,
+ "segments": 250,
+ "wordTimes": 1829,
+ "wallSec": 80.533,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "ml60sow/argv.jsonl",
+ "whisperVersion": null
+}

@@ -1,0 +1,34 @@
+{
+ "config": "promptmc224",
+ "label": "initial prompt WITH room in the text context (-mc 224)",
+ "model": "large-v3-turbo",
+ "extra": [
+  "--prompt",
+  "Priya Sandoval, Halden Freight, Marla Kestrel, Corvane Systems, Everlock, Ridgeline Analytics, Quilvern Media, Tobias Renner, Nadia Kwok, Brightmoor Dental, Wexford Road, Cannery Street, Tidemark, Northgate, Pallas.",
+  "-mc",
+  "224"
+ ],
+ "refWords": 1905,
+ "hypWords": 2056,
+ "S": 28,
+ "D": 5,
+ "I": 156,
+ "wer": 0.09921259842519685,
+ "werCase": 0.11181102362204724,
+ "segments": 172,
+ "wordTimes": 1971,
+ "wallSec": 101.143,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "promptmc224/argv.jsonl",
+ "whisperVersion": null
+}

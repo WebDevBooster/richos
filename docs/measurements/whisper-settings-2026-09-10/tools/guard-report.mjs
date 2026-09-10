@@ -67,9 +67,14 @@ const out = {
   stutters: mine(report.stutters).length,
   insertions: mine(report.insertions).length,
   silenceFabrications: mine(report.silenceFabrications).length,
+  // `--redact-text` drops the repeated phrase itself and keeps the span, the count and the time.
+  // The long-form corpus is the CEO's own recording and this repository is public: a fabricated span
+  // usually contains real speech (that is exactly why the shipping guard reports rather than strips
+  // some of them), so the phrase is not safe to commit even though the tally is.
   loops: loops.map((l) => ({
-    startSec: Number(l.startMs) / 1000, endSec: Number(l.endMs) / 1000,
-    count: l.count, text: String(l.text || '').slice(0, 70),
+    startSec: Number(l.startMs) / 1000, endSec: Number(l.endMs) / 1000, count: l.count,
+    ...(argv.includes('--redact-text') ? {} : { text: String(l.text || '').slice(0, 70) }),
   })),
+  textRedacted: argv.includes('--redact-text'),
 };
 console.log(JSON.stringify(out, null, 1));

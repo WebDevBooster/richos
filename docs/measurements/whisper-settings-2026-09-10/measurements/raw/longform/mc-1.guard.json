@@ -1,0 +1,64 @@
+{
+ "segmentsIn": 969,
+ "segmentsOut": 701,
+ "wordsIn": 5770,
+ "wordsOut": 4277,
+ "removed": 268,
+ "speechBursts": 681,
+ "peakDb": -0.9,
+ "loopFindings": 9,
+ "loopSpanSec": 429.8,
+ "loopSharePct": 7.762634599893802,
+ "preserved": 0,
+ "stutters": 0,
+ "insertions": 0,
+ "silenceFabrications": 130,
+ "loops": [
+  {
+   "startSec": 533.36,
+   "endSec": 544.88,
+   "count": 4
+  },
+  {
+   "startSec": 740.6,
+   "endSec": 801.76,
+   "count": 14
+  },
+  {
+   "startSec": 829.86,
+   "endSec": 833.86,
+   "count": 6
+  },
+  {
+   "startSec": 863.86,
+   "endSec": 868.86,
+   "count": 5
+  },
+  {
+   "startSec": 874.86,
+   "endSec": 877.86,
+   "count": 3
+  },
+  {
+   "startSec": 1144.6,
+   "endSec": 1153.6,
+   "count": 5
+  },
+  {
+   "startSec": 1563.94,
+   "endSec": 1580.94,
+   "count": 6
+  },
+  {
+   "startSec": 4128.58,
+   "endSec": 4157.7,
+   "count": 5
+  },
+  {
+   "startSec": 4232.66,
+   "endSec": 4522.66,
+   "count": 203
+  }
+ ],
+ "textRedacted": true
+}

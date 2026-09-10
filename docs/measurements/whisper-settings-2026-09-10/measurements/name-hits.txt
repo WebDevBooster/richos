@@ -1,0 +1,45 @@
+proper nouns expected in the reference: 66
+
+config                  exact   missed   hit rate   WER      cased WER
+ac1500                    46       20     69.70%     2.89%     3.94%
+baseline                  46       20     69.70%     2.89%     3.94%
+beam8                     45       21     68.18%     3.31%     4.25%
+dtw                       46       20     69.70%     2.89%     3.94%
+faexplicit                46       20     69.70%     2.89%     3.94%
+greedy                    47       19     71.21%     4.09%     4.83%
+langauto                  46       20     69.70%     2.89%     3.94%
+mc-1                      49       17     74.24%     2.78%     3.99%
+ml60sow                   46       20     69.70%     2.89%     3.94%
+nofa                      41       25     62.12%     4.46%     5.88%
+nofallback                46       20     69.70%     2.89%     3.94%
+nth09                     46       20     69.70%     2.89%     3.94%
+proc2                     46       20     69.70%     2.89%     4.30%
+prompt                    46       20     69.70%     2.89%     3.94%
+promptcarry               46       20     69.70%     2.89%     3.94%
+promptmc16                51       15     77.27%     2.99%     5.62%
+promptmc224               55       11     83.33%     9.92%    11.18%
+promptmc64                55       11     83.33%     2.73%     3.78%
+sns                       45       21     68.18%     3.41%     4.93%
+threads8                  46       20     69.70%     2.89%     3.94%
+vad                       44       22     66.67%     4.67%     7.14%
+vadtuned                  40       26     60.61%     2.68%     4.83%
+wt50                      46       20     69.70%     2.89%     3.94%
+
+per term (expected, then exact per config)
+term                    exp       ac1500    baseline       beam8         dtw  faexplicit      greedy    langauto        mc-1     ml60sow        nofa  nofallback       nth09       proc2      prompt promptcarry  promptmc16 promptmc224  promptmc64         sns    threads8         vad    vadtuned        wt50
+Priya Sandoval            2            2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2
+Halden Freight            3            2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           3           2           2           2           2           2           2
+Marla Kestrel             2            2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           1           2
+Corvane Systems           4            1           1           0           1           1           1           1           1           1           1           1           1           1           1           1           0           3           2           1           1           1           0           1
+Everlock                  4            4           4           2           4           4           4           4           4           4           2           4           4           3           4           4           3           4           4           3           4           4           2           4
+Ridgeline Analytics       2            1           1           2           1           1           1           1           2           1           1           1           1           1           1           1           2           2           2           1           1           2           2           1
+Quilvern Media            3            2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2           2
+Tobias Renner             6            6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           5           5           6
+Nadia Kwok                4            4           4           4           4           4           4           4           4           4           4           4           4           4           4           4           4           4           4           4           4           4           4           4
+Brightmoor Dental         4            3           3           3           3           3           3           3           4           3           2           3           3           3           3           3           3           4           4           3           3           0           2           3
+Wexford Road              4            4           4           4           4           4           4           4           4           4           3           4           4           4           4           4           4           4           4           4           4           4           4           4
+Cannery Street            5            1           1           2           1           1           2           1           2           1           1           1           1           1           1           1           5           5           5           1           1           1           1           1
+Tidemark                  6            6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6           6
+Northgate                 8            8           8           8           8           8           8           8           8           8           7           8           8           7           8           8           8           8           8           8           8           8           7           8
+Pallas                    7            0           0           0           0           0           0           0           0           0           0           0           0           2           0           0           2           0           2           0           0           1           0           0
+Devan                     2            0           0           0           0           0           0           0           0           0           0           0           0           0           0           0           0           0           0           0           0           0           0           0
