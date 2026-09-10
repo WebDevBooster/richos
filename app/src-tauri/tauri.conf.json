@@ -17,8 +17,7 @@
         "visible": true,
         "zoomHotkeysEnabled": false,
         "minWidth": 1024,
-        "minHeight": 700,
-        "center": true
+        "minHeight": 700
       }
     ],
     "security": {

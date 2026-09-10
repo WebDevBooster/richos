@@ -12,6 +12,12 @@ mod events;
 // `activation` because it is armed by activation's own three-fact rule and by nothing else.
 mod startup_alert;
 mod update_startup;
+// HOW BIG THE WINDOW OPENS AND WHERE — derived from the display it opens on, never from a
+// constant. `docs/hardware-choices-2026-09-10.md` D2. Deliberately free of every Tauri type
+// so the arithmetic is unit-testable and can be dry-run with no window created at all
+// (`examples/window_placement.rs`); the two functions that talk to the runtime,
+// `read_displays` and `remember_window_geometry`, live next to the window they serve below.
+mod window_geometry;
 
 use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
@@ -1093,9 +1099,60 @@ fn main() {
             // a missing ordinal as the first start, which shows splash #1.
             let start_ordinal = launch_store.start_ordinal();
             let window_configs = app.config().app.windows.clone();
+
+            // =====================================================================
+            // HOW BIG IT OPENS, AND WHERE — ASKED OF THE DISPLAY
+            // =====================================================================
+            //
+            // `docs/hardware-choices-2026-09-10.md` D2. The window used to open at the
+            // 1400 x 880 written in `tauri.conf.json`, chosen for a screen nobody measured,
+            // on a desk where one of the three displays is 1080 points wide:
+            //
+            //     1400 - 1080 = 320 points of the window past the edge
+            //
+            // and `minWidth: 1024` did not help, because it constrains dragging rather than
+            // the size the window opens at. The audit's own sweep is what makes this the
+            // real fix and not a smaller number: `app/src-tauri/src/` contained ZERO calls
+            // that read anything about the machine. These two lines are the first.
+            //
+            // THE GEOMETRY IS DECIDED BEFORE THE WINDOW EXISTS AND APPLIED AT CONSTRUCTION,
+            // for the same reason `.focused()` is asked for at construction thirty lines
+            // below rather than corrected afterwards: `set_size`/`set_position` after
+            // `build()` would put the wrong window on his screen first and then move it. On
+            // an installed launch the window is visible from the instant it is built, so
+            // there must be no instant in which the wrong geometry is on it.
+            //
+            // The saved geometry is offered to the FIRST window only. A second window that
+            // restored the same rect would open exactly on top of the first.
+            let displays = read_displays(app.handle());
+            let geometry_path = data_dir.join("window.json");
+            let mut saved = window_geometry::GeometryStore::new(&geometry_path).load();
             for window_config in &window_configs {
                 let kind = launch_store.next_window_kind();
-                let window = tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                let preference = window_geometry::Preference {
+                    width: window_config.width,
+                    height: window_config.height,
+                    min_width: window_config
+                        .min_width
+                        .unwrap_or(window_geometry::PREFERRED_MIN_WIDTH),
+                    min_height: window_config
+                        .min_height
+                        .unwrap_or(window_geometry::PREFERRED_MIN_HEIGHT),
+                };
+                let placement =
+                    window_geometry::decide_with(&displays, saved.take().as_ref(), preference);
+                eprintln!("[richos] window: {}", placement.describe());
+                let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                    // THE SIZE THE DISPLAY CAN HOLD, not the size the config asked for. On
+                    // his 1920-wide displays these are still 1400 x 880 — the constant was
+                    // right there and stays right; on the 1080-wide portrait panel they are
+                    // 1032 x 880 and the window is fully on screen.
+                    .inner_size(placement.width, placement.height)
+                    // AND THE FLOOR IS DERIVED TOO. `minWidth: 1024` is a preference, and a
+                    // preference wider than the screen is the same defect one level down: a
+                    // window that cannot be made small enough to fit is a window that does
+                    // not fit.
+                    .min_inner_size(placement.min_width, placement.min_height)
                     .initialization_script(launch_init_script(kind, start_ordinal))
                     // FOCUS IS ASKED FOR AT CONSTRUCTION, not corrected afterwards, so
                     // there is no instant in which the keyboard moved and came back.
@@ -1125,8 +1182,25 @@ fn main() {
                     // Everything else `from_config` declared — the size, the centered
                     // position, the minimums, `zoomHotkeysEnabled` — is untouched, and on
                     // an installed launch this line reduces to the config's own `true`.
-                    .visible(activation.presentation == activation::Presentation::Regular)
-                    .build()?;
+                    .visible(activation.presentation == activation::Presentation::Regular);
+                // WHERE, and it is the position that decides WHICH DISPLAY: tao resolves the
+                // screen a new window belongs to from the requested position
+                // (`tao-0.35.3/src/platform_impl/macos/window.rs:340-355`,
+                // `screen_from_position`). It is `None` on exactly one path — nothing about
+                // the displays could be read — and there the platform's own centering beats
+                // a coordinate invented against no screen.
+                //
+                // `"center": true` is GONE from `tauri.conf.json` and its absence is pinned
+                // by a test, because the runtime treats it as the last word: with `center`
+                // set it recomputes the position itself and overwrites this one
+                // (`tauri-runtime-wry-2.11.4/src/lib.rs:4595-4599`), which would quietly
+                // throw away a restored geometry every launch.
+                if let Some((x, y)) = placement.position {
+                    builder = builder.position(x, y);
+                }
+                let window = builder.build()?;
+                // WHERE HE LEFT IT, FOR NEXT TIME — and only if it is still reachable then.
+                remember_window_geometry(&window, geometry_path.clone());
                 // COME TO THE FRONT. Measured by ray-opus-a1 on published v1.0.0,
                 // 2026-09-04: the window opened BEHIND other windows, twice, on a first
                 // launch from Finder — an app a stranger has just double-clicked and cannot
@@ -5398,6 +5472,149 @@ fn set_user_name(state: State<AppState>, name: String) -> Result<(), String> {
 /// exactly the same reason `kind` does — `splash.js` chooses on its first synchronous line
 /// and cannot await a command — and it is `null` rather than a guess whenever
 /// `LaunchStore::start_ordinal` could not honestly name one.
+/// THE ONLY QUESTION THIS SHELL ASKS THE MACHINE — what displays are attached, and how much
+/// of each one a window may actually occupy.
+///
+/// `Monitor::work_area()` is the whole reason this is three lines rather than a research
+/// project: on macOS it is `NSScreen.visibleFrame`
+/// (`tauri-runtime-wry-2.11.4/src/monitor/macos.rs:6-34`), so the menu bar and the Dock are
+/// already subtracted by AppKit and nothing here has to model either. When AppKit cannot
+/// hand back an `NSScreen` that same code degrades to the display's full frame, which is why
+/// `window_geometry` keeps its own edge margin on top: the work area is not guaranteed to
+/// have anything taken off it.
+///
+/// A FAILURE HERE IS NOT FATAL AND IS NOT SILENT. An empty list is a real answer —
+/// `decide` reads it as "nothing could be read" and falls back to the declared preference
+/// with the platform left to center it, which is worse than a derived window and far better
+/// than refusing to start.
+fn read_displays(app: &tauri::AppHandle) -> Vec<window_geometry::Display> {
+    let monitors = match app.available_monitors() {
+        Ok(monitors) if !monitors.is_empty() => monitors,
+        Ok(_) => {
+            eprintln!("[richos] window: the runtime reported no attached display");
+            return Vec::new();
+        }
+        Err(error) => {
+            eprintln!("[richos] window: displays could not be read: {error}");
+            return Vec::new();
+        }
+    };
+    // `Monitor` carries no "is primary" flag, so the primary is identified by geometry
+    // against the one the runtime names. If it cannot be identified, `decide` falls back to
+    // the first monitor in the list rather than to a constant.
+    let primary = app.primary_monitor().ok().flatten();
+    monitors
+        .iter()
+        .map(|monitor| {
+            let area = monitor.work_area();
+            let is_primary = primary
+                .as_ref()
+                .is_some_and(|p| p.position() == monitor.position() && p.size() == monitor.size());
+            window_geometry::Display::from_work_area(
+                monitor.name().cloned(),
+                area.position.x,
+                area.position.y,
+                area.size.width,
+                area.size.height,
+                monitor.scale_factor(),
+                is_primary,
+            )
+        })
+        .collect()
+}
+
+/// KEEP WHERE HE PUT IT. Every move and every resize is recorded, so the next launch can
+/// offer it back — and `window_geometry::decide` is what refuses to honor it when the
+/// display it was recorded on is no longer there.
+///
+/// THE WRITE HAPPENS ON A BACKGROUND THREAD, WHICH IS NOT A PERFORMANCE CHOICE. The event
+/// callback runs on the main thread inside the event loop, and `inner_position()` /
+/// `inner_size()` are round trips into that same runtime: on the main thread
+/// `send_user_message` handles the message INLINE rather than posting it
+/// (`tauri-runtime-wry-2.11.4/src/lib.rs:235-255`), which is re-entry into the loop from
+/// inside its own dispatch. So the callback does one thing — nudge a channel, which cannot
+/// block — and every query happens off the main thread where the message takes the ordinary
+/// proxy path.
+///
+/// It doubles as the debounce: a drag emits a `Moved` per frame, and this waits for the
+/// movement to STOP and then writes once. `GeometryStore::save` drops an unchanged value on
+/// top of that, so an idle window costs no writes at all.
+///
+/// WHAT THIS DOES NOT COVER, stated rather than discovered later: a move in the last ~400 ms
+/// before the process dies may not reach the disk, and a crash between the last write and
+/// the move is the same. The cost of that is one launch opening where the window was a
+/// moment earlier, which is why it is not worth a synchronous write on the main thread.
+fn remember_window_geometry(window: &tauri::WebviewWindow, path: std::path::PathBuf) {
+    let (nudge, nudged) = std::sync::mpsc::channel::<()>();
+    let recorder = window.clone();
+    std::thread::spawn(move || {
+        let mut store = window_geometry::GeometryStore::new(path);
+        while nudged.recv().is_ok() {
+            // Coalesce everything that arrives while the window is still moving.
+            while nudged.recv_timeout(std::time::Duration::from_millis(400)).is_ok() {}
+            let (Ok(position), Ok(size)) = (recorder.inner_position(), recorder.inner_size())
+            else {
+                continue;
+            };
+            // The window's own scale factor, not any display's: it is the one that was used
+            // to produce the physical values just read.
+            let scale = match recorder.scale_factor() {
+                Ok(scale) if scale.is_finite() && scale > 0.0 => scale,
+                _ => 1.0,
+            };
+            let monitor = recorder.current_monitor().ok().flatten();
+            let (display, display_width, display_height) = match &monitor {
+                Some(monitor) => {
+                    let area = monitor.work_area();
+                    let monitor_scale = if monitor.scale_factor().is_finite()
+                        && monitor.scale_factor() > 0.0
+                    {
+                        monitor.scale_factor()
+                    } else {
+                        1.0
+                    };
+                    (
+                        monitor.name().cloned(),
+                        Some(area.size.width as f64 / monitor_scale),
+                        Some(area.size.height as f64 / monitor_scale),
+                    )
+                }
+                None => (None, None, None),
+            };
+            // CONTENT rect, in logical points — the exact pair the builder takes back, so a
+            // save and a restore are the same numbers and not two conversions that can
+            // disagree. `inner_position` is the content top-left in the same global
+            // top-left-origin space the builder's `position` speaks
+            // (`tao-0.35.3/src/platform_impl/macos/window.rs:716-726` against `:202-212`).
+            let geometry = window_geometry::SavedGeometry {
+                x: position.x as f64 / scale,
+                y: position.y as f64 / scale,
+                width: size.width as f64 / scale,
+                height: size.height as f64 / scale,
+                display,
+                display_width,
+                display_height,
+            };
+            if let Err(error) = store.save(geometry) {
+                eprintln!("[richos] window: geometry not recorded: {error}");
+            }
+        }
+    });
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            tauri::WindowEvent::Moved(_)
+                | tauri::WindowEvent::Resized(_)
+                | tauri::WindowEvent::ScaleFactorChanged { .. }
+                | tauri::WindowEvent::CloseRequested { .. }
+        ) {
+            // Cannot block, cannot fail in a way that matters: if the recorder thread is
+            // gone the geometry simply stops being remembered.
+            let _ = nudge.send(());
+        }
+    });
+}
+
 fn launch_init_script(kind: LaunchKind, ordinal: Option<u64>) -> String {
     format!(
         "window.__RICHOS_LAUNCH__ = Object.freeze({{ kind: {:?}, ordinal: {} }});",
