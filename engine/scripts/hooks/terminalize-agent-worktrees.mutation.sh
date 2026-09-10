@@ -49,7 +49,7 @@ mutant claim-not-made "R07" "$H" \
     "no terminal record would ever be written; the resume guard and the write barrier would never learn the agent is over."
 
 mutant terminalize-not-run "R05" "$H" \
-    '    t = tx.terminalize(sid, aid, first_path)' \
+    '    t = tx.terminalize(sid, aid, first_path, deadline=_DEADLINE)' \
     '    t = tx.load_tx(sid, aid)' \
     "the claim would be recorded and nothing quarantined; the harness's own removal would delete uncaptured bytes."
 

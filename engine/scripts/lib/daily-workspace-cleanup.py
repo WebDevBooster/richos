@@ -1536,7 +1536,7 @@ def await_platform_release(tx, transaction, member, deadline):
         time.sleep(0.1)
 
 
-def reclaim_now(tx, transaction, index, deadline=None):
+def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max_files=None):
     """Capture, verify and remove this member's workspace in the terminal
     event itself. Returns (outcome, detail) with outcome one of
 
@@ -1544,6 +1544,11 @@ def reclaim_now(tx, transaction, index, deadline=None):
         deferred    a refusal, a hold or an expired wait — the nightly
                     reconciler retries it with everything it always did
         skipped     not this lane's member at all
+
+    `deadline` bounds the wait for the platform's lock; `budget_deadline`
+    (the calling hook's own, Sage D4) caps that wait too, and `max_files` is
+    the tracked-file ceiling above which the member is not started here at
+    all — the same two bounds sweep_session applies to its candidates.
 
     NEVER RAISES. A terminal event must not be prevented by a cleanup, and a
     worker must never be kept alive by this function's own failure. Every
@@ -1602,6 +1607,20 @@ def reclaim_now(tx, transaction, index, deadline=None):
             return 'skipped', 'historical record keeps its own recovery protocol'
         if (member.get('daily_cleanup') or {}).get('phase') == 'complete':
             return 'skipped', 'already reclaimed'
+        if budget_deadline is not None and time.time() >= budget_deadline:
+            return journal('deferred', 'the terminal event had no budget left for its own member; the '
+                                       'next sweep or the nightly pass takes it with the same refusals')
+        if max_files is not None:
+            count = tracked_file_count(member.get('path') or '')
+            if count is None:
+                return journal('deferred', 'could not count the tracked files of this workspace, so the '
+                                           'in-event reclaim does not start it; the nightly pass has no '
+                                           'budget and will')
+            if count > max_files:
+                return journal('deferred', 'this workspace holds %d tracked files, above the in-event '
+                                           'ceiling of %d (IMMEDIATE_RECLAIM_SWEEP_MAX_FILES); a 20-second '
+                                           'hook is the wrong place to start it and the nightly pass is '
+                                           'the right one' % (count, max_files))
         run_open, why_open = post_terminal_run_open(tx, transaction)
         if run_open:
             return journal('deferred', why_open)
@@ -1610,6 +1629,8 @@ def reclaim_now(tx, transaction, index, deadline=None):
             return journal('deferred', why)
         if deadline is None:
             deadline = time.time() + unlock_wait_seconds(member.get('repo'))
+        if budget_deadline is not None:
+            deadline = min(deadline, budget_deadline)
         absent, lock_why = await_platform_release(tx, transaction, member, deadline)
         if not absent:
             return journal('deferred', lock_why)

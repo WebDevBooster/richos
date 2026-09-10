@@ -1735,9 +1735,21 @@ def bind_late_members(session_id, agent_id):
         return load_tx(session_id, agent_id)
 
 
-def terminalize(session_id, agent_id, first_path=None):
+def terminalize(session_id, agent_id, first_path=None, deadline=None):
     """Persist terminal progress for the exact bound members, native first,
     AND RECLAIM WHAT IS ALREADY CLEAN — in this event, not on a timer.
+
+    `deadline` (absolute time.time(), optional) is what the calling hook has
+    left of its own budget. SAGE D4 (round two, 2026-09-10): the own-member
+    reclaim below ran with no ceiling and no deadline while the sentence
+    "bound every candidate's work by the remaining budget" was true only of
+    the catch-up sweep. Now the event's own members are held to the same two
+    bounds the sweep applies -- the lock wait ends at the hook's deadline, and
+    a member above IMMEDIATE_RECLAIM_SWEEP_MAX_FILES tracked files is not
+    started inside a 20-second hook at all (a clock cannot stop `lsof`, a hash
+    of every tracked file or a tar of every ignored one once begun; the
+    ceiling is the bound that can). The nightly pass has no budget and applies
+    the same refusals, so nothing is lost by deferring.
 
     Managed images delegate to their daemon. Historical linked worktrees keep
     the quarantine/capture route and its explicit erasure refusal.
@@ -1791,7 +1803,7 @@ def terminalize(session_id, agent_id, first_path=None):
                     observe_platform_native(session_id, agent_id, i)
                 except Exception as error:
                     _soft_failure(session_id, agent_id, i, str(error))
-                _reclaim_in_event(session_id, agent_id, i)
+                _reclaim_in_event(session_id, agent_id, i, deadline)
                 continue
             if member.get('class') == 'managed-image':
                 if member.get('state') == 'removed':
@@ -1812,16 +1824,23 @@ def terminalize(session_id, agent_id, first_path=None):
             # integrated, here, in this event. Dirty or unfinished bytes stay
             # at their original path — the lane refuses them exactly as it
             # always did, and the nightly pass retries.
-            _reclaim_in_event(session_id, agent_id, i)
+            _reclaim_in_event(session_id, agent_id, i, deadline)
         return load_tx(session_id, agent_id)
 
 
-def _reclaim_in_event(session_id, agent_id, index):
+def _reclaim_in_event(session_id, agent_id, index, deadline=None):
     """Run the reclaim lane for ONE member and swallow everything. The lane
     itself never raises; this is the second belt, because the caller is a
-    platform terminal event and the record it just wrote is what matters."""
+    platform terminal event and the record it just wrote is what matters.
+    `deadline` and the tracked-file ceiling bound it (Sage D4; see
+    terminalize)."""
     try:
-        outcome, detail = _daily().reclaim_now(_SELF, load_tx(session_id, agent_id), index)
+        daily = _daily()
+        tx = load_tx(session_id, agent_id)
+        repo = ((tx or {}).get("members") or [{}])[index].get("repo") if tx else None
+        outcome, detail = daily.reclaim_now(_SELF, tx, index,
+                                            budget_deadline=deadline,
+                                            max_files=daily.sweep_max_files(repo))
     except Exception as error:  # pragma: no cover - defended twice deliberately
         sys.stderr.write("immediate reclaim for %s/%s member %d raised: %s\n"
                          % (session_id[:8], agent_id, index, error))

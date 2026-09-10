@@ -242,7 +242,9 @@ if t is None:
                          % (ingress, aid, tx.pending_terminal_path(sid, aid)))
     raise SystemExit(0)
 try:
-    t = tx.terminalize(sid, aid, first_path)
+    # The hook's own deadline rides along: the event's own members are bounded
+    # by it and by the tracked-file ceiling, like the sweep's candidates.
+    t = tx.terminalize(sid, aid, first_path, deadline=_DEADLINE)
 except Exception as e:
     sys.stderr.write("terminalize for agent %s raised: %s — the transaction is claimed; the reconciler resumes it from its persisted member states.\n" % (aid, e))
     raise SystemExit(0)

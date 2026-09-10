@@ -879,6 +879,27 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(self.assess()[0],'remove')
         self.assert_reclaimed(self.run_cleanup())
 
+    def test_the_events_own_member_is_bounded_by_the_ceiling_and_the_hooks_deadline(self):
+        # SAGE D4, ROUND TWO. `_reclaim_in_event` ran with no ceiling and no
+        # deadline; "bound every candidate's work by the remaining budget" was
+        # true of the sweep and not of the event's own member. Both bounds now
+        # apply to it, read from the member's own repository config.
+        (self.repo/'orchestration.config').write_text('IMMEDIATE_RECLAIM_SWEEP_MAX_FILES=0\n')
+        tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('above the in-event ceiling',member['immediate_reclaim']['reason'])
+        self.assert_kept()
+        (self.repo/'orchestration.config').unlink()
+        tx.terminalize(SID,AID,deadline=time.time()-1)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('no budget left',member['immediate_reclaim']['reason'])
+        self.assert_kept()
+        tx.terminalize(SID,AID,deadline=time.time()+30)
+        self.assertEqual(tx.load_tx(SID,AID)['members'][0]['immediate_reclaim']['outcome'],'reclaimed')
+        self.assertFalse(self.work.exists())
+
     def test_the_immediate_reclaim_journal_APPENDS_instead_of_overwriting(self):
         # FRANK D14. reclaim_now wrote one `immediate_reclaim` object, so the
         # last writer erased every earlier outcome: zach-opus-unl1's own-event

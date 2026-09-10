@@ -104,12 +104,12 @@ mutant platform-ground-widened "test_native_of_an_engine_derived_terminal_fact_s
     "this engine's OWN derivation of terminality would be read as the platform saying the worker stopped, and a running session's checkout would be taken out of its hands on evidence the platform never gave."
 
 mutant ingress-hands-native-back-to-the-nightly "test_native_terminal_ingress_reclaims_in_the_same_event" "$X" \
-    "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                _reclaim_in_event(session_id, agent_id, i)" \
+    "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                _reclaim_in_event(session_id, agent_id, i, deadline)" \
     "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                pass" \
     "a finished agent's NATIVE checkout would be recorded at the terminal event and reclaimed up to 24 hours later by the 04:00 job — the gap the CEO was looking at on 2026-09-10."
 
 mutant ingress-hands-hand-rolled-back-to-the-nightly "test_hand_rolled_terminal_ingress_reclaims_in_the_same_event" "$X" \
-    "            # always did, and the nightly pass retries.{NL}            _reclaim_in_event(session_id, agent_id, i)" \
+    "            # always did, and the nightly pass retries.{NL}            _reclaim_in_event(session_id, agent_id, i, deadline)" \
     "            # always did, and the nightly pass retries.{NL}            pass" \
     "the same gap for the CROSS-REPOSITORY worktree, which is 48 of the 53 worktrees on this machine."
 
