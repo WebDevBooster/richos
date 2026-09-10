@@ -58,6 +58,44 @@ A cached verdict always carries the time it was taken and the report prints it.
 A stale answer presented as a fresh one is the failure this engine is named
 after avoiding.
 
+===========================================================================
+WHAT SURVIVES THE TERMINAL BEING QUIT, ANSWERED FIELD BY FIELD
+===========================================================================
+Asked directly, because G0 proved that a session's CHILDREN are not reliably
+independent across a live exit and the two mechanisms that actually protected
+the founder on 2026-09-10 were launchd jobs that ran with no session at all.
+
+NOTHING IN THIS LAYER LIVES IN A PROCESS TREE. There is no daemon, no
+background child, no in-memory state and no timer of its own. The gate is a
+PreToolUse hook: a subprocess that starts, reads files, writes files and exits.
+Every fact it keeps is a file under <entity root>/.claude/state:
+
+  owned-state-seen.json          the AGE clock. Survives.
+  owned-state-verdict.json       the cached verdict. Survives, and losing it
+                                 costs one re-sweep, nothing else.
+  owned-state-acks.log           the waiver ledger. Survives.
+  owned-state-dispositions.log   the session ledger. Survives.
+
+The declaration itself is a committed file.
+
+ONE THING IS SESSION-SCOPED ON PURPOSE, and it is not lost state: a disposition
+is keyed on the session id, so a new session is asked again. That is the
+requirement, pinned by owned-state.test.sh case 4g, and it fails in the safe
+direction — a session id nobody recognizes means the gate DEMANDS, never that
+it goes quiet.
+
+THE REAL LIMITATION, NAMED RATHER THAN LEFT TO BE FOUND: this layer has no
+scheduled job, so a verdict is only TAKEN when somebody dispatches a teammate
+or runs scripts/owned-state.sh. If no session ever opens, nothing observes, and
+the age clock does not tick during that gap. It fails safe — an unobserved
+period makes an age UNDER-count, never a demand go missing, and a system
+already recorded as standing keeps its stamp because the clock is cleared only
+by a HEALTHY observation. It is also mostly moot for the facts themselves: the
+reconciler and the CI watch this inventory consumes are launchd jobs that
+accrue their own state with no session at all. But if the founder wants the
+AGE to be true rather than conservative, this layer needs a scheduled sweep of
+its own, and that is a decision with a cost rather than an oversight.
+
 CLI
     owned-systems.py report   --entity R --engine E [--json] [--refresh]
     owned-systems.py demanded --entity R --engine E --session S [--json]
