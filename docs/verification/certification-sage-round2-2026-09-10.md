@@ -278,7 +278,28 @@ command I ran was a reader, except the suites, which build their own sandboxes.
 
 ### 5a. Suite results
 
-(see the final commit — this section is replaced by the run table)
+**Filled in by Rich, not by Sage. Sage never read these results** — the platform restarted it after
+its terminal record while the suite batch was still running, and `guard-sealed-worktree.sh` then
+refused it every tool including `Read`. Sage's last observed state was **6 of 38 complete, all
+`rc=0`**; everything below is Rich reading the file Sage could not.
+
+Source: `scratchpad/suite-results/summary.txt`, 38 suite lines plus a `DONE` marker.
+
+    38 suites recorded
+    37 exited 0
+     1 did NOT: scripts/reconcile-terminal-worktrees.mutation.sh   rc=143   62s
+
+**`rc=143` is `128 + 15` — SIGTERM. That suite was KILLED, not failed, and it is therefore
+UNVERIFIED rather than green.** It is not a pass and must not be counted as one. The most likely
+cause is the memory pressure that killed two other long runs on this machine today, but Rich did not
+establish that, so it is stated as unknown.
+
+**This does not touch Sage's verdict.** Sage states in section 5 that all three blocking defects were
+established from code and the live record, not from suites, and the verdict was committed before the
+batch finished.
+
+**Left for whoever acts on this:** `reconcile-terminal-worktrees.mutation.sh` has not been shown to
+pass at `891f8d96`. Someone must run it to completion or record it as unverified.
 
 ---
 
