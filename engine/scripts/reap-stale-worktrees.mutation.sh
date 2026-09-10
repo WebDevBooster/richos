@@ -117,8 +117,8 @@ mutant record-driven-pass-removed "W7" "$F" \
 # THE VERDICT LIES. Every selected tree reads as adoptable, so the line claims
 # NO OPERATOR ACTION over trees nothing will ever take.
 mutant verdict-claims-all-adoptable "W9" "$F" \
-    '                NOT_ADOPTABLE_COUNT=$((NOT_ADOPTABLE_COUNT + 1)){NL}                case " $NOT_ADOPTABLE_GATES " in *" $_ad_gate "*) : ;; *) NOT_ADOPTABLE_GATES="$NOT_ADOPTABLE_GATES $_ad_gate" ;; esac' \
-    '                : ' \
+    '                    NOT_ADOPTABLE_COUNT=$((NOT_ADOPTABLE_COUNT + 1)){NL}                    case " $NOT_ADOPTABLE_GATES " in *" $_ad_gate "*) : ;; *) NOT_ADOPTABLE_GATES="$NOT_ADOPTABLE_GATES $_ad_gate" ;; esac' \
+    '                    : ' \
     "the verdict would say ALL ARE ADOPTABLE and NO OPERATOR ACTION over worktrees the adoption gate refused — the same class of lie as 'reaped=11' over a run that removed nothing, one level up."
 
 mutation_end

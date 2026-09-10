@@ -1708,8 +1708,22 @@ def _main(argv):
     p = sub.add_parser("member-paths", help="every member path AND quarantine any transaction owns")
     p = sub.add_parser("platform-owned", help="exact active Claude-owned path: exit 0 owned, 1 absent, 2 unknown")
     p.add_argument("--path", required=True)
+    p = sub.add_parser("owner-of", help="the transaction owning an exact path: <sid8>/<aid>\\t<kind>\\t<state>\\t<policy>\\t<phase>\\t<hold>; exit 1 if none")
+    p.add_argument("--path", required=True)
 
     a = ap.parse_args(argv)
+    if a.cmd == "owner-of":
+        want = norm_path(a.path)
+        for tx in iter_transactions():
+            for m in tx.get("members") or []:
+                if want and norm_path(m.get("path") or "") == want or (m.get("quarantine") and norm_path(m["quarantine"]) == want):
+                    phase = (m.get("daily_cleanup") or {}).get("phase") or ""
+                    hold = (m.get("blocked_reason") or m.get("last_error") or "").replace("\t", " ").replace("\n", " ")
+                    print("%s/%s\t%s\t%s\t%s\t%s\t%s" % ((tx.get("session_id") or "?")[:8], tx.get("agent_id") or "?",
+                                                         tx.get("kind") or "", m.get("state") or "", m.get("cleanup_policy") or "",
+                                                         phase, hold))
+                    return 0
+        return 1
     if a.cmd == "platform-owned":
         try:
             return 0 if platform_owns_path(a.path) else 1
