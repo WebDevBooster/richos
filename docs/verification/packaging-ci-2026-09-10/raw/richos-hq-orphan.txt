@@ -1,0 +1,14 @@
+$ gh run list --limit 6                            # richos-hq: one workflow, ever
+completed	failure	Merge zach/strip-duplicate-product-trees-2026-08-28: the public richo…	windows-companion-ci	main	push	33175073438	46s	2026-08-28T13:22:10Z
+completed	success	Merge feat/windows-companion-p3-2026-08-24: P3 Windows capture compan…	windows-companion-ci	main	push	32703773850	1m1s	2026-08-24T07:55:48Z
+completed	success	fix(richos-companion): SessionWriter releases WAV/health handles dete…	windows-companion-ci	feat/windows-companion-p3-2026-08-24	push	32703644880	1m16s	2026-08-24T07:54:12Z
+completed	failure	docs(richos-companion-windows): P3 README (toolchain rationale + cont…	windows-companion-ci	feat/windows-companion-p3-2026-08-24	push	32702963223	1m13s	2026-08-24T07:45:27Z
+
+$ gh run view 33175073438 --json jobs --jq '...'    # the step that failed
+{"conclusion":"failure","name":"build-and-test","steps":[{"conclusion":"success","name":"Set up job"},{"conclusion":"success","name":"Checkout"},{"conclusion":"success","name":"Setup .NET 8"},{"conclusion":"failure","name":"Restore"},{"conclusion":"skipped","name":"Build pure core (Release)"},{"conclusion":"skipped","name":"Build WASAPI executable (Release) — proves the Windows-only capture engine compiles"},{"conclusion":"skipped","name":"Run core unit tests (Release)"},{"conclusion":"skipped","name":"Post Setup .NET 8"},{"conclusion":"success","name":"Post Checkout"},{"conclusion":"success","name":"Complete job"}]}
+
+$ gh run view 33175073438 --log | grep -iE 'MSBUILD|Process completed'
+2026-08-28T13:22:50.1473840Z MSBUILD : error MSB1009: Project file does not exist.
+2026-08-28T13:22:50.4477394Z MSBUILD : error MSB1009: Project file does not exist.
+2026-08-28T13:22:52.1010310Z MSBUILD : error MSB1009: Project file does not exist.
+2026-08-28T13:22:52.3008764Z ##[error]Process completed with exit code 1.

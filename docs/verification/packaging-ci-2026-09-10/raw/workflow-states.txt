@@ -1,0 +1,17 @@
+$ gh api repos/WebDevBooster/richos/actions/workflows --jq '.workflows[] | "\(.state)\t\(.name)"'
+# taken 2026-09-10, AFTER packaging-ci was set back to active
+active	app-spine-ci	.github/workflows/app-spine-ci.yml
+active	app-voice-ci	.github/workflows/app-voice-ci.yml
+active	engine-run-record	.github/workflows/engine-run-record.yml
+active	engine-self-verify	.github/workflows/engine-self-verify.yml
+active	packaging-ci	.github/workflows/packaging-ci.yml
+active	ui-suite-ci	.github/workflows/ui-suite-ci.yml
+active	vouch-pr	.github/workflows/vouch-pr.yml
+active	windows-companion-ci	.github/workflows/windows-companion-ci.yml
+active	Dependabot Updates	dynamic/dependabot/dependabot-updates
+
+# BEFORE, same command, same day — the one line that differed:
+disabled_manually	packaging-ci	.github/workflows/packaging-ci.yml
+
+$ gh workflow run packaging-ci.yml --ref main      # while disabled_manually
+could not create workflow dispatch event: HTTP 422: Cannot trigger a 'workflow_dispatch' on a disabled workflow (https://api.github.com/repos/WebDevBooster/richos/actions/workflows/346677481/dispatches)

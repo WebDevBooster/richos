@@ -561,9 +561,19 @@ app/
                               makes its own from the unsigned one — see package-app.sh's
                               header) and by tarfile rather than by bsdtar, which writes
                               AppleDouble sidecars the updater would unpack into the app
-    run-tests.sh             every *.test.sh here, discovered from disk, never typed
-    *.test.sh                package-app, signing-setup, rebuild-survival, updater-setup
-                              — 90 checks
+    run-tests.sh             every *.test.sh here, discovered from disk, never typed. Exit 2
+                              from a suite means THIS HOST CANNOT ANSWER, and it is tolerated
+                              only where the caller declared that suite by name with a reason
+                              — an undeclared gap, a bare name, and a declaration whose suite
+                              has started answering are all red
+    run-tests.test.sh        the harness's own allowance, held to account: seven cases against
+                              a copy of it and fake suites with known exit codes
+    *.test.sh                nine of them, and the list is NOT typed here for the reason
+                              run-tests.sh gives — a second copy of an inventory is how the
+                              first one drifts. Measured on a GitHub macos-latest runner,
+                              2026-09-10, run 34446378461: 8 suites, 147 checks, and
+                              gui-boot.test.sh declared as a gap because no public runner can
+                              hold the loro compiler its fixture copies
   UPDATES.md                 how RichOS updates itself: what is proven, what is NOT proven in
                               those words, the signing key and where it may not live, the
                               manifest format, and the four hosting options — which is a CEO
