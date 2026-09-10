@@ -351,9 +351,38 @@ they describe works — that is what everything else here, and the Rust suites, 
 ## What runs this
 
 `.github/workflows/ui-suite-ci.yml`, on `macos-latest`, on a push that touches anything these
-suites read. It runs `npm ci` and `npm test` and nothing else clever; the counting that makes
-a green run mean something lives in `run.js`, so a developer typing `npm test` gets the same
-gate the runner does.
+suites read. The counting that makes a green run mean something lives in `run.js`, so a
+developer typing `npm test` gets the same gate the runner does.
+
+**It runs in six shards, and one job adds them up.** It used to be one job running the suites
+one at a time: 1792 seconds on run 34435558131, against 24 seconds of setup. Each shard now
+runs a packed slice of the same disk-discovered inventory and writes a **receipt** per suite
+— the suite, its exit code, its ledger records, its wall clock, its shard and the commit —
+and the `coverage` job reconciles them.
+
+```
+npm test                                   every suite, serially, as it always has
+npm test -- --shard=2/6 --receipts=out      one packed slice, receipts into out/
+node run.js --coverage=out                  reconcile every shard's receipts
+node run.js --plan=6                        print the packing and exit
+```
+
+**`coverage` is the job to read, and the one to mark required.** A shard says only what its
+own slice did; the sentence about the directory belongs to the job that has seen every
+receipt, and the shards say so themselves rather than leaving it to be inferred. Shard job
+names also change the moment the shard count does, which is the second reason not to require
+one.
+
+It refuses unless the union of receipts **equals** the inventory discovered from disk, every
+receipt carries **the same commit** and it is this checkout's, no suite is receipted twice,
+and the evidence gate passes over the aggregate. A suite whose shard never started has **no
+receipt**, which is a named failure — not the same thing as a suite that ran and failed, and
+deliberately not the same sentence.
+
+**The weights in `suite-weights.tsv` are never load-bearing.** They decide which shard a suite
+lands in and nothing else, because coverage is proven from receipts — a stale weight costs
+wall clock and cannot cost correctness. A suite with no weight is packed as the heaviest known
+and named in the plan, so adding a suite needs no edit here, in the weights, or in the YAML.
 
 **macOS, not Linux, and that is the expensive choice on purpose.** Playwright's Linux `webkit`
 is the WebKitGTK port with a different graphics stack; on macOS it is a build of Apple's
