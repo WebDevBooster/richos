@@ -1037,6 +1037,7 @@ guard-unresolved-claims.sh|Stop
 turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
 notice-unlanded-branches.sh|Stop
+notice-land-disposition.sh|Stop
 notice-inflight-acks.sh|Stop
 notice-mechanical-findings.sh|Stop
 guard-ceo-ruled-ask.sh|PreToolUse
