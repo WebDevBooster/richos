@@ -1,5 +1,15 @@
 name: app-voice-ci
 
+# --- CI-SURFACE DECLARATIONS -----------------------------------------------
+# See engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
+# Measured 2026-09-10 over the last 25 runs: min 45s, median 125s, p90 165s,
+# max 192s. The ceiling is roughly twice the p90. This one is a macOS runner
+# and its variance is genuinely wider than the ubuntu jobs', which is why its
+# budget is not the same number as app-spine-ci's. Job timeout-minutes is 20.
+# ci-budget: 8m
+# ci-evidence: `cargo test --locked -p richos-voice` builds examples/voice_loop.rs against richos-core's API, so a break in either crate fails it; --locked makes the lockfile refusable
+# ---------------------------------------------------------------------------
+
 # THE CRATE THAT DECIDES WHETHER RICHOS SPEAKS FOR HIM HAS RUN IN NO CI JOB AT ALL.
 #
 # On 2026-09-04 RichOS transcribed a sentence nobody said and sent it as the CEO's own

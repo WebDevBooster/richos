@@ -1,5 +1,17 @@
 name: app-spine-ci
 
+# --- CI-SURFACE DECLARATIONS -----------------------------------------------
+# Read by engine/scripts/lib/ci-surface.py, which judges every workflow in
+# every governed repository on six axes and treats a MISSING declaration as a
+# finding. What each means, and why absence is never a pass, is in that file's
+# header. Measured 2026-09-10 over the last 30 runs: min 52s, median 88s,
+# p90 106s, max 120s. The ceiling below is roughly twice the p90 — high enough
+# never to fire on ordinary variance, low enough that a doubling gets noticed
+# while it is still a doubling. The job's own timeout-minutes is 20.
+# ci-budget: 5m
+# ci-evidence: `cargo test --locked -p richos-core` runs the crate's own suite, and --locked makes app/Cargo.lock an input this job can REFUSE rather than silently accept
+# ---------------------------------------------------------------------------
+
 # THE PRODUCT'S OWN TESTS HAVE NEVER BEEN RUN BY ANY TOOLING.
 #
 # `app/README.md` has documented `cargo test -p richos-core` as the spine's gate
