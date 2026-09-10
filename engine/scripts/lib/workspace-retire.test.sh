@@ -2163,6 +2163,71 @@ else
 fi
 
 
+# --- S31. THE CEO'S RULING AT THIS DOOR (Sage D2 / Frank R6, round two,
+# 2026-09-10). ceo-decisions.md section 31: a `codex/` workspace is never
+# removed without the CEO's express word. Both routes of the helper had no
+# such refusal — a ledger row that binds an owner plus a witnessed termination
+# is EXACTLY the shape that authorizes everything else here, and it is built
+# below for a codex/ branch and for a path under ~/.codex/worktrees. Refused,
+# exit 3, in the ruling's own words, with the tree byte-for-byte untouched.
+# Then the positive control: the identical shape on an ordinary branch is
+# authorized (the refusal is the class, not the shape).
+new_fixture
+DELTA_AGENT="dddd7777eeee8888"
+git -C "$OWNER_REPO" worktree add -q -b codex/delta "$CONTAINER/delta"
+printf 'the CEO'"'"'s uncommitted work\n' >"$CONTAINER/delta/his.txt"
+L record registered --teammate zach-delta --agent-id "$DELTA_AGENT" --session-id sess-d \
+    --repo "$OWNER_REPO" --worktree "$CONTAINER/delta" --branch codex/delta --class hand-rolled
+L record terminated --agent-id "$DELTA_AGENT" --teammate zach-delta \
+    --worktree "$CONTAINER/delta" --reason "test fixture: witnessed termination" --witness test
+WS_DELTA="$(python3 "$LIB" workspace-id "$OWNER_REPO" "$CONTAINER/delta")"
+BEFORE_DELTA="$(snapshot "$CONTAINER/delta")"
+BEFORE_WT="$(wt_snapshot "$OWNER_REPO")"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner "$DELTA_AGENT" --force "$CONTAINER/delta")"
+assert_eq "3" "$?" "legacy route: refused, exit 3" || rc=1
+assert_contains "$OUT" "EXCLUDED BY CEO RULING" "legacy route: the ruling's own words" || rc=1
+assert_contains "$OUT" "section 31" "legacy route: the ruling named" || rc=1
+a; case "$OUT" in *"removed agent worktree"*) printf '        ASSERT FAILED: a success line was printed\n'; rc=1 ;; esac
+OUT="$(H --workspace "$WS_DELTA")"
+assert_eq "3" "$?" "retirement route: refused, exit 3" || rc=1
+assert_contains "$OUT" "section 31" "retirement route: the ruling named" || rc=1
+assert_contains "$OUT" "excluded-by-ceo-ruling" "retirement route: the reason code" || rc=1
+OUT="$(H --repo "$OWNER_REPO" --owner "$DELTA_AGENT" --branch codex/delta --force "$CONTAINER/delta")"
+assert_eq "3" "$?" "an asserted codex/ branch is refused at the door, before any binding" || rc=1
+assert_contains "$OUT" "section 31" "asserted branch: the ruling named" || rc=1
+assert_eq "$BEFORE_DELTA" "$(snapshot "$CONTAINER/delta")" "delta byte-for-byte, uncommitted file included" || rc=1
+assert_eq "$BEFORE_WT" "$(wt_snapshot "$OWNER_REPO")" "git still registers every worktree" || rc=1
+assert_eq "" "$(quarantines_of "$CONTAINER" delta)" "no quarantine was made" || rc=1
+a; git -C "$OWNER_REPO" show-ref --verify -q refs/heads/codex/delta || { printf '        ASSERT FAILED: the codex/ branch is gone\n'; rc=1; }
+# a path under ~/.codex/worktrees, whatever its branch is called
+CODEX_HOME="$FX/home"; mkdir -p "$CODEX_HOME/.codex/worktrees/2204"
+git -C "$OWNER_REPO" worktree add -q -b plainly-named "$CODEX_HOME/.codex/worktrees/2204/owner"
+L record registered --teammate zach-eps --agent-id "eeee9999ffff0000" --session-id sess-e \
+    --repo "$OWNER_REPO" --worktree "$CODEX_HOME/.codex/worktrees/2204/owner" --branch plainly-named --class hand-rolled
+L record terminated --agent-id "eeee9999ffff0000" --worktree "$CODEX_HOME/.codex/worktrees/2204/owner" \
+    --reason "test fixture: witnessed termination" --witness test
+BEFORE_CODEX="$(snapshot "$CODEX_HOME/.codex/worktrees/2204/owner")"
+OUT="$(HOME="$CODEX_HOME" H --repo "$OWNER_REPO" --owner eeee9999ffff0000 --force "$CODEX_HOME/.codex/worktrees/2204/owner")"
+assert_eq "3" "$?" "a path under ~/.codex/worktrees is refused whatever its branch is called" || rc=1
+assert_contains "$OUT" "section 31" "codex path: the ruling named" || rc=1
+assert_eq "$BEFORE_CODEX" "$(snapshot "$CODEX_HOME/.codex/worktrees/2204/owner")" "the codex tree is untouched" || rc=1
+# THE POSITIVE CONTROL: the identical shape on an ordinary branch is authorized
+ZETA_AGENT="ffff1111aaaa2222"
+git -C "$OWNER_REPO" worktree add -q -b zeta "$CONTAINER/zeta"
+L record registered --teammate zach-zeta --agent-id "$ZETA_AGENT" --session-id sess-z \
+    --repo "$OWNER_REPO" --worktree "$CONTAINER/zeta" --branch zeta --class hand-rolled
+L record terminated --agent-id "$ZETA_AGENT" --teammate zach-zeta \
+    --worktree "$CONTAINER/zeta" --reason "test fixture: witnessed termination" --witness test
+OUT="$(H --repo "$OWNER_REPO" --owner "$ZETA_AGENT" --force "$CONTAINER/zeta")"
+assert_eq "0" "$?" "the same shape on an ordinary branch proceeds (the refusal is the class, not the shape)" || rc=1
+a; case "$OUT" in *"section 31"*) printf '        ASSERT FAILED: the control was refused under section 31\n'; rc=1 ;; esac
+if [ "$rc" -eq 0 ]; then
+    ok "S31    a codex/ branch and a path under ~/.codex/worktrees are EXCLUDED BY CEO RULING on both routes and at the door, in the ruling's words, with nothing preserved, renamed, pruned or deleted — and the identical shape on an ordinary branch is authorized"
+else
+    bad "S31    a Codex workspace was acted on, misdescribed, or the ordinary control was refused"
+fi
+
 # Independent recovery after original object loss and late-write retention.
 a
 if PYTHONDONTWRITEBYTECODE=1 python3 "$SCRIPT_DIR/workspace-retire.safety.test.py"; then

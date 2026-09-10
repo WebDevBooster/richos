@@ -16,6 +16,10 @@ def load(name):
     spec = importlib.util.spec_from_file_location(name, HERE / 'lib' / (name + '.py'))
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(name.replace('-','_'), HERE / (name + '.py'))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
+
 daily = load('daily-workspace-cleanup')
 tx = load('worktree-transactions')
 
@@ -574,6 +578,21 @@ class Cleanup(unittest.TestCase):
             {'path': os.path.expanduser('~/.codex/worktrees/06e6/femcboost')})[0])
         self.assertFalse(daily.ceo_owned_workspace({'branch': 'zach-opus-x1'})[0])
         self.assertFalse(daily.ceo_owned_workspace({'branch': 'not-codex/thing'})[0])
+        # EVERY DOOR, BY NAME (Sage D2, round two): the two operator tools that
+        # remove outside this lane ask the same classifier first.
+        discard=load_script('discard-workspace-backlog')
+        with self.assertRaisesRegex(ValueError,'EXCLUDED BY CEO RULING.*section 31'):
+            discard.refuse_ceo_owned(str(self.work),'codex/owned-outcome')
+        with self.assertRaisesRegex(ValueError,'EXCLUDED BY CEO RULING.*section 31'):
+            discard.refuse_ceo_owned(branch='refs/heads/codex/x')
+        discard.refuse_ceo_owned(str(self.work),'worker')                  # the positive control
+        retire=load('workspace-retire')
+        auth=retire.termination_authority(str(self.repo),str(self.repo),str(self.work),owner=AID)
+        self.assertFalse(auth['authorized']);self.assertEqual(auth['reason_code'],'excluded-by-ceo-ruling')
+        self.assertIn('section 31',auth['reason'])
+        self.assertTrue(retire.excluded_by_ceo_ruling(str(self.work))[0])           # from the branch git reports
+        self.assertTrue(retire.excluded_by_ceo_ruling(os.path.expanduser('~/.codex/worktrees/06e6/x'))[0])
+        self.assertFalse(retire.excluded_by_ceo_ruling(str(self.repo))[0])          # main: not the class
 
     def test_a_late_row_naming_THIS_agent_id_joins_by_the_platform_identity(self):
         later = self._second_workspace()

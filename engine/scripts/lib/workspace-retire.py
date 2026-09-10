@@ -1182,6 +1182,31 @@ def _public_auth(auth):
     return {k: auth.get(k) for k in ("authorized", "verdict", "basis", "binding", "reason_code")}
 
 
+def excluded_by_ceo_ruling(path, repo=""):
+    """(excluded, why) — ceo-decisions.md section 31, AT THIS DOOR (Sage D2,
+    round two, 2026-09-10). Both routes of remove-agent-worktree.sh come
+    through termination_authority() under the workspace lock before anything
+    is preserved, renamed or pruned, and neither had a section-31 refusal: a
+    hand-written ledger row plus `--owner` would have bound a Codex path
+    exactly as the amnesty row bound `red1`. The classifier is the ONE in
+    daily-workspace-cleanup (`ceo_owned_workspace`), read with the branch git
+    says is checked out at the path — never only a branch somebody asserted.
+    If the classifier cannot be loaded this door refuses rather than guesses."""
+    branch = ""
+    try:
+        if path and os.path.isdir(path):
+            branch = _git_out(path, "symbolic-ref", "--short", "-q", "HEAD")
+    except Exception:
+        branch = ""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("retire_daily_cleanup", os.path.join(HERE, "daily-workspace-cleanup.py"))
+        daily = importlib.util.module_from_spec(spec); spec.loader.exec_module(daily)
+        return daily.ceo_owned_workspace({"path": path, "branch": branch})
+    except Exception as error:
+        return True, ("the section-31 classifier could not be loaded (%s); refusing rather than guessing" % error)
+
+
 def termination_authority(entity, repo, path, owner="", records=None, ledger_mod=None,
                           live_mod=None):
     """May THIS path be destroyed on the strength of what is known about its
@@ -1211,6 +1236,16 @@ def termination_authority(entity, repo, path, owner="", records=None, ledger_mod
     """
     out = {"authorized": False, "verdict": "", "basis": "", "binding": "",
            "reason_code": "", "reason": "", "owner": owner or "", "liveness": None}
+    # THE CEO'S RULING IS THE FIRST GATE, before binding, before evidence:
+    # there is no flag, no owner string and no ledger row that unlocks the
+    # class, so nothing below is consulted for it.
+    excluded, why = excluded_by_ceo_ruling(path, repo)
+    if excluded:
+        out.update(reason_code="excluded-by-ceo-ruling",
+                   reason=("EXCLUDED BY CEO RULING (ceo-decisions.md section 31): %s. Nothing is "
+                           "preserved, renamed, pruned or removed, and no owner, record or flag "
+                           "changes that." % why))
+        return out
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("retirement_platform_owner", os.path.join(HERE, "worktree-transactions.py"))

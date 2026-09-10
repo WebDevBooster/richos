@@ -1107,6 +1107,7 @@ SKIP_OWNER_ALIVE=0
 SKIP_OWNER_INDETERMINATE=0
 SKIP_OWNER_UNRESOLVED=0
 SKIP_OPERATOR=0
+SKIP_EXCLUDED_CEO=0
 SKIP_REPORT_ONLY=0
 SKIP_DUPLICATE=0
 N_SHELLS=0
@@ -1182,6 +1183,25 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             fi
         else
             N_HANDROLLED=$((N_HANDROLLED + 1))
+        fi
+
+        # --- Gate S31: THE CEO'S RULING, before any other gate ---
+        # ceo-decisions.md section 31: a `codex/` branch or a path under
+        # ~/.codex/worktrees is the CEO's, never removed without his express
+        # word, and REPORTED in those words — never as an "operator worktree"
+        # (Frank R6, round two, 2026-09-10: this report classified a Codex tree
+        # as OPERATOR, which is inventory language for a tree that is not
+        # ours; this one is his). Checked before eligibility, liveness, lock,
+        # merge and cleanliness, because none of them may be consulted for it.
+        _s31_real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path" 2>/dev/null || printf '%s' "$path")"
+        _s31_codex="$(python3 -c 'import os; print(os.path.realpath(os.path.expanduser("~/.codex/worktrees")))' 2>/dev/null || printf '%s' "$HOME/.codex/worktrees")"
+        _s31_hit=""
+        case "${branch_name#refs/heads/}" in codex/*) _s31_hit="branch $branch_name" ;; esac
+        case "$_s31_real" in "$_s31_codex"|"$_s31_codex"/*) _s31_hit="${_s31_hit:+$_s31_hit; }path under $_s31_codex" ;; esac
+        if [ -n "$_s31_hit" ]; then
+            skip "$id" "excluded-by-ceo-ruling($disp_class — EXCLUDED BY CEO RULING, ceo-decisions.md section 31: $_s31_hit; never removed without the CEO's express word, never counted as clean, never absent from this report)"
+            SKIP_EXCLUDED_CEO=$((SKIP_EXCLUDED_CEO + 1))
+            continue
         fi
 
         # --- Gate 0: repository reap-eligibility ---
@@ -1795,7 +1815,7 @@ fi
 echo "=== summary ($MODE_LABEL): $ACTION_FIELDS skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED branches-pending=$BR_PENDING ==="
 echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE shells=$N_SHELLS workspaces=$N_WORKSPACES unobserved-native=$N_UNOBSERVED_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE operator=$SKIP_OPERATOR ==="
 echo "=== sources:$SRC_SUMMARY ==="
-echo "    skip breakdown: quarantined=$SKIP_QUARANTINED locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR report-only-repo=$SKIP_REPORT_ONLY duplicate-registration=$SKIP_DUPLICATE"
+echo "    skip breakdown: quarantined=$SKIP_QUARANTINED locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR excluded-by-ceo-ruling=$SKIP_EXCLUDED_CEO report-only-repo=$SKIP_REPORT_ONLY duplicate-registration=$SKIP_DUPLICATE"
 if [ "$N_UNOBSERVED_NATIVE" -gt 0 ]; then
     # THE OLD LINE SAID "this run cannot say whether they are shells or
     # workspaces", which framed a HOLE IN THE RECORD as an ambiguity in the

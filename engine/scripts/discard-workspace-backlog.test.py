@@ -2,10 +2,12 @@
 """Actual-Git controls for the explicit one-time discard boundary."""
 import copy
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('discard', Path(__file__).with_name('discard-workspace-backlog.py'))
 d = importlib.util.module_from_spec(spec)
@@ -62,6 +64,55 @@ class DiscardTests(unittest.TestCase):
         self.assertEqual(results[-1]['refs'], ['refs/heads/finished'])
         self.assertTrue((self.active / 'tracked').exists())
         self.assertEqual((self.repo / 'tracked').read_text(), 'baseline\n')
+
+    def test_a_codex_workspace_is_EXCLUDED_BY_CEO_RULING_even_under_explicit_discard_authority(self):
+        # SAGE D2, ROUND TWO. This tool removes with `--force --force` from an
+        # operator-typed manifest; the decision table's row 1 said "every door"
+        # and this door had no section-31 refusal. Three spellings of the same
+        # class, each refused BEFORE validate() accepts the manifest, with the
+        # dead worktree byte-for-byte where it was.
+        # (1) the branch checked out at the selected path is codex/...
+        d.git(self.repo, 'branch', '-m', 'finished', 'codex/finished')
+        manifest = copy.deepcopy(self.manifest)
+        manifest['repositories'][0]['worktrees'][0]['registration'] = next(
+            r for r in d.inventory(self.repo) if r['worktree'] == str(self.dead))
+        manifest['repositories'][0]['branches'] = []
+        with self.assertRaisesRegex(ValueError, 'EXCLUDED BY CEO RULING.*section 31'):
+            d.discard(manifest, lambda _: self.fail('Unexpected mutation event'))
+        self.assertTrue(self.dead.exists())
+        self.assertIn('refs/heads/codex/finished', d.git(self.repo, 'show-ref'))
+        # (2) a branch row naming codex/..., even with no worktree selected
+        manifest = copy.deepcopy(self.manifest)
+        manifest['repositories'][0]['worktrees'] = []
+        manifest['repositories'][0]['branches'] = [{'ref': 'refs/heads/codex/finished',
+                                                    'tip': d.git(self.repo, 'rev-parse', 'HEAD')}]
+        with self.assertRaisesRegex(ValueError, 'EXCLUDED BY CEO RULING.*section 31'):
+            d.discard(manifest, lambda _: self.fail('Unexpected mutation event'))
+        self.assertIn('refs/heads/codex/finished', d.git(self.repo, 'show-ref'))
+        # (3) a path under ~/.codex/worktrees, whatever its branch is called
+        d.git(self.repo, 'branch', '-m', 'codex/finished', 'finished')
+        home = self.root / 'home'
+        codex_tree = home / '.codex' / 'worktrees' / '2204' / 'main'
+        codex_tree.parent.mkdir(parents=True)
+        d.git(self.repo, 'worktree', 'add', '-b', 'plainly-named', str(codex_tree))
+        manifest = copy.deepcopy(self.manifest)
+        manifest['protected_roots'] = [str(self.repo), str(self.active), str(self.dead)]
+        manifest['repositories'][0]['worktrees'] = [{
+            'path': str(codex_tree), 'identity': d.identity(codex_tree),
+            'registration': next(r for r in d.inventory(self.repo) if r['worktree'] == str(codex_tree))}]
+        manifest['repositories'][0]['branches'] = []
+        with patch.dict(os.environ, {'HOME': str(home)}):
+            with self.assertRaisesRegex(ValueError, 'EXCLUDED BY CEO RULING.*section 31'):
+                d.discard(manifest, lambda _: self.fail('Unexpected mutation event'))
+        self.assertTrue(codex_tree.exists())
+        # and the positive control: the same manifest shape with an ordinary
+        # path and branch is accepted (the refusal is the class, not the shape)
+        with patch.dict(os.environ, {'HOME': str(home)}):
+            manifest['repositories'][0]['worktrees'] = [{
+                'path': str(self.dead), 'identity': d.identity(self.dead),
+                'registration': next(r for r in d.inventory(self.repo) if r['worktree'] == str(self.dead))}]
+            manifest['protected_roots'] = [str(self.repo), str(self.active), str(codex_tree)]
+            d.validate(manifest)
 
     def test_active_and_canonical_selection_refused_before_mutation(self):
         for protected in (self.active, self.repo):

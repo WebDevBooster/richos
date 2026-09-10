@@ -298,6 +298,28 @@ else
     bad "terminated owner (rc=$RC branch_gone=$BRANCH_GONE)"
 fi
 
+# 3b. THE CEO'S RULING (ceo-decisions.md section 31; Frank R6, round two,
+#     2026-09-10). A codex/ tree with EXACTLY the shape case 3 reaps --
+#     registered by path, owner observably terminated, merged, clean -- is
+#     never reaped, and the report says so in the ruling's words: never
+#     "operator-worktree", which is inventory language for a tree that is
+#     not ours. This one is his.
+DIR="$(make_world codex-owner)"
+mkdir -p "$DIR/other-wt"
+git -C "$DIR/other" worktree add -q -b codex/his "$DIR/other-wt/his"
+ledger_record "$DIR" registered --teammate his --agent-id done --session-id sess-now \
+    --repo "$DIR/other" --worktree "$DIR/other-wt/his" --branch codex/his --class hand-rolled
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
+if [ -d "$DIR/other-wt/his" ] \
+   && git -C "$DIR/other" rev-parse --verify --quiet refs/heads/codex/his >/dev/null \
+   && printf '%s' "$OUT" | grep -q 'EXCLUDED BY CEO RULING' \
+   && printf '%s' "$OUT" | grep -q 'excluded-by-ceo-ruling=1' \
+   && ! printf '%s' "$OUT" | grep -q 'operator-worktree(.*his'; then
+    ok "S31 a codex/ worktree with the exact shape case 3 reaps is EXCLUDED BY CEO RULING (section 31): kept, branch kept, reported in the ruling's words and never as an operator worktree"
+else
+    bad "S31 codex tree (rc=$RC present=$([ -d "$DIR/other-wt/his" ] && echo yes || echo GONE) branch=$(git -C "$DIR/other" rev-parse --verify --quiet refs/heads/codex/his >/dev/null && echo kept || echo GONE) lines=$(printf '%s' "$OUT" | grep -i -E 'codex|his' | head -3 | tr '\n' '|'))"
+fi
+
 # 4. UNMERGED IS NEVER REAPED — even with a positive termination signal. The
 #    commits are the handoff.
 DIR="$(make_world unmerged)"
