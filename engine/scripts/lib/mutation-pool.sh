@@ -115,14 +115,27 @@ MUT_POOL_TOTAL_MS=0
 
 # mut_pool_jobs_default — the degree, derived rather than typed.
 #
-# Chosen from the measurement in docs/measurements/mutant-concurrency-2026-09-10/
-# rather than from taste: a mutant is a shell suite, so it is dominated by
-# process spawning, git and python3 rather than by arithmetic, and it neither
-# saturates one core nor scales past the core count. The cap is what stops a
-# 64-core CI runner from starting 64 sandbox builds at once and going
-# IO-bound — the sandbox is a recursive copy of the whole mechanical layer, and
-# `clonefile` copy-on-write is NOT available under /tmp on the Linux runner
-# (the run log says so in plain text), so on CI every sandbox is a full copy.
+# MEASURED, not chosen by taste. docs/measurements/mutant-concurrency-2026-09-10/
+# swept guard-model-ceiling.mutation.sh (17 mutants) on a 10-core machine:
+#
+#   jobs   1      2      4      6      8     10     12
+#   wall  143s    72s    46s    39s    41s    36s    37s
+#   sp    1.0x   1.9x   3.0x   3.7x   3.4x   3.9x   3.8x
+#
+# THE KNEE IS AT 4-6 AND EVERYTHING PAST 6 IS INSIDE THE NOISE — 8 measuring
+# slower than 6, and 12 slower than 10, are variance rather than signal. A mutant
+# is a whole shell suite: process spawning, git, python3, and a recursive copy of
+# the mechanical layer. It never saturates a core, so the ceiling arrives well
+# BELOW the core count and adding workers past it buys nothing.
+#
+# So: the core count, capped at 8. One step past the knee, so a harness whose
+# mutants are not uniform in cost (guard-worktree-isolation's are not) still has
+# somewhere to put a long one — and no further. The cap is what stops a 64-core
+# CI runner starting 64 sandbox builds at once and going IO-bound, which is not
+# hypothetical there: the sandbox is a recursive copy of the whole mechanical
+# layer, and `clonefile` copy-on-write is NOT available under /tmp on the Linux
+# runner (the run log says so in plain text), so on CI every sandbox is a full
+# recursive copy rather than a CoW clone.
 mut_pool_jobs_default() {
     local n=""
     if [ -n "${RICHOS_MUTANT_JOBS:-}" ]; then
