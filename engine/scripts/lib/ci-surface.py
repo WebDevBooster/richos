@@ -717,7 +717,46 @@ class Api:
 #                 staleness whose answer depends on the tree, resolved by the
 #                 caller against the checkout (see ci-status.sh)
 
-def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now):
+def workflow_landed_at(repo_root, path):
+    """WHEN DID THIS WORKFLOW FILE ARRIVE? — from history, not from the disk.
+
+    The never-run axis grants a brand-new workflow a grace period equal to its
+    own first trigger interval, so "how old is this file" decides whether a
+    cron workflow with no runs is BENIGN or a FINDING.
+
+    Answering that with `os.path.getmtime` is unsound, and it was unsound in a
+    way that showed up within minutes: adding a `# ci-budget:` line to
+    engine-run-record.yml reset its mtime, and the axis obligingly reported the
+    file as having "landed" at the moment of that edit. Any edit — including
+    one made in a worktree that never lands — silently renews the grace period,
+    so a cron workflow that never fires could stay BENIGN forever as long as
+    somebody kept touching it. That is a check that can be switched off by
+    accident.
+
+    So the question is asked of the commit that ADDED the file. When history
+    cannot answer (a fresh export, a file not yet committed), it falls back to
+    mtime and RETURNS WHICH SOURCE IT USED, so the caller can say so out loud
+    rather than presenting a weaker fact in the same words as a stronger one.
+
+    Returns (epoch_seconds | None, source) where source is one of
+    "history", "disk", "unknown".
+    """
+    try:
+        p = subprocess.run(
+            ["git", "-C", repo_root, "log", "--diff-filter=A", "--format=%at", "-1", "--", path],
+            capture_output=True, text=True, timeout=10)
+        if p.returncode == 0 and p.stdout.strip():
+            return int(p.stdout.strip().splitlines()[0]), "history"
+    except Exception:
+        pass
+    try:
+        return os.path.getmtime(path), "disk"
+    except Exception:
+        return None, "unknown"
+
+
+def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now,
+          landed_source="disk"):
     ax = {}
 
     completed = [r for r in runs if r.get("status") == "completed"]
@@ -749,11 +788,15 @@ def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now)
                                "its first real exercise will be the first pull request."
                                % ("/".join(sorted(ev)), branch))
         elif first_due and now.timestamp() < first_due:
+            how = {"history": "the commit that added it",
+                   "disk": "its file modification time, which ANY edit resets — so this grace "
+                           "period is weaker than it looks and history could not be read",
+                   "unknown": "an unknown source"}.get(landed_source, landed_source)
             ax["never-run"] = ("BENIGN",
-                               "no run yet, and none is overdue: the file landed %s and its schedule "
-                               "(%s) first fires by %s."
+                               "no run yet, and none is overdue: the file landed %s (per %s) and "
+                               "its schedule (%s) first fires by %s."
                                % (datetime.fromtimestamp(source_mtime, timezone.utc)
-                                  .strftime("%Y-%m-%d %H:%MZ"),
+                                  .strftime("%Y-%m-%d %H:%MZ"), how,
                                   ", ".join(triggers.get("cron") or []) or "unknown",
                                   datetime.fromtimestamp(first_due, timezone.utc)
                                   .strftime("%Y-%m-%d %H:%MZ")))
@@ -1267,10 +1310,7 @@ def _one_workflow(name, on_disk, api_by_file, slug, root, source, branch, api, r
     w = dict(api_by_file[name])
     decls = parse_declarations(src)
     triggers = parse_triggers(src)
-    try:
-        mtime = os.path.getmtime(path)
-    except Exception:
-        mtime = None
+    landed, landed_src = workflow_landed_at(root, path)
 
     runs_doc, rerr = api.get("repos/%s/actions/workflows/%d/runs?branch=%s&per_page=%d"
                              % (slug, w["id"], branch, runs_n))
@@ -1299,7 +1339,8 @@ def _one_workflow(name, on_disk, api_by_file, slug, root, source, branch, api, r
              "latest_started": (completed[0].get("run_started_at") if completed else None)}
     if rerr:
         entry["unjudged"] = rerr
-    judge(entry, decls, triggers, w, runs, jobs, branch, mtime, now)
+    entry["landed_source"] = landed_src
+    judge(entry, decls, triggers, w, runs, jobs, branch, landed, now, landed_src)
     _resolve_gated_stale(entry, slug, branch, runs, triggers, api, blind)
     if decls["malformed"]:
         entry["axes"]["skipped"] = {"verdict": "FINDING",
@@ -1448,6 +1489,26 @@ def self_test():
           now.timestamp() - 3 * 86400, now)
     want("a scheduled workflow PAST its first interval with no run is a FINDING",
          e["axes"]["never-run"]["verdict"], "FINDING")
+
+    # THE GRACE PERIOD MUST SAY WHERE ITS DATE CAME FROM. A landing date read
+    # off the filesystem is reset by ANY edit, including one in a worktree that
+    # never lands, so a cron workflow that never fires could stay BENIGN
+    # forever while somebody kept touching it. That is a check switchable off
+    # by accident, and it happened here within minutes of the axis being
+    # written. When history answers, the reading is strong and says so; when
+    # only the disk answers, it is weaker and must not be worded identically.
+    e = {}
+    judge(e, {"budget": "5m", "skips": {}, "evidence": "y" * 20}, sched,
+          {"state": "active", "_total_count": 0}, [], None, "main",
+          now.timestamp() - 600, now, "disk")
+    want("a grace period resting on mtime declares that ANY edit resets it",
+         "ANY edit resets" in e["axes"]["never-run"]["detail"], True)
+    e = {}
+    judge(e, {"budget": "5m", "skips": {}, "evidence": "y" * 20}, sched,
+          {"state": "active", "_total_count": 0}, [], None, "main",
+          now.timestamp() - 600, now, "history")
+    want("a grace period resting on history names the commit that added the file",
+         "the commit that added it" in e["axes"]["never-run"]["detail"], True)
 
     e = {}
     judge(e, {"budget": "5m", "skips": {}, "evidence": "y" * 20}, sched,
