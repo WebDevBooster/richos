@@ -1,0 +1,39 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Run exactly this command with the Bash tool: ls \"/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/dir with spaces\" . Then reply with one line: LISTED <exit code>. Do not retry."
+ },
+ {
+  "sleep": 1.0
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q11-marks/stop-1",
+  "timeout": 150
+ },
+ {
+  "mark": "after-wait"
+ },
+ {
+  "sleep": 3
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "/exit",
+  "timeout": 30
+ }
+]

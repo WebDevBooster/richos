@@ -1,0 +1,5 @@
+{
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/hooks/stopmark.sh /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/p05-stop.jsonl /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/p05-marks 2", "timeout": 10}]}]
+  }
+}

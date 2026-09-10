@@ -1,0 +1,49 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Spawn exactly one teammate named worker-a using the general-purpose agent type, with this brief passed verbatim as its prompt: \"\"\"Brief for worker-a (G0 handoff probe). Working directory: the current one. Run exactly `sleep 260` with the Bash tool in the foreground (this is the marker command; do not shorten it and do not background it). Then create the file worker-done-D.txt in the current directory with the single line WORKER DONE. Negative constraint: do NOT modify BACKLOG.md. Handoff: reply with one line WORKER DONE D and stop.\"\"\" After spawning it, end your turn immediately with the single line SPAWNED (do not wait, do not poll). When worker-a reports back, reply with one line LEAD SAW: <its exact final line>."
+ },
+ {
+  "sleep": 1.0
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q08d-marks/stop-1",
+  "timeout": 120
+ },
+ {
+  "mark": "lead-idle-1"
+ },
+ {
+  "waitshell": "pgrep -f 'sleep 260' >/dev/null",
+  "timeout": 90
+ },
+ {
+  "shell": "ps -axo pid,ppid,command | grep -E 'sleep 260' | grep -v grep"
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "closepty",
+  "timeout": 45
+ },
+ {
+  "shell": "sleep 3; pgrep -fl 'sleep 260' || echo no-sleep-260-after-close; pgrep -fl 'versions/2.1.267' | grep -v -E 'pgrep|bg-pty|daemon' || echo no-claude-procs"
+ },
+ {
+  "shell": "sleep 15; pgrep -fl 'sleep 260' || echo no-sleep-260-after-18s; ls /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q08d"
+ }
+]

@@ -1,0 +1,117 @@
+{"pid": 6973, "args": ["--model", "haiku", "--setting-sources", "", "--settings", "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/settings/q09c.json", "--session-id", "a890142d-c923-459b-b633-51196b0b9380"], "kind": "spawn", "ts_ms": 1789024145134, "rel_ms": 0}
+{"kind": "out", "ts_ms": 1789024145281, "rel_ms": 147, "n": 13, "text": ""}
+{"kind": "out", "ts_ms": 1789024145285, "rel_ms": 151, "n": 6, "text": ""}
+{"kind": "out", "ts_ms": 1789024145285, "rel_ms": 151, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789024145289, "rel_ms": 155, "n": 1024, "text": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nAccessingworkspace:\n\n/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q09c\n\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyourowncode,awell-knownopensourceproject,orworkfrom\nyourteam).Ifnot,takeamomenttoreviewwhat'sinthisfolderfirst.\n\nClaudeCode'll\u001b["}
+{"kind": "auto-trust-down-enter", "ts_ms": 1789024146305, "rel_ms": 1171}
+{"kind": "out", "ts_ms": 1789024146305, "rel_ms": 1171, "n": 417, "text": "17Gbeabletoread,edit,andexecutefileshere.\n\nSecurityguide\n\n\u276fNo,exit\nYes,Itrustthisfolder\n\nEntertoconfirm\u00b7Esctocancel\n   No, exit \u276fYes, I trust this folder\n\n\n "}
+{"kind": "out", "ts_ms": 1789024146306, "rel_ms": 1172, "n": 33, "text": ""}
+{"kind": "out", "ts_ms": 1789024146307, "rel_ms": 1173, "n": 284, "text": ""}
+{"kind": "out", "ts_ms": 1789024146333, "rel_ms": 1199, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789024146334, "rel_ms": 1200, "n": 8, "text": ""}
+{"kind": "out", "ts_ms": 1789024146661, "rel_ms": 1527, "n": 33, "text": ""}
+{"kind": "out", "ts_ms": 1789024146692, "rel_ms": 1558, "n": 24, "text": ""}
+{"kind": "out", "ts_ms": 1789024146696, "rel_ms": 1562, "n": 20, "text": ""}
+{"kind": "out", "ts_ms": 1789024146707, "rel_ms": 1573, "n": 1024, "text": "\u2597 \u2597   \u2596 \u2596ClaudeCodev2.1.267\n       Haiku4.5\u00b7ClaudeMax\n\u2598\u2598\u259d\u259d/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q09c\n\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u276f\u00a0Try\"howdoIloganerror?\"\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\ufffd"}
+{"kind": "out", "ts_ms": 1789024146707, "rel_ms": 1573, "n": 489, "text": "\ufffd\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f5\u23f5automodeon (shift+tabtocycle)\u00b7\u2190foragents/rcconnecting\u2026\n "}
+{"pattern": "for\\s*shortcuts|for\\s*agents", "found": true, "kind": "expect", "ts_ms": 1789024146707, "rel_ms": 1573}
+{"kind": "out", "ts_ms": 1789024146757, "rel_ms": 1623, "n": 230, "text": " \u23f8 manual mode on \u00b7 ? for shortuts \u00b7\u2190for agents  auto mode unavailable for this model\n/rcconnecting\u2026\n "}
+{"kind": "out", "ts_ms": 1789024146760, "rel_ms": 1626, "n": 8, "text": ""}
+{"kind": "out", "ts_ms": 1789024147367, "rel_ms": 2233, "n": 72, "text": "             /rc\n "}
+{"label": "prompt-send", "kind": "mark", "ts_ms": 1789024148834, "rel_ms": 3700}
+{"text": "Reply with the single word PONG and nothing else.", "kind": "send", "ts_ms": 1789024149162, "rel_ms": 4028}
+{"kind": "out", "ts_ms": 1789024149166, "rel_ms": 4032, "n": 147, "text": " Reply with the single word PONGandnothingelse.                                  \n\n "}
+{"text": "\r", "kind": "send", "ts_ms": 1789024150538, "rel_ms": 5404}
+{"kind": "out", "ts_ms": 1789024150566, "rel_ms": 5432, "n": 20, "text": ""}
+{"kind": "out", "ts_ms": 1789024150569, "rel_ms": 5435, "n": 1024, "text": "\u276f Reply with the single word PONG and nothing else.                                                                                         \u273b Sketching\u2026  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u276f\u00a0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"}
+{"kind": "out", "ts_ms": 1789024150569, "rel_ms": 5435, "n": 405, "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeon\u00b7esctointerrupt\u00b7\u2190foragentsautomodeunavailableforthismodel\n/rc\n "}
+{"kind": "out", "ts_ms": 1789024150673, "rel_ms": 5539, "n": 67, "text": "\u2736\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024150884, "rel_ms": 5750, "n": 67, "text": "\u2733\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151010, "rel_ms": 5876, "n": 67, "text": "\u2722\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151118, "rel_ms": 5984, "n": 66, "text": "\u00b7\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151248, "rel_ms": 6114, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024151266, "rel_ms": 6132, "n": 82, "text": " wooping\u2026 \n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151469, "rel_ms": 6335, "n": 107, "text": " (0s \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151527, "rel_ms": 6393, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024151559, "rel_ms": 6425, "n": 108, "text": "\u27221thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151661, "rel_ms": 6527, "n": 875, "text": "\u23faPONG\u2722 Swooping\u2026 (1s \u00b7 thinking)\u276f\u00a0\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeon\u00b7esctointerrupt\u00b7\u2190foragentsautomodeunavailableforthismodel\n/rc\n "}
+{"kind": "out", "ts_ms": 1789024151684, "rel_ms": 6550, "n": 153, "text": " Swooping\u2026running stop hook \u00b7 1s \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151700, "rel_ms": 6566, "n": 147, "text": "\u2733\u2193 25 tokens \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151790, "rel_ms": 6656, "n": 71, "text": " 50\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024151893, "rel_ms": 6759, "n": 84, "text": "\u27367\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152013, "rel_ms": 6879, "n": 85, "text": "\u273b85\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152120, "rel_ms": 6986, "n": 109, "text": "\u273d92thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152227, "rel_ms": 7093, "n": 70, "text": " 4\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152350, "rel_ms": 7216, "n": 120, "text": " Swooping\u20265thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152458, "rel_ms": 7324, "n": 96, "text": " Swooping\u20267\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152489, "rel_ms": 7355, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024152565, "rel_ms": 7431, "n": 114, "text": "\u273b29thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152684, "rel_ms": 7550, "n": 128, "text": "\u2736100 tokens \u00b7 thinking)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152790, "rel_ms": 7656, "n": 84, "text": "\u27332\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024152898, "rel_ms": 7764, "n": 70, "text": " 4\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024153023, "rel_ms": 7889, "n": 84, "text": "\u27226\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024153131, "rel_ms": 7997, "n": 107, "text": "\u00b77thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024153238, "rel_ms": 8104, "n": 96, "text": " Swooping\u20269\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024153363, "rel_ms": 8229, "n": 103, "text": " Swooping\u2026thinking\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024153451, "rel_ms": 8317, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024153460, "rel_ms": 8326, "n": 84, "text": " thought for 1s)\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024153578, "rel_ms": 8444, "n": 84, "text": "\u27223\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024153686, "rel_ms": 8552, "n": 67, "text": "\u2733\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024153809, "rel_ms": 8675, "n": 67, "text": "\u2736\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024154025, "rel_ms": 8891, "n": 67, "text": "\u273b\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024154132, "rel_ms": 8998, "n": 67, "text": "\u273d\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024154363, "rel_ms": 9229, "n": 79, "text": " Swooping\u2026\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024154412, "rel_ms": 9278, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024154469, "rel_ms": 9335, "n": 79, "text": " Swooping\u2026\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024154595, "rel_ms": 9461, "n": 84, "text": "\u273b4\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024154701, "rel_ms": 9567, "n": 67, "text": "\u2736\n\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024154721, "rel_ms": 9587, "n": 109, "text": "                                  /rc "}
+{"kind": "out", "ts_ms": 1789024154806, "rel_ms": 9672, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024154931, "rel_ms": 9797, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024155147, "rel_ms": 10013, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024155255, "rel_ms": 10121, "n": 77, "text": " Swooping\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024155374, "rel_ms": 10240, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024155463, "rel_ms": 10329, "n": 71, "text": " )\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024155591, "rel_ms": 10457, "n": 82, "text": "\u27225\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024155715, "rel_ms": 10581, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024155820, "rel_ms": 10686, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024155928, "rel_ms": 10794, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024156163, "rel_ms": 11029, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024156336, "rel_ms": 11202, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024156377, "rel_ms": 11243, "n": 77, "text": " Swooping\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024156485, "rel_ms": 11351, "n": 77, "text": " Swooping\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024156611, "rel_ms": 11477, "n": 82, "text": "\u273b6\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024156717, "rel_ms": 11583, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024156825, "rel_ms": 11691, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024156946, "rel_ms": 11812, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024157162, "rel_ms": 12028, "n": 64, "text": "\u00b7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024157282, "rel_ms": 12148, "n": 77, "text": " Swooping\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024157298, "rel_ms": 12164, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024157496, "rel_ms": 12362, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024157603, "rel_ms": 12469, "n": 68, "text": " 7\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024157729, "rel_ms": 12595, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024157835, "rel_ms": 12701, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024157943, "rel_ms": 12809, "n": 65, "text": "\u273b\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024158176, "rel_ms": 13042, "n": 65, "text": "\u273d\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024158260, "rel_ms": 13126, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024158404, "rel_ms": 13270, "n": 77, "text": " Swooping\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024158511, "rel_ms": 13377, "n": 80, "text": "\u273bSwooping\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024158617, "rel_ms": 13483, "n": 68, "text": " 8\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024158724, "rel_ms": 13590, "n": 65, "text": "\u2736\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024158850, "rel_ms": 13716, "n": 65, "text": "\u2733\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024158958, "rel_ms": 13824, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024159177, "rel_ms": 14043, "n": 90, "text": "\u00b7Swooping\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024159223, "rel_ms": 14089, "n": 22, "text": ""}
+{"kind": "out", "ts_ms": 1789024159299, "rel_ms": 14165, "n": 77, "text": " Swooping\u2026\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024159515, "rel_ms": 14381, "n": 65, "text": "\u2722\n\n\n\n\n\n "}
+{"kind": "out", "ts_ms": 1789024159622, "rel_ms": 14488, "n": 68, "text": " 9\n\n\n\n\n\n "}
+{"label": "exit", "kind": "mark", "ts_ms": 1789024159622, "rel_ms": 14488}
+{"how": "ctrlc", "kind": "exit-request", "ts_ms": 1789024159622, "rel_ms": 14488}
+{"text": "\u0003", "kind": "send", "ts_ms": 1789024159622, "rel_ms": 14488}
+{"text": "\u0003", "kind": "send", "ts_ms": 1789024160028, "rel_ms": 14894}
+{"kind": "out", "ts_ms": 1789024160028, "rel_ms": 14894, "n": 1024, "text": "\u000f\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u276f\u00a0  \u23f8 manual mode on \u00b7 ? for shortcuts \u00b7 \u2190 for agents/rc   \u23bf \u00a0Interrupted \u00b7 What should Claude do instead?\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"}
+{"kind": "out", "ts_ms": 1789024160028, "rel_ms": 14894, "n": 766, "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u276f\u00a0\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u23f8manualmodeon\u00b7?forshortcuts\u00b7\u2190foragents/rc\n "}
+{"kind": "out", "ts_ms": 1789024160030, "rel_ms": 14896, "n": 109, "text": " Press Ctrl-C againto exit                       \n "}
+{"kind": "out", "ts_ms": 1789024160833, "rel_ms": 15699, "n": 115, "text": " \u23f8 manual mode on \u00b7? for shortcuts \u00b7 \u2190 for agents\n "}
+{"after_ms": 60521, "kind": "exit-timeout", "ts_ms": 1789024220143, "rel_ms": 75009}
+{"kind": "sigkill", "ts_ms": 1789024220150, "rel_ms": 75016}

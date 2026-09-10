@@ -1,0 +1,49 @@
+[
+ {
+  "expect": "for\\s*shortcuts|for\\s*agents",
+  "timeout": 30,
+  "required": false
+ },
+ {
+  "sleep": 2.0
+ },
+ {
+  "mark": "prompt-send"
+ },
+ {
+  "send": "Spawn exactly one teammate named worker-a using the general-purpose agent type, with this brief passed verbatim as its prompt: \"\"\"Brief for worker-a (G0 handoff probe). Working directory: the current one. Run exactly this command with the Bash tool in the FOREGROUND and wait for it (do not background it, do not shorten it): python3 -c \"import time; time.sleep(270)\" . Then create the file worker-done-E.txt in the current directory with the single line WORKER DONE. Negative constraint: do NOT modify BACKLOG.md. Handoff: reply with one line WORKER DONE E and stop.\"\"\" After spawning it, end your turn immediately with the single line SPAWNED (do not wait, do not poll). When worker-a reports back, reply with one line LEAD SAW: <its exact final line>."
+ },
+ {
+  "sleep": 1.0
+ },
+ {
+  "send": "\r"
+ },
+ {
+  "waitfile": "/private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/out/q08e-marks/stop-1",
+  "timeout": 120
+ },
+ {
+  "mark": "lead-idle-1"
+ },
+ {
+  "waitshell": "pgrep -f 'time.sleep(270)' >/dev/null",
+  "timeout": 90
+ },
+ {
+  "shell": "ps -axo pid,ppid,command | grep -E 'time.sleep\\(270\\)' | grep -v grep"
+ },
+ {
+  "mark": "exit"
+ },
+ {
+  "exit": "closepty",
+  "timeout": 45
+ },
+ {
+  "shell": "sleep 3; pgrep -fl 'time.sleep(270)' || echo no-child-after-close; pgrep -fl 'versions/2.1.267' | grep -v -E 'pgrep|bg-pty|daemon' || echo no-claude-procs"
+ },
+ {
+  "shell": "sleep 15; pgrep -fl 'time.sleep(270)' || echo no-child-after-18s; ls /private/tmp/claude-501/-Users-alex-ab-femcboost/d0eef867-5636-46b7-a2bd-53dfd26564be/scratchpad/env-q08e"
+ }
+]
