@@ -336,8 +336,14 @@ mutate "M8 an unresolvable namespace is accepted again" \
        "scripts/hooks/root-contract.test.sh" "3e" m_unresolvable_accepted
 mutate "M9 engine-status reports ACTIVE without checking" \
        "scripts/hooks/root-contract.test.sh" "7b" m_status_always_active
+# M10's witness moved with section 9 (round 14, 2026-09-11): the stdin hang
+# checks are scripts/hooks/session-start-stdin.test.sh now, so the mutant runs
+# THAT suite. The property is unchanged — an unconditional `cat` in the
+# snapshotter must turn 9c red — and this harness is still the only thing
+# that proves it, which is why the new suite does not chain a harness of its
+# own.
 mutate "M10 the snapshotter reads stdin unconditionally again (the 92s hang)" \
-       "scripts/hooks/root-contract.test.sh" "9c" m_snapshot_reads_stdin
+       "scripts/hooks/session-start-stdin.test.sh" "9c" m_snapshot_reads_stdin
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
